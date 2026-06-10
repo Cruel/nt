@@ -1,0 +1,49 @@
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace = "com.example.noveltea"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.example.noveltea"
+        minSdk = 24
+        targetSdk = 35
+        versionCode = 1
+        versionName = "0.1.0"
+
+        externalNativeBuild {
+            cmake {
+                // NDK ABI filters
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+                arguments += listOf(
+                    "-DANDROID_PLATFORM=android-24",
+                    "-DNOVELTEA_BUILD_SANDBOX=ON"
+                )
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            isDebuggable = true
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            // Point to the project-root CMakeLists.txt — NDK compiles our
+            // engine + sandbox as a shared library with SDL_main entry point.
+            path = file("../../CMakeLists.txt")
+            version = "3.24+"
+        }
+    }
+}
+
+// Dependencies: SDL3 and native libs are pulled via CMake/externalNativeBuild.
+// The SDL3 Java binding is included via the SDL source or a local dependency.
+// See README.md "Android" section for setup instructions.
+dependencies {
+    // Implementation("org.libsdl.sdl3:SDL3:3.2.0") // if available via Maven
+}

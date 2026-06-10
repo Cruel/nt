@@ -1,0 +1,53 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "linux-debug",
+            "displayName": "Linux Debug",
+            "description": "Debug build for Linux desktop using vcpkg",
+            "binaryDir": "${sourceDir}/build/linux-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_MANIFEST_DIR": "${sourceDir}",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug/vcpkg_installed"
+            }
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux Release",
+            "description": "Release build for Linux desktop",
+            "binaryDir": "${sourceDir}/build/linux-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_MANIFEST_DIR": "${sourceDir}",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed"
+            }
+        },
+        {
+            "name": "web-debug",
+            "displayName": "Web Debug (Emscripten)",
+            "description": "Debug build for Web using Emscripten",
+            "binaryDir": "${sourceDir}/build/web-debug",
+            "toolchainFile": "${sourceDir}/cmake/toolchains/emscripten.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "linux-debug",
+            "configurePreset": "linux-debug"
+        },
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release"
+        },
+        {
+            "name": "web-debug",
+            "configurePreset": "web-debug"
+        }
+    ]
+}

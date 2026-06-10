@@ -1,0 +1,29 @@
+{
+  "name": "noveltea",
+  "version-string": "0.1.0",
+  "dependencies": [
+    {
+      "name": "bgfx",
+      "features": [
+        "tools"
+      ]
+    },
+    {
+      "name": "rmlui",
+      "features": [
+        "freetype"
+      ]
+    },
+    "sdl3",
+    "miniaudio",
+    {
+      "name": "imgui",
+      "features": [
+        "sdl3-binding",
+        "docking-experimental",
+        "freetype"
+      ]
+    },
+    "harfbuzz"
+  ]
+}
