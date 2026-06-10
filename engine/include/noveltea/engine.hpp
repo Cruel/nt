@@ -33,6 +33,7 @@ private:
     DebugUI m_debug_ui;
     bool m_initialized = false;
     bool m_running = false;
+    uint32_t m_frame_count = 0;
 };
 
 } // namespace noveltea

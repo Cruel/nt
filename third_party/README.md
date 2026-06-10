@@ -18,9 +18,14 @@ Current dependencies:
 
 ## Android
 
-For Android, SDL3 must be provided by the Android project as source or an AAR.
-The current skeleton builds the sandbox as `libnoveltea-sandbox.so` and uses a
-stub renderer; bgfx is not enabled for Android yet.
+For Android, SDL3 is consumed via an SDL3 AAR placed at
+`android/app/libs/SDL3-3.4.10.aar`. The AAR provides:
+- `org.libsdl.app.*` Java classes (SDLActivity and friends) through the AAR
+  classes JAR
+- `libSDL3.so` native library through Android Prefab
+
+The app native library `libnoveltea-sandbox.so` is built from source via CMake
+externalNativeBuild. bgfx is not enabled for Android yet.
 
 ## Web (Emscripten)
 

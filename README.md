@@ -57,19 +57,54 @@ and console report that the renderer is stubbed.
 
 ### Android
 
+Android uses an SDL3 Android Archive (AAR) for the SDL Java activity classes and
+native library, integrated via Prefab. The app native library is built from
+source through CMake externalNativeBuild.
+
+#### Prerequisites
+
+Download the SDL3 AAR and place it at:
+
+```
+android/app/libs/SDL3-3.4.10.aar
+```
+
+The AAR provides `org.libsdl.app.SDLActivity` (Java) and `libSDL3.so` (native)
+through Android Prefab.
+
+You can obtain the AAR from the official SDL releases or build it yourself from
+the SDL source tree. See <https://github.com/libsdl-org/SDL/releases>.
+
+#### Build
+
 ```bash
 cd android
 ./gradlew assembleDebug
 ```
 
-The Android sandbox target is a shared native library named
-`libnoveltea-sandbox.so`. `AndroidManifest.xml` and
-`MainActivity.getLibraries()` both reference `noveltea-sandbox`.
+The APK packages the following native libraries for each ABI:
 
-Android uses the stub renderer in this pass. The Gradle project still needs an
-SDL3 Android runtime source/AAR that provides `org.libsdl.app.SDLActivity` and
-the `SDL3` native library. Until that is wired locally, the APK build may fail
-at Java or native dependency resolution.
+| Library | Role |
+|---|---|
+| `libSDL3.so` | SDL3 runtime (shared, from AAR via Prefab) |
+| `libnoveltea-sandbox.so` | App native library (shared, CMake target `noveltea-sandbox`) |
+
+Current ABI targets: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
+
+The app uses the stub renderer on Android in this pass.
+
+Verify packaged native libraries:
+
+```bash
+unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'lib.*/lib(SDL3|noveltea-sandbox)\.so'
+```
+
+Troubleshoot with the emulator smoke-test script:
+
+```bash
+cd android
+bash run-emulator-debug.sh
+```
 
 ## Layout
 
@@ -137,7 +172,7 @@ quit through the platform abstraction.
   rendering.
 - Dear ImGui rendering through bgfx. Current ImGui integration is input/state
   only; bgfx debug text is the visible desktop overlay.
-- Android bgfx renderer and complete SDL3 Android runtime packaging.
+- Android bgfx renderer.
 - Web bgfx/WebGL renderer. The Web sandbox currently uses a visible shell plus
   console/page status with the stub renderer.
 - miniaudio backend.

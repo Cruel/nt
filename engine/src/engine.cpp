@@ -12,7 +12,7 @@ Engine::~Engine() { shutdown(); }
 
 bool Engine::initialize(const PlatformConfig& config)
 {
-    std::printf("[engine] initializing...\n");
+    SDL_Log("[engine] initializing...");
 
     if (!m_platform.initialize(config)) {
         std::fprintf(stderr, "[engine] platform init failed\n");
@@ -44,7 +44,7 @@ bool Engine::initialize(const PlatformConfig& config)
 
     m_running = true;
     m_initialized = true;
-    std::printf("[engine] initialized (renderer: %s, %dx%d)\n",
+    SDL_Log("[engine] initialized (renderer: %s, %dx%d)",
         m_renderer.renderer_name(),
         m_platform.width(),
         m_platform.height());
@@ -59,7 +59,7 @@ int Engine::run()
         return 1;
     }
 
-    std::printf("[engine] entering main loop\n");
+    SDL_Log("[engine] entering main loop");
 
     while (m_running) {
         tick();
@@ -135,12 +135,18 @@ void Engine::render()
     m_runtime_ui.begin_frame(m_platform.delta_time());
     m_renderer.begin_frame();
 
+    ++m_frame_count;
+
     // Engine debug text overlay (via renderer abstraction)
     m_renderer.debug_printf(0, 0, 0x0f, "NovelTea Engine");
     m_renderer.debug_printf(0, 1, 0x0f, "Renderer: %s", m_renderer.renderer_name());
     m_renderer.debug_printf(0, 2, 0x0f, "Size: %dx%d", m_platform.width(), m_platform.height());
     m_renderer.debug_printf(0, 3, 0x0f, "dt: %.2f ms", m_platform.delta_time() * 1000.0f);
     m_renderer.debug_printf(0, 4, 0x0f, "Runtime UI: %s", m_runtime_ui.backend_name());
+
+    if (m_frame_count % 60 == 0) {
+        SDL_Log("[engine] frame %u", m_frame_count);
+    }
 
     m_runtime_ui.end_frame();
     m_debug_ui.end_frame();

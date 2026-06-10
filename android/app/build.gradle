@@ -6,6 +6,10 @@ android {
     namespace "com.example.noveltea"
     compileSdk 35
 
+    buildFeatures {
+        prefab true
+    }
+
     defaultConfig {
         applicationId "com.example.noveltea"
         minSdk 24
@@ -34,4 +38,8 @@ android {
             path file("../../CMakeLists.txt")
         }
     }
+}
+
+dependencies {
+    implementation files("libs/SDL3-3.4.10.aar")
 }

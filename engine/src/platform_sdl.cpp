@@ -93,6 +93,12 @@ NativeWindowHandles Platform::native_window_handles() const
 
 #if defined(__EMSCRIPTEN__)
     handles.window = const_cast<char*>(m_canvas_selector.c_str());
+#elif defined(SDL_PLATFORM_ANDROID)
+    SDL_PropertiesID props = SDL_GetWindowProperties(m_window);
+    handles.window = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+    if (!handles.window) {
+        std::fprintf(stderr, "[platform] Android native window unavailable\n");
+    }
 #elif defined(SDL_PLATFORM_LINUX)
     SDL_PropertiesID props = SDL_GetWindowProperties(m_window);
     handles.display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);

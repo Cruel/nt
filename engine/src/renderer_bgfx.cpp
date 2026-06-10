@@ -1,5 +1,7 @@
 #include "noveltea/renderer.hpp"
 
+#include <SDL3/SDL.h>
+
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
 
@@ -43,19 +45,24 @@ bool Renderer::initialize(const RendererConfig& config)
     m_initialized = true;
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
-    bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x202030ff, 1.0f, 0);
+    bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x4040c0ff, 1.0f, 0);
     bgfx::setViewRect(0, 0, 0,
         static_cast<uint16_t>(m_width),
         static_cast<uint16_t>(m_height));
 
-    std::printf("[renderer] bgfx initialized: %s\n", renderer_name());
+    SDL_Log("[renderer] bgfx initialized: %s", renderer_name());
     return true;
 }
 
 void Renderer::begin_frame()
 {
-    bgfx::touch(0);
+    bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x4040c0ff, 1.0f, 0);
+    bgfx::setViewRect(0, 0, 0,
+        static_cast<uint16_t>(m_width),
+        static_cast<uint16_t>(m_height));
+    bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::dbgTextClear();
+    bgfx::touch(0);
 }
 
 void Renderer::end_frame()

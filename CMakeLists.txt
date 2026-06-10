@@ -9,11 +9,9 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_ENABLE_BGFX "Use bgfx renderer when available for supported targets" ON)
-option(NOVELTEA_FETCH_BGFX "Download bgfx via FetchContent (Emscripten)" ON)
+option(NOVELTEA_FETCH_BGFX "Download bgfx via FetchContent (Emscripten, Android)" ON)
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ON)
 option(NOVELTEA_USE_IMGUI "Deprecated alias for NOVELTEA_ENABLE_DEVTOOLS" ON)
-option(NOVELTEA_FETCH_SDL3 "Download SDL3 via FetchContent (Android)" ON)
-
 if(DEFINED NOVELTEA_USE_IMGUI AND NOT NOVELTEA_USE_IMGUI)
     set(NOVELTEA_ENABLE_DEVTOOLS OFF CACHE BOOL "Include Dear ImGui dev/debug overlay" FORCE)
 endif()
@@ -26,24 +24,8 @@ if(EMSCRIPTEN)
     target_compile_options(SDL3::SDL3 INTERFACE -sUSE_SDL=3)
     target_link_options(SDL3::SDL3 INTERFACE -sUSE_SDL=3)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    if(NOVELTEA_FETCH_SDL3)
-        include(FetchContent)
-        FetchContent_Declare(
-            SDL3
-            GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-            GIT_TAG release-3.2.30
-            GIT_SHALLOW TRUE
-        )
-        set(SDL_STATIC ON CACHE BOOL "Build SDL as a static library" FORCE)
-        set(SDL_SHARED OFF CACHE BOOL "Do not build SDL shared library" FORCE)
-        set(SDL_TEST OFF CACHE BOOL "Disable SDL test" FORCE)
-        FetchContent_MakeAvailable(SDL3)
-    else()
-        find_package(SDL3 CONFIG QUIET)
-        if(NOT SDL3_FOUND)
-            message(FATAL_ERROR "SDL3 required for Android. Set NOVELTEA_FETCH_SDL3=ON or provide SDL3 CMake config.")
-        endif()
-    endif()
+    # SDL3 provided via Prefab from the AAR dependency.
+    find_package(SDL3 REQUIRED CONFIG)
 else()
     find_package(SDL3 CONFIG QUIET)
     if(NOT SDL3_FOUND)
@@ -53,7 +35,7 @@ endif()
 
 # --- bgfx: provide the bgfx::bgfx target for all platforms ---
 
-if(EMSCRIPTEN AND NOVELTEA_ENABLE_BGFX AND NOVELTEA_FETCH_BGFX)
+if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
     include(FetchContent)
     set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
@@ -61,31 +43,40 @@ if(EMSCRIPTEN AND NOVELTEA_ENABLE_BGFX AND NOVELTEA_FETCH_BGFX)
     set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
     set(BGFX_LIBRARY_TYPE "STATIC" CACHE STRING "" FORCE)
-    # bx/bimg add -msse4.2 unconditionally; Emscripten needs -msimd128 alongside
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msimd128")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msimd128")
 
-    # Trim unused bimg decoders/parsers for Web — only keep PNG + JPEG
-    add_compile_definitions(
-        BIMG_CONFIG_DECODE_BC1=0  BIMG_CONFIG_DECODE_BC2=0
-        BIMG_CONFIG_DECODE_BC3=0  BIMG_CONFIG_DECODE_BC4=0
-        BIMG_CONFIG_DECODE_BC5=0  BIMG_CONFIG_DECODE_BC6=0
-        BIMG_CONFIG_DECODE_BC7=0  BIMG_CONFIG_DECODE_ATC=0
-        BIMG_CONFIG_DECODE_ASTC=0 BIMG_CONFIG_DECODE_ETC1=0
-        BIMG_CONFIG_DECODE_ETC2=0
-        BIMG_CONFIG_PARSE_BMP=0   BIMG_CONFIG_PARSE_EXR=0
-        BIMG_CONFIG_PARSE_GIF=0   BIMG_CONFIG_PARSE_HDR=0
-        BIMG_CONFIG_PARSE_PIC=0   BIMG_CONFIG_PARSE_PNM=0
-        BIMG_CONFIG_PARSE_PSD=0   BIMG_CONFIG_PARSE_TGA=0
-        BIMG_CONFIG_PARSE_WEBP=0
-    )
+    if(EMSCRIPTEN)
+        # bx/bimg add -msse4.2 unconditionally; Emscripten needs -msimd128 alongside
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msimd128")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msimd128")
 
-    FetchContent_Declare(
-        bgfx.cmake
-        URL https://github.com/bkaradzic/bgfx.cmake/releases/download/v1.143.9262-545/bgfx.cmake.v1.143.9262-545.tar.gz
-        SOURCE_SUBDIR .
-        PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-emscripten.cmake
-    )
+        add_compile_definitions(
+            BIMG_CONFIG_DECODE_BC1=0  BIMG_CONFIG_DECODE_BC2=0
+            BIMG_CONFIG_DECODE_BC3=0  BIMG_CONFIG_DECODE_BC4=0
+            BIMG_CONFIG_DECODE_BC5=0  BIMG_CONFIG_DECODE_BC6=0
+            BIMG_CONFIG_DECODE_BC7=0  BIMG_CONFIG_DECODE_ATC=0
+            BIMG_CONFIG_DECODE_ASTC=0 BIMG_CONFIG_DECODE_ETC1=0
+            BIMG_CONFIG_DECODE_ETC2=0
+            BIMG_CONFIG_PARSE_BMP=0   BIMG_CONFIG_PARSE_EXR=0
+            BIMG_CONFIG_PARSE_GIF=0   BIMG_CONFIG_PARSE_HDR=0
+            BIMG_CONFIG_PARSE_PIC=0   BIMG_CONFIG_PARSE_PNM=0
+            BIMG_CONFIG_PARSE_PSD=0   BIMG_CONFIG_PARSE_TGA=0
+            BIMG_CONFIG_PARSE_WEBP=0
+        )
+
+        FetchContent_Declare(
+            bgfx.cmake
+            URL https://github.com/bkaradzic/bgfx.cmake/releases/download/v1.143.9262-545/bgfx.cmake.v1.143.9262-545.tar.gz
+            SOURCE_SUBDIR .
+            PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-emscripten.cmake
+        )
+    else()
+        FetchContent_Declare(
+            bgfx.cmake
+            URL https://github.com/bkaradzic/bgfx.cmake/releases/download/v1.143.9262-545/bgfx.cmake.v1.143.9262-545.tar.gz
+            SOURCE_SUBDIR .
+        )
+    endif()
+
     FetchContent_MakeAvailable(bgfx.cmake)
     if(NOT TARGET bgfx::bgfx)
         add_library(bgfx::bgfx ALIAS bgfx)

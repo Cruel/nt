@@ -23,13 +23,13 @@ endif()
 # --- Dependencies ---
 # SDL3::SDL3 target is provided by the root CMakeLists.txt.
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    message(STATUS "bgfx disabled for Android in this pass; using stub renderer")
-    target_sources(engine PRIVATE src/renderer_stub.cpp)
-elseif(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
+if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     message(STATUS "bgfx found - full rendering enabled")
     target_sources(engine PRIVATE src/renderer_bgfx.cpp)
     target_link_libraries(engine PUBLIC bgfx::bgfx)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+        target_link_libraries(engine PUBLIC EGL GLESv2 android)
+    endif()
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
 else()
     message(STATUS "bgfx not available; using stub renderer")
