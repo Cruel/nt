@@ -1,0 +1,5 @@
+prefix_rule(
+    pattern = ["steel"],
+    decision = "allow",
+    justification = "Allow Steel CLI commands outside the sandbox",
+)
