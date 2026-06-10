@@ -6,7 +6,7 @@ Android, and Web/Emscripten.
 Current runtime stack:
 
 - SDL3: platform, window, input, and lifecycle layer.
-- bgfx: renderer backend on Linux desktop when found by CMake.
+- bgfx: renderer backend on Linux desktop and Android when found by CMake.
 - RmlUi + FreeType: runtime UI layer. This pass wires an engine-owned scaffold;
   the bgfx-backed RmlUi renderer is still TODO.
 - Dear ImGui: optional dev/debug overlay only. It is controlled by
@@ -16,7 +16,16 @@ Current runtime stack:
 
 The core engine should remain independent from SDL, bgfx, RmlUi, and ImGui.
 
-## Build And Run
+## Visual Smoke Test — Colored Triangle
+
+The first real geometry rendering test is a colored triangle drawn every frame
+on view 0. The triangle uses vertex/index buffers with per-vertex colors (red
+top, green bottom-left, blue bottom-right) against the existing blue/purple
+clear color.
+
+`bgfx::dbgTextPrintf()` (the debug overlay text) is **not** a reliable
+cross-platform rendering proof — it works on desktop OpenGL but may not appear
+on all backends/platforms.  Always verify rendering with the triangle.
 
 ### Linux Desktop
 
@@ -26,9 +35,12 @@ cmake --build --preset linux-debug
 SDL_VIDEODRIVER=x11 ./build/linux-debug/apps/sandbox/noveltea-sandbox
 ```
 
-Expected result: an SDL window opens, bgfx clears the screen, bgfx debug text
-shows the renderer name and current size, resize updates the viewport, Escape
-quits, and closing the window quits.
+Expected result:
+- An SDL window opens with the blue/purple clear color.
+- A red-green-blue triangle is visible in the center.
+- Debug text (renderer name, size, etc.) may also appear on desktop.
+- Resize updates the viewport.
+- Escape or closing the window quits.
 
 For WSL2/X11, use `SDL_VIDEODRIVER=x11`. If it is not set on Linux, the
 platform layer sets SDL's video driver hint to `x11` before `SDL_Init()`.
@@ -39,21 +51,6 @@ Release build:
 cmake --preset linux-release
 cmake --build --preset linux-release
 ```
-
-### Web / Emscripten
-
-```bash
-source ~/dev/emsdk/emsdk_env.sh
-emcmake cmake --preset web-debug
-cmake --build --preset web-debug
-python3 -m http.server --directory build/web-debug/apps/sandbox 8080
-```
-
-Open <http://localhost:8080>.
-
-The Web target uses `emscripten_set_main_loop_arg`; it does not run a blocking
-forever loop. bgfx is intentionally disabled for Web in this pass, so the page
-and console report that the renderer is stubbed.
 
 ### Android
 
@@ -91,7 +88,12 @@ The APK packages the following native libraries for each ABI:
 
 Current ABI targets: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
 
-The app uses the stub renderer on Android in this pass.
+Expected result:
+- App launches.
+- Blue/purple clear color appears.
+- Red-green-blue triangle is visible in the center.
+- No reliance on top-left debug text for visual proof.
+- No shader-loading crashes.
 
 Verify packaged native libraries:
 
@@ -105,6 +107,28 @@ Troubleshoot with the emulator smoke-test script:
 cd android
 bash run-emulator-debug.sh
 ```
+
+Check adb logcat for engine/renderer/shader diagnostics:
+
+```bash
+adb logcat | grep -iE 'noveltea|renderer|bgfx|shader|triangle|AndroidRuntime|fatal|crash'
+```
+
+### Web / Emscripten
+
+```bash
+source ~/dev/emsdk/emsdk_env.sh
+emcmake cmake --preset web-debug
+cmake --build --preset web-debug
+python3 -m http.server --directory build/web-debug/apps/sandbox 8080
+```
+
+Open <http://localhost:8080>.
+
+The Web target uses `emscripten_set_main_loop_arg`; it does not run a blocking
+forever loop. bgfx is currently disabled for Web in this pass, so the page and
+console report that the renderer is stubbed. The triangle will not appear on
+Web until bgfx is enabled for Emscripten.
 
 ## Layout
 
@@ -172,8 +196,11 @@ quit through the platform abstraction.
   rendering.
 - Dear ImGui rendering through bgfx. Current ImGui integration is input/state
   only; bgfx debug text is the visible desktop overlay.
-- Android bgfx renderer.
 - Web bgfx/WebGL renderer. The Web sandbox currently uses a visible shell plus
   console/page status with the stub renderer.
+- Vulkan shader variants for the triangle (currently GLSL/GLES only; desktop
+  forces OpenGL).
 - miniaudio backend.
 - HarfBuzz shaping integration beyond dependency availability.
+- Shader auto-compilation at build time on all platforms (compiled `.h` headers
+  are checked in as a fallback; see `engine/CMakeLists.txt` custom commands).

@@ -38,10 +38,18 @@ public:
     void debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* fmt, ...);
 
 private:
+    void create_triangle();
+    void destroy_triangle();
+
     bool m_initialized = false;
     bool m_vsync = true;
     int m_width = 0;
     int m_height = 0;
+
+    // bgfx resource handles (stored as uint16_t indices; UINT16_MAX = invalid)
+    uint16_t m_triangle_vb = UINT16_MAX;
+    uint16_t m_triangle_ib = UINT16_MAX;
+    uint16_t m_triangle_program = UINT16_MAX;
 };
 
 } // namespace noveltea

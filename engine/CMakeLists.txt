@@ -25,7 +25,117 @@ endif()
 
 if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     message(STATUS "bgfx found - full rendering enabled")
-    target_sources(engine PRIVATE src/renderer_bgfx.cpp)
+
+    # ------------------------------------------------------------------ #
+    # Shader compilation via bgfx shaderc (host tool).
+    # shaderc is provided by vcpkg via bgfx[tools].  The compiled
+    # shader headers are generated at build time.
+    # ------------------------------------------------------------------ #
+    set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
+    set(SHADER_OUT_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
+    set(SHADER_INCDIRS  "-i" "${SHADER_SRC_DIR}")
+
+    # Find shaderc from vcpkg (host triplet when cross-compiling).
+    find_program(SHADERC_EXECUTABLE shaderc
+        PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
+              "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
+              "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/tools/bgfx"
+              "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/tools/bgfx"
+        NO_DEFAULT_PATH
+    )
+    if(NOT SHADERC_EXECUTABLE)
+        find_program(SHADERC_EXECUTABLE shaderc)
+    endif()
+
+    if(NOT SHADERC_EXECUTABLE)
+        message(FATAL_ERROR "shaderc not found — install bgfx[tools] via vcpkg")
+    endif()
+
+    # Find bgfx_shader.sh from bgfx include tree (vcpkg layout).
+    foreach(_dir
+        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include/bgfx"
+        "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include/bgfx"
+        "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/include/bgfx"
+        "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/include/bgfx")
+        if(EXISTS "${_dir}/bgfx_shader.sh")
+            list(APPEND SHADER_INCDIRS "-i" "${_dir}")
+            break()
+        endif()
+    endforeach()
+
+    set(SHADER_PROFILES
+        glsl   "linux"    "120"
+        essl   "android"  "300_es"
+    )
+
+    foreach(prof glsl essl)
+        list(FIND SHADER_PROFILES "${prof}" _idx)
+        math(EXPR _plat_idx "${_idx} + 1")
+        math(EXPR _prof_idx "${_idx} + 2")
+        list(GET SHADER_PROFILES ${_plat_idx} _plat)
+        list(GET SHADER_PROFILES ${_prof_idx} _prof)
+
+        add_custom_command(
+            OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
+                    "${SHADER_OUT_DIR}/fs_triangle_${prof}.h"
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/vs_triangle.sc"
+                    -o "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
+                    --type v
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c vs_triangle_${prof}
+                    ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/fs_triangle.sc"
+                    -o "${SHADER_OUT_DIR}/fs_triangle_${prof}.h"
+                    --type f
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c fs_triangle_${prof}
+                    ${SHADER_INCDIRS}
+            DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
+                    "${SHADER_SRC_DIR}/fs_triangle.sc"
+                    "${SHADER_SRC_DIR}/varying.def.sc"
+            COMMENT "Compiling bgfx shaders (${prof})"
+            VERBATIM
+        )
+    endforeach()
+
+    # Also compile a WebGL (ESSL 1.0) variant for web builds
+    add_custom_command(
+        OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_web.h"
+                "${SHADER_OUT_DIR}/fs_triangle_web.h"
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/vs_triangle.sc"
+                -o "${SHADER_OUT_DIR}/vs_triangle_web.h"
+                --type v
+                --platform asm.js -p 100_es
+                --bin2c vs_triangle_web
+                ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/fs_triangle.sc"
+                -o "${SHADER_OUT_DIR}/fs_triangle_web.h"
+                --type f
+                --platform asm.js -p 100_es
+                --bin2c fs_triangle_web
+                ${SHADER_INCDIRS}
+        DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
+                "${SHADER_SRC_DIR}/fs_triangle.sc"
+                "${SHADER_SRC_DIR}/varying.def.sc"
+        COMMENT "Compiling bgfx shaders (web)"
+        VERBATIM
+    )
+
+    target_sources(engine PRIVATE
+        src/renderer_bgfx.cpp
+        src/shaders/vs_triangle_glsl.h
+        src/shaders/fs_triangle_glsl.h
+        src/shaders/vs_triangle_essl.h
+        src/shaders/fs_triangle_essl.h
+        src/shaders/vs_triangle_web.h
+        src/shaders/fs_triangle_web.h
+    )
+    target_include_directories(engine PRIVATE src)
+
     target_link_libraries(engine PUBLIC bgfx::bgfx)
     if(CMAKE_SYSTEM_NAME STREQUAL "Android")
         target_link_libraries(engine PUBLIC EGL GLESv2 android)
