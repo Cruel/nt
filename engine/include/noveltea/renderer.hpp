@@ -39,6 +39,7 @@ public:
 
 private:
     bool m_initialized = false;
+    bool m_vsync = true;
     int m_width = 0;
     int m_height = 0;
 };

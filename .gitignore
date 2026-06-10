@@ -16,3 +16,4 @@ local.properties
 *.swo
 *~
 .DS_Store
+.cxx

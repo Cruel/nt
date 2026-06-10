@@ -1,218 +1,144 @@
-# NovelTea — Cross-Platform Engine Skeleton
+# NovelTea Runtime Skeleton
 
-Minimal cross-platform C++20 skeleton for a game/engine prototype targeting
-**Linux desktop**, **Android**, and **Web (Emscripten)**.
+NovelTea is a native C++20 game/runtime skeleton targeting Linux desktop,
+Android, and Web/Emscripten.
 
-## Prerequisites
+Current runtime stack:
 
-### Ubuntu / WSL2
+- SDL3: platform, window, input, and lifecycle layer.
+- bgfx: renderer backend on Linux desktop when found by CMake.
+- RmlUi + FreeType: runtime UI layer. This pass wires an engine-owned scaffold;
+  the bgfx-backed RmlUi renderer is still TODO.
+- Dear ImGui: optional dev/debug overlay only. It is controlled by
+  `NOVELTEA_ENABLE_DEVTOOLS`.
+- miniaudio: dependency available for a future audio backend.
+- HarfBuzz: dependency available for future richer text shaping.
 
-```bash
-sudo apt update
-sudo apt install build-essential cmake ninja-build git python3
-```
+The core engine should remain independent from SDL, bgfx, RmlUi, and ImGui.
 
-### vcpkg (Linux desktop builds)
-
-Install vcpkg and set `VCPKG_ROOT`:
-
-```bash
-git clone https://github.com/microsoft/vcpkg.git ~/dev/vcpkg
-~/dev/vcpkg/bootstrap-vcpkg.sh
-export VCPKG_ROOT=~/dev/vcpkg
-# Add to ~/.bashrc or ~/.zshrc:
-# echo 'export VCPKG_ROOT=~/dev/vcpkg' >> ~/.bashrc
-```
-
-### Emscripten (Web builds)
-
-```bash
-# Clone the SDK
-git clone https://github.com/emscripten-core/emsdk.git ~/dev/emsdk
-cd ~/dev/emsdk
-./emsdk install latest
-./emsdk activate latest
-source ./emsdk_env.sh
-export EMSDK=~/dev/emsdk
-# Add to shell rc:
-# echo 'source ~/dev/emsdk/emsdk_env.sh' >> ~/.bashrc
-```
-
-Verify: `emcmake --version`
-
-### Android SDK/NDK
-
-Verify `$ANDROID_HOME` points to your Android SDK:
-
-```bash
-echo $ANDROID_HOME
-ls $ANDROID_HOME/ndk/  # should list installed NDK versions
-```
-
-If not set:
-```bash
-export ANDROID_HOME=~/Android/Sdk
-# or
-export ANDROID_HOME=/usr/lib/android-sdk
-```
-
-The NDK is detected from `$ANDROID_HOME/ndk/<version>/`.
-
-## Build & Run
+## Build And Run
 
 ### Linux Desktop
 
 ```bash
 cmake --preset linux-debug
 cmake --build --preset linux-debug
-./build/linux-debug/apps/sandbox/noveltea-sandbox
+SDL_VIDEODRIVER=x11 ./build/linux-debug/apps/sandbox/noveltea-sandbox
 ```
 
-Press **Escape** or close the window to quit.
+Expected result: an SDL window opens, bgfx clears the screen, bgfx debug text
+shows the renderer name and current size, resize updates the viewport, Escape
+quits, and closing the window quits.
 
-### Android APK
+For WSL2/X11, use `SDL_VIDEODRIVER=x11`. If it is not set on Linux, the
+platform layer sets SDL's video driver hint to `x11` before `SDL_Init()`.
+
+Release build:
+
+```bash
+cmake --preset linux-release
+cmake --build --preset linux-release
+```
+
+### Web / Emscripten
+
+```bash
+source ~/dev/emsdk/emsdk_env.sh
+emcmake cmake --preset web-debug
+cmake --build --preset web-debug
+python3 -m http.server --directory build/web-debug/apps/sandbox 8080
+```
+
+Open <http://localhost:8080>.
+
+The Web target uses `emscripten_set_main_loop_arg`; it does not run a blocking
+forever loop. bgfx is intentionally disabled for Web in this pass, so the page
+and console report that the renderer is stubbed.
+
+### Android
 
 ```bash
 cd android
 ./gradlew assembleDebug
 ```
 
-The APK will be at `android/app/build/outputs/apk/debug/app-debug.apk`.
+The Android sandbox target is a shared native library named
+`libnoveltea-sandbox.so`. `AndroidManifest.xml` and
+`MainActivity.getLibraries()` both reference `noveltea-sandbox`.
 
-Install it:
-```bash
-adb install android/app/build/outputs/apk/debug/app-debug.apk
+Android uses the stub renderer in this pass. The Gradle project still needs an
+SDL3 Android runtime source/AAR that provides `org.libsdl.app.SDLActivity` and
+the `SDL3` native library. Until that is wired locally, the APK build may fail
+at Java or native dependency resolution.
+
+## Layout
+
+```text
+engine/
+  include/noveltea/
+    app.hpp             # cross-platform app wrapper
+    engine.hpp          # initialize/tick/shutdown runtime lifecycle
+    platform.hpp        # SDL-owned platform abstraction
+    renderer.hpp        # renderer abstraction
+    ui_runtime.hpp      # RmlUi runtime UI scaffold
+    ui_debug.hpp        # optional ImGui devtools abstraction
+  src/
+    app.cpp
+    engine.cpp
+    platform_sdl.cpp
+    renderer_bgfx.cpp
+    renderer_stub.cpp
+    ui_runtime_rmlui.cpp
+    ui_debug_imgui.cpp
+    ui_debug_stub.cpp
+apps/sandbox/
+android/
+web/
 ```
 
-> **Note:** The Android build currently uses a **stub renderer** (no bgfx).
-> See [Known Limitations](#known-limitations) below.
+The tree is still named `engine/`; it now separates the platform, renderer,
+runtime UI, and devtools responsibilities in code and build selection without a
+large directory move.
 
-### Web (Emscripten)
+## Runtime Flow
 
-```bash
-emcmake cmake --preset web-debug
-cmake --build --preset web-debug
-```
+The engine exposes:
 
-Output files are in `build/web-debug/apps/sandbox/`. Serve locally:
-
-```bash
-python3 -m http.server --directory build/web-debug/apps/sandbox/ 8080
-```
-
-Then open http://localhost:8080 in a browser.
-
-> **Note:** The Web build also uses a **stub renderer** (no bgfx).
-> See [Known Limitations](#known-limitations) below.
-
-## Project Structure
-
-```
-.
-├── CMakeLists.txt              # Root CMake — orchestrator
-├── CMakePresets.json           # Build presets (linux, web)
-├── vcpkg.json                  # vcpkg manifest (Linux deps)
-├── cmake/
-│   ├── helpers.cmake           # Utility functions
-│   └── toolchains/
-│       ├── android.cmake       # NDK toolchain reference
-│       └── emscripten.cmake    # Emscripten toolchain
-├── engine/
-│   ├── CMakeLists.txt          # Engine library build
-│   ├── include/noveltea/       # Public API
-│   │   ├── app.hpp             # Application entry point
-│   │   ├── engine.hpp          # Core loop: init → update → render
-│   │   ├── platform.hpp        # Windowing / input abstraction
-│   │   ├── renderer.hpp        # Rendering abstraction
-│   │   └── ui_debug.hpp        # Debug overlay abstraction
-│   └── src/
-│       ├── app.cpp
-│       ├── engine.cpp
-│       ├── platform_sdl.cpp    # SDL3 platform implementation
-│       ├── renderer_bgfx.cpp   # bgfx renderer (desktop)
-│       ├── renderer_stub.cpp   # Stub renderer (Android, Web)
-│       └── ui_debug_imgui.cpp  # Dear ImGui overlay (desktop)
-├── apps/
-│   └── sandbox/
-│       ├── CMakeLists.txt
-│       └── main.cpp
-├── android/                    # Android Gradle project
-│   ├── settings.gradle
-│   ├── build.gradle
-│   └── app/
-│       ├── build.gradle
-│       └── src/main/
-│           ├── AndroidManifest.xml
-│           └── java/com/example/noveltea/MainActivity.java
-├── web/                        # Web assets
-│   ├── index.html
-│   └── shell.html
-└── third_party/README.md       # Dependency notes
-```
-
-## Architecture
-
-The engine loop is structured as:
-
-```
+```text
 initialize()
-  ├── Platform::initialize()    — SDL window, input
-  ├── Renderer::initialize()    — bgfx (or stub)
-  └── DebugUI::initialize()     — Dear ImGui (or disabled)
-
-run() [each frame]
-  ├── Platform::poll_events()   — SDL event queue
-  ├── update(dt)                — game logic (empty in skeleton)
-  └── render()
-       ├── DebugUI::begin_frame()
-       ├── Renderer::begin_frame()
-       ├── bgfx debug overlay
-       ├── DebugUI::end_frame()
-       └── Renderer::end_frame()  → bgfx::frame()
-
-shutdown() — reverse order
+tick()
+shutdown()
 ```
 
-### Key design decisions
+Desktop uses `Engine::run()` as a normal loop around `tick()`. Web registers
+`tick()` with Emscripten.
 
-- **No game logic in platform code.** SDL specifics stay in `platform_sdl.cpp`.
-- **No global state** except where SDL/bgfx require it (managed internally).
-- **Platform-specific code** is compiled conditionally; core engine headers are
-  target-agnostic.
-- **ImGui is dev tooling only**, not the primary game UI.
-- **Stub renderer** used where bgfx isn't yet built (Android, Web).
+Per-frame event order:
 
-## Known Limitations
+```text
+SDL event -> DebugUI/ImGui -> RuntimeUI/RmlUi scaffold -> game/platform handling
+```
 
-1. **bgfx rendering is Linux-only.** The CMake build detects bgfx via vcpkg.
-   Android and Web targets fall back to `renderer_stub.cpp` (no-op).
-   - *To fix:* Cross-compile bgfx for Android NDK and Emscripten, then
-     `find_package(bgfx)` will enable the real renderer.
+Window resize events update the platform size, call `Renderer::resize(width,
+height)`, and notify the runtime UI scaffold. Escape and window close request
+quit through the platform abstraction.
 
-2. **Dear ImGui input works; rendering is placeholder.**
-   The `ImGui_ImplSDL3` input backend is active for desktop, but ImGui draw
-   data is not yet rendered via bgfx (needs custom shaders compiled with
-   `shaderc` from the bgfx tools).
-   - *Workaround:* Engine debug overlay uses `bgfx::dbgTextPrintf` for now.
+## Build Options
 
-3. **Android needs SDL3 Java source.**
-   `MainActivity` extends `org.libsdl.app.SDLActivity`. The SDL3 source
-   (or AAR) must be available in the project. A common approach is to add
-   SDL3 as a Git submodule under `android/app/src/main/java/org/`.
-   See [SDL3 Android docs](https://wiki.libsdl.org/SDL3/README/android).
+- `NOVELTEA_ENABLE_BGFX=ON`: use bgfx when available for supported targets.
+  Android and Web force the stub renderer in this pass.
+- `NOVELTEA_ENABLE_DEVTOOLS=ON`: include Dear ImGui dev/debug overlay when the
+  package is available.
+- `NOVELTEA_USE_IMGUI`: deprecated alias; setting it OFF disables devtools.
 
-4. **Emscripten needs `-sUSE_SDL=3` flag** (already in CMakeLists.txt).
-   bgfx for Emscripten requires a custom build; not yet configured.
+## Stubbed Or TODO
 
-5. **RmlUi is declared in vcpkg.json but not yet integrated** into the engine
-   loop. The headers and libraries are available for desktop; integration
-   setup will be done in a future pass.
-
-## Next Steps
-
-- Integrate bgfx shader pipeline for full ImGui rendering.
-- Cross-compile bgfx for Android NDK.
-- Cross-compile bgfx for Emscripten (WebGL backend).
-- Wire SDL3 Java source into the Android Gradle module.
-- Integrate RmlUi with a shared renderer path (bgfx + custom shaders).
-- Add miniaudio for audio playback.
+- RmlUi renderer backend, SDL input translation, document loading, and text
+  rendering.
+- Dear ImGui rendering through bgfx. Current ImGui integration is input/state
+  only; bgfx debug text is the visible desktop overlay.
+- Android bgfx renderer and complete SDL3 Android runtime packaging.
+- Web bgfx/WebGL renderer. The Web sandbox currently uses a visible shell plus
+  console/page status with the stub renderer.
+- miniaudio backend.
+- HarfBuzz shaping integration beyond dependency availability.

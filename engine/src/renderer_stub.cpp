@@ -1,4 +1,4 @@
-// Stub renderer — used when bgfx is not available (Android, Web, etc.)
+// Stub renderer - used when bgfx is not available (Android, Web, etc.)
 //
 // TODO: Implement proper rendering for this target.
 //       - Android: Integrate bgfx or use SDL GPU/render API.
@@ -18,6 +18,7 @@ bool Renderer::initialize(const RendererConfig& config)
     if (m_initialized) return true;
     m_width = config.width;
     m_height = config.height;
+    m_vsync = config.vsync;
     m_initialized = true;
     std::printf("[renderer] stub initialized (%dx%d)\n", m_width, m_height);
     return true;

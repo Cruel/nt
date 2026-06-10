@@ -2,6 +2,8 @@
 
 #include <SDL3/SDL.h>
 #include <cstdio>
+#include <cstdlib>
+#include <cstdint>
 
 namespace noveltea {
 
@@ -15,6 +17,13 @@ bool Platform::initialize(const PlatformConfig& config)
         return false;
     }
 
+#if defined(SDL_PLATFORM_LINUX)
+    if (!std::getenv("SDL_VIDEODRIVER")) {
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+        std::printf("[platform] SDL_VIDEODRIVER not set; defaulting SDL video driver hint to x11\n");
+    }
+#endif
+
     Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_EVENTS;
     if (!SDL_Init(flags)) {
         std::fprintf(stderr, "[platform] SDL_Init failed: %s\n", SDL_GetError());
@@ -24,7 +33,7 @@ bool Platform::initialize(const PlatformConfig& config)
     m_width = config.width;
     m_height = config.height;
 
-    SDL_WindowFlags win_flags = SDL_WINDOW_RESIZABLE;
+    SDL_WindowFlags win_flags = config.resizable ? SDL_WINDOW_RESIZABLE : 0;
     m_window = SDL_CreateWindow(config.title, m_width, m_height, win_flags);
     if (!m_window) {
         std::fprintf(stderr, "[platform] SDL_CreateWindow failed: %s\n", SDL_GetError());
@@ -35,13 +44,26 @@ bool Platform::initialize(const PlatformConfig& config)
     m_last_tick = SDL_GetTicks();
     m_quit = false;
 
+#if defined(__EMSCRIPTEN__)
+    SDL_PropertiesID props = SDL_GetWindowProperties(m_window);
+    const char* canvas_id = SDL_GetStringProperty(props,
+        SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING, "#canvas");
+    if (canvas_id[0] != '#') {
+        m_canvas_selector = "#";
+        m_canvas_selector += canvas_id;
+    } else {
+        m_canvas_selector = canvas_id;
+    }
+#endif
+
     std::printf("[platform] initialized: %s (%dx%d)\n", config.title, m_width, m_height);
     return true;
 }
 
-bool Platform::poll_events()
+void Platform::poll_events()
 {
-    if (!m_window) return false;
+    m_events.clear();
+    if (!m_window) return;
 
     uint64_t now = SDL_GetTicks();
     m_delta_time = (now - m_last_tick) / 1000.0f;
@@ -49,35 +71,45 @@ bool Platform::poll_events()
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        switch (event.type) {
-            case SDL_EVENT_QUIT:
-                m_quit = true;
-                break;
+        m_events.push_back(event);
+    }
+}
 
-            case SDL_EVENT_KEY_DOWN:
-                if (event.key.key == SDLK_ESCAPE) {
-                    m_quit = true;
-                }
-                std::printf("[input] key_down: scancode=%d\n", event.key.scancode);
-                break;
+void Platform::request_quit()
+{
+    m_quit = true;
+}
 
-            case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                std::printf("[input] mouse_down: button=%d x=%f y=%f\n",
-                    event.button.button, event.button.x, event.button.y);
-                break;
+void Platform::set_size(int width, int height)
+{
+    m_width = width;
+    m_height = height;
+}
 
-            case SDL_EVENT_WINDOW_RESIZED:
-                m_width = event.window.data1;
-                m_height = event.window.data2;
-                std::printf("[window] resized: %dx%d\n", m_width, m_height);
-                break;
+NativeWindowHandles Platform::native_window_handles() const
+{
+    NativeWindowHandles handles;
+    if (!m_window) return handles;
 
-            default:
-                break;
-        }
+#if defined(__EMSCRIPTEN__)
+    handles.window = const_cast<char*>(m_canvas_selector.c_str());
+#elif defined(SDL_PLATFORM_LINUX)
+    SDL_PropertiesID props = SDL_GetWindowProperties(m_window);
+    handles.display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
+
+    const uint64_t x11_window = SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
+    if (handles.display && x11_window != 0) {
+        handles.window = reinterpret_cast<void*>(static_cast<uintptr_t>(x11_window));
+        return handles;
     }
 
-    return !m_quit;
+    std::fprintf(stderr,
+        "[platform] X11 native handles unavailable. Try running with SDL_VIDEODRIVER=x11.\n");
+#else
+    handles.window = m_window;
+#endif
+
+    return handles;
 }
 
 void Platform::shutdown()

@@ -45,7 +45,7 @@ bool DebugUI::initialize(SDL_Window* window)
     io.Fonts->Build();
 
     m_initialized = true;
-    std::printf("[debug_ui] ImGui initialized (input only — no bgfx renderer yet)\n");
+    std::printf("[debug_ui] ImGui initialized (input only - no bgfx renderer yet)\n");
     return true;
 }
 

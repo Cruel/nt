@@ -34,6 +34,16 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
+        },
+        {
+            "name": "web-release",
+            "displayName": "Web Release (Emscripten)",
+            "description": "Release build for Web using Emscripten with -Oz -flto",
+            "binaryDir": "${sourceDir}/build/web-release",
+            "toolchainFile": "${sourceDir}/cmake/toolchains/emscripten.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "MinSizeRel"
+            }
         }
     ],
     "buildPresets": [
@@ -48,6 +58,10 @@
         {
             "name": "web-debug",
             "configurePreset": "web-debug"
+        },
+        {
+            "name": "web-release",
+            "configurePreset": "web-release"
         }
     ]
 }

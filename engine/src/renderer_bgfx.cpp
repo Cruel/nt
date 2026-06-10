@@ -3,37 +3,11 @@
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
 
-#include <SDL3/SDL.h>
-
 #include <cstdio>
 #include <cstdint>
 #include <cstdarg>
 
 namespace noveltea {
-
-static bgfx::PlatformData get_native_platform_data(SDL_Window* window)
-{
-    bgfx::PlatformData pd{};
-
-#if defined(SDL_PLATFORM_LINUX)
-    SDL_PropertiesID props = SDL_GetWindowProperties(window);
-    pd.ndt = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
-    uintptr_t x11_win = static_cast<uintptr_t>(
-        SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
-    pd.nwh = reinterpret_cast<void*>(x11_win);
-
-    if (!pd.ndt) {
-        // Fallback: use SDL_Window pointer for Wayland or other backends
-        pd.ndt = nullptr;
-        pd.nwh = window;
-    }
-#else
-    pd.ndt = nullptr;
-    pd.nwh = window;
-#endif
-
-    return pd;
-}
 
 Renderer::Renderer() = default;
 Renderer::~Renderer() { shutdown(); }
@@ -42,13 +16,14 @@ bool Renderer::initialize(const RendererConfig& config)
 {
     if (m_initialized) return true;
 
-    SDL_Window* window = static_cast<SDL_Window*>(config.native_window);
-    if (!window) {
+    if (!config.native_window) {
         std::fprintf(stderr, "[renderer] no native window provided\n");
         return false;
     }
 
-    bgfx::PlatformData pd = get_native_platform_data(window);
+    bgfx::PlatformData pd{};
+    pd.ndt = config.native_display;
+    pd.nwh = config.native_window;
 
     bgfx::Init init;
     init.type = bgfx::RendererType::Count; // auto-detect
@@ -64,6 +39,7 @@ bool Renderer::initialize(const RendererConfig& config)
 
     m_width = config.width;
     m_height = config.height;
+    m_vsync = config.vsync;
     m_initialized = true;
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
@@ -97,7 +73,7 @@ void Renderer::resize(int width, int height)
     bgfx::reset(
         static_cast<uint32_t>(width),
         static_cast<uint32_t>(height),
-        BGFX_RESET_VSYNC
+        m_vsync ? BGFX_RESET_VSYNC : 0
     );
     bgfx::setViewRect(0, 0, 0,
         static_cast<uint16_t>(width),

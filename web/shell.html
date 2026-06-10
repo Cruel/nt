@@ -5,14 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NovelTea Web Prototype</title>
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-             color: #ccc; font-size: 1.2em; }
+  body { margin: 0; overflow: hidden; background: #111; color: #ddd; font-family: sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; background: #181820; }
+  #status { position: fixed; left: 16px; top: 16px; color: #ddd; font-size: 14px; line-height: 1.4; }
 </style>
 </head>
 <body>
-<div id="loading">Loading NovelTea...</div>
+<canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+<div id="status">NovelTea Web Sandbox<br>Engine loading...</div>
+<script>
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    print: function(text) {
+      console.log(text);
+      if (text.indexOf('[engine] initialized') !== -1) {
+        document.getElementById('status').style.display = 'none';
+      }
+    },
+    printErr: function(text) {
+      console.error(text);
+    }
+  };
+</script>
 {{{ SCRIPT }}}
 </body>
 </html>

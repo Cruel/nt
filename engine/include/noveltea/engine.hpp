@@ -3,6 +3,7 @@
 #include "platform.hpp"
 #include "renderer.hpp"
 #include "ui_debug.hpp"
+#include "ui_runtime.hpp"
 
 namespace noveltea {
 
@@ -16,7 +17,10 @@ public:
 
     bool initialize(const PlatformConfig& config);
     int run();
+    bool tick();
     void shutdown();
+
+    bool is_running() const { return m_running; }
 
 private:
     void handle_events();
@@ -25,7 +29,9 @@ private:
 
     Platform m_platform;
     Renderer m_renderer;
+    RuntimeUI m_runtime_ui;
     DebugUI m_debug_ui;
+    bool m_initialized = false;
     bool m_running = false;
 };
 
