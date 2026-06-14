@@ -68,4 +68,13 @@ const char* RuntimeUI::backend_name() const
 #endif
 }
 
+const char* RuntimeUI::status_text() const
+{
+#if defined(NOVELTEA_HAS_RMLUI)
+    return "linked scaffold; bgfx backend deferred";
+#else
+    return "not linked for this target";
+#endif
+}
+
 } // namespace noveltea

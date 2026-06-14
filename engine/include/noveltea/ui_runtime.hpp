@@ -20,6 +20,7 @@ public:
     void shutdown();
 
     const char* backend_name() const;
+    const char* status_text() const;
     bool is_initialized() const { return m_initialized; }
 
 private:

@@ -41,10 +41,22 @@ void Renderer::resize(int width, int height)
     std::printf("[renderer] stub resize: %dx%d\n", m_width, m_height);
 }
 
+void Renderer::draw_demo_2d(float time_seconds)
+{
+    (void)time_seconds;
+}
+
+void Renderer::draw_2d(const QuadBatch& batch)
+{
+    (void)batch;
+}
+
 void Renderer::shutdown()
 {
-    m_initialized = false;
-    std::printf("[renderer] stub shutdown\n");
+    if (m_initialized) {
+        m_initialized = false;
+        std::printf("[renderer] stub shutdown\n");
+    }
 }
 
 const char* Renderer::renderer_name() const

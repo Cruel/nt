@@ -12,7 +12,13 @@ public:
     int run(int argc, char* argv[]);
 
 private:
+    struct Options {
+        uint32_t frame_limit = 0;
+        DemoMode demo_mode = DemoMode::All;
+    };
+
     bool initialize(int argc, char* argv[]);
+    bool parse_options(int argc, char* argv[], Options& options) const;
     static void web_tick(void* user_data);
 
     Engine m_engine;

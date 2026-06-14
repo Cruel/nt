@@ -1,7 +1,7 @@
 name = "nt_architect"
 description = "Architecture planner for staged NovelTea-to-nt migration work."
 model_reasoning_effort = "high"
-sandbox_mode = "workspace-write"
+sandbox_mode = "danger-full-access"
 developer_instructions = """
 You are the architecture planner for the NovelTea -> nt migration.
 

@@ -10,9 +10,31 @@ namespace noveltea {
 Engine::Engine() = default;
 Engine::~Engine() { shutdown(); }
 
-bool Engine::initialize(const PlatformConfig& config)
+namespace {
+
+const char* demo_mode_name(DemoMode mode)
+{
+    switch (mode) {
+        case DemoMode::Render2D: return "render2d";
+        case DemoMode::RmlUi: return "rmlui";
+        case DemoMode::Text: return "text";
+        case DemoMode::All: return "all";
+    }
+    return "all";
+}
+
+bool demo_enabled(DemoMode selected, DemoMode queried)
+{
+    return selected == DemoMode::All || selected == queried;
+}
+
+} // namespace
+
+bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
 {
     SDL_Log("[engine] initializing...");
+    m_frame_limit = run_config.frame_limit;
+    m_demo_mode = run_config.demo_mode;
 
     if (!m_platform.initialize(config)) {
         std::fprintf(stderr, "[engine] platform init failed\n");
@@ -51,6 +73,9 @@ bool Engine::initialize(const PlatformConfig& config)
         m_renderer.renderer_name(),
         m_platform.width(),
         m_platform.height());
+    if (m_frame_limit > 0) {
+        SDL_Log("[engine] frame-limited smoke run: %u frames", m_frame_limit);
+    }
     std::printf("[engine] ready\n");
 
     return true;
@@ -82,6 +107,11 @@ bool Engine::tick()
     render();
 
     if (m_platform.should_quit()) {
+        m_running = false;
+    }
+
+    if (m_frame_limit > 0 && m_frame_count >= m_frame_limit) {
+        SDL_Log("[engine] frame limit reached: %u", m_frame_count);
         m_running = false;
     }
 
@@ -130,7 +160,7 @@ void Engine::handle_events()
 
 void Engine::update(float dt)
 {
-    (void)dt;
+    m_elapsed_seconds += dt;
 }
 
 void Engine::render()
@@ -138,6 +168,11 @@ void Engine::render()
     m_debug_ui.begin_frame(m_renderer.width(), m_renderer.height());
     m_runtime_ui.begin_frame(m_platform.delta_time());
     m_renderer.begin_frame();
+#if defined(NOVELTEA_HAS_RENDER2D)
+    if (demo_enabled(m_demo_mode, DemoMode::Render2D)) {
+        m_renderer.draw_demo_2d(m_elapsed_seconds);
+    }
+#endif
 
     ++m_frame_count;
 
@@ -146,7 +181,26 @@ void Engine::render()
     m_renderer.debug_printf(0, 1, 0x0f, "Renderer: %s", m_renderer.renderer_name());
     m_renderer.debug_printf(0, 2, 0x0f, "Size: %dx%d", m_platform.width(), m_platform.height());
     m_renderer.debug_printf(0, 3, 0x0f, "dt: %.2f ms", m_platform.delta_time() * 1000.0f);
-    m_renderer.debug_printf(0, 4, 0x0f, "Runtime UI: %s", m_runtime_ui.backend_name());
+    m_renderer.debug_printf(0, 4, 0x0f, "Frame: %u%s", m_frame_count,
+        m_frame_limit > 0 ? " (smoke)" : "");
+    m_renderer.debug_printf(0, 5, 0x0f, "Demo: %s", demo_mode_name(m_demo_mode));
+    m_renderer.debug_printf(0, 6, 0x0f, "Runtime UI: %s", m_runtime_ui.backend_name());
+    m_renderer.debug_printf(0, 7, 0x0f, "RmlUi: %s", m_runtime_ui.status_text());
+    m_renderer.debug_printf(0, 8, 0x0f, "Render2D: %s",
+#if defined(NOVELTEA_HAS_RENDER2D)
+        "enabled"
+#else
+        "disabled"
+#endif
+    );
+    m_renderer.debug_printf(0, 9, 0x0f, "Texture: %s", m_renderer.texture_status());
+    m_renderer.debug_printf(0, 10, 0x0f, "Text lab: %s",
+#if defined(NOVELTEA_HAS_TEXT_LAB)
+        demo_enabled(m_demo_mode, DemoMode::Text) ? "styled-run scaffold" : "available"
+#else
+        "disabled"
+#endif
+    );
 
     if (m_frame_count % 60 == 0) {
         SDL_Log("[engine] frame %u", m_frame_count);
@@ -170,6 +224,12 @@ void Engine::shutdown()
 
     m_initialized = false;
     std::printf("[engine] shutdown complete\n");
+}
+
+void Engine::request_stop()
+{
+    m_running = false;
+    m_platform.request_quit();
 }
 
 } // namespace noveltea

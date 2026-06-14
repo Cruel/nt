@@ -143,10 +143,11 @@ NativeWindowHandles Platform::native_window_handles() const {
 }
 
 void Platform::shutdown() {
-  if (m_window) {
-    SDL_DestroyWindow(m_window);
-    m_window = nullptr;
-  }
+  if (!m_window)
+    return;
+
+  SDL_DestroyWindow(m_window);
+  m_window = nullptr;
   SDL_Quit();
   std::printf("[platform] shutdown\n");
 }

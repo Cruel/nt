@@ -1,7 +1,9 @@
 add_library(engine STATIC
+    src/assets.cpp
     src/app.cpp
     src/engine.cpp
     src/platform_sdl.cpp
+    src/render_resources_bgfx.cpp
     src/ui_runtime_rmlui.cpp
 )
 
@@ -11,6 +13,14 @@ target_include_directories(engine
     PUBLIC
         include
 )
+
+if(NOVELTEA_ENABLE_RENDER2D)
+    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RENDER2D)
+endif()
+
+if(NOVELTEA_ENABLE_TEXT_LAB)
+    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_TEXT_LAB)
+endif()
 
 if(EMSCRIPTEN)
     target_compile_definitions(engine PUBLIC NOVELTEA_PLATFORM_WEB)
@@ -83,6 +93,8 @@ endif()
         add_custom_command(
             OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
                     "${SHADER_OUT_DIR}/fs_triangle_${prof}.h"
+                    "${SHADER_OUT_DIR}/vs_quad_${prof}.h"
+                    "${SHADER_OUT_DIR}/fs_quad_${prof}.h"
             COMMAND "${SHADERC_EXECUTABLE}"
                     -f "${SHADER_SRC_DIR}/vs_triangle.sc"
                     -o "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
@@ -97,8 +109,24 @@ endif()
                     --platform ${_plat} -p ${_prof}
                     --bin2c fs_triangle_${prof}
                     ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/vs_quad.sc"
+                    -o "${SHADER_OUT_DIR}/vs_quad_${prof}.h"
+                    --type v
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c vs_quad_${prof}
+                    ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/fs_quad.sc"
+                    -o "${SHADER_OUT_DIR}/fs_quad_${prof}.h"
+                    --type f
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c fs_quad_${prof}
+                    ${SHADER_INCDIRS}
             DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
                     "${SHADER_SRC_DIR}/fs_triangle.sc"
+                    "${SHADER_SRC_DIR}/vs_quad.sc"
+                    "${SHADER_SRC_DIR}/fs_quad.sc"
                     "${SHADER_SRC_DIR}/varying.def.sc"
             COMMENT "Compiling bgfx shaders (${prof})"
             VERBATIM
@@ -109,6 +137,8 @@ endif()
     add_custom_command(
         OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_web.h"
                 "${SHADER_OUT_DIR}/fs_triangle_web.h"
+                "${SHADER_OUT_DIR}/vs_quad_web.h"
+                "${SHADER_OUT_DIR}/fs_quad_web.h"
         COMMAND "${SHADERC_EXECUTABLE}"
                 -f "${SHADER_SRC_DIR}/vs_triangle.sc"
                 -o "${SHADER_OUT_DIR}/vs_triangle_web.h"
@@ -123,8 +153,24 @@ endif()
                 --platform asm.js -p 100_es
                 --bin2c fs_triangle_web
                 ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/vs_quad.sc"
+                -o "${SHADER_OUT_DIR}/vs_quad_web.h"
+                --type v
+                --platform asm.js -p 100_es
+                --bin2c vs_quad_web
+                ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/fs_quad.sc"
+                -o "${SHADER_OUT_DIR}/fs_quad_web.h"
+                --type f
+                --platform asm.js -p 100_es
+                --bin2c fs_quad_web
+                ${SHADER_INCDIRS}
         DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
                 "${SHADER_SRC_DIR}/fs_triangle.sc"
+                "${SHADER_SRC_DIR}/vs_quad.sc"
+                "${SHADER_SRC_DIR}/fs_quad.sc"
                 "${SHADER_SRC_DIR}/varying.def.sc"
         COMMENT "Compiling bgfx shaders (web)"
         VERBATIM
@@ -202,6 +248,12 @@ endif()
         src/shaders/fs_imgui_essl.h
         src/shaders/vs_imgui_web.h
         src/shaders/fs_imgui_web.h
+        src/shaders/vs_quad_glsl.h
+        src/shaders/fs_quad_glsl.h
+        src/shaders/vs_quad_essl.h
+        src/shaders/fs_quad_essl.h
+        src/shaders/vs_quad_web.h
+        src/shaders/fs_quad_web.h
     )
     target_include_directories(engine PRIVATE src)
 
@@ -218,7 +270,7 @@ endif()
 target_link_libraries(engine PUBLIC SDL3::SDL3)
 
 # --- RmlUi (runtime UI scaffold) ---
-if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+if(NOVELTEA_ENABLE_RMLUI AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     find_package(RmlUi CONFIG QUIET)
     if(RmlUi_FOUND)
         if(TARGET RmlUi::RmlUi)
@@ -237,8 +289,10 @@ if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     else()
         message(WARNING "RmlUi not found - runtime UI scaffold will run without RmlUi linked")
     endif()
-else()
+elseif(NOVELTEA_ENABLE_RMLUI)
     message(STATUS "RmlUi not linked for this target in the current skeleton")
+else()
+    message(STATUS "RmlUi disabled")
 endif()
 
 # --- Dear ImGui (dev/debug only) ---
