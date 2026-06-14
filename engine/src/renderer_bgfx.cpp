@@ -15,6 +15,8 @@
 #include "shaders/fs_triangle_glsl.h"
 #include "shaders/vs_triangle_essl.h"
 #include "shaders/fs_triangle_essl.h"
+#include "shaders/vs_triangle_web.h"
+#include "shaders/fs_triangle_web.h"
 
 namespace noveltea {
 
@@ -32,21 +34,25 @@ static const bgfx::Memory* shader_mem(const uint8_t* data, uint32_t size)
 
 static bgfx::ShaderHandle load_shader(bgfx::RendererType::Enum type,
                                       const uint8_t* glsl, uint32_t glsl_len,
-                                      const uint8_t* essl, uint32_t essl_len)
+                                      const uint8_t* essl, uint32_t essl_len,
+                                      const uint8_t* web,  uint32_t web_len)
 {
     const uint8_t* data = nullptr;
     uint32_t len = 0;
 
     switch (type) {
     case bgfx::RendererType::OpenGL:
+        data = glsl;
+        len = glsl_len;
+        break;
     case bgfx::RendererType::OpenGLES:
-        if (type == bgfx::RendererType::OpenGLES) {
-            data = essl;
-            len = essl_len;
-        } else {
-            data = glsl;
-            len = glsl_len;
-        }
+#if defined(NOVELTEA_PLATFORM_WEB)
+        data = web;
+        len = web_len;
+#else
+        data = essl;
+        len = essl_len;
+#endif
         break;
     default:
         std::fprintf(stderr, "[renderer] unsupported renderer type %d for triangle shader\n",
@@ -67,14 +73,14 @@ static bgfx::ShaderHandle load_shader(bgfx::RendererType::Enum type,
 
 struct PosColorVertex
 {
-    float x, y, z;
+    float x, y;
     float r, g, b, a;
 };
 
 static PosColorVertex s_triangle_vertices[3] = {
-    {  0.0f,  0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f }, // top - red
-    { -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f }, // bottom-left - green
-    {  0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f }, // bottom-right - blue
+    {  0.0f,  0.5f, 1.0f, 0.0f, 0.0f, 1.0f }, // top - red
+    { -0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f }, // bottom-left - green
+    {  0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f }, // bottom-right - blue
 };
 
 static const uint16_t s_triangle_indices[3] = { 0, 1, 2 };
@@ -214,11 +220,13 @@ void Renderer::create_triangle()
     bgfx::ShaderHandle vs = load_shader(
         type,
         vs_triangle_glsl, sizeof(vs_triangle_glsl),
-        vs_triangle_essl, sizeof(vs_triangle_essl));
+        vs_triangle_essl, sizeof(vs_triangle_essl),
+        vs_triangle_web,  sizeof(vs_triangle_web));
     bgfx::ShaderHandle fs = load_shader(
         type,
         fs_triangle_glsl, sizeof(fs_triangle_glsl),
-        fs_triangle_essl, sizeof(fs_triangle_essl));
+        fs_triangle_essl, sizeof(fs_triangle_essl),
+        fs_triangle_web,  sizeof(fs_triangle_web));
 
     if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
         std::fprintf(stderr, "[renderer] triangle shader load failed; skipping triangle\n");
@@ -238,7 +246,7 @@ void Renderer::create_triangle()
     // Vertex layout.
     bgfx::VertexLayout layout;
     layout.begin()
-        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
         .end();
 

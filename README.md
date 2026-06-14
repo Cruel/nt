@@ -72,63 +72,40 @@ through Android Prefab.
 You can obtain the AAR from the official SDL releases or build it yourself from
 the SDL source tree. See <https://github.com/libsdl-org/SDL/releases>.
 
-#### Build
+### Run Scripts
+
+A centralized set of scripts is provided in the `scripts/` directory to build and run the project for different targets:
+
+- **Desktop (Linux)**: `./scripts/run-desktop.sh`
+- **Web (Emscripten)**: `./scripts/run-web.sh`
+- **Android (Emulator)**: `./scripts/run-android.sh`
+
+#### Desktop (Linux)
 
 ```bash
-cd android
-./gradlew assembleDebug
+./scripts/run-desktop.sh
 ```
 
-The APK packages the following native libraries for each ABI:
+#### Web / Emscripten
 
-| Library | Role |
-|---|---|
-| `libSDL3.so` | SDL3 runtime (shared, from AAR via Prefab) |
-| `libnoveltea-sandbox.so` | App native library (shared, CMake target `noveltea-sandbox`) |
-
-Current ABI targets: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
-
-Expected result:
-- App launches.
-- Blue/purple clear color appears.
-- Red-green-blue triangle is visible in the center.
-- No reliance on top-left debug text for visual proof.
-- No shader-loading crashes.
-
-Verify packaged native libraries:
+Ensure you have the Emscripten SDK sourced in your environment.
 
 ```bash
-unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'lib.*/lib(SDL3|noveltea-sandbox)\.so'
+./scripts/run-web.sh
 ```
 
-Troubleshoot with the emulator smoke-test script:
+The script will start a local server at <http://localhost:8080>.
+
+#### Android
 
 ```bash
-cd android
-bash run-emulator-debug.sh
+./scripts/run-android.sh
 ```
-
-Check adb logcat for engine/renderer/shader diagnostics:
-
-```bash
-adb logcat | grep -iE 'noveltea|renderer|bgfx|shader|triangle|AndroidRuntime|fatal|crash'
-```
-
-### Web / Emscripten
-
-```bash
-source ~/dev/emsdk/emsdk_env.sh
-emcmake cmake --preset web-debug
-cmake --build --preset web-debug
-python3 -m http.server --directory build/web-debug/apps/sandbox 8080
-```
-
-Open <http://localhost:8080>.
 
 The Web target uses `emscripten_set_main_loop_arg`; it does not run a blocking
-forever loop. bgfx is currently disabled for Web in this pass, so the page and
-console report that the renderer is stubbed. The triangle will not appear on
-Web until bgfx is enabled for Emscripten.
+forever loop. The current Web debug preset builds the bgfx path, so the canvas
+should show the triangle smoke test and bgfx-backed debug overlay unless bgfx or
+devtools are explicitly disabled.
 
 ## Layout
 
@@ -159,6 +136,25 @@ The tree is still named `engine/`; it now separates the platform, renderer,
 runtime UI, and devtools responsibilities in code and build selection without a
 large directory move.
 
+### ImGui Debug Overlay (bgfx-backed)
+
+When `NOVELTEA_ENABLE_DEVTOOLS=ON` (the default) and both `bgfx` and `imgui`
+packages are found, the ImGui debug overlay is rendered through bgfx on a
+separate view (250) on top of the scene.  The backend owns:
+
+* GLSL/ESSL shaders for ImGui `ImDrawVert` rendering (`vs_imgui.sc`,
+  `fs_imgui.sc`), compiled via `shaderc --bin2c`.
+* A bgfx program, sampler uniform, and 2D font texture.
+* Transient vertex/index buffers for per-frame ImDrawData submission.
+
+The ImGui window displays FPS, frame time, renderer name, viewport size,
+backend name, and a trianglsmoke test indicator.  It is movable and
+collapsible on desktop and Android.
+
+If `NOVELTEA_ENABLE_DEVTOOLS=OFF`, the stub `ui_debug_stub.cpp` is compiled
+and no ImGui code is linked.  Release/player builds can safely disable
+devtools without losing the triangle rendering.
+
 ## Runtime Flow
 
 The engine exposes:
@@ -185,17 +181,16 @@ quit through the platform abstraction.
 ## Build Options
 
 - `NOVELTEA_ENABLE_BGFX=ON`: use bgfx when available for supported targets.
-  Android and Web force the stub renderer in this pass.
+  The triangle smoke test uses view 0; the ImGui overlay uses view 250.
 - `NOVELTEA_ENABLE_DEVTOOLS=ON`: include Dear ImGui dev/debug overlay when the
-  package is available.
+  package is available.  When both bgfx and ImGui are present, the overlay is
+  rendered through bgfx.
 - `NOVELTEA_USE_IMGUI`: deprecated alias; setting it OFF disables devtools.
 
 ## Stubbed Or TODO
 
 - RmlUi renderer backend, SDL input translation, document loading, and text
   rendering.
-- Dear ImGui rendering through bgfx. Current ImGui integration is input/state
-  only; bgfx debug text is the visible desktop overlay.
 - Web bgfx/WebGL renderer. The Web sandbox currently uses a visible shell plus
   console/page status with the stub renderer.
 - Vulkan shader variants for the triangle (currently GLSL/GLES only; desktop

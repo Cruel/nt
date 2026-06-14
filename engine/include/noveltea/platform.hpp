@@ -44,6 +44,7 @@ public:
     bool should_quit() const { return m_quit; }
     float delta_time() const { return m_delta_time; }
     void set_size(int width, int height);
+    void refresh_pixel_size();
 
 private:
     SDL_Window* m_window = nullptr;

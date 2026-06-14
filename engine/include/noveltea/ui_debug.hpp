@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdio>
+#include <string>
 
 struct SDL_Window;
 union SDL_Event;
@@ -17,7 +18,7 @@ public:
 
     bool initialize(SDL_Window* window);
     void process_event(const SDL_Event& event);
-    void begin_frame();
+    void begin_frame(int width, int height);
     void end_frame();
     void shutdown();
 
@@ -29,8 +30,11 @@ public:
 private:
     bool m_initialized = false;
     bool m_visible = true;
+    std::string m_ini_path;
+    float m_web_ini_sync_timer = 0.0f;
     char m_log_buffer[4096] = {};
     int m_log_len = 0;
+    void* m_bgfx_backend = nullptr;
 };
 
 } // namespace noveltea

@@ -18,7 +18,7 @@
     canvas: document.getElementById('canvas'),
     print: function(text) {
       console.log(text);
-      if (text.indexOf('[engine] initialized') !== -1) {
+      if (text.indexOf('[engine] ready') !== -1) {
         document.getElementById('status').style.display = 'none';
       }
     },

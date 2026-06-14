@@ -1,0 +1,40 @@
+name = "nt_worker"
+description = "Implementation worker for one bounded NovelTea migration slice."
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+You implement exactly one assigned migration slice.
+
+Rules:
+- Keep changes bounded to the assigned phase or issue.
+- Keep the repository buildable.
+- Do not opportunistically port adjacent systems.
+- Do not edit NovelTea/.
+- Do not port the old Qt editor unless explicitly assigned.
+- Do not add SFML dependencies to new runtime code.
+- Do not add NovelTea/ as a production include path or CMake subdirectory.
+- Prefer backend-neutral code first, adapters second.
+- Update docs/migration/STATUS.md for non-trivial work.
+
+Depth-2 delegation:
+- Before editing, you may spawn one nt_explorer for a narrow code-mapping task.
+- You may spawn one nt_researcher for a narrow API/build/dependency question.
+- Do not spawn other nt_worker agents.
+- Do not spawn agents after you have started editing unless blocked and you summarize your current state to the child.
+- Tell child agents not to spawn further agents.
+
+Verification:
+- Run the smallest relevant checks.
+- For core/runtime work, prefer:
+  cmake --preset linux-debug
+  cmake --build --preset linux-debug
+  cmake --preset web-debug
+  cmake --build --preset web-debug
+- For Android/platform/CMake/bgfx/SDL3 changes, run or attempt:
+  cd android && ./gradlew :app:assembleDebug
+- If a command cannot run, state why and what was verified instead.
+
+Output:
+- Summarize files changed, behavior added, verification run, failures, and next risks.
+- Do not paste long diffs or logs.
+"""

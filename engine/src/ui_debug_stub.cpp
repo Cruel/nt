@@ -20,8 +20,10 @@ void DebugUI::process_event(const SDL_Event& event)
     (void)event;
 }
 
-void DebugUI::begin_frame()
+void DebugUI::begin_frame(int width, int height)
 {
+    (void)width;
+    (void)height;
 }
 
 void DebugUI::end_frame()

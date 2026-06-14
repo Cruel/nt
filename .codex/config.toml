@@ -2,8 +2,9 @@
 sandbox_mode = "danger-full-access"
 
 [agents]
-max_threads = 5
+max_threads = 10
 max_depth = 2
+job_max_runtime_seconds = 1800
 
 [sandbox_workspace_write]
 network_access = true

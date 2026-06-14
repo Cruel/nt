@@ -23,15 +23,20 @@ endif()
 # --- Dependencies ---
 # SDL3::SDL3 target is provided by the root CMakeLists.txt.
 
-if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
-    message(STATUS "bgfx found - full rendering enabled")
+    if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
+        message(STATUS "bgfx found - full rendering enabled")
 
-    # ------------------------------------------------------------------ #
-    # Shader compilation via bgfx shaderc (host tool).
-    # shaderc is provided by vcpkg via bgfx[tools].  The compiled
-    # shader headers are generated at build time.
-    # ------------------------------------------------------------------ #
-    set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
+        # Generated shader headers are written to a subdirectory under the
+        # source tree for convenient #include by the renderer.  The directory
+        # and its *.h / *.h.d files are gitignored (see .gitignore).
+        # If you prefer build-dir output, override SHADER_OUT_DIR.
+
+        # ------------------------------------------------------------------ #
+        # Shader compilation via bgfx shaderc (host tool).
+        # shaderc is provided by vcpkg via bgfx[tools].  The compiled
+        # shader headers are generated at build time.
+        # ------------------------------------------------------------------ #
+        set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
     set(SHADER_OUT_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
     set(SHADER_INCDIRS  "-i" "${SHADER_SRC_DIR}")
 
@@ -125,6 +130,64 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         VERBATIM
     )
 
+    # --- ImGui shaders (compiled alongside triangle shaders) ---
+    foreach(prof glsl essl)
+        list(FIND SHADER_PROFILES "${prof}" _idx)
+        math(EXPR _plat_idx "${_idx} + 1")
+        math(EXPR _prof_idx "${_idx} + 2")
+        list(GET SHADER_PROFILES ${_plat_idx} _plat)
+        list(GET SHADER_PROFILES ${_prof_idx} _prof)
+
+        add_custom_command(
+            OUTPUT  "${SHADER_OUT_DIR}/vs_imgui_${prof}.h"
+                    "${SHADER_OUT_DIR}/fs_imgui_${prof}.h"
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/vs_imgui.sc"
+                    -o "${SHADER_OUT_DIR}/vs_imgui_${prof}.h"
+                    --type v
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c vs_imgui_${prof}
+                    ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/fs_imgui.sc"
+                    -o "${SHADER_OUT_DIR}/fs_imgui_${prof}.h"
+                    --type f
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c fs_imgui_${prof}
+                    ${SHADER_INCDIRS}
+            DEPENDS "${SHADER_SRC_DIR}/vs_imgui.sc"
+                    "${SHADER_SRC_DIR}/fs_imgui.sc"
+                    "${SHADER_SRC_DIR}/varying.def.sc"
+            COMMENT "Compiling bgfx shaders (${prof})"
+            VERBATIM
+        )
+    endforeach()
+
+    # Web variant for imgui
+    add_custom_command(
+        OUTPUT  "${SHADER_OUT_DIR}/vs_imgui_web.h"
+                "${SHADER_OUT_DIR}/fs_imgui_web.h"
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/vs_imgui.sc"
+                -o "${SHADER_OUT_DIR}/vs_imgui_web.h"
+                --type v
+                --platform asm.js -p 100_es
+                --bin2c vs_imgui_web
+                ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/fs_imgui.sc"
+                -o "${SHADER_OUT_DIR}/fs_imgui_web.h"
+                --type f
+                --platform asm.js -p 100_es
+                --bin2c fs_imgui_web
+                ${SHADER_INCDIRS}
+        DEPENDS "${SHADER_SRC_DIR}/vs_imgui.sc"
+                "${SHADER_SRC_DIR}/fs_imgui.sc"
+                "${SHADER_SRC_DIR}/varying.def.sc"
+        COMMENT "Compiling bgfx shaders (web)"
+        VERBATIM
+    )
+
     target_sources(engine PRIVATE
         src/renderer_bgfx.cpp
         src/shaders/vs_triangle_glsl.h
@@ -133,6 +196,12 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         src/shaders/fs_triangle_essl.h
         src/shaders/vs_triangle_web.h
         src/shaders/fs_triangle_web.h
+        src/shaders/vs_imgui_glsl.h
+        src/shaders/fs_imgui_glsl.h
+        src/shaders/vs_imgui_essl.h
+        src/shaders/fs_imgui_essl.h
+        src/shaders/vs_imgui_web.h
+        src/shaders/fs_imgui_web.h
     )
     target_include_directories(engine PRIVATE src)
 
@@ -174,12 +243,42 @@ endif()
 
 # --- Dear ImGui (dev/debug only) ---
 if(NOVELTEA_ENABLE_DEVTOOLS)
-    find_package(imgui CONFIG QUIET)
-    if(imgui_FOUND)
+    # Fetch imgui for Emscripten/Android (vcpkg handles desktop).
+    if(NOT TARGET imgui::imgui AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
+        include(FetchContent)
+        FetchContent_Declare(
+            imgui
+            URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8-docking.tar.gz
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        FetchContent_MakeAvailable(imgui)
+
+        add_library(imgui STATIC
+            "${imgui_SOURCE_DIR}/imgui.cpp"
+            "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+            "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+            "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+            "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp"
+        )
+        target_include_directories(imgui PUBLIC "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
+        target_compile_features(imgui PUBLIC cxx_std_11)
+        target_link_libraries(imgui PUBLIC SDL3::SDL3)
+        add_library(imgui::imgui ALIAS imgui)
+    endif()
+
+    if(NOT TARGET imgui::imgui)
+        find_package(imgui CONFIG QUIET)
+    endif()
+    if(TARGET imgui::imgui)
         message(STATUS "imgui found - debug overlay enabled")
         target_sources(engine PRIVATE src/ui_debug_imgui.cpp)
         target_link_libraries(engine PUBLIC imgui::imgui)
         target_compile_definitions(engine PUBLIC NOVELTEA_HAS_IMGUI)
+
+        if(NOVELTEA_HAS_BGFX)
+            message(STATUS "bgfx + imgui: adding bgfx-backed ImGui renderer")
+            target_sources(engine PRIVATE src/devtools/imgui_bgfx.cpp)
+        endif()
     else()
         message(STATUS "imgui not found - debug overlay disabled")
         target_sources(engine PRIVATE src/ui_debug_stub.cpp)

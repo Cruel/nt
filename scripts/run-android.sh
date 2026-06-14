@@ -6,8 +6,13 @@ APK="${APK:-app/build/outputs/apk/debug/app-debug.apk}"
 PKG="${PKG:-com.example.noveltea}"
 ACTIVITY="${ACTIVITY:-com.example.noveltea.MainActivity}"
 
-cd "$(dirname "$0")"
+# Get the script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+cd "$PROJECT_ROOT/android"
+
+echo "[run] building android app..."
 ./gradlew assembleDebug
 
 if ! adb devices | grep -qE 'emulator-[0-9]+[[:space:]]+device'; then

@@ -38,8 +38,11 @@ bool Engine::initialize(const PlatformConfig& config)
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     }
 
+    SDL_Log("[engine] initializing debug UI...");
     if (!m_debug_ui.initialize(m_platform.native_window())) {
         std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
+    } else {
+        SDL_Log("[engine] debug UI initialized");
     }
 
     m_running = true;
@@ -48,6 +51,7 @@ bool Engine::initialize(const PlatformConfig& config)
         m_renderer.renderer_name(),
         m_platform.width(),
         m_platform.height());
+    std::printf("[engine] ready\n");
 
     return true;
 }
@@ -112,10 +116,10 @@ void Engine::handle_events()
 
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                m_platform.set_size(event.window.data1, event.window.data2);
-                m_renderer.resize(event.window.data1, event.window.data2);
-                m_runtime_ui.resize(event.window.data1, event.window.data2);
-                std::printf("[window] resized: %dx%d\n", event.window.data1, event.window.data2);
+                m_platform.refresh_pixel_size();
+                m_renderer.resize(m_platform.width(), m_platform.height());
+                m_runtime_ui.resize(m_platform.width(), m_platform.height());
+                std::printf("[window] resized: %dx%d\n", m_platform.width(), m_platform.height());
                 break;
 
             default:
@@ -131,7 +135,7 @@ void Engine::update(float dt)
 
 void Engine::render()
 {
-    m_debug_ui.begin_frame();
+    m_debug_ui.begin_frame(m_renderer.width(), m_renderer.height());
     m_runtime_ui.begin_frame(m_platform.delta_time());
     m_renderer.begin_frame();
 
