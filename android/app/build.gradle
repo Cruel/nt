@@ -20,6 +20,9 @@ android {
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_SANDBOX=ON"
+                if (project.hasProperty("novelteaCompileShaders")) {
+                    arguments "-DNOVELTEA_COMPILE_SHADERS=${project.property("novelteaCompileShaders")}"
+                }
             }
         }
         ndk {
@@ -42,6 +45,7 @@ android {
     externalNativeBuild {
         cmake {
             path file("../../CMakeLists.txt")
+            version "3.31.6"
         }
     }
 }

@@ -2,12 +2,7 @@
   "name": "noveltea",
   "version-string": "0.1.0",
   "dependencies": [
-    {
-      "name": "bgfx",
-      "features": [
-        "tools"
-      ]
-    },
+    "bgfx",
     {
       "name": "rmlui",
       "features": [
@@ -25,5 +20,18 @@
       ]
     },
     "harfbuzz"
-  ]
+  ],
+  "features": {
+    "shader-tools": {
+      "description": "Install bgfx shader compiler tools for regenerating shader headers.",
+      "dependencies": [
+        {
+          "name": "bgfx",
+          "features": [
+            "tools"
+          ]
+        }
+      ]
+    }
+  }
 }

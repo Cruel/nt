@@ -10,6 +10,7 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
+                "VCPKG_MANIFEST_FEATURES": "shader-tools",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug/vcpkg_installed"
             }
         },
@@ -22,6 +23,7 @@
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
+                "VCPKG_MANIFEST_FEATURES": "shader-tools",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed"
             }
         },

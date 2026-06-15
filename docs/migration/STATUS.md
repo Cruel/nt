@@ -49,6 +49,17 @@ Verification results from the current pass:
 - `cmake --preset web-debug`: passed; RmlUi and Emscripten FreeType enabled.
 - `cmake --build --preset web-debug`: passed; RmlUi assets preloaded; Emscripten emitted SDL3 experimental warnings.
 - `cd android && ./gradlew :app:assembleDebug`: passed; RmlUi/FreeType built for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; Android Gradle plugin warned that compileSdk 35 is newer than the plugin's tested SDK.
+- CI SDL dependency fix pass:
+  - `source "$EMSDK/emsdk_env.sh" && emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF && cmake --build --preset web-debug`: passed after clearing stale local web CMake generated files.
+  - `unzip -p SDL3-devel-3.4.10-android.zip SDL3-3.4.10.aar`: passed; confirmed the release archive stores the AAR at the zip root.
+  - `cd android && ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF`: passed.
+- CI shader/CMake follow-up:
+  - `source "$EMSDK/emsdk_env.sh" && emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF`: passed with generated shader headers visible to git.
+  - `cmake --build --preset web-debug`: passed.
+  - `yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6"`: passed locally.
+  - `cd android && ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF`: passed with Gradle selecting Android SDK CMake 3.31.6.
+- Web clean-checkout ImGui ini cleanup:
+  - `source "$EMSDK/emsdk_env.sh" && emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF && cmake --build --preset web-debug`: passed; web no longer preloads or seeds `imgui.ini`, leaving ImGui to create `/persist/imgui.ini` when settings are saved.
 
 ## Stubbed Or Deferred
 

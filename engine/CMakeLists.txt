@@ -33,55 +33,86 @@ endif()
 # --- Dependencies ---
 # SDL3::SDL3 target is provided by the root CMakeLists.txt.
 
-    if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
-        message(STATUS "bgfx found - full rendering enabled")
+if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
+    message(STATUS "bgfx found - full rendering enabled")
 
-        # Generated shader headers are written to a subdirectory under the
-        # source tree for convenient #include by the renderer.  The directory
-        # and its *.h / *.h.d files are gitignored (see .gitignore).
-        # If you prefer build-dir output, override SHADER_OUT_DIR.
-
-        # ------------------------------------------------------------------ #
-        # Shader compilation via bgfx shaderc (host tool).
-        # shaderc is provided by vcpkg via bgfx[tools].  The compiled
-        # shader headers are generated at build time.
-        # ------------------------------------------------------------------ #
-        set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
+    set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
     set(SHADER_OUT_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
     set(SHADER_INCDIRS  "-i" "${SHADER_SRC_DIR}")
-
-    # Find shaderc from vcpkg (host triplet when cross-compiling).
-    find_program(SHADERC_EXECUTABLE shaderc
-        PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
-              "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
-              "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/tools/bgfx"
-              "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/tools/bgfx"
-        NO_DEFAULT_PATH
+    set(NOVELTEA_SHADER_HEADERS
+        src/shaders/vs_triangle_glsl.h
+        src/shaders/fs_triangle_glsl.h
+        src/shaders/vs_triangle_essl.h
+        src/shaders/fs_triangle_essl.h
+        src/shaders/vs_triangle_web.h
+        src/shaders/fs_triangle_web.h
+        src/shaders/vs_imgui_glsl.h
+        src/shaders/fs_imgui_glsl.h
+        src/shaders/vs_imgui_essl.h
+        src/shaders/fs_imgui_essl.h
+        src/shaders/vs_imgui_web.h
+        src/shaders/fs_imgui_web.h
+        src/shaders/vs_quad_glsl.h
+        src/shaders/fs_quad_glsl.h
+        src/shaders/vs_quad_essl.h
+        src/shaders/fs_quad_essl.h
+        src/shaders/vs_quad_web.h
+        src/shaders/fs_quad_web.h
     )
-    if(NOT SHADERC_EXECUTABLE)
-        find_program(SHADERC_EXECUTABLE shaderc)
+    if(NOVELTEA_ENABLE_RMLUI)
+        list(APPEND NOVELTEA_SHADER_HEADERS
+            src/shaders/vs_rmlui_glsl.h
+            src/shaders/fs_rmlui_glsl.h
+            src/shaders/vs_rmlui_essl.h
+            src/shaders/fs_rmlui_essl.h
+            src/shaders/vs_rmlui_web.h
+            src/shaders/fs_rmlui_web.h
+        )
     endif()
 
-    if(NOT SHADERC_EXECUTABLE)
-        message(FATAL_ERROR "shaderc not found — install bgfx[tools] via vcpkg")
-    endif()
-
-    # Find bgfx_shader.sh from bgfx include tree (vcpkg layout).
-    foreach(_dir
-        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include/bgfx"
-        "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include/bgfx"
-        "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/include/bgfx"
-        "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/include/bgfx")
-        if(EXISTS "${_dir}/bgfx_shader.sh")
-            list(APPEND SHADER_INCDIRS "-i" "${_dir}")
-            break()
+    if(NOVELTEA_COMPILE_SHADERS)
+        # Shader compilation via bgfx shaderc (host tool). shaderc is provided
+        # by vcpkg via bgfx[tools].
+        find_program(SHADERC_EXECUTABLE shaderc
+            PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
+                  "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
+                  "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/tools/bgfx"
+                  "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/tools/bgfx"
+            NO_DEFAULT_PATH
+        )
+        if(NOT SHADERC_EXECUTABLE)
+            find_program(SHADERC_EXECUTABLE shaderc)
         endif()
-    endforeach()
 
-    set(SHADER_PROFILES
-        glsl   "linux"    "120"
-        essl   "android"  "300_es"
-    )
+        if(NOT SHADERC_EXECUTABLE)
+            message(FATAL_ERROR "shaderc not found - install bgfx[tools] via vcpkg or configure with -DNOVELTEA_COMPILE_SHADERS=OFF to use committed shader headers")
+        endif()
+
+        # Find bgfx_shader.sh from bgfx include tree (vcpkg layout).
+        foreach(_dir
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include/bgfx"
+            "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include/bgfx"
+            "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/include/bgfx"
+            "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/include/bgfx")
+            if(EXISTS "${_dir}/bgfx_shader.sh")
+                list(APPEND SHADER_INCDIRS "-i" "${_dir}")
+                break()
+            endif()
+        endforeach()
+    else()
+        unset(SHADERC_EXECUTABLE CACHE)
+        foreach(_shader_header IN LISTS NOVELTEA_SHADER_HEADERS)
+            if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_shader_header}")
+                message(FATAL_ERROR "NOVELTEA_COMPILE_SHADERS=OFF requires generated shader header '${_shader_header}'. Enable shader compilation or regenerate and commit shader headers in engine/src/shaders.")
+            endif()
+        endforeach()
+    endif()
+
+    if(NOVELTEA_COMPILE_SHADERS)
+        set(SHADER_PROFILES
+            glsl   "linux"    "120"
+            essl   "android"  "300_es"
+        )
 
     foreach(prof glsl essl)
         list(FIND SHADER_PROFILES "${prof}" _idx)
@@ -259,57 +290,35 @@ endif()
         )
     endforeach()
 
-    # Web variant for imgui
-    add_custom_command(
-        OUTPUT  "${SHADER_OUT_DIR}/vs_imgui_web.h"
-                "${SHADER_OUT_DIR}/fs_imgui_web.h"
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/vs_imgui.sc"
-                -o "${SHADER_OUT_DIR}/vs_imgui_web.h"
-                --type v
-                --platform asm.js -p 100_es
-                --bin2c vs_imgui_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/fs_imgui.sc"
-                -o "${SHADER_OUT_DIR}/fs_imgui_web.h"
-                --type f
-                --platform asm.js -p 100_es
-                --bin2c fs_imgui_web
-                ${SHADER_INCDIRS}
-        DEPENDS "${SHADER_SRC_DIR}/vs_imgui.sc"
-                "${SHADER_SRC_DIR}/fs_imgui.sc"
-                "${SHADER_SRC_DIR}/varying.def.sc"
-        COMMENT "Compiling bgfx shaders (web)"
-        VERBATIM
-    )
+        # Web variant for imgui
+        add_custom_command(
+            OUTPUT  "${SHADER_OUT_DIR}/vs_imgui_web.h"
+                    "${SHADER_OUT_DIR}/fs_imgui_web.h"
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/vs_imgui.sc"
+                    -o "${SHADER_OUT_DIR}/vs_imgui_web.h"
+                    --type v
+                    --platform asm.js -p 100_es
+                    --bin2c vs_imgui_web
+                    ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/fs_imgui.sc"
+                    -o "${SHADER_OUT_DIR}/fs_imgui_web.h"
+                    --type f
+                    --platform asm.js -p 100_es
+                    --bin2c fs_imgui_web
+                    ${SHADER_INCDIRS}
+            DEPENDS "${SHADER_SRC_DIR}/vs_imgui.sc"
+                    "${SHADER_SRC_DIR}/fs_imgui.sc"
+                    "${SHADER_SRC_DIR}/varying.def.sc"
+            COMMENT "Compiling bgfx shaders (web)"
+            VERBATIM
+        )
+    endif()
 
     target_sources(engine PRIVATE
         src/renderer_bgfx.cpp
-        src/shaders/vs_triangle_glsl.h
-        src/shaders/fs_triangle_glsl.h
-        src/shaders/vs_triangle_essl.h
-        src/shaders/fs_triangle_essl.h
-        src/shaders/vs_triangle_web.h
-        src/shaders/fs_triangle_web.h
-        src/shaders/vs_imgui_glsl.h
-        src/shaders/fs_imgui_glsl.h
-        src/shaders/vs_imgui_essl.h
-        src/shaders/fs_imgui_essl.h
-        src/shaders/vs_imgui_web.h
-        src/shaders/fs_imgui_web.h
-        src/shaders/vs_quad_glsl.h
-        src/shaders/fs_quad_glsl.h
-        src/shaders/vs_quad_essl.h
-        src/shaders/fs_quad_essl.h
-        src/shaders/vs_quad_web.h
-        src/shaders/fs_quad_web.h
-        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/vs_rmlui_glsl.h>
-        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/fs_rmlui_glsl.h>
-        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/vs_rmlui_essl.h>
-        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/fs_rmlui_essl.h>
-        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/vs_rmlui_web.h>
-        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/fs_rmlui_web.h>
+        ${NOVELTEA_SHADER_HEADERS}
     )
     target_include_directories(engine PRIVATE src)
 

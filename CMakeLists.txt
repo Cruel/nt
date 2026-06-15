@@ -15,6 +15,7 @@ option(NOVELTEA_ENABLE_TEXT_LAB "Enable the rich-text migration lab scaffold" ON
 option(NOVELTEA_FETCH_BGFX "Download bgfx via FetchContent (Emscripten, Android)" ON)
 option(NOVELTEA_FETCH_RMLUI "Download RmlUi via FetchContent (Emscripten, Android)" ON)
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ON)
+option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader headers with shaderc" ON)
 option(NOVELTEA_USE_IMGUI "Deprecated alias for NOVELTEA_ENABLE_DEVTOOLS" ON)
 if(DEFINED NOVELTEA_USE_IMGUI AND NOT NOVELTEA_USE_IMGUI)
     set(NOVELTEA_ENABLE_DEVTOOLS OFF CACHE BOOL "Include Dear ImGui dev/debug overlay" FORCE)

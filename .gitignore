@@ -7,8 +7,7 @@ imgui.ini
 *.out
 *.app
 *.apk
-# Generated shader headers and shaderc dependency tracking artifacts
-engine/src/shaders/*.h
+# Generated shaderc dependency tracking artifacts
 *.h.d
 *.aab
 .gradle/

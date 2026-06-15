@@ -31,34 +31,6 @@ ImVec2 debug_overlay_default_pos() {
   return ImGui::GetMainViewport()->WorkPos;
 }
 
-#if defined(__EMSCRIPTEN__)
-void seed_web_imgui_ini(const char *ini_path) {
-  size_t existing_size = 0;
-  void *existing_data = SDL_LoadFile(ini_path, &existing_size);
-  if (existing_data) {
-    SDL_free(existing_data);
-    SDL_Log("[debug_ui] keeping existing persisted ImGui ini");
-    return;
-  }
-
-  size_t data_size = 0;
-  void *data = SDL_LoadFile("/imgui.ini", &data_size);
-  if (!data) {
-    SDL_Log("[debug_ui] bundled imgui.ini not found: %s", SDL_GetError());
-    return;
-  }
-
-  if (SDL_SaveFile(ini_path, data, data_size)) {
-    SDL_Log("[debug_ui] seeded ImGui ini from bundled asset");
-    noveltea_web_sync_persistent_fs();
-  } else {
-    SDL_Log("[debug_ui] failed to seed ImGui ini: %s", SDL_GetError());
-  }
-
-  SDL_free(data);
-}
-#endif
-
 } // namespace
 
 DebugUI::DebugUI() = default;
@@ -86,7 +58,6 @@ bool DebugUI::initialize(SDL_Window *window) {
   }
 #elif defined(__EMSCRIPTEN__)
   m_ini_path = "/persist/imgui.ini";
-  seed_web_imgui_ini(m_ini_path.c_str());
   io.IniFilename = m_ini_path.c_str();
   SDL_Log("[debug_ui] ImGui ini path: %s", io.IniFilename);
 #endif

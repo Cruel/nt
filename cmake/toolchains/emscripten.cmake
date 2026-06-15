@@ -21,9 +21,5 @@ if(NOT DEFINED EMSDK)
     endif()
 endif()
 
-set(CMAKE_TOOLCHAIN_FILE
-    "${EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
-    CACHE FILEPATH "Emscripten CMake toolchain"
-)
-
 message(STATUS "Using Emscripten SDK at: ${EMSDK}")
+include("${EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake")

@@ -26,7 +26,6 @@ if(EMSCRIPTEN)
         --shell-file "${SHELL_FILE}"
         --pre-js "${PERSISTENT_FS_PRE_JS}"
         --js-library "${PERSISTENT_FS_JS}"
-        "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/imgui.ini@/imgui.ini"
         "SHELL:--preload-file ${NOVELTEA_SANDBOX_ASSETS}@/assets"
     )
     # Force re-link when shell.html changes
