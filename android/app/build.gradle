@@ -33,12 +33,25 @@ android {
         }
     }
 
+    sourceSets {
+        main {
+            assets.srcDirs += file("$buildDir/generated/assets/noveltea")
+        }
+    }
+
     externalNativeBuild {
         cmake {
             path file("../../CMakeLists.txt")
         }
     }
 }
+
+tasks.register("copyNovelTeaAssets", Copy) {
+    from file("../../apps/sandbox/assets")
+    into file("$buildDir/generated/assets/noveltea/assets")
+}
+
+preBuild.dependsOn("copyNovelTeaAssets")
 
 dependencies {
     implementation files("libs/SDL3-3.4.10.aar")

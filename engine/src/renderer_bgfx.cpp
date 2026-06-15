@@ -246,9 +246,6 @@ void Renderer::draw_demo_2d(float time_seconds)
         0.2f);
     batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f}, {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f);
     draw_2d(batch);
-#if defined(NOVELTEA_HAS_TEXT_LAB)
-    debug_printf(0, 8, 0x0a, "Text lab static text: styled-run target API scaffold");
-#endif
 #else
     (void)time_seconds;
 #endif
@@ -314,9 +311,9 @@ void Renderer::create_2d()
         4, 4, false, 1, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
         bgfx::copy(pixels, sizeof(pixels))).idx;
 
-    m_disk_texture = load_ppm_texture("apps/sandbox/assets/checker.ppm");
+    m_disk_texture = load_ppm_texture("checker.ppm");
     if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture})) {
-        m_texture_status = "disk PPM apps/sandbox/assets/checker.ppm";
+        m_texture_status = "disk PPM checker.ppm";
     } else {
         m_texture_status = "fallback procedural checker";
     }
@@ -386,7 +383,8 @@ void Renderer::submit_quad(const QuadCommand& command)
 
 uint16_t Renderer::load_ppm_texture(const std::filesystem::path& path)
 {
-    const auto bytes = read_binary_file(path);
+    const auto resolved_path = resolve_asset_path(path);
+    const auto bytes = read_binary_file(resolved_path);
     if (!bytes) {
         return UINT16_MAX;
     }
@@ -399,7 +397,7 @@ uint16_t Renderer::load_ppm_texture(const std::filesystem::path& path)
     int max_value = 0;
     in >> magic >> width >> height >> max_value;
     if (magic != "P3" || width <= 0 || height <= 0 || max_value <= 0) {
-        SDL_Log("[renderer] unsupported texture file %s (expected ASCII PPM P3)", path.string().c_str());
+        SDL_Log("[renderer] unsupported texture file %s (expected ASCII PPM P3)", resolved_path.string().c_str());
         return UINT16_MAX;
     }
 
@@ -409,7 +407,7 @@ uint16_t Renderer::load_ppm_texture(const std::filesystem::path& path)
         int g = 0;
         int b = 0;
         if (!(in >> r >> g >> b)) {
-            SDL_Log("[renderer] incomplete PPM texture %s", path.string().c_str());
+            SDL_Log("[renderer] incomplete PPM texture %s", resolved_path.string().c_str());
             return UINT16_MAX;
         }
         const auto scale = [max_value](int value) -> uint32_t {
@@ -433,10 +431,10 @@ uint16_t Renderer::load_ppm_texture(const std::filesystem::path& path)
         bgfx::copy(pixels.data(), static_cast<uint32_t>(pixels.size() * sizeof(uint32_t))));
 
     if (!bgfx::isValid(texture)) {
-        SDL_Log("[renderer] failed to create texture from %s", path.string().c_str());
+        SDL_Log("[renderer] failed to create texture from %s", resolved_path.string().c_str());
         return UINT16_MAX;
     }
-    SDL_Log("[renderer] loaded texture: %s (%dx%d)", path.string().c_str(), width, height);
+    SDL_Log("[renderer] loaded texture: %s (%dx%d)", resolved_path.string().c_str(), width, height);
     return texture.idx;
 }
 

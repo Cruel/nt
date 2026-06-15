@@ -20,6 +20,8 @@ private:
     std::filesystem::path m_root;
 };
 
+[[nodiscard]] std::filesystem::path default_asset_root();
+[[nodiscard]] std::filesystem::path resolve_asset_path(const std::filesystem::path& relative);
 [[nodiscard]] std::optional<std::vector<std::uint8_t>> read_binary_file(const std::filesystem::path& path);
 [[nodiscard]] std::optional<std::string> read_text_file(const std::filesystem::path& path);
 void log_info(const char* area, const char* message);

@@ -24,9 +24,14 @@ public:
     bool is_initialized() const { return m_initialized; }
 
 private:
+    struct State;
+#if defined(NOVELTEA_HAS_RMLUI)
+    State* m_state = nullptr;
+#endif
+
     bool m_initialized = false;
-    int m_width = 0;
-    int m_height = 0;
+    int m_width = 1280;
+    int m_height = 720;
 };
 
 } // namespace noveltea

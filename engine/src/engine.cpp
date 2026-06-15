@@ -176,31 +176,7 @@ void Engine::render()
 
     ++m_frame_count;
 
-    // Engine debug text overlay (via renderer abstraction)
-    m_renderer.debug_printf(0, 0, 0x0f, "NovelTea Engine");
-    m_renderer.debug_printf(0, 1, 0x0f, "Renderer: %s", m_renderer.renderer_name());
-    m_renderer.debug_printf(0, 2, 0x0f, "Size: %dx%d", m_platform.width(), m_platform.height());
-    m_renderer.debug_printf(0, 3, 0x0f, "dt: %.2f ms", m_platform.delta_time() * 1000.0f);
-    m_renderer.debug_printf(0, 4, 0x0f, "Frame: %u%s", m_frame_count,
-        m_frame_limit > 0 ? " (smoke)" : "");
-    m_renderer.debug_printf(0, 5, 0x0f, "Demo: %s", demo_mode_name(m_demo_mode));
-    m_renderer.debug_printf(0, 6, 0x0f, "Runtime UI: %s", m_runtime_ui.backend_name());
-    m_renderer.debug_printf(0, 7, 0x0f, "RmlUi: %s", m_runtime_ui.status_text());
-    m_renderer.debug_printf(0, 8, 0x0f, "Render2D: %s",
-#if defined(NOVELTEA_HAS_RENDER2D)
-        "enabled"
-#else
-        "disabled"
-#endif
-    );
-    m_renderer.debug_printf(0, 9, 0x0f, "Texture: %s", m_renderer.texture_status());
-    m_renderer.debug_printf(0, 10, 0x0f, "Text lab: %s",
-#if defined(NOVELTEA_HAS_TEXT_LAB)
-        demo_enabled(m_demo_mode, DemoMode::Text) ? "styled-run scaffold" : "available"
-#else
-        "disabled"
-#endif
-    );
+    // Debug text overlay removed — diagnostics routed through Dear ImGui instead.
 
     if (m_frame_count % 60 == 0) {
         SDL_Log("[engine] frame %u", m_frame_count);

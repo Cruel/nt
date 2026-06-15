@@ -1,8 +1,9 @@
 #include "noveltea/assets/assets.hpp"
 
+#include <SDL3/SDL_iostream.h>
 #include <SDL3/SDL_log.h>
 
-#include <fstream>
+#include <cstdio>
 
 namespace noveltea {
 
@@ -24,25 +25,45 @@ std::filesystem::path AssetPath::resolve(const std::filesystem::path& relative) 
     return m_root / relative;
 }
 
+std::filesystem::path default_asset_root()
+{
+#if defined(NOVELTEA_PLATFORM_DESKTOP)
+    return "apps/sandbox/assets";
+#else
+    return "assets";
+#endif
+}
+
+std::filesystem::path resolve_asset_path(const std::filesystem::path& relative)
+{
+    return AssetPath(default_asset_root()).resolve(relative);
+}
+
 std::optional<std::vector<std::uint8_t>> read_binary_file(const std::filesystem::path& path)
 {
-    std::ifstream in(path, std::ios::binary);
+    SDL_IOStream* in = SDL_IOFromFile(path.string().c_str(), "rb");
     if (!in) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] failed to open %s", path.string().c_str());
         return std::nullopt;
     }
 
-    in.seekg(0, std::ios::end);
-    const auto size = in.tellg();
-    in.seekg(0, std::ios::beg);
+    const Sint64 size = SDL_SeekIO(in, 0, SDL_IO_SEEK_END);
+    SDL_SeekIO(in, 0, SDL_IO_SEEK_SET);
     if (size < 0) {
+        SDL_CloseIO(in);
         return std::vector<std::uint8_t>{};
     }
 
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
     if (!bytes.empty()) {
-        in.read(reinterpret_cast<char*>(bytes.data()), size);
+        const size_t read = SDL_ReadIO(in, bytes.data(), bytes.size());
+        if (read != bytes.size()) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] incomplete read for %s", path.string().c_str());
+            SDL_CloseIO(in);
+            return std::nullopt;
+        }
     }
+    SDL_CloseIO(in);
     return bytes;
 }
 

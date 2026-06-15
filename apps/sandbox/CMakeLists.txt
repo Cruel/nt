@@ -6,6 +6,8 @@ endif()
 
 target_link_libraries(noveltea-sandbox PRIVATE engine)
 
+set(NOVELTEA_SANDBOX_ASSETS "${CMAKE_SOURCE_DIR}/apps/sandbox/assets")
+
 # Emscripten output settings
 if(EMSCRIPTEN)
     set_target_properties(noveltea-sandbox PROPERTIES
@@ -24,7 +26,8 @@ if(EMSCRIPTEN)
         --shell-file "${SHELL_FILE}"
         --pre-js "${PERSISTENT_FS_PRE_JS}"
         --js-library "${PERSISTENT_FS_JS}"
-        --preload-file "${CMAKE_SOURCE_DIR}/imgui.ini@/imgui.ini"
+        "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/imgui.ini@/imgui.ini"
+        "SHELL:--preload-file ${NOVELTEA_SANDBOX_ASSETS}@/assets"
     )
     # Force re-link when shell.html changes
     set_property(TARGET noveltea-sandbox APPEND PROPERTY
@@ -34,6 +37,19 @@ if(EMSCRIPTEN)
         target_compile_options(noveltea-sandbox PRIVATE -flto)
         target_link_options(noveltea-sandbox PRIVATE -flto)
     endif()
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(NOVELTEA_ANDROID_GENERATED_ASSETS
+        "${CMAKE_BINARY_DIR}/android-generated-assets")
+    add_custom_command(TARGET noveltea-sandbox PRE_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${NOVELTEA_ANDROID_GENERATED_ASSETS}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${NOVELTEA_SANDBOX_ASSETS}"
+                "${NOVELTEA_ANDROID_GENERATED_ASSETS}/assets"
+        VERBATIM
+    )
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

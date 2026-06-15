@@ -90,11 +90,20 @@ endif()
         list(GET SHADER_PROFILES ${_plat_idx} _plat)
         list(GET SHADER_PROFILES ${_prof_idx} _prof)
 
+        set(_RMLUI_OUTPUTS)
+        if(NOVELTEA_ENABLE_RMLUI)
+            set(_RMLUI_OUTPUTS
+                "${SHADER_OUT_DIR}/vs_rmlui_${prof}.h"
+                "${SHADER_OUT_DIR}/fs_rmlui_${prof}.h"
+            )
+        endif()
+
         add_custom_command(
             OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
                     "${SHADER_OUT_DIR}/fs_triangle_${prof}.h"
                     "${SHADER_OUT_DIR}/vs_quad_${prof}.h"
                     "${SHADER_OUT_DIR}/fs_quad_${prof}.h"
+                    ${_RMLUI_OUTPUTS}
             COMMAND "${SHADERC_EXECUTABLE}"
                     -f "${SHADER_SRC_DIR}/vs_triangle.sc"
                     -o "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
@@ -123,10 +132,26 @@ endif()
                     --platform ${_plat} -p ${_prof}
                     --bin2c fs_quad_${prof}
                     ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/vs_rmlui.sc"
+                    -o "${SHADER_OUT_DIR}/vs_rmlui_${prof}.h"
+                    --type v
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c vs_rmlui_${prof}
+                    ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/fs_rmlui.sc"
+                    -o "${SHADER_OUT_DIR}/fs_rmlui_${prof}.h"
+                    --type f
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c fs_rmlui_${prof}
+                    ${SHADER_INCDIRS}
             DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
                     "${SHADER_SRC_DIR}/fs_triangle.sc"
                     "${SHADER_SRC_DIR}/vs_quad.sc"
                     "${SHADER_SRC_DIR}/fs_quad.sc"
+                    "${SHADER_SRC_DIR}/vs_rmlui.sc"
+                    "${SHADER_SRC_DIR}/fs_rmlui.sc"
                     "${SHADER_SRC_DIR}/varying.def.sc"
             COMMENT "Compiling bgfx shaders (${prof})"
             VERBATIM
@@ -134,11 +159,20 @@ endif()
     endforeach()
 
     # Also compile a WebGL (ESSL 1.0) variant for web builds
+    set(_RMLUI_WEB_OUTPUTS)
+    if(NOVELTEA_ENABLE_RMLUI)
+        set(_RMLUI_WEB_OUTPUTS
+            "${SHADER_OUT_DIR}/vs_rmlui_web.h"
+            "${SHADER_OUT_DIR}/fs_rmlui_web.h"
+        )
+    endif()
+
     add_custom_command(
         OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_web.h"
                 "${SHADER_OUT_DIR}/fs_triangle_web.h"
                 "${SHADER_OUT_DIR}/vs_quad_web.h"
                 "${SHADER_OUT_DIR}/fs_quad_web.h"
+                ${_RMLUI_WEB_OUTPUTS}
         COMMAND "${SHADERC_EXECUTABLE}"
                 -f "${SHADER_SRC_DIR}/vs_triangle.sc"
                 -o "${SHADER_OUT_DIR}/vs_triangle_web.h"
@@ -167,10 +201,26 @@ endif()
                 --platform asm.js -p 100_es
                 --bin2c fs_quad_web
                 ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/vs_rmlui.sc"
+                -o "${SHADER_OUT_DIR}/vs_rmlui_web.h"
+                --type v
+                --platform asm.js -p 100_es
+                --bin2c vs_rmlui_web
+                ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/fs_rmlui.sc"
+                -o "${SHADER_OUT_DIR}/fs_rmlui_web.h"
+                --type f
+                --platform asm.js -p 100_es
+                --bin2c fs_rmlui_web
+                ${SHADER_INCDIRS}
         DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
                 "${SHADER_SRC_DIR}/fs_triangle.sc"
                 "${SHADER_SRC_DIR}/vs_quad.sc"
                 "${SHADER_SRC_DIR}/fs_quad.sc"
+                "${SHADER_SRC_DIR}/vs_rmlui.sc"
+                "${SHADER_SRC_DIR}/fs_rmlui.sc"
                 "${SHADER_SRC_DIR}/varying.def.sc"
         COMMENT "Compiling bgfx shaders (web)"
         VERBATIM
@@ -254,10 +304,19 @@ endif()
         src/shaders/fs_quad_essl.h
         src/shaders/vs_quad_web.h
         src/shaders/fs_quad_web.h
+        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/vs_rmlui_glsl.h>
+        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/fs_rmlui_glsl.h>
+        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/vs_rmlui_essl.h>
+        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/fs_rmlui_essl.h>
+        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/vs_rmlui_web.h>
+        $<$<BOOL:${NOVELTEA_ENABLE_RMLUI}>:src/shaders/fs_rmlui_web.h>
     )
     target_include_directories(engine PRIVATE src)
 
     target_link_libraries(engine PUBLIC bgfx::bgfx)
+    if(TARGET bx::bx)
+        target_link_libraries(engine PUBLIC bx::bx)
+    endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Android")
         target_link_libraries(engine PUBLIC EGL GLESv2 android)
     endif()
@@ -270,27 +329,29 @@ endif()
 target_link_libraries(engine PUBLIC SDL3::SDL3)
 
 # --- RmlUi (runtime UI scaffold) ---
-if(NOVELTEA_ENABLE_RMLUI AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
-    find_package(RmlUi CONFIG QUIET)
+if(NOVELTEA_ENABLE_RMLUI)
+    if(NOT TARGET RmlUi::RmlUi AND NOT TARGET RmlUi::Core)
+        find_package(RmlUi CONFIG QUIET)
+    endif()
     if(RmlUi_FOUND)
         if(TARGET RmlUi::RmlUi)
             set(NOVELTEA_RMLUI_TARGET RmlUi::RmlUi)
         elseif(TARGET RmlUi::Core)
             set(NOVELTEA_RMLUI_TARGET RmlUi::Core)
         endif()
+    elseif(TARGET RmlUi::RmlUi)
+        set(NOVELTEA_RMLUI_TARGET RmlUi::RmlUi)
+    elseif(TARGET RmlUi::Core)
+        set(NOVELTEA_RMLUI_TARGET RmlUi::Core)
+    endif()
 
-        if(NOVELTEA_RMLUI_TARGET)
-            message(STATUS "RmlUi found - runtime UI core enabled (renderer backend TODO)")
-            target_link_libraries(engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
-            target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RMLUI)
-        else()
-            message(WARNING "RmlUi package found but no known CMake target was exported; runtime UI scaffold will run without RmlUi linked")
-        endif()
+    if(NOVELTEA_RMLUI_TARGET)
+        message(STATUS "RmlUi found - runtime UI core enabled (bgfx render backend)")
+        target_link_libraries(engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
+        target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RMLUI)
     else()
         message(WARNING "RmlUi not found - runtime UI scaffold will run without RmlUi linked")
     endif()
-elseif(NOVELTEA_ENABLE_RMLUI)
-    message(STATUS "RmlUi not linked for this target in the current skeleton")
 else()
     message(STATUS "RmlUi disabled")
 endif()

@@ -41,9 +41,18 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
   - `./build/linux-debug/apps/sandbox/noveltea-sandbox --frames 180`
   - `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`
 
-## Deferred
+## Implemented In This Slice
 
-- RmlUi bgfx `RenderInterface`, `SystemInterface`, file interface, font loading, document loading, and SDL3 input translation.
-- bimg-backed PNG/JPEG/etc. texture loading from disk.
+- RmlUi bgfx `RenderInterface` (`BgfxRenderInterface`) with vertex/index buffer compilation, texture generate/release, scissor support, and orthographic projection via custom shader pair.
+- Minimal `BgfxSystemInterface` with SDL3 high-resolution timer.
+- SDL3 event translation (mouse, keyboard, text input, window resize) into RmlUi context calls.
+- Font loading and demo document/stylesheet loading from `apps/sandbox/assets/rmlui/`.
+- RmlUi bgfx shader pair (`vs_rmlui.sc` / `fs_rmlui.sc`) compiled for glsl/essl/web profiles.
+
+## Deferred (Next Slice)
+
+- bimg-backed PNG/JPEG/etc. texture loading for `BgfxRenderInterface::LoadTexture`.
+- Clip mask, layer stack, filter/shader compilation (advanced RmlUi features).
+- RmlUi Debugger integration.
 - SDF/MSDF font atlas and rich text draw buffers.
-- Scissor/clip masks beyond later RmlUi backend needs.
+- Web/Android RmlUi linkage (currently scaffold-only).

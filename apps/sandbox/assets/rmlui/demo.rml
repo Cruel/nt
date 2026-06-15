@@ -1,0 +1,14 @@
+<rml>
+<head>
+    <title>Runtime UI Demo</title>
+    <link type="text/rcss" href="demo.rcss"/>
+</head>
+<body>
+    <div id="panel">
+        <h1>NovelTea Runtime UI</h1>
+        <p>RmlUi is now rendering through bgfx.</p>
+        <button id="demo_btn" onclick="this.inner_text='Clicked!'">Click me</button>
+        <div id="status_box">Status: Active</div>
+    </div>
+</body>
+</rml>

@@ -13,6 +13,7 @@ option(NOVELTEA_ENABLE_RENDER2D "Enable the engine-owned 2D bgfx draw substrate"
 option(NOVELTEA_ENABLE_RMLUI "Enable RmlUi runtime UI integration when the package is available" ON)
 option(NOVELTEA_ENABLE_TEXT_LAB "Enable the rich-text migration lab scaffold" ON)
 option(NOVELTEA_FETCH_BGFX "Download bgfx via FetchContent (Emscripten, Android)" ON)
+option(NOVELTEA_FETCH_RMLUI "Download RmlUi via FetchContent (Emscripten, Android)" ON)
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ON)
 option(NOVELTEA_USE_IMGUI "Deprecated alias for NOVELTEA_ENABLE_DEVTOOLS" ON)
 if(DEFINED NOVELTEA_USE_IMGUI AND NOT NOVELTEA_USE_IMGUI)
@@ -93,6 +94,49 @@ elseif(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     if(bgfx_FOUND)
         set(NOVELTEA_HAS_BGFX ON CACHE INTERNAL "bgfx available for this target")
     endif()
+endif()
+
+# --- RmlUi: provide the RmlUi::RmlUi target for all platforms ---
+
+if(NOVELTEA_ENABLE_RMLUI AND NOVELTEA_FETCH_RMLUI AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
+    include(FetchContent)
+    if(EMSCRIPTEN AND NOT TARGET Freetype::Freetype)
+        add_library(Freetype::Freetype INTERFACE IMPORTED)
+        target_compile_options(Freetype::Freetype INTERFACE -sUSE_FREETYPE=1)
+        target_link_options(Freetype::Freetype INTERFACE -sUSE_FREETYPE=1)
+    endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Android" AND NOT TARGET Freetype::Freetype)
+        set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            freetype
+            URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        FetchContent_MakeAvailable(freetype)
+        if(TARGET freetype AND NOT TARGET Freetype::Freetype)
+            add_library(Freetype::Freetype ALIAS freetype)
+        endif()
+    endif()
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(RMLUI_LUA_BINDINGS OFF CACHE BOOL "" FORCE)
+    set(RMLUI_LOTTIE_PLUGIN OFF CACHE BOOL "" FORCE)
+    set(RMLUI_SVG_PLUGIN OFF CACHE BOOL "" FORCE)
+    set(RMLUI_HARFBUZZ_SAMPLE OFF CACHE BOOL "" FORCE)
+    set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
+    set(RMLUI_COMPILER_OPTIONS OFF CACHE BOOL "" FORCE)
+    set(RMLUI_FONT_ENGINE "freetype" CACHE STRING "" FORCE)
+
+    FetchContent_Declare(
+        RmlUi
+        URL https://github.com/mikke89/RmlUi/archive/refs/tags/6.2.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(RmlUi)
 endif()
 
 add_subdirectory(engine)

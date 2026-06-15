@@ -1,0 +1,76 @@
+body
+{
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    margin: 0px;
+}
+
+#panel
+{
+    display: block;
+    position: absolute;
+    left: 40px;
+    top: 40px;
+    width: 400px;
+    min-height: 220px;
+    background: rgba(30, 40, 60, 200);
+    border-width: 2px;
+    border-color: #6a8cff;
+    border-radius: 8px;
+    padding: 20px;
+    font-family: Liberation Sans;
+    font-size: 14px;
+    color: #ccccdd;
+}
+
+h1
+{
+    display: block;
+    color: #8ab4ff;
+    font-size: 18px;
+    font-weight: bold;
+    margin: 0px;
+    margin-bottom: 12px;
+}
+
+p
+{
+    display: block;
+    color: #ccccdd;
+    font-size: 14px;
+    margin: 0px;
+    margin-bottom: 16px;
+}
+
+button
+{
+    display: block;
+    width: 150px;
+    height: 36px;
+    background: #4a6dcf;
+    color: white;
+    border-width: 1px;
+    border-color: #6a8cff;
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: center;
+    line-height: 36px;
+}
+
+button:hover
+{
+    background: #5a7ddf;
+}
+
+#status_box
+{
+    display: block;
+    margin-top: 16px;
+    padding: 8px;
+    background: rgba(60, 80, 120, 180);
+    color: #aabbee;
+    font-size: 12px;
+    border-radius: 4px;
+}
