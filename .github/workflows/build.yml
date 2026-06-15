@@ -1,0 +1,248 @@
+name: Build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-linux
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+  VCPKG_MAX_CONCURRENCY: 2
+
+jobs:
+  linux:
+    name: Linux desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            cmake \
+            pkg-config \
+            python3 \
+            curl \
+            zip \
+            unzip \
+            tar \
+            git \
+            xvfb \
+            libgl1-mesa-dev \
+            libgl1-mesa-dri \
+            libegl1-mesa-dev \
+            libx11-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            wayland-protocols \
+            autoconf \
+            automake \
+            autoconf-archive \
+            libtool \
+            bison \
+            flex
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            build/linux-debug/vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-linux-
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Configure
+        run: cmake --preset linux-debug -G Ninja
+
+      - name: Build
+        run: cmake --build --preset linux-debug
+
+      - name: Headless sandbox smoke
+        run: |
+          xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
+
+  web:
+    name: Web / Emscripten
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            cmake \
+            python3 \
+            curl \
+            zip \
+            unzip \
+            tar \
+            git \
+            autoconf \
+            automake \
+            autoconf-archive \
+            libtool \
+            bison \
+            flex
+
+      - name: Cache vcpkg host tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-host-tools-${{ hashFiles('vcpkg.json', 'CMakeLists.txt', 'engine/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-host-tools-
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Install host shaderc
+        run: |
+          "$VCPKG_ROOT/vcpkg" install "bgfx[tools]:x64-linux" --x-install-root="${{ github.workspace }}/vcpkg_installed"
+
+      - name: Cache Emscripten SDK
+        uses: actions/cache@v4
+        with:
+          path: .cache/emsdk
+          key: ${{ runner.os }}-emsdk-latest
+          restore-keys: |
+            ${{ runner.os }}-emsdk-
+
+      - name: Install Emscripten
+        run: |
+          if [ ! -d "${{ github.workspace }}/.cache/emsdk/.git" ]; then
+            git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
+          fi
+          cd "${{ github.workspace }}/.cache/emsdk"
+          ./emsdk install latest
+          ./emsdk activate latest
+
+      - name: Configure and build web
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          cmake --preset web-debug -G Ninja
+          cmake --build --preset web-debug
+
+  android:
+    name: Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            cmake \
+            python3 \
+            curl \
+            zip \
+            unzip \
+            tar \
+            git \
+            autoconf \
+            automake \
+            autoconf-archive \
+            libtool \
+            bison \
+            flex
+
+      - name: Install Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1"
+
+      - name: Cache vcpkg host tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-host-tools-${{ hashFiles('vcpkg.json', 'CMakeLists.txt', 'engine/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-host-tools-
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Install host shaderc
+        run: |
+          "$VCPKG_ROOT/vcpkg" install "bgfx[tools]:x64-linux" --x-install-root="${{ github.workspace }}/vcpkg_installed"
+
+      - name: Build Android debug APK
+        working-directory: android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: noveltea-android-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
