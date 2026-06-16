@@ -4,14 +4,22 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 namespace noveltea {
 
-Platform::Platform() = default;
+struct PlatformState {
+  SDL_Window *window = nullptr;
+  std::vector<SDL_Event> events;
+  std::string canvas_selector;
+};
+
+Platform::Platform() : m_state(std::make_unique<PlatformState>()) {}
 Platform::~Platform() { shutdown(); }
 
 bool Platform::initialize(const PlatformConfig &config) {
-  if (m_window) {
+  if (m_state->window) {
     std::fprintf(stderr, "[platform] already initialized\n");
     return false;
   }
@@ -34,8 +42,8 @@ bool Platform::initialize(const PlatformConfig &config) {
   m_height = config.height;
 
   SDL_WindowFlags win_flags = config.resizable ? SDL_WINDOW_RESIZABLE : 0;
-  m_window = SDL_CreateWindow(config.title, m_width, m_height, win_flags);
-  if (!m_window) {
+  m_state->window = SDL_CreateWindow(config.title, m_width, m_height, win_flags);
+  if (!m_state->window) {
     std::fprintf(stderr, "[platform] SDL_CreateWindow failed: %s\n",
                  SDL_GetError());
     SDL_Quit();
@@ -48,14 +56,14 @@ bool Platform::initialize(const PlatformConfig &config) {
   m_quit = false;
 
 #if defined(__EMSCRIPTEN__)
-  SDL_PropertiesID props = SDL_GetWindowProperties(m_window);
+  SDL_PropertiesID props = SDL_GetWindowProperties(m_state->window);
   const char *canvas_id = SDL_GetStringProperty(
       props, SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING, "#canvas");
   if (canvas_id[0] != '#') {
-    m_canvas_selector = "#";
-    m_canvas_selector += canvas_id;
+    m_state->canvas_selector = "#";
+    m_state->canvas_selector += canvas_id;
   } else {
-    m_canvas_selector = canvas_id;
+    m_state->canvas_selector = canvas_id;
   }
 #endif
 
@@ -65,8 +73,8 @@ bool Platform::initialize(const PlatformConfig &config) {
 }
 
 void Platform::poll_events() {
-  m_events.clear();
-  if (!m_window)
+  m_state->events.clear();
+  if (!m_state->window)
     return;
 
   uint64_t now = SDL_GetTicks();
@@ -75,7 +83,7 @@ void Platform::poll_events() {
 
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
-    m_events.push_back(event);
+    m_state->events.push_back(event);
   }
 }
 
@@ -87,18 +95,18 @@ void Platform::set_size(int width, int height) {
 }
 
 void Platform::refresh_pixel_size() {
-  if (!m_window)
+  if (!m_state->window)
     return;
 
   int width = 0;
   int height = 0;
 #if defined(SDL_PLATFORM_ANDROID)
-  if (SDL_GetWindowSize(m_window, &width, &height) && width > 0 && height > 0) {
+  if (SDL_GetWindowSize(m_state->window, &width, &height) && width > 0 && height > 0) {
     m_width = width;
     m_height = height;
   }
 #else
-  if (SDL_GetWindowSizeInPixels(m_window, &width, &height) && width > 0 &&
+  if (SDL_GetWindowSizeInPixels(m_state->window, &width, &height) && width > 0 &&
       height > 0) {
     m_width = width;
     m_height = height;
@@ -106,22 +114,26 @@ void Platform::refresh_pixel_size() {
 #endif
 }
 
+void *Platform::native_window() const { return m_state->window; }
+
+const void *Platform::native_events() const { return &m_state->events; }
+
 NativeWindowHandles Platform::native_window_handles() const {
   NativeWindowHandles handles;
-  if (!m_window)
+  if (!m_state->window)
     return handles;
 
 #if defined(__EMSCRIPTEN__)
-  handles.window = const_cast<char *>(m_canvas_selector.c_str());
+  handles.window = const_cast<char *>(m_state->canvas_selector.c_str());
 #elif defined(SDL_PLATFORM_ANDROID)
-  SDL_PropertiesID props = SDL_GetWindowProperties(m_window);
+  SDL_PropertiesID props = SDL_GetWindowProperties(m_state->window);
   handles.window = SDL_GetPointerProperty(
       props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
   if (!handles.window) {
     std::fprintf(stderr, "[platform] Android native window unavailable\n");
   }
 #elif defined(SDL_PLATFORM_LINUX)
-  SDL_PropertiesID props = SDL_GetWindowProperties(m_window);
+  SDL_PropertiesID props = SDL_GetWindowProperties(m_state->window);
   handles.display = SDL_GetPointerProperty(
       props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
 
@@ -136,20 +148,34 @@ NativeWindowHandles Platform::native_window_handles() const {
   std::fprintf(stderr, "[platform] X11 native handles unavailable. Try running "
                        "with SDL_VIDEODRIVER=x11.\n");
 #else
-  handles.window = m_window;
+  handles.window = m_state->window;
 #endif
 
   return handles;
 }
 
 void Platform::shutdown() {
-  if (!m_window)
+  if (!m_state->window)
     return;
 
-  SDL_DestroyWindow(m_window);
-  m_window = nullptr;
+  SDL_DestroyWindow(m_state->window);
+  m_state->window = nullptr;
   SDL_Quit();
   std::printf("[platform] shutdown\n");
 }
+
+namespace sdl_platform {
+
+SDL_Window *native_window(const Platform &platform)
+{
+  return static_cast<SDL_Window *>(platform.native_window());
+}
+
+const std::vector<SDL_Event> &events(const Platform &platform)
+{
+  return *static_cast<const std::vector<SDL_Event> *>(platform.native_events());
+}
+
+} // namespace sdl_platform
 
 } // namespace noveltea

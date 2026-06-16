@@ -14,11 +14,11 @@ The immediate long-running project is migration from the old `Cruel/NovelTea` en
 - `cmake/` contains toolchains and build helpers.
 - `editor/`, when present, is for the future Electron/TanStack/Vite editor, not for the old Qt editor.
 - `docs/migration/` is the durable memory for migration plans, reports, status notes, and command summaries.
-- `NovelTea/`, when present, is a local read-only clone of the old engine used only as migration reference material.
+- `refs/NovelTea/`, when present, is a local read-only clone of the old engine used only as migration reference material.
 
 ## Non-negotiable migration rules
 
-Treat `NovelTea/` as read-only reference code. Do not edit files under `NovelTea/`. Do not add `NovelTea/` as a CMake subdirectory, production include path, or linked target. Port intentionally selected code into the new structure instead.
+Treat `refs/NovelTea/` as read-only reference code. Do not edit files under `refs/NovelTea/`. Do not add `refs/NovelTea/` as a CMake subdirectory, production include path, or linked target. Port intentionally selected code into the new structure instead.
 
 Keep the new `nt` tree buildable after each implementation slice. Do not start broad rewrites that require several later fixes before the repository compiles again.
 

@@ -6,8 +6,6 @@
 #include <filesystem>
 #include <string>
 
-struct SDL_Window;
-
 namespace noveltea {
 
 struct RendererConfig {
@@ -58,7 +56,7 @@ private:
     int m_width = 0;
     int m_height = 0;
 
-    // bgfx resource handles (stored as uint16_t indices; UINT16_MAX = invalid)
+    // Backend resource handles (stored as uint16_t indices; UINT16_MAX = invalid).
     uint16_t m_triangle_vb = UINT16_MAX;
     uint16_t m_triangle_ib = UINT16_MAX;
     uint16_t m_triangle_program = UINT16_MAX;

@@ -2,6 +2,11 @@
 
 ## Implemented
 
+- Split renderer/platform/audio source organization without adding new runtime features:
+  - bgfx renderer implementation moved under `engine/src/render/bgfx/`, split into lifecycle, resource RAII, quad batch submission, embedded shader loading, and the current PPM texture proof.
+  - SDL platform implementation moved under `engine/src/platform/sdl/`, with public `Platform` state hiding SDL window/event storage behind opaque accessors and a private SDL access header for engine internals.
+  - Added backend-neutral placeholder headers for future renderer texture/shader/material/backend seams, platform input/window event seams, and audio backend/system seams.
+  - Added `engine/src/audio/miniaudio/miniaudio_backend.cpp` as an organizational placeholder only; no audio smoke behavior was added.
 - Added feature flags: `NOVELTEA_ENABLE_RENDER2D`, `NOVELTEA_ENABLE_RMLUI`, `NOVELTEA_ENABLE_TEXT_LAB`; existing bgfx/devtools flags remain.
 - Added backend-neutral helper headers for geometry, render commands/resources, assets, and text-run shape.
 - Added minimal file loading and SDL-backed diagnostics.
@@ -40,6 +45,14 @@
 
 Verification results from the current pass:
 
+- Renderer/platform/audio layout refactor:
+  - `cmake --preset linux-debug`: passed.
+  - `cmake --build --preset linux-debug`: passed; existing unused `demo_mode_name` warning remains.
+  - `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`: passed; frame-limited smoke exited through normal shutdown.
+  - `cmake --preset web-debug`: passed.
+  - `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental warnings remain.
+  - `cd android && ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF`: passed; existing Android SDK/AGP and third-party CMake warnings remain.
+
 - `cmake --preset linux-debug`: passed.
 - `cmake --build --preset linux-debug`: passed.
 - `./build/linux-debug/apps/sandbox/noveltea-sandbox --frames 180`: passed; exited through normal engine shutdown with no `pure virtual method called`.
@@ -63,6 +76,7 @@ Verification results from the current pass:
 
 ## Stubbed Or Deferred
 
+- bimg image loading, high-quality font/glyph rendering, render targets, shader/material/uniform feature work, and an audio/miniaudio smoke test remain deferred. The current pass was source layout only.
 - RmlUi file texture loading (`LoadTexture` from image files). Generates correct textures from font glyph bitmaps (`GenerateTexture`), but disk image files (PNG/JPEG) return 0 until a decoder is added (bimg::imageParse or stb_image).
 - RmlUi Debugger integration.
 - Clip mask, layer stack, filter/shader compilation (advanced RmlUi rendering features).

@@ -1,9 +1,9 @@
 add_library(engine STATIC
     src/assets.cpp
     src/app.cpp
+    src/audio/miniaudio/miniaudio_backend.cpp
     src/engine.cpp
-    src/platform_sdl.cpp
-    src/render_resources_bgfx.cpp
+    src/platform/sdl/sdl_platform.cpp
     src/ui_runtime_rmlui.cpp
 )
 
@@ -12,6 +12,8 @@ set_target_properties(engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(engine
     PUBLIC
         include
+    PRIVATE
+        src
 )
 
 if(NOVELTEA_ENABLE_RENDER2D)
@@ -317,11 +319,13 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     endif()
 
     target_sources(engine PRIVATE
-        src/renderer_bgfx.cpp
+        src/render/bgfx/bgfx_renderer.cpp
+        src/render/bgfx/bgfx_resources.cpp
+        src/render/bgfx/bgfx_quad_batch.cpp
+        src/render/bgfx/bgfx_shader_embedded.cpp
+        src/render/bgfx/bgfx_texture.cpp
         ${NOVELTEA_SHADER_HEADERS}
     )
-    target_include_directories(engine PRIVATE src)
-
     target_link_libraries(engine PUBLIC bgfx::bgfx)
     if(TARGET bx::bx)
         target_link_libraries(engine PUBLIC bx::bx)
@@ -332,7 +336,7 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
 else()
     message(STATUS "bgfx not available; using stub renderer")
-    target_sources(engine PRIVATE src/renderer_stub.cpp)
+    target_sources(engine PRIVATE src/render/renderer_stub.cpp)
 endif()
 
 target_link_libraries(engine PUBLIC SDL3::SDL3)

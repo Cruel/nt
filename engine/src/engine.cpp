@@ -1,5 +1,7 @@
 #include "noveltea/engine.hpp"
 
+#include "platform/sdl/sdl_platform.hpp"
+
 #include <SDL3/SDL.h>
 
 #include <cstdio>
@@ -61,7 +63,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
 
     SDL_Log("[engine] initializing debug UI...");
-    if (!m_debug_ui.initialize(m_platform.native_window())) {
+    if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform))) {
         std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
     } else {
         SDL_Log("[engine] debug UI initialized");
@@ -122,7 +124,7 @@ void Engine::handle_events()
 {
     m_platform.poll_events();
 
-    for (const SDL_Event& event : m_platform.events()) {
+    for (const SDL_Event& event : sdl_platform::events(m_platform)) {
         // SDL event -> devtools -> runtime UI -> game/platform handling.
         m_debug_ui.process_event(event);
         m_runtime_ui.process_event(event);
@@ -175,12 +177,6 @@ void Engine::render()
 #endif
 
     ++m_frame_count;
-
-    // Debug text overlay removed — diagnostics routed through Dear ImGui instead.
-
-    if (m_frame_count % 60 == 0) {
-        SDL_Log("[engine] frame %u", m_frame_count);
-    }
 
     m_runtime_ui.end_frame();
     m_debug_ui.end_frame();
