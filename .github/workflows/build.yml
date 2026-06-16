@@ -223,11 +223,11 @@ jobs:
   editor:
     name: Editor / Electron
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install system packages
         run: |
@@ -264,13 +264,30 @@ jobs:
             libpango1.0-dev \
             libcairo2-dev
 
+      - name: Cache Emscripten SDK
+        uses: actions/cache@v5
+        with:
+          path: .cache/emsdk
+          key: ${{ runner.os }}-emsdk-latest
+          restore-keys: |
+            ${{ runner.os }}-emsdk-
+
+      - name: Install Emscripten
+        run: |
+          if [ ! -d "${{ github.workspace }}/.cache/emsdk/.git" ]; then
+            git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
+          fi
+          cd "${{ github.workspace }}/.cache/emsdk"
+          ./emsdk install latest
+          ./emsdk activate latest
+
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.32.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -291,6 +308,18 @@ jobs:
       - name: Test
         working-directory: editor
         run: pnpm test
+
+      - name: Build packaged engine preview
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          emcmake cmake --preset web-release -DNOVELTEA_COMPILE_SHADERS=OFF
+          cmake --build --preset web-release --target noveltea-sandbox
+          test -f build/web-release/apps/sandbox/index.html
+          test -f build/web-release/apps/sandbox/index.js
+          test -f build/web-release/apps/sandbox/index.wasm
+          test -f build/web-release/apps/sandbox/index.data
 
       - name: Package
         working-directory: editor
