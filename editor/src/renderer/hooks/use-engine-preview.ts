@@ -1,0 +1,150 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  PREVIEW_PROTOCOL_VERSION,
+  type EditorToPreviewMessage,
+  type EnginePreviewSession,
+  type PreviewPosition,
+  type PreviewToEditorMessage,
+  isPreviewToEditorMessage,
+  validatePreviewHandshake,
+} from '../../shared/preview-protocol';
+
+type EditorCommandWithoutRequest = EditorToPreviewMessage extends infer Message
+  ? Message extends EditorToPreviewMessage
+    ? Omit<Message, 'version' | 'requestId'>
+    : never
+  : never;
+
+interface PendingRequest {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timeout: number;
+}
+
+export function useEnginePreview({
+  onReady,
+  onMessage,
+  onError,
+  timeoutMs = 5000,
+}: {
+  onReady: () => void;
+  onMessage: (message: PreviewToEditorMessage) => void;
+  onError: (message: string) => void;
+  timeoutMs?: number;
+}) {
+  const [session, setSession] = useState<EnginePreviewSession | null>(null);
+  const [iframeKey, setIframeKey] = useState(0);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const portRef = useRef<MessagePort | null>(null);
+  const pendingRef = useRef(new Map<string, PendingRequest>());
+  const onReadyRef = useRef(onReady);
+  const onMessageRef = useRef(onMessage);
+  const onErrorRef = useRef(onError);
+  onReadyRef.current = onReady;
+  onMessageRef.current = onMessage;
+  onErrorRef.current = onError;
+
+  const cleanupPort = useCallback(() => {
+    for (const pending of pendingRef.current.values()) {
+      window.clearTimeout(pending.timeout);
+      pending.reject(new Error('Preview disconnected before command completed.'));
+    }
+    pendingRef.current.clear();
+    portRef.current?.close();
+    portRef.current = null;
+  }, []);
+
+  const loadSession = useCallback(async (reload = false) => {
+    cleanupPort();
+    const nextSession = reload
+      ? await window.noveltea.reloadEnginePreview()
+      : await window.noveltea.getEnginePreviewSession();
+    setSession(nextSession);
+    setIframeKey((key) => key + 1);
+    return nextSession;
+  }, [cleanupPort]);
+
+  useEffect(() => cleanupPort, [cleanupPort]);
+
+  useEffect(() => {
+    if (!session) return;
+    const timer = window.setTimeout(() => {
+      onErrorRef.current('Engine preview handshake timed out.');
+    }, timeoutMs);
+
+    const handleMessage = (event: MessageEvent) => {
+      if (!validatePreviewHandshake(event, iframeRef.current?.contentWindow ?? null, session)) {
+        return;
+      }
+      window.clearTimeout(timer);
+      cleanupPort();
+      const channel = new MessageChannel();
+      portRef.current = channel.port1;
+      channel.port1.onmessage = (portEvent) => {
+        const message = portEvent.data;
+        if (!isPreviewToEditorMessage(message)) {
+          onErrorRef.current('Preview sent an unsupported protocol message.');
+          return;
+        }
+        if (message.type === 'command-result') {
+          const pending = pendingRef.current.get(message.requestId);
+          if (pending) {
+            window.clearTimeout(pending.timeout);
+            pendingRef.current.delete(message.requestId);
+            if (message.ok) {
+              pending.resolve();
+            } else {
+              pending.reject(new Error(message.error ?? 'Preview command failed.'));
+            }
+          }
+        }
+        if (message.type === 'ready') {
+          onReadyRef.current();
+        }
+        onMessageRef.current(message);
+      };
+      channel.port1.start();
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'noveltea-preview-connect', version: PREVIEW_PROTOCOL_VERSION, sessionToken: session.sessionToken },
+        session.origin,
+        [channel.port2],
+      );
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [cleanupPort, session, timeoutMs]);
+
+  const send = useCallback((message: EditorCommandWithoutRequest) => {
+    const port = portRef.current;
+    if (!port) {
+      return Promise.reject(new Error('Engine preview is not connected.'));
+    }
+    const requestId = crypto.randomUUID();
+    const payload = { ...message, version: PREVIEW_PROTOCOL_VERSION, requestId } as EditorToPreviewMessage;
+    return new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        pendingRef.current.delete(requestId);
+        reject(new Error(`Preview command timed out: ${payload.type}`));
+      }, timeoutMs);
+      pendingRef.current.set(requestId, { resolve, reject, timeout });
+      port.postMessage(payload);
+    });
+  }, [timeoutMs]);
+
+  return useMemo(() => ({
+    iframeRef,
+    iframeKey,
+    session,
+    loadSession,
+    cleanupPort,
+    setPosition: (position: PreviewPosition) => send({ type: 'set-demo-position', position }),
+    reset: () => send({ type: 'reset-demo' }),
+    play: () => send({ type: 'play' }),
+    stop: () => send({ type: 'stop' }),
+    requestState: () => send({ type: 'request-state' }),
+  }), [cleanupPort, iframeKey, loadSession, send, session]);
+}

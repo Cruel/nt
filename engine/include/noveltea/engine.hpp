@@ -1,6 +1,7 @@
 #pragma once
 
 #include "platform.hpp"
+#include "preview_bridge.hpp"
 #include "renderer.hpp"
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
@@ -35,11 +36,17 @@ public:
     bool tick();
     void shutdown();
     void request_stop();
+    void set_demo_position(float normalized_x, float normalized_y);
+    void reset_demo_position();
+    void set_preview_running(bool running);
+    preview_bridge::NormalizedPosition demo_position() const { return m_demo_position; }
+    bool preview_running() const { return m_preview_running; }
 
     bool is_running() const { return m_running; }
 
 private:
     void handle_events();
+    void handle_mouse_down(float x, float y, uint8_t button);
     void update(float dt);
     void render();
 
@@ -53,6 +60,8 @@ private:
     uint32_t m_frame_limit = 0;
     DemoMode m_demo_mode = DemoMode::All;
     float m_elapsed_seconds = 0.0f;
+    preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
+    bool m_preview_running = true;
 };
 
 } // namespace noveltea

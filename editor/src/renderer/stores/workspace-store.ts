@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { PreviewConnectionState, PreviewPosition, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
@@ -63,10 +64,22 @@ export const mockAssetTree: AssetNode[] = [
 interface WorkspaceState {
   projectPath: string | null;
   selectedAssetId: string | null;
+  previewPosition: PreviewPosition;
+  previewRunning: boolean;
+  previewConnectionState: PreviewConnectionState;
+  selectedRuntimeObjectId: string | null;
+  lastPreviewEvent: PreviewToEditorMessage | null;
+  statusMessage: string;
   sidebarExpanded: boolean;
   inspectorVisible: boolean;
   setProjectPath: (path: string | null) => void;
   setSelectedAssetId: (id: string | null) => void;
+  setPreviewPosition: (position: PreviewPosition) => void;
+  setPreviewRunning: (running: boolean) => void;
+  setPreviewConnectionState: (state: PreviewConnectionState) => void;
+  setSelectedRuntimeObjectId: (id: string | null) => void;
+  setLastPreviewEvent: (event: PreviewToEditorMessage | null) => void;
+  setStatusMessage: (message: string) => void;
   setSidebarExpanded: (expanded: boolean) => void;
   setInspectorVisible: (visible: boolean) => void;
 }
@@ -74,10 +87,22 @@ interface WorkspaceState {
 export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   projectPath: null,
   selectedAssetId: null,
+  previewPosition: { x: 0.5, y: 0.5 },
+  previewRunning: true,
+  previewConnectionState: 'disconnected',
+  selectedRuntimeObjectId: null,
+  lastPreviewEvent: null,
+  statusMessage: 'Preview disconnected',
   sidebarExpanded: true,
   inspectorVisible: true,
   setProjectPath: (projectPath) => set({ projectPath }),
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
+  setPreviewPosition: (previewPosition) => set({ previewPosition }),
+  setPreviewRunning: (previewRunning) => set({ previewRunning }),
+  setPreviewConnectionState: (previewConnectionState) => set({ previewConnectionState }),
+  setSelectedRuntimeObjectId: (selectedRuntimeObjectId) => set({ selectedRuntimeObjectId }),
+  setLastPreviewEvent: (lastPreviewEvent) => set({ lastPreviewEvent }),
+  setStatusMessage: (statusMessage) => set({ statusMessage }),
   setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
   setInspectorVisible: (inspectorVisible) => set({ inspectorVisible }),
 }));

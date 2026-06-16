@@ -2,12 +2,20 @@ import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { IPC_CHANNELS } from './shared/ipc-channels';
+import { EnginePreviewServer } from './main/engine-preview-server';
 
 if (started) {
   app.quit();
 }
 
+// WSL2 and some remote/Linux GPU stacks blocklist WebGL in Electron even when
+// the browser can render the same page. The engine preview is a local dev-only
+// iframe, so allow Chromium to use SwiftShader or an unblocked GL path.
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+
 let mainWindow: BrowserWindow | null = null;
+const enginePreviewServer = new EnginePreviewServer();
 
 const DEV_SERVER_URL = MAIN_WINDOW_VITE_DEV_SERVER_URL;
 const isDev = !!DEV_SERVER_URL;
@@ -67,6 +75,14 @@ app.whenReady().then(() => {
     },
   );
 
+  ipcMain.handle(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, () =>
+    enginePreviewServer.getSession(),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, () =>
+    enginePreviewServer.reload(),
+  );
+
   createWindow();
 
   app.on('activate', () => {
@@ -74,6 +90,10 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on('before-quit', () => {
+  void enginePreviewServer.stop();
 });
 
 app.on('window-all-closed', () => {

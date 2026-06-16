@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/render/quad_batch.hpp"
+#include "noveltea/preview_bridge.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -32,6 +33,7 @@ public:
     void shutdown();
 
     void draw_demo_2d(float time_seconds);
+    void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
 
     const char* renderer_name() const;

@@ -4,6 +4,7 @@ add_library(engine STATIC
     src/audio/miniaudio/miniaudio_backend.cpp
     src/engine.cpp
     src/platform/sdl/sdl_platform.cpp
+    src/preview/preview_bridge.cpp
     src/ui_runtime_rmlui.cpp
 )
 

@@ -35,9 +35,9 @@ struct PosColorVertex
 };
 
 static PosColorVertex s_triangle_vertices[3] = {
-    {  0.0f,  0.5f, 1.0f, 0.0f, 0.0f, 1.0f }, // top - red
-    { -0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f }, // bottom-left - green
-    {  0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f }, // bottom-right - blue
+    {  0.0f, -42.0f, 1.0f, 0.0f, 0.0f, 1.0f }, // top - red
+    { -48.0f,  42.0f, 0.0f, 1.0f, 0.0f, 1.0f }, // bottom-left - green
+    {  48.0f,  42.0f, 0.0f, 0.0f, 1.0f, 1.0f }, // bottom-right - blue
 };
 
 static const uint16_t s_triangle_indices[3] = { 0, 1, 2 };
@@ -124,11 +124,29 @@ void Renderer::begin_frame()
     bgfx::dbgTextClear();
     bgfx::touch(ViewGame2D);
 
-    // Submit triangle geometry for view 0.
+}
+
+void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position)
+{
+    if (!m_initialized || m_width <= 0 || m_height <= 0) return;
+
     if (bgfx::isValid(bgfx::VertexBufferHandle{m_triangle_vb})
         && bgfx::isValid(bgfx::IndexBufferHandle{m_triangle_ib})
         && bgfx::isValid(bgfx::ProgramHandle{m_triangle_program}))
     {
+        constexpr float half_width = 48.0f;
+        constexpr float half_height = 42.0f;
+        const float usable_width = static_cast<float>(m_width) - half_width * 2.0f;
+        const float usable_height = static_cast<float>(m_height) - half_height * 2.0f;
+        const float x = half_width + position.x * (usable_width > 0.0f ? usable_width : 0.0f);
+        const float y = half_height + position.y * (usable_height > 0.0f ? usable_height : 0.0f);
+        const float transform[16] = {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            x, y, 0.0f, 1.0f,
+        };
+        bgfx::setTransform(transform);
         bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{m_triangle_vb});
         bgfx::setIndexBuffer(bgfx::IndexBufferHandle{m_triangle_ib});
         bgfx::submit(ViewGame2D, bgfx::ProgramHandle{m_triangle_program});

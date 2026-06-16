@@ -12,6 +12,16 @@ Object.defineProperty(window, 'noveltea', {
     }),
     selectProjectDirectory: vi.fn().mockResolvedValue('/mock/project'),
     openExternal: vi.fn().mockResolvedValue(undefined),
+    getEnginePreviewSession: vi.fn().mockResolvedValue({
+      url: 'http://127.0.0.1:5000/?sessionToken=test-token',
+      origin: 'http://127.0.0.1:5000',
+      sessionToken: 'test-token',
+    }),
+    reloadEnginePreview: vi.fn().mockResolvedValue({
+      url: 'http://127.0.0.1:5001/?sessionToken=test-token-2',
+      origin: 'http://127.0.0.1:5001',
+      sessionToken: 'test-token-2',
+    }),
   },
   writable: true,
   configurable: true,

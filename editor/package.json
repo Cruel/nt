@@ -7,13 +7,16 @@
   "private": true,
   "scripts": {
     "start": "electron-forge start",
+    "start:with-preview": "pnpm engine:preview:build && electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "engine:preview:build": "node scripts/build-engine-preview.mjs",
+    "engine:preview:clean": "node -e \"require('node:fs').rmSync('../build/web-debug/apps/sandbox',{recursive:true,force:true})\""
   },
   "keywords": [],
   "author": {

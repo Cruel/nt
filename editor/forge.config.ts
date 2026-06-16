@@ -6,6 +6,8 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -13,6 +15,39 @@ const config: ForgeConfig = {
     name: 'NovelTea Editor',
   },
   rebuildConfig: {},
+  hooks: {
+    packageAfterCopy: async (_config, buildPath) => {
+      const source = path.resolve(__dirname, '..', 'build', 'web-release', 'apps', 'sandbox');
+      if (!existsSync(path.join(source, 'index.html'))) {
+        return;
+      }
+      const destination = path.resolve(buildPath, '..', 'engine-preview');
+      mkdirSync(destination, { recursive: true });
+      const runtimeExtensions = new Set([
+        '.html',
+        '.js',
+        '.mjs',
+        '.wasm',
+        '.data',
+        '.css',
+        '.json',
+        '.png',
+        '.jpg',
+        '.jpeg',
+        '.gif',
+        '.svg',
+        '.ttf',
+        '.woff',
+        '.woff2',
+      ]);
+      for (const entry of readdirSync(source)) {
+        const from = path.join(source, entry);
+        if (statSync(from).isFile() && runtimeExtensions.has(path.extname(entry))) {
+          cpSync(from, path.join(destination, entry));
+        }
+      }
+    },
+  },
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),

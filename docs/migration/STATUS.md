@@ -2,6 +2,16 @@
 
 ## Implemented
 
+- Added an Electron editor engine-preview demonstration:
+  - Main process loopback-only HTTP server serving the Emscripten sandbox output from `build/web-debug/apps/sandbox`.
+  - Typed preload IPC for preview session/reload only.
+  - React iframe preview using a tokened `MessageChannel` handshake.
+  - Zustand-backed preview position, running, connection state, selected runtime object, and status message.
+  - Emscripten shell bridge translating typed editor commands to exported C functions and C++ events back to the editor.
+  - Engine-owned demo triangle position/running state, bgfx model transform submission, and point-in-triangle hit testing.
+  - No-op desktop/Android preview bridge implementations.
+  - Forge packaging hook for optional `web-release` preview resources under `process.resourcesPath/engine-preview`.
+
 - Split renderer/platform/audio source organization without adding new runtime features:
   - bgfx renderer implementation moved under `engine/src/render/bgfx/`, split into lifecycle, resource RAII, quad batch submission, embedded shader loading, and the current PPM texture proof.
   - SDL platform implementation moved under `engine/src/platform/sdl/`, with public `Platform` state hiding SDL window/event storage behind opaque accessors and a private SDL access header for engine internals.
@@ -44,6 +54,20 @@
 ## Verified
 
 Verification results from the current pass:
+
+- Electron engine preview slice:
+  - `cmake --preset web-debug`: passed.
+  - `cmake --build --preset web-debug --target noveltea-sandbox`: passed; generated preview runtime at `build/web-debug/apps/sandbox` (`index.html`, `index.js`, `index.wasm`, `index.data`). Existing Emscripten SDL3 experimental warnings and bx macro warnings remain.
+  - `cmake --preset linux-debug`: passed.
+  - `cmake --build --preset linux-debug --target noveltea-sandbox`: passed.
+  - `./build/linux-debug/apps/sandbox/noveltea-sandbox --frames 3`: passed; frame-limited smoke exited through normal shutdown.
+  - `cd editor && pnpm install`: passed.
+  - `cd editor && pnpm typecheck`: passed.
+  - `cd editor && pnpm lint`: passed.
+  - `cd editor && pnpm test`: passed, 22 tests.
+  - `cd editor && pnpm package`: passed.
+  - `cd android && ./gradlew --no-daemon :app:assembleDebug`: passed; existing Android SDK/AGP and third-party CMake warnings remain.
+  - `cd editor && timeout 12s pnpm start`: Vite/Electron targets built, but the Electron runtime exited in this container because Chromium reported the GPU process was unusable.
 
 - Renderer/platform/audio layout refactor:
   - `cmake --preset linux-debug`: passed.

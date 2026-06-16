@@ -10,6 +10,10 @@
 
 namespace noveltea {
 
+namespace {
+Engine* g_preview_engine = nullptr;
+}
+
 App::~App()
 {
     m_engine.shutdown();
@@ -71,6 +75,7 @@ bool App::initialize(int argc, char* argv[])
         return false;
     }
 
+    g_preview_engine = &m_engine;
     return true;
 }
 
@@ -99,7 +104,44 @@ void App::web_tick(void* user_data)
         emscripten_cancel_main_loop();
 #endif
         app->m_engine.shutdown();
+        if (g_preview_engine == &app->m_engine) {
+            g_preview_engine = nullptr;
+        }
     }
 }
 
 } // namespace noveltea
+
+extern "C" {
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_preview_set_demo_position(float x, float y)
+{
+    if (noveltea::g_preview_engine) {
+        noveltea::g_preview_engine->set_demo_position(x, y);
+    }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_preview_reset_demo()
+{
+    if (noveltea::g_preview_engine) {
+        noveltea::g_preview_engine->reset_demo_position();
+    }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_preview_set_running(int running)
+{
+    if (noveltea::g_preview_engine) {
+        noveltea::g_preview_engine->set_preview_running(running != 0);
+    }
+}
+
+}

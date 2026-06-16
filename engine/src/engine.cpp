@@ -1,5 +1,7 @@
 #include "noveltea/engine.hpp"
 
+#include "noveltea/math/geometry.hpp"
+#include "noveltea/preview_bridge.hpp"
 #include "platform/sdl/sdl_platform.hpp"
 
 #include <SDL3/SDL.h>
@@ -13,17 +15,6 @@ Engine::Engine() = default;
 Engine::~Engine() { shutdown(); }
 
 namespace {
-
-const char* demo_mode_name(DemoMode mode)
-{
-    switch (mode) {
-        case DemoMode::Render2D: return "render2d";
-        case DemoMode::RmlUi: return "rmlui";
-        case DemoMode::Text: return "text";
-        case DemoMode::All: return "all";
-    }
-    return "all";
-}
 
 bool demo_enabled(DemoMode selected, DemoMode queried)
 {
@@ -79,6 +70,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         SDL_Log("[engine] frame-limited smoke run: %u frames", m_frame_limit);
     }
     std::printf("[engine] ready\n");
+    preview_bridge::emit_ready(m_demo_position, m_preview_running);
 
     return true;
 }
@@ -144,6 +136,7 @@ void Engine::handle_events()
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
                 std::printf("[input] mouse_down: button=%d x=%f y=%f\n",
                     event.button.button, event.button.x, event.button.y);
+                handle_mouse_down(event.button.x, event.button.y, event.button.button);
                 break;
 
             case SDL_EVENT_WINDOW_RESIZED:
@@ -160,8 +153,38 @@ void Engine::handle_events()
     }
 }
 
+void Engine::handle_mouse_down(float x, float y, uint8_t button)
+{
+    if (button != SDL_BUTTON_LEFT || m_platform.width() <= 0 || m_platform.height() <= 0) {
+        return;
+    }
+
+    constexpr float half_width = 48.0f;
+    constexpr float half_height = 42.0f;
+    const float width = static_cast<float>(m_platform.width());
+    const float height = static_cast<float>(m_platform.height());
+    const float usable_width = width - half_width * 2.0f;
+    const float usable_height = height - half_height * 2.0f;
+    const float center_x = half_width + m_demo_position.x * (usable_width > 0.0f ? usable_width : 0.0f);
+    const float center_y = half_height + m_demo_position.y * (usable_height > 0.0f ? usable_height : 0.0f);
+
+    const Vec2 point{x, y};
+    const Vec2 top{center_x, center_y - half_height};
+    const Vec2 left{center_x - half_width, center_y + half_height};
+    const Vec2 right{center_x + half_width, center_y + half_height};
+    if (!point_in_triangle(point, top, left, right)) {
+        return;
+    }
+
+    preview_bridge::emit_object_clicked(
+        "demo-triangle",
+        m_demo_position,
+        preview_bridge::NormalizedPosition{clamp01(x / width), clamp01(y / height)});
+}
+
 void Engine::update(float dt)
 {
+    if (!m_preview_running) return;
     m_elapsed_seconds += dt;
 }
 
@@ -170,6 +193,7 @@ void Engine::render()
     m_debug_ui.begin_frame(m_renderer.width(), m_renderer.height());
     m_runtime_ui.begin_frame(m_platform.delta_time());
     m_renderer.begin_frame();
+    m_renderer.draw_preview_triangle(m_demo_position);
 #if defined(NOVELTEA_HAS_RENDER2D)
     if (demo_enabled(m_demo_mode, DemoMode::Render2D)) {
         m_renderer.draw_demo_2d(m_elapsed_seconds);
@@ -202,6 +226,23 @@ void Engine::request_stop()
 {
     m_running = false;
     m_platform.request_quit();
+}
+
+void Engine::set_demo_position(float normalized_x, float normalized_y)
+{
+    m_demo_position = {clamp01(normalized_x), clamp01(normalized_y)};
+    preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
+}
+
+void Engine::reset_demo_position()
+{
+    set_demo_position(0.5f, 0.5f);
+}
+
+void Engine::set_preview_running(bool running)
+{
+    m_preview_running = running;
+    preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
 }
 
 } // namespace noveltea

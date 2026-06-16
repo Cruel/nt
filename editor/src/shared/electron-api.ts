@@ -10,4 +10,7 @@ export interface NovelTeaElectronApi {
   getAppInfo(): Promise<AppInfo>;
   selectProjectDirectory(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
+  getEnginePreviewSession(): Promise<EnginePreviewSession>;
+  reloadEnginePreview(): Promise<EnginePreviewSession>;
 }
+import type { EnginePreviewSession } from './preview-protocol';

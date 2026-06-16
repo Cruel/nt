@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useWorkspaceStore, mockAssetTree, type AssetNode } from '@/stores/workspace-store';
+import { EnginePreview } from '@/components/engine-preview';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -78,10 +79,13 @@ function AssetTree({ nodes }: { nodes: AssetNode[] }) {
 
 function InspectorPanel() {
   const selectedAssetId = useWorkspaceStore((s) => s.selectedAssetId);
+  const selectedRuntimeObjectId = useWorkspaceStore((s) => s.selectedRuntimeObjectId);
+  const lastPreviewEvent = useWorkspaceStore((s) => s.lastPreviewEvent);
   const inspectorVisible = useWorkspaceStore((s) => s.inspectorVisible);
 
   if (!inspectorVisible) return null;
 
+  const runtimeClick = lastPreviewEvent?.type === 'object-clicked' ? lastPreviewEvent : null;
   const mockDetail = selectedAssetId
     ? {
         id: selectedAssetId,
@@ -101,6 +105,29 @@ function InspectorPanel() {
       <div className="p-3">
         {mockDetail ? (
           <div className="space-y-3">
+            {selectedRuntimeObjectId ? (
+              <>
+                <div>
+                  <div className="text-xs text-muted-foreground">Runtime Object</div>
+                  <div className="text-sm font-medium">{selectedRuntimeObjectId}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Type</div>
+                  <Badge variant="outline" className="mt-0.5 font-mono text-xs">
+                    Demo Triangle
+                  </Badge>
+                </div>
+                {runtimeClick ? (
+                  <div className="space-y-1 font-mono text-xs text-muted-foreground">
+                    <div>object x {runtimeClick.position.x.toFixed(2)}</div>
+                    <div>object y {runtimeClick.position.y.toFixed(2)}</div>
+                    <div>pointer x {runtimeClick.pointerPosition.x.toFixed(2)}</div>
+                    <div>pointer y {runtimeClick.pointerPosition.y.toFixed(2)}</div>
+                  </div>
+                ) : null}
+                <Separator />
+              </>
+            ) : null}
             <div>
               <div className="text-xs text-muted-foreground">Asset</div>
               <div className="text-sm font-medium">{mockDetail.id}</div>
@@ -127,9 +154,29 @@ function InspectorPanel() {
             </Button>
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            Select an asset to inspect
-          </p>
+          <div className="space-y-3">
+            {selectedRuntimeObjectId ? (
+              <>
+                <div>
+                  <div className="text-xs text-muted-foreground">Runtime Object</div>
+                  <div className="text-sm font-medium">{selectedRuntimeObjectId}</div>
+                </div>
+                <Badge variant="outline" className="font-mono text-xs">Demo Triangle</Badge>
+                {runtimeClick ? (
+                  <div className="space-y-1 font-mono text-xs text-muted-foreground">
+                    <div>object x {runtimeClick.position.x.toFixed(2)}</div>
+                    <div>object y {runtimeClick.position.y.toFixed(2)}</div>
+                    <div>pointer x {runtimeClick.pointerPosition.x.toFixed(2)}</div>
+                    <div>pointer y {runtimeClick.pointerPosition.y.toFixed(2)}</div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Select an asset or runtime object to inspect
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -139,6 +186,10 @@ function InspectorPanel() {
 function WorkspacePage() {
   const inspectorVisible = useWorkspaceStore((s) => s.inspectorVisible);
   const setInspectorVisible = useWorkspaceStore((s) => s.setInspectorVisible);
+  const previewRunning = useWorkspaceStore((s) => s.previewRunning);
+  const setPreviewRunning = useWorkspaceStore((s) => s.setPreviewRunning);
+  const previewConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
+  const statusMessage = useWorkspaceStore((s) => s.statusMessage);
 
   return (
     <>
@@ -147,10 +198,24 @@ function WorkspacePage() {
         description="Editor workspace demonstration"
         actions={
           <div className="flex items-center gap-1">
-            <Button size="sm" variant="ghost">
+            <Button
+              size="sm"
+              variant={previewRunning ? 'secondary' : 'ghost'}
+              onClick={() => {
+                setPreviewRunning(true);
+                window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-play'));
+              }}
+            >
               <Play className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="ghost">
+            <Button
+              size="sm"
+              variant={!previewRunning ? 'secondary' : 'ghost'}
+              onClick={() => {
+                setPreviewRunning(false);
+                window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-stop'));
+              }}
+            >
               <Square className="h-4 w-4" />
             </Button>
             <Button size="sm" variant="ghost">
@@ -169,17 +234,7 @@ function WorkspacePage() {
       />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-hidden">
-          <div className="flex h-full flex-col items-center justify-center gap-4 bg-muted/30">
-            <div className="rounded-lg border-2 border-dashed border-muted-foreground/25 p-12 text-center">
-              <Eye className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
-              <h3 className="text-sm font-semibold text-muted-foreground">
-                Engine Preview
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground/60">
-                NovelTea web/WASM engine preview will render here.
-              </p>
-            </div>
-          </div>
+          <EnginePreview />
         </div>
         <InspectorPanel />
       </div>
@@ -189,7 +244,11 @@ function WorkspacePage() {
         </span>
         <span className="mx-2 text-muted-foreground/30">|</span>
         <span className="font-mono text-[10px] text-muted-foreground">
-          Preview placeholder
+          Preview {previewConnectionState}
+        </span>
+        <span className="mx-2 text-muted-foreground/30">|</span>
+        <span className="truncate font-mono text-[10px] text-muted-foreground">
+          {statusMessage}
         </span>
       </div>
     </>
