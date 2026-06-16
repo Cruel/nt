@@ -55,6 +55,22 @@
 
 Verification results from the current pass:
 
+- Minimal SDF text/font primitive:
+  - Added backend-neutral public text/font types: `FontHandle`, `FontDesc`, `TextStyle`, `TextRun`, `TextMetrics`, and `TextBuffer`.
+  - Added bgfx-backed SDF text rendering under `engine/src/render/bgfx/text/`, using a small `stb_truetype` SDF atlas path inspired by bgfx `examples/11-fontsdf`.
+  - Added text shaders (`vs_text.sc` / `fs_text.sc`) and generated shader headers for glsl, essl, and web profiles so `NOVELTEA_COMPILE_SHADERS=OFF` remains usable.
+  - Added `Renderer::load_font`, `Renderer::draw_text`, `Renderer::measure_text`, and `Renderer::draw_demo_text`.
+  - The sandbox `--demo text` and `--demo all` paths render normal, scaled, colored, outlined, and drop-shadow SDF text using the existing `rmlui/LiberationSans.ttf` asset.
+  - SDF quality pass: atlas sampling now uses linear filtering with clamp addressing, SDF bake settings are tunable through `FontDesc`, the default smoke font uses a 96 px source into a 1024x1024 atlas, and `fs_text.sc` uses `fwidth(dist)` with a minimum softness uniform for scale-aware antialiasing while continuing to sample distance from the atlas alpha channel.
+  - The text demo now renders plain quality-test samples at 18, 24, 32, 48, and 72 px before a transformed sample and the separate outline/drop-shadow sample.
+  - `cmake --preset linux-debug`: passed.
+  - `cmake --build --preset linux-debug`: passed.
+  - `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo text --frames 180`: passed; SDF text renderer initialized, loaded the font atlas, and exited through normal shutdown.
+  - `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`: passed; existing render2d, RmlUi, and ImGui paths still initialized and shut down cleanly.
+  - `cmake --preset web-debug`: passed.
+  - `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental warnings and bx macro warnings remain.
+  - `cd android && ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF`: passed; existing Android SDK/AGP/CMake and bx macro warnings remain.
+
 - Electron engine preview slice:
   - `cmake --preset web-debug`: passed.
   - `cmake --build --preset web-debug --target noveltea-sandbox`: passed; generated preview runtime at `build/web-debug/apps/sandbox` (`index.html`, `index.js`, `index.wasm`, `index.data`). Existing Emscripten SDL3 experimental warnings and bx macro warnings remain.
@@ -105,7 +121,9 @@ Verification results from the current pass:
 - RmlUi Debugger integration.
 - Clip mask, layer stack, filter/shader compilation (advanced RmlUi rendering features).
 - bimg/bgfx_utils PNG/JPEG/etc. image texture loading. Current disk texture support is intentionally limited to a tiny ASCII PPM proof so no large external helper tree or decoder was copied.
-- SDF/MSDF font atlas and rich text rendering. The text lab remains an API/status scaffold.
+- Text shaping and rich text features remain deferred. The current primitive is an ASCII/UTF-8 best-effort SDF atlas path with simple line metrics, transient quads, color, outline, and drop shadow only.
+- The SDF text pass is still single-channel SDF from `stb_truetype`; small text, complex scripts, kerning/shaping, and high-quality strokes remain future work. HarfBuzz, MSDF/msdfgen, BBCode/TextTypes/ActiveText, and RmlUi text migration were intentionally not added in this slice.
+- BBCode/TextTypes/ActiveText migration, per-glyph animation, HarfBuzz shaping, text pagination, hit-testing, and render-target text caching are deferred.
 - NovelTea old-engine code migration. Stage G was not started because the text/font gate is not complete.
 
 ## Known Risks

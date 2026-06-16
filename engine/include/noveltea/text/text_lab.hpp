@@ -1,17 +1,19 @@
 #pragma once
 
 #include "noveltea/math/geometry.hpp"
+#include "noveltea/text/font.hpp"
+#include "noveltea/text/text_style.hpp"
 
-#include <string_view>
+#include <string>
 
 namespace noveltea {
 
 struct TextRun {
-    std::string_view text;
+    std::string text;
+    FontHandle font{};
     Vec2 position{};
-    Color color{};
-    float size = 16.0f;
-    float alpha = 1.0f;
+    TextStyle style{};
+    Transform2D transform{};
     int effect_id = 0;
 };
 

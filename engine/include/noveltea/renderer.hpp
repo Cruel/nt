@@ -2,10 +2,14 @@
 
 #include "noveltea/render/quad_batch.hpp"
 #include "noveltea/preview_bridge.hpp"
+#include "noveltea/text/font.hpp"
+#include "noveltea/text/text_lab.hpp"
+#include "noveltea/text/text_layout.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace noveltea {
 
@@ -33,8 +37,12 @@ public:
     void shutdown();
 
     void draw_demo_2d(float time_seconds);
+    void draw_demo_text(float time_seconds);
     void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
+    FontHandle load_font(const FontDesc& desc);
+    void draw_text(const TextRun& run);
+    TextMetrics measure_text(FontHandle font, std::string_view text, float size) const;
 
     const char* renderer_name() const;
     const char* texture_status() const { return m_texture_status.c_str(); }
@@ -50,6 +58,8 @@ private:
     void destroy_triangle();
     void create_2d();
     void destroy_2d();
+    void create_text();
+    void destroy_text();
     void submit_quad(const QuadCommand& command);
     uint16_t load_ppm_texture(const std::filesystem::path& path);
 
@@ -67,6 +77,8 @@ private:
     uint16_t m_disk_texture = UINT16_MAX;
     uint16_t m_sampler = UINT16_MAX;
     uint16_t m_use_texture_uniform = UINT16_MAX;
+    uint32_t m_default_text_font = 0;
+    void* m_text_renderer = nullptr;
     std::string m_texture_status = "procedural checker";
 };
 

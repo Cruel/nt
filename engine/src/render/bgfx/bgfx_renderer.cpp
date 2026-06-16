@@ -102,6 +102,7 @@ bool Renderer::initialize(const RendererConfig& config)
 
     create_triangle();
     create_2d();
+    create_text();
 
     SDL_Log("[renderer] bgfx initialized: %s", renderer_name());
     return true;
@@ -120,6 +121,7 @@ void Renderer::begin_frame()
     float ortho[16];
     make_ortho(ortho, static_cast<float>(m_width), static_cast<float>(m_height));
     bgfx::setViewTransform(ViewGame2D, nullptr, ortho);
+    bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::dbgTextClear();
     bgfx::touch(ViewGame2D);
@@ -178,6 +180,7 @@ void Renderer::resize(int width, int height)
 void Renderer::shutdown()
 {
     if (m_initialized) {
+        destroy_text();
         destroy_2d();
         destroy_triangle();
         bgfx::shutdown();

@@ -199,6 +199,11 @@ void Engine::render()
         m_renderer.draw_demo_2d(m_elapsed_seconds);
     }
 #endif
+#if defined(NOVELTEA_HAS_BGFX)
+    if (demo_enabled(m_demo_mode, DemoMode::Text)) {
+        m_renderer.draw_demo_text(m_elapsed_seconds);
+    }
+#endif
 
     ++m_frame_count;
 

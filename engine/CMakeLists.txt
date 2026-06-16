@@ -5,6 +5,7 @@ add_library(engine STATIC
     src/engine.cpp
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
+    src/text/text_layout.cpp
     src/ui_runtime_rmlui.cpp
 )
 
@@ -61,6 +62,12 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         src/shaders/fs_quad_essl.h
         src/shaders/vs_quad_web.h
         src/shaders/fs_quad_web.h
+        src/shaders/vs_text_glsl.h
+        src/shaders/fs_text_glsl.h
+        src/shaders/vs_text_essl.h
+        src/shaders/fs_text_essl.h
+        src/shaders/vs_text_web.h
+        src/shaders/fs_text_web.h
     )
     if(NOVELTEA_ENABLE_RMLUI)
         list(APPEND NOVELTEA_SHADER_HEADERS
@@ -137,6 +144,8 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
                     "${SHADER_OUT_DIR}/fs_triangle_${prof}.h"
                     "${SHADER_OUT_DIR}/vs_quad_${prof}.h"
                     "${SHADER_OUT_DIR}/fs_quad_${prof}.h"
+                    "${SHADER_OUT_DIR}/vs_text_${prof}.h"
+                    "${SHADER_OUT_DIR}/fs_text_${prof}.h"
                     ${_RMLUI_OUTPUTS}
             COMMAND "${SHADERC_EXECUTABLE}"
                     -f "${SHADER_SRC_DIR}/vs_triangle.sc"
@@ -167,6 +176,20 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
                     --bin2c fs_quad_${prof}
                     ${SHADER_INCDIRS}
             COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/vs_text.sc"
+                    -o "${SHADER_OUT_DIR}/vs_text_${prof}.h"
+                    --type v
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c vs_text_${prof}
+                    ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
+                    -f "${SHADER_SRC_DIR}/fs_text.sc"
+                    -o "${SHADER_OUT_DIR}/fs_text_${prof}.h"
+                    --type f
+                    --platform ${_plat} -p ${_prof}
+                    --bin2c fs_text_${prof}
+                    ${SHADER_INCDIRS}
+            COMMAND "${SHADERC_EXECUTABLE}"
                     -f "${SHADER_SRC_DIR}/vs_rmlui.sc"
                     -o "${SHADER_OUT_DIR}/vs_rmlui_${prof}.h"
                     --type v
@@ -184,6 +207,8 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
                     "${SHADER_SRC_DIR}/fs_triangle.sc"
                     "${SHADER_SRC_DIR}/vs_quad.sc"
                     "${SHADER_SRC_DIR}/fs_quad.sc"
+                    "${SHADER_SRC_DIR}/vs_text.sc"
+                    "${SHADER_SRC_DIR}/fs_text.sc"
                     "${SHADER_SRC_DIR}/vs_rmlui.sc"
                     "${SHADER_SRC_DIR}/fs_rmlui.sc"
                     "${SHADER_SRC_DIR}/varying.def.sc"
@@ -206,6 +231,8 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
                 "${SHADER_OUT_DIR}/fs_triangle_web.h"
                 "${SHADER_OUT_DIR}/vs_quad_web.h"
                 "${SHADER_OUT_DIR}/fs_quad_web.h"
+                "${SHADER_OUT_DIR}/vs_text_web.h"
+                "${SHADER_OUT_DIR}/fs_text_web.h"
                 ${_RMLUI_WEB_OUTPUTS}
         COMMAND "${SHADERC_EXECUTABLE}"
                 -f "${SHADER_SRC_DIR}/vs_triangle.sc"
@@ -236,6 +263,20 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
                 --bin2c fs_quad_web
                 ${SHADER_INCDIRS}
         COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/vs_text.sc"
+                -o "${SHADER_OUT_DIR}/vs_text_web.h"
+                --type v
+                --platform asm.js -p 100_es
+                --bin2c vs_text_web
+                ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
+                -f "${SHADER_SRC_DIR}/fs_text.sc"
+                -o "${SHADER_OUT_DIR}/fs_text_web.h"
+                --type f
+                --platform asm.js -p 100_es
+                --bin2c fs_text_web
+                ${SHADER_INCDIRS}
+        COMMAND "${SHADERC_EXECUTABLE}"
                 -f "${SHADER_SRC_DIR}/vs_rmlui.sc"
                 -o "${SHADER_OUT_DIR}/vs_rmlui_web.h"
                 --type v
@@ -253,6 +294,8 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
                 "${SHADER_SRC_DIR}/fs_triangle.sc"
                 "${SHADER_SRC_DIR}/vs_quad.sc"
                 "${SHADER_SRC_DIR}/fs_quad.sc"
+                "${SHADER_SRC_DIR}/vs_text.sc"
+                "${SHADER_SRC_DIR}/fs_text.sc"
                 "${SHADER_SRC_DIR}/vs_rmlui.sc"
                 "${SHADER_SRC_DIR}/fs_rmlui.sc"
                 "${SHADER_SRC_DIR}/varying.def.sc"
@@ -324,6 +367,7 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         src/render/bgfx/bgfx_resources.cpp
         src/render/bgfx/bgfx_quad_batch.cpp
         src/render/bgfx/bgfx_shader_embedded.cpp
+        src/render/bgfx/text/bgfx_text_renderer.cpp
         src/render/bgfx/bgfx_texture.cpp
         ${NOVELTEA_SHADER_HEADERS}
     )
