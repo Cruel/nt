@@ -20,8 +20,8 @@
 - Added feature flags: `NOVELTEA_ENABLE_RENDER2D`, `NOVELTEA_ENABLE_RMLUI`, `NOVELTEA_ENABLE_TEXT_LAB`; existing bgfx/devtools flags remain.
 - Added backend-neutral helper headers for geometry, render commands/resources, assets, and text-run shape.
 - Added minimal file loading and SDL-backed diagnostics.
-- Standardized runtime file asset lookup around logical asset IDs resolved through `noveltea::resolve_asset_path()`: desktop resolves under `apps/sandbox/assets`, while Web/Android package and load the same content under `assets`.
-  - This intentionally keeps the portable part of old `NovelTea::AssetManager`: stable IDs such as `images/foo.png` or `fonts/bar.ttf` are resolved against a platform-specific asset root. The old templated `loadFromFile()` cache remains reference-only because it is SFML-shaped.
+- Added backend-neutral `noveltea::assets::AssetManager` with logical `system:/`, `project:/`, and `cache:/` mounts, directory-backed asset sources, binary/text reads, path traversal rejection, and lookup diagnostics.
+  - Shader loaders, text font loading, and RmlUi setup now consume logical asset paths through the mounted roots. The old `noveltea::resolve_asset_path()` helper remains as compatibility for narrow legacy proofs.
 - Added bgfx RAII wrappers for texture and program handles.
 - Added graceful sandbox smoke-test controls:
   - `./build/linux-debug/apps/sandbox/noveltea-sandbox --frames 180`
@@ -49,7 +49,12 @@
   - Panel with heading, text, button, and status box. The button is a visual/input smoke target; no C++ click listener is attached yet.
   - Runtime overlay status reports "rendering" when active.
   - Shutdown order: `Rml::RemoveContext` → `Rml::Shutdown` → interface destruction (before bgfx shutdown via Engine shutdown order).
-  - RmlUi bgfx shaders (`vs_rmlui.sc` / `fs_rmlui.sc`) compiled for glsl/essl/web profiles.
+  - RmlUi bgfx shaders (`vs_rmlui.sc` / `fs_rmlui.sc`) compile to runtime-loaded bgfx shader `.bin` assets.
+- Replaced committed/generated bgfx shader headers with runtime-loaded compiled shader asset files:
+  - CMake target `noveltea-shaders` writes `${CMAKE_BINARY_DIR}/assets/shaders/bgfx/{linux-glsl,android-essl,web-essl100}/<name>.(vs|fs).bin`.
+  - Built-in bgfx programs (`triangle`, `quad`, `text`, `rmlui`, `imgui`) load through private `BgfxShaderLoader` using `AssetManager`; public asset APIs stay backend-neutral.
+  - `NOVELTEA_COMPILE_SHADERS=OFF` now requires existing compiled shader assets and fails during configure if they are missing.
+  - Intended future `.ntzip` runtime layout is `assets/shaders/bgfx/...`, `fonts/`, `images/`, `audio/`, `ui/`, and `text/`; runtime packages need compiled shader variants and do not compile shader source.
 
 ## Verified
 
@@ -58,7 +63,7 @@ Verification results from the current pass:
 - Minimal SDF text/font primitive:
   - Added backend-neutral public text/font types: `FontHandle`, `FontDesc`, `TextStyle`, `TextRun`, `TextMetrics`, and `TextBuffer`.
   - Added bgfx-backed SDF text rendering under `engine/src/render/bgfx/text/`, using a small `stb_truetype` SDF atlas path inspired by bgfx `examples/11-fontsdf`.
-  - Added text shaders (`vs_text.sc` / `fs_text.sc`) and generated shader headers for glsl, essl, and web profiles so `NOVELTEA_COMPILE_SHADERS=OFF` remains usable.
+  - Added text shaders (`vs_text.sc` / `fs_text.sc`) for glsl, essl, and web profiles.
   - Added `Renderer::load_font`, `Renderer::draw_text`, `Renderer::measure_text`, and `Renderer::draw_demo_text`.
   - The sandbox `--demo text` and `--demo all` paths render normal, scaled, colored, outlined, and drop-shadow SDF text using the existing `rmlui/LiberationSans.ttf` asset.
   - SDF quality pass: atlas sampling now uses linear filtering with clamp addressing, SDF bake settings are tunable through `FontDesc`, the default smoke font uses a 96 px source into a 1024x1024 atlas, and `fs_text.sc` uses `fwidth(dist)` with a minimum softness uniform for scale-aware antialiasing while continuing to sample distance from the atlas alpha channel.
@@ -107,8 +112,7 @@ Verification results from the current pass:
   - `unzip -p SDL3-devel-3.4.10-android.zip SDL3-3.4.10.aar`: passed; confirmed the release archive stores the AAR at the zip root.
   - `cd android && ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF`: passed.
 - CI shader/CMake follow-up:
-  - `source "$EMSDK/emsdk_env.sh" && emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF`: passed with generated shader headers visible to git.
-  - `cmake --build --preset web-debug`: passed.
+  - Historical note: previous web/android `NOVELTEA_COMPILE_SHADERS=OFF` checks used generated shader headers. Current builds must provide compiled shader `.bin` assets instead.
   - `yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6"`: passed locally.
   - `cd android && ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF`: passed with Gradle selecting Android SDK CMake 3.31.6.
 - Web clean-checkout ImGui ini cleanup:

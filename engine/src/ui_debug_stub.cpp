@@ -8,9 +8,10 @@ namespace noveltea {
 DebugUI::DebugUI() = default;
 DebugUI::~DebugUI() { shutdown(); }
 
-bool DebugUI::initialize(SDL_Window* window)
+bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
 {
     (void)window;
+    (void)assets;
     std::printf("[debug_ui] disabled\n");
     return true;
 }

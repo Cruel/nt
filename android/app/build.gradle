@@ -36,7 +36,7 @@ android {
         }
     }
 
-    sourceSets {
+sourceSets {
         main {
             assets.srcDirs += file("$buildDir/generated/assets/noveltea")
         }
@@ -50,12 +50,99 @@ android {
     }
 }
 
+def novelteaShaderNames = ["triangle", "quad", "text", "imgui", "rmlui"]
+def novelteaShaderTargets = [
+    [name: "linux-glsl", platform: "linux", profile: "120"],
+    [name: "android-essl", platform: "android", profile: "300_es"],
+    [name: "web-essl100", platform: "asm.js", profile: "100_es"],
+]
+
+def findShaderc = {
+    if (project.hasProperty("shaderc")) {
+        def candidate = file(project.property("shaderc"))
+        if (candidate.canExecute()) return candidate.absolutePath
+    }
+    if (System.getenv("SHADERC")) {
+        def candidate = file(System.getenv("SHADERC"))
+        if (candidate.canExecute()) return candidate.absolutePath
+    }
+    def path = System.getenv("PATH") ?: ""
+    for (String entry : path.split(File.pathSeparator)) {
+        def candidate = file("${entry}/shaderc")
+        if (candidate.canExecute()) return candidate.absolutePath
+    }
+    for (String rel : [
+        "../../build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc",
+        "../../vcpkg_installed/x64-linux/tools/bgfx/shaderc"
+    ]) {
+        def candidate = file(rel)
+        if (candidate.canExecute()) return candidate.absolutePath
+    }
+    return null
+}
+
+def findBgfxShaderInclude = {
+    for (String rel : [
+        "../../build/linux-debug/vcpkg_installed/x64-linux/include/bgfx",
+        "../../vcpkg_installed/x64-linux/include/bgfx"
+    ]) {
+        def candidate = file(rel)
+        if (file("${candidate}/bgfx_shader.sh").exists()) return candidate.absolutePath
+    }
+    return null
+}
+
+tasks.register("compileNovelTeaShaderAssets") {
+    def outputRoot = file("$buildDir/generated/assets/noveltea/assets/shaders/bgfx")
+    outputs.dir(outputRoot)
+
+    doLast {
+        def compileShaders = !project.hasProperty("novelteaCompileShaders") ||
+                project.property("novelteaCompileShaders").toString().toUpperCase() != "OFF"
+        def shaderc = findShaderc()
+        if (!compileShaders) {
+            def required = file("${outputRoot}/android-essl/triangle.vs.bin")
+            if (!required.exists()) {
+                throw new GradleException("novelteaCompileShaders=OFF requires existing compiled shader assets under ${outputRoot}")
+            }
+            return
+        }
+        if (shaderc == null) {
+            throw new GradleException("shaderc not found. Set SHADERC, pass -Pshaderc=/path/to/shaderc, or build the Linux vcpkg shader-tools preset first.")
+        }
+        def bgfxShaderInclude = findBgfxShaderInclude()
+        if (bgfxShaderInclude == null) {
+            throw new GradleException("bgfx_shader.sh not found. Build/install bgfx headers or pass shader assets with -PnovelteaCompileShaders=OFF.")
+        }
+
+        def shaderSrc = file("../../engine/shaders/bgfx")
+        novelteaShaderTargets.each { target ->
+            def targetDir = file("${outputRoot}/${target.name}")
+            targetDir.mkdirs()
+            novelteaShaderNames.each { shader ->
+                ["vs", "fs"].each { stage ->
+                    exec {
+                        executable shaderc
+                        args "-f", file("${shaderSrc}/${stage}_${shader}.sc").absolutePath,
+                             "-o", file("${targetDir}/${shader}.${stage}.bin").absolutePath,
+                             "--type", stage == "vs" ? "v" : "f",
+                             "--platform", target.platform,
+                             "-p", target.profile,
+                             "-i", shaderSrc.absolutePath,
+                             "-i", bgfxShaderInclude
+                    }
+                }
+            }
+        }
+    }
+}
+
 tasks.register("copyNovelTeaAssets", Copy) {
     from file("../../apps/sandbox/assets")
     into file("$buildDir/generated/assets/noveltea/assets")
 }
 
-preBuild.dependsOn("copyNovelTeaAssets")
+preBuild.dependsOn("copyNovelTeaAssets", "compileNovelTeaShaderAssets")
 
 dependencies {
     implementation files("libs/SDL3-3.4.10.aar")

@@ -21,13 +21,62 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
     return selected == DemoMode::All || selected == queried;
 }
 
+std::filesystem::path default_system_asset_root()
+{
+#if defined(NOVELTEA_PLATFORM_DESKTOP)
+    return NOVELTEA_DEFAULT_SYSTEM_ASSET_ROOT;
+#else
+    return "assets";
+#endif
+}
+
+std::filesystem::path default_project_asset_root()
+{
+#if defined(NOVELTEA_PLATFORM_DESKTOP)
+    return "apps/sandbox/assets";
+#else
+    return "assets";
+#endif
+}
+
+std::filesystem::path default_cache_asset_root()
+{
+#if defined(NOVELTEA_PLATFORM_DESKTOP)
+    return NOVELTEA_DEFAULT_CACHE_ASSET_ROOT;
+#else
+    return "assets";
+#endif
+}
+
 } // namespace
+
+void Engine::configure_assets(const EngineRunConfig& run_config)
+{
+    const auto system_root = run_config.system_asset_root.empty()
+        ? default_system_asset_root()
+        : run_config.system_asset_root;
+    const auto project_root = run_config.project_asset_root.empty()
+        ? default_project_asset_root()
+        : run_config.project_asset_root;
+    const auto cache_root = run_config.cache_asset_root.empty()
+        ? default_cache_asset_root()
+        : run_config.cache_asset_root;
+
+    m_assets.mount_directory("system", system_root);
+    m_assets.mount_directory("project", project_root);
+    m_assets.mount_directory("cache", cache_root);
+
+    for (const auto& mount : m_assets.describe_mounts()) {
+        SDL_Log("[assets] %s", mount.c_str());
+    }
+}
 
 bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
 {
     SDL_Log("[engine] initializing...");
     m_frame_limit = run_config.frame_limit;
     m_demo_mode = run_config.demo_mode;
+    configure_assets(run_config);
 
     if (!m_platform.initialize(config)) {
         std::fprintf(stderr, "[engine] platform init failed\n");
@@ -42,6 +91,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     rcfg.width = config.width;
     rcfg.height = config.height;
     rcfg.vsync = config.vsync;
+    rcfg.assets = &m_assets;
 
     if (!m_renderer.initialize(rcfg)) {
         std::fprintf(stderr, "[engine] renderer init failed\n");
@@ -49,12 +99,12 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         return false;
     }
 
-    if (!m_runtime_ui.initialize()) {
+    if (!m_runtime_ui.initialize(&m_assets)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     }
 
     SDL_Log("[engine] initializing debug UI...");
-    if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform))) {
+    if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform), &m_assets)) {
         std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
     } else {
         SDL_Log("[engine] debug UI initialized");

@@ -2,6 +2,8 @@
 
 #include "engine.hpp"
 
+#include <filesystem>
+
 namespace noveltea {
 
 class App {
@@ -15,6 +17,9 @@ private:
     struct Options {
         uint32_t frame_limit = 0;
         DemoMode demo_mode = DemoMode::All;
+        std::filesystem::path system_asset_root;
+        std::filesystem::path project_asset_root;
+        std::filesystem::path cache_asset_root;
     };
 
     bool initialize(int argc, char* argv[]);

@@ -12,61 +12,9 @@
 #include <cstring>
 #include <algorithm>
 
-#include "shaders/vs_imgui_glsl.h"
-#include "shaders/fs_imgui_glsl.h"
-#include "shaders/vs_imgui_essl.h"
-#include "shaders/fs_imgui_essl.h"
-#include "shaders/vs_imgui_web.h"
-#include "shaders/fs_imgui_web.h"
+#include "render/bgfx/bgfx_shader_loader.hpp"
 
 namespace noveltea {
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-static const bgfx::Memory* shader_mem(const uint8_t* data, uint32_t size)
-{
-    const bgfx::Memory* mem = bgfx::alloc(size + 1);
-    std::memcpy(mem->data, data, size);
-    mem->data[size] = 0;
-    return mem;
-}
-
-static bgfx::ShaderHandle load_shader(bgfx::RendererType::Enum type,
-                                      const uint8_t* glsl, uint32_t glsl_len,
-                                      const uint8_t* essl, uint32_t essl_len,
-                                      const uint8_t* web,  uint32_t web_len)
-{
-    const uint8_t* data = nullptr;
-    uint32_t len = 0;
-
-    switch (type) {
-    case bgfx::RendererType::OpenGL:
-        data = glsl;
-        len = glsl_len;
-        break;
-    case bgfx::RendererType::OpenGLES:
-#if defined(NOVELTEA_PLATFORM_WEB)
-        data = web;
-        len = web_len;
-#else
-        data = essl;
-        len = essl_len;
-#endif
-        break;
-    default:
-        SDL_Log("[imgui_bgfx] unsupported renderer type %d",
-                static_cast<int>(type));
-        return BGFX_INVALID_HANDLE;
-    }
-
-    bgfx::ShaderHandle h = bgfx::createShader(shader_mem(data, len));
-    if (!bgfx::isValid(h)) {
-        SDL_Log("[imgui_bgfx] failed to create shader");
-    }
-    return h;
-}
 
 // ---------------------------------------------------------------------------
 // ImGuiBgfxRenderer
@@ -77,35 +25,14 @@ ImGuiBgfxRenderer::~ImGuiBgfxRenderer()
     shutdown();
 }
 
-bool ImGuiBgfxRenderer::initialize()
+bool ImGuiBgfxRenderer::initialize(const assets::AssetManager& assets)
 {
     if (m_initialized) return true;
+    m_assets = &assets;
 
-    const bgfx::RendererType::Enum type = bgfx::getRendererType();
-
-    bgfx::ShaderHandle vs = load_shader(
-        type,
-        vs_imgui_glsl, sizeof(vs_imgui_glsl),
-        vs_imgui_essl, sizeof(vs_imgui_essl),
-        vs_imgui_web,  sizeof(vs_imgui_web));
-    bgfx::ShaderHandle fs = load_shader(
-        type,
-        fs_imgui_glsl, sizeof(fs_imgui_glsl),
-        fs_imgui_essl, sizeof(fs_imgui_essl),
-        fs_imgui_web,  sizeof(fs_imgui_web));
-
-    if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
-        SDL_Log("[imgui_bgfx] shader load failed");
-        if (bgfx::isValid(vs)) bgfx::destroy(vs);
-        if (bgfx::isValid(fs)) bgfx::destroy(fs);
-        return false;
-    }
-
-    m_program = bgfx::createProgram(vs, fs, true).idx;
+    m_program = bgfx_backend::BgfxShaderLoader(assets).load_program(bgfx_backend::SystemShader::ImGui).idx;
     if (!bgfx::isValid(bgfx::ProgramHandle{m_program})) {
-        SDL_Log("[imgui_bgfx] failed to create program");
-        bgfx::destroy(vs);
-        bgfx::destroy(fs);
+        SDL_Log("[imgui_bgfx] shader load failed");
         return false;
     }
 

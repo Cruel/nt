@@ -9,6 +9,8 @@ imgui.ini
 *.apk
 # Generated shaderc dependency tracking artifacts
 *.h.d
+*.bin.d
+engine/src/shaders/*.h
 *.aab
 .gradle/
 local.properties

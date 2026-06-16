@@ -2,6 +2,7 @@
 
 #include "noveltea/render/quad_batch.hpp"
 #include "noveltea/preview_bridge.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/text/font.hpp"
 #include "noveltea/text/text_lab.hpp"
 #include "noveltea/text/text_layout.hpp"
@@ -20,6 +21,7 @@ struct RendererConfig {
     int height = 720;
     bool vsync = true;
     const char* title = "NovelTea";
+    const assets::AssetManager* assets = nullptr;
 };
 
 class Renderer {
@@ -63,6 +65,7 @@ private:
     void submit_quad(const QuadCommand& command);
     uint16_t load_ppm_texture(const std::filesystem::path& path);
 
+    const assets::AssetManager* m_assets = nullptr;
     bool m_initialized = false;
     bool m_vsync = true;
     int m_width = 0;

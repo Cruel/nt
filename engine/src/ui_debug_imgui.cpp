@@ -36,9 +36,10 @@ ImVec2 debug_overlay_default_pos() {
 DebugUI::DebugUI() = default;
 DebugUI::~DebugUI() { shutdown(); }
 
-bool DebugUI::initialize(SDL_Window *window) {
+bool DebugUI::initialize(SDL_Window *window, const assets::AssetManager* assets) {
   if (m_initialized)
     return true;
+  m_assets = assets;
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -79,7 +80,7 @@ bool DebugUI::initialize(SDL_Window *window) {
 #ifdef NOVELTEA_HAS_BGFX
   {
     auto *backend = new ImGuiBgfxRenderer();
-    if (backend->initialize()) {
+    if (m_assets && backend->initialize(*m_assets)) {
       m_bgfx_backend = backend;
       SDL_Log("[debug_ui] ImGui bgfx renderer initialized");
     } else {

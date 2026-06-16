@@ -1,7 +1,8 @@
 #include "noveltea/renderer.hpp"
 
-#include "noveltea/assets/assets.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 #include "render/bgfx/bgfx_renderer_internal.hpp"
+#include "render/bgfx/bgfx_shader_loader.hpp"
 
 #include <bgfx/bgfx.h>
 #include <SDL3/SDL_log.h>
@@ -18,13 +19,6 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "third_party/stb_truetype.h"
-
-#include "shaders/vs_text_glsl.h"
-#include "shaders/fs_text_glsl.h"
-#include "shaders/vs_text_essl.h"
-#include "shaders/fs_text_essl.h"
-#include "shaders/vs_text_web.h"
-#include "shaders/fs_text_web.h"
 
 namespace noveltea {
 namespace {
@@ -67,6 +61,7 @@ struct FontResource {
 
 class BgfxTextRenderer {
 public:
+    explicit BgfxTextRenderer(const assets::AssetManager& assets) : m_assets(assets) {}
     bool initialize();
     void shutdown();
     FontHandle load_font(const FontDesc& desc);
@@ -85,6 +80,7 @@ private:
     bgfx::UniformHandle m_outline = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle m_shadow_color = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle m_shadow = BGFX_INVALID_HANDLE;
+    const assets::AssetManager& m_assets;
 };
 
 float effective_alpha(const TextStyle& style)
@@ -106,18 +102,11 @@ Vec2 transform_point(Vec2 point, Vec2 origin, const Transform2D& transform)
 
 bool BgfxTextRenderer::initialize()
 {
-    const bgfx::RendererType::Enum type = bgfx::getRendererType();
-    bgfx::ShaderHandle vs = bgfx_backend::load_embedded_shader(
-        type, vs_text_glsl, sizeof(vs_text_glsl), vs_text_essl, sizeof(vs_text_essl), vs_text_web, sizeof(vs_text_web));
-    bgfx::ShaderHandle fs = bgfx_backend::load_embedded_shader(
-        type, fs_text_glsl, sizeof(fs_text_glsl), fs_text_essl, sizeof(fs_text_essl), fs_text_web, sizeof(fs_text_web));
-    if (!bgfx::isValid(vs) || !bgfx::isValid(fs)) {
-        if (bgfx::isValid(vs)) bgfx::destroy(vs);
-        if (bgfx::isValid(fs)) bgfx::destroy(fs);
+    m_program = bgfx_backend::BgfxShaderLoader(m_assets).load_program(bgfx_backend::SystemShader::Text);
+    if (!bgfx::isValid(m_program)) {
         return false;
     }
 
-    m_program = bgfx::createProgram(vs, fs, true);
     m_sampler = bgfx::createUniform("s_textAtlas", bgfx::UniformType::Sampler);
     m_sdf = bgfx::createUniform("u_textSdf", bgfx::UniformType::Vec4);
     m_outline = bgfx::createUniform("u_textOutlineColor", bgfx::UniformType::Vec4);
@@ -152,13 +141,16 @@ void BgfxTextRenderer::shutdown()
 FontHandle BgfxTextRenderer::load_font(const FontDesc& desc)
 {
     FontResource font;
-    const std::filesystem::path resolved_path = resolve_asset_path(desc.asset_path);
-    auto bytes = read_binary_file(resolved_path);
+    const std::string requested_path = desc.asset_path.generic_string();
+    const std::string logical_path = requested_path.find(":/") == std::string::npos
+        ? "project:/" + requested_path
+        : requested_path;
+    auto bytes = m_assets.read_binary(logical_path);
     if (bytes) {
-        font.ttf_data = std::move(*bytes);
+        font.ttf_data = std::move(bytes->bytes);
     }
     if (font.ttf_data.empty() || !stbtt_InitFont(&font.info, font.ttf_data.data(), 0)) {
-        std::fprintf(stderr, "[text] failed to load font: %s\n", resolved_path.string().c_str());
+        std::fprintf(stderr, "[text] failed to load font: %s (%s)\n", logical_path.c_str(), m_assets.last_error().c_str());
         return {};
     }
 
@@ -210,7 +202,7 @@ FontHandle BgfxTextRenderer::load_font(const FontDesc& desc)
         }
         if (pen_y + glyph_h + 1 >= font.atlas_height) {
             stbtt_FreeSDF(sdf, nullptr);
-            std::fprintf(stderr, "[text] font atlas full: %s\n", resolved_path.string().c_str());
+            std::fprintf(stderr, "[text] font atlas full: %s\n", logical_path.c_str());
             return {};
         }
 
@@ -390,7 +382,11 @@ void BgfxTextRenderer::draw_text(const TextRun& run)
 
 void Renderer::create_text()
 {
-    auto* text = new BgfxTextRenderer();
+    if (!m_assets) {
+        std::fprintf(stderr, "[text] no AssetManager for text renderer\n");
+        return;
+    }
+    auto* text = new BgfxTextRenderer(*m_assets);
     if (!text->initialize()) {
         delete text;
         m_text_renderer = nullptr;
@@ -400,7 +396,7 @@ void Renderer::create_text()
     m_text_renderer = text;
 
     FontDesc desc;
-    desc.asset_path = "rmlui/LiberationSans.ttf";
+    desc.asset_path = "project:/rmlui/LiberationSans.ttf";
     desc.base_pixel_size = 96.0f;
     desc.sdf = true;
     desc.atlas_width = 1024;

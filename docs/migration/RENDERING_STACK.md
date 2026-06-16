@@ -48,6 +48,12 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
 - SDL3 event translation (mouse, keyboard, text input, window resize) into RmlUi context calls.
 - Font loading and demo document/stylesheet loading from `apps/sandbox/assets/rmlui/`.
 - RmlUi bgfx shader pair (`vs_rmlui.sc` / `fs_rmlui.sc`) compiled for glsl/essl/web profiles.
+- Backend-neutral `AssetManager` with `system:/`, `project:/`, and `cache:/`
+  mounts, currently backed by directories and ready for future `.ntzip` sources.
+- bgfx shader source remains in `engine/shaders/bgfx`, while compiled shader
+  binaries are build/runtime assets loaded from
+  `assets/shaders/bgfx/{linux-glsl,android-essl,web-essl100}`. Runtime code does
+  not include generated shader headers or compile shader source.
 
 ## Deferred (Next Slice)
 

@@ -51,6 +51,24 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 std::fprintf(stderr, "[app] unknown demo mode: %s\n", mode);
                 return false;
             }
+        } else if (std::strcmp(arg, "--system-assets") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --system-assets requires a path\n");
+                return false;
+            }
+            options.system_asset_root = argv[++i];
+        } else if (std::strcmp(arg, "--project-assets") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --project-assets requires a path\n");
+                return false;
+            }
+            options.project_asset_root = argv[++i];
+        } else if (std::strcmp(arg, "--cache-assets") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --cache-assets requires a path\n");
+                return false;
+            }
+            options.cache_asset_root = argv[++i];
         }
     }
     return true;
@@ -69,6 +87,9 @@ bool App::initialize(int argc, char* argv[])
     EngineRunConfig run_config;
     run_config.frame_limit = options.frame_limit;
     run_config.demo_mode = options.demo_mode;
+    run_config.system_asset_root = options.system_asset_root;
+    run_config.project_asset_root = options.project_asset_root;
+    run_config.cache_asset_root = options.cache_asset_root;
 
     if (!m_engine.initialize(config, run_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");

@@ -1,9 +1,10 @@
 #include "noveltea/ui_runtime.hpp"
 
-#include "noveltea/assets/assets.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <unordered_map>
 #include <vector>
 
@@ -21,12 +22,7 @@
 #include <bgfx/bgfx.h>
 
 #if defined(NOVELTEA_HAS_RMLUI)
-#include "shaders/vs_rmlui_glsl.h"
-#include "shaders/fs_rmlui_glsl.h"
-#include "shaders/vs_rmlui_essl.h"
-#include "shaders/fs_rmlui_essl.h"
-#include "shaders/vs_rmlui_web.h"
-#include "shaders/fs_rmlui_web.h"
+#include "render/bgfx/bgfx_shader_loader.hpp"
 #endif
 
 namespace noveltea {
@@ -92,43 +88,10 @@ struct CompiledRmlGeometry
     Rml::TextureHandle texture = 0;
 };
 
-static bgfx::ShaderHandle load_rmlui_shader(
-    bgfx::RendererType::Enum type,
-    const uint8_t* glsl, uint32_t glsl_len,
-    const uint8_t* essl, uint32_t essl_len,
-    const uint8_t* web, uint32_t web_len)
-{
-    const uint8_t* data = nullptr;
-    uint32_t len = 0;
-    switch (type) {
-    case bgfx::RendererType::OpenGL:
-        data = glsl; len = glsl_len;
-        break;
-    case bgfx::RendererType::OpenGLES:
-#if defined(NOVELTEA_PLATFORM_WEB)
-        data = web; len = web_len;
-#else
-        data = essl; len = essl_len;
-#endif
-        break;
-    default:
-        std::fprintf(stderr, "[rmlui] unsupported bgfx renderer type %d\n", static_cast<int>(type));
-        return BGFX_INVALID_HANDLE;
-    }
-    const bgfx::Memory* mem = bgfx::alloc(len + 1);
-    std::memcpy(mem->data, data, len);
-    mem->data[len] = 0;
-    bgfx::ShaderHandle h = bgfx::createShader(mem);
-    if (!bgfx::isValid(h)) {
-        std::fprintf(stderr, "[rmlui] shader creation failed\n");
-    }
-    return h;
-}
-
 class BgfxRenderInterface : public Rml::RenderInterface
 {
 public:
-    BgfxRenderInterface(int width, int height, bgfx::ViewId view_id)
+    BgfxRenderInterface(int width, int height, bgfx::ViewId view_id, const assets::AssetManager& assets)
         : m_view_id(view_id)
     {
         m_vertex_layout.begin()
@@ -137,26 +100,9 @@ public:
             .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
             .end();
 
-        bgfx::RendererType::Enum type = bgfx::getRendererType();
-        bgfx::ShaderHandle vs = load_rmlui_shader(
-            type,
-            vs_rmlui_glsl, sizeof(vs_rmlui_glsl),
-            vs_rmlui_essl, sizeof(vs_rmlui_essl),
-            vs_rmlui_web, sizeof(vs_rmlui_web));
-        bgfx::ShaderHandle fs = load_rmlui_shader(
-            type,
-            fs_rmlui_glsl, sizeof(fs_rmlui_glsl),
-            fs_rmlui_essl, sizeof(fs_rmlui_essl),
-            fs_rmlui_web, sizeof(fs_rmlui_web));
-
-        if (bgfx::isValid(vs) && bgfx::isValid(fs)) {
-            m_program = bgfx::createProgram(vs, fs, true);
-            if (!bgfx::isValid(m_program)) {
-                std::fprintf(stderr, "[rmlui] program creation failed\n");
-            }
-        } else {
-            if (bgfx::isValid(vs)) bgfx::destroy(vs);
-            if (bgfx::isValid(fs)) bgfx::destroy(fs);
+        m_program = bgfx_backend::BgfxShaderLoader(assets).load_program(bgfx_backend::SystemShader::RmlUi);
+        if (!bgfx::isValid(m_program)) {
+            std::fprintf(stderr, "[rmlui] program creation failed\n");
         }
 
         m_sampler_uniform = bgfx::createUniform("s_texColor", bgfx::UniformType::Sampler);
@@ -537,11 +483,15 @@ struct RuntimeUI::State
 RuntimeUI::RuntimeUI() = default;
 RuntimeUI::~RuntimeUI() { shutdown(); }
 
-bool RuntimeUI::initialize()
+bool RuntimeUI::initialize(const assets::AssetManager* assets)
 {
     if (m_initialized) return true;
 
 #if defined(NOVELTEA_HAS_RMLUI)
+    if (!assets) {
+        std::fprintf(stderr, "[runtime_ui] no AssetManager for RmlUi\n");
+        return false;
+    }
     std::printf("[runtime_ui] initializing RmlUi...\n");
 
     m_state = new State;
@@ -560,7 +510,7 @@ bool RuntimeUI::initialize()
         return false;
     }
 
-    m_state->render_interface = new BgfxRenderInterface(m_width, m_height, 1);
+    m_state->render_interface = new BgfxRenderInterface(m_width, m_height, 1, *assets);
 
     m_state->context = Rml::CreateContext(
         "main",
@@ -578,14 +528,18 @@ bool RuntimeUI::initialize()
         return false;
     }
 
-    const std::filesystem::path asset_root = default_asset_root();
-    const std::filesystem::path font_path = resolve_asset_path(kRuntimeUiFontAsset);
-    const std::filesystem::path document_path = resolve_asset_path(kRuntimeUiDocumentAsset);
+    const auto font_asset = assets->read_binary(std::string("project:/") + kRuntimeUiFontAsset);
+    const auto document_asset = assets->read_binary(std::string("project:/") + kRuntimeUiDocumentAsset);
 
-    std::printf("[runtime_ui] asset root: %s\n", asset_root.string().c_str());
-    Rml::LoadFontFace(font_path.string(), true);
+    if (font_asset) {
+        Rml::LoadFontFace(font_asset->physical_path.string(), true);
+    } else {
+        std::fprintf(stderr, "[runtime_ui] failed to locate font: %s\n", assets->last_error().c_str());
+    }
 
-    Rml::ElementDocument* doc = m_state->context->LoadDocument(document_path.string());
+    Rml::ElementDocument* doc = document_asset
+        ? m_state->context->LoadDocument(document_asset->physical_path.string())
+        : nullptr;
     if (doc) {
         doc->Show();
         m_state->demo_document = doc;

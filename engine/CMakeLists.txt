@@ -1,4 +1,5 @@
 add_library(engine STATIC
+    src/assets/asset_manager.cpp
     src/assets.cpp
     src/app.cpp
     src/audio/miniaudio/miniaudio_backend.cpp
@@ -34,6 +35,11 @@ else()
     target_compile_definitions(engine PUBLIC NOVELTEA_PLATFORM_DESKTOP)
 endif()
 
+target_compile_definitions(engine PUBLIC
+    NOVELTEA_DEFAULT_SYSTEM_ASSET_ROOT="${CMAKE_BINARY_DIR}/assets"
+    NOVELTEA_DEFAULT_CACHE_ASSET_ROOT="${CMAKE_BINARY_DIR}/assets"
+)
+
 # --- Dependencies ---
 # SDL3::SDL3 target is provided by the root CMakeLists.txt.
 
@@ -41,43 +47,12 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     message(STATUS "bgfx found - full rendering enabled")
 
     set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
-    set(SHADER_OUT_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
+    set(SHADER_ASSET_ROOT "${CMAKE_BINARY_DIR}/assets")
     set(SHADER_INCDIRS  "-i" "${SHADER_SRC_DIR}")
-    set(NOVELTEA_SHADER_HEADERS
-        src/shaders/vs_triangle_glsl.h
-        src/shaders/fs_triangle_glsl.h
-        src/shaders/vs_triangle_essl.h
-        src/shaders/fs_triangle_essl.h
-        src/shaders/vs_triangle_web.h
-        src/shaders/fs_triangle_web.h
-        src/shaders/vs_imgui_glsl.h
-        src/shaders/fs_imgui_glsl.h
-        src/shaders/vs_imgui_essl.h
-        src/shaders/fs_imgui_essl.h
-        src/shaders/vs_imgui_web.h
-        src/shaders/fs_imgui_web.h
-        src/shaders/vs_quad_glsl.h
-        src/shaders/fs_quad_glsl.h
-        src/shaders/vs_quad_essl.h
-        src/shaders/fs_quad_essl.h
-        src/shaders/vs_quad_web.h
-        src/shaders/fs_quad_web.h
-        src/shaders/vs_text_glsl.h
-        src/shaders/fs_text_glsl.h
-        src/shaders/vs_text_essl.h
-        src/shaders/fs_text_essl.h
-        src/shaders/vs_text_web.h
-        src/shaders/fs_text_web.h
+    set(NOVELTEA_SHADER_NAMES triangle quad text imgui
     )
     if(NOVELTEA_ENABLE_RMLUI)
-        list(APPEND NOVELTEA_SHADER_HEADERS
-            src/shaders/vs_rmlui_glsl.h
-            src/shaders/fs_rmlui_glsl.h
-            src/shaders/vs_rmlui_essl.h
-            src/shaders/fs_rmlui_essl.h
-            src/shaders/vs_rmlui_web.h
-            src/shaders/fs_rmlui_web.h
-        )
+        list(APPEND NOVELTEA_SHADER_NAMES rmlui)
     endif()
 
     if(NOVELTEA_COMPILE_SHADERS)
@@ -95,7 +70,7 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         endif()
 
         if(NOT SHADERC_EXECUTABLE)
-            message(FATAL_ERROR "shaderc not found - install bgfx[tools] via vcpkg or configure with -DNOVELTEA_COMPILE_SHADERS=OFF to use committed shader headers")
+            message(FATAL_ERROR "shaderc not found - install bgfx[tools] via vcpkg or configure with -DNOVELTEA_COMPILE_SHADERS=OFF to use existing compiled shader assets")
         endif()
 
         # Find bgfx_shader.sh from bgfx include tree (vcpkg layout).
@@ -109,268 +84,75 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
                 break()
             endif()
         endforeach()
+        set(NOVELTEA_SHADER_TARGETS
+            linux-glsl   linux   120
+            android-essl android 300_es
+            web-essl100  asm.js  100_es
+        )
+        set(NOVELTEA_SHADER_BINARIES)
+        foreach(_target linux-glsl android-essl web-essl100)
+            list(FIND NOVELTEA_SHADER_TARGETS "${_target}" _idx)
+            math(EXPR _plat_idx "${_idx} + 1")
+            math(EXPR _prof_idx "${_idx} + 2")
+            list(GET NOVELTEA_SHADER_TARGETS ${_plat_idx} _platform)
+            list(GET NOVELTEA_SHADER_TARGETS ${_prof_idx} _profile)
+            set(_out_dir "${SHADER_ASSET_ROOT}/shaders/bgfx/${_target}")
+            foreach(_shader IN LISTS NOVELTEA_SHADER_NAMES)
+                foreach(_stage vs fs)
+                    set(_type v)
+                    if(_stage STREQUAL "fs")
+                        set(_type f)
+                    endif()
+                    set(_out "${_out_dir}/${_shader}.${_stage}.bin")
+                    list(APPEND NOVELTEA_SHADER_BINARIES "${_out}")
+                    add_custom_command(
+                        OUTPUT "${_out}"
+                        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_out_dir}"
+                        COMMAND "${SHADERC_EXECUTABLE}"
+                                -f "${SHADER_SRC_DIR}/${_stage}_${_shader}.sc"
+                                -o "${_out}"
+                                --type ${_type}
+                                --platform ${_platform} -p ${_profile}
+                                ${SHADER_INCDIRS}
+                        DEPENDS "${SHADER_SRC_DIR}/${_stage}_${_shader}.sc"
+                                "${SHADER_SRC_DIR}/varying.def.sc"
+                        COMMENT "Compiling bgfx shader ${_target}/${_shader}.${_stage}.bin"
+                        VERBATIM
+                    )
+                endforeach()
+            endforeach()
+        endforeach()
+        add_custom_target(noveltea-shaders DEPENDS ${NOVELTEA_SHADER_BINARIES})
     else()
         unset(SHADERC_EXECUTABLE CACHE)
-        foreach(_shader_header IN LISTS NOVELTEA_SHADER_HEADERS)
-            if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_shader_header}")
-                message(FATAL_ERROR "NOVELTEA_COMPILE_SHADERS=OFF requires generated shader header '${_shader_header}'. Enable shader compilation or regenerate and commit shader headers in engine/src/shaders.")
-            endif()
+        set(_missing_assets)
+        foreach(_target linux-glsl android-essl web-essl100)
+            foreach(_shader IN LISTS NOVELTEA_SHADER_NAMES)
+                foreach(_stage vs fs)
+                    set(_asset "${SHADER_ASSET_ROOT}/shaders/bgfx/${_target}/${_shader}.${_stage}.bin")
+                    if(NOT EXISTS "${_asset}")
+                        list(APPEND _missing_assets "${_asset}")
+                    endif()
+                endforeach()
+            endforeach()
         endforeach()
-    endif()
-
-    if(NOVELTEA_COMPILE_SHADERS)
-        set(SHADER_PROFILES
-            glsl   "linux"    "120"
-            essl   "android"  "300_es"
-        )
-
-    foreach(prof glsl essl)
-        list(FIND SHADER_PROFILES "${prof}" _idx)
-        math(EXPR _plat_idx "${_idx} + 1")
-        math(EXPR _prof_idx "${_idx} + 2")
-        list(GET SHADER_PROFILES ${_plat_idx} _plat)
-        list(GET SHADER_PROFILES ${_prof_idx} _prof)
-
-        set(_RMLUI_OUTPUTS)
-        if(NOVELTEA_ENABLE_RMLUI)
-            set(_RMLUI_OUTPUTS
-                "${SHADER_OUT_DIR}/vs_rmlui_${prof}.h"
-                "${SHADER_OUT_DIR}/fs_rmlui_${prof}.h"
-            )
+        if(_missing_assets)
+            list(GET _missing_assets 0 _first_missing)
+            message(FATAL_ERROR "NOVELTEA_COMPILE_SHADERS=OFF requires existing compiled shader assets under ${SHADER_ASSET_ROOT}; missing ${_first_missing}")
         endif()
-
-        add_custom_command(
-            OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
-                    "${SHADER_OUT_DIR}/fs_triangle_${prof}.h"
-                    "${SHADER_OUT_DIR}/vs_quad_${prof}.h"
-                    "${SHADER_OUT_DIR}/fs_quad_${prof}.h"
-                    "${SHADER_OUT_DIR}/vs_text_${prof}.h"
-                    "${SHADER_OUT_DIR}/fs_text_${prof}.h"
-                    ${_RMLUI_OUTPUTS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/vs_triangle.sc"
-                    -o "${SHADER_OUT_DIR}/vs_triangle_${prof}.h"
-                    --type v
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c vs_triangle_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/fs_triangle.sc"
-                    -o "${SHADER_OUT_DIR}/fs_triangle_${prof}.h"
-                    --type f
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c fs_triangle_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/vs_quad.sc"
-                    -o "${SHADER_OUT_DIR}/vs_quad_${prof}.h"
-                    --type v
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c vs_quad_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/fs_quad.sc"
-                    -o "${SHADER_OUT_DIR}/fs_quad_${prof}.h"
-                    --type f
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c fs_quad_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/vs_text.sc"
-                    -o "${SHADER_OUT_DIR}/vs_text_${prof}.h"
-                    --type v
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c vs_text_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/fs_text.sc"
-                    -o "${SHADER_OUT_DIR}/fs_text_${prof}.h"
-                    --type f
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c fs_text_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/vs_rmlui.sc"
-                    -o "${SHADER_OUT_DIR}/vs_rmlui_${prof}.h"
-                    --type v
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c vs_rmlui_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/fs_rmlui.sc"
-                    -o "${SHADER_OUT_DIR}/fs_rmlui_${prof}.h"
-                    --type f
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c fs_rmlui_${prof}
-                    ${SHADER_INCDIRS}
-            DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
-                    "${SHADER_SRC_DIR}/fs_triangle.sc"
-                    "${SHADER_SRC_DIR}/vs_quad.sc"
-                    "${SHADER_SRC_DIR}/fs_quad.sc"
-                    "${SHADER_SRC_DIR}/vs_text.sc"
-                    "${SHADER_SRC_DIR}/fs_text.sc"
-                    "${SHADER_SRC_DIR}/vs_rmlui.sc"
-                    "${SHADER_SRC_DIR}/fs_rmlui.sc"
-                    "${SHADER_SRC_DIR}/varying.def.sc"
-            COMMENT "Compiling bgfx shaders (${prof})"
-            VERBATIM
-        )
-    endforeach()
-
-    # Also compile a WebGL (ESSL 1.0) variant for web builds
-    set(_RMLUI_WEB_OUTPUTS)
-    if(NOVELTEA_ENABLE_RMLUI)
-        set(_RMLUI_WEB_OUTPUTS
-            "${SHADER_OUT_DIR}/vs_rmlui_web.h"
-            "${SHADER_OUT_DIR}/fs_rmlui_web.h"
-        )
-    endif()
-
-    add_custom_command(
-        OUTPUT  "${SHADER_OUT_DIR}/vs_triangle_web.h"
-                "${SHADER_OUT_DIR}/fs_triangle_web.h"
-                "${SHADER_OUT_DIR}/vs_quad_web.h"
-                "${SHADER_OUT_DIR}/fs_quad_web.h"
-                "${SHADER_OUT_DIR}/vs_text_web.h"
-                "${SHADER_OUT_DIR}/fs_text_web.h"
-                ${_RMLUI_WEB_OUTPUTS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/vs_triangle.sc"
-                -o "${SHADER_OUT_DIR}/vs_triangle_web.h"
-                --type v
-                --platform asm.js -p 100_es
-                --bin2c vs_triangle_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/fs_triangle.sc"
-                -o "${SHADER_OUT_DIR}/fs_triangle_web.h"
-                --type f
-                --platform asm.js -p 100_es
-                --bin2c fs_triangle_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/vs_quad.sc"
-                -o "${SHADER_OUT_DIR}/vs_quad_web.h"
-                --type v
-                --platform asm.js -p 100_es
-                --bin2c vs_quad_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/fs_quad.sc"
-                -o "${SHADER_OUT_DIR}/fs_quad_web.h"
-                --type f
-                --platform asm.js -p 100_es
-                --bin2c fs_quad_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/vs_text.sc"
-                -o "${SHADER_OUT_DIR}/vs_text_web.h"
-                --type v
-                --platform asm.js -p 100_es
-                --bin2c vs_text_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/fs_text.sc"
-                -o "${SHADER_OUT_DIR}/fs_text_web.h"
-                --type f
-                --platform asm.js -p 100_es
-                --bin2c fs_text_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/vs_rmlui.sc"
-                -o "${SHADER_OUT_DIR}/vs_rmlui_web.h"
-                --type v
-                --platform asm.js -p 100_es
-                --bin2c vs_rmlui_web
-                ${SHADER_INCDIRS}
-        COMMAND "${SHADERC_EXECUTABLE}"
-                -f "${SHADER_SRC_DIR}/fs_rmlui.sc"
-                -o "${SHADER_OUT_DIR}/fs_rmlui_web.h"
-                --type f
-                --platform asm.js -p 100_es
-                --bin2c fs_rmlui_web
-                ${SHADER_INCDIRS}
-        DEPENDS "${SHADER_SRC_DIR}/vs_triangle.sc"
-                "${SHADER_SRC_DIR}/fs_triangle.sc"
-                "${SHADER_SRC_DIR}/vs_quad.sc"
-                "${SHADER_SRC_DIR}/fs_quad.sc"
-                "${SHADER_SRC_DIR}/vs_text.sc"
-                "${SHADER_SRC_DIR}/fs_text.sc"
-                "${SHADER_SRC_DIR}/vs_rmlui.sc"
-                "${SHADER_SRC_DIR}/fs_rmlui.sc"
-                "${SHADER_SRC_DIR}/varying.def.sc"
-        COMMENT "Compiling bgfx shaders (web)"
-        VERBATIM
-    )
-
-    # --- ImGui shaders (compiled alongside triangle shaders) ---
-    foreach(prof glsl essl)
-        list(FIND SHADER_PROFILES "${prof}" _idx)
-        math(EXPR _plat_idx "${_idx} + 1")
-        math(EXPR _prof_idx "${_idx} + 2")
-        list(GET SHADER_PROFILES ${_plat_idx} _plat)
-        list(GET SHADER_PROFILES ${_prof_idx} _prof)
-
-        add_custom_command(
-            OUTPUT  "${SHADER_OUT_DIR}/vs_imgui_${prof}.h"
-                    "${SHADER_OUT_DIR}/fs_imgui_${prof}.h"
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/vs_imgui.sc"
-                    -o "${SHADER_OUT_DIR}/vs_imgui_${prof}.h"
-                    --type v
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c vs_imgui_${prof}
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/fs_imgui.sc"
-                    -o "${SHADER_OUT_DIR}/fs_imgui_${prof}.h"
-                    --type f
-                    --platform ${_plat} -p ${_prof}
-                    --bin2c fs_imgui_${prof}
-                    ${SHADER_INCDIRS}
-            DEPENDS "${SHADER_SRC_DIR}/vs_imgui.sc"
-                    "${SHADER_SRC_DIR}/fs_imgui.sc"
-                    "${SHADER_SRC_DIR}/varying.def.sc"
-            COMMENT "Compiling bgfx shaders (${prof})"
-            VERBATIM
-        )
-    endforeach()
-
-        # Web variant for imgui
-        add_custom_command(
-            OUTPUT  "${SHADER_OUT_DIR}/vs_imgui_web.h"
-                    "${SHADER_OUT_DIR}/fs_imgui_web.h"
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/vs_imgui.sc"
-                    -o "${SHADER_OUT_DIR}/vs_imgui_web.h"
-                    --type v
-                    --platform asm.js -p 100_es
-                    --bin2c vs_imgui_web
-                    ${SHADER_INCDIRS}
-            COMMAND "${SHADERC_EXECUTABLE}"
-                    -f "${SHADER_SRC_DIR}/fs_imgui.sc"
-                    -o "${SHADER_OUT_DIR}/fs_imgui_web.h"
-                    --type f
-                    --platform asm.js -p 100_es
-                    --bin2c fs_imgui_web
-                    ${SHADER_INCDIRS}
-            DEPENDS "${SHADER_SRC_DIR}/vs_imgui.sc"
-                    "${SHADER_SRC_DIR}/fs_imgui.sc"
-                    "${SHADER_SRC_DIR}/varying.def.sc"
-            COMMENT "Compiling bgfx shaders (web)"
-            VERBATIM
-        )
+        add_custom_target(noveltea-shaders)
     endif()
 
     target_sources(engine PRIVATE
         src/render/bgfx/bgfx_renderer.cpp
         src/render/bgfx/bgfx_resources.cpp
         src/render/bgfx/bgfx_quad_batch.cpp
-        src/render/bgfx/bgfx_shader_embedded.cpp
+        src/render/bgfx/bgfx_shader_loader.cpp
         src/render/bgfx/text/bgfx_text_renderer.cpp
         src/render/bgfx/bgfx_texture.cpp
-        ${NOVELTEA_SHADER_HEADERS}
     )
+    add_dependencies(engine noveltea-shaders)
+    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
     target_link_libraries(engine PUBLIC bgfx::bgfx)
     if(TARGET bx::bx)
         target_link_libraries(engine PUBLIC bx::bx)
@@ -378,7 +160,6 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     if(CMAKE_SYSTEM_NAME STREQUAL "Android")
         target_link_libraries(engine PUBLIC EGL GLESv2 android)
     endif()
-    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
 else()
     message(STATUS "bgfx not available; using stub renderer")
     target_sources(engine PRIVATE src/render/renderer_stub.cpp)

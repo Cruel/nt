@@ -7,10 +7,12 @@ Current runtime stack:
 
 - SDL3: platform, window, input, and lifecycle layer.
 - bgfx: renderer backend on Linux desktop and Android when found by CMake.
-- RmlUi + FreeType: runtime UI layer. This pass wires an engine-owned scaffold;
-  the bgfx-backed RmlUi renderer is still TODO.
+- RmlUi + FreeType: runtime UI layer with a bgfx-backed render interface.
 - Dear ImGui: optional dev/debug overlay only. It is controlled by
   `NOVELTEA_ENABLE_DEVTOOLS`.
+- AssetManager: backend-neutral logical asset lookup over mounted directory
+  roots. It currently reads bytes/text from directories and is intended to gain
+  `.ntzip` package sources later.
 - miniaudio: dependency available for a future audio backend.
 - HarfBuzz: dependency available for future richer text shaping.
 
@@ -136,6 +138,44 @@ The tree is still named `engine/`; it now separates the platform, renderer,
 runtime UI, and devtools responsibilities in code and build selection without a
 large directory move.
 
+### Shader Assets
+
+Shader source stays in `engine/shaders/bgfx/*.sc`. Normal builds do not compile
+or include generated C headers. Instead, `shaderc` writes compiled `.bin`
+assets under:
+
+```text
+build/<preset>/assets/shaders/bgfx/
+  linux-glsl/
+  android-essl/
+  web-essl100/
+```
+
+Runtime bgfx code loads built-in programs by logical asset paths such as
+`system:/shaders/bgfx/linux-glsl/triangle.vs.bin` through `AssetManager`.
+`NOVELTEA_COMPILE_SHADERS=ON` requires `shaderc` from `bgfx[tools]`.
+`NOVELTEA_COMPILE_SHADERS=OFF` means use existing compiled shader assets under
+the configured build asset directory; it no longer means "use committed shader
+headers".
+
+Future runtime packages should use this layout:
+
+```text
+assets/
+  shaders/bgfx/linux-glsl/
+  shaders/bgfx/android-essl/
+  shaders/bgfx/web-essl100/
+  fonts/
+  images/
+  audio/
+  ui/
+  text/
+```
+
+Editable project packages may include shader source, but runtime packages need
+compiled shader binaries. Universal runtime packages need compiled shader
+variants for each supported target. The runtime does not compile shader source.
+
 ### ImGui Debug Overlay (bgfx-backed)
 
 When `NOVELTEA_ENABLE_DEVTOOLS=ON` (the default) and both `bgfx` and `imgui`
@@ -143,7 +183,7 @@ packages are found, the ImGui debug overlay is rendered through bgfx on a
 separate view (250) on top of the scene.  The backend owns:
 
 * GLSL/ESSL shaders for ImGui `ImDrawVert` rendering (`vs_imgui.sc`,
-  `fs_imgui.sc`), compiled via `shaderc --bin2c`.
+  `fs_imgui.sc`), compiled to runtime-loaded `.bin` shader assets.
 * A bgfx program, sampler uniform, and 2D font texture.
 * Transient vertex/index buffers for per-frame ImDrawData submission.
 
@@ -185,17 +225,15 @@ quit through the platform abstraction.
 - `NOVELTEA_ENABLE_DEVTOOLS=ON`: include Dear ImGui dev/debug overlay when the
   package is available.  When both bgfx and ImGui are present, the overlay is
   rendered through bgfx.
+- `NOVELTEA_COMPILE_SHADERS=ON`: compile bgfx shader `.sc` sources into build
+  asset `.bin` files using `shaderc`.
+- `NOVELTEA_COMPILE_SHADERS=OFF`: require those compiled shader assets to
+  already exist; generated/committed C headers are not used.
 - `NOVELTEA_USE_IMGUI`: deprecated alias; setting it OFF disables devtools.
 
 ## Stubbed Or TODO
 
-- RmlUi renderer backend, SDL input translation, document loading, and text
-  rendering.
-- Web bgfx/WebGL renderer. The Web sandbox currently uses a visible shell plus
-  console/page status with the stub renderer.
 - Vulkan shader variants for the triangle (currently GLSL/GLES only; desktop
   forces OpenGL).
 - miniaudio backend.
 - HarfBuzz shaping integration beyond dependency availability.
-- Shader auto-compilation at build time on all platforms (compiled `.h` headers
-  are checked in as a fallback; see `engine/CMakeLists.txt` custom commands).

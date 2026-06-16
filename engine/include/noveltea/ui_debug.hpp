@@ -8,6 +8,8 @@ union SDL_Event;
 
 namespace noveltea {
 
+namespace assets { class AssetManager; }
+
 class DebugUI {
 public:
     DebugUI();
@@ -16,7 +18,7 @@ public:
     DebugUI(const DebugUI&) = delete;
     DebugUI& operator=(const DebugUI&) = delete;
 
-    bool initialize(SDL_Window* window);
+    bool initialize(SDL_Window* window, const assets::AssetManager* assets = nullptr);
     void process_event(const SDL_Event& event);
     void begin_frame(int width, int height);
     void end_frame();
@@ -35,6 +37,7 @@ private:
     char m_log_buffer[4096] = {};
     int m_log_len = 0;
     void* m_bgfx_backend = nullptr;
+    const assets::AssetManager* m_assets = nullptr;
 };
 
 } // namespace noveltea

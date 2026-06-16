@@ -5,8 +5,10 @@
 #include "renderer.hpp"
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 namespace noveltea {
@@ -21,6 +23,9 @@ enum class DemoMode {
 struct EngineRunConfig {
     uint32_t frame_limit = 0;
     DemoMode demo_mode = DemoMode::All;
+    std::filesystem::path system_asset_root;
+    std::filesystem::path project_asset_root;
+    std::filesystem::path cache_asset_root;
 };
 
 class Engine {
@@ -49,7 +54,9 @@ private:
     void handle_mouse_down(float x, float y, uint8_t button);
     void update(float dt);
     void render();
+    void configure_assets(const EngineRunConfig& run_config);
 
+    assets::AssetManager m_assets;
     Platform m_platform;
     Renderer m_renderer;
     RuntimeUI m_runtime_ui;

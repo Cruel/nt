@@ -7,6 +7,7 @@ endif()
 target_link_libraries(noveltea-sandbox PRIVATE engine)
 
 set(NOVELTEA_SANDBOX_ASSETS "${CMAKE_SOURCE_DIR}/apps/sandbox/assets")
+set(NOVELTEA_BUILD_ASSETS "${CMAKE_BINARY_DIR}/assets")
 
 # Emscripten output settings
 if(EMSCRIPTEN)
@@ -28,6 +29,7 @@ if(EMSCRIPTEN)
         --pre-js "${PERSISTENT_FS_PRE_JS}"
         --js-library "${PERSISTENT_FS_JS}"
         "SHELL:--preload-file ${NOVELTEA_SANDBOX_ASSETS}@/assets"
+        "SHELL:--preload-file ${NOVELTEA_BUILD_ASSETS}@/assets"
     )
     # Force re-link when shell.html changes
     set_property(TARGET noveltea-sandbox APPEND PROPERTY
@@ -47,6 +49,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Android")
                 "${NOVELTEA_ANDROID_GENERATED_ASSETS}"
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${NOVELTEA_SANDBOX_ASSETS}"
+                "${NOVELTEA_ANDROID_GENERATED_ASSETS}/assets"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${NOVELTEA_BUILD_ASSETS}"
                 "${NOVELTEA_ANDROID_GENERATED_ASSETS}/assets"
         VERBATIM
     )
