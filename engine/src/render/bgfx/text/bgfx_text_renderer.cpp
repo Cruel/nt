@@ -147,10 +147,10 @@ FontHandle BgfxTextRenderer::load_font(const FontDesc& desc)
         : requested_path;
     auto bytes = m_assets.read_binary(logical_path);
     if (bytes) {
-        font.ttf_data = std::move(bytes->bytes);
+        font.ttf_data = std::move(bytes.value->bytes);
     }
     if (font.ttf_data.empty() || !stbtt_InitFont(&font.info, font.ttf_data.data(), 0)) {
-        std::fprintf(stderr, "[text] failed to load font: %s (%s)\n", logical_path.c_str(), m_assets.last_error().c_str());
+        std::fprintf(stderr, "[text] failed to load font: %s (%s)\n", logical_path.c_str(), bytes.error.c_str());
         return {};
     }
 

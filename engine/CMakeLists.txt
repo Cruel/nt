@@ -36,8 +36,20 @@ else()
 endif()
 
 target_compile_definitions(engine PUBLIC
-    NOVELTEA_DEFAULT_SYSTEM_ASSET_ROOT="${CMAKE_BINARY_DIR}/assets"
-    NOVELTEA_DEFAULT_CACHE_ASSET_ROOT="${CMAKE_BINARY_DIR}/assets"
+    NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets"
+    NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets"
+    NOVELTEA_DEFAULT_CACHE_ASSET_ROOT="${CMAKE_BINARY_DIR}/cache"
+)
+
+set(NOVELTEA_RUNTIME_ASSET_ROOT "${CMAKE_BINARY_DIR}/runtime-assets" CACHE PATH "Staged NovelTea runtime asset root")
+set(NOVELTEA_PROJECT_ASSET_SOURCE "${CMAKE_SOURCE_DIR}/apps/sandbox/assets" CACHE PATH "Project/demo assets to stage")
+add_custom_target(noveltea-runtime-assets
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${NOVELTEA_RUNTIME_ASSET_ROOT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${NOVELTEA_PROJECT_ASSET_SOURCE}"
+            "${NOVELTEA_RUNTIME_ASSET_ROOT}"
+    COMMENT "Staging NovelTea runtime assets"
+    VERBATIM
 )
 
 # --- Dependencies ---
@@ -47,12 +59,15 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     message(STATUS "bgfx found - full rendering enabled")
 
     set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
-    set(SHADER_ASSET_ROOT "${CMAKE_BINARY_DIR}/assets")
-    set(SHADER_INCDIRS  "-i" "${SHADER_SRC_DIR}")
-    set(NOVELTEA_SHADER_NAMES triangle quad text imgui
-    )
-    if(NOVELTEA_ENABLE_RMLUI)
-        list(APPEND NOVELTEA_SHADER_NAMES rmlui)
+    set(SHADER_ASSET_ROOT "${NOVELTEA_RUNTIME_ASSET_ROOT}")
+    set(SHADER_EXTRA_INCLUDES)
+    set(NOVELTEA_SHADER_MANIFEST "${SHADER_SRC_DIR}/shaders.json")
+    if(EMSCRIPTEN)
+        set(NOVELTEA_SHADER_VARIANTS essl-100)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+        set(NOVELTEA_SHADER_VARIANTS essl-300)
+    else()
+        set(NOVELTEA_SHADER_VARIANTS glsl-120)
     endif()
 
     if(NOVELTEA_COMPILE_SHADERS)
@@ -80,54 +95,38 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
             "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/include/bgfx"
             "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/include/bgfx")
             if(EXISTS "${_dir}/bgfx_shader.sh")
-                list(APPEND SHADER_INCDIRS "-i" "${_dir}")
+                list(APPEND SHADER_EXTRA_INCLUDES --include "${_dir}")
                 break()
             endif()
         endforeach()
-        set(NOVELTEA_SHADER_TARGETS
-            linux-glsl   linux   120
-            android-essl android 300_es
-            web-essl100  asm.js  100_es
-        )
-        set(NOVELTEA_SHADER_BINARIES)
-        foreach(_target linux-glsl android-essl web-essl100)
-            list(FIND NOVELTEA_SHADER_TARGETS "${_target}" _idx)
-            math(EXPR _plat_idx "${_idx} + 1")
-            math(EXPR _prof_idx "${_idx} + 2")
-            list(GET NOVELTEA_SHADER_TARGETS ${_plat_idx} _platform)
-            list(GET NOVELTEA_SHADER_TARGETS ${_prof_idx} _profile)
-            set(_out_dir "${SHADER_ASSET_ROOT}/shaders/bgfx/${_target}")
-            foreach(_shader IN LISTS NOVELTEA_SHADER_NAMES)
-                foreach(_stage vs fs)
-                    set(_type v)
-                    if(_stage STREQUAL "fs")
-                        set(_type f)
-                    endif()
-                    set(_out "${_out_dir}/${_shader}.${_stage}.bin")
-                    list(APPEND NOVELTEA_SHADER_BINARIES "${_out}")
-                    add_custom_command(
-                        OUTPUT "${_out}"
-                        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_out_dir}"
-                        COMMAND "${SHADERC_EXECUTABLE}"
-                                -f "${SHADER_SRC_DIR}/${_stage}_${_shader}.sc"
-                                -o "${_out}"
-                                --type ${_type}
-                                --platform ${_platform} -p ${_profile}
-                                ${SHADER_INCDIRS}
-                        DEPENDS "${SHADER_SRC_DIR}/${_stage}_${_shader}.sc"
-                                "${SHADER_SRC_DIR}/varying.def.sc"
-                        COMMENT "Compiling bgfx shader ${_target}/${_shader}.${_stage}.bin"
-                        VERBATIM
-                    )
-                endforeach()
-            endforeach()
+        set(_variant_args)
+        foreach(_variant IN LISTS NOVELTEA_SHADER_VARIANTS)
+            list(APPEND _variant_args --variant "${_variant}")
         endforeach()
-        add_custom_target(noveltea-shaders DEPENDS ${NOVELTEA_SHADER_BINARIES})
+        add_custom_target(noveltea-shaders
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/compile_bgfx_shaders.py"
+                    --manifest "${NOVELTEA_SHADER_MANIFEST}"
+                    --shaderc "${SHADERC_EXECUTABLE}"
+                    --source-dir "${SHADER_SRC_DIR}"
+                    --output-root "${SHADER_ASSET_ROOT}"
+                    ${_variant_args}
+                    ${SHADER_EXTRA_INCLUDES}
+            DEPENDS "${NOVELTEA_SHADER_MANIFEST}"
+                    "${CMAKE_SOURCE_DIR}/scripts/compile_bgfx_shaders.py"
+                    "${SHADER_SRC_DIR}/varying.def.sc"
+                    "${SHADER_SRC_DIR}/vs_triangle.sc" "${SHADER_SRC_DIR}/fs_triangle.sc"
+                    "${SHADER_SRC_DIR}/vs_quad.sc" "${SHADER_SRC_DIR}/fs_quad.sc"
+                    "${SHADER_SRC_DIR}/vs_text.sc" "${SHADER_SRC_DIR}/fs_text.sc"
+                    "${SHADER_SRC_DIR}/vs_imgui.sc" "${SHADER_SRC_DIR}/fs_imgui.sc"
+                    "${SHADER_SRC_DIR}/vs_rmlui.sc" "${SHADER_SRC_DIR}/fs_rmlui.sc"
+            COMMENT "Compiling NovelTea bgfx shaders"
+            VERBATIM
+        )
     else()
         unset(SHADERC_EXECUTABLE CACHE)
         set(_missing_assets)
-        foreach(_target linux-glsl android-essl web-essl100)
-            foreach(_shader IN LISTS NOVELTEA_SHADER_NAMES)
+        foreach(_target IN LISTS NOVELTEA_SHADER_VARIANTS)
+            foreach(_shader triangle quad text imgui rmlui)
                 foreach(_stage vs fs)
                     set(_asset "${SHADER_ASSET_ROOT}/shaders/bgfx/${_target}/${_shader}.${_stage}.bin")
                     if(NOT EXISTS "${_asset}")
@@ -142,6 +141,7 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         endif()
         add_custom_target(noveltea-shaders)
     endif()
+    add_dependencies(noveltea-runtime-assets noveltea-shaders)
 
     target_sources(engine PRIVATE
         src/render/bgfx/bgfx_renderer.cpp
@@ -151,7 +151,7 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         src/render/bgfx/text/bgfx_text_renderer.cpp
         src/render/bgfx/bgfx_texture.cpp
     )
-    add_dependencies(engine noveltea-shaders)
+    add_dependencies(engine noveltea-runtime-assets)
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
     target_link_libraries(engine PUBLIC bgfx::bgfx)
     if(TARGET bx::bx)

@@ -90,7 +90,7 @@ void Renderer::create_2d()
         4, 4, false, 1, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
         bgfx::copy(pixels, sizeof(pixels))).idx;
 
-    m_disk_texture = load_ppm_texture("checker.ppm");
+    m_disk_texture = load_ppm_texture("project:/checker.ppm");
     if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture})) {
         m_texture_status = "disk PPM checker.ppm";
     } else {

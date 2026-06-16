@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <memory>
 
 namespace noveltea {
 
@@ -24,27 +25,69 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
 std::filesystem::path default_system_asset_root()
 {
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
-    return NOVELTEA_DEFAULT_SYSTEM_ASSET_ROOT;
+    return NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT;
+#elif defined(NOVELTEA_PLATFORM_WEB)
+    return "/assets";
 #else
-    return "assets";
+    return {};
 #endif
 }
 
 std::filesystem::path default_project_asset_root()
 {
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
-    return "apps/sandbox/assets";
+#if defined(NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT)
+    return NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT;
 #else
-    return "assets";
+    return NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT;
+#endif
+#elif defined(NOVELTEA_PLATFORM_WEB)
+    return "/assets";
+#else
+    return {};
 #endif
 }
+
+#if !defined(NOVELTEA_PLATFORM_DESKTOP)
+std::filesystem::path sdl_pref_path()
+{
+    char* pref = SDL_GetPrefPath("Cruel", "NovelTea");
+    if (!pref) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] SDL_GetPrefPath failed: %s", SDL_GetError());
+        return {};
+    }
+    std::filesystem::path result(pref);
+    SDL_free(pref);
+    return result;
+}
+#endif
 
 std::filesystem::path default_cache_asset_root()
 {
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
     return NOVELTEA_DEFAULT_CACHE_ASSET_ROOT;
 #else
-    return "assets";
+    return sdl_pref_path() / "cache";
+#endif
+}
+
+void mount_default_source(
+    assets::AssetManager& assets,
+    const char* ns,
+    const std::filesystem::path& override_root,
+    const std::filesystem::path& default_root,
+    bool writable)
+{
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    if (!override_root.empty()) {
+        assets.mount_directory(ns, override_root, writable);
+    } else if (writable) {
+        assets.mount_directory(ns, default_root, true);
+    } else {
+        assets.mount(ns, std::make_shared<assets::SdlPackagedAssetSource>());
+    }
+#else
+    assets.mount_directory(ns, override_root.empty() ? default_root : override_root, writable);
 #endif
 }
 
@@ -62,13 +105,23 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
         ? default_cache_asset_root()
         : run_config.cache_asset_root;
 
-    m_assets.mount_directory("system", system_root);
-    m_assets.mount_directory("project", project_root);
-    m_assets.mount_directory("cache", cache_root);
+    mount_default_source(m_assets, "system", run_config.system_asset_root, system_root, false);
+    mount_default_source(m_assets, "project", run_config.project_asset_root, project_root, false);
+    m_assets.mount_directory("cache", cache_root, true);
 
     for (const auto& mount : m_assets.describe_mounts()) {
         SDL_Log("[assets] %s", mount.c_str());
     }
+
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    auto smoke = m_assets.read_binary("system:/shaders/bgfx/essl-300/triangle.vs.bin");
+    if (smoke) {
+        SDL_Log("[assets] Android smoke read system:/shaders/bgfx/essl-300/triangle.vs.bin: %zu bytes",
+            smoke.value->bytes.size());
+    } else {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] Android smoke read failed: %s", smoke.error.c_str());
+    }
+#endif
 }
 
 bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
@@ -76,12 +129,13 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     SDL_Log("[engine] initializing...");
     m_frame_limit = run_config.frame_limit;
     m_demo_mode = run_config.demo_mode;
-    configure_assets(run_config);
 
     if (!m_platform.initialize(config)) {
         std::fprintf(stderr, "[engine] platform init failed\n");
         return false;
     }
+
+    configure_assets(run_config);
 
     const NativeWindowHandles handles = m_platform.native_window_handles();
 

@@ -34,49 +34,65 @@ namespace noveltea {
 
 namespace {
 
-constexpr const char* kRuntimeUiFontAsset = "rmlui/LiberationSans.ttf";
-constexpr const char* kRuntimeUiDocumentAsset = "rmlui/demo.rml";
+constexpr const char* kRuntimeUiFontAsset = "project:/rmlui/LiberationSans.ttf";
+constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
 
-class SdlFileInterface : public Rml::FileInterface
+class AssetRmlFileInterface : public Rml::FileInterface
 {
 public:
+    explicit AssetRmlFileInterface(const assets::AssetManager& assets)
+        : m_assets(assets)
+    {
+    }
+
     Rml::FileHandle Open(const Rml::String& path) override
     {
-        SDL_IOStream* io = SDL_IOFromFile(path.c_str(), "rb");
-        if (!io) {
-            std::fprintf(stderr, "[rmlui] failed to open %s: %s\n", path.c_str(), SDL_GetError());
+        const std::string logical = normalize(path);
+        auto opened = m_assets.open(logical);
+        if (!opened) {
+            std::fprintf(stderr, "[rmlui] failed to open %s as %s: %s\n",
+                path.c_str(), logical.c_str(), opened.error.c_str());
+            return 0;
         }
-        return reinterpret_cast<Rml::FileHandle>(io);
+        return reinterpret_cast<Rml::FileHandle>(opened.value->release());
     }
 
     void Close(Rml::FileHandle file) override
     {
         if (file) {
-            SDL_CloseIO(reinterpret_cast<SDL_IOStream*>(file));
+            delete reinterpret_cast<assets::AssetReader*>(file);
         }
     }
 
     size_t Read(void* buffer, size_t size, Rml::FileHandle file) override
     {
-        return SDL_ReadIO(reinterpret_cast<SDL_IOStream*>(file), buffer, size);
+        return reinterpret_cast<assets::AssetReader*>(file)->read(buffer, size);
     }
 
     bool Seek(Rml::FileHandle file, long offset, int origin) override
     {
-        SDL_IOWhence whence = SDL_IO_SEEK_SET;
-        if (origin == SEEK_CUR) {
-            whence = SDL_IO_SEEK_CUR;
-        } else if (origin == SEEK_END) {
-            whence = SDL_IO_SEEK_END;
-        }
-        return SDL_SeekIO(reinterpret_cast<SDL_IOStream*>(file), offset, whence) >= 0;
+        return reinterpret_cast<assets::AssetReader*>(file)->seek(offset, origin);
     }
 
     size_t Tell(Rml::FileHandle file) override
     {
-        const Sint64 pos = SDL_TellIO(reinterpret_cast<SDL_IOStream*>(file));
-        return pos >= 0 ? static_cast<size_t>(pos) : 0;
+        return static_cast<size_t>(reinterpret_cast<assets::AssetReader*>(file)->tell());
     }
+
+private:
+    std::string normalize(const Rml::String& path) const
+    {
+        const std::string value(path.c_str());
+        if (value.find(":/") != std::string::npos) {
+            return value;
+        }
+        if (m_assets.exists("project:/rmlui/" + value)) {
+            return "project:/rmlui/" + value;
+        }
+        return "project:/" + value;
+    }
+
+    const assets::AssetManager& m_assets;
 };
 
 } // namespace
@@ -470,7 +486,7 @@ struct RuntimeUI::State
 #if defined(NOVELTEA_HAS_RMLUI)
     Rml::Context* context = nullptr;
     Rml::ElementDocument* demo_document = nullptr;
-    SdlFileInterface* file_interface = nullptr;
+    AssetRmlFileInterface* file_interface = nullptr;
     BgfxRenderInterface* render_interface = nullptr;
     BgfxSystemInterface* system_interface = nullptr;
 #endif
@@ -496,7 +512,7 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets)
 
     m_state = new State;
 
-    m_state->file_interface = new SdlFileInterface;
+    m_state->file_interface = new AssetRmlFileInterface(*assets);
     m_state->system_interface = new BgfxSystemInterface;
     Rml::SetFileInterface(m_state->file_interface);
     Rml::SetSystemInterface(m_state->system_interface);
@@ -528,18 +544,11 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets)
         return false;
     }
 
-    const auto font_asset = assets->read_binary(std::string("project:/") + kRuntimeUiFontAsset);
-    const auto document_asset = assets->read_binary(std::string("project:/") + kRuntimeUiDocumentAsset);
-
-    if (font_asset) {
-        Rml::LoadFontFace(font_asset->physical_path.string(), true);
-    } else {
-        std::fprintf(stderr, "[runtime_ui] failed to locate font: %s\n", assets->last_error().c_str());
+    if (!Rml::LoadFontFace(kRuntimeUiFontAsset, true)) {
+        std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiFontAsset);
     }
 
-    Rml::ElementDocument* doc = document_asset
-        ? m_state->context->LoadDocument(document_asset->physical_path.string())
-        : nullptr;
+    Rml::ElementDocument* doc = m_state->context->LoadDocument(kRuntimeUiDocumentAsset);
     if (doc) {
         doc->Show();
         m_state->demo_document = doc;

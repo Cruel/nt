@@ -1,0 +1,14 @@
+{
+  "shaders": [
+    { "name": "triangle", "vertex": "vs_triangle.sc", "fragment": "fs_triangle.sc", "builtin": true },
+    { "name": "quad", "vertex": "vs_quad.sc", "fragment": "fs_quad.sc", "builtin": true },
+    { "name": "text", "vertex": "vs_text.sc", "fragment": "fs_text.sc", "builtin": true },
+    { "name": "imgui", "vertex": "vs_imgui.sc", "fragment": "fs_imgui.sc", "builtin": true },
+    { "name": "rmlui", "vertex": "vs_rmlui.sc", "fragment": "fs_rmlui.sc", "builtin": true }
+  ],
+  "variants": {
+    "glsl-120": { "platform": "linux", "profile": "120" },
+    "essl-100": { "platform": "asm.js", "profile": "100_es" },
+    "essl-300": { "platform": "android", "profile": "300_es" }
+  }
+}

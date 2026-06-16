@@ -19,9 +19,9 @@ env:
   VCPKG_MAX_CONCURRENCY: 2
 
 # CI coverage split:
-# - Linux validates the desktop build and, when enabled, shader generation.
-# - Web/Android validate cross-platform compilation using committed/generated shader headers.
-# - A future separate workflow can regenerate shaders and check for diffs.
+# - Linux validates desktop build, runtime asset staging, and glsl-120 shaders.
+# - Web validates one preloaded runtime asset tree and essl-100 shaders.
+# - Android validates APK packaging with essl-300 shaders.
 
 jobs:
   linux:
@@ -94,7 +94,10 @@ jobs:
         run: cmake --build --preset linux-debug
 
       - name: Headless sandbox smoke
-        run: xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
+        run: |
+          xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
+          cd /tmp
+          xvfb-run -a "${{ github.workspace }}/build/linux-debug/apps/sandbox/noveltea-sandbox" --demo all --frames 180
 
   web:
     name: Web / Emscripten
@@ -147,8 +150,10 @@ jobs:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF
+          emcmake cmake --preset web-debug -G Ninja
           cmake --build --preset web-debug
+          test -f build/web-debug/apps/sandbox/index.data
+          test -f build/web-debug/runtime-assets/shaders/bgfx/essl-100/triangle.vs.bin
 
   android:
     name: Android
@@ -211,7 +216,14 @@ jobs:
         working-directory: android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
-        run: ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Verify Android packaged assets
+        working-directory: android
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/shaders/bgfx/essl-300/triangle.vs.bin'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/LiberationSans.ttf'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/demo.rml'
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
@@ -314,7 +326,7 @@ jobs:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-release -DNOVELTEA_COMPILE_SHADERS=OFF
+          emcmake cmake --preset web-release
           cmake --build --preset web-release --target noveltea-sandbox
           test -f build/web-release/apps/sandbox/index.html
           test -f build/web-release/apps/sandbox/index.js

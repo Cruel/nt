@@ -140,3 +140,18 @@ Verification results from the current pass:
 ## Next Recommended Prompt
 
 Add `bimg::imageParse`-based texture loading for `BgfxRenderInterface::LoadTexture` so that RmlUi can load PNG/JPEG images from files. Then begin the NovelTea text-lab migration: port BBCode parsing, style-run semantics, and per-glyph animation data from `NovelTea/` into backend-neutral `nt` text code.
+# 2026-06-16 Asset Architecture
+
+- Replaced mandatory physical asset paths with `AssetBlob`/`AssetReader` results
+  and source-local diagnostics.
+- Added `SdlPackagedAssetSource`, `MemoryAssetSource`, and a deferred
+  `ZipAssetSource` boundary.
+- Moved asset mount configuration after SDL/platform initialization.
+- Separated read-only runtime/project mounts from writable `cache:/`.
+- Switched RmlUi to an AssetManager-backed `FileInterface`.
+- Centralized bgfx shader metadata in `engine/shaders/bgfx/shaders.json` and
+  `scripts/compile_bgfx_shaders.py`.
+- Standardized staged runtime assets under `build/<preset>/runtime-assets/`.
+- Verified Linux sandbox from the repo and from `/tmp`; both use logical asset IDs.
+
+See `docs/migration/reports/asset-architecture-2026-06-16.md`.

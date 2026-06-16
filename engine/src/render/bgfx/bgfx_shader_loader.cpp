@@ -23,38 +23,53 @@ const char* system_shader_name(SystemShader shader)
     return "";
 }
 
-const char* BgfxShaderLoader::target_name() const
+const char* BgfxShaderLoader::shader_variant() const
 {
     switch (bgfx::getRendererType()) {
     case bgfx::RendererType::OpenGL:
-        return "linux-glsl";
+        return "glsl-120";
     case bgfx::RendererType::OpenGLES:
 #if defined(NOVELTEA_PLATFORM_WEB)
-        return "web-essl100";
+        return "essl-100";
 #else
-        return "android-essl";
+        return "essl-300";
 #endif
+    case bgfx::RendererType::Metal:
+        return "metal";
+    case bgfx::RendererType::Direct3D11:
+        return "hlsl-50";
+    case bgfx::RendererType::Vulkan:
+        return "spirv";
     default:
         return "";
     }
 }
 
-std::string BgfxShaderLoader::shader_path(std::string_view name, ShaderStage stage) const
+std::string BgfxShaderLoader::system_shader_base(std::string_view name) const
+{
+    return "system:/shaders/bgfx/" + std::string(shader_variant()) + "/" + std::string(name);
+}
+
+std::string BgfxShaderLoader::shader_path(std::string_view logical_base, ShaderStage stage) const
 {
     const char* stage_suffix = stage == ShaderStage::Vertex ? "vs" : "fs";
-    return "system:/shaders/bgfx/" + std::string(target_name()) + "/" + std::string(name) + "." + stage_suffix + ".bin";
+    return std::string(logical_base) + "." + stage_suffix + ".bin";
 }
 
 bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary(std::string_view name, ShaderStage stage) const
 {
     const std::string path = shader_path(name, stage);
     auto read = m_assets.read_binary(path);
-    if (!read || read->bytes.empty()) {
-        std::fprintf(stderr, "[shader] failed to read %s: %s\n", path.c_str(), m_assets.last_error().c_str());
+    if (!read || read.value->bytes.empty()) {
+        std::fprintf(stderr, "[shader] failed to read %s variant:%s renderer:%s error:%s\n",
+            path.c_str(),
+            shader_variant(),
+            bgfx::getRendererName(bgfx::getRendererType()),
+            read.error.c_str());
         return BGFX_INVALID_HANDLE;
     }
 
-    const bgfx::Memory* memory = bgfx::copy(read->bytes.data(), static_cast<uint32_t>(read->bytes.size()));
+    const bgfx::Memory* memory = bgfx::copy(read.value->bytes.data(), static_cast<uint32_t>(read.value->bytes.size()));
     bgfx::ShaderHandle shader = bgfx::createShader(memory);
     if (!bgfx::isValid(shader)) {
         std::fprintf(stderr, "[shader] bgfx failed to create shader from %s\n", path.c_str());
@@ -83,7 +98,7 @@ bgfx::ProgramHandle BgfxShaderLoader::load_program(std::string_view name) const
 
 bgfx::ProgramHandle BgfxShaderLoader::load_program(SystemShader shader) const
 {
-    return load_program(system_shader_name(shader));
+    return load_program(system_shader_base(system_shader_name(shader)));
 }
 
 } // namespace noveltea::bgfx_backend

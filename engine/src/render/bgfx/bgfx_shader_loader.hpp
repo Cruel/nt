@@ -29,10 +29,11 @@ public:
     [[nodiscard]] bgfx::ShaderHandle load_shader_binary(std::string_view name, ShaderStage stage) const;
     [[nodiscard]] bgfx::ProgramHandle load_program(std::string_view name) const;
     [[nodiscard]] bgfx::ProgramHandle load_program(SystemShader shader) const;
-    [[nodiscard]] const char* target_name() const;
+    [[nodiscard]] const char* shader_variant() const;
 
 private:
-    [[nodiscard]] std::string shader_path(std::string_view name, ShaderStage stage) const;
+    [[nodiscard]] std::string shader_path(std::string_view logical_base, ShaderStage stage) const;
+    [[nodiscard]] std::string system_shader_base(std::string_view name) const;
 
     const assets::AssetManager& m_assets;
 };

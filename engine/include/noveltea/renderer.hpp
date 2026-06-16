@@ -63,7 +63,7 @@ private:
     void create_text();
     void destroy_text();
     void submit_quad(const QuadCommand& command);
-    uint16_t load_ppm_texture(const std::filesystem::path& path);
+    uint16_t load_ppm_texture(std::string_view logical_path);
 
     const assets::AssetManager* m_assets = nullptr;
     bool m_initialized = false;
