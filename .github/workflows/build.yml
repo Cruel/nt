@@ -35,7 +35,33 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            cmake \
+            curl \
+            zip \
+            unzip \
+            tar \
+            git \
+            libx11-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libgl1-mesa-dev \
+            libegl1-mesa-dev \
+            autoconf \
+            autoconf-archive \
+            automake \
+            libtool \
+            libltdl-dev \
+            libxtst-dev \
+            pkg-config \
+            bison \
+            flex
 
       - name: Cache vcpkg
         uses: actions/cache@v5
@@ -43,7 +69,8 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-vcpkg-shader-assets-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+            vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-shader-assets-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             ${{ runner.os }}-vcpkg-shader-assets-
 
@@ -55,13 +82,20 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 
       - name: Install bgfx shader tools
-        run: >
-          "$VCPKG_ROOT/vcpkg" install 'bgfx[tools]:x64-linux'
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-feature=shader-tools \
+            --triplet="$VCPKG_DEFAULT_TRIPLET" \
+            --host-triplet=x64-linux \
+            --x-install-root="${{ github.workspace }}/vcpkg_installed"
+
+          SHADERC="${{ github.workspace }}/vcpkg_installed/x64-linux/tools/bgfx/shaderc"
+          test -x "$SHADERC"
 
       - name: Compile and verify shader assets
         run: |
-          SHADERC="$VCPKG_ROOT/installed/x64-linux/tools/bgfx/shaderc"
-          BGFX_SHADER_INCLUDE="$VCPKG_ROOT/installed/x64-linux/include/bgfx"
+          SHADERC="${{ github.workspace }}/vcpkg_installed/x64-linux/tools/bgfx/shaderc"
+          BGFX_SHADER_INCLUDE="${{ github.workspace }}/vcpkg_installed/x64-linux/include/bgfx"
           cmake \
             -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" \
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
