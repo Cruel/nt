@@ -1,2 +1,13 @@
-// See the Electron documentation for details on how to use preload scripts:
-// https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
+import { contextBridge, ipcRenderer } from 'electron';
+import type { NovelTeaElectronApi } from './shared/electron-api';
+import { IPC_CHANNELS } from './shared/ipc-channels';
+
+const api: NovelTeaElectronApi = {
+  getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.GET_APP_INFO),
+  selectProjectDirectory: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
+  openExternal: (url: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.OPEN_EXTERNAL, url),
+};
+
+contextBridge.exposeInMainWorld('noveltea', api);
