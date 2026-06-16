@@ -23,7 +23,7 @@
   ],
   "features": {
     "shader-tools": {
-      "description": "Install bgfx shader compiler tools for regenerating shader headers.",
+      "description": "Install bgfx shader compiler tools for regenerating shader binaries.",
       "dependencies": [
         {
           "name": "bgfx",
@@ -31,6 +31,12 @@
             "tools"
           ]
         }
+      ]
+    },
+    "tests": {
+      "description": "NovelTea native test dependencies.",
+      "dependencies": [
+        "catch2"
       ]
     }
   }

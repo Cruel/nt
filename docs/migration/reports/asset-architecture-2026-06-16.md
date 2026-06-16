@@ -39,22 +39,49 @@ build/<preset>/runtime-assets/
 ```
 
 Desktop development mounts that tree for both `system:/` and the sandbox
-`project:/`. Web preloads the same tree once at `/assets`. Android Gradle stages
-the same tree directly as the APK asset root, without an extra nested `assets/`
-directory.
+`project:/`. Packaged desktop builds prefer `<SDL_GetBasePath()>/assets` and can
+still be overridden by run configuration. Web preloads the staged tree once at
+`/assets`. Android Gradle is the sole owner of APK asset staging and writes the
+final `app/build/generated/runtime-assets/noveltea/` tree from project assets
+plus generated or prebuilt `essl-300` shaders.
 
 ## Shaders
 
-Shader metadata is centralized in `engine/shaders/bgfx/shaders.json` and compiled
-by `scripts/compile_bgfx_shaders.py`. The bgfx loader selects variants from the
-active renderer:
+Shader metadata is centralized in `cmake/NovelTeaShaderManifest.cmake`.
+`cmake/NovelTeaShaders.cmake` provides reusable CMake functions for variant
+lookup, output collection, host tool discovery, and incremental shader targets.
+`cmake/CompileNovelTeaShaders.cmake` is the only shader compiler implementation
+and also supports verification-only mode without `shaderc`.
+
+The bgfx loader selects variants from the active renderer:
 
 - OpenGL -> `glsl-120`
 - OpenGLES on Web -> `essl-100`
 - OpenGLES on Android -> `essl-300`
 
+Metal, Direct3D11, and Vulkan currently return unsupported-renderer errors
+instead of advertising unbuilt `metal`, `hlsl-50`, or `spirv` variants.
+
 Built-in shaders use `SystemShader` constants. Project shaders can use logical
-string IDs rooted wherever the project/package supplies them.
+string IDs through `load_project_program("effects/name")`; callers do not supply
+the active platform variant.
+
+## CI
+
+GitHub Actions now has a dedicated `shader-assets` job. It installs
+`bgfx[tools]:x64-linux`, locates host `shaderc` and `bgfx_shader.sh`, compiles
+`glsl-120`, `essl-100`, and `essl-300`, verifies the tree through CMake
+script-mode verification, and uploads the uncommitted shader tree as an artifact.
+Linux, web, Android, and editor jobs consume that artifact with
+`NOVELTEA_COMPILE_SHADERS=OFF`.
+
+## Tests
+
+Native tests use Catch2 v3 and CTest behind `BUILD_TESTING`. Current Linux tests
+cover logical path parsing, memory and directory sources, AssetManager
+diagnostics and precedence, AssetReader seek/tell/size behavior, shader variant
+selection, RmlUi file IO, shader verification-only mode, and the absence of
+committed generated shader headers.
 
 ## RmlUi
 
@@ -68,3 +95,19 @@ project:/rmlui/demo.rml
 
 Relative RmlUi resources currently resolve first under `project:/rmlui/`, then
 under `project:/`.
+
+## Verification
+
+Verified on 2026-06-16:
+
+- `cmake --preset linux-debug`
+- `cmake --build --preset linux-debug`
+- `ctest --test-dir build/linux-debug --output-on-failure`
+- `cmake --preset web-debug`
+- `cmake --build --preset web-debug`
+- Linux sandbox smoke from the build tree and from a copied packaged layout.
+
+Android APK verification is pending. The Gradle build reached shader staging and
+native ABI compilation, but the x86_64 FetchContent Freetype download failed with
+HTTP 502 from `download.savannah.gnu.org`. Emulator smoke was not implemented or
+run in this pass.

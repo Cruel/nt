@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL_log.h>
 
+#include <cstdint>
 #include <cstdio>
 
 namespace noveltea::bgfx_backend {
@@ -25,21 +26,22 @@ const char* system_shader_name(SystemShader shader)
 
 const char* BgfxShaderLoader::shader_variant() const
 {
-    switch (bgfx::getRendererType()) {
+    return shader_variant_for_renderer(bgfx::getRendererType(),
+#if defined(NOVELTEA_PLATFORM_WEB)
+        true
+#else
+        false
+#endif
+    );
+}
+
+const char* shader_variant_for_renderer(bgfx::RendererType::Enum renderer, bool web_platform)
+{
+    switch (renderer) {
     case bgfx::RendererType::OpenGL:
         return "glsl-120";
     case bgfx::RendererType::OpenGLES:
-#if defined(NOVELTEA_PLATFORM_WEB)
-        return "essl-100";
-#else
-        return "essl-300";
-#endif
-    case bgfx::RendererType::Metal:
-        return "metal";
-    case bgfx::RendererType::Direct3D11:
-        return "hlsl-50";
-    case bgfx::RendererType::Vulkan:
-        return "spirv";
+        return web_platform ? "essl-100" : "essl-300";
     default:
         return "";
     }
@@ -59,8 +61,13 @@ std::string BgfxShaderLoader::shader_path(std::string_view logical_base, ShaderS
 bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary(std::string_view name, ShaderStage stage) const
 {
     const std::string path = shader_path(name, stage);
+    if (shader_variant()[0] == '\0') {
+        std::fprintf(stderr, "[shader] unsupported bgfx renderer for packaged shaders: %s\n",
+            bgfx::getRendererName(bgfx::getRendererType()));
+        return BGFX_INVALID_HANDLE;
+    }
     auto read = m_assets.read_binary(path);
-    if (!read || read.value->bytes.empty()) {
+    if (!read || read.value->bytes.empty() || read.value->bytes.size() > UINT32_MAX) {
         std::fprintf(stderr, "[shader] failed to read %s variant:%s renderer:%s error:%s\n",
             path.c_str(),
             shader_variant(),
@@ -77,7 +84,7 @@ bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary(std::string_view name, S
     return shader;
 }
 
-bgfx::ProgramHandle BgfxShaderLoader::load_program(std::string_view name) const
+bgfx::ProgramHandle BgfxShaderLoader::load_resolved_program(std::string_view name) const
 {
     bgfx::ShaderHandle vs = load_shader_binary(name, ShaderStage::Vertex);
     bgfx::ShaderHandle fs = load_shader_binary(name, ShaderStage::Fragment);
@@ -98,7 +105,17 @@ bgfx::ProgramHandle BgfxShaderLoader::load_program(std::string_view name) const
 
 bgfx::ProgramHandle BgfxShaderLoader::load_program(SystemShader shader) const
 {
-    return load_program(system_shader_base(system_shader_name(shader)));
+    return load_system_program(shader);
+}
+
+bgfx::ProgramHandle BgfxShaderLoader::load_system_program(SystemShader shader) const
+{
+    return load_resolved_program(system_shader_base(system_shader_name(shader)));
+}
+
+bgfx::ProgramHandle BgfxShaderLoader::load_project_program(std::string_view shader_id) const
+{
+    return load_resolved_program("project:/shaders/bgfx/" + std::string(shader_variant()) + "/" + std::string(shader_id));
 }
 
 } // namespace noveltea::bgfx_backend

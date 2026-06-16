@@ -4,9 +4,9 @@ project(noveltea VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(CTest)
 
 option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_ENABLE_BGFX "Use bgfx renderer when available for supported targets" ON)
@@ -145,4 +145,9 @@ add_subdirectory(engine)
 
 if(NOVELTEA_BUILD_SANDBOX)
     add_subdirectory(apps/sandbox)
+endif()
+
+if(BUILD_TESTING)
+    find_package(Catch2 3 CONFIG REQUIRED)
+    add_subdirectory(tests)
 endif()

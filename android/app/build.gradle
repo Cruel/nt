@@ -19,10 +19,8 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_SANDBOX=ON"
-                if (project.hasProperty("novelteaCompileShaders")) {
-                    arguments "-DNOVELTEA_COMPILE_SHADERS=${project.property("novelteaCompileShaders")}"
-                }
+                arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_SANDBOX=ON", "-DBUILD_TESTING=OFF"
+                arguments "-DNOVELTEA_COMPILE_SHADERS=OFF"
             }
         }
         ndk {
@@ -36,7 +34,7 @@ android {
         }
     }
 
-sourceSets {
+    sourceSets {
         main {
             assets.srcDirs += file("$buildDir/generated/runtime-assets/noveltea")
         }
@@ -75,6 +73,10 @@ def findShaderc = {
 }
 
 def findBgfxShaderInclude = {
+    if (project.hasProperty("bgfxShaderInclude")) {
+        def candidate = file(project.property("bgfxShaderInclude"))
+        if (file("${candidate}/bgfx_shader.sh").exists()) return candidate.absolutePath
+    }
     for (String rel : [
         "../../build/linux-debug/vcpkg_installed/x64-linux/include/bgfx",
         "../../vcpkg_installed/x64-linux/include/bgfx"
@@ -86,23 +88,24 @@ def findBgfxShaderInclude = {
 }
 
 tasks.register("compileNovelTeaShaderAssets") {
-    def outputRoot = file("$buildDir/generated/runtime-assets/noveltea")
+    def outputRoot = file("$buildDir/generated/noveltea/shaders")
     outputs.dir(outputRoot)
-    inputs.file file("../../engine/shaders/bgfx/shaders.json")
+    outputs.upToDateWhen {
+        file("${outputRoot}/shaders/bgfx/essl-300/triangle.vs.bin").exists() &&
+        file("${outputRoot}/shaders/bgfx/essl-300/rmlui.fs.bin").exists()
+    }
+    inputs.file file("../../cmake/NovelTeaShaderManifest.cmake")
+    inputs.file file("../../cmake/NovelTeaShaders.cmake")
+    inputs.file file("../../cmake/CompileNovelTeaShaders.cmake")
     inputs.files fileTree("../../engine/shaders/bgfx") { include "*.sc" }
-    inputs.file file("../../scripts/compile_bgfx_shaders.py")
 
     doLast {
         def compileShaders = !project.hasProperty("novelteaCompileShaders") ||
                 project.property("novelteaCompileShaders").toString().toUpperCase() != "OFF"
-        def shaderc = findShaderc()
         if (!compileShaders) {
-            def required = file("${outputRoot}/shaders/bgfx/essl-300/triangle.vs.bin")
-            if (!required.exists()) {
-                throw new GradleException("novelteaCompileShaders=OFF requires existing compiled shader assets under ${outputRoot}")
-            }
             return
         }
+        def shaderc = findShaderc()
         if (shaderc == null) {
             throw new GradleException("shaderc not found. Set SHADERC, pass -Pshaderc=/path/to/shaderc, or build the Linux vcpkg shader-tools preset first.")
         }
@@ -112,24 +115,44 @@ tasks.register("compileNovelTeaShaderAssets") {
         }
 
         exec {
-            executable "python3"
-            args file("../../scripts/compile_bgfx_shaders.py").absolutePath,
-                 "--manifest", file("../../engine/shaders/bgfx/shaders.json").absolutePath,
-                 "--shaderc", shaderc,
-                 "--source-dir", file("../../engine/shaders/bgfx").absolutePath,
-                 "--output-root", outputRoot.absolutePath,
-                 "--variant", "essl-300",
-                 "--include", bgfxShaderInclude
+            executable "cmake"
+            args "-DNOVELTEA_SHADERC_EXECUTABLE=${shaderc}",
+                 "-DNOVELTEA_SHADER_SOURCE_DIR=${file("../../engine/shaders/bgfx").absolutePath}",
+                 "-DNOVELTEA_SHADER_OUTPUT_ROOT=${outputRoot.absolutePath}",
+                 "-DNOVELTEA_SHADER_VARIANTS=essl-300",
+                 "-DNOVELTEA_BGFX_SHADER_INCLUDE_DIR=${bgfxShaderInclude}",
+                 "-P", file("../../cmake/CompileNovelTeaShaders.cmake").absolutePath
         }
     }
 }
 
-tasks.register("copyNovelTeaAssets", Copy) {
+tasks.register("stageNovelTeaProjectAssets", Sync) {
     from file("../../apps/sandbox/assets")
-    into file("$buildDir/generated/runtime-assets/noveltea")
+    into file("$buildDir/generated/noveltea/project")
 }
 
-preBuild.dependsOn("copyNovelTeaAssets", "compileNovelTeaShaderAssets")
+tasks.register("stageNovelTeaRuntimeAssets", Sync) {
+    dependsOn("stageNovelTeaProjectAssets", "compileNovelTeaShaderAssets")
+    from file("$buildDir/generated/noveltea/project")
+    def prebuiltRoot = project.hasProperty("novelteaPrebuiltShaderAssetRoot")
+            ? file(project.property("novelteaPrebuiltShaderAssetRoot"))
+            : file("$buildDir/generated/noveltea/shaders")
+    from(prebuiltRoot) {
+        include "shaders/bgfx/essl-300/**"
+    }
+    into file("$buildDir/generated/runtime-assets/noveltea")
+    doLast {
+        exec {
+            executable "cmake"
+            args "-DNOVELTEA_VERIFY_ONLY=ON",
+                 "-DNOVELTEA_SHADER_OUTPUT_ROOT=${prebuiltRoot.absolutePath}",
+                 "-DNOVELTEA_SHADER_VARIANTS=essl-300",
+                 "-P", file("../../cmake/CompileNovelTeaShaders.cmake").absolutePath
+        }
+    }
+}
+
+preBuild.dependsOn("stageNovelTeaRuntimeAssets")
 
 dependencies {
     implementation files("libs/SDL3-3.4.10.aar")

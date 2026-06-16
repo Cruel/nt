@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <array>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <utility>
 
@@ -64,8 +66,8 @@ public:
         return true;
     }
 
-    std::uint64_t tell() const override { return m_pos; }
-    std::uint64_t size() const override { return m_bytes.size(); }
+    std::optional<std::uint64_t> tell() const override { return m_pos; }
+    std::optional<std::uint64_t> size() const override { return m_bytes.size(); }
 
 private:
     AssetBytes m_bytes;
@@ -79,7 +81,10 @@ public:
     {
         if (m_stream) {
             m_stream.seekg(0, std::ios::end);
-            m_size = static_cast<std::uint64_t>(m_stream.tellg());
+            const auto end = m_stream.tellg();
+            if (end >= 0) {
+                m_size = static_cast<std::uint64_t>(end);
+            }
             m_stream.seekg(0, std::ios::beg);
         }
     }
@@ -107,17 +112,19 @@ public:
         return !m_stream.fail();
     }
 
-    std::uint64_t tell() const override
+    std::optional<std::uint64_t> tell() const override
     {
         auto& stream = const_cast<std::ifstream&>(m_stream);
-        return static_cast<std::uint64_t>(stream.tellg());
+        const auto pos = stream.tellg();
+        if (pos < 0) return std::nullopt;
+        return static_cast<std::uint64_t>(pos);
     }
 
-    std::uint64_t size() const override { return m_size; }
+    std::optional<std::uint64_t> size() const override { return m_size; }
 
 private:
     mutable std::ifstream m_stream;
-    std::uint64_t m_size = 0;
+    std::optional<std::uint64_t> m_size;
 };
 
 class SdlReader final : public AssetReader {
@@ -158,17 +165,18 @@ public:
         return SDL_SeekIO(m_stream, offset, whence) >= 0;
     }
 
-    std::uint64_t tell() const override
+    std::optional<std::uint64_t> tell() const override
     {
         const Sint64 pos = SDL_TellIO(m_stream);
-        return pos >= 0 ? static_cast<std::uint64_t>(pos) : 0;
+        if (pos < 0) return std::nullopt;
+        return static_cast<std::uint64_t>(pos);
     }
 
-    std::uint64_t size() const override { return m_size; }
+    std::optional<std::uint64_t> size() const override { return m_size; }
 
 private:
     SDL_IOStream* m_stream = nullptr;
-    std::uint64_t m_size = 0;
+    std::optional<std::uint64_t> m_size;
 };
 
 } // namespace
@@ -243,14 +251,42 @@ AssetResult<AssetBlob> AssetSource::read_binary(const AssetPath& path) const
     AssetBlob blob;
     blob.logical_path = path;
     blob.source_description = describe();
-    blob.bytes.resize(static_cast<std::size_t>(reader.size()));
-    if (!blob.bytes.empty()) {
-        const std::size_t read_count = reader.read(blob.bytes.data(), blob.bytes.size());
-        if (read_count != blob.bytes.size()) {
-            return fail<AssetBlob>("short read for " + path.logical_path() + " from " + describe());
+    if (const auto size = reader.size()) {
+        if (*size > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+            return fail<AssetBlob>("asset too large to read " + path.logical_path() + " from " + describe());
+        }
+        blob.bytes.resize(static_cast<std::size_t>(*size));
+        if (!blob.bytes.empty()) {
+            const std::size_t read_count = reader.read(blob.bytes.data(), blob.bytes.size());
+            if (read_count != blob.bytes.size()) {
+                return fail<AssetBlob>("short read for " + path.logical_path() + " from " + describe());
+            }
+        }
+    } else {
+        std::array<std::uint8_t, 8192> buffer {};
+        for (;;) {
+            const std::size_t read_count = reader.read(buffer.data(), buffer.size());
+            blob.bytes.insert(blob.bytes.end(), buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(read_count));
+            if (read_count < buffer.size()) {
+                break;
+            }
         }
     }
     return {std::move(blob), {}};
+}
+
+bool path_is_inside_root(const std::filesystem::path& root, const std::filesystem::path& child)
+{
+    const auto normalized_root = std::filesystem::weakly_canonical(root);
+    const auto normalized_child = std::filesystem::weakly_canonical(child);
+    auto root_it = normalized_root.begin();
+    auto child_it = normalized_child.begin();
+    for (; root_it != normalized_root.end(); ++root_it, ++child_it) {
+        if (child_it == normalized_child.end() || *root_it != *child_it) {
+            return false;
+        }
+    }
+    return true;
 }
 
 DirectoryAssetSource::DirectoryAssetSource(std::filesystem::path root, bool writable)
@@ -261,12 +297,15 @@ DirectoryAssetSource::DirectoryAssetSource(std::filesystem::path root, bool writ
 
 std::filesystem::path DirectoryAssetSource::resolve(const AssetPath& path) const
 {
-    return m_root / std::filesystem::path(path.relative_path());
+    return (m_root / std::filesystem::path(path.relative_path())).lexically_normal();
 }
 
 AssetResult<AssetReaderPtr> DirectoryAssetSource::open(const AssetPath& path) const
 {
     const auto physical = resolve(path);
+    if (!path_is_inside_root(m_root, physical)) {
+        return fail<AssetReaderPtr>("directory source rejected path outside root " + path.logical_path());
+    }
     auto reader = std::make_unique<FileReader>(physical);
     if (!reader->valid()) {
         return fail<AssetReaderPtr>("directory source could not open " + path.logical_path()
@@ -278,6 +317,9 @@ AssetResult<AssetReaderPtr> DirectoryAssetSource::open(const AssetPath& path) co
 AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) const
 {
     const auto physical = resolve(path);
+    if (!path_is_inside_root(m_root, physical)) {
+        return fail<AssetBlob>("directory source rejected path outside root " + path.logical_path());
+    }
     std::ifstream in(physical, std::ios::binary);
     if (!in) {
         return fail<AssetBlob>("directory source could not open " + path.logical_path()
@@ -293,7 +335,8 @@ AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) 
 
 bool DirectoryAssetSource::exists(const AssetPath& path) const
 {
-    return std::filesystem::is_regular_file(resolve(path));
+    const auto physical = resolve(path);
+    return path_is_inside_root(m_root, physical) && std::filesystem::is_regular_file(physical);
 }
 
 std::string DirectoryAssetSource::describe() const

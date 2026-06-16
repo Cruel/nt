@@ -19,14 +19,73 @@ env:
   VCPKG_MAX_CONCURRENCY: 2
 
 # CI coverage split:
-# - Linux validates desktop build, runtime asset staging, and glsl-120 shaders.
-# - Web validates one preloaded runtime asset tree and essl-100 shaders.
-# - Android validates APK packaging with essl-300 shaders.
+# - shader-assets compiles the shared glsl-120, essl-100, and essl-300 shader tree.
+# - Platform jobs consume the artifact with local shader compilation disabled.
 
 jobs:
+  shader-assets:
+    name: Shader assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git
+
+      - name: Cache vcpkg
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+          key: ${{ runner.os }}-vcpkg-shader-assets-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-shader-assets-
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Install bgfx shader tools
+        run: >
+          "$VCPKG_ROOT/vcpkg" install 'bgfx[tools]:x64-linux'
+
+      - name: Compile and verify shader assets
+        run: |
+          SHADERC="$VCPKG_ROOT/installed/x64-linux/tools/bgfx/shaderc"
+          BGFX_SHADER_INCLUDE="$VCPKG_ROOT/installed/x64-linux/include/bgfx"
+          cmake \
+            -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" \
+            -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
+            -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
+            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" \
+            -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          cmake \
+            -DNOVELTEA_VERIFY_ONLY=ON \
+            -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
+            -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+
+      - name: Upload shader assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/generated-assets/shaders
+          if-no-files-found: error
+
   linux:
     name: Linux desktop
     runs-on: ubuntu-24.04
+    needs: shader-assets
     timeout-minutes: 90
 
     steps:
@@ -41,7 +100,6 @@ jobs:
             ninja-build \
             cmake \
             pkg-config \
-            python3 \
             curl \
             zip \
             unzip \
@@ -87,21 +145,34 @@ jobs:
           fi
           "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/prebuilt-shader-assets
+
       - name: Configure
-        run: cmake --preset linux-debug -G Ninja
+        run: cmake --preset linux-debug -G Ninja -DVCPKG_MANIFEST_FEATURES=tests -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build --preset linux-debug
 
+      - name: Unit tests
+        run: ctest --test-dir build/linux-debug --output-on-failure
+
       - name: Headless sandbox smoke
         run: |
           xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
+          mkdir -p /tmp/noveltea-package
+          cp ./build/linux-debug/apps/sandbox/noveltea-sandbox /tmp/noveltea-package/
+          cp -R ./build/linux-debug/runtime-assets /tmp/noveltea-package/assets
           cd /tmp
-          xvfb-run -a "${{ github.workspace }}/build/linux-debug/apps/sandbox/noveltea-sandbox" --demo all --frames 180
+          xvfb-run -a /tmp/noveltea-package/noveltea-sandbox --demo all --frames 180
 
   web:
     name: Web / Emscripten
     runs-on: ubuntu-24.04
+    needs: shader-assets
     timeout-minutes: 90
 
     steps:
@@ -115,7 +186,6 @@ jobs:
             build-essential \
             ninja-build \
             cmake \
-            python3 \
             curl \
             zip \
             unzip \
@@ -145,12 +215,18 @@ jobs:
           ./emsdk install latest
           ./emsdk activate latest
 
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/prebuilt-shader-assets
+
       - name: Configure and build web
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-debug -G Ninja
+          emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
           cmake --build --preset web-debug
           test -f build/web-debug/apps/sandbox/index.data
           test -f build/web-debug/runtime-assets/shaders/bgfx/essl-100/triangle.vs.bin
@@ -158,6 +234,7 @@ jobs:
   android:
     name: Android
     runs-on: ubuntu-24.04
+    needs: shader-assets
     timeout-minutes: 90
 
     steps:
@@ -178,7 +255,6 @@ jobs:
             build-essential \
             ninja-build \
             cmake \
-            python3 \
             curl \
             zip \
             unzip \
@@ -212,16 +288,26 @@ jobs:
             SDL3-3.4.10.aar \
             > android/app/libs/SDL3-3.4.10.aar
 
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/prebuilt-shader-assets
+
       - name: Build Android debug APK
         working-directory: android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets"
 
       - name: Verify Android packaged assets
         working-directory: android
         run: |
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/shaders/bgfx/essl-300/triangle.vs.bin'
+          for shader in triangle quad text imgui rmlui; do
+            unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/shaders/bgfx/essl-300/${shader}\.vs\.bin"
+            unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/shaders/bgfx/essl-300/${shader}\.fs\.bin"
+          done
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/LiberationSans.ttf'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/demo.rml'
 
@@ -235,6 +321,7 @@ jobs:
   editor:
     name: Editor / Electron
     runs-on: ubuntu-24.04
+    needs: shader-assets
     timeout-minutes: 90
 
     steps:
@@ -249,7 +336,6 @@ jobs:
             ninja-build \
             cmake \
             pkg-config \
-            python3 \
             curl \
             zip \
             unzip \
@@ -293,6 +379,12 @@ jobs:
           ./emsdk install latest
           ./emsdk activate latest
 
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/prebuilt-shader-assets
+
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -326,7 +418,7 @@ jobs:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-release
+          emcmake cmake --preset web-release -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
           cmake --build --preset web-release --target noveltea-sandbox
           test -f build/web-release/apps/sandbox/index.html
           test -f build/web-release/apps/sandbox/index.js

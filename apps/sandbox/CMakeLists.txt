@@ -8,6 +8,7 @@ target_link_libraries(noveltea-sandbox PRIVATE engine)
 
 set(NOVELTEA_SANDBOX_ASSETS "${CMAKE_SOURCE_DIR}/apps/sandbox/assets")
 set(NOVELTEA_BUILD_ASSETS "${CMAKE_BINARY_DIR}/runtime-assets")
+set(NOVELTEA_RUNTIME_ASSET_STAMP "${CMAKE_BINARY_DIR}/generated-assets/runtime-assets.stamp")
 
 # Emscripten output settings
 if(EMSCRIPTEN)
@@ -30,27 +31,14 @@ if(EMSCRIPTEN)
         --js-library "${PERSISTENT_FS_JS}"
         "SHELL:--preload-file ${NOVELTEA_BUILD_ASSETS}@/assets"
     )
-    # Force re-link when shell.html changes
+    # Force re-link when web shell files or staged assets change.
     set_property(TARGET noveltea-sandbox APPEND PROPERTY
-        LINK_DEPENDS "${SHELL_FILE};${PERSISTENT_FS_PRE_JS};${PERSISTENT_FS_JS}"
+        LINK_DEPENDS "${SHELL_FILE};${PERSISTENT_FS_PRE_JS};${PERSISTENT_FS_JS};${NOVELTEA_RUNTIME_ASSET_STAMP}"
     )
     if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "Release")
         target_compile_options(noveltea-sandbox PRIVATE -flto)
         target_link_options(noveltea-sandbox PRIVATE -flto)
     endif()
-endif()
-
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    set(NOVELTEA_ANDROID_GENERATED_ASSETS
-        "${CMAKE_BINARY_DIR}/android-generated-assets")
-    add_custom_command(TARGET noveltea-sandbox PRE_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E make_directory
-                "${NOVELTEA_ANDROID_GENERATED_ASSETS}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                "${NOVELTEA_BUILD_ASSETS}"
-                "${NOVELTEA_ANDROID_GENERATED_ASSETS}"
-        VERBATIM
-    )
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

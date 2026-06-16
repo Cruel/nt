@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 
 namespace noveltea {
 
@@ -25,6 +26,12 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
 std::filesystem::path default_system_asset_root()
 {
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
+    if (const char* base = SDL_GetBasePath()) {
+        std::filesystem::path packaged = std::filesystem::path(base) / "assets";
+        if (std::filesystem::exists(packaged)) {
+            return packaged;
+        }
+    }
     return NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT;
 #elif defined(NOVELTEA_PLATFORM_WEB)
     return "/assets";
@@ -36,6 +43,12 @@ std::filesystem::path default_system_asset_root()
 std::filesystem::path default_project_asset_root()
 {
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
+    if (const char* base = SDL_GetBasePath()) {
+        std::filesystem::path packaged = std::filesystem::path(base) / "assets";
+        if (std::filesystem::exists(packaged)) {
+            return packaged;
+        }
+    }
 #if defined(NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT)
     return NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT;
 #else
@@ -120,6 +133,7 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
             smoke.value->bytes.size());
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] Android smoke read failed: %s", smoke.error.c_str());
+        throw std::runtime_error(smoke.error);
     }
 #endif
 }

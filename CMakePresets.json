@@ -10,7 +10,7 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
-                "VCPKG_MANIFEST_FEATURES": "shader-tools",
+                "VCPKG_MANIFEST_FEATURES": "shader-tools;tests",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug/vcpkg_installed"
             }
         },
@@ -34,7 +34,8 @@
             "binaryDir": "${sourceDir}/build/web-debug",
             "toolchainFile": "${sourceDir}/cmake/toolchains/emscripten.cmake",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Debug",
+                "BUILD_TESTING": "OFF"
             }
         },
         {
@@ -44,7 +45,8 @@
             "binaryDir": "${sourceDir}/build/web-release",
             "toolchainFile": "${sourceDir}/cmake/toolchains/emscripten.cmake",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "MinSizeRel"
+                "CMAKE_BUILD_TYPE": "MinSizeRel",
+                "BUILD_TESTING": "OFF"
             }
         }
     ],

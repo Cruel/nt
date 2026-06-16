@@ -134,6 +134,7 @@ Verification results from the current pass:
 
 - The minimal PPM loader is only a framework proof. The next texture slice should use `bimg::imageParse` through the existing bgfx/bimg targets instead of expanding this ad hoc path.
 - Web/Android now fetch RmlUi, and Android also fetches FreeType. Fresh builds need network access or a populated CMake FetchContent cache.
+- Android APK build was attempted on 2026-06-16. Gradle shader staging and native CMake configuration progressed with `BUILD_TESTING=OFF`, but the build did not complete because the x86_64 FetchContent Freetype download from `download.savannah.gnu.org` returned HTTP 502. Emulator runtime smoke remains unverified.
 - Nested read-only reference clone `NovelTea` is dirty at `android/gradle/wrapper/gradle-wrapper.properties`; this was observed, not modified.
 - RmlUi `LoadTexture` from file returns 0 — document `<img>` tags will not display until a decoder is added.
 
@@ -142,16 +143,37 @@ Verification results from the current pass:
 Add `bimg::imageParse`-based texture loading for `BgfxRenderInterface::LoadTexture` so that RmlUi can load PNG/JPEG images from files. Then begin the NovelTea text-lab migration: port BBCode parsing, style-run semantics, and per-glyph animation data from `NovelTea/` into backend-neutral `nt` text code.
 # 2026-06-16 Asset Architecture
 
+## Implemented
+
 - Replaced mandatory physical asset paths with `AssetBlob`/`AssetReader` results
   and source-local diagnostics.
 - Added `SdlPackagedAssetSource`, `MemoryAssetSource`, and a deferred
   `ZipAssetSource` boundary.
 - Moved asset mount configuration after SDL/platform initialization.
-- Separated read-only runtime/project mounts from writable `cache:/`.
+- Separated read-only runtime/project mounts from cache capability metadata and added a `WritableAssetSource` boundary for future AssetManager write APIs.
 - Switched RmlUi to an AssetManager-backed `FileInterface`.
-- Centralized bgfx shader metadata in `engine/shaders/bgfx/shaders.json` and
-  `scripts/compile_bgfx_shaders.py`.
-- Standardized staged runtime assets under `build/<preset>/runtime-assets/`.
-- Verified Linux sandbox from the repo and from `/tmp`; both use logical asset IDs.
+- Replaced the Python shader pipeline with CMake-only shader manifest, compilation, and verification scripts in `cmake/`.
+- Added one CMake-owned staged runtime asset tree for desktop/web builds and Gradle-owned staging for Android APK assets.
+- Added Catch2 v3 and CTest native tests for asset paths, sources, reader behavior, shader variant resolution, RmlUi file interface, shader verification, and generated-header absence.
+- Added a GitHub Actions `shader-assets` job that builds `glsl-120`, `essl-100`, and `essl-300` once and feeds Linux, web, Android, and editor jobs as a downloaded artifact.
+
+## Verified
+
+- `cmake --preset linux-debug`
+- `cmake --build --preset linux-debug`
+- `ctest --test-dir build/linux-debug --output-on-failure`
+- `cmake --preset web-debug`
+- `cmake --build --preset web-debug`
+- Linux sandbox smoke from the build tree and copied packaged layout with `noveltea-sandbox` plus `assets/`.
+
+## Pending verification
+
+- Full Android APK build after the external Freetype download is available.
+- Android emulator launch/log smoke. This pass did not implement or run emulator verification.
+
+## Deferred
+
+- ZIP decompression.
+- Metal, HLSL/D3D11, and SPIR-V/Vulkan shader variants.
 
 See `docs/migration/reports/asset-architecture-2026-06-16.md`.

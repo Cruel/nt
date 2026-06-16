@@ -43,14 +43,25 @@ target_compile_definitions(engine PUBLIC
 
 set(NOVELTEA_RUNTIME_ASSET_ROOT "${CMAKE_BINARY_DIR}/runtime-assets" CACHE PATH "Staged NovelTea runtime asset root")
 set(NOVELTEA_PROJECT_ASSET_SOURCE "${CMAKE_SOURCE_DIR}/apps/sandbox/assets" CACHE PATH "Project/demo assets to stage")
-add_custom_target(noveltea-runtime-assets
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${NOVELTEA_RUNTIME_ASSET_ROOT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${NOVELTEA_PROJECT_ASSET_SOURCE}"
-            "${NOVELTEA_RUNTIME_ASSET_ROOT}"
-    COMMENT "Staging NovelTea runtime assets"
-    VERBATIM
-)
+set(NOVELTEA_GENERATED_ASSET_ROOT "${CMAKE_BINARY_DIR}/generated-assets")
+set(NOVELTEA_GENERATED_SHADER_ASSET_ROOT "${NOVELTEA_GENERATED_ASSET_ROOT}/shaders")
+set(NOVELTEA_PREBUILT_SHADER_ASSET_ROOT "" CACHE PATH "Prebuilt shader asset root containing shaders/bgfx/<variant>")
+set(NOVELTEA_SHADER_VARIANTS "" CACHE STRING "Semicolon-separated shader variants to build or stage")
+set(NOVELTEA_SHADERC_EXECUTABLE "" CACHE FILEPATH "Host bgfx shaderc executable")
+set(NOVELTEA_BGFX_SHADER_INCLUDE_DIR "" CACHE PATH "Directory containing bgfx_shader.sh")
+set(NOVELTEA_RUNTIME_ASSET_STAMP "${CMAKE_BINARY_DIR}/generated-assets/runtime-assets.stamp")
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS_DEFAULT OFF)
+else()
+    set(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS_DEFAULT ON)
+endif()
+option(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS "Stage runtime assets from CMake" ${NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS_DEFAULT})
+
+include(NovelTeaShaders)
+if(NOT NOVELTEA_SHADER_VARIANTS)
+    noveltea_default_shader_variants(NOVELTEA_SHADER_VARIANTS)
+endif()
+list(JOIN NOVELTEA_SHADER_VARIANTS "\\;" NOVELTEA_SHADER_VARIANTS_ARG)
 
 # --- Dependencies ---
 # SDL3::SDL3 target is provided by the root CMakeLists.txt.
@@ -59,89 +70,41 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     message(STATUS "bgfx found - full rendering enabled")
 
     set(SHADER_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/shaders/bgfx")
-    set(SHADER_ASSET_ROOT "${NOVELTEA_RUNTIME_ASSET_ROOT}")
-    set(SHADER_EXTRA_INCLUDES)
-    set(NOVELTEA_SHADER_MANIFEST "${SHADER_SRC_DIR}/shaders.json")
-    if(EMSCRIPTEN)
-        set(NOVELTEA_SHADER_VARIANTS essl-100)
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
-        set(NOVELTEA_SHADER_VARIANTS essl-300)
-    else()
-        set(NOVELTEA_SHADER_VARIANTS glsl-120)
-    endif()
-
+    set(SHADER_ASSET_ROOT "${NOVELTEA_GENERATED_SHADER_ASSET_ROOT}")
+    noveltea_collect_shader_inputs("${SHADER_SRC_DIR}" NOVELTEA_SHADER_INPUTS)
+    noveltea_collect_shader_outputs(VARIANTS ${NOVELTEA_SHADER_VARIANTS} OUTPUT_ROOT "${SHADER_ASSET_ROOT}" OUT_VAR NOVELTEA_SHADER_OUTPUTS)
     if(NOVELTEA_COMPILE_SHADERS)
-        # Shader compilation via bgfx shaderc (host tool). shaderc is provided
-        # by vcpkg via bgfx[tools].
-        find_program(SHADERC_EXECUTABLE shaderc
-            PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
-                  "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/tools/bgfx"
-                  "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/tools/bgfx"
-                  "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/tools/bgfx"
-            NO_DEFAULT_PATH
-        )
-        if(NOT SHADERC_EXECUTABLE)
-            find_program(SHADERC_EXECUTABLE shaderc)
-        endif()
-
-        if(NOT SHADERC_EXECUTABLE)
-            message(FATAL_ERROR "shaderc not found - install bgfx[tools] via vcpkg or configure with -DNOVELTEA_COMPILE_SHADERS=OFF to use existing compiled shader assets")
-        endif()
-
-        # Find bgfx_shader.sh from bgfx include tree (vcpkg layout).
-        foreach(_dir
-            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include/bgfx"
-            "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include/bgfx"
-            "${CMAKE_SOURCE_DIR}/vcpkg_installed/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux/include/bgfx"
-            "${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/include/bgfx")
-            if(EXISTS "${_dir}/bgfx_shader.sh")
-                list(APPEND SHADER_EXTRA_INCLUDES --include "${_dir}")
-                break()
-            endif()
-        endforeach()
-        set(_variant_args)
-        foreach(_variant IN LISTS NOVELTEA_SHADER_VARIANTS)
-            list(APPEND _variant_args --variant "${_variant}")
-        endforeach()
-        add_custom_target(noveltea-shaders
-            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/compile_bgfx_shaders.py"
-                    --manifest "${NOVELTEA_SHADER_MANIFEST}"
-                    --shaderc "${SHADERC_EXECUTABLE}"
-                    --source-dir "${SHADER_SRC_DIR}"
-                    --output-root "${SHADER_ASSET_ROOT}"
-                    ${_variant_args}
-                    ${SHADER_EXTRA_INCLUDES}
-            DEPENDS "${NOVELTEA_SHADER_MANIFEST}"
-                    "${CMAKE_SOURCE_DIR}/scripts/compile_bgfx_shaders.py"
-                    "${SHADER_SRC_DIR}/varying.def.sc"
-                    "${SHADER_SRC_DIR}/vs_triangle.sc" "${SHADER_SRC_DIR}/fs_triangle.sc"
-                    "${SHADER_SRC_DIR}/vs_quad.sc" "${SHADER_SRC_DIR}/fs_quad.sc"
-                    "${SHADER_SRC_DIR}/vs_text.sc" "${SHADER_SRC_DIR}/fs_text.sc"
-                    "${SHADER_SRC_DIR}/vs_imgui.sc" "${SHADER_SRC_DIR}/fs_imgui.sc"
-                    "${SHADER_SRC_DIR}/vs_rmlui.sc" "${SHADER_SRC_DIR}/fs_rmlui.sc"
-            COMMENT "Compiling NovelTea bgfx shaders"
-            VERBATIM
+        noveltea_find_shader_tools(REQUIRED OUT_SHADERC SHADERC_EXECUTABLE OUT_BGFX_INCLUDE BGFX_SHADER_INCLUDE_DIR)
+        noveltea_add_shader_target(
+            TARGET noveltea-shaders
+            SHADERC "${SHADERC_EXECUTABLE}"
+            SOURCE_DIR "${SHADER_SRC_DIR}"
+            OUTPUT_ROOT "${SHADER_ASSET_ROOT}"
+            VARIANTS ${NOVELTEA_SHADER_VARIANTS}
+            BGFX_INCLUDE_DIR "${BGFX_SHADER_INCLUDE_DIR}"
         )
     else()
-        unset(SHADERC_EXECUTABLE CACHE)
-        set(_missing_assets)
-        foreach(_target IN LISTS NOVELTEA_SHADER_VARIANTS)
-            foreach(_shader triangle quad text imgui rmlui)
-                foreach(_stage vs fs)
-                    set(_asset "${SHADER_ASSET_ROOT}/shaders/bgfx/${_target}/${_shader}.${_stage}.bin")
-                    if(NOT EXISTS "${_asset}")
-                        list(APPEND _missing_assets "${_asset}")
-                    endif()
-                endforeach()
-            endforeach()
-        endforeach()
-        if(_missing_assets)
-            list(GET _missing_assets 0 _first_missing)
-            message(FATAL_ERROR "NOVELTEA_COMPILE_SHADERS=OFF requires existing compiled shader assets under ${SHADER_ASSET_ROOT}; missing ${_first_missing}")
+        if(NOVELTEA_PREBUILT_SHADER_ASSET_ROOT)
+            set(SHADER_ASSET_ROOT "${NOVELTEA_PREBUILT_SHADER_ASSET_ROOT}")
+        endif()
+        noveltea_collect_shader_outputs(VARIANTS ${NOVELTEA_SHADER_VARIANTS} OUTPUT_ROOT "${SHADER_ASSET_ROOT}" OUT_VAR NOVELTEA_SHADER_OUTPUTS)
+        if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
+            execute_process(
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DNOVELTEA_VERIFY_ONLY=ON"
+                    "-DNOVELTEA_SHADER_OUTPUT_ROOT=${SHADER_ASSET_ROOT}"
+                    "-DNOVELTEA_SHADER_VARIANTS=${NOVELTEA_SHADER_VARIANTS_ARG}"
+                    -P "${CMAKE_SOURCE_DIR}/cmake/CompileNovelTeaShaders.cmake"
+                RESULT_VARIABLE _shader_verify_result
+            )
+            if(NOT _shader_verify_result EQUAL 0)
+                message(FATAL_ERROR "NOVELTEA_COMPILE_SHADERS=OFF requires a complete prebuilt shader tree. Set NOVELTEA_PREBUILT_SHADER_ASSET_ROOT.")
+            endif()
         endif()
         add_custom_target(noveltea-shaders)
     endif()
-    add_dependencies(noveltea-runtime-assets noveltea-shaders)
+    set(NOVELTEA_ACTIVE_SHADER_ASSET_ROOT "${SHADER_ASSET_ROOT}" CACHE INTERNAL "Active NovelTea shader asset root")
+    set(NOVELTEA_ACTIVE_SHADER_VARIANTS "${NOVELTEA_SHADER_VARIANTS_ARG}" CACHE INTERNAL "Active NovelTea shader variants")
 
     target_sources(engine PRIVATE
         src/render/bgfx/bgfx_renderer.cpp
@@ -151,7 +114,6 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
         src/render/bgfx/text/bgfx_text_renderer.cpp
         src/render/bgfx/bgfx_texture.cpp
     )
-    add_dependencies(engine noveltea-runtime-assets)
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
     target_link_libraries(engine PUBLIC bgfx::bgfx)
     if(TARGET bx::bx)
@@ -163,6 +125,27 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
 else()
     message(STATUS "bgfx not available; using stub renderer")
     target_sources(engine PRIVATE src/render/renderer_stub.cpp)
+endif()
+
+if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
+    file(GLOB_RECURSE NOVELTEA_PROJECT_ASSET_INPUTS CONFIGURE_DEPENDS "${NOVELTEA_PROJECT_ASSET_SOURCE}/*")
+    add_custom_command(
+        OUTPUT "${NOVELTEA_RUNTIME_ASSET_STAMP}"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DNOVELTEA_PROJECT_ASSET_SOURCE=${NOVELTEA_PROJECT_ASSET_SOURCE}"
+            "-DNOVELTEA_SHADER_ASSET_SOURCE=${SHADER_ASSET_ROOT}"
+            "-DNOVELTEA_RUNTIME_ASSET_ROOT=${NOVELTEA_RUNTIME_ASSET_ROOT}"
+            "-DNOVELTEA_STAGE_STAMP=${NOVELTEA_RUNTIME_ASSET_STAMP}"
+            -P "${CMAKE_SOURCE_DIR}/cmake/StageNovelTeaAssets.cmake"
+        DEPENDS ${NOVELTEA_PROJECT_ASSET_INPUTS} ${NOVELTEA_SHADER_OUTPUTS}
+        COMMENT "Staging NovelTea runtime assets"
+        VERBATIM
+    )
+    add_custom_target(noveltea-runtime-assets DEPENDS "${NOVELTEA_RUNTIME_ASSET_STAMP}")
+    if(TARGET noveltea-shaders)
+        add_dependencies(noveltea-runtime-assets noveltea-shaders)
+    endif()
+    add_dependencies(engine noveltea-runtime-assets)
 endif()
 
 target_link_libraries(engine PUBLIC SDL3::SDL3)
@@ -188,11 +171,14 @@ if(NOVELTEA_ENABLE_RMLUI)
         message(STATUS "RmlUi found - runtime UI core enabled (bgfx render backend)")
         target_link_libraries(engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
         target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RMLUI)
+        set(NOVELTEA_HAS_RMLUI ON CACHE INTERNAL "RmlUi available")
     else()
         message(WARNING "RmlUi not found - runtime UI scaffold will run without RmlUi linked")
+        set(NOVELTEA_HAS_RMLUI OFF CACHE INTERNAL "RmlUi available")
     endif()
 else()
     message(STATUS "RmlUi disabled")
+    set(NOVELTEA_HAS_RMLUI OFF CACHE INTERNAL "RmlUi available")
 endif()
 
 # --- Dear ImGui (dev/debug only) ---

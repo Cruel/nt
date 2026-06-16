@@ -24,13 +24,21 @@ struct AssetResult {
     [[nodiscard]] explicit operator bool() const { return value.has_value(); }
 };
 
+template<>
+struct AssetResult<void> {
+    bool ok = false;
+    std::string error;
+
+    [[nodiscard]] explicit operator bool() const { return ok; }
+};
+
 class AssetReader {
 public:
     virtual ~AssetReader() = default;
     [[nodiscard]] virtual std::size_t read(void* buffer, std::size_t bytes) = 0;
     [[nodiscard]] virtual bool seek(std::int64_t offset, int origin) = 0;
-    [[nodiscard]] virtual std::uint64_t tell() const = 0;
-    [[nodiscard]] virtual std::uint64_t size() const = 0;
+    [[nodiscard]] virtual std::optional<std::uint64_t> tell() const = 0;
+    [[nodiscard]] virtual std::optional<std::uint64_t> size() const = 0;
 };
 
 struct AssetBlob {
@@ -49,8 +57,14 @@ public:
     [[nodiscard]] virtual AssetResult<AssetBlob> read_binary(const AssetPath& path) const;
     [[nodiscard]] virtual bool exists(const AssetPath& path) const = 0;
     [[nodiscard]] virtual std::string describe() const = 0;
-    [[nodiscard]] virtual bool writable() const { return false; }
+    [[nodiscard]] virtual bool writable() const { return false; } // Capability metadata; writes are exposed by WritableAssetSource.
     [[nodiscard]] virtual const char* kind() const = 0;
+};
+
+class WritableAssetSource : public AssetSource {
+public:
+    [[nodiscard]] virtual AssetResult<void> write_binary(const AssetPath& path, const AssetBytes& bytes) = 0;
+    [[nodiscard]] virtual AssetResult<void> remove(const AssetPath& path) = 0;
 };
 
 class DirectoryAssetSource final : public AssetSource {

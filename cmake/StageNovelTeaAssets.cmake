@@ -1,0 +1,12 @@
+if(NOT NOVELTEA_PROJECT_ASSET_SOURCE OR NOT NOVELTEA_SHADER_ASSET_SOURCE OR NOT NOVELTEA_RUNTIME_ASSET_ROOT)
+    message(FATAL_ERROR "Project source, shader source, and runtime asset root are required")
+endif()
+
+set(_tmp "${NOVELTEA_RUNTIME_ASSET_ROOT}.tmp")
+file(REMOVE_RECURSE "${_tmp}")
+file(MAKE_DIRECTORY "${_tmp}")
+file(COPY "${NOVELTEA_PROJECT_ASSET_SOURCE}/" DESTINATION "${_tmp}")
+file(COPY "${NOVELTEA_SHADER_ASSET_SOURCE}/shaders" DESTINATION "${_tmp}")
+file(REMOVE_RECURSE "${NOVELTEA_RUNTIME_ASSET_ROOT}")
+file(RENAME "${_tmp}" "${NOVELTEA_RUNTIME_ASSET_ROOT}")
+file(WRITE "${NOVELTEA_STAGE_STAMP}" "staged\n")
