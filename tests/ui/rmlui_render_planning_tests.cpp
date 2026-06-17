@@ -3,7 +3,34 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <cmath>
+
 using namespace noveltea::ui::rmlui;
+
+namespace {
+
+using Color = std::array<float, 4>;
+
+void check_color(Color actual, Color expected)
+{
+    for (size_t i = 0; i < actual.size(); ++i) {
+        CHECK(actual[i] == Catch::Approx(expected[i]).margin(0.0001f));
+    }
+}
+
+Color css_color_matrix_expected(const std::array<float, 16>& m, Color rgba)
+{
+    const float alpha = rgba[3];
+    return {
+        rgba[0] * m[0] + rgba[1] * m[1] + rgba[2] * m[2] + alpha * m[3],
+        rgba[0] * m[4] + rgba[1] * m[5] + rgba[2] * m[6] + alpha * m[7],
+        rgba[0] * m[8] + rgba[1] * m[9] + rgba[2] * m[10] + alpha * m[11],
+        alpha,
+    };
+}
+
+} // namespace
 
 TEST_CASE("RmlUi fullscreen triangle covers clip space with portable UVs")
 {
@@ -15,8 +42,9 @@ TEST_CASE("RmlUi fullscreen triangle covers clip space with portable UVs")
     CHECK(top_left[2].v == 2.0f);
 
     const auto bottom_left = fullscreen_triangle(true);
-    CHECK(bottom_left[0].v == 0.0f);
-    CHECK(bottom_left[2].v == 2.0f);
+    CHECK(bottom_left[0].v == 1.0f);
+    CHECK(bottom_left[1].v == 1.0f);
+    CHECK(bottom_left[2].v == -1.0f);
 }
 
 TEST_CASE("RmlUi layer pool allocation is bounded by maximum nesting depth")
@@ -74,8 +102,8 @@ TEST_CASE("RmlUi resize bookkeeping recreates layer and postprocess resources in
 
 TEST_CASE("RmlUi stencil planner never treats depth-only fallback as stencil")
 {
-    CHECK(choose_stencil_plan(true, false) == StencilPlan::StencilAttachment);
-    CHECK(choose_stencil_plan(false, true) == StencilPlan::StencilAttachment);
+    CHECK(choose_stencil_plan(true, false) == StencilPlan::D24S8);
+    CHECK(choose_stencil_plan(false, true) == StencilPlan::D0S8);
     CHECK(choose_stencil_plan(false, false) == StencilPlan::Unsupported);
 }
 
@@ -102,7 +130,9 @@ TEST_CASE("RmlUi color filter matrices match expected scalar behavior")
     CHECK(invert.matrix[0] == -1.0f);
     CHECK(invert.matrix[5] == -1.0f);
     CHECK(invert.matrix[10] == -1.0f);
-    CHECK(invert.matrix[12] == 1.0f);
+    CHECK(invert.matrix[3] == 1.0f);
+    CHECK(invert.matrix[7] == 1.0f);
+    CHECK(invert.matrix[11] == 1.0f);
 }
 
 TEST_CASE("RmlUi color matrix helper uses row-major RGB rows with translation")
@@ -117,8 +147,60 @@ TEST_CASE("RmlUi color matrix helper uses row-major RGB rows with translation")
 
     const auto contrast = make_contrast_filter(2.0f);
     const auto contrasted = apply_color_matrix(contrast.matrix, {0.25f, 0.25f, 0.25f, 0.5f});
-    CHECK(contrasted[0] == Catch::Approx(0.0f));
-    CHECK(contrasted[1] == Catch::Approx(0.0f));
-    CHECK(contrasted[2] == Catch::Approx(0.0f));
+    CHECK(contrasted[0] == Catch::Approx(0.25f));
+    CHECK(contrasted[1] == Catch::Approx(0.25f));
+    CHECK(contrasted[2] == Catch::Approx(0.25f));
     CHECK(contrasted[3] == Catch::Approx(0.5f));
+}
+
+TEST_CASE("RmlUi premultiplied color matrices match GL3 behavior for translucent input")
+{
+    const Color premul {0.18f, 0.30f, 0.42f, 0.60f};
+
+    SECTION("identity")
+    {
+        check_color(apply_color_matrix(make_brightness_filter(1.0f).matrix, premul), premul);
+    }
+
+    SECTION("brightness")
+    {
+        const auto filter = make_brightness_filter(1.25f);
+        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+    }
+
+    SECTION("contrast")
+    {
+        const auto filter = make_contrast_filter(1.40f);
+        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+    }
+
+    SECTION("invert")
+    {
+        const auto filter = make_invert_filter(0.75f);
+        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+    }
+
+    SECTION("grayscale")
+    {
+        const auto filter = make_grayscale_filter(0.65f);
+        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+    }
+
+    SECTION("sepia")
+    {
+        const auto filter = make_sepia_filter(0.80f);
+        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+    }
+
+    SECTION("hue rotate")
+    {
+        const auto filter = make_hue_rotate_filter(0.70f);
+        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+    }
+
+    SECTION("saturate")
+    {
+        const auto filter = make_saturate_filter(1.70f);
+        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+    }
 }

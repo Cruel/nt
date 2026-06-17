@@ -20,6 +20,13 @@ enum class SystemShader {
     Text,
     RmlUi,
     RmlUiComposite,
+    RmlUiCopy,
+    RmlUiOpacity,
+    RmlUiColorMatrix,
+    RmlUiMaskMultiply,
+    RmlUiBlur,
+    RmlUiDropShadow,
+    RmlUiGradient,
     ImGui,
 };
 

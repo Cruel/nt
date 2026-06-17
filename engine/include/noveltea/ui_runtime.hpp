@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <string>
+
 union SDL_Event;
 struct SDL_Window;
 
@@ -21,6 +25,26 @@ public:
     void begin_frame(float delta_time);
     void end_frame();
     void shutdown();
+
+    // Returned pointers are borrowed from RmlUi. They remain valid until the
+    // document is unloaded, all documents are reloaded, or RuntimeUI shuts down.
+    bool load_document(const std::string& id, const std::string& path, bool show = true);
+    bool unload_document(const std::string& id);
+    bool show_document(const std::string& id);
+    bool hide_document(const std::string& id);
+    void* document(const std::string& id) const;
+    void* element(const std::string& document_id, const std::string& element_id) const;
+    bool reload_documents_and_styles();
+    void set_density(float density);
+    std::uintptr_t add_event_listener(
+        const std::string& document_id,
+        const std::string& element_id,
+        const std::string& event,
+        std::function<void()> callback);
+    bool remove_event_listener(std::uintptr_t listener_id);
+    void* create_data_model(const std::string& name);
+    void* data_model(const std::string& name) const;
+    bool remove_data_model(const std::string& name);
 
     const char* backend_name() const;
     const char* status_text() const;

@@ -7,11 +7,12 @@ namespace noveltea::ui::rmlui {
 
 std::array<FullscreenVertex, 3> fullscreen_triangle(bool origin_bottom_left)
 {
-    (void)origin_bottom_left;
+    const float v0 = origin_bottom_left ? 0.0f : 1.0f;
+    const float v2 = origin_bottom_left ? 2.0f : -1.0f;
     return {{
-        {-1.0f, -1.0f, 0.0f, 0.0f},
-        {3.0f, -1.0f, 2.0f, 0.0f},
-        {-1.0f, 3.0f, 0.0f, 2.0f},
+        {-1.0f, -1.0f, 0.0f, v0},
+        {3.0f, -1.0f, 2.0f, v0},
+        {-1.0f, 3.0f, 0.0f, v2},
     }};
 }
 
@@ -74,7 +75,9 @@ bool PostprocessPoolPlan::allocated(PostprocessTargetKind target) const
 
 StencilPlan choose_stencil_plan(bool d24s8_supported, bool d0s8_supported)
 {
-    return (d24s8_supported || d0s8_supported) ? StencilPlan::StencilAttachment : StencilPlan::Unsupported;
+    if (d24s8_supported) return StencilPlan::D24S8;
+    if (d0s8_supported) return StencilPlan::D0S8;
+    return StencilPlan::Unsupported;
 }
 
 GaussianKernel gaussian_kernel(float sigma)
@@ -140,9 +143,9 @@ FilterRecord make_contrast_filter(float value)
     m[0] = value;
     m[5] = value;
     m[10] = value;
-    m[12] = grayness;
-    m[13] = grayness;
-    m[14] = grayness;
+    m[3] = grayness;
+    m[7] = grayness;
+    m[11] = grayness;
     return color_matrix(m);
 }
 
@@ -154,9 +157,9 @@ FilterRecord make_invert_filter(float value)
     m[0] = inverted;
     m[5] = inverted;
     m[10] = inverted;
-    m[12] = value;
-    m[13] = value;
-    m[14] = value;
+    m[3] = value;
+    m[7] = value;
+    m[11] = value;
     return color_matrix(m);
 }
 
@@ -209,12 +212,18 @@ FilterRecord make_saturate_filter(float value)
 
 std::array<float, 4> apply_color_matrix(const std::array<float, 16>& m, std::array<float, 4> rgba)
 {
+    const float alpha = rgba[3];
     return {
-        rgba[0] * m[0] + rgba[1] * m[1] + rgba[2] * m[2] + rgba[3] * m[3] + m[12],
-        rgba[0] * m[4] + rgba[1] * m[5] + rgba[2] * m[6] + rgba[3] * m[7] + m[13],
-        rgba[0] * m[8] + rgba[1] * m[9] + rgba[2] * m[10] + rgba[3] * m[11] + m[14],
-        rgba[0] * m[12] * 0.0f + rgba[1] * m[13] * 0.0f + rgba[2] * m[14] * 0.0f + rgba[3] * m[15],
+        rgba[0] * m[0] + rgba[1] * m[1] + rgba[2] * m[2] + alpha * m[3],
+        rgba[0] * m[4] + rgba[1] * m[5] + rgba[2] * m[6] + alpha * m[7],
+        rgba[0] * m[8] + rgba[1] * m[9] + rgba[2] * m[10] + alpha * m[11],
+        alpha,
     };
+}
+
+GradientRecord make_invalid_gradient()
+{
+    return {};
 }
 
 } // namespace noveltea::ui::rmlui

@@ -65,6 +65,8 @@ enum class TextureOwnership {
 };
 
 enum class StencilPlan {
+    D24S8,
+    D0S8,
     StencilAttachment,
     Unsupported,
 };
@@ -93,6 +95,7 @@ struct FilterRecord {
     std::array<float, 2> offset {};
     std::array<float, 4> color {};
     std::array<float, 16> matrix {};
+    uint64_t resource = 0;
 };
 
 [[nodiscard]] FilterRecord make_opacity_filter(float value);
@@ -103,6 +106,9 @@ struct FilterRecord {
 [[nodiscard]] FilterRecord make_sepia_filter(float value);
 [[nodiscard]] FilterRecord make_hue_rotate_filter(float radians);
 [[nodiscard]] FilterRecord make_saturate_filter(float value);
+// Matrix storage is row-major. Vectors are treated as columns. The fourth
+// column stores RGB constants and is multiplied by source alpha for
+// premultiplied-alpha parity with RmlUi's GL3 renderer. Alpha is preserved.
 [[nodiscard]] std::array<float, 4> apply_color_matrix(const std::array<float, 16>& row_major_matrix, std::array<float, 4> rgba);
 
 enum class GradientKind {
@@ -126,5 +132,7 @@ struct GradientRecord {
     std::array<GradientStop, 16> stops {};
     uint32_t stop_count = 0;
 };
+
+[[nodiscard]] GradientRecord make_invalid_gradient();
 
 } // namespace noveltea::ui::rmlui

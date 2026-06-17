@@ -20,6 +20,13 @@ const char* system_shader_name(SystemShader shader)
     case SystemShader::Text: return "text";
     case SystemShader::RmlUi: return "rmlui";
     case SystemShader::RmlUiComposite: return "rmlui_composite";
+    case SystemShader::RmlUiCopy: return "rmlui_copy";
+    case SystemShader::RmlUiOpacity: return "rmlui_opacity";
+    case SystemShader::RmlUiColorMatrix: return "rmlui_color_matrix";
+    case SystemShader::RmlUiMaskMultiply: return "rmlui_mask_multiply";
+    case SystemShader::RmlUiBlur: return "rmlui_blur";
+    case SystemShader::RmlUiDropShadow: return "rmlui_drop_shadow";
+    case SystemShader::RmlUiGradient: return "rmlui_gradient";
     case SystemShader::ImGui: return "imgui";
     }
     return "";
