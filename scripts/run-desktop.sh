@@ -14,4 +14,4 @@ echo "[run] building..."
 cmake --build --preset linux-debug
 
 echo "[run] launching..."
-./build/linux-debug/apps/sandbox/noveltea-sandbox
+./build/linux-debug/apps/sandbox/noveltea-sandbox "$@"

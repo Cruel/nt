@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 namespace noveltea {
 
@@ -46,6 +48,74 @@ static void make_ortho(float* out, float width, float height)
     out[15] = 1.0f;
 }
 
+class RendererCallback final : public bgfx::CallbackI {
+public:
+    void fatal(const char* file_path, uint16_t line, bgfx::Fatal::Enum code, const char* message) override
+    {
+        std::fprintf(stderr, "[bgfx] fatal %s:%u: %s\n", file_path ? file_path : "<unknown>", line, message ? message : "");
+        if (code != bgfx::Fatal::DebugCheck) {
+            std::abort();
+        }
+    }
+
+    void traceVargs(const char*, uint16_t, const char*, va_list) override {}
+    void profilerBegin(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerBeginLiteral(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerEnd() override {}
+    uint32_t cacheReadSize(uint64_t) override { return 0; }
+    bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
+    void cacheWrite(uint64_t, const void*, uint32_t) override {}
+
+    void screenShot(
+        const char* file_path,
+        uint32_t width,
+        uint32_t height,
+        uint32_t pitch,
+#if BGFX_API_VERSION >= 143
+        bgfx::TextureFormat::Enum,
+#endif
+        const void* data,
+        uint32_t size,
+        bool yflip) override
+    {
+        if (!file_path || !data || width == 0 || height == 0 || pitch < width * 4u || size < pitch * height) {
+            std::fprintf(stderr, "[renderer] invalid screenshot callback payload\n");
+            return;
+        }
+
+        const std::filesystem::path output(file_path);
+        if (output.has_parent_path()) {
+            std::error_code ec;
+            std::filesystem::create_directories(output.parent_path(), ec);
+        }
+        std::ofstream file(output, std::ios::binary);
+        if (!file) {
+            std::fprintf(stderr, "[renderer] failed to write screenshot: %s\n", file_path);
+            return;
+        }
+
+        file << "P6\n" << width << ' ' << height << "\n255\n";
+        const auto* bytes = static_cast<const uint8_t*>(data);
+        for (uint32_t y = 0; y < height; ++y) {
+            const uint32_t source_y = yflip ? (height - 1u - y) : y;
+            const uint8_t* row = bytes + source_y * pitch;
+            for (uint32_t x = 0; x < width; ++x) {
+                const uint8_t b = row[x * 4u + 0u];
+                const uint8_t g = row[x * 4u + 1u];
+                const uint8_t r = row[x * 4u + 2u];
+                const char rgb[3] = {static_cast<char>(r), static_cast<char>(g), static_cast<char>(b)};
+                file.write(rgb, sizeof(rgb));
+            }
+        }
+    }
+
+    void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override {}
+    void captureEnd() override {}
+    void captureFrame(const void*, uint32_t) override {}
+};
+
+RendererCallback s_renderer_callback;
+
 // ---------------------------------------------------------------------------
 // Renderer implementation
 // ---------------------------------------------------------------------------
@@ -73,6 +143,7 @@ bool Renderer::initialize(const RendererConfig& config)
     init.type = bgfx::RendererType::Count; // auto-detect (Android: GLES, Web: GLES/WebGL)
 #endif
     init.platformData = pd;
+    init.callback = &s_renderer_callback;
     init.resolution.width = static_cast<uint32_t>(config.width);
     init.resolution.height = static_cast<uint32_t>(config.height);
     init.resolution.reset = config.vsync ? BGFX_RESET_VSYNC : 0;
@@ -150,7 +221,16 @@ void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position
 
 void Renderer::end_frame()
 {
+    if (!m_pending_screenshot.empty()) {
+        bgfx::requestScreenShot(BGFX_INVALID_HANDLE, m_pending_screenshot.c_str());
+        m_pending_screenshot.clear();
+    }
     bgfx::frame();
+}
+
+void Renderer::request_screenshot(const std::string& path)
+{
+    m_pending_screenshot = path;
 }
 
 void Renderer::resize(int width, int height)

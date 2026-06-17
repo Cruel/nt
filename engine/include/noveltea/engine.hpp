@@ -14,6 +14,7 @@
 namespace noveltea {
 
 enum class DemoMode {
+    None,
     All,
     Render2D,
     RmlUi,
@@ -26,6 +27,9 @@ struct EngineRunConfig {
     std::filesystem::path system_asset_root;
     std::filesystem::path project_asset_root;
     std::filesystem::path cache_asset_root;
+    std::string runtime_ui_document;
+    std::string screenshot_path;
+    bool enable_debug_ui = true;
 };
 
 class Engine {
@@ -65,10 +69,12 @@ private:
     bool m_running = false;
     uint32_t m_frame_count = 0;
     uint32_t m_frame_limit = 0;
+    std::string m_screenshot_path;
     DemoMode m_demo_mode = DemoMode::All;
     float m_elapsed_seconds = 0.0f;
     preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
     bool m_preview_running = true;
+    bool m_debug_ui_enabled = true;
 };
 
 } // namespace noveltea

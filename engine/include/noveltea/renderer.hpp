@@ -37,6 +37,7 @@ public:
     void end_frame();
     void resize(int width, int height);
     void shutdown();
+    void request_screenshot(const std::string& path);
 
     void draw_demo_2d(float time_seconds);
     void draw_demo_text(float time_seconds);
@@ -83,6 +84,7 @@ private:
     uint32_t m_default_text_font = 0;
     void* m_text_renderer = nullptr;
     std::string m_texture_status = "procedural checker";
+    std::string m_pending_screenshot;
 };
 
 } // namespace noveltea

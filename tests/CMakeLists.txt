@@ -30,14 +30,46 @@ endif()
 
 if(NOVELTEA_HAS_RMLUI)
     add_executable(noveltea_ui_tests
+        ui/rmlui_advanced_gallery_asset_tests.cpp
         ui/rmlui_event_disposition_tests.cpp
         ui/rmlui_file_interface_tests.cpp
         ui/rmlui_render_planning_tests.cpp
         ui/rmlui_render_pass_scheduler_tests.cpp
     )
     target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+    target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     target_link_libraries(noveltea_ui_tests PRIVATE engine Catch2::Catch2WithMain)
     catch_discover_tests(noveltea_ui_tests)
+
+    if(NOVELTEA_HAS_BGFX AND TARGET noveltea-sandbox)
+        set(NOVELTEA_RMLUI_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery.ppm")
+        add_executable(noveltea_rmlui_readback_verifier
+            ui/rmlui_readback_verifier.cpp
+        )
+        target_compile_definitions(noveltea_rmlui_readback_verifier PRIVATE
+            NOVELTEA_RMLUI_READBACK_PPM="${NOVELTEA_RMLUI_READBACK_PPM}"
+        )
+        target_link_libraries(noveltea_rmlui_readback_verifier PRIVATE Catch2::Catch2WithMain)
+        add_test(
+            NAME noveltea_rmlui_readback_capture
+            COMMAND noveltea-sandbox
+                --demo none
+                --rmlui-document project:/rmlui/readback_gallery.rml
+                --frames 3
+                --screenshot "${NOVELTEA_RMLUI_READBACK_PPM}"
+        )
+        set_tests_properties(noveltea_rmlui_readback_capture PROPERTIES
+            LABELS "rmlui;gpu"
+        )
+        add_test(
+            NAME noveltea_rmlui_readback_verify
+            COMMAND noveltea_rmlui_readback_verifier
+        )
+        set_tests_properties(noveltea_rmlui_readback_verify PROPERTIES
+            DEPENDS noveltea_rmlui_readback_capture
+            LABELS "rmlui;gpu"
+        )
+    endif()
 endif()
 
 add_test(

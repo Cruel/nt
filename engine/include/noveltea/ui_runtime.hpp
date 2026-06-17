@@ -19,7 +19,7 @@ public:
     RuntimeUI(const RuntimeUI&) = delete;
     RuntimeUI& operator=(const RuntimeUI&) = delete;
 
-    bool initialize(const assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr);
+    bool initialize(const assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr, bool load_demo_document = true);
     bool process_event(const SDL_Event& event);
     void resize(int width, int height);
     void begin_frame(float delta_time);

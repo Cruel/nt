@@ -65,6 +65,7 @@ struct LayerRecord {
     int height = 0;
     bool clip_mask_enabled = false;
     uint8_t stencil_ref = 1;
+    std::vector<size_t> clip_commands;
 };
 
 struct RenderTargetRecord {
@@ -92,6 +93,15 @@ struct CompositeOp {
     uint8_t stencil_ref = 1;
     RmlUiPassKind kind = RmlUiPassKind::LayerComposite;
     const char* name = "RmlUi.Composite";
+};
+
+struct ClipCommand {
+    Rml::ClipMaskOperation operation = Rml::ClipMaskOperation::Set;
+    Rml::CompiledGeometryHandle geometry = 0;
+    Rml::Vector2f translation;
+    ScissorState scissor;
+    uint8_t previous_ref = 1;
+    uint8_t next_ref = 1;
 };
 
 uint32_t pack_abgr(Rml::ColourbPremultiplied colour)
@@ -418,6 +428,7 @@ struct BgfxRenderInterface::Impl {
         layer.height = height;
         layer.clip_mask_enabled = false;
         layer.stencil_ref = 1;
+        layer.clip_commands.clear();
         layer_pool.note_allocated(uint32_t(index));
         return true;
     }
@@ -443,7 +454,18 @@ struct BgfxRenderInterface::Impl {
         active_layer = 0;
         layers[0].clip_mask_enabled = false;
         layers[0].stencil_ref = 1;
+        layers[0].clip_commands.clear();
+        clip_commands.clear();
+        frame_failed = false;
         return true;
+    }
+
+    void fail_frame(const char* message)
+    {
+        if (!frame_failed && message) {
+            std::fprintf(stderr, "[rmlui] %s\n", message);
+        }
+        frame_failed = true;
     }
 
     void configure_pass(const RmlUiPass& pass)
@@ -458,8 +480,8 @@ struct BgfxRenderInterface::Impl {
 
     std::optional<RmlUiPass> acquire_pass(RmlUiPassRequest request, bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE)
     {
-        request.width = width;
-        request.height = height;
+        if (request.width <= 0) request.width = width;
+        if (request.height <= 0) request.height = height;
         request.framebuffer = framebuffer_key(framebuffer);
         request.bgfx_framebuffer_idx = bgfx::isValid(framebuffer) ? framebuffer.idx : std::numeric_limits<uint16_t>::max();
         auto pass = pass_scheduler.acquire(request);
@@ -469,7 +491,7 @@ struct BgfxRenderInterface::Impl {
 
     void submit(const GeometryRecord& geometry, Rml::Vector2f translation, Rml::TextureHandle texture)
     {
-        if (!bgfx::isValid(program) || geometry.index_count == 0 || pass_scheduler.exhausted()) {
+        if (frame_failed || !bgfx::isValid(program) || geometry.index_count == 0 || pass_scheduler.exhausted()) {
             return;
         }
         LayerRecord* layer = current_layer();
@@ -512,13 +534,15 @@ struct BgfxRenderInterface::Impl {
 
     void composite(const CompositeOp& op)
     {
-        if (!ensure_fullscreen_geometry() || !bgfx::isValid(composite_program) || !bgfx::isValid(op.source)) return;
+        if (frame_failed || !ensure_fullscreen_geometry() || !bgfx::isValid(composite_program) || !bgfx::isValid(op.source)) return;
 
         auto pass = acquire_pass({op.kind, 0, 0, false, false, width, height, op.name}, op.destination);
         if (!pass) return;
 
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, op.source);
+        const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+        bgfx::setUniform(texcoord_bounds_uniform, bounds);
         if (op.scissor.enabled) {
             const Rml::Rectanglei scissor = clamp_scissor(op.scissor.region, width, height);
             if (scissor.Width() <= 0 || scissor.Height() <= 0) return;
@@ -534,13 +558,66 @@ struct BgfxRenderInterface::Impl {
         bgfx::submit(pass->view, composite_program);
     }
 
+    bool copy_region_to_framebuffer(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination, const Rml::Rectanglei& region, const char* name)
+    {
+        if (!ensure_fullscreen_geometry() || !bgfx::isValid(copy_program) || !bgfx::isValid(source) || !bgfx::isValid(destination)) return false;
+        auto pass = acquire_pass({RmlUiPassKind::Copy, 0, 0, false, false, region.Width(), region.Height(), name}, destination);
+        if (!pass) return false;
+        const float bounds[4] = {
+            float(region.Left()) / float(std::max(width, 1)),
+            float(region.Top()) / float(std::max(height, 1)),
+            float(region.Right()) / float(std::max(width, 1)),
+            float(region.Bottom()) / float(std::max(height, 1)),
+        };
+        bgfx::setVertexBuffer(0, fullscreen_vb);
+        bgfx::setTexture(0, sampler, source);
+        bgfx::setUniform(texcoord_bounds_uniform, bounds);
+        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+        bgfx::submit(pass->view, copy_program);
+        return true;
+    }
+
+    bgfx::TextureHandle copy_region_to_texture(bgfx::TextureHandle source, const Rml::Rectanglei& region, const char* name)
+    {
+        if (region.Width() <= 0 || region.Height() <= 0 || !bgfx::isValid(source)) return BGFX_INVALID_HANDLE;
+        const bool can_blit = bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0;
+        const uint64_t flags = (can_blit ? BGFX_TEXTURE_BLIT_DST : BGFX_TEXTURE_RT) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        bgfx::TextureHandle texture = bgfx::createTexture2D(
+            uint16_t(region.Width()), uint16_t(region.Height()), false, 1, bgfx::TextureFormat::RGBA8, flags);
+        if (!bgfx::isValid(texture)) return BGFX_INVALID_HANDLE;
+
+        if (can_blit) {
+            auto pass = acquire_pass({RmlUiPassKind::Copy, 0, 0, false, false, region.Width(), region.Height(), name});
+            if (!pass) {
+                bgfx::destroy(texture);
+                return BGFX_INVALID_HANDLE;
+            }
+            bgfx::blit(pass->view, texture, 0, 0, source,
+                uint16_t(region.Left()), uint16_t(region.Top()), uint16_t(region.Width()), uint16_t(region.Height()));
+            return texture;
+        }
+
+        bgfx::FrameBufferHandle framebuffer = bgfx::createFrameBuffer(1, &texture, false);
+        if (!bgfx::isValid(framebuffer)) {
+            bgfx::destroy(texture);
+            return BGFX_INVALID_HANDLE;
+        }
+        const bool copied = copy_region_to_framebuffer(source, framebuffer, region, name);
+        bgfx::destroy(framebuffer);
+        if (!copied) {
+            bgfx::destroy(texture);
+            return BGFX_INVALID_HANDLE;
+        }
+        return texture;
+    }
+
     bool fullscreen_filter_pass(
         bgfx::TextureHandle source,
         bgfx::FrameBufferHandle destination,
         bgfx::ProgramHandle filter_program,
         const char* name)
     {
-        if (!ensure_fullscreen_geometry() || !bgfx::isValid(source) || !bgfx::isValid(destination) || !bgfx::isValid(filter_program)) return false;
+        if (frame_failed || !ensure_fullscreen_geometry() || !bgfx::isValid(source) || !bgfx::isValid(destination) || !bgfx::isValid(filter_program)) return false;
         auto pass = acquire_pass({RmlUiPassKind::Postprocess, 0, 0, false, false, width, height, name}, destination);
         if (!pass) return false;
         bgfx::setVertexBuffer(0, fullscreen_vb);
@@ -744,29 +821,34 @@ struct BgfxRenderInterface::Impl {
             BGFX_STENCIL_OP_PASS_Z_REPLACE;
     }
 
-    uint32_t stencil_increment_state() const
+    void clear_active_stencil(uint8_t value, const ScissorState& scissor)
     {
-        return BGFX_STENCIL_TEST_ALWAYS |
-            BGFX_STENCIL_FUNC_REF(0) |
+        LayerRecord* layer = current_layer();
+        if (!layer) return;
+        auto pass = acquire_pass({RmlUiPassKind::Clear, 0, 0, false, true, width, height, "RmlUi.StencilClear"}, layer->framebuffer);
+        if (!pass) return;
+        if (scissor.enabled) {
+            const Rml::Rectanglei clipped = clamp_scissor(scissor.region, width, height);
+            if (clipped.Width() <= 0 || clipped.Height() <= 0) return;
+            bgfx::setViewRect(pass->view, uint16_t(clipped.Left()), uint16_t(clipped.Top()), uint16_t(clipped.Width()), uint16_t(clipped.Height()));
+        }
+        bgfx::setViewClear(pass->view, BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, value);
+        bgfx::touch(pass->view);
+    }
+
+    uint32_t stencil_intersect_state(uint8_t previous_ref) const
+    {
+        return BGFX_STENCIL_TEST_EQUAL |
+            BGFX_STENCIL_FUNC_REF(uint32_t(previous_ref)) |
             BGFX_STENCIL_FUNC_RMASK(0xff) |
             BGFX_STENCIL_OP_FAIL_S_KEEP |
             BGFX_STENCIL_OP_FAIL_Z_KEEP |
             BGFX_STENCIL_OP_PASS_Z_INCR;
     }
 
-    void clear_active_stencil(uint8_t value)
+    void submit_to_clip_mask(const GeometryRecord& geometry, Rml::Vector2f translation, uint32_t stencil_state, const ScissorState& scissor)
     {
-        LayerRecord* layer = current_layer();
-        if (!layer) return;
-        auto pass = acquire_pass({RmlUiPassKind::Clear, 0, 0, false, true, width, height, "RmlUi.StencilClear"}, layer->framebuffer);
-        if (!pass) return;
-        bgfx::setViewClear(pass->view, BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, value);
-        bgfx::touch(pass->view);
-    }
-
-    void submit_to_clip_mask(const GeometryRecord& geometry, Rml::Vector2f translation, uint32_t stencil_state)
-    {
-        if (!bgfx::isValid(program) || geometry.index_count == 0 || pass_scheduler.exhausted()) return;
+        if (frame_failed || !bgfx::isValid(program) || geometry.index_count == 0 || pass_scheduler.exhausted()) return;
         LayerRecord* layer = current_layer();
         if (!layer) return;
         auto pass = acquire_pass({RmlUiPassKind::Geometry, 0, 0, false, false, width, height, "RmlUi.ClipMask"}, layer->framebuffer);
@@ -779,19 +861,61 @@ struct BgfxRenderInterface::Impl {
         const float translate[4] = {translation.x, translation.y, 0.0f, 0.0f};
         bgfx::setUniform(translate_uniform, translate);
         bgfx::setTexture(0, sampler, white_texture);
-        if (scissor_enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(scissor_region, width, height);
-            if (scissor.Width() <= 0 || scissor.Height() <= 0) return;
-            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()), uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        if (scissor.enabled) {
+            const Rml::Rectanglei clipped = clamp_scissor(scissor.region, width, height);
+            if (clipped.Width() <= 0 || clipped.Height() <= 0) return;
+            bgfx::setScissor(uint16_t(clipped.Left()), uint16_t(clipped.Top()), uint16_t(clipped.Width()), uint16_t(clipped.Height()));
         }
         bgfx::setState(BGFX_STATE_NONE);
         bgfx::setStencil(stencil_state);
         bgfx::submit(pass->view, program);
     }
 
+    void apply_clip_command(const ClipCommand& command, bool record_on_layer)
+    {
+        auto it = geometries.find(command.geometry);
+        if (it == geometries.end()) return;
+        switch (command.operation) {
+        case Rml::ClipMaskOperation::Set:
+            clear_active_stencil(0, command.scissor);
+            submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1), command.scissor);
+            break;
+        case Rml::ClipMaskOperation::SetInverse:
+            clear_active_stencil(1, command.scissor);
+            submit_to_clip_mask(it->second, command.translation, stencil_replace_state(0), command.scissor);
+            break;
+        case Rml::ClipMaskOperation::Intersect:
+            submit_to_clip_mask(it->second, command.translation, stencil_intersect_state(command.previous_ref), command.scissor);
+            break;
+        }
+        if (LayerRecord* layer = current_layer()) {
+            layer->stencil_ref = command.next_ref;
+            if (record_on_layer) {
+                layer->clip_commands.push_back(clip_commands.size());
+                clip_commands.push_back(command);
+            }
+        }
+    }
+
+    void replay_clip_commands(Rml::LayerHandle layer_handle, const std::vector<size_t>& commands)
+    {
+        const Rml::LayerHandle saved_active = active_layer;
+        const bool saved_scissor_enabled = scissor_enabled;
+        const Rml::Rectanglei saved_scissor_region = scissor_region;
+        active_layer = layer_handle;
+        for (size_t index : commands) {
+            if (index < clip_commands.size()) {
+                apply_clip_command(clip_commands[index], false);
+            }
+        }
+        active_layer = saved_active;
+        scissor_enabled = saved_scissor_enabled;
+        scissor_region = saved_scissor_region;
+    }
+
     void submit_gradient(const ShaderRecord& shader, const GeometryRecord& geometry, Rml::Vector2f translation)
     {
-        if (!bgfx::isValid(gradient_program) || geometry.index_count == 0 || pass_scheduler.exhausted()) return;
+        if (frame_failed || !bgfx::isValid(gradient_program) || geometry.index_count == 0 || pass_scheduler.exhausted()) return;
         LayerRecord* layer = current_layer();
         if (!layer || shader.gradient.kind == GradientKind::Invalid || shader.gradient.stop_count == 0) return;
         auto pass = acquire_pass({RmlUiPassKind::Geometry, 0, 0, false, false, width, height, "RmlUi.Gradient"}, layer->framebuffer);
@@ -868,6 +992,7 @@ struct BgfxRenderInterface::Impl {
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
     std::unordered_map<Rml::CompiledShaderHandle, ShaderRecord> shaders;
     std::vector<LayerRecord> layers;
+    std::vector<ClipCommand> clip_commands;
     std::array<RenderTargetRecord, PostprocessPoolPlan::TargetCount> postprocess_targets {};
     std::vector<Rml::LayerHandle> layer_stack;
     LayerPoolPlan layer_pool;
@@ -887,6 +1012,7 @@ struct BgfxRenderInterface::Impl {
     bool transform_valid = false;
     bool scissor_enabled = false;
     Rml::Rectanglei scissor_region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+    bool frame_failed = false;
 };
 
 BgfxRenderInterface::BgfxRenderInterface(int width, int height, const assets::AssetManager& assets)
@@ -930,6 +1056,12 @@ void BgfxRenderInterface::begin_frame()
 
 void BgfxRenderInterface::end_frame()
 {
+    if (m_impl->frame_failed) {
+        m_impl->layer_stack.clear();
+        m_impl->layer_stack.push_back(0);
+        m_impl->active_layer = 0;
+        return;
+    }
     if (m_impl->layer_stack.size() != 1) {
         std::fprintf(stderr, "[rmlui] unbalanced layer stack at frame end: %zu\n", m_impl->layer_stack.size());
         m_impl->layer_stack.resize(1);
@@ -1066,34 +1198,36 @@ void BgfxRenderInterface::EnableClipMask(bool enable)
 
 void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation, Rml::CompiledGeometryHandle geometry, Rml::Vector2f translation)
 {
-    auto it = m_impl->geometries.find(geometry);
-    if (it == m_impl->geometries.end()) return;
+    if (m_impl->geometries.find(geometry) == m_impl->geometries.end()) return;
+    LayerRecord* layer = m_impl->current_layer();
+    if (!layer) return;
 
-    uint32_t stencil_state = BGFX_STENCIL_NONE;
+    ClipCommand command;
+    command.operation = operation;
+    command.geometry = geometry;
+    command.translation = translation;
+    command.scissor = ScissorState{m_impl->scissor_enabled, m_impl->scissor_region};
+    command.previous_ref = layer->stencil_ref;
+    command.next_ref = layer->stencil_ref;
     switch (operation) {
     case Rml::ClipMaskOperation::Set:
-        m_impl->clear_active_stencil(0);
-        if (LayerRecord* layer = m_impl->current_layer()) layer->stencil_ref = 1;
-        stencil_state = m_impl->stencil_replace_state(1);
+        command.next_ref = 1;
         break;
     case Rml::ClipMaskOperation::SetInverse:
-        m_impl->clear_active_stencil(1);
-        if (LayerRecord* layer = m_impl->current_layer()) layer->stencil_ref = 1;
-        stencil_state = m_impl->stencil_replace_state(0);
+        command.next_ref = 1;
         break;
     case Rml::ClipMaskOperation::Intersect:
-        if (LayerRecord* layer = m_impl->current_layer()) {
-            if (layer->stencil_ref == 254) {
-                m_impl->clear_active_stencil(0);
-                layer->stencil_ref = 1;
-            } else {
-                ++layer->stencil_ref;
-            }
-        }
-        stencil_state = m_impl->stencil_increment_state();
+        command.next_ref = layer->stencil_ref == 254 ? 1 : uint8_t(layer->stencil_ref + 1);
         break;
     }
-    m_impl->submit_to_clip_mask(it->second, translation, stencil_state);
+    if (operation == Rml::ClipMaskOperation::Intersect && layer->stencil_ref == 254) {
+        m_impl->clear_active_stencil(0, command.scissor);
+        layer->clip_commands.clear();
+        command.operation = Rml::ClipMaskOperation::Set;
+        command.previous_ref = 1;
+        command.next_ref = 1;
+    }
+    m_impl->apply_clip_command(command, true);
 }
 
 Rml::LayerHandle BgfxRenderInterface::PushLayer()
@@ -1101,12 +1235,13 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
     const Rml::LayerHandle parent = m_impl->active_layer;
     const Rml::LayerHandle handle = Rml::LayerHandle(m_impl->layer_pool.push());
     if (!m_impl->ensure_layer(size_t(handle))) {
-        std::fprintf(stderr, "[rmlui] PushLayer failed for slot %zu\n", size_t(handle));
+        m_impl->fail_frame("PushLayer failed while creating layer resources");
         return Rml::LayerHandle(LayerPoolPlan::InvalidLayer);
     }
     if (size_t(parent) < m_impl->layers.size()) {
         m_impl->layers[size_t(handle)].clip_mask_enabled = m_impl->layers[size_t(parent)].clip_mask_enabled;
         m_impl->layers[size_t(handle)].stencil_ref = m_impl->layers[size_t(parent)].stencil_ref;
+        m_impl->layers[size_t(handle)].clip_commands = m_impl->layers[size_t(parent)].clip_commands;
     }
     m_impl->layer_stack.push_back(handle);
     m_impl->active_layer = handle;
@@ -1120,6 +1255,9 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
         bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
         bgfx::touch(pass->view);
     }
+    if (size_t(parent) < m_impl->layers.size() && !m_impl->layers[size_t(handle)].clip_commands.empty()) {
+        m_impl->replay_clip_commands(handle, m_impl->layers[size_t(handle)].clip_commands);
+    }
     return handle;
 }
 
@@ -1128,7 +1266,7 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
     LayerRecord* source_layer = m_impl->layer_for_handle(source);
     LayerRecord* destination_layer = m_impl->layer_for_handle(destination);
     if (!source_layer || !destination_layer) {
-        std::fprintf(stderr, "[rmlui] invalid CompositeLayers handles source=%zu destination=%zu\n", size_t(source), size_t(destination));
+        m_impl->fail_frame("CompositeLayers received invalid layer handles");
         return;
     }
     const ScissorState scissor_state{m_impl->scissor_enabled, m_impl->scissor_region};
@@ -1143,6 +1281,7 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
     if (source == destination) {
         RenderTargetRecord* scratch = m_impl->ensure_postprocess_target(PostprocessTargetKind::Scratch);
         if (!scratch) {
+            m_impl->fail_frame("CompositeLayers failed to create scratch target");
             return;
         }
         source_layer = m_impl->layer_for_handle(source);
@@ -1195,6 +1334,7 @@ void BgfxRenderInterface::PopLayer()
 
 Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
 {
+    if (m_impl->frame_failed) return 0;
     LayerRecord* layer = m_impl->current_layer();
     if (!layer || !bgfx::isValid(layer->color)) return 0;
 
@@ -1203,23 +1343,11 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
         : Rml::Rectanglei::FromPositionSize({0, 0}, {m_impl->width, m_impl->height});
     if (bounds.Width() <= 0 || bounds.Height() <= 0) return 0;
 
-    if (!bgfx::getCaps() || (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) == 0) {
-        std::fprintf(stderr, "[rmlui] SaveLayerAsTexture requires texture blit until copy-shader fallback is active\n");
+    bgfx::TextureHandle texture = m_impl->copy_region_to_texture(layer->color, bounds, "RmlUi.SaveLayerAsTexture");
+    if (!bgfx::isValid(texture)) {
+        m_impl->fail_frame("SaveLayerAsTexture failed to copy layer contents");
         return 0;
     }
-
-    const uint64_t flags = BGFX_TEXTURE_BLIT_DST | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
-    bgfx::TextureHandle texture = bgfx::createTexture2D(
-        uint16_t(bounds.Width()), uint16_t(bounds.Height()), false, 1, bgfx::TextureFormat::RGBA8, flags);
-    if (!bgfx::isValid(texture)) return 0;
-
-    auto pass = m_impl->acquire_pass({RmlUiPassKind::Copy, 0, 0, false, false, bounds.Width(), bounds.Height(), "RmlUi.SaveLayerAsTexture"});
-    if (!pass) {
-        bgfx::destroy(texture);
-        return 0;
-    }
-    bgfx::blit(pass->view, texture, 0, 0, layer->color,
-        uint16_t(bounds.Left()), uint16_t(bounds.Top()), uint16_t(bounds.Width()), uint16_t(bounds.Height()));
 
     const Rml::TextureHandle handle = ++m_impl->texture_counter;
     m_impl->textures.emplace(handle, TextureRecord{texture, {bounds.Width(), bounds.Height()}, TextureOwnership::SavedLayer});
@@ -1228,11 +1356,18 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
 
 Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
 {
-    const Rml::TextureHandle texture = SaveLayerAsTexture();
-    if (texture == 0) {
-        std::fprintf(stderr, "[rmlui] SaveLayerAsMaskImage failed because layer capture is unavailable\n");
+    if (m_impl->frame_failed) return 0;
+    LayerRecord* layer = m_impl->current_layer();
+    if (!layer || !bgfx::isValid(layer->color)) return 0;
+
+    const Rml::Rectanglei full_bounds = Rml::Rectanglei::FromPositionSize({0, 0}, {m_impl->width, m_impl->height});
+    bgfx::TextureHandle mask_texture = m_impl->copy_region_to_texture(layer->color, full_bounds, "RmlUi.SaveLayerAsMaskImage");
+    if (!bgfx::isValid(mask_texture)) {
+        m_impl->fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
         return 0;
     }
+    const Rml::TextureHandle texture = ++m_impl->texture_counter;
+    m_impl->textures.emplace(texture, TextureRecord{mask_texture, {m_impl->width, m_impl->height}, TextureOwnership::SavedLayer});
 
     FilterRecord filter;
     filter.kind = FilterKind::MaskImage;

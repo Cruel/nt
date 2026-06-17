@@ -62,7 +62,7 @@ struct RuntimeUI::State {
 RuntimeUI::RuntimeUI() = default;
 RuntimeUI::~RuntimeUI() { shutdown(); }
 
-bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window)
+bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window, bool load_demo_document)
 {
     if (m_initialized) return true;
 
@@ -132,13 +132,15 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiFontAsset);
     }
 
-    m_state->demo_document = m_state->context->LoadDocument(kRuntimeUiDocumentAsset);
-    if (m_state->demo_document) {
-        m_state->documents["demo"] = m_state->demo_document;
-        m_state->demo_document->Show();
-        std::printf("[runtime_ui] demo document loaded\n");
-    } else {
-        std::fprintf(stderr, "[runtime_ui] failed to load demo document\n");
+    if (load_demo_document) {
+        m_state->demo_document = m_state->context->LoadDocument(kRuntimeUiDocumentAsset);
+        if (m_state->demo_document) {
+            m_state->documents["demo"] = m_state->demo_document;
+            m_state->demo_document->Show();
+            std::printf("[runtime_ui] demo document loaded\n");
+        } else {
+            std::fprintf(stderr, "[runtime_ui] failed to load demo document\n");
+        }
     }
 
     std::printf("[runtime_ui] RmlUi initialized (%dx%d)\n", m_width, m_height);

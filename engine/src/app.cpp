@@ -35,7 +35,7 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.frame_limit = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (std::strcmp(arg, "--demo") == 0) {
             if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --demo requires render2d, rmlui, text, or all\n");
+                std::fprintf(stderr, "[app] --demo requires none, render2d, rmlui, text, or all\n");
                 return false;
             }
             const char* mode = argv[++i];
@@ -47,6 +47,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 options.demo_mode = DemoMode::Text;
             } else if (std::strcmp(mode, "all") == 0) {
                 options.demo_mode = DemoMode::All;
+            } else if (std::strcmp(mode, "none") == 0) {
+                options.demo_mode = DemoMode::None;
             } else {
                 std::fprintf(stderr, "[app] unknown demo mode: %s\n", mode);
                 return false;
@@ -69,6 +71,20 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.cache_asset_root = argv[++i];
+        } else if (std::strcmp(arg, "--rmlui-document") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --rmlui-document requires an asset path\n");
+                return false;
+            }
+            options.runtime_ui_document = argv[++i];
+        } else if (std::strcmp(arg, "--screenshot") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --screenshot requires an output path\n");
+                return false;
+            }
+            options.screenshot_path = argv[++i];
+        } else if (std::strcmp(arg, "--no-imgui") == 0) {
+            options.no_imgui = true;
         }
     }
     return true;
@@ -90,6 +106,9 @@ bool App::initialize(int argc, char* argv[])
     run_config.system_asset_root = options.system_asset_root;
     run_config.project_asset_root = options.project_asset_root;
     run_config.cache_asset_root = options.cache_asset_root;
+    run_config.runtime_ui_document = options.runtime_ui_document;
+    run_config.screenshot_path = options.screenshot_path;
+    run_config.enable_debug_ui = !options.no_imgui;
 
     if (!m_engine.initialize(config, run_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");

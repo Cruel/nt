@@ -3,6 +3,7 @@
 #include "engine.hpp"
 
 #include <filesystem>
+#include <string>
 
 namespace noveltea {
 
@@ -20,6 +21,9 @@ private:
         std::filesystem::path system_asset_root;
         std::filesystem::path project_asset_root;
         std::filesystem::path cache_asset_root;
+        std::string runtime_ui_document;
+        std::string screenshot_path;
+        bool no_imgui = false;
     };
 
     bool initialize(int argc, char* argv[]);

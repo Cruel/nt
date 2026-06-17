@@ -20,6 +20,7 @@ namespace {
 
 bool demo_enabled(DemoMode selected, DemoMode queried)
 {
+    if (selected == DemoMode::None) return false;
     return selected == DemoMode::All || selected == queried;
 }
 
@@ -143,6 +144,8 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     SDL_Log("[engine] initializing...");
     m_frame_limit = run_config.frame_limit;
     m_demo_mode = run_config.demo_mode;
+    m_screenshot_path = run_config.screenshot_path;
+    m_debug_ui_enabled = run_config.enable_debug_ui;
 
     if (!m_platform.initialize(config)) {
         std::fprintf(stderr, "[engine] platform init failed\n");
@@ -167,15 +170,26 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         return false;
     }
 
-    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform))) {
+    const bool load_demo = run_config.demo_mode != DemoMode::None;
+    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
+    } else if (!run_config.runtime_ui_document.empty()) {
+        if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document, true)) {
+            SDL_Log("[engine] loaded RmlUi document: %s", run_config.runtime_ui_document.c_str());
+        } else {
+            std::fprintf(stderr, "[engine] failed to load RmlUi document: %s\n", run_config.runtime_ui_document.c_str());
+            m_platform.shutdown();
+            return false;
+        }
     }
 
-    SDL_Log("[engine] initializing debug UI...");
-    if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform), &m_assets)) {
-        std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
-    } else {
-        SDL_Log("[engine] debug UI initialized");
+    if (m_debug_ui_enabled) {
+        SDL_Log("[engine] initializing debug UI...");
+        if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform), &m_assets)) {
+            std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
+        } else {
+            SDL_Log("[engine] debug UI initialized");
+        }
     }
 
     m_running = true;
@@ -236,7 +250,9 @@ void Engine::handle_events()
 
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
         // SDL event -> devtools -> runtime UI -> game/platform handling.
-        m_debug_ui.process_event(event);
+        if (m_debug_ui_enabled) {
+            m_debug_ui.process_event(event);
+        }
         const bool ui_consumed = m_runtime_ui.process_event(event);
 
         switch (event.type) {
@@ -322,7 +338,9 @@ void Engine::update(float dt)
 
 void Engine::render()
 {
-    m_debug_ui.begin_frame(m_renderer.width(), m_renderer.height());
+    if (m_debug_ui_enabled) {
+        m_debug_ui.begin_frame(m_renderer.width(), m_renderer.height());
+    }
     m_runtime_ui.begin_frame(m_platform.delta_time());
     m_renderer.begin_frame();
     m_renderer.draw_preview_triangle(m_demo_position);
@@ -340,7 +358,13 @@ void Engine::render()
     ++m_frame_count;
 
     m_runtime_ui.end_frame();
-    m_debug_ui.end_frame();
+    if (m_debug_ui_enabled) {
+        m_debug_ui.end_frame();
+    }
+    if (!m_screenshot_path.empty() && (m_frame_limit == 0 || m_frame_count >= m_frame_limit)) {
+        m_renderer.request_screenshot(m_screenshot_path);
+        m_screenshot_path.clear();
+    }
     m_renderer.end_frame();
 }
 
@@ -350,7 +374,9 @@ void Engine::shutdown()
 
     m_running = false;
 
-    m_debug_ui.shutdown();
+    if (m_debug_ui_enabled) {
+        m_debug_ui.shutdown();
+    }
     m_runtime_ui.shutdown();
     m_renderer.shutdown();
     m_platform.shutdown();
