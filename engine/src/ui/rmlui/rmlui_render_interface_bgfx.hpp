@@ -11,16 +11,6 @@
 
 namespace noveltea::ui::rmlui {
 
-struct RmlUiPassAllocator {
-    bgfx::ViewId begin = 32;
-    bgfx::ViewId end = 63;
-    bgfx::ViewId next = begin;
-    bool exhausted = false;
-
-    void reset();
-    bgfx::ViewId allocate(const char* name, int width, int height);
-};
-
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
     BgfxRenderInterface(int width, int height, const assets::AssetManager& assets);

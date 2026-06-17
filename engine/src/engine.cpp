@@ -167,7 +167,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         return false;
     }
 
-    if (!m_runtime_ui.initialize(&m_assets)) {
+    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform))) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     }
 

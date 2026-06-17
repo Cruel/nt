@@ -2,6 +2,8 @@
 
 #if defined(NOVELTEA_HAS_RMLUI)
 
+#include "ui/rmlui/rmlui_event_disposition.hpp"
+
 #include <RmlUi/Core/Context.h>
 #include <SDL3/SDL.h>
 
@@ -159,45 +161,82 @@ static int convert_mouse_button(uint8_t button)
     return 3;
 }
 
-bool process_sdl_event(Rml::Context& context, const SDL_Event& event)
+static Rml::Vector2i drawable_dimensions(SDL_Window* window, const Rml::Context& context)
+{
+    int width = 0;
+    int height = 0;
+    if (window && SDL_GetWindowSizeInPixels(window, &width, &height) && width > 0 && height > 0) {
+        return {width, height};
+    }
+    return context.GetDimensions();
+}
+
+static float pixel_density(SDL_Window* window)
+{
+    if (!window) return 1.0f;
+    const float density = SDL_GetWindowPixelDensity(window);
+    return density > 0.0f ? density : 1.0f;
+}
+
+static Rml::TouchList touch_list_from_event(Rml::Context& context, SDL_Window* window, const SDL_Event& event)
+{
+    const Rml::Vector2i dimensions = drawable_dimensions(window, context);
+    return {Rml::Touch{
+        static_cast<Rml::TouchId>(event.tfinger.fingerID),
+        {event.tfinger.x * float(dimensions.x), event.tfinger.y * float(dimensions.y)}}};
+}
+
+static bool consumed(bool rml_event_not_consumed)
+{
+    return is_consumed(rml_result_to_disposition(rml_event_not_consumed));
+}
+
+bool process_sdl_event(Rml::Context& context, SDL_Window* window, const SDL_Event& event)
 {
     const int modifiers = get_key_modifier_state();
+    const float density = pixel_density(window);
     switch (event.type) {
     case SDL_EVENT_MOUSE_MOTION:
-        return context.ProcessMouseMove(int(event.motion.x), int(event.motion.y), modifiers);
+        return consumed(context.ProcessMouseMove(int(event.motion.x * density), int(event.motion.y * density), modifiers));
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
         SDL_CaptureMouse(true);
-        return context.ProcessMouseButtonDown(convert_mouse_button(event.button.button), modifiers);
+        return consumed(context.ProcessMouseButtonDown(convert_mouse_button(event.button.button), modifiers));
     case SDL_EVENT_MOUSE_BUTTON_UP: {
-        const bool consumed = context.ProcessMouseButtonUp(convert_mouse_button(event.button.button), modifiers);
+        const bool event_consumed = consumed(context.ProcessMouseButtonUp(convert_mouse_button(event.button.button), modifiers));
         SDL_CaptureMouse(false);
-        return consumed;
+        return event_consumed;
     }
     case SDL_EVENT_MOUSE_WHEEL:
-        return context.ProcessMouseWheel(-event.wheel.y, modifiers);
-    case SDL_EVENT_KEY_DOWN:
-        return context.ProcessKeyDown(convert_sdl_key(event.key.key), modifiers);
+        return consumed(context.ProcessMouseWheel(Rml::Vector2f{-event.wheel.x, -event.wheel.y}, modifiers));
+    case SDL_EVENT_KEY_DOWN: {
+        bool event_consumed = consumed(context.ProcessKeyDown(convert_sdl_key(event.key.key), modifiers));
+        if (event.key.key == SDLK_RETURN || event.key.key == SDLK_KP_ENTER) {
+            event_consumed = consumed(context.ProcessTextInput('\n')) || event_consumed;
+        }
+        return event_consumed;
+    }
     case SDL_EVENT_KEY_UP:
-        return context.ProcessKeyUp(convert_sdl_key(event.key.key), modifiers);
+        return consumed(context.ProcessKeyUp(convert_sdl_key(event.key.key), modifiers));
     case SDL_EVENT_TEXT_INPUT:
-        return context.ProcessTextInput(Rml::String(event.text.text));
-    case SDL_EVENT_FINGER_DOWN:
-        {
-            const bool moved = context.ProcessMouseMove(int(event.tfinger.x), int(event.tfinger.y), modifiers);
-            const bool pressed = context.ProcessMouseButtonDown(0, modifiers);
-            return moved || pressed;
-        }
+        return consumed(context.ProcessTextInput(Rml::String(event.text.text)));
+    case SDL_EVENT_FINGER_DOWN: {
+        const Rml::TouchList touches = touch_list_from_event(context, window, event);
+        return consumed(context.ProcessTouchStart(touches, modifiers));
+    }
     case SDL_EVENT_FINGER_UP:
+        return consumed(context.ProcessTouchEnd(touch_list_from_event(context, window, event), modifiers));
     case SDL_EVENT_FINGER_CANCELED:
-        {
-            const bool moved = context.ProcessMouseMove(int(event.tfinger.x), int(event.tfinger.y), modifiers);
-            const bool released = context.ProcessMouseButtonUp(0, modifiers);
-            return moved || released;
-        }
+        return consumed(context.ProcessTouchCancel(touch_list_from_event(context, window, event)));
     case SDL_EVENT_FINGER_MOTION:
-        return context.ProcessMouseMove(int(event.tfinger.x), int(event.tfinger.y), modifiers);
+        return consumed(context.ProcessTouchMove(touch_list_from_event(context, window, event), modifiers));
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:
-        return context.ProcessMouseLeave();
+        return consumed(context.ProcessMouseLeave());
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        context.SetDimensions({event.window.data1, event.window.data2});
+        return false;
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        if (window) context.SetDensityIndependentPixelRatio(SDL_GetWindowDisplayScale(window));
+        return false;
     default:
         return false;
     }

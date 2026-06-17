@@ -193,6 +193,108 @@ This is not GL3 parity and must not be described as production-complete RmlUi re
 ## Next Recommended Prompt
 
 Implement the RmlUi layer stack and stencil clip-mask scheduler on top of the reserved bgfx view range. Keep it GPU-bookkeeping-testable before adding filters and gradients.
+
+# 2026-06-17 RmlUi Foundation Checkpoint
+
+## Implemented
+
+- Corrected engine-facing RmlUi event consumption polarity:
+  - RmlUi `true` now maps to `Ignored`.
+  - RmlUi `false` now maps to `Consumed`.
+  - `RuntimeUI::last_event_consumed()` records the last submitted event result.
+- Added `UiEventDisposition` so the polarity is not represented as an ambiguous raw bool internally.
+- Expanded SDL3 input/system integration:
+  - Mouse coordinates scale through SDL3 window pixel density.
+  - Window pixel-size and display-scale events update RmlUi dimensions and density ratio.
+  - Mouse wheel uses the RmlUi 2D wheel API for horizontal and vertical deltas.
+  - Return and keypad Return submit newline text input after key down.
+  - SDL finger events now use real `Rml::Touch` lists with SDL finger IDs and normalized-to-context coordinate conversion.
+  - Mouse capture is retained for button drag.
+  - Cursor resources are created once, reused, and destroyed.
+  - Arrow/default, pointer, text, move, resize, crosshair, unavailable, and `rmlui-scroll*` cursors are mapped.
+  - `ActivateKeyboard` / `DeactivateKeyboard` use the actual SDL window and set the SDL3 text-input area from the RmlUi caret.
+- Hardened runtime initialization/shutdown:
+  - `RuntimeUI::initialize()` now fails if the bgfx RmlUi render interface is invalid.
+  - Failed context/renderer initialization clears global RmlUi interfaces before destroying owned interfaces.
+  - Shutdown clears global RmlUi interfaces after `Rml::Shutdown()`.
+  - Initial context dimensions and density are derived from the SDL drawable/window when available.
+- Replaced the one-view-per-geometry allocator with a testable render-pass scheduler:
+  - Ordinary geometry for the same framebuffer reuses one sequential bgfx view.
+  - Clear, resolve/copy/postprocess/layer/final-composite style boundaries create new passes.
+  - Exhaustion returns no pass instead of reusing the final view.
+  - Exhaustion is reported once and affected submissions are skipped.
+- RmlUi image textures now omit point-filter flags so bgfx uses normal linear filtering.
+- Added stricter `bimg::imageParse` output validation for RGBA8, one layer, 2D depth, one mip, and exact data size.
+
+## Verified
+
+- Baseline before changes: `cmake --build --preset linux-debug --target test` passed, 13/13 tests.
+- `cmake --build --preset linux-debug`: passed.
+- `cmake --build --preset linux-debug --target test`: passed, 18/18 tests.
+- `cmake --preset web-debug`: passed.
+- `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental and bx macro warnings remain.
+- `cd android && ./gradlew :app:assembleDebug`: passed; existing Android SDK/AGP/CMake and bx macro warnings remain.
+
+## Not Complete
+
+This checkpoint does not complete the full requested RmlUi 6.2 advanced bgfx renderer.
+
+- `EnableClipMask` and `RenderToClipMask` are still stubs.
+- `PushLayer`, `PopLayer`, and `CompositeLayers` are still stubs.
+- `SaveLayerAsTexture` and `SaveLayerAsMaskImage` are still stubs.
+- `CompileFilter`, `ReleaseFilter`, and all standard filters are still stubs/no-ops.
+- `CompileShader`, `RenderShader`, `ReleaseShader`, and gradients are still stubs/no-ops.
+- The base offscreen RmlUi layer, final premultiplied composition pass, MSAA layer resources, reusable postprocess targets, saved masks, filter chains, shader pipeline expansion, feature gallery, visual readback tests, and CI interaction tests remain unimplemented.
+
+## Next Recommended Prompt
+
+Implement the bgfx offscreen layer stack and final base-layer composition first, using the new pass scheduler as the ordering primitive. After that, add stencil clip-mask planning and GPU resources before starting filters or gradients.
+
+# 2026-06-17 RmlUi Offscreen Layer Checkpoint
+
+## Implemented
+
+- Added real bgfx layer framebuffer resources to `BgfxRenderInterface`:
+  - RGBA8 render-target color texture.
+  - Depth/stencil attachment using D24S8 when available, with D16 fallback.
+  - Lazy allocation and reuse at the current viewport size.
+  - Resize invalidation and safe destruction.
+- RmlUi rendering now targets an offscreen base layer instead of drawing ordinary UI geometry directly to the backbuffer.
+- `begin_frame()` resets pass/layer/scissor/transform/clip state, ensures the base layer exists, and clears it to transparent black.
+- `end_frame()` validates the layer stack and composites the base layer over the game backbuffer using premultiplied alpha.
+- Implemented real unfiltered layer operations:
+  - `PushLayer`
+  - `PopLayer`
+  - `CompositeLayers` for `Blend` and `Replace` without filters
+- Added bgfx stencil clip-mask rendering for the active layer:
+  - `EnableClipMask`
+  - `RenderToClipMask(Set)`
+  - `RenderToClipMask(SetInverse)`
+  - `RenderToClipMask(Intersect)`
+  - Normal geometry and layer composition honor the active stencil test.
+- Extended the pass scheduler request with the bgfx framebuffer target so allocated views set the correct framebuffer.
+
+## Verified
+
+- `cmake --build --preset linux-debug`: passed.
+- `cmake --build --preset linux-debug --target test`: passed, 18/18 tests.
+- `xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo rmlui --frames 3`: passed; no RmlUi unsupported-operation logs were emitted by the current demo document.
+- `cmake --preset web-debug`: passed.
+- `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental and bx macro warnings remain.
+- `cd android && ./gradlew :app:assembleDebug`: passed; existing Android Gradle plugin/SDK and bx macro warnings remain.
+
+## Not Complete
+
+- Active clip masks are not replayed into newly pushed layers yet. The current implementation logs this exact limitation if RmlUi pushes a layer while a clip mask is active.
+- `CompositeLayers` applies no filters yet. If filters are requested, it composites the unfiltered source and logs the limitation.
+- `SaveLayerAsTexture` and `SaveLayerAsMaskImage` are still unimplemented.
+- `CompileFilter` / `ReleaseFilter` and all standard filters are still unimplemented.
+- `CompileShader` / `RenderShader` / `ReleaseShader` and all standard gradients are still unimplemented.
+- Layer resources are non-MSAA today; capability-aware 2x MSAA and resolve textures still need to be added.
+
+## Next Recommended Prompt
+
+Add reusable non-MSAA postprocess targets plus a copy/resolve path. Use that to implement `SaveLayerAsTexture`, `SaveLayerAsMaskImage`, and filtered `CompositeLayers` before adding the individual filter shaders.
 # 2026-06-16 Asset Architecture
 
 ## Implemented
