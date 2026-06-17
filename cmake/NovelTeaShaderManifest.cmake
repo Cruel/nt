@@ -4,6 +4,7 @@ set(NOVELTEA_SHADER_PROGRAMS
     text     vs_text.sc     fs_text.sc
     imgui    vs_imgui.sc    fs_imgui.sc
     rmlui    vs_rmlui.sc    fs_rmlui.sc
+    rmlui_composite vs_rmlui_composite.sc fs_rmlui_composite.sc
 )
 
 set(NOVELTEA_SHADER_VARIANT_DATA

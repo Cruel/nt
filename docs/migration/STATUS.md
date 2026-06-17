@@ -239,6 +239,94 @@ Implement the RmlUi layer stack and stencil clip-mask scheduler on top of the re
 
 This checkpoint does not complete the full requested RmlUi 6.2 advanced bgfx renderer.
 
+# 2026-06-17 RmlUi Advanced Renderer Correctness Pass
+
+## Implemented
+
+- Replaced the malformed fullscreen quad/index-buffer composition path with a dedicated clip-space fullscreen triangle plan and a dedicated bgfx `rmlui_composite` program.
+- Added `rmlui_composite` shader assets to the shader manifest and loader for Linux GLSL, Web ESSL 100, and Android ESSL 300 builds.
+- Changed layer allocation from append-only pushed handles to a frame-local reusable temporary layer cursor:
+  - Slot 0 remains the base layer.
+  - `begin_frame()` resets temporary allocation.
+  - Maximum nesting depth bounds resource growth.
+  - Resize destroys and recreates layer resources safely.
+- Removed the unused layer `in_use` flag.
+- Stopped falling back to D16 for stencil-capable layers; missing D24S8 now prevents layer creation with a precise renderer error.
+- Added per-layer clip-mask enabled/reference state and capped stencil generation before 8-bit overflow.
+- Made `PushLayer()` failure return an invalid handle instead of masquerading as the current/base layer.
+- Made pushed-layer clear use the current scissor rectangle as the bgfx view rect when scissoring is active.
+- Removed `texture_handle_for_layer()` and stopped exposing framebuffer-owned color attachments through the ordinary releasable texture registry.
+- Split texture ownership categories for external/generated textures, saved-layer textures, internal layer attachments, and postprocess resources.
+- Tightened `ReleaseTexture()` so it only destroys externally/generated or saved-layer owned texture records.
+- Made filtered `CompositeLayers()` fail clearly instead of silently rendering an unfiltered result.
+- Added same-layer composition routing through a reusable scratch layer to avoid sampling from an attachment while writing to the same framebuffer.
+- Added CPU-side planning helpers and tests for fullscreen triangle orientation, layer-pool bounds, stencil planning, Gaussian weights, and color-filter matrices.
+- Added real compiled-filter records for standard scalar/color-matrix filter parameters; GPU application remains deferred.
+
+## Verified
+
+- Baseline before this pass: `ctest --test-dir build/linux-debug --output-on-failure` passed, 18/18 tests.
+- `cmake --build --preset linux-debug`: passed.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed, 23/23 tests.
+- `cmake --preset web-debug`: passed.
+- `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental and bx macro warnings remain.
+- `cd android && ./gradlew :app:assembleDebug`: passed; existing Android Gradle plugin/SDK, NDK CMake deprecation, and bx macro warnings remain.
+
+## Not Complete
+
+This pass fixes several foundational correctness bugs but still does not complete full RmlUi GL3 parity.
+
+- Parent clip-mask geometry is not replayed into pushed layer stencil attachments yet, so inherited mask state is tracked but not fully raster-replayed.
+- Reusable postprocess primary/secondary/tertiary/blend-mask framebuffers are not implemented.
+- MSAA layer resources and resolve planning are not implemented.
+- `SaveLayerAsTexture()` and `SaveLayerAsMaskImage()` remain unimplemented.
+- GPU filter application remains unimplemented despite typed filter records.
+- `CompileShader()`, `RenderShader()`, `ReleaseShader()`, and standard gradient rendering remain unimplemented.
+- No visual feature gallery, Linux pixel-readback test, browser runtime smoke, or Android emulator smoke was added in this pass.
+
+# 2026-06-17 RmlUi Layer/Postprocess Lifetime Fix
+
+## Implemented
+
+- Fixed same-layer composition pointer invalidation by ensuring scratch allocation cannot resize the layer vector and by reacquiring layer records after scratch target creation.
+- Split production resource namespaces:
+  - RmlUi layer pool for base and pushed temporary layers.
+  - Separate postprocess pool for primary, secondary, tertiary, blend-mask, and scratch targets.
+  - Saved texture ownership remains represented separately in texture records, though save APIs are still pending.
+- Removed scratch allocation from the ordinary layer handle namespace.
+- Made production `BgfxRenderInterface` own and use the same `LayerPoolPlan` and `PostprocessPoolPlan` classes covered by unit tests.
+- Changed `PushLayer()` failure to return `LayerPoolPlan::InvalidLayer` (`UINT32_MAX`) instead of `0`, avoiding ambiguity with the valid base layer.
+- Refactored layer composition submission into an explicit `CompositeOp` carrying source texture, destination framebuffer, blend mode, scissor state, stencil ref, pass kind, and pass name.
+- Corrected same-layer composition sequence:
+  - Copy source layer to scratch without destination stencil or destination scissor.
+  - Composite scratch back to destination with destination scissor and destination clip metadata.
+  - Avoid sampling from the texture owned by the framebuffer being written.
+- Removed the global clip-mask-enabled source of truth for normal geometry and composition; submissions now derive stencil use from the destination `LayerRecord`.
+- Destroy fullscreen-triangle geometry during normal renderer destruction.
+- Kept fullscreen triangle dimension-independent across resize; resize recreates layers/postprocess targets but not the static fullscreen vertex buffer.
+- Aligned documented bgfx view IDs with actual submission order: runtime RmlUi uses views 32-63, debug ImGui uses view 250.
+- Extended filter records with drop-shadow offset/color storage and added a CPU color-matrix application helper documenting the current row-major convention.
+
+## Verified
+
+- Baseline before this pass: `ctest --test-dir build/linux-debug --output-on-failure` passed, 23/23 tests.
+- `cmake --build --preset linux-debug`: passed.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed, 26/26 tests.
+- `cmake --preset web-debug`: passed.
+- `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental and bx macro warnings remain.
+- `cd android && ./gradlew :app:assembleDebug`: passed; existing Android Gradle plugin compileSdk warning and bx macro warnings remain.
+
+## Not Complete
+
+This still is not complete RmlUi 6.2 advanced renderer parity.
+
+- Parent clip-mask geometry is not actually replayed or shared into pushed layer stencil attachments yet.
+- Stencil overflow still needs replay/normalization that preserves accumulated intersections.
+- Saved layer textures and saved mask images are not implemented.
+- GPU postprocess filters are not implemented.
+- Gradient shader compilation/rendering is not implemented.
+- Visual gallery, Linux readback, headless browser gallery smoke, and Android emulator smoke remain pending.
+
 - `EnableClipMask` and `RenderToClipMask` are still stubs.
 - `PushLayer`, `PopLayer`, and `CompositeLayers` are still stubs.
 - `SaveLayerAsTexture` and `SaveLayerAsMaskImage` are still stubs.

@@ -1,0 +1,220 @@
+#include "ui/rmlui/rmlui_render_planning.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+namespace noveltea::ui::rmlui {
+
+std::array<FullscreenVertex, 3> fullscreen_triangle(bool origin_bottom_left)
+{
+    (void)origin_bottom_left;
+    return {{
+        {-1.0f, -1.0f, 0.0f, 0.0f},
+        {3.0f, -1.0f, 2.0f, 0.0f},
+        {-1.0f, 3.0f, 0.0f, 2.0f},
+    }};
+}
+
+void LayerPoolPlan::begin_frame()
+{
+    m_next_temporary = 1;
+}
+
+uint32_t LayerPoolPlan::push()
+{
+    const uint32_t slot = m_next_temporary++;
+    if (slot >= m_slot_count) {
+        m_slot_count = slot + 1;
+        ++m_allocation_count;
+    }
+    return slot;
+}
+
+void LayerPoolPlan::note_allocated(uint32_t slot)
+{
+    if (slot >= m_slot_count) {
+        m_allocation_count += slot + 1 - m_slot_count;
+        m_slot_count = slot + 1;
+    }
+}
+
+void LayerPoolPlan::reset_resources()
+{
+    m_next_temporary = 1;
+    m_slot_count = 1;
+    m_allocation_count = 1;
+}
+
+static uint32_t postprocess_index(PostprocessTargetKind target)
+{
+    return static_cast<uint32_t>(target);
+}
+
+void PostprocessPoolPlan::mark_allocated(PostprocessTargetKind target)
+{
+    const uint32_t index = postprocess_index(target);
+    if (index >= TargetCount) return;
+    if (!m_allocated[index]) {
+        m_allocated[index] = true;
+        ++m_allocation_count;
+    }
+}
+
+void PostprocessPoolPlan::reset_resources()
+{
+    m_allocated = {};
+    m_allocation_count = 0;
+}
+
+bool PostprocessPoolPlan::allocated(PostprocessTargetKind target) const
+{
+    const uint32_t index = postprocess_index(target);
+    return index < TargetCount && m_allocated[index];
+}
+
+StencilPlan choose_stencil_plan(bool d24s8_supported, bool d0s8_supported)
+{
+    return (d24s8_supported || d0s8_supported) ? StencilPlan::StencilAttachment : StencilPlan::Unsupported;
+}
+
+GaussianKernel gaussian_kernel(float sigma)
+{
+    GaussianKernel kernel;
+    if (sigma < 0.5f) {
+        kernel.weights = {1.0f};
+        return kernel;
+    }
+
+    const int radius = std::clamp(int(std::ceil(sigma * 3.0f)), 1, 31);
+    kernel.weights.resize(size_t(radius + 1));
+    const float denom = 2.0f * sigma * sigma;
+    float sum = 0.0f;
+    for (int i = 0; i <= radius; ++i) {
+        const float weight = std::exp(-(float(i * i) / denom));
+        kernel.weights[size_t(i)] = weight;
+        sum += (i == 0) ? weight : 2.0f * weight;
+    }
+    for (float& weight : kernel.weights) {
+        weight /= sum;
+    }
+    return kernel;
+}
+
+static std::array<float, 16> identity()
+{
+    return {1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1};
+}
+
+static FilterRecord color_matrix(std::array<float, 16> matrix)
+{
+    FilterRecord record;
+    record.kind = FilterKind::ColorMatrix;
+    record.matrix = matrix;
+    return record;
+}
+
+FilterRecord make_opacity_filter(float value)
+{
+    FilterRecord record;
+    record.kind = FilterKind::Opacity;
+    record.scalar = value;
+    return record;
+}
+
+FilterRecord make_brightness_filter(float value)
+{
+    auto m = identity();
+    m[0] = value;
+    m[5] = value;
+    m[10] = value;
+    return color_matrix(m);
+}
+
+FilterRecord make_contrast_filter(float value)
+{
+    auto m = identity();
+    const float grayness = 0.5f - 0.5f * value;
+    m[0] = value;
+    m[5] = value;
+    m[10] = value;
+    m[12] = grayness;
+    m[13] = grayness;
+    m[14] = grayness;
+    return color_matrix(m);
+}
+
+FilterRecord make_invert_filter(float value)
+{
+    value = std::clamp(value, 0.0f, 1.0f);
+    auto m = identity();
+    const float inverted = 1.0f - 2.0f * value;
+    m[0] = inverted;
+    m[5] = inverted;
+    m[10] = inverted;
+    m[12] = value;
+    m[13] = value;
+    m[14] = value;
+    return color_matrix(m);
+}
+
+FilterRecord make_grayscale_filter(float value)
+{
+    const float rev = 1.0f - value;
+    const std::array<float, 3> r {0.2126f, 0.7152f, 0.0722f};
+    const std::array<float, 3> g {0.2126f, 0.7152f, 0.0722f};
+    const std::array<float, 3> b {0.2126f, 0.7152f, 0.0722f};
+    return color_matrix({
+        r[0] * value + rev, r[1] * value,       r[2] * value,       0,
+        g[0] * value,       g[1] * value + rev, g[2] * value,       0,
+        b[0] * value,       b[1] * value,       b[2] * value + rev, 0,
+        0,                  0,                  0,                  1,
+    });
+}
+
+FilterRecord make_sepia_filter(float value)
+{
+    const float rev = 1.0f - value;
+    return color_matrix({
+        0.393f * value + rev, 0.769f * value,       0.189f * value,       0,
+        0.349f * value,       0.686f * value + rev, 0.168f * value,       0,
+        0.272f * value,       0.534f * value,       0.131f * value + rev, 0,
+        0,                    0,                    0,                    1,
+    });
+}
+
+FilterRecord make_hue_rotate_filter(float radians)
+{
+    const float s = std::sin(radians);
+    const float c = std::cos(radians);
+    return color_matrix({
+        0.213f + 0.787f * c - 0.213f * s, 0.715f - 0.715f * c - 0.715f * s, 0.072f - 0.072f * c + 0.928f * s, 0,
+        0.213f - 0.213f * c + 0.143f * s, 0.715f + 0.285f * c + 0.140f * s, 0.072f - 0.072f * c - 0.283f * s, 0,
+        0.213f - 0.213f * c - 0.787f * s, 0.715f - 0.715f * c + 0.715f * s, 0.072f + 0.928f * c + 0.072f * s, 0,
+        0,                                  0,                                  0,                                  1,
+    });
+}
+
+FilterRecord make_saturate_filter(float value)
+{
+    return color_matrix({
+        0.213f + 0.787f * value, 0.715f - 0.715f * value, 0.072f - 0.072f * value, 0,
+        0.213f - 0.213f * value, 0.715f + 0.285f * value, 0.072f - 0.072f * value, 0,
+        0.213f - 0.213f * value, 0.715f - 0.715f * value, 0.072f + 0.928f * value, 0,
+        0,                         0,                         0,                         1,
+    });
+}
+
+std::array<float, 4> apply_color_matrix(const std::array<float, 16>& m, std::array<float, 4> rgba)
+{
+    return {
+        rgba[0] * m[0] + rgba[1] * m[1] + rgba[2] * m[2] + rgba[3] * m[3] + m[12],
+        rgba[0] * m[4] + rgba[1] * m[5] + rgba[2] * m[6] + rgba[3] * m[7] + m[13],
+        rgba[0] * m[8] + rgba[1] * m[9] + rgba[2] * m[10] + rgba[3] * m[11] + m[14],
+        rgba[0] * m[12] * 0.0f + rgba[1] * m[13] * 0.0f + rgba[2] * m[14] * 0.0f + rgba[3] * m[15],
+    };
+}
+
+} // namespace noveltea::ui::rmlui

@@ -32,6 +32,7 @@ if(NOVELTEA_HAS_RMLUI)
     add_executable(noveltea_ui_tests
         ui/rmlui_event_disposition_tests.cpp
         ui/rmlui_file_interface_tests.cpp
+        ui/rmlui_render_planning_tests.cpp
         ui/rmlui_render_pass_scheduler_tests.cpp
     )
     target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")

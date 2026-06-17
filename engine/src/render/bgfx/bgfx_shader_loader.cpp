@@ -19,6 +19,7 @@ const char* system_shader_name(SystemShader shader)
     case SystemShader::Quad: return "quad";
     case SystemShader::Text: return "text";
     case SystemShader::RmlUi: return "rmlui";
+    case SystemShader::RmlUiComposite: return "rmlui_composite";
     case SystemShader::ImGui: return "imgui";
     }
     return "";

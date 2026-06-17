@@ -19,6 +19,7 @@ enum class SystemShader {
     Quad,
     Text,
     RmlUi,
+    RmlUiComposite,
     ImGui,
 };
 

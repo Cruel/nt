@@ -8,6 +8,7 @@ add_library(engine STATIC
     src/preview/preview_bridge.cpp
     src/text/text_layout.cpp
     src/ui/rmlui/rmlui_file_interface.cpp
+    src/ui/rmlui/rmlui_render_planning.cpp
     src/ui/rmlui/rmlui_render_pass_scheduler.cpp
     src/ui_runtime_rmlui.cpp
 )
