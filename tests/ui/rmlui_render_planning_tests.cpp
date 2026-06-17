@@ -38,13 +38,13 @@ TEST_CASE("RmlUi fullscreen triangle covers clip space with portable UVs")
     CHECK(top_left[0].x == -1.0f);
     CHECK(top_left[1].x == 3.0f);
     CHECK(top_left[2].y == 3.0f);
-    CHECK(top_left[0].v == 0.0f);
-    CHECK(top_left[2].v == 2.0f);
+    CHECK(top_left[0].v == 1.0f);
+    CHECK(top_left[2].v == -1.0f);
 
     const auto bottom_left = fullscreen_triangle(true);
-    CHECK(bottom_left[0].v == 1.0f);
-    CHECK(bottom_left[1].v == 1.0f);
-    CHECK(bottom_left[2].v == -1.0f);
+    CHECK(bottom_left[0].v == 0.0f);
+    CHECK(bottom_left[1].v == 0.0f);
+    CHECK(bottom_left[2].v == 2.0f);
 }
 
 TEST_CASE("RmlUi layer pool allocation is bounded by maximum nesting depth")
