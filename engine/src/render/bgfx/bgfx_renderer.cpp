@@ -108,7 +108,6 @@ void Renderer::begin_frame()
     bgfx::setViewRect(ViewGame2D, 0, 0,
         static_cast<uint16_t>(m_width),
         static_cast<uint16_t>(m_height));
-    bgfx::setViewRect(ViewRuntimeUI, 0, 0, static_cast<uint16_t>(m_width), static_cast<uint16_t>(m_height));
     bgfx::setViewRect(ViewTextLab, 0, 0, static_cast<uint16_t>(m_width), static_cast<uint16_t>(m_height));
     bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(m_width), static_cast<uint16_t>(m_height));
 

@@ -7,6 +7,7 @@ add_library(engine STATIC
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
     src/text/text_layout.cpp
+    src/ui/rmlui/rmlui_file_interface.cpp
     src/ui_runtime_rmlui.cpp
 )
 
@@ -116,6 +117,18 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_HAS_BGFX)
     )
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
     target_link_libraries(engine PUBLIC bgfx::bgfx)
+    if(TARGET bgfx::bimg)
+        target_link_libraries(engine PUBLIC bgfx::bimg)
+    elseif(TARGET bimg::bimg)
+        target_link_libraries(engine PUBLIC bimg::bimg)
+    elseif(TARGET bimg)
+        target_link_libraries(engine PUBLIC bimg)
+    endif()
+    if(TARGET bgfx::bimg_decode)
+        target_link_libraries(engine PUBLIC bgfx::bimg_decode)
+    elseif(TARGET bimg_decode)
+        target_link_libraries(engine PUBLIC bimg_decode)
+    endif()
     if(TARGET bx::bx)
         target_link_libraries(engine PUBLIC bx::bx)
     endif()
@@ -152,6 +165,9 @@ target_link_libraries(engine PUBLIC SDL3::SDL3)
 
 # --- RmlUi (runtime UI scaffold) ---
 if(NOVELTEA_ENABLE_RMLUI)
+    if(NOT NOVELTEA_HAS_BGFX)
+        message(FATAL_ERROR "NOVELTEA_ENABLE_RMLUI=ON requires NOVELTEA_ENABLE_BGFX=ON and a bgfx target for the current backend.")
+    endif()
     if(NOT TARGET RmlUi::RmlUi AND NOT TARGET RmlUi::Core)
         find_package(RmlUi CONFIG QUIET)
     endif()
@@ -169,6 +185,11 @@ if(NOVELTEA_ENABLE_RMLUI)
 
     if(NOVELTEA_RMLUI_TARGET)
         message(STATUS "RmlUi found - runtime UI core enabled (bgfx render backend)")
+        target_sources(engine PRIVATE
+            src/ui/rmlui/rmlui_input_sdl3.cpp
+            src/ui/rmlui/rmlui_render_interface_bgfx.cpp
+            src/ui/rmlui/rmlui_system_interface_sdl3.cpp
+        )
         target_link_libraries(engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
         target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RMLUI)
         set(NOVELTEA_HAS_RMLUI ON CACHE INTERNAL "RmlUi available")

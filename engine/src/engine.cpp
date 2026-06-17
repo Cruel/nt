@@ -237,7 +237,7 @@ void Engine::handle_events()
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
         // SDL event -> devtools -> runtime UI -> game/platform handling.
         m_debug_ui.process_event(event);
-        m_runtime_ui.process_event(event);
+        const bool ui_consumed = m_runtime_ui.process_event(event);
 
         switch (event.type) {
             case SDL_EVENT_QUIT:
@@ -245,6 +245,7 @@ void Engine::handle_events()
                 break;
 
             case SDL_EVENT_KEY_DOWN:
+                if (ui_consumed) break;
                 if (event.key.key == SDLK_ESCAPE) {
                     m_platform.request_quit();
                 }
@@ -252,9 +253,22 @@ void Engine::handle_events()
                 break;
 
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                if (ui_consumed) break;
                 std::printf("[input] mouse_down: button=%d x=%f y=%f\n",
                     event.button.button, event.button.x, event.button.y);
                 handle_mouse_down(event.button.x, event.button.y, event.button.button);
+                break;
+
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+            case SDL_EVENT_MOUSE_MOTION:
+            case SDL_EVENT_MOUSE_WHEEL:
+            case SDL_EVENT_TEXT_INPUT:
+            case SDL_EVENT_KEY_UP:
+            case SDL_EVENT_FINGER_DOWN:
+            case SDL_EVENT_FINGER_UP:
+            case SDL_EVENT_FINGER_MOTION:
+            case SDL_EVENT_FINGER_CANCELED:
+                if (ui_consumed) break;
                 break;
 
             case SDL_EVENT_WINDOW_RESIZED:

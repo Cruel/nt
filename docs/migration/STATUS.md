@@ -141,6 +141,58 @@ Verification results from the current pass:
 ## Next Recommended Prompt
 
 Add `bimg::imageParse`-based texture loading for `BgfxRenderInterface::LoadTexture` so that RmlUi can load PNG/JPEG images from files. Then begin the NovelTea text-lab migration: port BBCode parsing, style-run semantics, and per-glyph animation data from `NovelTea/` into backend-neutral `nt` text code.
+
+# 2026-06-17 RmlUi bgfx Required-Path Refactor
+
+## Implemented
+
+- Split RmlUi runtime code into focused modules under `engine/src/ui/rmlui/`:
+  - `rmlui_file_interface.*`
+  - `rmlui_input_sdl3.*`
+  - `rmlui_render_interface_bgfx.*`
+  - `rmlui_system_interface_sdl3.*`
+- Replaced the monolithic `ui_runtime_rmlui.cpp` renderer/platform implementation with a facade that owns initialization, document loading, resize, update, render, and shutdown.
+- Added an explicit RmlUi bgfx view range: `ViewRuntimeUIBegin = 32` through `ViewRuntimeUIEnd = 63`.
+- Implemented the basic RmlUi 6.2 `RenderInterface` methods in the bgfx backend:
+  - Persistent compiled vertex/index buffers.
+  - 32-bit RmlUi index support.
+  - Packed normalized vertex color layout.
+  - Geometry validation and double-release-safe cleanup.
+  - `GenerateTexture` for premultiplied RGBA8 font textures.
+  - `LoadTexture` through `AssetManager` plus `bimg::imageParse`, normalized to premultiplied RGBA8.
+  - Texture dimension reporting and max texture-size checks.
+  - Premultiplied alpha blending with source `ONE`, destination `INV_SRC_ALPHA`.
+  - Scissor clamping for negative/offscreen rectangles.
+  - Projection × transform × translated geometry order matching the GL3 shader semantics.
+- Implemented SDL3 system/input coverage for elapsed time, clipboard, cursor selection, RmlUi logging, key/modifier conversion, mouse, wheel, text input, touch-as-pointer, mouse leave, and mouse capture during button drag.
+- Changed `RuntimeUI::process_event` to return RmlUi event consumption and stopped consumed input from reaching gameplay click/key handling while preserving quit and resize processing.
+- Tightened CMake configuration so `NOVELTEA_ENABLE_RMLUI=ON` requires a bgfx backend instead of compiling bgfx-dependent RmlUi code in a stub-renderer build.
+- Linked the bgfx bimg decode targets required by RmlUi image loading.
+
+## Verified
+
+- `cmake --preset linux-debug`: passed.
+- `cmake --build --preset linux-debug`: passed.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed, 13/13 tests.
+- `cmake --preset web-debug`: passed.
+- `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental warning remains.
+- `cd android && ./gradlew --no-daemon :app:assembleDebug`: passed; existing Android Gradle plugin/SDK and third-party bgfx/bx warnings remain.
+- `xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo rmlui --frames 3`: passed; RmlUi initialized, loaded the demo document, rendered for the frame limit, and shut down cleanly.
+
+## Not Complete
+
+This is not GL3 parity and must not be described as production-complete RmlUi rendering yet.
+
+- Non-rectangular clip masks are not implemented.
+- Offscreen layers, layer compositing, saved layer textures, saved mask images, MSAA layer resolves, and reusable postprocess targets are not implemented.
+- Filters (`opacity`, `blur`, `drop-shadow`, color matrix filters, saved masks) are not implemented.
+- Compiled RmlUi shaders and standard gradients are not implemented.
+- Visual feature gallery, pixel-readback visual smoke, web browser interaction test, Android emulator interaction test, and CI updates are not implemented.
+- Image decode success is compiled and linked through bimg, but no dedicated image-decode unit fixture was added in this slice.
+
+## Next Recommended Prompt
+
+Implement the RmlUi layer stack and stencil clip-mask scheduler on top of the reserved bgfx view range. Keep it GPU-bookkeeping-testable before adding filters and gradients.
 # 2026-06-16 Asset Architecture
 
 ## Implemented

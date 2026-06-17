@@ -15,7 +15,7 @@ public:
     RuntimeUI& operator=(const RuntimeUI&) = delete;
 
     bool initialize(const assets::AssetManager* assets = nullptr);
-    void process_event(const SDL_Event& event);
+    bool process_event(const SDL_Event& event);
     void resize(int width, int height);
     void begin_frame(float delta_time);
     void end_frame();
@@ -24,6 +24,7 @@ public:
     const char* backend_name() const;
     const char* status_text() const;
     bool is_initialized() const { return m_initialized; }
+    bool wants_input() const;
 
 private:
     struct State;

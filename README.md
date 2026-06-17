@@ -18,6 +18,35 @@ Current runtime stack:
 
 The core engine should remain independent from SDL, bgfx, RmlUi, and ImGui.
 
+## Runtime UI / RmlUi
+
+RmlUi is integrated through SDL3 for platform input/system services and bgfx for
+rendering. The public `RuntimeUI` facade owns RmlUi initialization, document
+loading, resize, frame begin/end, and shutdown; bgfx handles stay private to the
+RmlUi bgfx backend.
+
+The current bgfx implementation covers RmlUi's required rendering path:
+compiled geometry, 32-bit indices, generated font textures, image textures
+loaded through `AssetManager` and bimg, rectangular scissoring, transforms, and
+premultiplied-alpha composition. RmlUi textures are uploaded as RGBA8 with RGB
+premultiplied by alpha. The blend state uses source `ONE` and destination
+`INV_SRC_ALPHA`, matching RmlUi's premultiplied contract.
+
+Supported file image formats are those decoded by the linked bimg decoder for
+the current platform, including PNG, JPEG, and TGA in the configured bgfx
+package. RmlUi document-relative paths first resolve under `project:/rmlui/`,
+while explicit logical paths such as `project:/...` and `system:/...` are
+preserved.
+
+RmlUi reserves bgfx views 32 through 63. The allocator resets every RmlUi frame
+and assigns sequential views for submitted RmlUi geometry. Game rendering uses
+view 0, text lab uses view 2, and debug UI uses its own debug view, so runtime
+UI submissions do not reuse those IDs.
+
+Advanced GL3-parity features are not complete yet: stencil clip masks, offscreen
+layer compositing, saved layer textures/masks, filters, and compiled gradients
+currently report unsupported operations instead of silently succeeding.
+
 ## Visual Smoke Test — Colored Triangle
 
 The first real geometry rendering test is a colored triangle drawn every frame
