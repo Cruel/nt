@@ -265,9 +265,14 @@ jobs:
           emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
           cmake --build --preset web-debug
           test -f build/web-debug/apps/sandbox/index.data
+          test -f build/web-debug/apps/sandbox/index.html
+          test -f build/web-debug/apps/sandbox/index.js
+          test -f build/web-debug/apps/sandbox/index.wasm
           test -f build/web-debug/runtime-assets/shaders/bgfx/essl-100/triangle.vs.bin
+          test -f build/web-debug/runtime-assets/rmlui/lua_demo.rml
           test -f build/web-debug/runtime-assets/rmlui/lua_demo.lua
-          grep -a -q lua_demo.lua build/web-debug/apps/sandbox/index.data
+          grep -q '/assets/rmlui/lua_demo.rml' build/web-debug/apps/sandbox/index.js
+          grep -q '/assets/rmlui/lua_demo.lua' build/web-debug/apps/sandbox/index.js
 
   android:
     name: Android

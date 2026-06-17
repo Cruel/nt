@@ -146,13 +146,53 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     m_demo_mode = run_config.demo_mode;
     m_screenshot_path = run_config.screenshot_path;
     m_debug_ui_enabled = run_config.enable_debug_ui;
+    bool platform_initialized = false;
+    bool renderer_initialized = false;
+    bool scripts_initialized = false;
+    bool runtime_ui_initialized = false;
+    bool debug_ui_initialized = false;
+
+    auto rollback = [&]() {
+        if (debug_ui_initialized) {
+            m_debug_ui.shutdown();
+            debug_ui_initialized = false;
+        }
+        if (runtime_ui_initialized) {
+            m_runtime_ui.shutdown();
+            runtime_ui_initialized = false;
+        }
+#if defined(NOVELTEA_HAS_LUA)
+        if (scripts_initialized) {
+            m_scripts.shutdown();
+            scripts_initialized = false;
+        }
+#endif
+        if (renderer_initialized) {
+            m_renderer.shutdown();
+            renderer_initialized = false;
+        }
+        if (platform_initialized) {
+            m_platform.shutdown();
+            platform_initialized = false;
+        }
+        m_running = false;
+        m_initialized = false;
+        std::printf("[engine] initialization rollback complete\n");
+    };
 
     if (!m_platform.initialize(config)) {
         std::fprintf(stderr, "[engine] platform init failed\n");
         return false;
     }
+    platform_initialized = true;
 
-    configure_assets(run_config);
+    try {
+        configure_assets(run_config);
+    } catch (const std::exception& ex) {
+        std::fprintf(stderr, "[engine] asset configuration failed: %s\n", ex.what());
+        rollback();
+        return false;
+    }
 
     const NativeWindowHandles handles = m_platform.native_window_handles();
 
@@ -166,19 +206,20 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 
     if (!m_renderer.initialize(rcfg)) {
         std::fprintf(stderr, "[engine] renderer init failed\n");
-        m_platform.shutdown();
+        rollback();
         return false;
     }
+    renderer_initialized = true;
 
 #if defined(NOVELTEA_HAS_LUA)
     auto script_init = m_scripts.initialize({&m_assets});
     if (!script_init) {
         std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
             script_init.error ? script_init.error->message.c_str() : "unknown error");
-        m_renderer.shutdown();
-        m_platform.shutdown();
+        rollback();
         return false;
     }
+    scripts_initialized = true;
 #endif
 
     const bool load_demo = run_config.demo_mode != DemoMode::None;
@@ -191,13 +232,16 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         )) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else if (!run_config.runtime_ui_document.empty()) {
+        runtime_ui_initialized = true;
         if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document, true)) {
             SDL_Log("[engine] loaded RmlUi document: %s", run_config.runtime_ui_document.c_str());
         } else {
             std::fprintf(stderr, "[engine] failed to load RmlUi document: %s\n", run_config.runtime_ui_document.c_str());
-            m_platform.shutdown();
+            rollback();
             return false;
         }
+    } else {
+        runtime_ui_initialized = true;
     }
 
     if (m_debug_ui_enabled) {
@@ -205,6 +249,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform), &m_assets)) {
             std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
         } else {
+            debug_ui_initialized = true;
             SDL_Log("[engine] debug UI initialized");
         }
     }

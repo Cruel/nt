@@ -41,3 +41,19 @@ TEST_CASE("AssetRmlFileInterface opens, reads, seeks, tells, and closes")
 
     CHECK(files.Open("missing.rml") == 0);
 }
+
+TEST_CASE("RmlUi logical asset path normalization is narrow")
+{
+    auto source = std::make_shared<MemoryAssetSource>();
+    source->add("project:/rmlui/lua_demo.lua", {'l', 'u', 'a'});
+    AssetManager manager;
+    manager.mount("project", source);
+    manager.mount("system", source);
+
+    CHECK(ui::rmlui::resolve_asset_path(manager, "project|/rmlui/lua_demo.lua") == "project:/rmlui/lua_demo.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "system|/scripts/bootstrap.lua") == "system:/scripts/bootstrap.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "project:/rmlui/lua_demo.lua") == "project:/rmlui/lua_demo.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "lua_demo.lua") == "project:/rmlui/lua_demo.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "nested/project|/lua_demo.lua") == "project:/nested/project|/lua_demo.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "|/lua_demo.lua") == "project:/|/lua_demo.lua");
+}

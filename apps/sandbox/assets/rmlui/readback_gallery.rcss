@@ -1,0 +1,90 @@
+body
+{
+    display: block;
+    width: 580px;
+    height: 136px;
+    margin: 0px;
+    background: #101820;
+}
+
+#orientation,
+#clip_mask,
+#saved_mask,
+#filters,
+#gradients
+{
+    position: absolute;
+    display: block;
+    top: 16px;
+    height: 96px;
+    box-sizing: border-box;
+    border-width: 1px;
+    border-color: #ffffff33;
+    background: #202a35;
+}
+
+#orientation { left: 16px; width: 96px; }
+#clip_mask { left: 124px; width: 96px; overflow: hidden; border-radius: 32px 8px; background: #ffd34f; }
+#filters { left: 232px; width: 116px; }
+#gradients { left: 360px; width: 104px; }
+#saved_mask { left: 476px; width: 96px; mask-image: radial-gradient(circle closest-side at center, black 55%, transparent 75%); }
+
+.corner
+{
+    position: absolute;
+    display: block;
+    width: 28px;
+    height: 24px;
+}
+
+.tl { left: 0px; top: 0px; background: #ff3b30; }
+.tr { right: 0px; top: 0px; background: #34c759; }
+.bl { left: 0px; bottom: 0px; background: #007aff; }
+.br { right: 0px; bottom: 0px; background: #ffcc00; }
+
+.clip-a,
+.clip-b
+{
+    position: absolute;
+    display: block;
+    border-radius: 24px;
+}
+
+.clip-a { left: -10px; top: 20px; width: 62px; height: 46px; background: #ff2d55; }
+.clip-b { left: 44px; top: 32px; width: 68px; height: 52px; background: #32d74b; }
+
+#saved_mask > div
+{
+    display: block;
+    width: 100%;
+    height: 100%;
+    decorator: linear-gradient(90deg, #ff375f, #ffd60a, #64d2ff);
+}
+
+.filter
+{
+    position: absolute;
+    display: block;
+    top: 28px;
+    width: 28px;
+    height: 34px;
+    border-radius: 8px;
+}
+
+.filter.opacity { left: 8px; background: #ff453a; opacity: 0.45; }
+.filter.color { left: 36px; background: #64d2ff; filter: sepia(1) saturate(1.5); }
+.filter.blur { left: 64px; background: #30d158; filter: blur(3px); }
+.filter.shadow { left: 88px; background: #ffffff; filter: drop-shadow(#ffd60aff 8px 8px 2px); }
+
+.gradient
+{
+    position: absolute;
+    display: block;
+    left: 8px;
+    width: 88px;
+    height: 20px;
+}
+
+.gradient.linear { top: 12px; decorator: linear-gradient(90deg, #ff453a, #ffd60a, #0a84ff); }
+.gradient.radial { top: 38px; decorator: radial-gradient(circle closest-side at 35% 50%, #ffffff, #30d158, #005a2b); }
+.gradient.conic { top: 64px; decorator: conic-gradient(from 45deg at center, #ff453a, #ffd60a, #30d158, #0a84ff, #ff453a); }

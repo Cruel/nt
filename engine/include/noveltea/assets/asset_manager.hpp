@@ -20,6 +20,7 @@ public:
     [[nodiscard]] AssetResult<AssetBlob> read_binary(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetText> read_text(std::string_view logical_path) const;
     [[nodiscard]] bool exists(std::string_view logical_path) const;
+    [[nodiscard]] bool has_namespace(std::string_view namespace_name) const;
 
     [[nodiscard]] std::vector<std::string> describe_mounts() const;
 

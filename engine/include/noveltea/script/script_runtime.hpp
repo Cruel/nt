@@ -7,14 +7,11 @@
 #include <string>
 #include <string_view>
 
-struct lua_State;
-
 namespace noveltea::assets { class AssetManager; }
 
 namespace noveltea::script {
 
-lua_State* native_lua_state(class ScriptRuntime& runtime);
-const lua_State* native_lua_state(const class ScriptRuntime& runtime);
+namespace detail { struct ScriptRuntimeAccess; }
 
 struct ScriptRuntimeConfig {
     const assets::AssetManager* assets = nullptr;
@@ -39,11 +36,9 @@ public:
     [[nodiscard]] ScriptResult<std::string> evaluate_string(std::string_view expression, std::string_view chunk_name = "expression");
 
     void collect_garbage();
-    void reinstall_host_print();
 
 private:
-    friend lua_State* native_lua_state(ScriptRuntime& runtime);
-    friend const lua_State* native_lua_state(const ScriptRuntime& runtime);
+    friend struct detail::ScriptRuntimeAccess;
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

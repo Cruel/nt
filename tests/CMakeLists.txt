@@ -15,7 +15,7 @@ if(NOVELTEA_HAS_LUA)
         script/script_runtime_tests.cpp
     )
     target_include_directories(noveltea_script_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
-    target_link_libraries(noveltea_script_tests PRIVATE engine Catch2::Catch2WithMain)
+    target_link_libraries(noveltea_script_tests PRIVATE engine Lua::Lua sol2::sol2 Catch2::Catch2WithMain)
     catch_discover_tests(noveltea_script_tests)
 endif()
 

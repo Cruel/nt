@@ -1,14 +1,29 @@
 #include "ui/rmlui/rmlui_file_interface.hpp"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace noveltea::ui::rmlui {
+namespace {
+
+bool valid_asset_namespace(std::string_view value)
+{
+    if (value.empty()) return false;
+    return std::all_of(value.begin(), value.end(), [](char ch) {
+        return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
+    });
+}
+
+} // namespace
 
 std::string resolve_asset_path(const assets::AssetManager& assets, const std::string& path)
 {
     const std::size_t encoded_scheme = path.find("|/");
-    if (encoded_scheme != std::string::npos) {
-        return path.substr(0, encoded_scheme) + ":/" + path.substr(encoded_scheme + 2);
+    if (encoded_scheme != std::string::npos && encoded_scheme > 0 && path.find('/') == encoded_scheme + 1) {
+        const std::string_view ns(path.data(), encoded_scheme);
+        if (valid_asset_namespace(ns) && assets.has_namespace(ns)) {
+            return path.substr(0, encoded_scheme) + ":/" + path.substr(encoded_scheme + 2);
+        }
     }
     if (path.find(":/") != std::string::npos) {
         return path;

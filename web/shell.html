@@ -22,6 +22,8 @@
     let port = null;
     let engineReady = false;
     let runtimeReady = false;
+    let lastReadyPosition = { x: 0.5, y: 0.5 };
+    let lastReadyRunning = true;
 
     function isFinite01(value) {
       return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
@@ -71,6 +73,12 @@
       }
     }
 
+    function sendReadySnapshot() {
+      if (!engineReady || !port) return;
+      send({ version: 1, type: 'ready', capabilities: ['demo-position', 'demo-click', 'play-stop'] });
+      send({ version: 1, type: 'state', position: lastReadyPosition, running: lastReadyRunning });
+    }
+
     globalThis.NovelTeaPreviewBridge = {
       send,
       setPort(nextPort) {
@@ -78,13 +86,15 @@
         port = nextPort;
         port.onmessage = (event) => runCommand(event.data);
         if (typeof port.start === 'function') port.start();
+        sendReadySnapshot();
         drainCommands();
       },
       markEngineReady(position, running) {
         engineReady = true;
+        lastReadyPosition = position;
+        lastReadyRunning = running;
         document.getElementById('status').style.display = 'none';
-        send({ version: 1, type: 'ready', capabilities: ['demo-position', 'demo-click', 'play-stop'] });
-        send({ version: 1, type: 'state', position, running });
+        sendReadySnapshot();
         drainCommands();
       }
     };

@@ -68,6 +68,35 @@ struct RuntimeUI::State {
 RuntimeUI::RuntimeUI() = default;
 RuntimeUI::~RuntimeUI() { shutdown(); }
 
+void RuntimeUI::cleanup_state()
+{
+    if (!m_state) return;
+    if (m_state->context) {
+        m_state->context->UnloadAllDocuments();
+        Rml::RemoveContext("main");
+        m_state->context = nullptr;
+    }
+    m_state->documents.clear();
+    m_state->listeners.clear();
+    m_state->data_models.clear();
+    if (m_state->rml_initialized) {
+        Rml::Shutdown();
+        m_state->rml_initialized = false;
+    }
+#if defined(NOVELTEA_HAS_BGFX)
+    delete m_state->render_interface;
+    m_state->render_interface = nullptr;
+#endif
+    Rml::SetSystemInterface(nullptr);
+    Rml::SetFileInterface(nullptr);
+    delete m_state->system_interface;
+    m_state->system_interface = nullptr;
+    delete m_state->file_interface;
+    m_state->file_interface = nullptr;
+    delete m_state;
+    m_state = nullptr;
+}
+
 bool RuntimeUI::initialize(
     const assets::AssetManager* assets,
     SDL_Window* window,
@@ -100,19 +129,13 @@ bool RuntimeUI::initialize(
     m_state->rml_initialized = true;
 
 #if defined(NOVELTEA_HAS_RMLUI_LUA)
-    if (!scripts || !scripts->is_initialized() || !script::native_lua_state(*scripts)) {
+    if (!scripts || !scripts->is_initialized() || !script::detail::ScriptRuntimeAccess::state(*scripts)) {
         std::fprintf(stderr, "[runtime_ui] RmlUi Lua requested but ScriptRuntime is unavailable\n");
-        Rml::Shutdown();
-        Rml::SetSystemInterface(nullptr);
-        Rml::SetFileInterface(nullptr);
-        delete m_state->system_interface;
-        delete m_state->file_interface;
-        delete m_state;
-        m_state = nullptr;
+        cleanup_state();
         return false;
     }
-    Rml::Lua::Initialise(script::native_lua_state(*scripts));
-    scripts->reinstall_host_print();
+    Rml::Lua::Initialise(script::detail::ScriptRuntimeAccess::state(*scripts));
+    script::install_host_print(script::detail::ScriptRuntimeAccess::state(*scripts));
 #else
     (void)scripts;
 #endif
@@ -120,29 +143,14 @@ bool RuntimeUI::initialize(
     m_state->render_interface = new ui::rmlui::BgfxRenderInterface(m_width, m_height, *assets);
     if (!*m_state->render_interface) {
         std::fprintf(stderr, "[runtime_ui] bgfx RmlUi renderer failed to initialize\n");
-        delete m_state->render_interface;
-        m_state->render_interface = nullptr;
-        Rml::Shutdown();
-        Rml::SetSystemInterface(nullptr);
-        Rml::SetFileInterface(nullptr);
-        delete m_state->system_interface;
-        delete m_state->file_interface;
-        delete m_state;
-        m_state = nullptr;
+        cleanup_state();
         return false;
     }
 
     m_state->context = Rml::CreateContext("main", Rml::Vector2i(m_width, m_height), m_state->render_interface);
     if (!m_state->context) {
         std::fprintf(stderr, "[runtime_ui] RmlUi::CreateContext failed\n");
-        Rml::Shutdown();
-        Rml::SetSystemInterface(nullptr);
-        Rml::SetFileInterface(nullptr);
-        delete m_state->render_interface;
-        delete m_state->system_interface;
-        delete m_state->file_interface;
-        delete m_state;
-        m_state = nullptr;
+        cleanup_state();
         return false;
     }
     if (window) {
@@ -244,21 +252,7 @@ void RuntimeUI::shutdown()
     if (!m_initialized) return;
 #if defined(NOVELTEA_HAS_RMLUI)
     if (m_state) {
-        if (m_state->context) {
-            m_state->context->UnloadAllDocuments();
-            Rml::RemoveContext("main");
-            m_state->context = nullptr;
-        }
-        Rml::Shutdown();
-        Rml::SetSystemInterface(nullptr);
-        Rml::SetFileInterface(nullptr);
-#if defined(NOVELTEA_HAS_BGFX)
-        delete m_state->render_interface;
-#endif
-        delete m_state->system_interface;
-        delete m_state->file_interface;
-        delete m_state;
-        m_state = nullptr;
+        cleanup_state();
     }
 #endif
     m_initialized = false;

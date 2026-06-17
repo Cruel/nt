@@ -562,6 +562,11 @@ bool AssetManager::exists(std::string_view logical_path) const
     });
 }
 
+bool AssetManager::has_namespace(std::string_view namespace_name) const
+{
+    return valid_namespace(namespace_name) && m_mounts.find(std::string(namespace_name)) != m_mounts.end();
+}
+
 std::vector<std::string> AssetManager::describe_mounts() const
 {
     std::vector<std::string> result;

@@ -62,6 +62,7 @@ public:
 private:
     struct State;
 #if defined(NOVELTEA_HAS_RMLUI)
+    void cleanup_state();
     State* m_state = nullptr;
 #endif
 

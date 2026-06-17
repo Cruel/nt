@@ -1,0 +1,30 @@
+<rml>
+<head>
+    <title>RmlUi Readback Gallery</title>
+    <link type="text/rcss" href="readback_gallery.rcss"/>
+</head>
+<body>
+    <div id="orientation">
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
+    </div>
+    <div id="clip_mask">
+        <div class="clip-a"></div>
+        <div class="clip-b"></div>
+    </div>
+    <div id="filters">
+        <div class="filter opacity"></div>
+        <div class="filter color"></div>
+        <div class="filter blur"></div>
+        <div class="filter shadow"></div>
+    </div>
+    <div id="gradients">
+        <div class="gradient linear"></div>
+        <div class="gradient radial"></div>
+        <div class="gradient conic"></div>
+    </div>
+    <div id="saved_mask"><div></div></div>
+</body>
+</rml>

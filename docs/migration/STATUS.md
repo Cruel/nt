@@ -1,5 +1,69 @@
 # Migration Status
 
+# 2026-06-17 Lua Runtime Hardening
+
+## Implemented
+
+- Hardened the Lua 5.5.0 + sol2 3.5.0 scripting runtime without replacing the existing architecture:
+  - Removed `lua_State` and native Lua state accessors from public NovelTea script headers.
+  - Moved native Lua state access to implementation-only `script_runtime_internal.hpp` through `noveltea::script::detail::ScriptRuntimeAccess`.
+  - Kept ScriptRuntime engine-wide and independent of RmlUi ownership.
+  - Split `bind_noveltea(...)` from `install_host_print(...)` so RmlUi print restoration does not rebuild all host bindings.
+  - Added exception conversion around initialization, execution, and evaluation; partial initialization resets the runtime and leaves `is_initialized()` false.
+  - Added a `luaL_traceback`-based protected-call error handler. Runtime failures now preserve concise `message`, logical `chunk`, and full Lua `traceback`.
+  - Removed `os`, `io`, `debug`, `package`, `require`, `dofile`, and `loadfile` after opening the selected Lua standard libraries. `load` remains available.
+  - Made expression evaluation strict: no return and nil return map to `monostate`; bool/string/integer/float are supported; multiple returns and unsupported table/function/userdata/thread returns fail with the Lua type name.
+  - Preserved Lua integer-versus-float distinction with `lua_isinteger`.
+  - Kept C++ shared_ptr usertype retention/release behavior covered by tests.
+- Hardened Engine and RuntimeUI lifecycle:
+  - `Engine::initialize()` now rolls back initialized subsystems in reverse order on failure: DebugUI, RuntimeUI, ScriptRuntime, Renderer, Platform.
+  - Missing runtime RML document failure now unwinds RuntimeUI, ScriptRuntime, renderer, and platform before returning false, and logs `[engine] initialization rollback complete`.
+  - `RuntimeUI` now uses a centralized cleanup helper for partial initialization and normal shutdown.
+  - RmlUi context/documents are removed before `Rml::Shutdown()`, and the bgfx render interface is destroyed after `Rml::Shutdown()` as required by RmlUi.
+  - RuntimeUI never destroys the externally owned ScriptRuntime.
+- Tightened dependency and build configuration:
+  - sol2 FetchContent for Web/Android is pinned to immutable commit `9190880c593dfb018ccf5cc9729ab87739709862`, verified as `refs/tags/v3.5.0^{}`. The annotated tag object is `e24392e9718f0616cfbba86005622a419d2f0c5d`.
+  - `patch-sol2-lua55.cmake` now fails fast when expected files or strings are missing and remains idempotent for the known patched state.
+  - Replaced incorrect sol2 option names with `SOL2_TESTS`, `SOL2_EXAMPLES`, `SOL2_DOCS`, `SOL2_ENABLE_INSTALL`, and `SOL2_BUILD_LUA`.
+  - `RmlUi::Lua` and `NOVELTEA_HAS_RMLUI_LUA` are private engine implementation details.
+  - `NOVELTEA_HAS_LUA`, `NOVELTEA_HAS_RMLUI`, and `NOVELTEA_HAS_RMLUI_LUA` cache variables are explicitly reset in disabled/unavailable branches.
+  - Script tests explicitly link `Lua::Lua` and `sol2::sol2`.
+- Tightened RmlUi logical asset path normalization:
+  - Decodes only a leading valid mounted namespace form such as `project|/rmlui/lua_demo.lua`.
+  - Leaves already-normalized logical paths, relative paths, malformed empty namespace paths, and ordinary later `|/` occurrences untouched.
+- Updated CI Web packaged-asset checks:
+  - Still checks staged runtime files.
+  - Verifies generated `index.html`, `index.js`, `index.wasm`, and `index.data`.
+  - Verifies packaged asset references through `index.js` instead of relying on `index.data` filename metadata.
+
+## Verified
+
+- `git ls-remote https://github.com/ThePhD/sol2.git refs/tags/v3.5.0 refs/tags/v3.5.0^{}`: passed; commit behind tag is `9190880c593dfb018ccf5cc9729ab87739709862`.
+- `cmake --preset linux-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT=/home/thomas/dev/nt/build/generated-assets-allvariants -DBUILD_TESTING=ON`: passed.
+  - An earlier attempt using `/home/thomas/dev/nt/build/verify-shader-assets` failed because that older prebuilt tree lacked the newer RmlUi shader binaries.
+- `cmake --build --preset linux-debug`: passed.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed, 42/42 tests.
+- `xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`: passed; initialized RmlUi Lua, logged `RMLUI_LUA_TEST_OK`, and shut down cleanly.
+- `xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --rmlui-document project:/rmlui/lua_demo.rml --frames 3`: passed; output contained `[lua] RMLUI_LUA_TEST_OK` from external `lua_demo.lua`.
+- Missing runtime RML document smoke:
+  - `xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --rmlui-document project:/rmlui/does_not_exist.rml --frames 3`: returned nonzero as expected.
+  - Output contained `failed to load RmlUi document`, `[renderer] bgfx shutdown`, `[platform] shutdown`, and `[engine] initialization rollback complete`.
+- `emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT=/home/thomas/dev/nt/build/generated-assets-allvariants -DBUILD_TESTING=OFF`: passed.
+- `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental and bx variadic macro warnings remain.
+- Web package checks passed:
+  - `build/web-debug/apps/sandbox/index.html`, `index.js`, `index.wasm`, and `index.data` exist.
+  - `build/web-debug/runtime-assets/rmlui/lua_demo.rml` and `lua_demo.lua` exist.
+  - `build/web-debug/apps/sandbox/index.js` contains `/assets/rmlui/lua_demo.rml` and `/assets/rmlui/lua_demo.lua` preload references.
+- `cd android && ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot=/home/thomas/dev/nt/build/generated-assets-allvariants`: passed.
+  - Existing Android SDK/AGP/CMake warnings and third-party bx macro warnings remain.
+- Android APK asset checks passed for:
+  - `assets/rmlui/demo.rml`
+  - `assets/rmlui/lua_demo.rml`
+  - `assets/rmlui/lua_demo.lua`
+  - `assets/rmlui/LiberationSans.ttf`
+  - ESSL 300 shader assets for `triangle`, `quad`, `text`, `imgui`, `rmlui`, `rmlui_composite`, `rmlui_copy`, `rmlui_opacity`, `rmlui_color_matrix`, `rmlui_mask_multiply`, `rmlui_blur`, `rmlui_drop_shadow`, and `rmlui_gradient`.
+- No Web browser runtime execution or Android device/emulator runtime execution was performed.
+
 ## Implemented
 
 - **Lua scripting runtime foundation**:

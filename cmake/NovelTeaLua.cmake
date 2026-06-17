@@ -49,15 +49,15 @@ function(noveltea_provide_lua_dependencies)
         endif()
 
         if(NOT TARGET sol2::sol2)
+            set(SOL2_TESTS OFF CACHE BOOL "" FORCE)
+            set(SOL2_EXAMPLES OFF CACHE BOOL "" FORCE)
+            set(SOL2_DOCS OFF CACHE BOOL "" FORCE)
             set(SOL2_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
             set(SOL2_BUILD_LUA OFF CACHE BOOL "" FORCE)
-            set(SOL2_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-            set(SOL2_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-            set(SOL2_BUILD_DOCS OFF CACHE BOOL "" FORCE)
             FetchContent_Declare(
                 sol2
                 GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-                GIT_TAG v3.5.0
+                GIT_TAG 9190880c593dfb018ccf5cc9729ab87739709862
                 GIT_SHALLOW FALSE
                 PATCH_COMMAND "${CMAKE_COMMAND}" "-DSOL2_SOURCE_DIR=<SOURCE_DIR>" -P "${CMAKE_SOURCE_DIR}/cmake/patch-sol2-lua55.cmake"
             )

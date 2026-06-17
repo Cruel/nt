@@ -1,0 +1,44 @@
+<rml>
+<head>
+    <title>RmlUi Advanced Renderer Gallery</title>
+    <link type="text/rcss" href="advanced_gallery.rcss"/>
+</head>
+<body>
+    <div id="advanced_root">
+    <div id="orientation" class="sample">
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
+    </div>
+
+    <div id="clip_mask" class="sample clip-shell">
+        <div class="clip-child a"></div>
+        <div class="clip-child b">
+            <div class="clip-grandchild"></div>
+        </div>
+    </div>
+
+    <div id="saved_mask" class="sample masked">
+        <div class="mask-fill"></div>
+    </div>
+
+    <div id="filters" class="sample">
+        <div class="filter-base"></div>
+        <div class="filter opacity"></div>
+        <div class="filter color"></div>
+        <div class="filter blur"></div>
+        <div class="filter shadow"></div>
+    </div>
+
+    <div id="gradients" class="sample">
+        <div class="gradient linear"></div>
+        <div class="gradient radial"></div>
+        <div class="gradient conic"></div>
+        <div class="gradient repeat-linear"></div>
+        <div class="gradient repeat-radial"></div>
+        <div class="gradient repeat-conic"></div>
+    </div>
+    </div>
+</body>
+</rml>

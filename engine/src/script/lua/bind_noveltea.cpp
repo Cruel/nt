@@ -61,6 +61,11 @@ void bind_noveltea(lua_State* state)
             std::to_string(SOL_VERSION_MINOR) + "." +
             std::to_string(SOL_VERSION_PATCH);
     });
+}
+
+void install_host_print(lua_State* state)
+{
+    sol::state_view lua(state);
     lua.set_function("print", host_print);
 }
 
