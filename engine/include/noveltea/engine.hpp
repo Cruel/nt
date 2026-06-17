@@ -6,6 +6,9 @@
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#if defined(NOVELTEA_HAS_LUA)
+#include "noveltea/script/script_runtime.hpp"
+#endif
 
 #include <cstdint>
 #include <filesystem>
@@ -63,6 +66,9 @@ private:
     assets::AssetManager m_assets;
     Platform m_platform;
     Renderer m_renderer;
+#if defined(NOVELTEA_HAS_LUA)
+    script::ScriptRuntime m_scripts;
+#endif
     RuntimeUI m_runtime_ui;
     DebugUI m_debug_ui;
     bool m_initialized = false;

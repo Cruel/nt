@@ -70,7 +70,7 @@ jobs:
             .cache/vcpkg
             .cache/vcpkg-binary
             vcpkg_installed
-          key: ${{ runner.os }}-vcpkg-shader-assets-${{ hashFiles('vcpkg.json') }}
+          key: ${{ runner.os }}-vcpkg-shader-assets-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
             ${{ runner.os }}-vcpkg-shader-assets-
 
@@ -168,7 +168,7 @@ jobs:
             .cache/vcpkg
             .cache/vcpkg-binary
             build/linux-debug/vcpkg_installed
-          key: ${{ runner.os }}-vcpkg-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json') }}
+          key: ${{ runner.os }}-vcpkg-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
             ${{ runner.os }}-vcpkg-linux-
 
@@ -197,6 +197,8 @@ jobs:
       - name: Headless sandbox smoke
         run: |
           xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
+          xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --rmlui-document project:/rmlui/lua_demo.rml --frames 3 2>&1 | tee /tmp/noveltea-rmlui-lua.log
+          grep -q RMLUI_LUA_TEST_OK /tmp/noveltea-rmlui-lua.log
           mkdir -p /tmp/noveltea-package
           cp ./build/linux-debug/apps/sandbox/noveltea-sandbox /tmp/noveltea-package/
           cp -R ./build/linux-debug/runtime-assets /tmp/noveltea-package/assets
@@ -264,6 +266,8 @@ jobs:
           cmake --build --preset web-debug
           test -f build/web-debug/apps/sandbox/index.data
           test -f build/web-debug/runtime-assets/shaders/bgfx/essl-100/triangle.vs.bin
+          test -f build/web-debug/runtime-assets/rmlui/lua_demo.lua
+          grep -a -q lua_demo.lua build/web-debug/apps/sandbox/index.data
 
   android:
     name: Android
@@ -344,6 +348,8 @@ jobs:
           done
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/LiberationSans.ttf'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/demo.rml'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/lua_demo.rml'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/lua_demo.lua'
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7

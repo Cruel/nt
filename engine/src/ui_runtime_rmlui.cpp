@@ -1,6 +1,8 @@
 #include "noveltea/ui_runtime.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/script/script_runtime.hpp"
+#include "script/lua/script_runtime_internal.hpp"
 
 #include <cstdio>
 #include <functional>
@@ -16,6 +18,9 @@
 #include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/EventListener.h>
+#if defined(NOVELTEA_HAS_RMLUI_LUA)
+#include <RmlUi/Lua.h>
+#endif
 #include "ui/rmlui/rmlui_file_interface.hpp"
 #include "ui/rmlui/rmlui_input_sdl3.hpp"
 #include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
@@ -56,13 +61,18 @@ struct RuntimeUI::State {
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::uintptr_t next_listener_id = 1;
+    bool rml_initialized = false;
 #endif
 };
 
 RuntimeUI::RuntimeUI() = default;
 RuntimeUI::~RuntimeUI() { shutdown(); }
 
-bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window, bool load_demo_document)
+bool RuntimeUI::initialize(
+    const assets::AssetManager* assets,
+    SDL_Window* window,
+    bool load_demo_document,
+    script::ScriptRuntime* scripts)
 {
     if (m_initialized) return true;
 
@@ -87,6 +97,25 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         m_state = nullptr;
         return false;
     }
+    m_state->rml_initialized = true;
+
+#if defined(NOVELTEA_HAS_RMLUI_LUA)
+    if (!scripts || !scripts->is_initialized() || !script::native_lua_state(*scripts)) {
+        std::fprintf(stderr, "[runtime_ui] RmlUi Lua requested but ScriptRuntime is unavailable\n");
+        Rml::Shutdown();
+        Rml::SetSystemInterface(nullptr);
+        Rml::SetFileInterface(nullptr);
+        delete m_state->system_interface;
+        delete m_state->file_interface;
+        delete m_state;
+        m_state = nullptr;
+        return false;
+    }
+    Rml::Lua::Initialise(script::native_lua_state(*scripts));
+    scripts->reinstall_host_print();
+#else
+    (void)scripts;
+#endif
 
     m_state->render_interface = new ui::rmlui::BgfxRenderInterface(m_width, m_height, *assets);
     if (!*m_state->render_interface) {

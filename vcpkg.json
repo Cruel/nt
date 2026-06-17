@@ -4,9 +4,18 @@
   "dependencies": [
     "bgfx",
     {
+      "name": "lua",
+      "version>=": "5.5.0"
+    },
+    {
+      "name": "sol2",
+      "version>=": "3.5.0"
+    },
+    {
       "name": "rmlui",
       "features": [
-        "freetype"
+        "freetype",
+        "lua"
       ]
     },
     "sdl3",
@@ -39,5 +48,22 @@
         "catch2"
       ]
     }
-  }
+  },
+  "overrides": [
+    {
+      "name": "lua",
+      "version": "5.5.0",
+      "port-version": 1
+    },
+    {
+      "name": "sol2",
+      "version": "3.5.0",
+      "port-version": 1
+    },
+    {
+      "name": "rmlui",
+      "version": "6.2",
+      "port-version": 0
+    }
+  ]
 }

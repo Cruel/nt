@@ -10,6 +10,15 @@ add_executable(noveltea_asset_tests
 target_link_libraries(noveltea_asset_tests PRIVATE engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_asset_tests)
 
+if(NOVELTEA_HAS_LUA)
+    add_executable(noveltea_script_tests
+        script/script_runtime_tests.cpp
+    )
+    target_include_directories(noveltea_script_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+    target_link_libraries(noveltea_script_tests PRIVATE engine Catch2::Catch2WithMain)
+    catch_discover_tests(noveltea_script_tests)
+endif()
+
 if(NOVELTEA_HAS_BGFX)
     add_executable(noveltea_render_tests
         render/shader_variant_tests.cpp

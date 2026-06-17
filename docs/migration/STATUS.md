@@ -2,6 +2,20 @@
 
 ## Implemented
 
+- **Lua scripting runtime foundation**:
+  - Added `noveltea::script::ScriptRuntime` as the engine-owned persistent Lua 5.5.0 state.
+  - Added public script value/result/runtime headers without exposing Lua, sol2, or RmlUi types.
+  - Added private Lua/sol2 implementation files under `engine/src/script/lua/`.
+  - Opened only base, coroutine, table, string, math, and utf8 libraries; `os`, `io`, and `debug` are absent by default.
+  - Added sol2-bound `noveltea.log`, `noveltea.echo`, `noveltea.lua_version`, and `noveltea.sol_version`.
+  - Added AssetManager-backed `execute_asset` for logical script paths.
+  - Integrated RmlUi's official Lua plugin with the NovelTea-owned state via `Rml::Lua::Initialise(lua_state)`.
+  - Restored NovelTea's print/log handler after RmlUi Lua registration.
+  - Updated Engine lifecycle so ScriptRuntime initializes before RuntimeUI and shuts down after RmlUi.
+  - Added a RmlUi Lua sandbox demo using external `project:/rmlui/lua_demo.lua`.
+  - Added vcpkg and FetchContent dependency setup for Lua 5.5.0, sol2 3.5.0, and RmlUi 6.2 Lua bindings.
+  - Added `docs/migration/LUA_RUNTIME.md`.
+
 - Added an Electron editor engine-preview demonstration:
   - Main process loopback-only HTTP server serving the Emscripten sandbox output from `build/web-debug/apps/sandbox`.
   - Typed preload IPC for preview session/reload only.
@@ -59,6 +73,18 @@
 ## Verified
 
 Verification results from the current pass:
+
+- Lua scripting runtime foundation:
+  - `cmake --preset linux-debug -G Ninja`: passed after clearing a stale Unix Makefiles cache in `build/linux-debug`.
+  - `cmake --build --preset linux-debug`: passed.
+  - `ctest --test-dir build/linux-debug --output-on-failure`: passed, 38/38 tests.
+  - `xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --rmlui-document project:/rmlui/lua_demo.rml --frames 3`: passed; output contained `[lua] RMLUI_LUA_TEST_OK` from the external Lua script.
+  - `emcmake cmake --preset web-debug -G Ninja -DBUILD_TESTING=OFF`: passed.
+  - `cmake --build --preset web-debug`: passed; existing Emscripten SDL3 experimental and bx macro warnings remain.
+  - Web asset checks passed: `build/web-debug/runtime-assets/rmlui/lua_demo.lua` exists and `build/web-debug/apps/sandbox/index.data` contains `lua_demo.lua`.
+  - `cd android && ./gradlew --no-daemon :app:assembleDebug`: passed; existing Android SDK/AGP/CMake and third-party bgfx/bx warnings remain, plus Lua `loslib.c` `tmpnam` deprecation warnings from compiling the official Lua library source.
+  - Android APK asset checks passed for `assets/rmlui/demo.rml`, `assets/rmlui/lua_demo.rml`, `assets/rmlui/lua_demo.lua`, `assets/rmlui/LiberationSans.ttf`, and representative ESSL 300 shader assets.
+  - Android/Web runtime execution was not performed; only build and packaged-asset verification were completed for those targets.
 
 - Minimal SDF text/font primitive:
   - Added backend-neutral public text/font types: `FontHandle`, `FontDesc`, `TextStyle`, `TextRun`, `TextMetrics`, and `TextBuffer`.

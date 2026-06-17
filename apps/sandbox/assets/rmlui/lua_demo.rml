@@ -1,13 +1,13 @@
 <rml>
 <head>
-    <title>Runtime UI Demo</title>
+    <title>Runtime UI Lua Demo</title>
     <link type="text/rcss" href="demo.rcss"/>
     <script src="lua_demo.lua"></script>
 </head>
 <body>
     <div id="panel">
-        <h1>NovelTea Runtime UI</h1>
-        <p>RmlUi is rendering through bgfx with Lua scripting.</p>
+        <h1>NovelTea Lua UI</h1>
+        <p>External Lua is running inside RmlUi.</p>
         <button id="demo_btn" onclick="noveltea_demo.on_click(event, element, document)">Lua ready</button>
         <div id="status_box">External Lua loaded</div>
     </div>

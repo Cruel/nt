@@ -6,6 +6,10 @@ namespace noveltea::ui::rmlui {
 
 std::string resolve_asset_path(const assets::AssetManager& assets, const std::string& path)
 {
+    const std::size_t encoded_scheme = path.find("|/");
+    if (encoded_scheme != std::string::npos) {
+        return path.substr(0, encoded_scheme) + ":/" + path.substr(encoded_scheme + 2);
+    }
     if (path.find(":/") != std::string::npos) {
         return path;
     }

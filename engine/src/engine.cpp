@@ -170,8 +170,25 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         return false;
     }
 
+#if defined(NOVELTEA_HAS_LUA)
+    auto script_init = m_scripts.initialize({&m_assets});
+    if (!script_init) {
+        std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
+            script_init.error ? script_init.error->message.c_str() : "unknown error");
+        m_renderer.shutdown();
+        m_platform.shutdown();
+        return false;
+    }
+#endif
+
     const bool load_demo = run_config.demo_mode != DemoMode::None;
-    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo)) {
+    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo
+#if defined(NOVELTEA_HAS_LUA)
+            , &m_scripts
+#else
+            , nullptr
+#endif
+        )) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else if (!run_config.runtime_ui_document.empty()) {
         if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document, true)) {
@@ -378,6 +395,9 @@ void Engine::shutdown()
         m_debug_ui.shutdown();
     }
     m_runtime_ui.shutdown();
+#if defined(NOVELTEA_HAS_LUA)
+    m_scripts.shutdown();
+#endif
     m_renderer.shutdown();
     m_platform.shutdown();
 
