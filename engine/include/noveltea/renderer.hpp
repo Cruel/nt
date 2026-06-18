@@ -4,6 +4,7 @@
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/text/font.hpp"
+#include "noveltea/text/text.hpp"
 #include "noveltea/text/text_lab.hpp"
 #include "noveltea/text/text_layout.hpp"
 
@@ -44,6 +45,10 @@ public:
     void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
     FontHandle load_font(const FontDesc& desc);
+    TextLayout layout_text(const Text& text) const;
+    TextMetrics measure_text(const Text& text) const;
+    void draw_text(const Text& text);
+    void draw_text(const TextLayout& layout);
     void draw_text(const TextRun& run);
     TextMetrics measure_text(FontHandle font, std::string_view text, float size) const;
 

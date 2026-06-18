@@ -12,16 +12,17 @@ struct FontHandle {
     [[nodiscard]] friend bool operator==(FontHandle lhs, FontHandle rhs) = default;
 };
 
+enum class HintingMode {
+    Default,
+    None,
+    Light,
+    Monochrome,
+};
+
 struct FontDesc {
     std::filesystem::path asset_path;
-    float base_pixel_size = 96.0f;
-    bool sdf = true;
-    uint16_t atlas_width = 1024;
-    uint16_t atlas_height = 1024;
-    int sdf_padding = 12;
-    uint8_t sdf_onedge_value = 180;
-    float sdf_pixel_dist_scale = 24.0f;
-    float sdf_min_softness = 0.012f;
+    uint32_t face_index = 0;
+    HintingMode hinting = HintingMode::Default;
 };
 
 } // namespace noveltea

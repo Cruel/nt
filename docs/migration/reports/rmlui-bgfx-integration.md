@@ -86,4 +86,4 @@
 
 ## Next Recommended Step
 
-Add `bimg::imageParse`-based texture loading to `BgfxRenderInterface::LoadTexture` so RmlUi can load PNG/JPEG images from `<img>` tags and CSS `background-image` decorators. Then begin the NovelTea text-lab migration: port BBCode parsing, style-run semantics, and per-glyph animation data from `NovelTea/` into backend-neutral `nt` text code. Web/Android RmlUi linkage can be addressed when those platforms need interactive documents.
+Add `bimg::imageParse`-based texture loading to `BgfxRenderInterface::LoadTexture` so RmlUi can load PNG/JPEG images from `<img>` tags and CSS `background-image` decorators. For NovelTea text, build the remaining BBCode/style-run/per-glyph animation semantics on top of the engine-owned `TextLayout` data rather than reviving the old text-lab scaffold.

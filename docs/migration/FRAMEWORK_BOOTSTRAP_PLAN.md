@@ -23,7 +23,7 @@ Bootstrap additions in this slice create engine-owned seams for math primitives,
 - Adding SFML or old renderer assumptions.
 - Full scene graph or asset database.
 - Full RmlUi bgfx backend feature parity.
-- Full font atlas/SDF text renderer.
+- Font fallback, rich text spans, and advanced text effects.
 - NovelTea project loading.
 
 ## Dependency Decisions
@@ -35,17 +35,17 @@ Bootstrap additions in this slice create engine-owned seams for math primitives,
 | Render2D | Add `NOVELTEA_ENABLE_RENDER2D` seam | Small engine-owned quad/sprite substrate before migration. |
 | RmlUi | Add `NOVELTEA_ENABLE_RMLUI`, optional package | Runtime UI/layout/forms/ordinary text path. |
 | Dear ImGui | Keep `NOVELTEA_ENABLE_DEVTOOLS` | Dev/debug only. |
-| Text lab | Add `NOVELTEA_ENABLE_TEXT_LAB` seam | Prepares rich text semantics without porting old `ActiveText`. |
+| Text | Add `NOVELTEA_ENABLE_TEXT` seam | Engine-owned Unicode shaping/layout/rendering separate from RmlUi text. |
 | bimg/bgfx_utils | Defer direct copy | Useful later for texture loading, but bootstrap uses procedural texture proof. |
 | NanoVG/Skia | Defer/reject for now | Too broad for current needs. |
 
 ## Staged Implementation Plan
 
-1. Add backend-neutral math, asset, render-resource, render-command, and text-run headers.
+1. Add backend-neutral math, asset, render-resource, render-command, and text headers.
 2. Add bgfx RAII handle wrappers and logging/file helpers.
 3. Extend renderer with view IDs, orthographic 2D setup, alpha-blended quads, and a procedural texture proof.
 4. Keep RuntimeUI feature-gated with RmlUi package detection and document the missing render/system/file backend.
-5. Keep text lab as a scaffold using bgfx debug text until SDF font work is selected.
+5. Replace the text scaffold with boxed `Text`, HarfBuzz/SheenBidi/libunibreak layout, and FreeType grayscale bgfx rendering.
 6. Verify Linux, Web, and Android build paths where the local environment allows.
 7. Only after bootstrap builds, write the old-engine migration plan.
 
@@ -67,4 +67,4 @@ cd android && ./gradlew :app:assembleDebug
 - Full texture loading is deferred; future bimg integration must avoid copying large helper trees blindly.
 - Web/Android dependency fetches are pre-existing behavior and may fail without network/cache.
 
-Rollback strategy: disable new behavior with `NOVELTEA_ENABLE_RENDER2D`, `NOVELTEA_ENABLE_RMLUI`, or `NOVELTEA_ENABLE_TEXT_LAB`, or revert the bounded files listed in `STATUS.md`.
+Rollback strategy: disable new behavior with `NOVELTEA_ENABLE_RENDER2D`, `NOVELTEA_ENABLE_RMLUI`, or `NOVELTEA_ENABLE_TEXT`, or revert the bounded files listed in `STATUS.md`.

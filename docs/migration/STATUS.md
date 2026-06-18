@@ -8,6 +8,13 @@ The RmlUi 6.2 bgfx renderer is no longer a basic scaffold. It has implemented pa
 
 Current local verification:
 
+- `cmake --preset linux-debug -G Ninja`: passed after the NovelTea text subsystem replacement.
+- `cmake --build --preset linux-debug`: passed after the NovelTea text subsystem replacement.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 51/51 after text tests were added.
+- `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`: passed with the boxed grayscale text demo.
+- `cmake --preset web-debug -G Ninja`: passed with Emscripten FreeType/HarfBuzz ports and source-built SheenBidi/libunibreak.
+- `cmake --build --preset web-debug`: passed.
+- `cd android && ./gradlew --no-daemon :app:assembleDebug`: passed.
 - `cmake --preset linux-debug`: passed before edits.
 - `cmake --preset linux-debug -DNOVELTEA_COMPILE_SHADERS=ON`: passed after shader edits.
 - `cmake --preset linux-debug -DNOVELTEA_COMPILE_SHADERS=ON '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300'`: passed after shader-root/list fixes.
@@ -47,7 +54,8 @@ Implemented foundation outside the advanced RmlUi renderer:
 - Backend-neutral asset layer with logical `system:/`, `project:/`, and `cache:/` mounts.
 - Runtime-loaded bgfx shader assets with CMake shader compilation and verification.
 - SDL3 platform/input/windowing integration.
-- bgfx renderer organization with shader loader, 2D quad path, text proof, and runtime asset staging.
+- bgfx renderer organization with shader loader, 2D quad path, engine-owned Unicode text path, and runtime asset staging.
+- Engine-owned text subsystem with boxed `Text`, backend-neutral HarfBuzz/SheenBidi/libunibreak layout, FreeType grayscale glyph rasterization, bgfx atlas/page rendering, and CPU text tests. See `docs/migration/NOVELTEA_TEXT_IMPLEMENTATION.md`.
 - Lua 5.5.0 plus sol2 scripting runtime with hardened public API, exception conversion, traceback reporting, unsafe library removal, AssetManager-backed script execution, and RmlUi Lua plugin integration.
 - Engine lifecycle rollback and shutdown ordering for Platform, Renderer, ScriptRuntime, RuntimeUI, and DebugUI.
 - Electron editor preview scaffold and Web preview packaging hooks.
@@ -55,8 +63,8 @@ Implemented foundation outside the advanced RmlUi renderer:
 Deferred migration areas:
 
 - Old NovelTea game-domain migration into backend-neutral models and controllers.
-- BBCode/TextTypes/ActiveText migration, rich text layout, per-glyph animation, pagination, hit-testing, and render-target text caching.
-- High-quality text shaping beyond the current SDF proof.
+- BBCode/TextTypes/ActiveText migration, rich text spans, per-glyph animation, pagination, hit-testing, and render-target text caching.
+- Font-family fallback, color emoji, SVG glyphs, script-specific justification, selection/caret UI, and Lua bindings for the new text API.
 - RmlUi Debugger integration.
 - Android emulator runtime automation and Web browser smoke automation.
 

@@ -1,5 +1,19 @@
 include(Catch)
 
+if(NOVELTEA_HAS_TEXT)
+    add_executable(noveltea_text_tests
+        text/text_engine_tests.cpp
+    )
+    target_include_directories(noveltea_text_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+    target_compile_definitions(noveltea_text_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(noveltea_text_tests PRIVATE
+        engine
+        noveltea_text_unibreak
+        Catch2::Catch2WithMain
+    )
+    catch_discover_tests(noveltea_text_tests)
+endif()
+
 add_executable(noveltea_asset_tests
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp

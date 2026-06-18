@@ -20,6 +20,7 @@
     },
     "sdl3",
     "miniaudio",
+    "freetype",
     {
       "name": "imgui",
       "features": [
@@ -28,7 +29,9 @@
         "freetype"
       ]
     },
-    "harfbuzz"
+    "harfbuzz",
+    "sheenbidi",
+    "libunibreak"
   ],
   "features": {
     "shader-tools": {

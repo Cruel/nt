@@ -6,6 +6,7 @@ add_library(engine STATIC
     src/engine.cpp
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
+    src/text/text_engine.cpp
     src/text/text_layout.cpp
     src/ui/rmlui/rmlui_file_interface.cpp
     src/ui/rmlui/rmlui_render_planning.cpp
@@ -26,8 +27,23 @@ if(NOVELTEA_ENABLE_RENDER2D)
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RENDER2D)
 endif()
 
-if(NOVELTEA_ENABLE_TEXT_LAB)
-    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_TEXT_LAB)
+if(NOVELTEA_ENABLE_TEXT)
+    if(NOT TARGET noveltea_text_freetype
+        OR NOT TARGET noveltea_text_harfbuzz
+        OR NOT TARGET noveltea_text_sheenbidi
+        OR NOT TARGET noveltea_text_unibreak)
+        message(FATAL_ERROR "NOVELTEA_ENABLE_TEXT=ON requires NovelTea text dependency targets")
+    endif()
+    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_TEXT)
+    set(NOVELTEA_HAS_TEXT ON CACHE INTERNAL "NovelTea text subsystem available")
+    target_link_libraries(engine PRIVATE
+        noveltea_text_freetype
+        noveltea_text_harfbuzz
+        noveltea_text_sheenbidi
+        noveltea_text_unibreak
+    )
+else()
+    set(NOVELTEA_HAS_TEXT OFF CACHE INTERNAL "NovelTea text subsystem available")
 endif()
 
 if(NOVELTEA_ENABLE_LUA)

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `refs/RmlUi/Backends` | Clean separation of platform input/system and renderer interfaces; SDL event translation patterns; renderer examples for GL/VK/DX/SDL. | Use as API reference. Do not copy a backend wholesale. |
 | `refs/rmlui-bgfx` | Compact bgfx RmlUi renderer concept and shader pair. | Adapt ideas later, but avoid its broad app/window wrapper API and xmake setup. |
-| `refs/bgfx/examples/common/font` | SDF font manager, text buffers, metrics, shader variants. | Strong future text-render reference; too large for bootstrap copy. |
+| `refs/bgfx/examples/common/font` | Historical bgfx SDF font manager, text buffers, metrics, shader variants. | Reference only; NovelTea now uses FreeType grayscale glyph coverage for engine text. |
 | `refs/bgfx/examples/common/imgui` | Proven bgfx ImGui debug overlay direction. | Keep Dear ImGui dev/debug only. |
 | `refs/bgfx/examples/common/nanovg` | Canvas/vector drawing over bgfx. | Deferred unless future editor/runtime UI needs justify it. |
 | `bgfx_utils` / bimg texture loading | Shader/program/texture helper patterns and `bimg::imageParse` texture creation flow. | Use next for real PNG/JPEG/etc. loading. Current pass only adds a tiny PPM disk proof to avoid copying the helper tree. |
@@ -19,14 +19,14 @@
 - Use Dear ImGui only for developer/debug UI.
 - Use bgfx/bx/bimg utilities where practical, without vendoring broad external trees.
 - Maintain a small `nt` 2D draw layer for sprites, materials, quads, render targets, clipping, and layer/depth ordering.
-- Build a separate future `nt` rich text layer for NovelTea-specific animated BBCode semantics. RmlUi text is not a replacement for per-glyph animation/effect metadata.
+- Build future rich text spans/effects on top of the engine-owned `Text` layout data. RmlUi text remains independent and is not a replacement for per-glyph animation/effect metadata.
 
 ## View IDs
 
 - `0`: game/world 2D.
 - `1`: runtime UI.
-- `2`: text lab.
-- `3`: debug UI.
+- `2`: engine text.
+- `250`: debug UI.
 
 These IDs are documented early so RmlUi, text, and debug overlays do not compete for implicit renderer state.
 
@@ -36,7 +36,7 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
 - Alpha-blended colored quads through `QuadBatch`.
 - Textured quads with UV rects, per-quad color/alpha, and layer/depth metadata.
 - Disk texture proof using `apps/sandbox/assets/checker.ppm`, with procedural checker fallback.
-- Renderer debug text for text-lab status.
+- Engine-owned boxed text demo with Unicode shaping and grayscale glyph rendering.
 - Deterministic sandbox smoke commands:
   - `./build/linux-debug/apps/sandbox/noveltea-sandbox --frames 180`
   - `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`
@@ -60,5 +60,5 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
 - bimg-backed PNG/JPEG/etc. texture loading for `BgfxRenderInterface::LoadTexture`.
 - Clip mask, layer stack, filter/shader compilation (advanced RmlUi features).
 - RmlUi Debugger integration.
-- SDF/MSDF font atlas and rich text draw buffers.
+- Rich text spans, BBCode semantics, per-glyph animation/effects, and font-family fallback.
 - Web/Android RmlUi linkage (currently scaffold-only).

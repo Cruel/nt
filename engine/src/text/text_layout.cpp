@@ -21,4 +21,14 @@ TextMetrics measure_text(Renderer& renderer, FontHandle font, std::string_view t
     return renderer.measure_text(font, text, size);
 }
 
+TextMetrics measure_text(Renderer& renderer, const Text& text)
+{
+    return renderer.measure_text(text);
+}
+
+TextLayout layout_text(Renderer& renderer, const Text& text)
+{
+    return renderer.layout_text(text);
+}
+
 } // namespace noveltea
