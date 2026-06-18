@@ -144,8 +144,9 @@ bool Renderer::initialize(const RendererConfig& config)
 #endif
     init.platformData = pd;
     init.callback = &s_renderer_callback;
-    init.resolution.width = static_cast<uint32_t>(config.width);
-    init.resolution.height = static_cast<uint32_t>(config.height);
+    const SurfaceMetrics surface = sanitize_surface_metrics(config.surface);
+    init.resolution.width = static_cast<uint32_t>(surface.framebuffer_width);
+    init.resolution.height = static_cast<uint32_t>(surface.framebuffer_height);
     init.resolution.reset = config.vsync ? BGFX_RESET_VSYNC : 0;
 
     if (!bgfx::init(init)) {
@@ -153,8 +154,7 @@ bool Renderer::initialize(const RendererConfig& config)
         return false;
     }
 
-    m_width = config.width;
-    m_height = config.height;
+    m_surface = surface;
     m_vsync = config.vsync;
     m_assets = config.assets;
     m_initialized = true;
@@ -162,14 +162,21 @@ bool Renderer::initialize(const RendererConfig& config)
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x4040c0ff, 1.0f, 0);
     bgfx::setViewRect(ViewGame2D, 0, 0,
-        static_cast<uint16_t>(m_width),
-        static_cast<uint16_t>(m_height));
+        static_cast<uint16_t>(m_surface.framebuffer_width),
+        static_cast<uint16_t>(m_surface.framebuffer_height));
 
     create_triangle();
     create_2d();
     create_text();
 
-    SDL_Log("[renderer] bgfx initialized: %s", renderer_name());
+    SDL_Log("[renderer] bgfx initialized: %s logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
+        renderer_name(),
+        m_surface.logical_width,
+        m_surface.logical_height,
+        m_surface.framebuffer_width,
+        m_surface.framebuffer_height,
+        m_surface.scale_x,
+        m_surface.scale_y);
     return true;
 }
 
@@ -177,13 +184,13 @@ void Renderer::begin_frame()
 {
     bgfx::setViewClear(ViewGame2D, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff, 1.0f, 0);
     bgfx::setViewRect(ViewGame2D, 0, 0,
-        static_cast<uint16_t>(m_width),
-        static_cast<uint16_t>(m_height));
-    bgfx::setViewRect(ViewTextLab, 0, 0, static_cast<uint16_t>(m_width), static_cast<uint16_t>(m_height));
-    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(m_width), static_cast<uint16_t>(m_height));
+        static_cast<uint16_t>(m_surface.framebuffer_width),
+        static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::setViewRect(ViewTextLab, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width), static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width), static_cast<uint16_t>(m_surface.framebuffer_height));
 
     float ortho[16];
-    make_ortho(ortho, static_cast<float>(m_width), static_cast<float>(m_height));
+    make_ortho(ortho, static_cast<float>(m_surface.logical_width), static_cast<float>(m_surface.logical_height));
     bgfx::setViewTransform(ViewGame2D, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setDebug(BGFX_DEBUG_TEXT);
@@ -194,7 +201,7 @@ void Renderer::begin_frame()
 
 void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position)
 {
-    if (!m_initialized || m_width <= 0 || m_height <= 0) return;
+    if (!m_initialized || m_surface.logical_width <= 0 || m_surface.logical_height <= 0) return;
 
     if (bgfx::isValid(bgfx::VertexBufferHandle{m_triangle_vb})
         && bgfx::isValid(bgfx::IndexBufferHandle{m_triangle_ib})
@@ -202,8 +209,8 @@ void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position
     {
         constexpr float half_width = 48.0f;
         constexpr float half_height = 42.0f;
-        const float usable_width = static_cast<float>(m_width) - half_width * 2.0f;
-        const float usable_height = static_cast<float>(m_height) - half_height * 2.0f;
+        const float usable_width = static_cast<float>(m_surface.logical_width) - half_width * 2.0f;
+        const float usable_height = static_cast<float>(m_surface.logical_height) - half_height * 2.0f;
         const float x = half_width + position.x * (usable_width > 0.0f ? usable_width : 0.0f);
         const float y = half_height + position.y * (usable_height > 0.0f ? usable_height : 0.0f);
         const float transform[16] = {
@@ -233,21 +240,28 @@ void Renderer::request_screenshot(const std::string& path)
     m_pending_screenshot = path;
 }
 
-void Renderer::resize(int width, int height)
+void Renderer::resize(const SurfaceMetrics& surface)
 {
     if (!m_initialized) return;
 
-    m_width = width;
-    m_height = height;
+    m_surface = sanitize_surface_metrics(surface);
 
     bgfx::reset(
-        static_cast<uint32_t>(width),
-        static_cast<uint32_t>(height),
+        static_cast<uint32_t>(m_surface.framebuffer_width),
+        static_cast<uint32_t>(m_surface.framebuffer_height),
         m_vsync ? BGFX_RESET_VSYNC : 0
     );
     bgfx::setViewRect(0, 0, 0,
-        static_cast<uint16_t>(width),
-        static_cast<uint16_t>(height));
+        static_cast<uint16_t>(m_surface.framebuffer_width),
+        static_cast<uint16_t>(m_surface.framebuffer_height));
+    SDL_Log("[renderer] resized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
+        m_surface.logical_width,
+        m_surface.logical_height,
+        m_surface.framebuffer_width,
+        m_surface.framebuffer_height,
+        m_surface.scale_x,
+        m_surface.scale_y);
+    resize_text();
 }
 
 void Renderer::shutdown()

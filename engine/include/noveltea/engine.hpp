@@ -46,6 +46,7 @@ public:
     bool initialize(const PlatformConfig& config, const EngineRunConfig& run_config = {});
     int run();
     bool tick();
+    void resize(const SurfaceMetrics& surface);
     void shutdown();
     void request_stop();
     void set_demo_position(float normalized_x, float normalized_y);

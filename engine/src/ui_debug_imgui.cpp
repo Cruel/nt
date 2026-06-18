@@ -65,7 +65,7 @@ bool DebugUI::initialize(SDL_Window *window, const assets::AssetManager* assets)
 
   ImGui::StyleColorsDark();
 #if defined(SDL_PLATFORM_ANDROID)
-  constexpr float android_ui_scale = 2.5f;
+  constexpr float android_ui_scale = 1.f;
   ImGuiStyle &style = ImGui::GetStyle();
   style.ScaleAllSizes(android_ui_scale);
   style.FontScaleDpi = android_ui_scale;
@@ -104,15 +104,16 @@ void DebugUI::process_event(const SDL_Event &event) {
   ImGui_ImplSDL3_ProcessEvent(&event);
 }
 
-void DebugUI::begin_frame(int width, int height) {
+void DebugUI::begin_frame(const SurfaceMetrics& surface) {
   if (!m_initialized)
     return;
   ImGui_ImplSDL3_NewFrame();
   ImGuiIO &io = ImGui::GetIO();
-  if (width > 0 && height > 0) {
+  const SurfaceMetrics s = sanitize_surface_metrics(surface);
+  if (s.logical_width > 0 && s.logical_height > 0) {
     io.DisplaySize =
-        ImVec2(static_cast<float>(width), static_cast<float>(height));
-    io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+        ImVec2(static_cast<float>(s.logical_width), static_cast<float>(s.logical_height));
+    io.DisplayFramebufferScale = ImVec2(s.scale_x, s.scale_y);
   }
   ImGui::NewFrame();
 }

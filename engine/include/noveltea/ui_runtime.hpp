@@ -4,6 +4,8 @@
 #include <functional>
 #include <string>
 
+#include "noveltea/surface.hpp"
+
 union SDL_Event;
 struct SDL_Window;
 
@@ -26,7 +28,7 @@ public:
         bool load_demo_document = true,
         script::ScriptRuntime* scripts = nullptr);
     bool process_event(const SDL_Event& event);
-    void resize(int width, int height);
+    void resize(const SurfaceMetrics& surface);
     void begin_frame(float delta_time);
     void end_frame();
     void shutdown();
@@ -68,8 +70,7 @@ private:
 
     bool m_initialized = false;
     bool m_last_event_consumed = false;
-    int m_width = 1280;
-    int m_height = 720;
+    SurfaceMetrics m_surface{};
 };
 
 } // namespace noveltea

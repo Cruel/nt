@@ -134,6 +134,20 @@ Rml::Rectanglei clamp_scissor(Rml::Rectanglei region, int width, int height)
     return Rml::Rectanglei::FromPositionSize({left, top}, {right - left, bottom - top});
 }
 
+Rml::Rectanglei logical_scissor_to_framebuffer(Rml::Rectanglei region, const SurfaceMetrics& surface)
+{
+    const Rect logical{
+        static_cast<float>(region.Left()),
+        static_cast<float>(region.Top()),
+        static_cast<float>(region.Width()),
+        static_cast<float>(region.Height()),
+    };
+    const Rect physical = logical_to_framebuffer(logical, surface);
+    return Rml::Rectanglei::FromPositionSize(
+        {static_cast<int>(std::floor(physical.x)), static_cast<int>(std::floor(physical.y))},
+        {static_cast<int>(std::ceil(physical.width)), static_cast<int>(std::ceil(physical.height))});
+}
+
 float gradient_kind_code(GradientKind kind)
 {
     switch (kind) {
@@ -207,7 +221,7 @@ ClipOperationPlan clip_operation_plan(Rml::ClipMaskOperation operation)
 } // namespace
 
 struct BgfxRenderInterface::Impl {
-    explicit Impl(int initial_width, int initial_height, const assets::AssetManager& asset_manager)
+    explicit Impl(const SurfaceMetrics& initial_surface, const assets::AssetManager& asset_manager)
         : assets(asset_manager)
     {
         layout.begin()
@@ -247,7 +261,7 @@ struct BgfxRenderInterface::Impl {
 
         const uint8_t white[] = {255, 255, 255, 255};
         white_texture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, kRmlTextureFlags, bgfx::copy(white, sizeof(white)));
-        resize(initial_width, initial_height);
+        resize(initial_surface);
     }
 
     ~Impl()
@@ -290,11 +304,14 @@ struct BgfxRenderInterface::Impl {
         if (bgfx::isValid(shadow_offset_uniform)) bgfx::destroy(shadow_offset_uniform);
     }
 
-    void resize(int new_width, int new_height)
+    void resize(const SurfaceMetrics& new_surface)
     {
-        width = std::max(new_width, 1);
-        height = std::max(new_height, 1);
-        bx::mtxOrtho(projection, 0.0f, float(width), float(height), 0.0f, -10000.0f, 10000.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
+        surface = sanitize_surface_metrics(new_surface);
+        width = surface.framebuffer_width;
+        height = surface.framebuffer_height;
+        logical_width = surface.logical_width;
+        logical_height = surface.logical_height;
+        bx::mtxOrtho(projection, 0.0f, float(logical_width), float(logical_height), 0.0f, -10000.0f, 10000.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
         destroy_layers();
         destroy_postprocess_targets();
     }
@@ -1070,6 +1087,9 @@ struct BgfxRenderInterface::Impl {
     RmlUiRenderPassScheduler pass_scheduler{bgfx_backend::ViewRuntimeUIBegin, bgfx_backend::ViewRuntimeUIEnd};
     int width = 1;
     int height = 1;
+    int logical_width = 1;
+    int logical_height = 1;
+    SurfaceMetrics surface{};
     float projection[16] {};
     float identity[16] {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     float transform[16] {};
@@ -1079,8 +1099,8 @@ struct BgfxRenderInterface::Impl {
     bool frame_failed = false;
 };
 
-BgfxRenderInterface::BgfxRenderInterface(int width, int height, const assets::AssetManager& assets)
-    : m_impl(std::make_unique<Impl>(width, height, assets))
+BgfxRenderInterface::BgfxRenderInterface(const SurfaceMetrics& surface, const assets::AssetManager& assets)
+    : m_impl(std::make_unique<Impl>(surface, assets))
 {
 }
 
@@ -1100,7 +1120,7 @@ BgfxRenderInterface::operator bool() const
         bgfx::isValid(m_impl->gradient_program);
 }
 
-void BgfxRenderInterface::resize(int width, int height) { m_impl->resize(width, height); }
+void BgfxRenderInterface::resize(const SurfaceMetrics& surface) { m_impl->resize(surface); }
 
 void BgfxRenderInterface::begin_frame()
 {
@@ -1241,7 +1261,10 @@ void BgfxRenderInterface::ReleaseTexture(Rml::TextureHandle texture)
 }
 
 void BgfxRenderInterface::EnableScissorRegion(bool enable) { m_impl->scissor_enabled = enable; }
-void BgfxRenderInterface::SetScissorRegion(Rml::Rectanglei region) { m_impl->scissor_region = clamp_scissor(region, m_impl->width, m_impl->height); }
+void BgfxRenderInterface::SetScissorRegion(Rml::Rectanglei region)
+{
+    m_impl->scissor_region = clamp_scissor(logical_scissor_to_framebuffer(region, m_impl->surface), m_impl->width, m_impl->height);
+}
 
 void BgfxRenderInterface::SetTransform(const Rml::Matrix4f* transform)
 {

@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <string>
 
+#include "noveltea/surface.hpp"
+
 struct SDL_Window;
 union SDL_Event;
 
@@ -20,7 +22,7 @@ public:
 
     bool initialize(SDL_Window* window, const assets::AssetManager* assets = nullptr);
     void process_event(const SDL_Event& event);
-    void begin_frame(int width, int height);
+    void begin_frame(const SurfaceMetrics& surface);
     void end_frame();
     void shutdown();
 

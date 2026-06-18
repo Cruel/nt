@@ -82,18 +82,21 @@ public:
     bool initialize();
     void shutdown();
     FontHandle load_font(const FontDesc& desc) { return m_text.load_font(desc); }
-    TextLayout layout_text(const Text& text) const { return m_text.layout_text(text); }
-    TextMetrics measure(const Text& text) const { return m_text.measure_text(text); }
-    TextMetrics measure(FontHandle font, std::string_view value, float size) const { return m_text.measure_text(font, value, size); }
-    void draw_text(const Text& text) { draw_text(m_text.layout_text(text)); }
+    void resize(const SurfaceMetrics& surface) { m_surface = sanitize_surface_metrics(surface); }
+    TextLayout layout_text(const Text& text) const { return m_text.layout_text(text, effective_scale()); }
+    TextMetrics measure(const Text& text) const { return m_text.layout_text(text, effective_scale()).metrics; }
+    TextMetrics measure(FontHandle font, std::string_view value, float size) const;
+    void draw_text(const Text& text) { draw_text(m_text.layout_text(text, effective_scale())); }
     void draw_text(const TextLayout& layout);
 
 private:
     CachedGlyph* ensure_glyph(const PositionedGlyph& glyph);
     bgfx::TextureHandle ensure_page(uint16_t page);
+    float effective_scale() const { return std::max(m_surface.scale_x, m_surface.scale_y); }
 
     const assets::AssetManager& m_assets;
     text::TextEngine m_text;
+    SurfaceMetrics m_surface{};
     text::ShelfAtlasPacker m_packer;
     std::vector<AtlasPage> m_pages;
     std::unordered_map<GlyphCacheKey, CachedGlyph, GlyphCacheKeyHash> m_glyphs;
@@ -134,6 +137,16 @@ void BgfxTextRenderer::shutdown()
     m_program = BGFX_INVALID_HANDLE;
 }
 
+TextMetrics BgfxTextRenderer::measure(FontHandle font, std::string_view value, float size) const
+{
+    Text text;
+    text.font = font;
+    text.value = std::string(value);
+    text.style.size = size;
+    text.wrap = TextWrap::NoWrap;
+    return m_text.layout_text(text, effective_scale()).metrics;
+}
+
 bgfx::TextureHandle BgfxTextRenderer::ensure_page(uint16_t page_index)
 {
     while (m_pages.size() <= page_index) {
@@ -168,13 +181,13 @@ CachedGlyph* BgfxTextRenderer::ensure_glyph(const PositionedGlyph& glyph)
     GlyphCacheKey key;
     key.font = glyph.font.id;
     key.glyph_id = glyph.glyph_id;
-    key.pixel_size = text::glyph_cache_pixel_size_key(glyph.pixel_size);
+    key.pixel_size = text::glyph_cache_pixel_size_key(glyph.raster_pixel_size);
     auto found = m_glyphs.find(key);
     if (found != m_glyphs.end()) {
         return &found->second;
     }
 
-    auto bitmap = m_text.rasterize_glyph(glyph.font, glyph.glyph_id, glyph.pixel_size);
+    auto bitmap = m_text.rasterize_glyph(glyph.font, glyph.glyph_id, glyph.raster_pixel_size);
     if (!bitmap) {
         return nullptr;
     }
@@ -227,7 +240,15 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         for (const auto& run : line.visual_runs) {
             for (const auto& positioned : run.glyphs) {
                 CachedGlyph* glyph = ensure_glyph(positioned);
-                if (!glyph || glyph->width <= 0.0f || glyph->height <= 0.0f) {
+                const float glyph_scale = positioned.logical_pixel_size > 0.0f
+                    ? positioned.raster_pixel_size / positioned.logical_pixel_size
+                    : effective_scale();
+                const float inv_glyph_scale = 1.0f / std::max(glyph_scale, 0.0001f);
+                const float glyph_width = glyph ? glyph->width * inv_glyph_scale : 0.0f;
+                const float glyph_height = glyph ? glyph->height * inv_glyph_scale : 0.0f;
+                const float glyph_bearing_x = glyph ? glyph->bearing_x * inv_glyph_scale : 0.0f;
+                const float glyph_bearing_y = glyph ? glyph->bearing_y * inv_glyph_scale : 0.0f;
+                if (!glyph || glyph_width <= 0.0f || glyph_height <= 0.0f) {
                     continue;
                 }
                 if (page_vertices.size() <= glyph->page) {
@@ -240,10 +261,10 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
                     continue;
                 }
 
-                const float x0 = positioned.position.x + positioned.offset.x + glyph->bearing_x;
-                const float y0 = positioned.position.y + positioned.offset.y - glyph->bearing_y;
-                const float x1 = x0 + glyph->width;
-                const float y1 = y0 + glyph->height;
+                const float x0 = positioned.position.x + positioned.offset.x + glyph_bearing_x;
+                const float y0 = positioned.position.y + positioned.offset.y - glyph_bearing_y;
+                const float x1 = x0 + glyph_width;
+                const float y1 = y0 + glyph_height;
                 const uint16_t base = static_cast<uint16_t>(vertices.size());
                 const Vec2 p0 = transform_point({x0, y0}, origin, layout.transform);
                 const Vec2 p1 = transform_point({x1, y0}, origin, layout.transform);
@@ -264,12 +285,13 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
         .end();
 
+    const Rect physical_bounds = logical_to_framebuffer(layout.bounds, m_surface);
     const uint16_t scissor = (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
         ? bgfx::setScissor(
-            static_cast<uint16_t>(std::max(0.0f, layout.bounds.x)),
-            static_cast<uint16_t>(std::max(0.0f, layout.bounds.y)),
-            static_cast<uint16_t>(std::max(0.0f, layout.bounds.width)),
-            static_cast<uint16_t>(std::max(0.0f, layout.bounds.height)))
+            static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.x))),
+            static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.y))),
+            static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.width))),
+            static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.height))))
         : UINT16_MAX;
 
     for (size_t page_index = 0; page_index < page_vertices.size(); ++page_index) {
@@ -312,6 +334,7 @@ void Renderer::create_text()
         return;
     }
     auto* text = new BgfxTextRenderer(*m_assets);
+    text->resize(m_surface);
     if (!text->initialize()) {
         delete text;
         m_text_renderer = nullptr;
@@ -335,6 +358,14 @@ void Renderer::destroy_text()
     }
     m_text_renderer = nullptr;
     m_default_text_font = 0;
+}
+
+void Renderer::resize_text()
+{
+    auto* text = static_cast<BgfxTextRenderer*>(m_text_renderer);
+    if (text) {
+        text->resize(m_surface);
+    }
 }
 
 FontHandle Renderer::load_font(const FontDesc& desc)
@@ -388,6 +419,8 @@ void Renderer::draw_demo_text(float time_seconds)
         return;
     }
     const FontHandle font{m_default_text_font};
+    const float title_box_height = clamp_logical(static_cast<float>(m_surface.logical_height) * 0.15f, 72.0f, 150.0f);
+    const float title_size = clamp_logical(title_box_height * 0.55f, 28.0f, 72.0f);
 
     auto draw = [&](std::string value, Rect bounds, float size, Color color, TextAlign align = TextAlign::Start, TextDirection direction = TextDirection::Auto, Transform2D transform = {}) {
         Text text;
@@ -402,9 +435,10 @@ void Renderer::draw_demo_text(float time_seconds)
         draw_text(text);
     };
 
-    draw("Grayscale text at 18 px", {64.0f, 40.0f, 360.0f, 30.0f}, 18.0f, Color::from_rgba8(245, 242, 232));
-    draw("Grayscale text at 24 px", {64.0f, 78.0f, 360.0f, 36.0f}, 24.0f, Color::from_rgba8(245, 242, 232));
-    draw("Grayscale text at 36 px", {64.0f, 126.0f, 420.0f, 52.0f}, 36.0f, Color::from_rgba8(255, 196, 87));
+    draw("Proportional title/header", {64.0f, 24.0f, 620.0f, title_box_height}, title_size, Color::from_rgba8(255, 196, 87));
+    draw("Grayscale text at 18 logical px", {64.0f, 126.0f, 420.0f, 30.0f}, 18.0f, Color::from_rgba8(245, 242, 232));
+    draw("Grayscale text at 24 logical px", {64.0f, 164.0f, 420.0f, 36.0f}, 24.0f, Color::from_rgba8(245, 242, 232));
+    draw("Grayscale text at 36 logical px", {64.0f, 212.0f, 500.0f, 52.0f}, 36.0f, Color::from_rgba8(255, 196, 87));
     draw("Wrapped English text uses a boxed Text primitive and keeps shaping/layout separate from RmlUi.", {64.0f, 200.0f, 360.0f, 92.0f}, 22.0f, Color::from_rgba8(212, 230, 255));
     draw("Combining marks: cafe\xCC\x81, A\xCC\x8A, n\xCC\x83", {64.0f, 320.0f, 520.0f, 42.0f}, 24.0f, Color::from_rgba8(176, 224, 188));
     draw("Bidi CPU tests pass; bundled demo font has no Hebrew glyphs", {64.0f, 374.0f, 720.0f, 48.0f}, 24.0f, Color::from_rgba8(250, 214, 160));

@@ -161,26 +161,10 @@ static int convert_mouse_button(uint8_t button)
     return 3;
 }
 
-static Rml::Vector2i drawable_dimensions(SDL_Window* window, const Rml::Context& context)
-{
-    int width = 0;
-    int height = 0;
-    if (window && SDL_GetWindowSizeInPixels(window, &width, &height) && width > 0 && height > 0) {
-        return {width, height};
-    }
-    return context.GetDimensions();
-}
-
-static float pixel_density(SDL_Window* window)
-{
-    if (!window) return 1.0f;
-    const float density = SDL_GetWindowPixelDensity(window);
-    return density > 0.0f ? density : 1.0f;
-}
-
 static Rml::TouchList touch_list_from_event(Rml::Context& context, SDL_Window* window, const SDL_Event& event)
 {
-    const Rml::Vector2i dimensions = drawable_dimensions(window, context);
+    (void)window;
+    const Rml::Vector2i dimensions = context.GetDimensions();
     return {Rml::Touch{
         static_cast<Rml::TouchId>(event.tfinger.fingerID),
         {event.tfinger.x * float(dimensions.x), event.tfinger.y * float(dimensions.y)}}};
@@ -194,10 +178,10 @@ static bool consumed(bool rml_event_not_consumed)
 bool process_sdl_event(Rml::Context& context, SDL_Window* window, const SDL_Event& event)
 {
     const int modifiers = get_key_modifier_state();
-    const float density = pixel_density(window);
+    (void)window;
     switch (event.type) {
     case SDL_EVENT_MOUSE_MOTION:
-        return consumed(context.ProcessMouseMove(int(event.motion.x * density), int(event.motion.y * density), modifiers));
+        return consumed(context.ProcessMouseMove(int(event.motion.x), int(event.motion.y), modifiers));
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
         SDL_CaptureMouse(true);
         return consumed(context.ProcessMouseButtonDown(convert_mouse_button(event.button.button), modifiers));
@@ -232,10 +216,8 @@ bool process_sdl_event(Rml::Context& context, SDL_Window* window, const SDL_Even
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:
         return consumed(context.ProcessMouseLeave());
     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-        context.SetDimensions({event.window.data1, event.window.data2});
         return false;
     case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
-        if (window) context.SetDensityIndependentPixelRatio(SDL_GetWindowDisplayScale(window));
         return false;
     default:
         return false;

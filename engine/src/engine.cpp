@@ -199,8 +199,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     RendererConfig rcfg;
     rcfg.native_display = handles.display;
     rcfg.native_window = handles.window;
-    rcfg.width = config.width;
-    rcfg.height = config.height;
+    rcfg.surface = m_platform.surface();
     rcfg.vsync = config.vsync;
     rcfg.assets = &m_assets;
 
@@ -223,6 +222,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 #endif
 
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
+    m_runtime_ui.resize(m_platform.surface());
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo
 #if defined(NOVELTEA_HAS_LUA)
             , &m_scripts
@@ -256,10 +256,14 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 
     m_running = true;
     m_initialized = true;
-    SDL_Log("[engine] initialized (renderer: %s, %dx%d)",
+    SDL_Log("[engine] initialized (renderer: %s, logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f)",
         m_renderer.renderer_name(),
-        m_platform.width(),
-        m_platform.height());
+        m_platform.logical_width(),
+        m_platform.logical_height(),
+        m_platform.framebuffer_width(),
+        m_platform.framebuffer_height(),
+        m_platform.scale_x(),
+        m_platform.scale_y());
     if (m_frame_limit > 0) {
         SDL_Log("[engine] frame-limited smoke run: %u frames", m_frame_limit);
     }
@@ -306,6 +310,31 @@ bool Engine::tick()
     return m_running;
 }
 
+void Engine::resize(const SurfaceMetrics& surface)
+{
+    const SurfaceMetrics sanitized = sanitize_surface_metrics(surface);
+    const SurfaceMetrics previous = m_renderer.surface();
+    if (previous.logical_width == sanitized.logical_width
+        && previous.logical_height == sanitized.logical_height
+        && previous.framebuffer_width == sanitized.framebuffer_width
+        && previous.framebuffer_height == sanitized.framebuffer_height
+        && previous.scale_x == sanitized.scale_x
+        && previous.scale_y == sanitized.scale_y) {
+        return;
+    }
+
+    m_platform.set_surface_metrics(sanitized);
+    m_renderer.resize(sanitized);
+    m_runtime_ui.resize(sanitized);
+    SDL_Log("[surface] logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
+        sanitized.logical_width,
+        sanitized.logical_height,
+        sanitized.framebuffer_width,
+        sanitized.framebuffer_height,
+        sanitized.scale_x,
+        sanitized.scale_y);
+}
+
 void Engine::handle_events()
 {
     m_platform.poll_events();
@@ -332,8 +361,14 @@ void Engine::handle_events()
 
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
                 if (ui_consumed) break;
-                std::printf("[input] mouse_down: button=%d x=%f y=%f\n",
-                    event.button.button, event.button.x, event.button.y);
+                std::printf("[input] mouse_down: button=%d logical=(%.2f,%.2f) surface=%dx%d scale=%.3fx%.3f\n",
+                    event.button.button,
+                    event.button.x,
+                    event.button.y,
+                    m_platform.logical_width(),
+                    m_platform.logical_height(),
+                    m_platform.scale_x(),
+                    m_platform.scale_y());
                 handle_mouse_down(event.button.x, event.button.y, event.button.button);
                 break;
 
@@ -351,10 +386,9 @@ void Engine::handle_events()
 
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                m_platform.refresh_pixel_size();
-                m_renderer.resize(m_platform.width(), m_platform.height());
-                m_runtime_ui.resize(m_platform.width(), m_platform.height());
-                std::printf("[window] resized: %dx%d\n", m_platform.width(), m_platform.height());
+            case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+                m_platform.refresh_surface_metrics();
+                resize(m_platform.surface());
                 break;
 
             default:
@@ -365,14 +399,14 @@ void Engine::handle_events()
 
 void Engine::handle_mouse_down(float x, float y, uint8_t button)
 {
-    if (button != SDL_BUTTON_LEFT || m_platform.width() <= 0 || m_platform.height() <= 0) {
+    if (button != SDL_BUTTON_LEFT || m_platform.logical_width() <= 0 || m_platform.logical_height() <= 0) {
         return;
     }
 
     constexpr float half_width = 48.0f;
     constexpr float half_height = 42.0f;
-    const float width = static_cast<float>(m_platform.width());
-    const float height = static_cast<float>(m_platform.height());
+    const float width = static_cast<float>(m_platform.logical_width());
+    const float height = static_cast<float>(m_platform.logical_height());
     const float usable_width = width - half_width * 2.0f;
     const float usable_height = height - half_height * 2.0f;
     const float center_x = half_width + m_demo_position.x * (usable_width > 0.0f ? usable_width : 0.0f);
@@ -401,7 +435,7 @@ void Engine::update(float dt)
 void Engine::render()
 {
     if (m_debug_ui_enabled) {
-        m_debug_ui.begin_frame(m_renderer.width(), m_renderer.height());
+        m_debug_ui.begin_frame(m_renderer.surface());
     }
     m_runtime_ui.begin_frame(m_platform.delta_time());
     m_renderer.begin_frame();

@@ -42,7 +42,8 @@ struct PositionedGlyph {
     Vec2 advance{};
     Vec2 offset{};
     FontHandle font{};
-    float pixel_size = 0.0f;
+    float logical_pixel_size = 0.0f;
+    float raster_pixel_size = 0.0f;
 };
 
 struct ShapedRun {

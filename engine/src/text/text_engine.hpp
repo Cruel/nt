@@ -54,9 +54,10 @@ public:
     [[nodiscard]] bool valid() const;
     [[nodiscard]] FontHandle load_font(const FontDesc& desc);
     [[nodiscard]] TextLayout layout_text(const Text& text) const;
+    [[nodiscard]] TextLayout layout_text(const Text& text, float scale) const;
     [[nodiscard]] TextMetrics measure_text(const Text& text) const;
     [[nodiscard]] TextMetrics measure_text(FontHandle font, std::string_view value, float size) const;
-    [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id, float pixel_size) const;
+    [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id, float raster_pixel_size) const;
     [[nodiscard]] FontMetrics metrics(FontHandle font, float pixel_size) const;
     [[nodiscard]] uint32_t glyph_index(FontHandle font, uint32_t codepoint) const;
 

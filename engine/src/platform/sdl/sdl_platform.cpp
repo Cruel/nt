@@ -1,6 +1,7 @@
 #include "noveltea/platform.hpp"
 
 #include <SDL3/SDL.h>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -38,19 +39,16 @@ bool Platform::initialize(const PlatformConfig &config) {
     return false;
   }
 
-  m_width = config.width;
-  m_height = config.height;
+  m_surface = make_surface_metrics(config.width, config.height, config.width, config.height);
 
   SDL_WindowFlags win_flags = config.resizable ? SDL_WINDOW_RESIZABLE : 0;
-  m_state->window = SDL_CreateWindow(config.title, m_width, m_height, win_flags);
+  m_state->window = SDL_CreateWindow(config.title, m_surface.logical_width, m_surface.logical_height, win_flags);
   if (!m_state->window) {
     std::fprintf(stderr, "[platform] SDL_CreateWindow failed: %s\n",
                  SDL_GetError());
     SDL_Quit();
     return false;
   }
-
-  // refresh_pixel_size();
 
   m_last_tick = SDL_GetTicks();
   m_quit = false;
@@ -67,8 +65,16 @@ bool Platform::initialize(const PlatformConfig &config) {
   }
 #endif
 
-  std::printf("[platform] initialized: %s (%dx%d)\n", config.title, m_width,
-              m_height);
+  refresh_surface_metrics();
+
+  std::printf("[platform] initialized: %s logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
+              config.title,
+              m_surface.logical_width,
+              m_surface.logical_height,
+              m_surface.framebuffer_width,
+              m_surface.framebuffer_height,
+              m_surface.scale_x,
+              m_surface.scale_y);
   return true;
 }
 
@@ -89,29 +95,42 @@ void Platform::poll_events() {
 
 void Platform::request_quit() { m_quit = true; }
 
-void Platform::set_size(int width, int height) {
-  m_width = width;
-  m_height = height;
+void Platform::set_surface_metrics(SurfaceMetrics surface) {
+  m_surface = sanitize_surface_metrics(surface);
+  std::printf("[surface] logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
+              m_surface.logical_width,
+              m_surface.logical_height,
+              m_surface.framebuffer_width,
+              m_surface.framebuffer_height,
+              m_surface.scale_x,
+              m_surface.scale_y);
 }
 
-void Platform::refresh_pixel_size() {
+void Platform::refresh_surface_metrics() {
   if (!m_state->window)
     return;
 
-  int width = 0;
-  int height = 0;
+  int logical_width = m_surface.logical_width;
+  int logical_height = m_surface.logical_height;
+  int framebuffer_width = m_surface.framebuffer_width;
+  int framebuffer_height = m_surface.framebuffer_height;
+  SDL_GetWindowSize(m_state->window, &logical_width, &logical_height);
+  SDL_GetWindowSizeInPixels(m_state->window, &framebuffer_width, &framebuffer_height);
+
 #if defined(SDL_PLATFORM_ANDROID)
-  if (SDL_GetWindowSize(m_state->window, &width, &height) && width > 0 && height > 0) {
-    m_width = width;
-    m_height = height;
+  const float display_scale = SDL_GetWindowDisplayScale(m_state->window);
+  if (std::isfinite(display_scale) && display_scale > 0.0f && framebuffer_width > 0 && framebuffer_height > 0) {
+    logical_width = static_cast<int>(std::lround(static_cast<float>(framebuffer_width) / display_scale));
+    logical_height = static_cast<int>(std::lround(static_cast<float>(framebuffer_height) / display_scale));
   }
-#else
-  if (SDL_GetWindowSizeInPixels(m_state->window, &width, &height) && width > 0 &&
-      height > 0) {
-    m_width = width;
-    m_height = height;
-  }
+#elif defined(__EMSCRIPTEN__)
+  // The browser shell sends authoritative CSS logical size, backing-store size,
+  // and DPR through noveltea_preview_resize once the runtime is ready.
+  return;
 #endif
+
+  SurfaceMetrics refreshed = make_surface_metrics(logical_width, logical_height, framebuffer_width, framebuffer_height);
+  set_surface_metrics(refreshed);
 }
 
 void *Platform::native_window() const { return m_state->window; }

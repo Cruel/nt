@@ -22,6 +22,9 @@
     let port = null;
     let engineReady = false;
     let runtimeReady = false;
+    let pendingResize = null;
+    let appliedResizeKey = '';
+    let resizeScheduled = false;
     let lastReadyPosition = { x: 0.5, y: 0.5 };
     let lastReadyRunning = true;
 
@@ -134,23 +137,67 @@
     function resizeCanvas() {
       const canvas = document.getElementById('canvas');
       const dpr = window.devicePixelRatio || 1;
-      const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
-      const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
-      if (canvas.dataset.ntWidth !== String(width) || canvas.dataset.ntHeight !== String(height)) {
-        canvas.dataset.ntWidth = String(width);
-        canvas.dataset.ntHeight = String(height);
-        if (runtimeReady && typeof Module._noveltea_preview_resize === 'function') {
-          Module._noveltea_preview_resize(width, height);
-        }
-        window.dispatchEvent(new Event('resize'));
+      const rect = canvas.getBoundingClientRect();
+      const logicalWidth = Math.max(1, Math.round(rect.width));
+      const logicalHeight = Math.max(1, Math.round(rect.height));
+      const framebufferWidth = Math.max(1, Math.round(logicalWidth * dpr));
+      const framebufferHeight = Math.max(1, Math.round(logicalHeight * dpr));
+      const scaleX = framebufferWidth / logicalWidth;
+      const scaleY = framebufferHeight / logicalHeight;
+      if (!runtimeReady) {
+        canvas.width = framebufferWidth;
+        canvas.height = framebufferHeight;
       }
+      pendingResize = { logicalWidth, logicalHeight, framebufferWidth, framebufferHeight, scaleX, scaleY };
+      scheduleResizeApply();
     }
+
+    function scheduleResizeApply() {
+      if (resizeScheduled) return;
+      resizeScheduled = true;
+      requestAnimationFrame(() => {
+        resizeScheduled = false;
+        applyPendingResize();
+      });
+    }
+
+    function applyPendingResize() {
+      if (!pendingResize || !runtimeReady || typeof Module._noveltea_preview_resize !== 'function') {
+        return;
+      }
+      const resize = pendingResize;
+      const key = `${resize.logicalWidth}x${resize.logicalHeight}:${resize.framebufferWidth}x${resize.framebufferHeight}:${resize.scaleX}x${resize.scaleY}`;
+      if (key === appliedResizeKey) {
+        return;
+      }
+      Module._noveltea_preview_resize(
+        resize.logicalWidth,
+        resize.logicalHeight,
+        resize.framebufferWidth,
+        resize.framebufferHeight,
+        resize.scaleX,
+        resize.scaleY);
+      appliedResizeKey = key;
+      const gl = typeof GL !== 'undefined' && GL.currentContext ? GL.currentContext.GLctx : null;
+      console.log('[surface:web]', {
+        devicePixelRatio: window.devicePixelRatio || 1,
+        css: `${resize.logicalWidth}x${resize.logicalHeight}`,
+        backing: `${canvas.width}x${canvas.height}`,
+        drawingBuffer: gl ? `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}` : 'unavailable',
+        engineLogical: `${resize.logicalWidth}x${resize.logicalHeight}`,
+        engineFramebuffer: `${resize.framebufferWidth}x${resize.framebufferHeight}`,
+        engineScale: `${resize.scaleX}x${resize.scaleY}`,
+      });
+    }
+    resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
     window.addEventListener('resize', resizeCanvas);
     requestAnimationFrame(resizeCanvas);
 
     globalThis.NovelTeaPreviewRuntimeReady = function() {
       runtimeReady = true;
+      resizeCanvas();
+      scheduleResizeApply();
       drainCommands();
     };
   })();
@@ -160,11 +207,13 @@
     arguments: (function() {
       const params = new URLSearchParams(window.location.search);
       const args = [];
-      const demo = params.get('demo');
-      if (demo) args.push('--demo', demo);
+      const validDemos = new Set(['none', 'render2d', 'rmlui', 'text', 'all']);
+      const demo = (params.get('demo') || '').toLowerCase();
+      if (validDemos.has(demo)) args.push('--demo', demo);
       const frames = params.get('frames');
       if (frames) args.push('--frames', frames);
-      if (params.get('noImgui') === '1') args.push('--no-imgui');
+      const noImgui = (params.get('noImgui') || '').toLowerCase();
+      if (noImgui === '1' || noImgui === 'true' || noImgui === 'yes') args.push('--no-imgui');
       return args;
     })(),
     onRuntimeInitialized: function() {

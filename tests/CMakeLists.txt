@@ -15,6 +15,7 @@ if(NOVELTEA_HAS_TEXT)
 endif()
 
 add_executable(noveltea_asset_tests
+    surface_tests.cpp
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp
     assets/asset_reader_tests.cpp

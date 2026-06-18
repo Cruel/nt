@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/surface.hpp"
 
 #if defined(NOVELTEA_HAS_RMLUI) && defined(NOVELTEA_HAS_BGFX)
 
@@ -13,12 +14,12 @@ namespace noveltea::ui::rmlui {
 
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
-    BgfxRenderInterface(int width, int height, const assets::AssetManager& assets);
+    BgfxRenderInterface(const SurfaceMetrics& surface, const assets::AssetManager& assets);
     ~BgfxRenderInterface() override;
 
     explicit operator bool() const;
 
-    void resize(int width, int height);
+    void resize(const SurfaceMetrics& surface);
     void begin_frame();
     void end_frame();
 

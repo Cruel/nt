@@ -7,6 +7,7 @@
 #include "noveltea/text/text.hpp"
 #include "noveltea/text/text_lab.hpp"
 #include "noveltea/text/text_layout.hpp"
+#include "noveltea/surface.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -18,8 +19,7 @@ namespace noveltea {
 struct RendererConfig {
     void* native_display = nullptr;
     void* native_window = nullptr;
-    int width = 1280;
-    int height = 720;
+    SurfaceMetrics surface{};
     bool vsync = true;
     const char* title = "NovelTea";
     const assets::AssetManager* assets = nullptr;
@@ -36,7 +36,7 @@ public:
     bool initialize(const RendererConfig& config);
     void begin_frame();
     void end_frame();
-    void resize(int width, int height);
+    void resize(const SurfaceMetrics& surface);
     void shutdown();
     void request_screenshot(const std::string& path);
 
@@ -55,8 +55,15 @@ public:
     const char* renderer_name() const;
     const char* texture_status() const { return m_texture_status.c_str(); }
     bool is_initialized() const { return m_initialized; }
-    int width() const { return m_width; }
-    int height() const { return m_height; }
+    const SurfaceMetrics& surface() const { return m_surface; }
+    int logical_width() const { return m_surface.logical_width; }
+    int logical_height() const { return m_surface.logical_height; }
+    int framebuffer_width() const { return m_surface.framebuffer_width; }
+    int framebuffer_height() const { return m_surface.framebuffer_height; }
+    float scale_x() const { return m_surface.scale_x; }
+    float scale_y() const { return m_surface.scale_y; }
+    [[deprecated("Use logical_width()")]] int width() const { return logical_width(); }
+    [[deprecated("Use logical_height()")]] int height() const { return logical_height(); }
 
     // Draw developer overlay text (rendered in-viewport, not stdout).
     void debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* fmt, ...);
@@ -68,14 +75,14 @@ private:
     void destroy_2d();
     void create_text();
     void destroy_text();
+    void resize_text();
     void submit_quad(const QuadCommand& command);
     uint16_t load_ppm_texture(std::string_view logical_path);
 
     const assets::AssetManager* m_assets = nullptr;
     bool m_initialized = false;
     bool m_vsync = true;
-    int m_width = 0;
-    int m_height = 0;
+    SurfaceMetrics m_surface{};
 
     // Backend resource handles (stored as uint16_t indices; UINT16_MAX = invalid).
     uint16_t m_triangle_vb = UINT16_MAX;

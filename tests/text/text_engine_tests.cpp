@@ -1,6 +1,7 @@
 #include "text/text_engine.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <graphemebreak.h>
 #include <linebreak.h>
 #include <wordbreak.h>
@@ -67,6 +68,34 @@ TEST_CASE("TextEngine preserves UTF-8 byte clusters for multibyte input")
     CHECK(std::ranges::any_of(glyphs, [](const PositionedGlyph& glyph) {
         return glyph.source_byte_begin == 3 && glyph.source_byte_end == 5;
     }));
+}
+
+TEST_CASE("TextEngine keeps logical text metrics stable while raster size follows scale")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    Text text = make_text(font, "Scale aware text", 24.0f);
+    const auto layout_1 = engine.layout_text(text, 1.0f);
+    const auto layout_125 = engine.layout_text(text, 1.25f);
+    const auto layout_2 = engine.layout_text(text, 2.0f);
+    const auto glyphs_1 = glyphs_for(layout_1);
+    const auto glyphs_125 = glyphs_for(layout_125);
+    const auto glyphs_2 = glyphs_for(layout_2);
+    REQUIRE_FALSE(glyphs_1.empty());
+    REQUIRE_FALSE(glyphs_125.empty());
+    REQUIRE_FALSE(glyphs_2.empty());
+
+    CHECK(glyphs_1.front().logical_pixel_size == 24.0f);
+    CHECK(glyphs_1.front().raster_pixel_size == 24.0f);
+    CHECK(glyphs_125.front().raster_pixel_size == 30.0f);
+    CHECK(glyphs_2.front().raster_pixel_size == 48.0f);
+    CHECK(noveltea::text::glyph_cache_pixel_size_key(glyphs_1.front().raster_pixel_size)
+        != noveltea::text::glyph_cache_pixel_size_key(glyphs_125.front().raster_pixel_size));
+    CHECK(layout_125.metrics.width == Catch::Approx(layout_1.metrics.width).margin(1.0f));
+    CHECK(layout_2.metrics.width == Catch::Approx(layout_1.metrics.width).margin(1.0f));
 }
 
 TEST_CASE("Combining marks and emoji ZWJ sequences are not corrupted by boundary handling")

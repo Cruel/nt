@@ -140,30 +140,21 @@ bool RuntimeUI::initialize(
     (void)scripts;
 #endif
 
-    m_state->render_interface = new ui::rmlui::BgfxRenderInterface(m_width, m_height, *assets);
+    m_surface = sanitize_surface_metrics(m_surface);
+    m_state->render_interface = new ui::rmlui::BgfxRenderInterface(m_surface, *assets);
     if (!*m_state->render_interface) {
         std::fprintf(stderr, "[runtime_ui] bgfx RmlUi renderer failed to initialize\n");
         cleanup_state();
         return false;
     }
 
-    m_state->context = Rml::CreateContext("main", Rml::Vector2i(m_width, m_height), m_state->render_interface);
+    m_state->context = Rml::CreateContext("main", Rml::Vector2i(m_surface.logical_width, m_surface.logical_height), m_state->render_interface);
     if (!m_state->context) {
         std::fprintf(stderr, "[runtime_ui] RmlUi::CreateContext failed\n");
         cleanup_state();
         return false;
     }
-    if (window) {
-        int drawable_width = 0;
-        int drawable_height = 0;
-        if (SDL_GetWindowSizeInPixels(window, &drawable_width, &drawable_height) && drawable_width > 0 && drawable_height > 0) {
-            m_width = drawable_width;
-            m_height = drawable_height;
-            m_state->context->SetDimensions({drawable_width, drawable_height});
-            m_state->render_interface->resize(drawable_width, drawable_height);
-        }
-        m_state->context->SetDensityIndependentPixelRatio(SDL_GetWindowDisplayScale(window));
-    }
+    m_state->context->SetDensityIndependentPixelRatio(m_surface.scale_x);
 
     if (!Rml::LoadFontFace(kRuntimeUiFontAsset, true)) {
         std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiFontAsset);
@@ -180,7 +171,13 @@ bool RuntimeUI::initialize(
         }
     }
 
-    std::printf("[runtime_ui] RmlUi initialized (%dx%d)\n", m_width, m_height);
+    std::printf("[runtime_ui] RmlUi initialized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
+        m_surface.logical_width,
+        m_surface.logical_height,
+        m_surface.framebuffer_width,
+        m_surface.framebuffer_height,
+        m_surface.scale_x,
+        m_surface.scale_y);
 #elif defined(NOVELTEA_HAS_RMLUI)
     std::fprintf(stderr, "[runtime_ui] RmlUi enabled but bgfx backend unavailable\n");
     return false;
@@ -206,16 +203,16 @@ bool RuntimeUI::process_event(const SDL_Event& event)
     return false;
 }
 
-void RuntimeUI::resize(int width, int height)
+void RuntimeUI::resize(const SurfaceMetrics& surface)
 {
-    m_width = width;
-    m_height = height;
+    m_surface = sanitize_surface_metrics(surface);
 #if defined(NOVELTEA_HAS_RMLUI)
     if (m_state && m_state->context) {
-        m_state->context->SetDimensions(Rml::Vector2i(width, height));
+        m_state->context->SetDimensions(Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
+        m_state->context->SetDensityIndependentPixelRatio(m_surface.scale_x);
 #if defined(NOVELTEA_HAS_BGFX)
         if (m_state->render_interface) {
-            m_state->render_interface->resize(width, height);
+            m_state->render_interface->resize(m_surface);
         }
 #endif
     }

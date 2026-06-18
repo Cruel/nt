@@ -16,11 +16,16 @@ Renderer::~Renderer() { shutdown(); }
 bool Renderer::initialize(const RendererConfig& config)
 {
     if (m_initialized) return true;
-    m_width = config.width;
-    m_height = config.height;
+    m_surface = sanitize_surface_metrics(config.surface);
     m_vsync = config.vsync;
     m_initialized = true;
-    std::printf("[renderer] stub initialized (%dx%d)\n", m_width, m_height);
+    std::printf("[renderer] stub initialized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
+        m_surface.logical_width,
+        m_surface.logical_height,
+        m_surface.framebuffer_width,
+        m_surface.framebuffer_height,
+        m_surface.scale_x,
+        m_surface.scale_y);
     return true;
 }
 
@@ -34,11 +39,16 @@ void Renderer::end_frame()
     // No-op stub
 }
 
-void Renderer::resize(int width, int height)
+void Renderer::resize(const SurfaceMetrics& surface)
 {
-    m_width = width;
-    m_height = height;
-    std::printf("[renderer] stub resize: %dx%d\n", m_width, m_height);
+    m_surface = sanitize_surface_metrics(surface);
+    std::printf("[renderer] stub resize logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
+        m_surface.logical_width,
+        m_surface.logical_height,
+        m_surface.framebuffer_width,
+        m_surface.framebuffer_height,
+        m_surface.scale_x,
+        m_surface.scale_y);
 }
 
 void Renderer::draw_demo_2d(float time_seconds)

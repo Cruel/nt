@@ -2,6 +2,27 @@
 
 Last updated: 2026-06-18.
 
+## Current DPI-Aware Surface State
+
+The engine now has a shared `SurfaceMetrics` model for logical size, framebuffer size, and device scale. Platform, Engine, Renderer, RuntimeUI/RmlUi, DebugUI/ImGui, Web shell resize, input hit testing, and the engine-owned text renderer use the model.
+
+Implemented in this pass:
+
+- Desktop and Android platform metrics distinguish SDL logical/window size from framebuffer pixels and display scale.
+- Web exports `noveltea_preview_resize(...)`; the shell sets the actual canvas backing store to CSS size times DPR before resizing the engine.
+- bgfx reset and view rects use framebuffer dimensions; orthographic projections and demo layout use logical dimensions.
+- RmlUi context dimensions are logical; the bgfx RmlUi render interface uses framebuffer render targets and converts logical scissors.
+- Dear ImGui receives logical `DisplaySize` and framebuffer scale.
+- Engine-owned text shapes/rasterizes at physical raster size and converts metrics/quads back to logical units; glyph cache keys include physical raster size.
+- Input hit testing and preview normalized coordinates use logical dimensions.
+
+Known DPI limitations:
+
+- Web DPR backing-store resizing is implemented but not yet proven by a real-browser capture in this environment.
+- Android assemble passed; emulator visual size checks are pending because no device was attached.
+- RmlUi exposes one density-independent pixel ratio, so non-uniform surfaces use `scale_x` for RmlUi density.
+- Engine-owned text uses the larger axis scale as its effective raster scale on non-uniform surfaces.
+
 ## Current NovelTea Text State
 
 The Web glyph sampling regression in the engine-owned NovelTea text path has been fixed. The confirmed primary cause was explicit point sampling on the bgfx RGBA8 grayscale glyph atlas. NovelTea atlas pages now use linear filtering with clamp addressing, deterministic transparent page initialization, and padded transparent glyph uploads. FreeType grayscale rendering remains in use; SDF/MSDF/MTSDF were not reintroduced. RmlUi's independent text path was not modified.
@@ -26,7 +47,7 @@ Durable report:
 
 Known NovelTea text limitations:
 
-- Web DPR backing-store resizing is still not implemented; DPR 2 diagnostics show the shell computes a desired 2560x1440 size while the canvas/WebGL backing store remains 1280x720.
+- Web DPR backing-store resizing is implemented in the shell/export path but still needs a local real-browser proof in this pass.
 - The bundled Liberation Sans demo font does not contain Hebrew glyphs, so the visual demo no longer claims mixed LTR/RTL Hebrew rendering. CPU bidi tests remain.
 - Font fallback, rich text spans, BBCode, text effects, hit testing, selection/caret UI, and Lua bindings remain deferred.
 - Web still uses Emscripten's HarfBuzz port while desktop and Android use the pinned newer dependency path; this was not part of the sampling fix.
