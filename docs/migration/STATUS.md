@@ -65,6 +65,9 @@ Current local verification:
 - `cmake --preset web-debug -G Ninja`: passed with Emscripten FreeType/HarfBuzz ports and source-built SheenBidi/libunibreak.
 - `cmake --build --preset web-debug`: passed.
 - `cd android && ./gradlew --no-daemon :app:assembleDebug`: passed.
+- `cmake --build --preset linux-debug`: passed after Android ImGui DPI input normalization.
+- `cmake --build --preset web-debug`: passed after Android ImGui DPI input normalization; only the existing Emscripten SDL3 experimental warning remains.
+- `cd android && ./gradlew :app:assembleDebug`: passed after Android ImGui DPI input normalization; Gradle still warns that Android Gradle Plugin 8.2.0 was tested up to compileSdk 34 while the project uses compileSdk 35.
 - `cmake --preset linux-debug`: passed before edits.
 - `cmake --preset linux-debug -DNOVELTEA_COMPILE_SHADERS=ON`: passed after shader edits.
 - `cmake --preset linux-debug -DNOVELTEA_COMPILE_SHADERS=ON '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300'`: passed after shader-root/list fixes.
@@ -109,6 +112,7 @@ Implemented foundation outside the advanced RmlUi renderer:
 - Lua 5.5.0 plus sol2 scripting runtime with hardened public API, exception conversion, traceback reporting, unsafe library removal, AssetManager-backed script execution, and RmlUi Lua plugin integration.
 - Engine lifecycle rollback and shutdown ordering for Platform, Renderer, ScriptRuntime, RuntimeUI, and DebugUI.
 - Electron editor preview scaffold and Web preview packaging hooks.
+- Android Dear ImGui debug input now converts physical SDL mouse/touch-mouse coordinates into the engine's logical surface space before passing them to the ImGui SDL3 backend, matching the high-DPI-scaled ImGui draw space.
 
 Deferred migration areas:
 

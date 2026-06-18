@@ -31,6 +31,13 @@ ImVec2 debug_overlay_default_pos() {
   return ImGui::GetMainViewport()->WorkPos;
 }
 
+#if defined(SDL_PLATFORM_ANDROID)
+void add_logical_mouse_position(float x, float y, const SurfaceMetrics &surface) {
+  const SurfaceMetrics s = sanitize_surface_metrics(surface);
+  ImGui::GetIO().AddMousePosEvent(x / s.scale_x, y / s.scale_y);
+}
+#endif
+
 } // namespace
 
 DebugUI::DebugUI() = default;
@@ -98,10 +105,32 @@ bool DebugUI::initialize(SDL_Window *window, const assets::AssetManager* assets)
   return true;
 }
 
-void DebugUI::process_event(const SDL_Event &event) {
+void DebugUI::process_event(const SDL_Event &event, const SurfaceMetrics &surface) {
   if (!m_initialized)
     return;
+
+#if defined(SDL_PLATFORM_ANDROID)
+  SDL_Event logical_event = event;
+  const SurfaceMetrics s = sanitize_surface_metrics(surface);
+  switch (logical_event.type) {
+  case SDL_EVENT_MOUSE_MOTION:
+    logical_event.motion.x /= s.scale_x;
+    logical_event.motion.y /= s.scale_y;
+    break;
+  case SDL_EVENT_MOUSE_BUTTON_DOWN:
+  case SDL_EVENT_MOUSE_BUTTON_UP:
+    add_logical_mouse_position(logical_event.button.x, logical_event.button.y, s);
+    logical_event.button.x /= s.scale_x;
+    logical_event.button.y /= s.scale_y;
+    break;
+  default:
+    break;
+  }
+  ImGui_ImplSDL3_ProcessEvent(&logical_event);
+  return;
+#else
   ImGui_ImplSDL3_ProcessEvent(&event);
+#endif
 }
 
 void DebugUI::begin_frame(const SurfaceMetrics& surface) {

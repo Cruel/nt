@@ -342,7 +342,7 @@ void Engine::handle_events()
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
         // SDL event -> devtools -> runtime UI -> game/platform handling.
         if (m_debug_ui_enabled) {
-            m_debug_ui.process_event(event);
+            m_debug_ui.process_event(event, m_platform.surface());
         }
         const bool ui_consumed = m_runtime_ui.process_event(event);
 
