@@ -36,11 +36,17 @@ void add_error(std::vector<ImportError>& errors, std::string message)
     errors.push_back(ImportError {std::move(message)});
 }
 
+std::string kind_of(const nlohmann::json& value)
+{
+    return value.type_name();
+}
+
 void require_object(const nlohmann::json& root, std::string_view key, std::vector<ImportError>& errors)
 {
     const auto name = key_to_string(key);
     if (root.contains(name) && !root.at(name).is_object()) {
-        add_error(errors, "Legacy project key '" + name + "' must be an object.");
+        add_error(errors,
+            "Legacy project key '" + name + "' expected object but found " + kind_of(root.at(name)) + ".");
     }
 }
 
@@ -48,7 +54,8 @@ void require_array(const nlohmann::json& root, std::string_view key, std::vector
 {
     const auto name = key_to_string(key);
     if (root.contains(name) && !root.at(name).is_array()) {
-        add_error(errors, "Legacy project key '" + name + "' must be an array.");
+        add_error(errors,
+            "Legacy project key '" + name + "' expected array but found " + kind_of(root.at(name)) + ".");
     }
 }
 
@@ -56,8 +63,34 @@ void require_string(const nlohmann::json& root, std::string_view key, std::vecto
 {
     const auto name = key_to_string(key);
     if (root.contains(name) && !root.at(name).is_string()) {
-        add_error(errors, "Legacy project key '" + name + "' must be a string.");
+        add_error(errors,
+            "Legacy project key '" + name + "' expected string but found " + kind_of(root.at(name)) + ".");
     }
+}
+
+void require_number(const nlohmann::json& root, std::string_view key, std::vector<ImportError>& errors)
+{
+    const auto name = key_to_string(key);
+    if (root.contains(name) && !root.at(name).is_number()) {
+        add_error(errors,
+            "Legacy project key '" + name + "' expected number but found " + kind_of(root.at(name)) + ".");
+    }
+}
+
+void require_object_or_empty_array(const nlohmann::json& root, std::string_view key, std::vector<ImportError>& errors)
+{
+    const auto name = key_to_string(key);
+    if (!root.contains(name)) {
+        return;
+    }
+
+    const auto& value = root.at(name);
+    if (value.is_object() || (value.is_array() && value.empty())) {
+        return;
+    }
+    add_error(errors,
+        "Legacy project key '" + name + "' expected object map or empty array placeholder but found " +
+            kind_of(value) + ".");
 }
 
 } // namespace
@@ -95,24 +128,36 @@ std::optional<ImportedProject> ProjectImporter::import_game_json(
         }
     }
 
+    require_number(root, project_ids::engine_version, errors);
     require_object(root, project_ids::engine_fonts, errors);
     require_object(root, project_ids::shaders, errors);
     require_array(root, project_ids::system_shaders, errors);
-    require_array(root, project_ids::project_fonts, errors);
+    require_object_or_empty_array(root, project_ids::project_fonts, errors);
     require_array(root, project_ids::starting_inventory, errors);
-    require_array(root, project_ids::textures, errors);
+    require_object_or_empty_array(root, project_ids::textures, errors);
 
     require_string(root, project_ids::project_name, errors);
     require_string(root, project_ids::project_version, errors);
     require_string(root, project_ids::project_author, errors);
+    require_string(root, project_ids::project_website, errors);
     require_string(root, project_ids::project_font_default, errors);
+    require_string(root, project_ids::script_before_save, errors);
+    require_string(root, project_ids::script_after_load, errors);
+    require_string(root, project_ids::script_after_action, errors);
+    require_string(root, project_ids::script_before_action, errors);
+    require_string(root, project_ids::script_undefined_action, errors);
+    require_string(root, project_ids::script_after_enter, errors);
+    require_string(root, project_ids::script_before_enter, errors);
+    require_string(root, project_ids::script_after_leave, errors);
+    require_string(root, project_ids::script_before_leave, errors);
 
     for (auto key : project_ids::entity_collection_keys) {
         const auto name = key_to_string(key);
         if (!root.contains(name)) {
             add_error(errors, "Legacy project JSON is missing entity collection '" + name + "'.");
         } else if (!root.at(name).is_object()) {
-            add_error(errors, "Legacy entity collection '" + name + "' must be an object.");
+            add_error(errors,
+                "Legacy entity collection '" + name + "' expected object but found " + kind_of(root.at(name)) + ".");
         }
     }
 

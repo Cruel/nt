@@ -1,6 +1,7 @@
 add_library(noveltea_core STATIC
     src/core/entity_ref.cpp
     src/core/entity_type.cpp
+    src/core/legacy/project_package_reader.cpp
     src/core/legacy/project_importer.cpp
     src/core/project_document.cpp
 )
@@ -23,6 +24,23 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
 target_link_libraries(noveltea_core PUBLIC nlohmann_json::nlohmann_json)
+
+find_package(miniz CONFIG QUIET)
+if(NOT TARGET miniz::miniz)
+    include(FetchContent)
+    set(MINIZ_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(MINIZ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        miniz
+        URL https://github.com/richgel999/miniz/archive/refs/tags/3.1.1.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(miniz)
+    if(TARGET miniz AND NOT TARGET miniz::miniz)
+        add_library(miniz::miniz ALIAS miniz)
+    endif()
+endif()
+target_link_libraries(noveltea_core PRIVATE miniz::miniz)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(noveltea_core PRIVATE

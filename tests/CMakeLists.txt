@@ -5,6 +5,7 @@ add_executable(noveltea_core_tests
     core/project_document_tests.cpp
 )
 target_link_libraries(noveltea_core_tests PRIVATE noveltea_core Catch2::Catch2WithMain)
+target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)
 catch_discover_tests(noveltea_core_tests)
 
 if(NOVELTEA_HAS_TEXT)

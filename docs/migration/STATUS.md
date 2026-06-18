@@ -4,27 +4,36 @@ Last updated: 2026-06-18.
 
 ## Current Core Domain Migration State
 
-The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, and the first legacy `game` JSON importer under `noveltea::core::legacy`.
+The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, the legacy `game` JSON importer, and a read-only legacy ZIP project package reader under `noveltea::core::legacy`.
 
 Durable report:
 
 - `docs/migration/reports/core-domain-first-slice.md`
 - `docs/migration/reports/core-domain-import-slice.md`
+- `docs/migration/reports/core-domain-package-reader-slice.md`
+- `docs/migration/reports/core-engine-migration-plan.md`
 
-This slice deliberately avoids old `Game`, `Context`, `Subsystem`, save/profile behavior, zip project package writing/reading implementation, Duktape/dukglue, SFML, Qt, renderer/UI classes, and concrete entity runtime migration. Current `nt` already has Lua 5.5 plus sol2/sol3-style bindings, so old scripting behavior is deferred to a future compatibility/adaptation layer. The temporary custom `JsonValue` type is absent; `nlohmann-json` is contained to `noveltea_core` project-document/import APIs and tests.
+This slice deliberately avoids old `Game`, `Context`, `Subsystem`, save/profile behavior, ZIP package writing, Duktape/dukglue, SFML, Qt, renderer/UI classes, and concrete entity runtime migration. Current `nt` already has Lua 5.5 plus sol2/sol3-style bindings; Duktape is read-only reference material and must not be implemented or reintroduced. Old scripting behavior is deferred to a future Lua compatibility/adaptation layer. The temporary custom `JsonValue` type is absent; `nlohmann-json` is contained to `noveltea_core` project-document/import APIs and tests.
 
 Current core decisions:
 
 - `ProjectDocument::new_project()` is a normalized new in-memory model using old-compatible key names and defaults. It uses keyed objects for project fonts and textures.
-- `legacy::ProjectImporter` preserves the old `game` JSON wire document as read, including old array-shaped `fonts` and `textures` placeholders.
+- `legacy::ProjectImporter` preserves the old `game` JSON wire document as read. It accepts empty array placeholders and object maps for `fonts` and `textures`.
+- `legacy::ProjectPackageReader` uses private `miniz` ZIP reading to extract `game`, `image`, `fonts/*`, and `textures/*`, then feeds `game` into `ProjectImporter`. It ignores unrelated entries and exposes no ZIP library types publicly.
 - `EntityType::CustomScript` is known but not project-backed. It has no collection key because old runtime resolution treats the selected-entity id string as inline script content.
 - `EntityRef` remains only the old `[type, id]` selected-entity shape. It accepts `CustomScript` inline content structurally but does not validate referenced entity existence.
+
+Core engine migration planning:
+
+- `docs/migration/PLAN.md` now expands the old-core migration into staged work from legacy wire schemas through domain models, save/settings/profile import, runtime controllers, Lua-based scripting compatibility, text semantics, RmlUi/bgfx adapters, package asset integration, and editor preview APIs.
+- `docs/migration/reports/core-engine-migration-plan.md` records the old `Game`, `Context`, `SaveData`, `Settings`, `ScriptManager`, entity schema, event/timer, text, and package analysis that informed the plan.
+- The next core-engine slice should add typed legacy entity schema views/parsers and structural validation tests before migrating save data or runtime behavior.
 
 Verification:
 
 - `cmake --preset linux-debug`: passed.
 - `cmake --build --preset linux-debug`: passed.
-- `ctest --test-dir build/linux-debug --output-on-failure`: passed 72/72.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 78/78.
 - `cmake --preset web-debug`: passed.
 - `cmake --build --preset web-debug`: passed with the existing Emscripten SDL3 experimental warning.
 
@@ -209,4 +218,6 @@ The following changes were made before pushing the first test tag, without alter
 
 ## Next Recommended Prompt
 
-Fix the remaining RmlUi semantic gates in order: stencil overflow normalization, GL3-quality blur downsample/upsample, portable MSAA/resolve planning, forced shader-copy tests, expanded readback pixel assertions, RuntimeUI facade tests, Web browser smoke, and Android runtime smoke. Do not mark the renderer complete until those gates pass.
+Continue the old NovelTea core migration by adding typed legacy entity schema views/parsers and structural validation tests for `Object`, `Script`, `Action`, `Verb`, `Room`, `Map`, `Dialogue`, `DialogueSegment`, `Cutscene`, and cutscene segment records. Keep this backend-neutral and do not migrate old `Game`, `Context`, save/profile behavior, scripting runtime behavior, SFML, Qt, renderer/UI/state code, or concrete gameplay runtime behavior yet.
+
+Independent RmlUi renderer work remains open: stencil overflow normalization, GL3-quality blur downsample/upsample, portable MSAA/resolve planning, forced shader-copy tests, expanded readback pixel assertions, RuntimeUI facade tests, Web browser smoke, and Android runtime smoke.

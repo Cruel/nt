@@ -32,6 +32,7 @@
     "harfbuzz",
     "sheenbidi",
     "libunibreak",
+    "miniz",
     "nlohmann-json"
   ],
   "features": {

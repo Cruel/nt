@@ -23,6 +23,7 @@ Date: 2026-06-18
 - `EntityRef` remains the old `[type, id]` selected-entity array. It rejects malformed arrays, unknown type integers, non-integer type values, and non-string ids. `CustomScript` with non-empty inline script text is structurally valid because old `Entity::fromEntityJson()` constructs a script object directly from the id/content string.
 - `ProjectDocument::new_project()` is documented as a normalized new in-memory model using old-compatible key names. It is not exact legacy wire output.
 - `noveltea::core::legacy::ProjectImporter` imports old `game` JSON text/object data with `nlohmann::json`, preserves the original key names and collection data, and returns structured errors instead of throwing across the public API.
+- Follow-up hardening accepts both old empty array placeholders and object maps for `fonts` and `textures`. Scalars and non-empty arrays are rejected with key-specific expected/actual kind diagnostics.
 
 ## Legacy `game` JSON findings
 
@@ -32,6 +33,8 @@ Date: 2026-06-18
 - strings: `name`, `version`, `author`, `website`, `fontDefault`, script hook fields such as `sba`, `sua`, `sbl`, `sbe`
 - arrays: `fonts`, `startInv`, `tabs`, `textures`, `systemShaders`
 - objects: `shaders`, `sysfonts`
+
+The old default project starts with array placeholders for `fonts` and `textures`, but package save/load iterates both fields with `ObjectRange()` once user assets exist. The importer therefore accepts empty arrays and object maps while preserving the original imported shape in `ProjectDocument`.
 
 Entity collections are stored as object maps under old keys: `action`, `cutscene`, `dialogue`, `map`, `object`, `room`, `script`, and `verb`.
 
@@ -46,14 +49,14 @@ Old project save/load used a ZIP container:
 
 Load reads the full package into memory, opens it as a ZIP stream, reads `game`, then conditionally reads font, texture, and image entries. Missing ZIP entries return an empty string in the old reader.
 
-## Deferred package reader
+## Package reader follow-up
 
-No ZIP reader was added in this slice. The old tree uses bundled `zip.c`, but directly copying or linking it would add another third-party surface to `noveltea_core`. Recommended next slice: choose a small read-only ZIP dependency or isolate a minimal reader behind `noveltea::core::legacy::ProjectPackageReader`, return the `game` entry as text, and feed it into `ProjectImporter`.
+The next slice added `noveltea::core::legacy::ProjectPackageReader` using private `miniz` ZIP APIs. It extracts `game`, `image`, `fonts/*`, and `textures/*`, ignores unrelated entries, and feeds `game` into `ProjectImporter`.
 
 ## Verification
 
 - `cmake --preset linux-debug`: passed.
 - `cmake --build --preset linux-debug`: passed.
-- `ctest --test-dir build/linux-debug --output-on-failure`: passed 72/72.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 72/72 for the import-only slice; later package-reader slice passed 78/78.
 - `cmake --preset web-debug`: passed.
 - `cmake --build --preset web-debug`: passed with the existing Emscripten SDL3 experimental warning.
