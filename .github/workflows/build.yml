@@ -192,7 +192,7 @@ jobs:
         run: cmake --build --preset linux-debug
 
       - name: Unit tests
-        run: ctest --test-dir build/linux-debug --output-on-failure
+        run: xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure
 
       - name: Headless sandbox smoke
         run: |
