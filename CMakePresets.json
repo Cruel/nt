@@ -23,8 +23,35 @@
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
-                "VCPKG_MANIFEST_FEATURES": "shader-tools",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed"
+            }
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Windows Release",
+            "description": "Release build for Windows desktop using static vcpkg libraries",
+            "binaryDir": "${sourceDir}/build/windows-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_MANIFEST_DIR": "${sourceDir}",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/windows-release/vcpkg_installed",
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+                "VCPKG_HOST_TRIPLET": "x64-windows"
+            }
+        },
+        {
+            "name": "macos-release",
+            "displayName": "macOS Release",
+            "description": "Release build for macOS desktop",
+            "binaryDir": "${sourceDir}/build/macos-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_MANIFEST_DIR": "${sourceDir}",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/macos-release/vcpkg_installed",
+                "VCPKG_TARGET_TRIPLET": "arm64-osx",
+                "VCPKG_HOST_TRIPLET": "arm64-osx"
             }
         },
         {
@@ -58,6 +85,14 @@
         {
             "name": "linux-release",
             "configurePreset": "linux-release"
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release"
+        },
+        {
+            "name": "macos-release",
+            "configurePreset": "macos-release"
         },
         {
             "name": "web-debug",

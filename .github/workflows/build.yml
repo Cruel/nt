@@ -18,6 +18,9 @@ env:
   CMAKE_BUILD_PARALLEL_LEVEL: 2
   VCPKG_MAX_CONCURRENCY: 2
 
+permissions:
+  contents: read
+
 # CI coverage split:
 # - shader-assets compiles the shared glsl-120, essl-100, and essl-300 shader tree.
 # - Platform jobs consume the artifact with local shader compilation disabled.
@@ -257,22 +260,26 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
-      - name: Configure and build web
+      - name: Configure and build web release preview
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
-          cmake --build --preset web-debug
-          test -f build/web-debug/apps/sandbox/index.data
-          test -f build/web-debug/apps/sandbox/index.html
-          test -f build/web-debug/apps/sandbox/index.js
-          test -f build/web-debug/apps/sandbox/index.wasm
-          test -f build/web-debug/runtime-assets/shaders/bgfx/essl-100/triangle.vs.bin
-          test -f build/web-debug/runtime-assets/rmlui/lua_demo.rml
-          test -f build/web-debug/runtime-assets/rmlui/lua_demo.lua
-          grep -q '/assets/rmlui/lua_demo.rml' build/web-debug/apps/sandbox/index.js
-          grep -q '/assets/rmlui/lua_demo.lua' build/web-debug/apps/sandbox/index.js
+          emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
+          cmake --build --preset web-release --target noveltea-sandbox
+          test -f build/web-release/apps/sandbox/index.data
+          test -f build/web-release/apps/sandbox/index.html
+          test -f build/web-release/apps/sandbox/index.js
+          test -f build/web-release/apps/sandbox/index.wasm
+          grep -q '/assets/rmlui/lua_demo.rml' build/web-release/apps/sandbox/index.js
+          grep -q '/assets/rmlui/lua_demo.lua' build/web-release/apps/sandbox/index.js
+
+      - name: Upload web release preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-web-release-preview
+          path: build/web-release/apps/sandbox
+          if-no-files-found: error
 
   android:
     name: Android
@@ -366,7 +373,7 @@ jobs:
   editor:
     name: Editor / Electron
     runs-on: ubuntu-24.04
-    needs: shader-assets
+    needs: web
     timeout-minutes: 90
 
     steps:
@@ -386,6 +393,8 @@ jobs:
             unzip \
             tar \
             git \
+            rpm \
+            fakeroot \
             libx11-dev \
             libxext-dev \
             libxrandr-dev \
@@ -407,28 +416,11 @@ jobs:
             libpango1.0-dev \
             libcairo2-dev
 
-      - name: Cache Emscripten SDK
-        uses: actions/cache@v5
-        with:
-          path: .cache/emsdk
-          key: ${{ runner.os }}-emsdk-latest
-          restore-keys: |
-            ${{ runner.os }}-emsdk-
-
-      - name: Install Emscripten
-        run: |
-          if [ ! -d "${{ github.workspace }}/.cache/emsdk/.git" ]; then
-            git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
-          fi
-          cd "${{ github.workspace }}/.cache/emsdk"
-          ./emsdk install latest
-          ./emsdk activate latest
-
-      - name: Download shader assets
+      - name: Download web release preview
         uses: actions/download-artifact@v7
         with:
-          name: noveltea-shader-assets
-          path: build/prebuilt-shader-assets
+          name: noveltea-web-release-preview
+          path: build/web-release/apps/sandbox
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -458,18 +450,13 @@ jobs:
         working-directory: editor
         run: pnpm test
 
-      - name: Build packaged engine preview
-        env:
-          EMSDK: ${{ github.workspace }}/.cache/emsdk
+      - name: Verify packaged engine preview
         run: |
-          source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-release -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
-          cmake --build --preset web-release --target noveltea-sandbox
           test -f build/web-release/apps/sandbox/index.html
           test -f build/web-release/apps/sandbox/index.js
           test -f build/web-release/apps/sandbox/index.wasm
           test -f build/web-release/apps/sandbox/index.data
 
-      - name: Package
+      - name: Package distributables (smoke)
         working-directory: editor
         run: pnpm package

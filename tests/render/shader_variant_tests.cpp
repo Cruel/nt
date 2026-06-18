@@ -4,7 +4,7 @@
 
 using noveltea::bgfx_backend::shader_variant_for_renderer;
 
-TEST_CASE("bgfx shader variant resolver only advertises built variants")
+TEST_CASE("desktop release shader resolver remains OpenGL/OpenGLES only")
 {
     CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::OpenGL, false)) == "glsl-120");
     CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::OpenGLES, true)) == "essl-100");

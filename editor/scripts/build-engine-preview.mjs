@@ -20,7 +20,15 @@ function run(command, args) {
   });
 }
 
-const configure = await run('cmake', ['--preset', 'web-debug']);
+const configureArgs = ['--preset', 'web-release'];
+if (process.env.NOVELTEA_PREBUILT_SHADER_ASSET_ROOT) {
+  configureArgs.push(
+    '-DNOVELTEA_COMPILE_SHADERS=OFF',
+    `-DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT=${process.env.NOVELTEA_PREBUILT_SHADER_ASSET_ROOT}`,
+  );
+}
+
+const configure = await run('cmake', configureArgs);
 if (configure !== 0) {
   process.exit(configure);
 }
@@ -28,7 +36,7 @@ if (configure !== 0) {
 const build = await run('cmake', [
   '--build',
   '--preset',
-  'web-debug',
+  'web-release',
   '--target',
   'noveltea-sandbox',
 ]);

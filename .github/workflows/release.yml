@@ -1,0 +1,468 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+  VCPKG_MAX_CONCURRENCY: 2
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  shader-assets:
+    name: Shader assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev libegl1-mesa-dev autoconf autoconf-archive automake libtool libltdl-dev libxtst-dev pkg-config bison flex
+
+      - name: Cache vcpkg
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-release-shader-assets-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/NovelTeaLua.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-release-shader-assets-
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Install bgfx shader tools
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --x-feature=shader-tools --triplet=x64-linux --host-triplet=x64-linux --x-install-root="${{ github.workspace }}/vcpkg_installed"
+
+      - name: Compile and verify shader assets
+        run: |
+          SHADERC="${{ github.workspace }}/vcpkg_installed/x64-linux/tools/bgfx/shaderc"
+          BGFX_SHADER_INCLUDE="${{ github.workspace }}/vcpkg_installed/x64-linux/include/bgfx"
+          cmake -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          cmake -DNOVELTEA_VERIFY_ONLY=ON -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+
+      - name: Upload shader assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-shader-assets
+          path: build/generated-assets/shaders
+          if-no-files-found: error
+
+  desktop-sandbox:
+    name: Desktop sandbox (${{ matrix.platform }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    needs: shader-assets
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            arch: x64
+            runner: ubuntu-24.04
+            preset: linux-release
+            triplet: x64-linux
+            host_triplet: x64-linux
+          - platform: windows
+            arch: x64
+            runner: windows-2025
+            preset: windows-release
+            triplet: x64-windows-static
+            host_triplet: x64-windows
+          - platform: macos
+            arch: arm64
+            runner: macos-15
+            preset: macos-release
+            triplet: arm64-osx
+            host_triplet: arm64-osx
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Install Linux system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols libltdl-dev libxtst-dev autoconf automake autoconf-archive libtool bison flex
+
+      - name: Install macOS packages
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Cache vcpkg
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            build/${{ matrix.preset }}/vcpkg_installed
+          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-${{ matrix.preset }}-
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:VCPKG_ROOT/.git")) {
+            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          }
+          if ("${{ runner.os }}" -eq "Windows") {
+            & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
+          } else {
+            & "$env:VCPKG_ROOT/bootstrap-vcpkg.sh"
+          }
+
+      - name: Set up MSVC developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-shader-assets
+          path: build/prebuilt-shader-assets
+
+      - name: Build desktop sandbox
+        shell: pwsh
+        run: |
+          cmake --preset ${{ matrix.preset }} -G Ninja `
+            -DNOVELTEA_COMPILE_SHADERS=OFF `
+            -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" `
+            -DBUILD_TESTING=OFF `
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
+            -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }}
+          cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox
+
+      - name: Stage desktop sandbox artifact
+        shell: pwsh
+        env:
+          NOVELTEA_RELEASE_PLATFORM: ${{ matrix.platform }}
+          NOVELTEA_RELEASE_ARCH: ${{ matrix.arch }}
+        run: cmake -DNOVELTEA_PACKAGE_KIND=desktop-sandbox -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaRelease.cmake
+
+      - name: Upload desktop sandbox artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-desktop-sandbox-${{ matrix.platform }}-${{ matrix.arch }}-release-dist
+          path: dist/*
+          if-no-files-found: error
+
+  web:
+    name: Web release
+    runs-on: ubuntu-24.04
+    needs: shader-assets
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git autoconf automake autoconf-archive libtool bison flex
+
+      - name: Cache Emscripten SDK
+        uses: actions/cache@v5
+        with:
+          path: .cache/emsdk
+          key: ${{ runner.os }}-emsdk-latest
+          restore-keys: |
+            ${{ runner.os }}-emsdk-
+
+      - name: Install Emscripten
+        run: |
+          if [ ! -d "${{ github.workspace }}/.cache/emsdk/.git" ]; then
+            git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
+          fi
+          cd "${{ github.workspace }}/.cache/emsdk"
+          ./emsdk install latest
+          ./emsdk activate latest
+
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-shader-assets
+          path: build/prebuilt-shader-assets
+
+      - name: Build Web release
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
+          cmake --build --preset web-release --target noveltea-sandbox
+
+      - name: Stage Web bundle
+        run: .github/package-release.sh web "$RELEASE_TAG"
+
+      - name: Upload Web release preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-web-release-preview
+          path: build/web-release/apps/sandbox
+          if-no-files-found: error
+
+      - name: Upload Web release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-web-release-dist
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    name: Android release
+    runs-on: ubuntu-24.04
+    needs: shader-assets
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git autoconf automake autoconf-archive libtool bison flex
+
+      - name: Install Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.3.11579264" "cmake;3.31.6"
+
+      - name: Download SDL3 Android AAR
+        run: |
+          mkdir -p android/app/libs .cache/sdl3-android
+          curl -L -o .cache/sdl3-android/SDL3-devel-3.4.10-android.zip https://github.com/libsdl-org/SDL/releases/download/release-3.4.10/SDL3-devel-3.4.10-android.zip
+          unzip -p .cache/sdl3-android/SDL3-devel-3.4.10-android.zip SDL3-3.4.10.aar > android/app/libs/SDL3-3.4.10.aar
+
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-shader-assets
+          path: build/prebuilt-shader-assets
+
+      - name: Prepare signing properties
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          echo "NOVELTEA_ANDROID_RELEASE_FLAVOR=unsigned-internal" >> "$GITHUB_ENV"
+          echo "NOVELTEA_VERSION_NAME=$version" >> "$GITHUB_ENV"
+          echo "NOVELTEA_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$RELEASE_STORE_PASSWORD" && -n "$RELEASE_KEY_ALIAS" && -n "$RELEASE_KEY_PASSWORD" ]]; then
+            mkdir -p "$RUNNER_TEMP/android-signing"
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/android-signing/release.keystore"
+            echo "NOVELTEA_ANDROID_RELEASE_FLAVOR=signed" >> "$GITHUB_ENV"
+            {
+              echo "NOVELTEA_RELEASE_STORE_FILE=$RUNNER_TEMP/android-signing/release.keystore"
+              echo "NOVELTEA_RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
+              echo "NOVELTEA_RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS"
+              echo "NOVELTEA_RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Android release APK
+        working-directory: android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+        run: |
+          args=(
+            --no-daemon
+            :app:assembleRelease
+            -PnovelteaCompileShaders=OFF
+            -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets"
+            -PnovelteaVersionName="$NOVELTEA_VERSION_NAME"
+            -PnovelteaVersionCode="$NOVELTEA_VERSION_CODE"
+          )
+          if [[ "$NOVELTEA_ANDROID_RELEASE_FLAVOR" == "signed" ]]; then
+            args+=(
+              -PnovelteaReleaseStoreFile="$NOVELTEA_RELEASE_STORE_FILE"
+              -PnovelteaReleaseStorePassword="$NOVELTEA_RELEASE_STORE_PASSWORD"
+              -PnovelteaReleaseKeyAlias="$NOVELTEA_RELEASE_KEY_ALIAS"
+              -PnovelteaReleaseKeyPassword="$NOVELTEA_RELEASE_KEY_PASSWORD"
+            )
+          fi
+          ./gradlew "${args[@]}"
+
+      - name: Stage Android artifact
+        env:
+          NOVELTEA_ANDROID_RELEASE_FLAVOR: ${{ env.NOVELTEA_ANDROID_RELEASE_FLAVOR }}
+        run: .github/package-release.sh android "$RELEASE_TAG"
+
+      - name: Upload Android release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-android-release-dist
+          path: dist/*
+          if-no-files-found: error
+
+  desktop-editor:
+    name: Desktop editor (${{ matrix.platform }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    needs: web
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            arch: x64
+            runner: ubuntu-24.04
+          - platform: windows
+            arch: x64
+            runner: windows-2025
+          - platform: macos
+            arch: arm64
+            runner: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Install Linux system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git rpm fakeroot libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libxdamage-dev libxfixes-dev libcups2-dev libnss3-dev libnspr4-dev libatk1.0-dev libatk-bridge2.0-dev libgtk-3-dev libdrm-dev libasound2-dev libgbm-dev libpango1.0-dev libcairo2-dev
+
+      - name: Download web release preview
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-web-release-preview
+          path: build/web-release/apps/sandbox
+
+      - name: Verify packaged engine preview
+        shell: pwsh
+        run: |
+          foreach ($file in @("index.html", "index.js", "index.wasm", "index.data")) {
+            if (!(Test-Path "build/web-release/apps/sandbox/$file")) {
+              throw "Missing web preview file: $file"
+            }
+          }
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: editor/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: editor
+        run: pnpm install --frozen-lockfile
+
+      - name: Make editor distributables
+        working-directory: editor
+        run: pnpm make
+
+      - name: Stage editor distributables
+        shell: pwsh
+        env:
+          NOVELTEA_RELEASE_PLATFORM: ${{ matrix.platform }}
+          NOVELTEA_RELEASE_ARCH: ${{ matrix.arch }}
+        run: cmake -DNOVELTEA_PACKAGE_KIND=desktop-editor -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaRelease.cmake
+
+      - name: Upload editor release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-desktop-editor-${{ matrix.platform }}-${{ matrix.arch }}-release-dist
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-24.04
+    needs: [desktop-sandbox, web, android, desktop-editor]
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Download release assets
+        uses: actions/download-artifact@v7
+        with:
+          pattern: noveltea-*-release-dist
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: .github/package-release.sh checksums "$RELEASE_TAG"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(
+            "$RELEASE_TAG"
+            dist/*
+            --verify-tag
+            --generate-notes
+            --fail-on-no-commits
+          )
+          if [[ "$RELEASE_TAG" == *-alpha* || "$RELEASE_TAG" == *-beta* || "$RELEASE_TAG" == *-rc* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"

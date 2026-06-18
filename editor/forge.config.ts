@@ -13,6 +13,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     name: 'NovelTea Editor',
+    // TODO: Add macOS signing/notarization with CI secrets when distribution identity is available.
   },
   rebuildConfig: {},
   hooks: {
@@ -49,7 +50,9 @@ const config: ForgeConfig = {
     },
   },
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      // TODO: Add Windows Authenticode signing through CI secrets before public distribution.
+    }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),

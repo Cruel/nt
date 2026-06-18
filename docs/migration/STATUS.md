@@ -102,6 +102,49 @@ Known RmlUi gaps that remain open:
 
 The repository remains the new NovelTea runtime/framework targeting SDL3, bgfx, RmlUi for runtime UI, and Dear ImGui for developer/debug UI only.
 
+## Current CI/Release Packaging State
+
+Normal CI and tagged releases are now split:
+
+- `.github/workflows/build.yml` remains push/PR/manual validation only, with read-only contents permission and no GitHub Release publishing.
+- Normal CI keeps the shared shader-assets fanout, Linux Debug tests plus headless sandbox smoke, Android Debug packaging smoke, editor lint/typecheck/tests, and a single Web `web-release` build that the editor packaging job reuses for the packaged preview path.
+- `.github/workflows/release.yml` handles only `v*` tag pushes. Build jobs use `contents: read`; only the final publish job uses `contents: write`.
+- Release jobs consume the shared shader asset artifact, build release outputs for native desktop sandbox, Web, Android, and the Electron editor, stage files under `dist/`, generate `SHA256SUMS`, and publish with `gh release create`.
+- The native sandbox release job is `desktop-sandbox`, with native GitHub-hosted runner matrix entries for `linux-x64`, `windows-x64`, and `macos-arm64`.
+- The Electron release job is `desktop-editor`, with native GitHub-hosted runner matrix entries for `linux-x64`, `windows-x64`, and `macos-arm64`. Each editor matrix job downloads the Web release preview and verifies `index.html`, `index.js`, `index.wasm`, and `index.data` before `pnpm make`.
+- Android Gradle now has a release build type, CI-supplied `versionName`/`versionCode`, and optional secret-backed release signing. Missing signing secrets produce a clearly named unsigned internal APK.
+- `cmake/PackageNovelTeaRelease.cmake` is the cross-platform packaging implementation. `.github/package-release.sh` is now a small compatibility wrapper around that CMake script.
+- Desktop sandbox release packages are OpenGL shader-variant builds. Windows and macOS releases intentionally continue to use the existing OpenGL path; Direct3D and Metal shader variants are not packaged yet.
+
+Tagged release artifact names for tag `v0.1.0-test`:
+
+- `noveltea-sandbox-v0.1.0-test-linux-x64-release.tar.gz`
+- `noveltea-sandbox-v0.1.0-test-windows-x64-release.zip`
+- `noveltea-sandbox-v0.1.0-test-macos-arm64-release.zip`
+- `noveltea-sandbox-v0.1.0-test-web-wasm32-release.tar.gz`
+- `noveltea-sandbox-v0.1.0-test-android-universal-release-unsigned-internal.apk`, or `noveltea-sandbox-v0.1.0-test-android-universal-release-signed.apk` when Android signing secrets are present.
+- `noveltea-editor-v0.1.0-test-linux-x64-release.deb`
+- `noveltea-editor-v0.1.0-test-linux-x64-release.rpm`
+- `noveltea-editor-v0.1.0-test-windows-x64-release.setup.exe`
+- `noveltea-editor-v0.1.0-test-windows-x64-release.nupkg`
+- `noveltea-editor-v0.1.0-test-windows-x64-release.RELEASES`
+- `noveltea-editor-v0.1.0-test-macos-arm64-release.zip`
+- `SHA256SUMS`
+
+Dry-run tag command:
+
+```sh
+git tag v0.1.0-test && git push origin v0.1.0-test
+```
+
+Current CI/release verification:
+
+- `bash -n .github/package-release.sh`: passed.
+- `cmake -DNOVELTEA_PACKAGE_KIND=checksums -DNOVELTEA_RELEASE_TAG=v0.1.0-test -P cmake/PackageNovelTeaRelease.cmake`: passed.
+- YAML parse for `.github/workflows/build.yml` and `.github/workflows/release.yml` via Python/PyYAML: passed.
+- `cd android && ./gradlew --no-daemon :app:tasks --all`: passed and showed release/debug variants.
+- Full release builds were not run locally in this pass. The existing local `build/linux-release` directory uses the Unix Makefiles generator, while the new CI release path configures fresh Ninja builds; the local tree was left untouched.
+
 Implemented foundation outside the advanced RmlUi renderer:
 
 - Backend-neutral asset layer with logical `system:/`, `project:/`, and `cache:/` mounts.
@@ -121,6 +164,22 @@ Deferred migration areas:
 - Font-family fallback, color emoji, SVG glyphs, script-specific justification, selection/caret UI, and Lua bindings for the new text API.
 - RmlUi Debugger integration.
 - Android emulator runtime automation and Web browser smoke automation.
+
+## Pre-Release-Tag Final Fixes (2026-06-18)
+
+The following changes were made before pushing the first test tag, without altering the overall release architecture:
+
+1. **Windows MSVC developer environment**: Added `ilammy/msvc-dev-cmd@v1` (arch x64) step before the Windows desktop sandbox build in `.github/workflows/release.yml`, conditional on `runner.os == 'Windows'`. Keeps Ninja as the generator.
+
+2. **Editor artifact collision prevention**: Updated `cmake/PackageNovelTeaRelease.cmake` to embed the original artifact basename stem in the staged filename. Multiple `.nupkg`, `.zip`, `.exe`, `.deb`, or `.rpm` files no longer overwrite each other. `RELEASES` is special-cased with a clean `RELEASES` suffix.
+
+3. **Explicit Forge artifact discovery**: Updated `GLOB_RECURSE` patterns in `cmake/PackageNovelTeaRelease.cmake` to use `/*/RELEASES` and `/*/*/RELEASES` for nested Squirrel.Windows output directories, keeping extension-based patterns for `.deb`/`.rpm`/`.zip`/`.exe`/`.nupkg`.
+
+4. **Removed shader-tools from release presets**: Stripped `VCPKG_MANIFEST_FEATURES: shader-tools` from `linux-release`, `windows-release`, and `macos-release` in `CMakePresets.json`. The `shader-assets` CI job installs shader tools explicitly; desktop release builds consume prebuilt shaders via `NOVELTEA_COMPILE_SHADERS=OFF`. `linux-debug` retains `shader-tools;tests` for local development.
+
+5. **CI editor light packaging**: Changed normal CI (`build.yml`) from `pnpm make` to the lighter `pnpm package` smoke. Full `pnpm make` (Electron Forge distributables) remains only in `release.yml`.
+
+6. **Verification expectations**: YAML parse validation via Python/PyYAML passed. `cmake -P cmake/PackageNovelTeaRelease.cmake` with `-DNOVELTEA_PACKAGE_KIND=checksums` passed. Full release builds were not run locally; CI on a test tag is the definitive verification.
 
 ## Next Recommended Prompt
 

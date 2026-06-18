@@ -6,6 +6,18 @@ android {
     namespace "com.example.noveltea"
     compileSdk 35
 
+    def ciVersionCode = providers.gradleProperty("novelteaVersionCode").orElse("1").get().toInteger()
+    def ciVersionName = providers.gradleProperty("novelteaVersionName").orElse("0.1.0").get()
+    def releaseStoreFile = providers.gradleProperty("novelteaReleaseStoreFile").orNull
+    def releaseStorePassword = providers.gradleProperty("novelteaReleaseStorePassword").orNull
+    def releaseKeyAlias = providers.gradleProperty("novelteaReleaseKeyAlias").orNull
+    def releaseKeyPassword = providers.gradleProperty("novelteaReleaseKeyPassword").orNull
+    def hasReleaseSigning = releaseStoreFile != null &&
+            releaseStorePassword != null &&
+            releaseKeyAlias != null &&
+            releaseKeyPassword != null &&
+            file(releaseStoreFile).exists()
+
     buildFeatures {
         prefab true
     }
@@ -14,8 +26,8 @@ android {
         applicationId "com.example.noveltea"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode ciVersionCode
+        versionName ciVersionName
 
         externalNativeBuild {
             cmake {
@@ -28,9 +40,27 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             debuggable true
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
