@@ -74,6 +74,13 @@ bool blue_dominant(std::array<int, 3> color)
     return color[2] > color[0] && color[2] > color[1];
 }
 
+bool nearly_neutral(std::array<int, 3> color, int tolerance = 12)
+{
+    return std::abs(color[0] - color[1]) <= tolerance &&
+        std::abs(color[1] - color[2]) <= tolerance &&
+        brightness(color) > 360;
+}
+
 template <typename Predicate>
 bool has_pixel_matching(const Image& image, int left, int top, int right, int bottom, Predicate predicate)
 {
@@ -113,4 +120,28 @@ TEST_CASE("RmlUi readback gallery pixels verify advanced renderer output")
 
     CHECK(brightness(image.pixel(524, 64)) > brightness(bg) + 120);
     CHECK(brightness(image.pixel(479, 20)) < 120);
+
+    CHECK(red_dominant(image.pixel(644, 64)));
+    CHECK(close_to(image.pixel(596, 16), bg));
+    CHECK(close_to(image.pixel(688, 18), bg));
+
+    CHECK(brightness(image.pixel(36, 186)) > 620);
+    CHECK(image.pixel(66, 186)[0] < image.pixel(36, 186)[0]);
+    CHECK(image.pixel(96, 186)[0] > image.pixel(96, 186)[1]);
+    CHECK(nearly_neutral(image.pixel(126, 186)));
+    CHECK(image.pixel(156, 186)[0] > image.pixel(156, 186)[1]);
+    CHECK(image.pixel(156, 186)[1] > image.pixel(156, 186)[2]);
+    CHECK(image.pixel(186, 186)[0] > 220);
+    CHECK(image.pixel(186, 186)[2] > 200);
+    CHECK(blue_dominant(image.pixel(216, 186)));
+
+    CHECK(red_dominant(image.pixel(282, 162)));
+    CHECK(blue_dominant(image.pixel(330, 162)));
+    CHECK(brightness(image.pixel(390, 162)) > brightness(bg) + 240);
+    CHECK(brightness(image.pixel(282, 188)) > 600);
+    CHECK(green_dominant(image.pixel(346, 188)));
+    CHECK(brightness(image.pixel(420, 188)) > 560);
+    CHECK(red_dominant(image.pixel(282, 214)));
+    CHECK(red_dominant(image.pixel(346, 214)));
+    CHECK(image.pixel(420, 214)[1] > image.pixel(420, 214)[0]);
 }

@@ -62,7 +62,7 @@ target_compile_definitions(engine PUBLIC
 set(NOVELTEA_RUNTIME_ASSET_ROOT "${CMAKE_BINARY_DIR}/runtime-assets" CACHE PATH "Staged NovelTea runtime asset root")
 set(NOVELTEA_PROJECT_ASSET_SOURCE "${CMAKE_SOURCE_DIR}/apps/sandbox/assets" CACHE PATH "Project/demo assets to stage")
 set(NOVELTEA_GENERATED_ASSET_ROOT "${CMAKE_BINARY_DIR}/generated-assets")
-set(NOVELTEA_GENERATED_SHADER_ASSET_ROOT "${NOVELTEA_GENERATED_ASSET_ROOT}/shaders")
+set(NOVELTEA_GENERATED_SHADER_ASSET_ROOT "${NOVELTEA_GENERATED_ASSET_ROOT}")
 set(NOVELTEA_PREBUILT_SHADER_ASSET_ROOT "" CACHE PATH "Prebuilt shader asset root containing shaders/bgfx/<variant>")
 set(NOVELTEA_SHADER_VARIANTS "" CACHE STRING "Semicolon-separated shader variants to build or stage")
 set(NOVELTEA_SHADERC_EXECUTABLE "" CACHE FILEPATH "Host bgfx shaderc executable")
@@ -79,7 +79,7 @@ include(NovelTeaShaders)
 if(NOT NOVELTEA_SHADER_VARIANTS)
     noveltea_default_shader_variants(NOVELTEA_SHADER_VARIANTS)
 endif()
-list(JOIN NOVELTEA_SHADER_VARIANTS "\\;" NOVELTEA_SHADER_VARIANTS_ARG)
+list(JOIN NOVELTEA_SHADER_VARIANTS ";" NOVELTEA_SHADER_VARIANTS_ARG)
 
 # --- Dependencies ---
 # SDL3::SDL3 target is provided by the root CMakeLists.txt.

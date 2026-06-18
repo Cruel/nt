@@ -73,6 +73,20 @@ enum class StencilPlan {
 
 [[nodiscard]] StencilPlan choose_stencil_plan(bool d24s8_supported, bool d0s8_supported);
 
+enum class ClipOperationPlan {
+    Set,
+    SetInverse,
+    Intersect,
+};
+
+struct StencilClipPlan {
+    uint8_t previous_ref = 1;
+    uint8_t next_ref = 1;
+    bool normalize_before_render = false;
+};
+
+[[nodiscard]] StencilClipPlan plan_stencil_clip_operation(uint8_t current_ref, ClipOperationPlan operation);
+
 struct GaussianKernel {
     std::vector<float> weights;
 };

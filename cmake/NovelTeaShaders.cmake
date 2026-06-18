@@ -115,7 +115,7 @@ function(noveltea_add_shader_target)
     cmake_parse_arguments(ARG "" "TARGET;SHADERC;SOURCE_DIR;OUTPUT_ROOT;BGFX_INCLUDE_DIR" "VARIANTS" ${ARGN})
     noveltea_collect_shader_outputs(VARIANTS ${ARG_VARIANTS} OUTPUT_ROOT "${ARG_OUTPUT_ROOT}" OUT_VAR _outputs)
     noveltea_collect_shader_inputs("${ARG_SOURCE_DIR}" _inputs)
-    list(JOIN ARG_VARIANTS "\\;" _variants_arg)
+    list(JOIN ARG_VARIANTS ";" _variants_arg)
     add_custom_command(
         OUTPUT ${_outputs}
         COMMAND "${CMAKE_COMMAND}"

@@ -2,62 +2,52 @@
 
 Status values: NOT STARTED, IMPLEMENTED, NOT VERIFIED, VERIFIED.
 
+Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
+
 ## RenderInterface 6.2 Method Coverage
 
-| Method | Status | Notes |
+| Method | Status | Evidence |
 | --- | --- | --- |
-| CompileGeometry | IMPLEMENTED, NOT VERIFIED | bgfx vertex/index buffers. |
-| RenderGeometry | IMPLEMENTED, NOT VERIFIED | Basic textured/color geometry. |
-| ReleaseGeometry | IMPLEMENTED, NOT VERIFIED | Destroys bgfx buffers. |
-| LoadTexture | IMPLEMENTED, NOT VERIFIED | Uses bimg decode and premultiplies source. |
-| GenerateTexture | IMPLEMENTED, NOT VERIFIED | Accepts premultiplied RGBA. |
-| ReleaseTexture | IMPLEMENTED, NOT VERIFIED | Releases owned handles. |
-| EnableScissorRegion | IMPLEMENTED, NOT VERIFIED | Tracks state. |
-| SetScissorRegion | IMPLEMENTED, NOT VERIFIED | Clamps to target bounds. |
-| EnableClipMask | IMPLEMENTED, NOT VERIFIED | Tracks per-layer stencil enable and is inherited by pushed layers. |
-| RenderToClipMask | IMPLEMENTED, NOT VERIFIED | Set, SetInverse, Intersect, scissored stencil clear/write, and inherited replay paths exist; visual/readback verification pending. |
-| SetTransform | IMPLEMENTED, NOT VERIFIED | Uploads RmlUi matrix to shader. |
-| PushLayer | IMPLEMENTED, NOT VERIFIED | Propagates frame failure and replays inherited clip-mask contents into child layer stencils; visual/readback verification pending. |
-| CompositeLayers | IMPLEMENTED, NOT VERIFIED | Needs filter execution and same-layer verification. |
-| PopLayer | IMPLEMENTED, NOT VERIFIED | Needs exact parent state restoration verification. |
-| SaveLayerAsTexture | IMPLEMENTED, NOT VERIFIED | Captures active scissor via bgfx blit or shader-copy fallback. |
-| SaveLayerAsMaskImage | IMPLEMENTED, NOT VERIFIED | Creates typed mask-image filter backed by saved texture and mask multiplication GPU pass. |
-| CompileFilter | IMPLEMENTED, NOT VERIFIED | Standard filter records compile; GPU execution exists, visual/readback verification pending. |
-| ReleaseFilter | IMPLEMENTED, NOT VERIFIED | Erases records. |
-| CompileShader | IMPLEMENTED, NOT VERIFIED | Creates typed gradient shader records with packed parameters and stops. |
-| RenderShader | IMPLEMENTED, NOT VERIFIED | Submits supported gradients through the gradient program; visual/readback verification pending. |
-| ReleaseShader | IMPLEMENTED, NOT VERIFIED | Erases shader records. |
+| CompileGeometry | VERIFIED | Exercised by Linux readback capture and unit-linked renderer paths. |
+| RenderGeometry | VERIFIED | Linux readback verifies textured/color geometry orientation and clip/filter/gradient output. |
+| ReleaseGeometry | IMPLEMENTED, NOT VERIFIED | Destroys bgfx buffers; no lifecycle counter test yet. |
+| LoadTexture | VERIFIED | Uses AssetManager plus bimg decode; file interface and shader/runtime asset tests pass. |
+| GenerateTexture | VERIFIED | RmlUi font texture path is exercised by sandbox/readback capture. |
+| ReleaseTexture | IMPLEMENTED, NOT VERIFIED | Releases external and saved-layer textures; no double-release lifecycle test yet. |
+| EnableScissorRegion | VERIFIED | Save/copy and readback gallery exercise scissored output. |
+| SetScissorRegion | VERIFIED | Clamp behavior is covered by readback/copy paths; no standalone edge-table test. |
+| EnableClipMask | VERIFIED | Readback covers inherited clip-mask output. |
+| RenderToClipMask | IMPLEMENTED, NOT VERIFIED | Set/SetInverse/intersect paths and transformed replay are readback-covered; stencil overflow now preserves the accumulated mask with normalization, but visual overflow equivalence is still missing. |
+| SetTransform | VERIFIED | Expanded readback gallery verifies transformed clipped output and escaped-region rejection. |
+| PushLayer | IMPLEMENTED, NOT VERIFIED | Layer creation and inherited clip replay exist; transformed clip fixture is covered, but overflow replay still needs coverage after semantic fix. |
+| CompositeLayers | VERIFIED | Linux readback covers filtered and gradient layer composition; same-layer composition still needs targeted coverage. |
+| PopLayer | IMPLEMENTED, NOT VERIFIED | Restores active layer; exact parent-state restoration lacks a targeted test. |
+| SaveLayerAsTexture | IMPLEMENTED, NOT VERIFIED | Hardware blit and shader-copy fallback exist; fallback is not forced by tests. |
+| SaveLayerAsMaskImage | VERIFIED | Readback verifies saved mask output; release ownership was fixed locally after baseline. |
+| CompileFilter | VERIFIED | Standard filter compile paths are covered by unit and readback tests for representative filters. |
+| ReleaseFilter | IMPLEMENTED, NOT VERIFIED | Mask-image filters now release owned saved textures; lifecycle counter test still needed. |
+| CompileShader | VERIFIED | Linear/radial/conic and repeating gradient records compile and shader assets stage. |
+| RenderShader | VERIFIED | Linux readback covers standard gradient output; repeating variants still need pixel assertions. |
+| ReleaseShader | IMPLEMENTED, NOT VERIFIED | Erases shader records; no lifecycle test yet. |
 
 ## Acceptance Gates
 
-| Gate | Status | Notes |
+| Gate | Status | Evidence |
 | --- | --- | --- |
-| Current git diff inspected | VERIFIED | Initial diff contained only untracked refs/ and pingdotgg/. |
-| RmlUi bgfx files inspected | VERIFIED | Implementation and planning files read. |
-| RuntimeUI facade inspected | VERIFIED | Current demo-only facade read. |
-| bgfx views/shader pipeline inspected | IMPLEMENTED, NOT VERIFIED | Initial rg complete; detailed edits pending. |
-| RmlUi tests/assets/CI inspected | VERIFIED | Added and ran asset coverage test for the advanced gallery; full ctest passes. |
-| Official GL3 and SDL backends inspected | IMPLEMENTED, NOT VERIFIED | GL3 advanced filter/shader/layer sections inspected; SDL backend still needs full pass. |
-| Baseline linux configure/build/ctest recorded | VERIFIED | `cmake --preset linux-debug`, build, and ctest passed before edits. |
-| Render-target orientation verified by readback | VERIFIED | CTest screenshot verifier checks asymmetric top-left/top-right/bottom-left/bottom-right color regions. |
-| Premultiplied color matrix CPU tests | VERIFIED | Covers identity, brightness, contrast, invert, grayscale, sepia, hue-rotate, and saturate with translucent premultiplied input; ctest passed. |
-| Premultiplied color matrix GPU readback | IMPLEMENTED, NOT VERIFIED | GPU color-matrix pass is exercised by readback; premultiplied numeric parity still needs a dedicated translucent fixture. |
-| Capability-aware blit/copy texture flags | IMPLEMENTED, NOT VERIFIED | Postprocess and saved textures only request BLIT_DST for blit paths; shader-copy fallback exists. |
-| Production stencil planner used by layer creation | VERIFIED | Layer creation now uses tested planner and selects D24S8 or D0S8. |
-| Frame failure propagation | IMPLEMENTED, NOT VERIFIED | Frame failure flag suppresses later submissions and final composite; targeted failure tests pending. |
-| Expanded view budget or safe allocator | VERIFIED | Runtime UI range expanded from 32 views to 192 views and scheduler tests pass. |
-| Clip-mask inheritance semantics | IMPLEMENTED, NOT VERIFIED | Pushed layers replay parent clip commands into their own stencil and preserve parent state on pop; visual/readback tests pending. |
-| Layer semantics and resource namespaces | IMPLEMENTED, NOT VERIFIED | Frame failure, layer reuse, resize destruction, and postprocess namespaces exist; targeted lifecycle tests pending. |
-| Copy/resolve/MSAA abstraction | IMPLEMENTED, NOT VERIFIED | Shared region-copy path uses texture blit when supported and render-to-texture shader copy otherwise; MSAA resolve not separately exercised. |
-| SaveLayerAsTexture | IMPLEMENTED, NOT VERIFIED | Needs visual/readback and no-blit fallback verification. |
-| SaveLayerAsMaskImage | VERIFIED | Readback verifier checks center output and transparent edge from saved mask image GPU path. |
-| Standard filters GPU execution | VERIFIED | Readback verifier covers opacity, color matrix, blur, drop-shadow, and saved mask image output. |
-| Shader gradients | VERIFIED | Readback verifier covers linear, radial, and conic gradient output; repeating variants are covered by gallery asset test. |
-| Shader manifest/loader/staging/packaging | VERIFIED | Distinct shader programs are in manifest/loader; Linux tests, Web build, and Android assemble compile and stage shader assets. |
-| RuntimeUI public facade | IMPLEMENTED, NOT VERIFIED | Documents, elements, listeners, data models, reload, density, and focus/input queries are exposed; integration tests pending. |
-| Feature-gallery document | VERIFIED | `advanced_gallery.rml/.rcss` covers orientation, masks, saved mask image, filters, and gradient variants; ctest and frame-limited sandbox smoke pass. |
-| Linux visual readback integration test | VERIFIED | `noveltea_rmlui_readback_capture` and `noveltea_rmlui_readback_verify` pass under ctest and detect flips, blanks, masks, filters, and gradients. |
-| Web build and browser smoke | IMPLEMENTED, NOT VERIFIED | Web build passes with advanced gallery assets staged; browser smoke still pending. |
-| Android build and packaged assets | VERIFIED | `./gradlew :app:assembleDebug` passed and staged compiled shader/runtime assets. |
-| Placeholder scan clean | VERIFIED | Required rg command returned no matches after edits. |
-| STATUS.md final rewrite | NOT STARTED | One accurate current-status section. |
+| Baseline Linux configure/build/ctest before edits | VERIFIED | `cmake --preset linux-debug`, `cmake --build --preset linux-debug`, and `ctest --test-dir build/linux-debug --output-on-failure` passed 42/42 before edits. |
+| Post-edit Linux build/ctest | VERIFIED | Build passed and ctest passed 42/42 after the transform replay and saved-mask ownership fixes. |
+| Shader compilation for GLSL 120, ESSL 100, ESSL 300 | VERIFIED | `noveltea_shader_verify` passed in ctest after the color-matrix shader fix. |
+| Transform-aware clip replay | VERIFIED | Clip commands capture transform-active flag and full matrix; expanded readback asserts transformed clip content and escaped background regions. |
+| Stencil overflow preserves accumulated mask | IMPLEMENTED, NOT VERIFIED | Overflow now normalizes the accumulated stencil mask down to ref 1 using stencil-only decrement passes, then applies the new intersect at ref 2; deterministic planner test passes, but the required visual equivalence readback is still missing. |
+| Saved-mask ownership | IMPLEMENTED, NOT VERIFIED | `ReleaseFilter` now releases and erases MaskImage-owned saved textures exactly once; lifecycle test still missing. |
+| Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
+| Capability-aware MSAA and resolve | NOT VERIFIED | Current layer path is single-sample only; portable MSAA/resolve planning and runtime coverage are missing. |
+| Blit and shader-copy paths | IMPLEMENTED, NOT VERIFIED | Both code paths exist, but no test hook forces shader-copy fallback. |
+| Standard color filter visual coverage | VERIFIED | Expanded readback asserts opacity, brightness, contrast, invert, grayscale, sepia, hue-rotate, saturate, blur, drop-shadow, and saved mask output. |
+| Gradient visual coverage | VERIFIED | Expanded readback asserts linear, radial, conic, repeating linear, repeating radial, repeating conic, and multi-stop gradient regions. |
+| RuntimeUI facade integration tests | NOT VERIFIED | Event-consumption polarity has tests; document/element/listener/data-model/reload/density/focus lifecycle tests are missing. |
+| Linux visual readback | VERIFIED | `noveltea_rmlui_readback_capture` and `noveltea_rmlui_readback_verify` passed. |
+| Web headless-browser runtime smoke | NOT VERIFIED | Web build exists in CI, but no browser runtime smoke is implemented. |
+| Android packaged-shader verification | IMPLEMENTED, NOT VERIFIED | CI checks rmlui shader assets by program list; local Android assemble was not rerun in this pass. |
+| Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |
+| Latest GitHub Actions status checked | VERIFIED | Latest Build run `27728367992` for SHA `dfe4557f45990a31ff6360b9fa2a9f5855d956bd` succeeded. |

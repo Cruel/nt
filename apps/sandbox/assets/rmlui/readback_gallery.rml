@@ -26,5 +26,22 @@
         <div class="gradient conic"></div>
     </div>
     <div id="saved_mask"><div></div></div>
+    <div id="transform_clip">
+        <div class="transform-content"></div>
+    </div>
+    <div id="individual_filters">
+        <div class="filter2 brightness"></div>
+        <div class="filter2 contrast"></div>
+        <div class="filter2 invert"></div>
+        <div class="filter2 grayscale"></div>
+        <div class="filter2 sepia"></div>
+        <div class="filter2 hue"></div>
+        <div class="filter2 saturate"></div>
+    </div>
+    <div id="repeating_gradients">
+        <div class="gradient2 repeating-linear"></div>
+        <div class="gradient2 repeating-radial"></div>
+        <div class="gradient2 repeating-conic"></div>
+    </div>
 </body>
 </rml>

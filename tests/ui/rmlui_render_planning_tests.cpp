@@ -107,6 +107,29 @@ TEST_CASE("RmlUi stencil planner never treats depth-only fallback as stencil")
     CHECK(choose_stencil_plan(false, false) == StencilPlan::Unsupported);
 }
 
+TEST_CASE("RmlUi clip stencil planner normalizes overflow without discarding history")
+{
+    const auto set = plan_stencil_clip_operation(37, ClipOperationPlan::Set);
+    CHECK(set.previous_ref == 1);
+    CHECK(set.next_ref == 1);
+    CHECK_FALSE(set.normalize_before_render);
+
+    const auto inverse = plan_stencil_clip_operation(37, ClipOperationPlan::SetInverse);
+    CHECK(inverse.previous_ref == 1);
+    CHECK(inverse.next_ref == 1);
+    CHECK_FALSE(inverse.normalize_before_render);
+
+    const auto normal_intersect = plan_stencil_clip_operation(253, ClipOperationPlan::Intersect);
+    CHECK(normal_intersect.previous_ref == 253);
+    CHECK(normal_intersect.next_ref == 254);
+    CHECK_FALSE(normal_intersect.normalize_before_render);
+
+    const auto overflow_intersect = plan_stencil_clip_operation(254, ClipOperationPlan::Intersect);
+    CHECK(overflow_intersect.previous_ref == 1);
+    CHECK(overflow_intersect.next_ref == 2);
+    CHECK(overflow_intersect.normalize_before_render);
+}
+
 TEST_CASE("RmlUi gaussian kernel is normalized")
 {
     const auto kernel = gaussian_kernel(4.0f);

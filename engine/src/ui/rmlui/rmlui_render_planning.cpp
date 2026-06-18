@@ -80,6 +80,32 @@ StencilPlan choose_stencil_plan(bool d24s8_supported, bool d0s8_supported)
     return StencilPlan::Unsupported;
 }
 
+StencilClipPlan plan_stencil_clip_operation(uint8_t current_ref, ClipOperationPlan operation)
+{
+    StencilClipPlan plan;
+    plan.previous_ref = current_ref;
+    plan.next_ref = current_ref;
+
+    switch (operation) {
+    case ClipOperationPlan::Set:
+    case ClipOperationPlan::SetInverse:
+        plan.previous_ref = 1;
+        plan.next_ref = 1;
+        break;
+    case ClipOperationPlan::Intersect:
+        if (current_ref == 254) {
+            plan.previous_ref = 1;
+            plan.next_ref = 2;
+            plan.normalize_before_render = true;
+        } else {
+            plan.next_ref = uint8_t(current_ref + 1);
+        }
+        break;
+    }
+
+    return plan;
+}
+
 GaussianKernel gaussian_kernel(float sigma)
 {
     GaussianKernel kernel;

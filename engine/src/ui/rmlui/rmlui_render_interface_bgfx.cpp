@@ -100,6 +100,8 @@ struct ClipCommand {
     Rml::CompiledGeometryHandle geometry = 0;
     Rml::Vector2f translation;
     ScissorState scissor;
+    bool transform_valid = false;
+    std::array<float, 16> transform {};
     uint8_t previous_ref = 1;
     uint8_t next_ref = 1;
 };
@@ -190,6 +192,16 @@ bool populate_gradient(GradientRecord& gradient, const Rml::String& name, const 
         return false;
     }
     return apply_color_stops(gradient, parameters);
+}
+
+ClipOperationPlan clip_operation_plan(Rml::ClipMaskOperation operation)
+{
+    switch (operation) {
+    case Rml::ClipMaskOperation::Set: return ClipOperationPlan::Set;
+    case Rml::ClipMaskOperation::SetInverse: return ClipOperationPlan::SetInverse;
+    case Rml::ClipMaskOperation::Intersect: return ClipOperationPlan::Intersect;
+    }
+    return ClipOperationPlan::Set;
 }
 
 } // namespace
@@ -846,7 +858,53 @@ struct BgfxRenderInterface::Impl {
             BGFX_STENCIL_OP_PASS_Z_INCR;
     }
 
-    void submit_to_clip_mask(const GeometryRecord& geometry, Rml::Vector2f translation, uint32_t stencil_state, const ScissorState& scissor)
+    uint32_t stencil_decrement_state(uint8_t ref) const
+    {
+        return BGFX_STENCIL_TEST_EQUAL |
+            BGFX_STENCIL_FUNC_REF(uint32_t(ref)) |
+            BGFX_STENCIL_FUNC_RMASK(0xff) |
+            BGFX_STENCIL_OP_FAIL_S_KEEP |
+            BGFX_STENCIL_OP_FAIL_Z_KEEP |
+            BGFX_STENCIL_OP_PASS_Z_DECR;
+    }
+
+    bool decrement_stencil_ref(uint8_t ref)
+    {
+        if (ref <= 1) return true;
+        if (frame_failed || !ensure_fullscreen_geometry() || !bgfx::isValid(composite_program) || !bgfx::isValid(white_texture)) return false;
+        LayerRecord* layer = current_layer();
+        if (!layer) return false;
+        auto pass = acquire_pass({RmlUiPassKind::Geometry, 0, 0, false, false, width, height, "RmlUi.StencilNormalize"}, layer->framebuffer);
+        if (!pass) return false;
+
+        bgfx::setVertexBuffer(0, fullscreen_vb);
+        bgfx::setTexture(0, sampler, white_texture);
+        const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+        bgfx::setUniform(texcoord_bounds_uniform, bounds);
+        bgfx::setState(BGFX_STATE_NONE);
+        bgfx::setStencil(stencil_decrement_state(ref));
+        bgfx::submit(pass->view, composite_program);
+        return true;
+    }
+
+    bool normalize_active_stencil_to_one()
+    {
+        LayerRecord* layer = current_layer();
+        if (!layer) return false;
+        for (uint8_t ref = layer->stencil_ref; ref > 1; --ref) {
+            if (!decrement_stencil_ref(ref)) return false;
+        }
+        layer->stencil_ref = 1;
+        return true;
+    }
+
+    void submit_to_clip_mask(
+        const GeometryRecord& geometry,
+        Rml::Vector2f translation,
+        uint32_t stencil_state,
+        const ScissorState& scissor,
+        bool command_transform_valid,
+        const std::array<float, 16>& command_transform)
     {
         if (frame_failed || !bgfx::isValid(program) || geometry.index_count == 0 || pass_scheduler.exhausted()) return;
         LayerRecord* layer = current_layer();
@@ -857,7 +915,7 @@ struct BgfxRenderInterface::Impl {
         bgfx::setVertexBuffer(0, geometry.vb);
         bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
         bgfx::setUniform(projection_uniform, projection);
-        bgfx::setUniform(transform_uniform, transform_valid ? transform : identity);
+        bgfx::setUniform(transform_uniform, command_transform_valid ? command_transform.data() : identity);
         const float translate[4] = {translation.x, translation.y, 0.0f, 0.0f};
         bgfx::setUniform(translate_uniform, translate);
         bgfx::setTexture(0, sampler, white_texture);
@@ -878,14 +936,20 @@ struct BgfxRenderInterface::Impl {
         switch (command.operation) {
         case Rml::ClipMaskOperation::Set:
             clear_active_stencil(0, command.scissor);
-            submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1), command.scissor);
+            submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1), command.scissor, command.transform_valid, command.transform);
             break;
         case Rml::ClipMaskOperation::SetInverse:
             clear_active_stencil(1, command.scissor);
-            submit_to_clip_mask(it->second, command.translation, stencil_replace_state(0), command.scissor);
+            submit_to_clip_mask(it->second, command.translation, stencil_replace_state(0), command.scissor, command.transform_valid, command.transform);
             break;
         case Rml::ClipMaskOperation::Intersect:
-            submit_to_clip_mask(it->second, command.translation, stencil_intersect_state(command.previous_ref), command.scissor);
+            if (LayerRecord* layer = current_layer(); layer && layer->stencil_ref == 254 && command.previous_ref == 1) {
+                if (!normalize_active_stencil_to_one()) {
+                    fail_frame("failed to normalize stencil clip mask before overflow intersection");
+                    return;
+                }
+            }
+            submit_to_clip_mask(it->second, command.translation, stencil_intersect_state(command.previous_ref), command.scissor, command.transform_valid, command.transform);
             break;
         }
         if (LayerRecord* layer = current_layer()) {
@@ -1207,26 +1271,13 @@ void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation, Rml
     command.geometry = geometry;
     command.translation = translation;
     command.scissor = ScissorState{m_impl->scissor_enabled, m_impl->scissor_region};
-    command.previous_ref = layer->stencil_ref;
-    command.next_ref = layer->stencil_ref;
-    switch (operation) {
-    case Rml::ClipMaskOperation::Set:
-        command.next_ref = 1;
-        break;
-    case Rml::ClipMaskOperation::SetInverse:
-        command.next_ref = 1;
-        break;
-    case Rml::ClipMaskOperation::Intersect:
-        command.next_ref = layer->stencil_ref == 254 ? 1 : uint8_t(layer->stencil_ref + 1);
-        break;
+    command.transform_valid = m_impl->transform_valid;
+    if (command.transform_valid) {
+        std::memcpy(command.transform.data(), m_impl->transform, sizeof(m_impl->transform));
     }
-    if (operation == Rml::ClipMaskOperation::Intersect && layer->stencil_ref == 254) {
-        m_impl->clear_active_stencil(0, command.scissor);
-        layer->clip_commands.clear();
-        command.operation = Rml::ClipMaskOperation::Set;
-        command.previous_ref = 1;
-        command.next_ref = 1;
-    }
+    const StencilClipPlan clip_plan = plan_stencil_clip_operation(layer->stencil_ref, clip_operation_plan(operation));
+    command.previous_ref = clip_plan.previous_ref;
+    command.next_ref = clip_plan.next_ref;
     m_impl->apply_clip_command(command, true);
 }
 
@@ -1422,7 +1473,20 @@ Rml::CompiledFilterHandle BgfxRenderInterface::CompileFilter(const Rml::String& 
 
 void BgfxRenderInterface::ReleaseFilter(Rml::CompiledFilterHandle filter)
 {
-    m_impl->filters.erase(filter);
+    auto filter_it = m_impl->filters.find(filter);
+    if (filter_it == m_impl->filters.end()) return;
+    if (filter_it->second.kind == FilterKind::MaskImage && filter_it->second.resource != 0) {
+        const Rml::TextureHandle texture = Rml::TextureHandle(filter_it->second.resource);
+        auto texture_it = m_impl->textures.find(texture);
+        if (texture_it != m_impl->textures.end()) {
+            if (texture_it->second.ownership == TextureOwnership::SavedLayer && bgfx::isValid(texture_it->second.handle)) {
+                bgfx::destroy(texture_it->second.handle);
+            }
+            m_impl->textures.erase(texture_it);
+        }
+        filter_it->second.resource = 0;
+    }
+    m_impl->filters.erase(filter_it);
 }
 
 Rml::CompiledShaderHandle BgfxRenderInterface::CompileShader(const Rml::String& name, const Rml::Dictionary& parameters)
