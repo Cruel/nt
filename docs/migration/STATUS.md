@@ -2,6 +2,24 @@
 
 Last updated: 2026-06-18.
 
+## Current Core Domain Migration State
+
+The first backend-neutral old NovelTea core slice is implemented. A new `noveltea_core` target owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, and a `ProjectDocument` default document model with basic entrypoint validation.
+
+Durable report:
+
+- `docs/migration/reports/core-domain-first-slice.md`
+
+This slice deliberately avoids old `Game`, `Context`, `Subsystem`, save/profile behavior, zip project package writing, Duktape/dukglue, SFML, Qt, renderer/UI classes, and concrete entity runtime migration. Current `nt` already has Lua 5.5 plus sol2/sol3-style bindings, so scripting behavior is left out of this slice despite the older migration-plan note about preserving Duktape initially. The temporary custom `JsonValue` type was removed; `nlohmann-json` is contained to `noveltea_core` project-document/import APIs and tests.
+
+Verification:
+
+- `cmake --preset linux-debug`: passed.
+- `cmake --build --preset linux-debug`: passed.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 70/70.
+- `cmake --preset web-debug`: passed.
+- `cmake --build --preset web-debug`: passed with the existing Emscripten SDL3 experimental warning.
+
 ## Current DPI-Aware Surface State
 
 The engine now has a shared `SurfaceMetrics` model for logical size, framebuffer size, and device scale. Platform, Engine, Renderer, RuntimeUI/RmlUi, DebugUI/ImGui, Web shell resize, input hit testing, and the engine-owned text renderer use the model.

@@ -1,3 +1,32 @@
+add_library(noveltea_core STATIC
+    src/core/entity_ref.cpp
+    src/core/entity_type.cpp
+    src/core/project_document.cpp
+)
+
+target_include_directories(noveltea_core
+    PUBLIC
+        include
+)
+
+find_package(nlohmann_json CONFIG QUIET)
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    include(FetchContent)
+    FetchContent_Declare(
+        nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+target_link_libraries(noveltea_core PUBLIC nlohmann_json::nlohmann_json)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(noveltea_core PRIVATE
+        -Wall -Wextra -Wpedantic -Wno-unused-parameter
+    )
+endif()
+
 add_library(engine STATIC
     src/assets/asset_manager.cpp
     src/assets.cpp
@@ -23,6 +52,8 @@ target_include_directories(engine
     PRIVATE
         src
 )
+
+target_link_libraries(engine PUBLIC noveltea_core)
 
 if(NOVELTEA_ENABLE_RENDER2D)
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RENDER2D)

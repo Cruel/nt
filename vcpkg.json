@@ -31,7 +31,8 @@
     },
     "harfbuzz",
     "sheenbidi",
-    "libunibreak"
+    "libunibreak",
+    "nlohmann-json"
   ],
   "features": {
     "shader-tools": {

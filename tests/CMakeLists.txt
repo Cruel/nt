@@ -1,5 +1,12 @@
 include(Catch)
 
+add_executable(noveltea_core_tests
+    core/entity_ref_tests.cpp
+    core/project_document_tests.cpp
+)
+target_link_libraries(noveltea_core_tests PRIVATE noveltea_core Catch2::Catch2WithMain)
+catch_discover_tests(noveltea_core_tests)
+
 if(NOVELTEA_HAS_TEXT)
     add_executable(noveltea_text_tests
         text/text_engine_tests.cpp
