@@ -184,7 +184,7 @@ FT_Int32 ft_load_flags(HintingMode hinting)
 
 bool set_size(FontResource& font, float pixel_size)
 {
-    const auto pixels = static_cast<FT_UInt>(std::max(1.0f, std::round(pixel_size)));
+    const auto pixels = static_cast<FT_UInt>(normalize_raster_pixel_size(pixel_size));
     if (FT_Set_Pixel_Sizes(font.ft_face.get(), 0, pixels) != 0) {
         return false;
     }
@@ -226,18 +226,6 @@ BreakData collect_breaks(std::string_view value, const std::string& language)
         set_linebreaks_utf8(data, value.size(), lang, breaks.line.data());
         set_graphemebreaks_utf8(data, value.size(), lang, breaks.grapheme.data());
         set_wordbreaks_utf8(data, value.size(), lang, breaks.word.data());
-        for (size_t i = 0; i + 2 < value.size(); ++i) {
-            if (static_cast<unsigned char>(value[i]) == 0xE2u
-                && static_cast<unsigned char>(value[i + 1]) == 0x80u
-                && static_cast<unsigned char>(value[i + 2]) == 0x8Du) {
-                breaks.grapheme[i] = GRAPHEMEBREAK_NOBREAK;
-                breaks.line[i] = LINEBREAK_NOBREAK;
-                if (i + 3 < value.size()) {
-                    breaks.grapheme[i + 3] = GRAPHEMEBREAK_NOBREAK;
-                    breaks.line[i + 3] = LINEBREAK_NOBREAK;
-                }
-            }
-        }
     }
     return breaks;
 }
@@ -247,10 +235,11 @@ bool valid_boundary(size_t offset, std::string_view value, const BreakData& brea
     if (offset == 0 || offset >= value.size()) {
         return offset == 0 || offset == value.size();
     }
-    if ((static_cast<unsigned char>(value[offset]) & 0xC0u) == 0x80u) {
+    if (!is_utf8_boundary(value, offset)) {
         return false;
     }
-    if (breaks.grapheme[offset] != GRAPHEMEBREAK_BREAK) {
+    const auto marker_index = unibreak_marker_index_for_boundary(value, offset);
+    if (!marker_index || breaks.grapheme[*marker_index] != GRAPHEMEBREAK_BREAK) {
         return false;
     }
     return clusters.contains(checked_u32(offset));
@@ -261,7 +250,9 @@ bool legal_wrap_boundary(size_t offset, std::string_view value, const BreakData&
     if (!valid_boundary(offset, value, breaks, clusters)) {
         return false;
     }
-    return breaks.line[offset] == LINEBREAK_ALLOWBREAK || breaks.line[offset] == LINEBREAK_MUSTBREAK;
+    const auto marker_index = unibreak_marker_index_for_boundary(value, offset);
+    return marker_index
+        && (breaks.line[*marker_index] == LINEBREAK_ALLOWBREAK || breaks.line[*marker_index] == LINEBREAK_MUSTBREAK);
 }
 
 std::vector<uint32_t> cluster_ends(const std::vector<ShapedGlyphData>& glyphs, uint32_t run_end)
@@ -284,6 +275,62 @@ uint32_t source_end_for_cluster(uint32_t cluster, const std::vector<uint32_t>& s
 }
 
 } // namespace
+
+uint32_t normalize_raster_pixel_size(float pixel_size)
+{
+    if (!std::isfinite(pixel_size)) {
+        return 1;
+    }
+    return static_cast<uint32_t>(std::max(1.0f, std::round(pixel_size)));
+}
+
+uint32_t glyph_cache_pixel_size_key(float pixel_size)
+{
+    return normalize_raster_pixel_size(pixel_size);
+}
+
+bool is_utf8_boundary(std::string_view value, size_t offset)
+{
+    if (offset > value.size()) {
+        return false;
+    }
+    if (offset == 0 || offset == value.size()) {
+        return true;
+    }
+    return (static_cast<unsigned char>(value[offset]) & 0xC0u) != 0x80u;
+}
+
+std::optional<size_t> unibreak_marker_index_for_boundary(std::string_view value, size_t offset)
+{
+    if (offset == 0 || offset == value.size()) {
+        return std::nullopt;
+    }
+    if (!is_utf8_boundary(value, offset)) {
+        return std::nullopt;
+    }
+    return offset - 1u;
+}
+
+GlyphAtlasUpload make_padded_glyph_upload(const GlyphBitmap& bitmap, uint16_t padding)
+{
+    GlyphAtlasUpload upload;
+    upload.width = static_cast<uint16_t>(bitmap.width + padding * 2u);
+    upload.height = static_cast<uint16_t>(bitmap.height + padding * 2u);
+    upload.glyph_x = padding;
+    upload.glyph_y = padding;
+    upload.rgba.assign(static_cast<size_t>(upload.width) * upload.height * 4u, 0);
+    for (uint32_t y = 0; y < bitmap.height; ++y) {
+        for (uint32_t x = 0; x < bitmap.width; ++x) {
+            const size_t src = static_cast<size_t>(y) * bitmap.width + x;
+            const size_t dst = (static_cast<size_t>(y + padding) * upload.width + x + padding) * 4u;
+            upload.rgba[dst + 0u] = 255;
+            upload.rgba[dst + 1u] = 255;
+            upload.rgba[dst + 2u] = 255;
+            upload.rgba[dst + 3u] = bitmap.coverage[src];
+        }
+    }
+    return upload;
+}
 
 struct TextEngine::Impl {
     explicit Impl(const assets::AssetManager& asset_manager) : assets(asset_manager)
@@ -604,6 +651,9 @@ std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32
         return std::nullopt;
     }
     const FT_GlyphSlot slot = font->ft_face->glyph;
+    if (slot->bitmap.pixel_mode != FT_PIXEL_MODE_GRAY) {
+        return std::nullopt;
+    }
     GlyphBitmap bitmap;
     bitmap.width = slot->bitmap.width;
     bitmap.height = slot->bitmap.rows;
@@ -611,8 +661,16 @@ std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32
     bitmap.bearing_y = slot->bitmap_top;
     bitmap.advance = {static_cast<float>(slot->advance.x) / 64.0f, -static_cast<float>(slot->advance.y) / 64.0f};
     bitmap.coverage.assign(static_cast<size_t>(bitmap.width) * bitmap.height, 0);
+    const int pitch = slot->bitmap.pitch;
+    const size_t row_stride = static_cast<size_t>(std::abs(pitch));
+    const uint8_t* first_row = slot->bitmap.buffer;
+    if (pitch < 0 && bitmap.height > 0) {
+        first_row = slot->bitmap.buffer + row_stride * static_cast<size_t>(bitmap.height - 1u);
+    }
     for (uint32_t y = 0; y < bitmap.height; ++y) {
-        const auto* src = slot->bitmap.buffer + static_cast<size_t>(y) * static_cast<size_t>(slot->bitmap.pitch);
+        const auto* src = pitch >= 0
+            ? first_row + static_cast<size_t>(y) * row_stride
+            : first_row - static_cast<size_t>(y) * row_stride;
         std::memcpy(bitmap.coverage.data() + static_cast<size_t>(y) * bitmap.width, src, bitmap.width);
     }
     return bitmap;
@@ -622,6 +680,12 @@ FontMetrics TextEngine::metrics(FontHandle handle, float pixel_size) const
 {
     FontResource* font = m_impl->find(handle);
     return font ? metrics_for(*font, pixel_size) : FontMetrics{};
+}
+
+uint32_t TextEngine::glyph_index(FontHandle handle, uint32_t codepoint) const
+{
+    FontResource* font = m_impl->find(handle);
+    return font ? FT_Get_Char_Index(font->ft_face.get(), codepoint) : 0;
 }
 
 ShelfAtlasPacker::ShelfAtlasPacker(uint16_t width, uint16_t height, uint16_t padding)

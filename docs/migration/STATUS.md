@@ -2,6 +2,35 @@
 
 Last updated: 2026-06-18.
 
+## Current NovelTea Text State
+
+The Web glyph sampling regression in the engine-owned NovelTea text path has been fixed. The confirmed primary cause was explicit point sampling on the bgfx RGBA8 grayscale glyph atlas. NovelTea atlas pages now use linear filtering with clamp addressing, deterministic transparent page initialization, and padded transparent glyph uploads. FreeType grayscale rendering remains in use; SDF/MSDF/MTSDF were not reintroduced. RmlUi's independent text path was not modified.
+
+Text boundary handling was also corrected. NovelTea now converts UTF-8 boundary offsets to libunibreak marker indices with a single helper: interior source boundary offset `n` consults marker `n - 1`; offset `0` and `value.size()` are handled as text edges; continuation bytes are rejected. The previous raw-byte ZWJ post-process was removed after tests confirmed libunibreak 7 handles the covered ZWJ sequence.
+
+Current text verification:
+
+- `cmake --preset linux-debug -G Ninja`: passed.
+- `cmake --build --preset linux-debug`: passed.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 55/55.
+- `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`: passed.
+- `cmake --preset web-debug -G Ninja`: passed.
+- `cmake --build --preset web-debug`: passed.
+- Web browser capture: passed with Playwright Chromium 149.0.7827.55 at DPR 1 and DPR 2 diagnostic settings; screenshots and metrics are under `docs/migration/reports/screenshots/`.
+- `cd android && ./gradlew --no-daemon :app:assembleDebug`: passed.
+- Android emulator runtime visual check: skipped because `adb devices` reported no attached devices.
+
+Durable report:
+
+- `docs/migration/reports/web-text-sampling-2026-06-18.md`
+
+Known NovelTea text limitations:
+
+- Web DPR backing-store resizing is still not implemented; DPR 2 diagnostics show the shell computes a desired 2560x1440 size while the canvas/WebGL backing store remains 1280x720.
+- The bundled Liberation Sans demo font does not contain Hebrew glyphs, so the visual demo no longer claims mixed LTR/RTL Hebrew rendering. CPU bidi tests remain.
+- Font fallback, rich text spans, BBCode, text effects, hit testing, selection/caret UI, and Lua bindings remain deferred.
+- Web still uses Emscripten's HarfBuzz port while desktop and Android use the pinned newer dependency path; this was not part of the sampling fix.
+
 ## Current RmlUi bgfx State
 
 The RmlUi 6.2 bgfx renderer is no longer a basic scaffold. It has implemented paths for compiled geometry, file and generated textures, scissor state, clip masks, offscreen layers, layer composition, saved layer textures, saved mask images, standard filters, and standard gradient shaders. Linux shader verification and the RmlUi readback capture/verify tests pass in the current local worktree.

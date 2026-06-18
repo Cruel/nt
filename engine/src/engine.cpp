@@ -222,7 +222,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     scripts_initialized = true;
 #endif
 
-    const bool load_demo = run_config.demo_mode != DemoMode::None;
+    const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo
 #if defined(NOVELTEA_HAS_LUA)
             , &m_scripts

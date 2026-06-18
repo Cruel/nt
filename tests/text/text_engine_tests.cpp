@@ -3,8 +3,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <graphemebreak.h>
 #include <linebreak.h>
+#include <wordbreak.h>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 
 using namespace noveltea;
@@ -16,6 +18,16 @@ assets::AssetManager make_assets()
     assets::AssetManager assets;
     assets.mount_directory("project", NOVELTEA_SOURCE_DIR "/apps/sandbox/assets");
     return assets;
+}
+
+std::optional<char> marker_at_boundary(const std::vector<char>& markers, const std::string& value, size_t offset)
+{
+    const auto index = noveltea::text::unibreak_marker_index_for_boundary(value, offset);
+    if (!index) {
+        return std::nullopt;
+    }
+    REQUIRE(*index < markers.size());
+    return markers[*index];
 }
 
 Text make_text(FontHandle font, std::string value, float size = 24.0f)
@@ -77,6 +89,55 @@ TEST_CASE("Combining marks and emoji ZWJ sequences are not corrupted by boundary
     CHECK(layout.metrics.line_count == 1);
 }
 
+TEST_CASE("libunibreak UTF-8 boundary conversion uses previous byte marker")
+{
+    init_linebreak();
+    init_graphemebreak();
+    init_wordbreak();
+
+    const std::string ascii = "one two";
+    std::vector<char> ascii_line(ascii.size(), LINEBREAK_NOBREAK);
+    std::vector<char> ascii_word(ascii.size(), WORDBREAK_NOBREAK);
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(ascii.data()), ascii.size(), "en", ascii_line.data());
+    set_wordbreaks_utf8(reinterpret_cast<const utf8_t*>(ascii.data()), ascii.size(), "en", ascii_word.data());
+    REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(ascii, 4) == 3u);
+    CHECK(marker_at_boundary(ascii_line, ascii, 4) == LINEBREAK_ALLOWBREAK);
+    CHECK(marker_at_boundary(ascii_word, ascii, 3) == WORDBREAK_BREAK);
+
+    const std::string nbsp = "a\xC2\xA0" "b";
+    std::vector<char> nbsp_line(nbsp.size(), LINEBREAK_NOBREAK);
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(nbsp.data()), nbsp.size(), "en", nbsp_line.data());
+    REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(nbsp, 3) == 2u);
+    CHECK(marker_at_boundary(nbsp_line, nbsp, 3) != LINEBREAK_ALLOWBREAK);
+    CHECK_FALSE(noveltea::text::unibreak_marker_index_for_boundary(nbsp, 2).has_value());
+
+    const std::string combining = "e\xCC\x81";
+    std::vector<char> combining_grapheme(combining.size(), GRAPHEMEBREAK_NOBREAK);
+    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(combining.data()), combining.size(), "en", combining_grapheme.data());
+    CHECK(marker_at_boundary(combining_grapheme, combining, 1) != GRAPHEMEBREAK_BREAK);
+    CHECK_FALSE(noveltea::text::unibreak_marker_index_for_boundary(combining, 2).has_value());
+
+    const std::string family = "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7\xE2\x80\x8D\xF0\x9F\x91\xA6";
+    std::vector<char> family_grapheme(family.size(), GRAPHEMEBREAK_NOBREAK);
+    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(family.data()), family.size(), "en", family_grapheme.data());
+    for (size_t offset : {4u, 7u, 11u, 14u, 18u, 21u}) {
+        CHECK(marker_at_boundary(family_grapheme, family, offset) != GRAPHEMEBREAK_BREAK);
+    }
+
+    const std::string cjk = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
+    std::vector<char> cjk_line(cjk.size(), LINEBREAK_NOBREAK);
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(cjk.data()), cjk.size(), "ja", cjk_line.data());
+    REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(cjk, 3) == 2u);
+    CHECK(marker_at_boundary(cjk_line, cjk, 3) == LINEBREAK_ALLOWBREAK);
+    CHECK_FALSE(noveltea::text::unibreak_marker_index_for_boundary(cjk, 1).has_value());
+
+    const std::string mixed = "\xC3\xA9 xyz";
+    std::vector<char> mixed_line(mixed.size(), LINEBREAK_NOBREAK);
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(mixed.data()), mixed.size(), "en", mixed_line.data());
+    REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(mixed, 3) == 2u);
+    CHECK(marker_at_boundary(mixed_line, mixed, 3) == LINEBREAK_ALLOWBREAK);
+}
+
 TEST_CASE("HarfBuzz shapes Latin kerning and Arabic without byte reversal")
 {
     auto assets = make_assets();
@@ -108,6 +169,19 @@ TEST_CASE("Mixed LTR and RTL text emits visual bidi runs")
     auto layout = engine.layout_text(make_text(font, "abc \xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D def"));
     REQUIRE(layout.metrics.line_count == 1);
     CHECK(layout.lines.front().visual_runs.size() >= 3);
+}
+
+TEST_CASE("Bundled demo font does not claim Hebrew visual coverage")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    CHECK(engine.glyph_index(font, 0x05E9) == 0);
+    CHECK(engine.glyph_index(font, 0x05DC) == 0);
+    CHECK(engine.glyph_index(font, 0x05D5) == 0);
+    CHECK(engine.glyph_index(font, 0x05DD) == 0);
 }
 
 TEST_CASE("Explicit newlines and height constraints produce deterministic line metrics")
@@ -142,6 +216,57 @@ TEST_CASE("Wrapping respects no-break spaces and CJK line break opportunities")
     std::vector<char> cjk_breaks(cjk.size(), LINEBREAK_NOBREAK);
     set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(cjk.data()), cjk.size(), "ja", cjk_breaks.data());
     CHECK(std::ranges::any_of(cjk_breaks, [](char brk) { return brk == LINEBREAK_ALLOWBREAK; }));
+}
+
+TEST_CASE("Glyph rasterization and atlas upload preserve grayscale coverage and transparent padding")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const uint32_t glyph_id = engine.glyph_index(font, U'A');
+    REQUIRE(glyph_id != 0);
+    auto bitmap = engine.rasterize_glyph(font, glyph_id, 24.4f);
+    REQUIRE(bitmap);
+    CHECK(bitmap->coverage.size() == static_cast<size_t>(bitmap->width) * bitmap->height);
+    CHECK(std::ranges::any_of(bitmap->coverage, [](uint8_t value) { return value > 0 && value < 255; }));
+
+    auto upload = noveltea::text::make_padded_glyph_upload(*bitmap, 1);
+    REQUIRE(upload.width == bitmap->width + 2);
+    REQUIRE(upload.height == bitmap->height + 2);
+    for (uint16_t x = 0; x < upload.width; ++x) {
+        CHECK(upload.rgba[static_cast<size_t>(x) * 4u + 3u] == 0);
+        const size_t bottom = (static_cast<size_t>(upload.height - 1u) * upload.width + x) * 4u;
+        CHECK(upload.rgba[bottom + 3u] == 0);
+    }
+    for (uint16_t y = 0; y < upload.height; ++y) {
+        CHECK(upload.rgba[(static_cast<size_t>(y) * upload.width) * 4u + 3u] == 0);
+        const size_t right = (static_cast<size_t>(y) * upload.width + upload.width - 1u) * 4u;
+        CHECK(upload.rgba[right + 3u] == 0);
+    }
+    const size_t first_glyph_alpha = (static_cast<size_t>(upload.glyph_y) * upload.width + upload.glyph_x) * 4u + 3u;
+    CHECK(upload.rgba[first_glyph_alpha] == bitmap->coverage.front());
+
+    CHECK(noveltea::text::normalize_raster_pixel_size(24.4f) == 24);
+    CHECK(noveltea::text::normalize_raster_pixel_size(24.6f) == 25);
+    CHECK(noveltea::text::glyph_cache_pixel_size_key(24.4f) == noveltea::text::glyph_cache_pixel_size_key(24.49f));
+}
+
+TEST_CASE("Non-Latin glyph IDs rasterize when the font contains them")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const uint32_t e_acute = engine.glyph_index(font, 0x00E9);
+    REQUIRE(e_acute != 0);
+    auto bitmap = engine.rasterize_glyph(font, e_acute, 24.0f);
+    REQUIRE(bitmap);
+    CHECK(bitmap->width > 0);
+    CHECK(bitmap->height > 0);
+    CHECK(std::ranges::any_of(bitmap->coverage, [](uint8_t value) { return value != 0; }));
 }
 
 TEST_CASE("Wrapping, alignment, justification, and repeated layout are stable")

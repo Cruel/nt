@@ -28,7 +28,7 @@ struct TextVertex {
 struct GlyphCacheKey {
     uint32_t font = 0;
     uint32_t glyph_id = 0;
-    uint32_t pixel_size_16 = 0;
+    uint32_t pixel_size = 0;
 
     [[nodiscard]] friend bool operator==(const GlyphCacheKey&, const GlyphCacheKey&) = default;
 };
@@ -38,7 +38,7 @@ struct GlyphCacheKeyHash {
     {
         uint64_t value = key.font;
         value = value * 1315423911u + key.glyph_id;
-        value = value * 1315423911u + key.pixel_size_16;
+        value = value * 1315423911u + key.pixel_size;
         return static_cast<std::size_t>(value);
     }
 };
@@ -78,7 +78,7 @@ Vec2 transform_point(Vec2 point, Vec2 origin, const Transform2D& transform)
 
 class BgfxTextRenderer {
 public:
-    explicit BgfxTextRenderer(const assets::AssetManager& assets) : m_assets(assets), m_text(assets), m_packer(1024, 1024, 1) {}
+    explicit BgfxTextRenderer(const assets::AssetManager& assets) : m_assets(assets), m_text(assets), m_packer(1024, 1024, kGlyphPadding) {}
     bool initialize();
     void shutdown();
     FontHandle load_font(const FontDesc& desc) { return m_text.load_font(desc); }
@@ -99,6 +99,7 @@ private:
     std::unordered_map<GlyphCacheKey, CachedGlyph, GlyphCacheKeyHash> m_glyphs;
     bgfx::ProgramHandle m_program = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle m_sampler = BGFX_INVALID_HANDLE;
+    static constexpr uint16_t kGlyphPadding = 1;
 };
 
 bool BgfxTextRenderer::initialize()
@@ -137,14 +138,26 @@ bgfx::TextureHandle BgfxTextRenderer::ensure_page(uint16_t page_index)
 {
     while (m_pages.size() <= page_index) {
         AtlasPage page;
+        std::vector<uint8_t> zeroes(static_cast<size_t>(m_packer.width()) * m_packer.height() * 4u, 0);
         page.texture = bgfx::createTexture2D(
             m_packer.width(),
             m_packer.height(),
             false,
             1,
             bgfx::TextureFormat::RGBA8,
-            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT,
+            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
             nullptr);
+        if (bgfx::isValid(page.texture)) {
+            bgfx::updateTexture2D(
+                page.texture,
+                0,
+                0,
+                0,
+                0,
+                m_packer.width(),
+                m_packer.height(),
+                bgfx::copy(zeroes.data(), static_cast<uint32_t>(zeroes.size())));
+        }
         m_pages.push_back(page);
     }
     return m_pages[page_index].texture;
@@ -155,7 +168,7 @@ CachedGlyph* BgfxTextRenderer::ensure_glyph(const PositionedGlyph& glyph)
     GlyphCacheKey key;
     key.font = glyph.font.id;
     key.glyph_id = glyph.glyph_id;
-    key.pixel_size_16 = static_cast<uint32_t>(std::round(glyph.pixel_size * 16.0f));
+    key.pixel_size = text::glyph_cache_pixel_size_key(glyph.pixel_size);
     auto found = m_glyphs.find(key);
     if (found != m_glyphs.end()) {
         return &found->second;
@@ -172,22 +185,16 @@ CachedGlyph* BgfxTextRenderer::ensure_glyph(const PositionedGlyph& glyph)
     }
 
     if (bitmap->width > 0 && bitmap->height > 0) {
-        std::vector<uint8_t> rgba(static_cast<size_t>(bitmap->width) * bitmap->height * 4u, 255);
-        for (uint32_t i = 0; i < bitmap->width * bitmap->height; ++i) {
-            rgba[static_cast<size_t>(i) * 4u + 0u] = 255;
-            rgba[static_cast<size_t>(i) * 4u + 1u] = 255;
-            rgba[static_cast<size_t>(i) * 4u + 2u] = 255;
-            rgba[static_cast<size_t>(i) * 4u + 3u] = bitmap->coverage[i];
-        }
+        const auto upload = text::make_padded_glyph_upload(*bitmap, kGlyphPadding);
         bgfx::updateTexture2D(
             texture,
             0,
             0,
-            rect.x,
-            rect.y,
-            rect.width,
-            rect.height,
-            bgfx::copy(rgba.data(), static_cast<uint32_t>(rgba.size())));
+            static_cast<uint16_t>(rect.x - upload.glyph_x),
+            static_cast<uint16_t>(rect.y - upload.glyph_y),
+            upload.width,
+            upload.height,
+            bgfx::copy(upload.rgba.data(), static_cast<uint32_t>(upload.rgba.size())));
     }
 
     CachedGlyph cached;
@@ -281,6 +288,13 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         if (scissor != UINT16_MAX) {
             bgfx::setScissor(scissor);
         }
+        const float identity[16] = {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        };
+        bgfx::setTransform(identity);
         bgfx::setTexture(0, m_sampler, m_pages[page_index].texture);
         bgfx::setVertexBuffer(0, &tvb);
         bgfx::setIndexBuffer(&tib);
@@ -393,7 +407,7 @@ void Renderer::draw_demo_text(float time_seconds)
     draw("Grayscale text at 36 px", {64.0f, 126.0f, 420.0f, 52.0f}, 36.0f, Color::from_rgba8(255, 196, 87));
     draw("Wrapped English text uses a boxed Text primitive and keeps shaping/layout separate from RmlUi.", {64.0f, 200.0f, 360.0f, 92.0f}, 22.0f, Color::from_rgba8(212, 230, 255));
     draw("Combining marks: cafe\xCC\x81, A\xCC\x8A, n\xCC\x83", {64.0f, 320.0f, 520.0f, 42.0f}, 24.0f, Color::from_rgba8(176, 224, 188));
-    draw("Mixed LTR/RTL: English \xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D text", {64.0f, 374.0f, 620.0f, 48.0f}, 26.0f, Color::from_rgba8(250, 214, 160));
+    draw("Bidi CPU tests pass; bundled demo font has no Hebrew glyphs", {64.0f, 374.0f, 720.0f, 48.0f}, 24.0f, Color::from_rgba8(250, 214, 160));
     draw("Centered boxed text", {500.0f, 64.0f, 300.0f, 44.0f}, 24.0f, Color::from_rgba8(160, 214, 250), TextAlign::Center);
     draw("End aligned", {500.0f, 118.0f, 300.0f, 44.0f}, 24.0f, Color::from_rgba8(160, 214, 250), TextAlign::End);
     draw("This height-constrained paragraph intentionally overflows after a couple of lines so clipping and overflow reporting can be exercised by the layout.", {500.0f, 186.0f, 320.0f, 58.0f}, 20.0f, Color::from_rgba8(235, 170, 170));

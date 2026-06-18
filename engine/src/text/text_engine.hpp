@@ -4,8 +4,10 @@
 #include "noveltea/text/text.hpp"
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -28,6 +30,14 @@ struct GlyphBitmap {
     std::vector<uint8_t> coverage;
 };
 
+struct GlyphAtlasUpload {
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint16_t glyph_x = 0;
+    uint16_t glyph_y = 0;
+    std::vector<uint8_t> rgba;
+};
+
 struct FontFaceAccess {
     void* ft_face = nullptr;
     void* hb_font = nullptr;
@@ -48,11 +58,18 @@ public:
     [[nodiscard]] TextMetrics measure_text(FontHandle font, std::string_view value, float size) const;
     [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id, float pixel_size) const;
     [[nodiscard]] FontMetrics metrics(FontHandle font, float pixel_size) const;
+    [[nodiscard]] uint32_t glyph_index(FontHandle font, uint32_t codepoint) const;
 
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };
+
+[[nodiscard]] uint32_t normalize_raster_pixel_size(float pixel_size);
+[[nodiscard]] uint32_t glyph_cache_pixel_size_key(float pixel_size);
+[[nodiscard]] std::optional<size_t> unibreak_marker_index_for_boundary(std::string_view value, size_t offset);
+[[nodiscard]] bool is_utf8_boundary(std::string_view value, size_t offset);
+[[nodiscard]] GlyphAtlasUpload make_padded_glyph_upload(const GlyphBitmap& bitmap, uint16_t padding);
 
 struct AtlasRect {
     uint16_t page = 0;

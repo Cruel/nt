@@ -157,6 +157,16 @@
 
   var Module = {
     canvas: document.getElementById('canvas'),
+    arguments: (function() {
+      const params = new URLSearchParams(window.location.search);
+      const args = [];
+      const demo = params.get('demo');
+      if (demo) args.push('--demo', demo);
+      const frames = params.get('frames');
+      if (frames) args.push('--frames', frames);
+      if (params.get('noImgui') === '1') args.push('--no-imgui');
+      return args;
+    })(),
     onRuntimeInitialized: function() {
       if (typeof globalThis.NovelTeaPreviewRuntimeReady === 'function') {
         globalThis.NovelTeaPreviewRuntimeReady();
