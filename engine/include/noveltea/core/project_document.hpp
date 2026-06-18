@@ -1,10 +1,7 @@
 #pragma once
 
 #include <span>
-#include <optional>
 #include <string>
-#include <string_view>
-#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -12,16 +9,12 @@
 
 namespace noveltea::core {
 
-struct ProjectImportResult;
-
 class ProjectDocument {
 public:
     ProjectDocument();
     explicit ProjectDocument(nlohmann::json root);
 
     [[nodiscard]] static ProjectDocument new_project();
-    [[nodiscard]] static ProjectImportResult import_legacy_json_text(std::string_view source);
-    [[nodiscard]] static ProjectImportResult import_legacy_json(const nlohmann::json& root);
 
     [[nodiscard]] const nlohmann::json& root() const noexcept { return m_root; }
     [[nodiscard]] nlohmann::json& root() noexcept { return m_root; }
@@ -35,13 +28,6 @@ public:
 
 private:
     nlohmann::json m_root;
-};
-
-struct ProjectImportResult {
-    std::optional<ProjectDocument> document;
-    std::vector<std::string> diagnostics;
-
-    [[nodiscard]] bool success() const noexcept { return document.has_value() && diagnostics.empty(); }
 };
 
 } // namespace noveltea::core

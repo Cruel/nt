@@ -1,8 +1,11 @@
 add_library(noveltea_core STATIC
     src/core/entity_ref.cpp
     src/core/entity_type.cpp
+    src/core/legacy/project_importer.cpp
     src/core/project_document.cpp
 )
+
+target_compile_features(noveltea_core PUBLIC cxx_std_20)
 
 target_include_directories(noveltea_core
     PUBLIC

@@ -31,7 +31,14 @@ enum class EntityType : std::int32_t {
            type == EntityType::Script || type == EntityType::Verb || type == EntityType::Map;
 }
 
+[[nodiscard]] constexpr bool is_project_entity_type(EntityType type) noexcept
+{
+    return type == EntityType::Cutscene || type == EntityType::Action || type == EntityType::Room ||
+           type == EntityType::Object || type == EntityType::Dialogue || type == EntityType::Script ||
+           type == EntityType::Verb || type == EntityType::Map;
+}
+
 [[nodiscard]] std::optional<EntityType> entity_type_from_integer(std::int32_t value) noexcept;
-[[nodiscard]] std::string_view entity_type_collection_key(EntityType type) noexcept;
+[[nodiscard]] std::optional<std::string_view> entity_type_collection_key(EntityType type) noexcept;
 
 } // namespace noveltea::core

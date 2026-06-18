@@ -5,7 +5,7 @@ Migration begins only after the framework bootstrap builds. The old `NovelTea/` 
 ## Phase Order
 
 1. Backend-neutral core/domain/project/save/settings utilities.
-2. Scripting runtime compatibility, preserving Duktape/dukglue behavior initially.
+2. Scripting compatibility/adaptation layer for old project behavior on top of the current Lua 5.5 plus sol2/sol3-style runtime. Duktape/dukglue remains read-only reference material, not the default new runtime direction.
 3. Runtime `Context`/`Game` integration into the new `Engine::tick()` loop.
 4. BBCode/TextTypes semantic port.
 5. Rich text layout/effect model.

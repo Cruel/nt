@@ -1,8 +1,6 @@
 #include <noveltea/core/project_document.hpp>
 
 #include <array>
-#include <exception>
-
 #include <noveltea/core/project_ids.hpp>
 
 namespace noveltea::core {
@@ -45,6 +43,9 @@ ProjectDocument::ProjectDocument(nlohmann::json root) : m_root(std::move(root)) 
 
 ProjectDocument ProjectDocument::new_project()
 {
+    // Normalized new in-memory model: old-compatible key names and defaults, but
+    // keyed font/texture maps instead of the old sj::Array wire placeholders.
+    // Exact old `game` JSON is preserved by legacy::ProjectImporter.
     nlohmann::json root = nlohmann::json::object();
     root[project_ids::engine_version] = static_cast<double>(project_ids::engine_version_value);
     root[project_ids::project_name] = "Project Name";
@@ -83,57 +84,6 @@ ProjectDocument ProjectDocument::new_project()
     }
 
     return ProjectDocument(std::move(root));
-}
-
-ProjectImportResult ProjectDocument::import_legacy_json_text(std::string_view source)
-{
-    try {
-        return import_legacy_json(nlohmann::json::parse(source));
-    } catch (const nlohmann::json::parse_error& e) {
-        ProjectImportResult result;
-        result.diagnostics.push_back(std::string("Malformed legacy project JSON: ") + e.what());
-        return result;
-    } catch (const std::exception& e) {
-        ProjectImportResult result;
-        result.diagnostics.push_back(std::string("Failed to import legacy project JSON: ") + e.what());
-        return result;
-    }
-}
-
-ProjectImportResult ProjectDocument::import_legacy_json(const nlohmann::json& root)
-{
-    ProjectImportResult result;
-    if (!root.is_object()) {
-        result.diagnostics.push_back("Legacy project JSON root must be an object.");
-        return result;
-    }
-
-    for (auto key : required_project_keys) {
-        if (!root.contains(key_to_string(key))) {
-            result.diagnostics.push_back("Legacy project JSON is missing required key '" + key_to_string(key) + "'.");
-        }
-    }
-    for (auto key : project_ids::entity_collection_keys) {
-        if (!root.contains(key_to_string(key))) {
-            result.diagnostics.push_back("Legacy project JSON is missing entity collection '" + key_to_string(key) + "'.");
-        } else if (!root.at(key_to_string(key)).is_object()) {
-            result.diagnostics.push_back("Legacy entity collection '" + key_to_string(key) + "' must be an object.");
-        }
-    }
-
-    if (root.contains(key_to_string(project_ids::entrypoint_entity))) {
-        auto ref = EntityRef::from_json(root.at(key_to_string(project_ids::entrypoint_entity)));
-        if (!ref.has_value()) {
-            result.diagnostics.push_back("Legacy project entrypoint must use selected-entity array shape [type, id].");
-        }
-    }
-
-    if (!result.diagnostics.empty()) {
-        return result;
-    }
-
-    result.document = ProjectDocument(root);
-    return result;
 }
 
 std::span<const std::string_view> ProjectDocument::entity_collection_keys() const noexcept

@@ -13,7 +13,7 @@ std::optional<EntityType> entity_type_from_integer(std::int32_t value) noexcept
     return type;
 }
 
-std::string_view entity_type_collection_key(EntityType type) noexcept
+std::optional<std::string_view> entity_type_collection_key(EntityType type) noexcept
 {
     switch (type) {
     case EntityType::Action:
@@ -29,14 +29,14 @@ std::string_view entity_type_collection_key(EntityType type) noexcept
     case EntityType::Room:
         return project_ids::room;
     case EntityType::Script:
-    case EntityType::CustomScript:
         return project_ids::script;
     case EntityType::Verb:
         return project_ids::verb;
+    case EntityType::CustomScript:
     case EntityType::Invalid:
-        return {};
+        return std::nullopt;
     }
-    return {};
+    return std::nullopt;
 }
 
 } // namespace noveltea::core

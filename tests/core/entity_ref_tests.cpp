@@ -21,6 +21,31 @@ TEST_CASE("old EntityType integer values are preserved")
     CHECK(to_integer(EntityType::Map) == 8);
 }
 
+TEST_CASE("EntityType project collection lookup excludes invalid and inline custom script")
+{
+    CHECK_FALSE(is_project_entity_type(EntityType::Invalid));
+    CHECK_FALSE(is_project_entity_type(EntityType::CustomScript));
+    CHECK(is_project_entity_type(EntityType::Cutscene));
+    CHECK(is_project_entity_type(EntityType::Action));
+    CHECK(is_project_entity_type(EntityType::Room));
+    CHECK(is_project_entity_type(EntityType::Object));
+    CHECK(is_project_entity_type(EntityType::Dialogue));
+    CHECK(is_project_entity_type(EntityType::Script));
+    CHECK(is_project_entity_type(EntityType::Verb));
+    CHECK(is_project_entity_type(EntityType::Map));
+
+    CHECK_FALSE(entity_type_collection_key(EntityType::Invalid).has_value());
+    CHECK_FALSE(entity_type_collection_key(EntityType::CustomScript).has_value());
+    CHECK(entity_type_collection_key(EntityType::Cutscene) == project_ids::cutscene);
+    CHECK(entity_type_collection_key(EntityType::Action) == project_ids::action);
+    CHECK(entity_type_collection_key(EntityType::Room) == project_ids::room);
+    CHECK(entity_type_collection_key(EntityType::Object) == project_ids::object);
+    CHECK(entity_type_collection_key(EntityType::Dialogue) == project_ids::dialogue);
+    CHECK(entity_type_collection_key(EntityType::Script) == project_ids::script);
+    CHECK(entity_type_collection_key(EntityType::Verb) == project_ids::verb);
+    CHECK(entity_type_collection_key(EntityType::Map) == project_ids::map);
+}
+
 TEST_CASE("old project and entity key strings are preserved")
 {
     CHECK(project_ids::engine_version == "engine");
@@ -91,12 +116,21 @@ TEST_CASE("EntityRef parses valid selected-entity arrays")
     REQUIRE(ref.has_value());
     CHECK(ref->type == EntityType::Dialogue);
     CHECK(ref->id == "dialogue_a");
+
+    const auto inline_script = EntityRef::from_json(nlohmann::json::array({0, "return true;"}));
+    REQUIRE(inline_script.has_value());
+    CHECK(inline_script->type == EntityType::CustomScript);
+    CHECK(inline_script->id == "return true;");
 }
 
 TEST_CASE("EntityRef rejects invalid selected-entity arrays")
 {
     CHECK_FALSE(EntityRef::from_json(nlohmann::json()).has_value());
     CHECK_FALSE(EntityRef::from_json(nlohmann::json::array({5})).has_value());
+    CHECK_FALSE(EntityRef::from_json(nlohmann::json::array({5, "id", "extra"})).has_value());
     CHECK_FALSE(EntityRef::from_json(nlohmann::json::array({99, "bad"})).has_value());
+    CHECK_FALSE(EntityRef::from_json(nlohmann::json::array({-1, "invalid"})).has_value());
+    CHECK_FALSE(EntityRef::from_json(nlohmann::json::array({5.5, "bad"})).has_value());
+    CHECK_FALSE(EntityRef::from_json(nlohmann::json::array({"5", "bad"})).has_value());
     CHECK_FALSE(EntityRef::from_json(nlohmann::json::array({5, 42})).has_value());
 }

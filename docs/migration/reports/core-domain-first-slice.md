@@ -65,12 +65,12 @@ This slice adds `noveltea_core`, a backend-neutral C++20 target containing:
 - `noveltea::core::ProjectDocument`
 - `nlohmann::json` only at the project document and legacy import boundary
 
-`ProjectDocument::new_project()` creates an old-compatible default document shape for metadata, script hook strings, fonts, shaders, textures, editor/test placeholders, and empty entity collections. `ProjectDocument::validate_entrypoint()` intentionally mirrors the old basic rule: missing or empty entrypoint id is invalid; a selected entity with a non-empty id is valid. Legacy JSON text/object import parses with `nlohmann::json`, validates the basic old project shape, reports malformed JSON diagnostics, and immediately returns a typed `ProjectDocument`.
+`ProjectDocument::new_project()` creates a normalized new in-memory document with old-compatible key names and defaults for metadata, script hook strings, keyed font/texture maps, shaders, editor/test placeholders, and empty entity collections. `ProjectDocument::validate_entrypoint()` intentionally mirrors the old basic rule: missing or empty entrypoint id is invalid; a selected entity with a non-empty id is valid. Exact old `game` JSON import now belongs to `noveltea::core::legacy::ProjectImporter`, which parses with `nlohmann::json`, validates the basic old project shape, reports structured diagnostics, and immediately returns a typed `ProjectDocument`.
 
 ## Risks and follow-up
 
-- `ProjectDocument` currently imports old `game` JSON text/object data only. A future package importer must extract `game` from old zip projects and feed this importer without exposing `sj::JSON` broadly.
+- `ProjectImporter` currently imports old `game` JSON text/object data only. A future package importer must extract `game` from old zip projects and feed this importer without exposing `sj::JSON` broadly.
 - Default shader values are placeholders rather than the old embedded GLSL strings because shader behavior is renderer-specific and should remain outside this backend-neutral slice.
-- The old `ProjectData::newProject()` used `sj::Array()` for some values and then iterated them as objects in save/load paths. This slice chooses object-shaped font/texture maps for sane domain modeling while preserving key names.
+- The old `ProjectData::newProject()` used `sj::Array()` for project `fonts` and `textures`. `ProjectDocument::new_project()` deliberately chooses object-shaped font/texture maps for sane domain modeling while preserving key names; `ProjectImporter` preserves exact old wire shapes when reading existing `game` JSON.
 - Entity collection contents are empty objects only. Concrete action/cutscene/dialogue/map/object/room/script/verb schemas remain future slices.
 - Save/settings constants are available for compatibility, but behavior is intentionally not ported.

@@ -4,19 +4,27 @@ Last updated: 2026-06-18.
 
 ## Current Core Domain Migration State
 
-The first backend-neutral old NovelTea core slice is implemented. A new `noveltea_core` target owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, and a `ProjectDocument` default document model with basic entrypoint validation.
+The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, and the first legacy `game` JSON importer under `noveltea::core::legacy`.
 
 Durable report:
 
 - `docs/migration/reports/core-domain-first-slice.md`
+- `docs/migration/reports/core-domain-import-slice.md`
 
-This slice deliberately avoids old `Game`, `Context`, `Subsystem`, save/profile behavior, zip project package writing, Duktape/dukglue, SFML, Qt, renderer/UI classes, and concrete entity runtime migration. Current `nt` already has Lua 5.5 plus sol2/sol3-style bindings, so scripting behavior is left out of this slice despite the older migration-plan note about preserving Duktape initially. The temporary custom `JsonValue` type was removed; `nlohmann-json` is contained to `noveltea_core` project-document/import APIs and tests.
+This slice deliberately avoids old `Game`, `Context`, `Subsystem`, save/profile behavior, zip project package writing/reading implementation, Duktape/dukglue, SFML, Qt, renderer/UI classes, and concrete entity runtime migration. Current `nt` already has Lua 5.5 plus sol2/sol3-style bindings, so old scripting behavior is deferred to a future compatibility/adaptation layer. The temporary custom `JsonValue` type is absent; `nlohmann-json` is contained to `noveltea_core` project-document/import APIs and tests.
+
+Current core decisions:
+
+- `ProjectDocument::new_project()` is a normalized new in-memory model using old-compatible key names and defaults. It uses keyed objects for project fonts and textures.
+- `legacy::ProjectImporter` preserves the old `game` JSON wire document as read, including old array-shaped `fonts` and `textures` placeholders.
+- `EntityType::CustomScript` is known but not project-backed. It has no collection key because old runtime resolution treats the selected-entity id string as inline script content.
+- `EntityRef` remains only the old `[type, id]` selected-entity shape. It accepts `CustomScript` inline content structurally but does not validate referenced entity existence.
 
 Verification:
 
 - `cmake --preset linux-debug`: passed.
 - `cmake --build --preset linux-debug`: passed.
-- `ctest --test-dir build/linux-debug --output-on-failure`: passed 70/70.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 72/72.
 - `cmake --preset web-debug`: passed.
 - `cmake --build --preset web-debug`: passed with the existing Emscripten SDL3 experimental warning.
 
