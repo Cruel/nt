@@ -23,6 +23,7 @@ struct ProjectPackage {
     std::vector<std::byte> image;
     std::map<std::string, std::vector<std::byte>> fonts;
     std::map<std::string, std::vector<std::byte>> textures;
+    std::map<std::string, std::vector<std::byte>> assets;
 };
 
 class ProjectPackageReader {

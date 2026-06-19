@@ -1,6 +1,6 @@
 # NovelTea Core Engine Migration Plan
 
-**Completion status: [████████░░░] 8/11 phases fully done — Phase 9 asset/package integration started**
+**Completion status: [█████████░░] 9/11 phases fully done — Phase 10 editor preview/tooling APIs next**
 
 See [`STATUS.md`](STATUS.md) for detailed completion tracking, verification results, and next-prompt recommendations. This file tracks phase-level scope only.
 
@@ -23,7 +23,7 @@ The first backend-neutral core slices are in place:
 
 - `noveltea_core` owns project key constants, `EntityType`, selected-entity `EntityRef`, `ProjectDocument`, and `nlohmann::json` project APIs.
 - `legacy::ProjectImporter` imports old `game` JSON text while preserving legacy shapes where required.
-- `legacy::ProjectPackageReader` reads old ZIP project packages and extracts `game`, `image`, `fonts/*`, and `textures/*` without exposing ZIP library types.
+- `legacy::ProjectPackageReader` reads old ZIP project packages and extracts `game`, `image`, `fonts/*`, `textures/*`, and safe project-relative auxiliary assets without exposing ZIP library types.
 
 This foundation deliberately excludes old `Game`, `Context`, `SaveData`, runtime scripting, SFML, Qt, renderer/UI state classes, and gameplay runtime behavior.
 
@@ -112,11 +112,11 @@ Goal: connect controllers to the new SDL3/bgfx/RmlUi runtime without porting old
 - Keep platform/input concerns in SDL3-facing layers and renderer resource ownership in bgfx-facing layers.
 - Add Web and Android checks whenever UI/resource loading behavior changes.
 
-## [ ] Phase 9: Asset and Package Integration
+## [x] Phase 9: Asset and Package Integration
 
 Goal: make imported old projects usable by runtime sessions.
 
-- Current slices: added a read-only bridge from `legacy::ProjectPackageReader` output into `AssetManager` memory mounts, exposing `game`, cover `image`, `fonts/*`, and `textures/*` as project logical assets; updated `--runtime-project` loading to accept normalized JSON first, then fall back to importing legacy ZIP package bytes and mounting package assets before loading the imported project document.
+- Current slices: added a read-only bridge from `legacy::ProjectPackageReader` output into `AssetManager` memory mounts, exposing `game`, cover `image`, `fonts/*`, `textures/*`, and safe project-relative auxiliary assets such as `scripts/*`, `text(s)/*`, `shaders/*`, `audio/*`, `sounds/*`, `music/*`, `data/*`, and `resources/*` as project logical assets; updated `--runtime-project` loading to accept normalized JSON first, then fall back to importing legacy ZIP package bytes and mounting package assets before loading the imported project document; added a generated deterministic legacy package smoke asset and CTest sandbox smoke so Linux/Web asset staging can exercise the package path without committing a binary ZIP.
 - Map remaining legacy package entries into the existing logical `AssetManager` mounts where old projects require them.
 - Resolve fonts, textures, shaders, cover `image`, and project-relative script/text assets without exposing old package internals.
 - Decide when to add write support for old or new project packages; read-only compatibility is enough until runtime/editor workflows require saving packages.
@@ -150,8 +150,8 @@ Goal: prove old projects survive migration with known limits.
 
 ## Immediate Next Slices
 
-1. Add a deterministic generated legacy package smoke asset so sandbox verification can exercise the `--runtime-project` package path directly.
-2. Extend project-relative script/text asset resolution through `AssetManager` as the Lua script integration boundary is wired.
+1. Start Phase 10 by adding backend-neutral project load/import/validate APIs for editor use.
+2. Add runtime preview controls for start, stop, reset, entrypoint override, tick/step, state inspection, injected choices, and captured UI commands.
 3. Render rich-text runs as structured RmlUi spans or hand off to a bgfx rich-text renderer after effect semantics are stable.
-4. Add profile/settings/save/load persistence flows once Phase 9 package/asset loading and Phase 10 preview APIs define the ownership boundary.
-5. After the runtime UI command path is stable, wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.
+4. Add profile/settings/save/load persistence flows once Phase 10 preview APIs define the ownership boundary.
+5. Wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.

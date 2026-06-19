@@ -511,6 +511,11 @@ void AssetManager::mount_legacy_package(std::string namespace_name,
             bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
             "legacy package texture:" + name);
     }
+    for (const auto& [name, bytes] : package.assets) {
+        source->add("project:/" + name,
+            bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
+            "legacy package asset:" + name);
+    }
     mount(std::move(namespace_name), std::move(source));
 }
 

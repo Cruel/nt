@@ -275,7 +275,11 @@ TEST_CASE("legacy ProjectPackageReader reads old package entries and imports gam
         {"image", "image-bytes"},
         {"fonts/example.ttf", "font-bytes"},
         {"textures/example.png", "texture-bytes"},
+        {"scripts/bootstrap.lua", "script-bytes"},
+        {"text/intro.txt", "intro-bytes"},
+        {"shaders/bgfx/glsl-120/custom.fs.bin", "shader-bytes"},
         {"notes/ignored.txt", "ignored"},
+        {"scripts/../escape.lua", "unsafe"},
     });
 
     std::vector<PackageError> errors;
@@ -293,8 +297,20 @@ TEST_CASE("legacy ProjectPackageReader reads old package entries and imports gam
     REQUIRE(package->textures.contains("example.png"));
     CHECK(std::string(reinterpret_cast<const char*>(package->textures.at("example.png").data()),
               package->textures.at("example.png").size()) == "texture-bytes");
+    REQUIRE(package->assets.contains("scripts/bootstrap.lua"));
+    CHECK(std::string(reinterpret_cast<const char*>(package->assets.at("scripts/bootstrap.lua").data()),
+              package->assets.at("scripts/bootstrap.lua").size()) == "script-bytes");
+    REQUIRE(package->assets.contains("text/intro.txt"));
+    CHECK(std::string(reinterpret_cast<const char*>(package->assets.at("text/intro.txt").data()),
+              package->assets.at("text/intro.txt").size()) == "intro-bytes");
+    REQUIRE(package->assets.contains("shaders/bgfx/glsl-120/custom.fs.bin"));
+    CHECK(std::string(reinterpret_cast<const char*>(package->assets.at("shaders/bgfx/glsl-120/custom.fs.bin").data()),
+              package->assets.at("shaders/bgfx/glsl-120/custom.fs.bin").size()) == "shader-bytes");
     CHECK(package->fonts.size() == 1);
     CHECK(package->textures.size() == 1);
+    CHECK(package->assets.size() == 3);
+    CHECK_FALSE(package->assets.contains("notes/ignored.txt"));
+    CHECK_FALSE(package->assets.contains("scripts/../escape.lua"));
 }
 
 TEST_CASE("legacy ProjectPackageReader reports missing game entry")

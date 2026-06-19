@@ -19,6 +19,17 @@ namespace {
 
 constexpr std::string_view fonts_prefix = "fonts/";
 constexpr std::string_view textures_prefix = "textures/";
+constexpr std::string_view auxiliary_prefixes[] = {
+    "audio/",
+    "data/",
+    "music/",
+    "resources/",
+    "scripts/",
+    "shaders/",
+    "sounds/",
+    "text/",
+    "texts/",
+};
 
 void add_error(std::vector<PackageError>& errors, std::string message)
 {
@@ -37,6 +48,37 @@ std::string bytes_to_string(const std::vector<std::byte>& bytes)
 bool starts_with(std::string_view value, std::string_view prefix)
 {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+}
+
+bool is_safe_relative_asset_path(std::string_view value)
+{
+    if (value.empty() || value.front() == '/' || value.find('\\') != std::string_view::npos) {
+        return false;
+    }
+    if (value.find("//") != std::string_view::npos || value.find(':') != std::string_view::npos) {
+        return false;
+    }
+
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const std::size_t slash = value.find('/', start);
+        const std::string_view part = value.substr(start, slash == std::string_view::npos ? slash : slash - start);
+        if (part.empty() || part == "." || part == "..") {
+            return false;
+        }
+        if (slash == std::string_view::npos) {
+            break;
+        }
+        start = slash + 1;
+    }
+    return true;
+}
+
+bool is_auxiliary_asset_path(std::string_view name)
+{
+    return std::any_of(std::begin(auxiliary_prefixes), std::end(auxiliary_prefixes), [&](std::string_view prefix) {
+        return starts_with(name, prefix);
+    });
 }
 
 std::optional<std::vector<std::byte>> extract_entry(
@@ -101,9 +143,17 @@ std::optional<ProjectPackage> ProjectPackageReader::read(
         } else if (name == "image") {
             package.image = std::move(*payload);
         } else if (starts_with(name, fonts_prefix)) {
-            package.fonts.emplace(name.substr(fonts_prefix.size()), std::move(*payload));
+            const std::string relative = name.substr(fonts_prefix.size());
+            if (is_safe_relative_asset_path(relative)) {
+                package.fonts.emplace(relative, std::move(*payload));
+            }
         } else if (starts_with(name, textures_prefix)) {
-            package.textures.emplace(name.substr(textures_prefix.size()), std::move(*payload));
+            const std::string relative = name.substr(textures_prefix.size());
+            if (is_safe_relative_asset_path(relative)) {
+                package.textures.emplace(relative, std::move(*payload));
+            }
+        } else if (is_auxiliary_asset_path(name) && is_safe_relative_asset_path(name)) {
+            package.assets.emplace(name, std::move(*payload));
         }
     }
 

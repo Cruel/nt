@@ -64,6 +64,9 @@ TEST_CASE("AssetManager mounts legacy package entries as project assets")
     package.image = package_bytes("cover");
     package.fonts.emplace("caption.ttf", package_bytes("font"));
     package.textures.emplace("room.png", package_bytes("texture"));
+    package.assets.emplace("scripts/bootstrap.lua", package_bytes("script"));
+    package.assets.emplace("text/intro.txt", package_bytes("intro"));
+    package.assets.emplace("shaders/bgfx/glsl-120/custom.fs.bin", package_bytes("shader"));
 
     AssetManager manager;
     manager.mount_legacy_package("project", package);
@@ -83,4 +86,16 @@ TEST_CASE("AssetManager mounts legacy package entries as project assets")
     auto texture = manager.read_text("project:/textures/room.png");
     REQUIRE(texture);
     CHECK(*texture.value == "texture");
+
+    auto script = manager.read_text("project:/scripts/bootstrap.lua");
+    REQUIRE(script);
+    CHECK(*script.value == "script");
+
+    auto text = manager.read_text("project:/text/intro.txt");
+    REQUIRE(text);
+    CHECK(*text.value == "intro");
+
+    auto shader = manager.read_text("project:/shaders/bgfx/glsl-120/custom.fs.bin");
+    REQUIRE(shader);
+    CHECK(*shader.value == "shader");
 }

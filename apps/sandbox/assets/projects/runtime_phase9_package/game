@@ -1,0 +1,59 @@
+{
+  "engine": 1.0,
+  "name": "Phase 9 Package Smoke",
+  "version": "1.0",
+  "author": "NovelTea",
+  "website": "",
+  "fontDefault": "sys",
+  "fonts": {
+    "package": "package.ttf"
+  },
+  "startInv": [],
+  "shaders": {
+    "defaultFrag": "builtin:legacy-default-fragment",
+    "defaultVert": "builtin:legacy-default-vertex"
+  },
+  "systemShaders": ["defaultFrag", "defaultFrag"],
+  "sysfonts": {
+    "sys": "LiberationSans.ttf",
+    "sysIcon": "fontawesome.ttf"
+  },
+  "textures": {
+    "package": "package.txt"
+  },
+  "tests": {},
+  "sbs": "",
+  "sas": "",
+  "saa": "",
+  "sba": "return true;",
+  "sua": "return false;",
+  "sal": "",
+  "sbl": "return true;",
+  "sae": "",
+  "sbe": "return true;",
+  "tabs": [],
+  "tabIndex": -1,
+  "object": {},
+  "verb": {},
+  "action": {},
+  "map": {},
+  "dialogue": {},
+  "cutscene": {},
+  "script": {},
+  "room": {
+    "package_room": [
+      "package_room",
+      "",
+      {},
+      "This room was loaded from a generated legacy project package.",
+      "",
+      "",
+      "",
+      "",
+      [],
+      [],
+      "Packaged Room"
+    ]
+  },
+  "entrypoint": [3, "package_room"]
+}

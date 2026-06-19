@@ -123,3 +123,17 @@ add_test(
         "-DROOT=${CMAKE_SOURCE_DIR}"
         -P "${CMAKE_SOURCE_DIR}/tests/cmake/no_committed_shader_headers.cmake"
 )
+
+if(TARGET noveltea-sandbox)
+    add_test(
+        NAME noveltea_sandbox_runtime_legacy_package_smoke
+        COMMAND noveltea-sandbox
+            --demo none
+            --runtime-project project:/projects/runtime_phase9_package.ntpkg
+            --frames 5
+            --no-imgui
+    )
+    set_tests_properties(noveltea_sandbox_runtime_legacy_package_smoke PROPERTIES
+        LABELS "runtime;assets"
+    )
+endif()
