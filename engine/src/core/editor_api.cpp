@@ -28,6 +28,16 @@ bool is_entity_collection(std::string_view collection)
     return false;
 }
 
+void capture_output_commands(const RuntimeInputResult& result,
+                             std::vector<ControllerCommand>& captured)
+{
+    for (const auto& output : result.outputs) {
+        if (output.command.has_value()) {
+            captured.push_back(*output.command);
+        }
+    }
+}
+
 } // namespace
 
 bool ProjectLoadResult::has_errors() const noexcept
@@ -210,9 +220,10 @@ void RuntimePreviewSession::step(double delta_seconds)
         return;
     if (!m_running && delta_seconds > 0.0)
         return;
-    m_host.tick(delta_seconds);
-    const auto& commands = m_host.last_commands();
-    m_captured_commands.insert(m_captured_commands.end(), commands.begin(), commands.end());
+    RuntimeInput input;
+    input.type = RuntimeInputType::Tick;
+    input.delta_seconds = delta_seconds;
+    capture_output_commands(m_host.apply_input(input), m_captured_commands);
 }
 
 RuntimePreviewState RuntimePreviewSession::inspect_state() const
@@ -237,43 +248,51 @@ std::vector<ControllerCommand> RuntimePreviewSession::take_captured_commands()
 
 bool RuntimePreviewSession::inject_navigation_choice(int direction)
 {
-    const bool handled = m_host.navigate_path(direction);
-    if (handled) {
-        const auto& commands = m_host.last_commands();
-        m_captured_commands.insert(m_captured_commands.end(), commands.begin(), commands.end());
+    RuntimeInput input;
+    input.type = RuntimeInputType::Navigate;
+    input.direction = direction;
+    auto result = m_host.apply_input(input);
+    if (result.handled) {
+        capture_output_commands(result, m_captured_commands);
     }
-    return handled;
+    return result.handled;
 }
 
 bool RuntimePreviewSession::inject_dialogue_option(int option_index)
 {
-    const bool handled = m_host.select_dialogue_option(option_index);
-    if (handled) {
-        const auto& commands = m_host.last_commands();
-        m_captured_commands.insert(m_captured_commands.end(), commands.begin(), commands.end());
+    RuntimeInput input;
+    input.type = RuntimeInputType::SelectDialogueOption;
+    input.index = option_index;
+    auto result = m_host.apply_input(input);
+    if (result.handled) {
+        capture_output_commands(result, m_captured_commands);
     }
-    return handled;
+    return result.handled;
 }
 
 bool RuntimePreviewSession::inject_continue()
 {
-    const bool handled = m_host.continue_active();
-    if (handled) {
-        const auto& commands = m_host.last_commands();
-        m_captured_commands.insert(m_captured_commands.end(), commands.begin(), commands.end());
+    RuntimeInput input;
+    input.type = RuntimeInputType::Continue;
+    auto result = m_host.apply_input(input);
+    if (result.handled) {
+        capture_output_commands(result, m_captured_commands);
     }
-    return handled;
+    return result.handled;
 }
 
 bool RuntimePreviewSession::inject_action(const std::string& verb_id,
                                           const std::vector<std::string>& object_ids)
 {
-    const bool handled = m_host.process_action(verb_id, object_ids);
-    if (handled) {
-        const auto& commands = m_host.last_commands();
-        m_captured_commands.insert(m_captured_commands.end(), commands.begin(), commands.end());
+    RuntimeInput input;
+    input.type = RuntimeInputType::RunAction;
+    input.verb_id = verb_id;
+    input.object_ids = object_ids;
+    auto result = m_host.apply_input(input);
+    if (result.handled) {
+        capture_output_commands(result, m_captured_commands);
     }
-    return handled;
+    return result.handled;
 }
 
 } // namespace noveltea::core::editor

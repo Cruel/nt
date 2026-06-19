@@ -4,7 +4,6 @@
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
-#include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -100,8 +99,9 @@ struct RuntimeUI::State {
         }
         std::function<void()> callback;
     };
-    struct RuntimeControllerListener final : Rml::EventListener {
-        explicit RuntimeControllerListener(State& owner_state) : owner(owner_state) {}
+    void refresh_runtime_document();
+    struct RuntimeInputListener final : Rml::EventListener {
+        explicit RuntimeInputListener(State& owner_state) : owner(owner_state) {}
         void ProcessEvent(Rml::Event& event) override;
         State& owner;
     };
@@ -121,57 +121,151 @@ struct RuntimeUI::State {
     std::unordered_map<std::string, Rml::ElementDocument*> documents;
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
-    std::unique_ptr<RuntimeControllerListener> runtime_controller_listener;
-    core::RuntimeController* runtime_controller = nullptr;
+    std::unique_ptr<RuntimeInputListener> runtime_input_listener;
+    core::RuntimeSessionHost* runtime_host = nullptr;
     std::uintptr_t next_listener_id = 1;
     bool rml_initialized = false;
-    std::vector<std::string> selected_action_objects;
 #endif
     core::RuntimeUIViewAdapter runtime_view;
 };
 
 #if defined(NOVELTEA_HAS_RMLUI)
-void RuntimeUI::State::RuntimeControllerListener::ProcessEvent(Rml::Event& event)
+void RuntimeUI::State::refresh_runtime_document()
 {
-    if (!owner.runtime_controller)
+    auto doc_it = documents.find("runtime_game");
+    auto* doc = doc_it == documents.end() ? nullptr : doc_it->second;
+    if (!doc)
+        return;
+    const auto& view = runtime_view.state();
+
+    if (auto* mode = doc->GetElementById("rt_mode")) {
+        mode->SetInnerRML(escape_rml(view.mode));
+    }
+    if (auto* title = doc->GetElementById("rt_title")) {
+        title->SetInnerRML(escape_rml(view.title));
+    }
+    if (auto* body = doc->GetElementById("rt_body")) {
+        const auto body_rml = paragraph_rml(view.body);
+        body->SetInnerRML(body_rml.empty() ? "&nbsp;" : body_rml);
+    }
+    if (auto* note = doc->GetElementById("rt_notification")) {
+        note->SetInnerRML(escape_rml(view.notification));
+    }
+    if (auto* prompt = doc->GetElementById("rt_prompt")) {
+        if (view.page_break) {
+            prompt->SetInnerRML("<button class=\"continue\" nt-continue=\"1\">Page break</button>");
+        } else if (view.awaiting_continue) {
+            prompt->SetInnerRML("<button class=\"continue\" nt-continue=\"1\">Continue</button>");
+        } else {
+            prompt->SetInnerRML("");
+        }
+    }
+    if (auto* options = doc->GetElementById("rt_options")) {
+        std::ostringstream out;
+        for (std::size_t i = 0; i < view.dialogue_options.size(); ++i) {
+            const auto& option = view.dialogue_options[i];
+            out << "<button class=\"option";
+            if (!option.enabled)
+                out << " disabled";
+            out << "\" nt-option=\"" << i << "\"";
+            if (!option.enabled)
+                out << " disabled";
+            out << ">" << escape_rml(option.text) << "</button>";
+        }
+        options->SetInnerRML(out.str());
+    }
+    if (auto* nav = doc->GetElementById("rt_navigation")) {
+        std::ostringstream out;
+        for (std::size_t i = 0; i < view.navigation.size(); ++i) {
+            out << "<button class=\"nav\" nt-nav=\"" << i << "\">" << escape_rml(view.navigation[i])
+                << "</button>";
+        }
+        nav->SetInnerRML(out.str());
+    }
+    if (auto* objects = doc->GetElementById("rt_objects")) {
+        std::ostringstream out;
+        for (const auto& object : view.objects) {
+            out << "<button class=\"object\" nt-object=\"" << escape_rml(object.id) << "\">"
+                << escape_rml(object.name);
+            if (object.in_inventory && !object.in_room)
+                out << " (inventory)";
+            out << "</button>";
+        }
+        objects->SetInnerRML(out.str());
+    }
+    if (auto* actions = doc->GetElementById("rt_actions")) {
+        std::ostringstream out;
+        for (const auto& action : view.actions) {
+            out << "<button class=\"action\" nt-action=\"" << escape_rml(action.verb_id) << "\">"
+                << escape_rml(action.label);
+            if (action.object_count > 0)
+                out << " (" << action.object_count << ")";
+            out << "</button>";
+        }
+        actions->SetInnerRML(out.str());
+    }
+    if (auto* log = doc->GetElementById("rt_log")) {
+        std::ostringstream out;
+        for (const auto& line : view.text_log) {
+            out << "<p>" << escape_rml(line) << "</p>";
+        }
+        log->SetInnerRML(out.str());
+    }
+
+    doc->Show();
+}
+
+void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
+{
+    if (!owner.runtime_host)
         return;
     Rml::Element* target = event.GetTargetElement();
     if (!target)
         return;
 
+    auto submit = [this](core::RuntimeInput input) {
+        auto result = owner.runtime_host->apply_input(input);
+        owner.runtime_view.apply(owner.runtime_host->last_commands());
+        if (!result.outputs.empty() || result.handled) {
+            owner.refresh_runtime_document();
+        }
+    };
+
     if (target->HasAttribute("nt-option")) {
         const int index = target->GetAttribute<int>("nt-option", -1);
         if (index >= 0) {
-            owner.runtime_controller->dialogue_select_option(index);
+            core::RuntimeInput input;
+            input.type = core::RuntimeInputType::SelectDialogueOption;
+            input.index = index;
+            submit(std::move(input));
         }
     } else if (target->HasAttribute("nt-nav")) {
         const int direction = target->GetAttribute<int>("nt-nav", -1);
         if (direction >= 0) {
-            owner.runtime_controller->navigate_path(direction);
+            core::RuntimeInput input;
+            input.type = core::RuntimeInputType::Navigate;
+            input.direction = direction;
+            submit(std::move(input));
         }
     } else if (target->HasAttribute("nt-continue")) {
-        const auto mode = owner.runtime_controller->current_mode_name();
-        if (mode == std::string_view("dialogue")) {
-            owner.runtime_controller->dialogue_continue();
-        } else if (mode == std::string_view("cutscene")) {
-            owner.runtime_controller->cutscene_click();
-        }
+        core::RuntimeInput input;
+        input.type = core::RuntimeInputType::Continue;
+        submit(std::move(input));
     } else if (target->HasAttribute("nt-object")) {
         const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
         if (!object_id.empty()) {
-            auto it = std::find(owner.selected_action_objects.begin(),
-                                owner.selected_action_objects.end(), object_id);
-            if (it == owner.selected_action_objects.end()) {
-                owner.selected_action_objects.push_back(object_id);
-            } else {
-                owner.selected_action_objects.erase(it);
-            }
+            core::RuntimeInput input;
+            input.type = core::RuntimeInputType::SelectObject;
+            input.object_ids = {object_id};
+            submit(std::move(input));
         }
     } else if (target->HasAttribute("nt-action")) {
         const auto verb_id = target->GetAttribute<Rml::String>("nt-action", "");
         if (!verb_id.empty()) {
-            owner.runtime_controller->process_action(verb_id, owner.selected_action_objects);
-            owner.selected_action_objects.clear();
+            core::RuntimeInput input;
+            input.type = core::RuntimeInputType::RunAction;
+            input.verb_id = verb_id;
+            submit(std::move(input));
         }
     }
 }
@@ -505,86 +599,7 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
     if (!m_state)
         return;
     m_state->runtime_view.apply(commands);
-    auto* doc = static_cast<Rml::ElementDocument*>(document("runtime_game"));
-    if (!doc)
-        return;
-    const auto& view = m_state->runtime_view.state();
-
-    if (auto* mode = doc->GetElementById("rt_mode")) {
-        mode->SetInnerRML(escape_rml(view.mode));
-    }
-    if (auto* title = doc->GetElementById("rt_title")) {
-        title->SetInnerRML(escape_rml(view.title));
-    }
-    if (auto* body = doc->GetElementById("rt_body")) {
-        const auto body_rml = paragraph_rml(view.body);
-        body->SetInnerRML(body_rml.empty() ? "&nbsp;" : body_rml);
-    }
-    if (auto* note = doc->GetElementById("rt_notification")) {
-        note->SetInnerRML(escape_rml(view.notification));
-    }
-    if (auto* prompt = doc->GetElementById("rt_prompt")) {
-        if (view.page_break) {
-            prompt->SetInnerRML("<button class=\"continue\" nt-continue=\"1\">Page break</button>");
-        } else if (view.awaiting_continue) {
-            prompt->SetInnerRML("<button class=\"continue\" nt-continue=\"1\">Continue</button>");
-        } else {
-            prompt->SetInnerRML("");
-        }
-    }
-    if (auto* options = doc->GetElementById("rt_options")) {
-        std::ostringstream out;
-        for (std::size_t i = 0; i < view.dialogue_options.size(); ++i) {
-            const auto& option = view.dialogue_options[i];
-            out << "<button class=\"option";
-            if (!option.enabled)
-                out << " disabled";
-            out << "\" nt-option=\"" << i << "\"";
-            if (!option.enabled)
-                out << " disabled";
-            out << ">" << escape_rml(option.text) << "</button>";
-        }
-        options->SetInnerRML(out.str());
-    }
-    if (auto* nav = doc->GetElementById("rt_navigation")) {
-        std::ostringstream out;
-        for (std::size_t i = 0; i < view.navigation.size(); ++i) {
-            out << "<button class=\"nav\" nt-nav=\"" << i << "\">" << escape_rml(view.navigation[i])
-                << "</button>";
-        }
-        nav->SetInnerRML(out.str());
-    }
-    if (auto* objects = doc->GetElementById("rt_objects")) {
-        std::ostringstream out;
-        for (const auto& object : view.objects) {
-            out << "<button class=\"object\" nt-object=\"" << escape_rml(object.id) << "\">"
-                << escape_rml(object.name);
-            if (object.in_inventory && !object.in_room)
-                out << " (inventory)";
-            out << "</button>";
-        }
-        objects->SetInnerRML(out.str());
-    }
-    if (auto* actions = doc->GetElementById("rt_actions")) {
-        std::ostringstream out;
-        for (const auto& action : view.actions) {
-            out << "<button class=\"action\" nt-action=\"" << escape_rml(action.verb_id) << "\">"
-                << escape_rml(action.label);
-            if (action.object_count > 0)
-                out << " (" << action.object_count << ")";
-            out << "</button>";
-        }
-        actions->SetInnerRML(out.str());
-    }
-    if (auto* log = doc->GetElementById("rt_log")) {
-        std::ostringstream out;
-        for (const auto& line : view.text_log) {
-            out << "<p>" << escape_rml(line) << "</p>";
-        }
-        log->SetInnerRML(out.str());
-    }
-
-    doc->Show();
+    m_state->refresh_runtime_document();
 #else
     (void)commands;
 #endif
@@ -600,22 +615,21 @@ const core::RuntimeUIViewState& RuntimeUI::runtime_view_state() const
     return empty;
 }
 
-void RuntimeUI::bind_runtime_controller(core::RuntimeController* controller)
+void RuntimeUI::bind_runtime_host(core::RuntimeSessionHost* host)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
     if (!m_state)
         return;
-    m_state->runtime_controller = controller;
+    m_state->runtime_host = host;
     auto* doc = static_cast<Rml::ElementDocument*>(document("runtime_game"));
     if (!doc)
         return;
-    if (!m_state->runtime_controller_listener) {
-        m_state->runtime_controller_listener =
-            std::make_unique<State::RuntimeControllerListener>(*m_state);
-        doc->AddEventListener("click", m_state->runtime_controller_listener.get());
+    if (!m_state->runtime_input_listener) {
+        m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
+        doc->AddEventListener("click", m_state->runtime_input_listener.get());
     }
 #else
-    (void)controller;
+    (void)host;
 #endif
 }
 

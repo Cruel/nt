@@ -133,7 +133,43 @@ bool has_command(const std::vector<ControllerCommand>& commands, ControllerComma
     return false;
 }
 
+bool has_output(const std::vector<RuntimeOutput>& outputs, RuntimeOutputType type)
+{
+    for (const auto& output : outputs) {
+        if (output.type == type)
+            return true;
+    }
+    return false;
+}
+
+ProjectDocument make_script_project()
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::entrypoint_entity] = ref(EntityType::Script, "bootstrap");
+    root[project_ids::script] = nlohmann::json::object({
+        {"bootstrap", nlohmann::json::array({"bootstrap", "", props(), false, "notify('hello')"})},
+    });
+    return project;
+}
+
 } // namespace
+
+TEST_CASE("RuntimeSessionHost apply_input ticks headless and emits runtime outputs")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_room_project()).success);
+
+    auto result = host.apply_input(RuntimeInput{.type = RuntimeInputType::Tick});
+
+    CHECK(result.handled);
+    CHECK(host.current_mode_name() == std::string_view("room"));
+    CHECK(result.view.mode == "room");
+    CHECK(result.view.title == "Foyer");
+    CHECK(has_output(result.outputs, RuntimeOutputType::ModeChanged));
+    CHECK(has_output(result.outputs, RuntimeOutputType::ViewUpdated));
+    CHECK(has_command(host.last_commands(), ControllerCommandType::RoomDescription));
+}
 
 TEST_CASE("RuntimeSessionHost loads project and drives room UI state")
 {
@@ -160,9 +196,11 @@ TEST_CASE("RuntimeSessionHost routes navigation and updates room state")
     REQUIRE(host.load(make_room_project()).success);
     host.tick(0.0);
 
-    CHECK(host.navigate_path(0));
-    host.tick(0.0);
+    auto result =
+        host.apply_input(RuntimeInput{.type = RuntimeInputType::Navigate, .direction = 0});
 
+    CHECK(result.handled);
+    host.tick(0.0);
     CHECK(host.current_mode_name() == std::string_view("room"));
     CHECK(host.view_state().title == "Kitchen");
     CHECK(host.view_state().body == "A bright kitchen.");
@@ -178,7 +216,9 @@ TEST_CASE("RuntimeSessionHost routes dialogue option selection")
     CHECK(host.view_state().title == "Guide");
     REQUIRE(host.view_state().dialogue_options.size() == 1);
 
-    CHECK(host.select_dialogue_option(0));
+    auto result =
+        host.apply_input(RuntimeInput{.type = RuntimeInputType::SelectDialogueOption, .index = 0});
+    CHECK(result.handled);
     CHECK(has_command(host.last_commands(), ControllerCommandType::DialogueComplete));
 }
 
@@ -191,11 +231,11 @@ TEST_CASE("RuntimeSessionHost routes active continue for cutscenes")
     CHECK(host.current_mode_name() == std::string_view("cutscene"));
     CHECK(host.view_state().body == "One.");
 
-    CHECK(host.continue_active());
+    CHECK(host.apply_input(RuntimeInput{.type = RuntimeInputType::Continue}).handled);
     CHECK(host.current_mode_name() == std::string_view("cutscene"));
     CHECK(host.view_state().body == "Two.");
 
-    CHECK(host.continue_active());
+    CHECK(host.apply_input(RuntimeInput{.type = RuntimeInputType::Continue}).handled);
     CHECK(host.current_mode_name() == std::string_view("room"));
     CHECK(host.view_state().title == "Foyer");
     CHECK(host.view_state().body == "A quiet foyer.");
@@ -219,6 +259,47 @@ TEST_CASE("RuntimeSessionHost exposes room objects, inventory, and actions")
     CHECK(view.actions[0].label == "Look");
     CHECK(view.actions[0].object_count == 1);
 
-    CHECK(host.process_action("look", {"lamp"}));
+    CHECK(host.apply_input(
+                  RuntimeInput{.type = RuntimeInputType::SelectObject, .object_ids = {"lamp"}})
+              .handled);
+    auto result =
+        host.apply_input(RuntimeInput{.type = RuntimeInputType::RunAction, .verb_id = "look"});
+    CHECK(result.handled);
     CHECK(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
+}
+
+TEST_CASE("RuntimeSessionHost invalid input returns structured diagnostics")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_room_project()).success);
+    host.tick(0.0);
+
+    auto result = host.apply_input(
+        RuntimeInput{.type = RuntimeInputType::SelectDialogueOption, .index = 0, .step_index = 7});
+
+    CHECK_FALSE(result.handled);
+    REQUIRE(result.diagnostics.size() == 1);
+    CHECK(result.diagnostics.front().severity == RuntimeDiagnosticSeverity::Warning);
+    CHECK(result.diagnostics.front().category == "runtime-input");
+    CHECK(result.diagnostics.front().playback_step_index == 7);
+    CHECK(has_output(result.outputs, RuntimeOutputType::Diagnostic));
+}
+
+TEST_CASE("RuntimeSessionHost surfaces deferred scripts as runtime script requests")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_script_project()).success);
+
+    auto result = host.apply_input(RuntimeInput{.type = RuntimeInputType::Tick, .step_index = 3});
+
+    CHECK(result.handled);
+    CHECK(has_command(host.last_commands(), ControllerCommandType::ScriptDeferred));
+    CHECK(has_output(result.outputs, RuntimeOutputType::ScriptRequest));
+    for (const auto& output : result.outputs) {
+        if (output.type == RuntimeOutputType::ScriptRequest) {
+            REQUIRE(output.command.has_value());
+            CHECK(output.command->type == ControllerCommandType::ScriptDeferred);
+            CHECK(output.step_index == 3);
+        }
+    }
 }

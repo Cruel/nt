@@ -78,7 +78,7 @@ Acceptance criteria:
 - Historical docs are clearly marked historical.
 - `PLAN.md`, `STATUS.md`, and `COMPATIBILITY.md` each have a distinct purpose.
 
-## Phase 1 [next]: Runtime State and Input/Output Model
+## Phase 1 [done]: Runtime State and Input/Output Model
 
 Goal: replace the old implicit `StateEventManager`/UI/script coupling with a deterministic runtime input/output contract.
 
@@ -130,7 +130,7 @@ Acceptance criteria:
 - Existing room/dialogue/cutscene/action behavior remains covered by tests.
 - Diagnostics are structured enough for editor display.
 
-## Phase 2 [pending]: Lua Runtime Execution
+## Phase 2 [next]: Lua Runtime Execution
 
 Goal: make runtime script points execute Lua through the new runtime architecture.
 

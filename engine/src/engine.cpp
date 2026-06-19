@@ -197,9 +197,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         SDL_Log("[engine] mounted legacy runtime package assets: %s", logical_path.c_str());
     }
 
-    if (auto* controller = m_runtime_host.controller()) {
-        m_runtime_ui.bind_runtime_controller(controller);
-    }
+    m_runtime_ui.bind_runtime_host(m_runtime_host.loaded() ? &m_runtime_host : nullptr);
     SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
     return true;
 }
@@ -288,12 +286,10 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     m_runtime_ui.resize(m_platform.surface());
-    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo
+    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
 #if defined(NOVELTEA_HAS_LUA)
-                                 ,
                                  &m_scripts
 #else
-                                 ,
                                  nullptr
 #endif
                                  )) {

@@ -7,6 +7,7 @@
 
 #include <noveltea/core/game_session.hpp>
 #include <noveltea/core/runtime_controller.hpp>
+#include <noveltea/core/runtime_io.hpp>
 #include <noveltea/core/runtime_ui_view.hpp>
 
 namespace noveltea::core {
@@ -40,7 +41,17 @@ public:
     {
         return m_last_commands;
     }
+    [[nodiscard]] const std::vector<RuntimeOutput>& last_outputs() const noexcept
+    {
+        return m_last_outputs;
+    }
+    [[nodiscard]] const std::vector<RuntimeDiagnostic>& last_diagnostics() const noexcept
+    {
+        return m_last_diagnostics;
+    }
     [[nodiscard]] std::string_view current_mode_name() const noexcept;
+
+    RuntimeInputResult apply_input(const RuntimeInput& input);
 
     bool navigate_path(int direction);
     bool select_dialogue_option(int option_index);
@@ -48,12 +59,22 @@ public:
     bool process_action(const std::string& verb_id, const std::vector<std::string>& object_ids);
 
 private:
-    void consume_commands(std::vector<ControllerCommand> commands);
+    RuntimeInputResult make_result(bool handled, std::vector<ControllerCommand> commands,
+                                   std::vector<RuntimeDiagnostic> diagnostics = {},
+                                   std::optional<std::uint64_t> step_index = std::nullopt);
+    RuntimeDiagnostic make_warning(const RuntimeInput& input, std::string message) const;
+    void consume_commands(const std::vector<ControllerCommand>& commands);
+    [[nodiscard]] std::vector<RuntimeOutput>
+    commands_to_outputs(const std::vector<ControllerCommand>& commands,
+                        std::optional<std::uint64_t> step_index) const;
 
     GameSession m_session;
     std::unique_ptr<RuntimeController> m_controller;
     RuntimeUIViewAdapter m_view;
     std::vector<ControllerCommand> m_last_commands;
+    std::vector<RuntimeOutput> m_last_outputs;
+    std::vector<RuntimeDiagnostic> m_last_diagnostics;
+    std::vector<std::string> m_selected_object_ids;
 };
 
 } // namespace noveltea::core

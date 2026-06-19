@@ -27,14 +27,17 @@ void RuntimeSessionHost::reset()
     m_session.reset();
     m_view.reset();
     m_last_commands.clear();
+    m_last_outputs.clear();
+    m_last_diagnostics.clear();
+    m_selected_object_ids.clear();
 }
 
 void RuntimeSessionHost::tick(double delta_seconds)
 {
-    if (!m_controller)
-        return;
-    m_controller->tick(delta_seconds);
-    consume_commands(m_controller->take_commands());
+    RuntimeInput input;
+    input.type = RuntimeInputType::Tick;
+    input.delta_seconds = delta_seconds;
+    (void)apply_input(input);
 }
 
 std::string_view RuntimeSessionHost::current_mode_name() const noexcept
@@ -44,49 +47,229 @@ std::string_view RuntimeSessionHost::current_mode_name() const noexcept
 
 bool RuntimeSessionHost::navigate_path(int direction)
 {
-    if (!m_controller || current_mode_name() != std::string_view("room"))
-        return false;
-    m_controller->navigate_path(direction);
-    consume_commands(m_controller->take_commands());
-    return true;
+    RuntimeInput input;
+    input.type = RuntimeInputType::Navigate;
+    input.direction = direction;
+    return apply_input(input).handled;
 }
 
 bool RuntimeSessionHost::select_dialogue_option(int option_index)
 {
-    if (!m_controller || current_mode_name() != std::string_view("dialogue"))
-        return false;
-    const bool selected = m_controller->dialogue_select_option(option_index);
-    consume_commands(m_controller->take_commands());
-    return selected;
+    RuntimeInput input;
+    input.type = RuntimeInputType::SelectDialogueOption;
+    input.index = option_index;
+    return apply_input(input).handled;
 }
 
 bool RuntimeSessionHost::continue_active()
 {
-    if (!m_controller)
-        return false;
-    const auto mode = current_mode_name();
-    if (mode == std::string_view("dialogue")) {
-        m_controller->dialogue_continue();
-    } else if (mode == std::string_view("cutscene")) {
-        m_controller->cutscene_click();
-    } else {
-        return false;
-    }
-    consume_commands(m_controller->take_commands());
-    return true;
+    RuntimeInput input;
+    input.type = RuntimeInputType::Continue;
+    return apply_input(input).handled;
 }
 
 bool RuntimeSessionHost::process_action(const std::string& verb_id,
                                         const std::vector<std::string>& object_ids)
 {
-    if (!m_controller)
-        return false;
-    const bool processed = m_controller->process_action(verb_id, object_ids);
-    consume_commands(m_controller->take_commands());
-    return processed;
+    RuntimeInput input;
+    input.type = RuntimeInputType::RunAction;
+    input.verb_id = verb_id;
+    input.object_ids = object_ids;
+    return apply_input(input).handled;
 }
 
-void RuntimeSessionHost::consume_commands(std::vector<ControllerCommand> commands)
+RuntimeInputResult RuntimeSessionHost::apply_input(const RuntimeInput& input)
+{
+    std::vector<RuntimeDiagnostic> diagnostics;
+
+    auto unsupported = [&](std::string message) {
+        diagnostics.push_back(make_warning(input, std::move(message)));
+        return make_result(false, {}, std::move(diagnostics), input.step_index);
+    };
+
+    if (!m_controller && input.type != RuntimeInputType::Reset &&
+        input.type != RuntimeInputType::Start) {
+        return unsupported("runtime session is not loaded");
+    }
+
+    switch (input.type) {
+    case RuntimeInputType::Start:
+        return make_result(true, {}, {}, input.step_index);
+    case RuntimeInputType::Stop:
+        return make_result(true, {}, {}, input.step_index);
+    case RuntimeInputType::Reset:
+        reset();
+        return make_result(true, {}, {}, input.step_index);
+    case RuntimeInputType::Tick:
+        m_controller->tick(input.delta_seconds);
+        return make_result(true, m_controller->take_commands(), {}, input.step_index);
+    case RuntimeInputType::Continue: {
+        const auto mode = current_mode_name();
+        if (mode == std::string_view("dialogue")) {
+            m_controller->dialogue_continue();
+        } else if (mode == std::string_view("cutscene")) {
+            m_controller->cutscene_click();
+        } else {
+            return unsupported("continue input is only valid in dialogue or cutscene mode");
+        }
+        return make_result(true, m_controller->take_commands(), {}, input.step_index);
+    }
+    case RuntimeInputType::SelectDialogueOption: {
+        if (current_mode_name() != std::string_view("dialogue")) {
+            return unsupported("dialogue option input is only valid in dialogue mode");
+        }
+        const bool selected = m_controller->dialogue_select_option(input.index);
+        if (!selected) {
+            return unsupported("dialogue option was not selectable");
+        }
+        return make_result(true, m_controller->take_commands(), {}, input.step_index);
+    }
+    case RuntimeInputType::Navigate:
+        if (current_mode_name() != std::string_view("room")) {
+            return unsupported("navigation input is only valid in room mode");
+        }
+        m_controller->navigate_path(input.direction);
+        return make_result(true, m_controller->take_commands(), {}, input.step_index);
+    case RuntimeInputType::SelectObject: {
+        const std::string object_id = !input.object_ids.empty()
+                                          ? input.object_ids.front()
+                                          : input.payload.value("object_id", std::string{});
+        if (object_id.empty()) {
+            return unsupported("object selection input requires an object id");
+        }
+        auto it = std::find(m_selected_object_ids.begin(), m_selected_object_ids.end(), object_id);
+        if (it == m_selected_object_ids.end()) {
+            m_selected_object_ids.push_back(object_id);
+        } else {
+            m_selected_object_ids.erase(it);
+        }
+        RuntimeOutput output;
+        output.type = RuntimeOutputType::TestObservation;
+        output.payload = {{"selected_objects", m_selected_object_ids}};
+        output.step_index = input.step_index;
+        auto result = make_result(true, {}, {}, input.step_index);
+        result.outputs.push_back(std::move(output));
+        m_last_outputs = result.outputs;
+        return result;
+    }
+    case RuntimeInputType::ClearObjectSelection: {
+        m_selected_object_ids.clear();
+        RuntimeOutput output;
+        output.type = RuntimeOutputType::TestObservation;
+        output.payload = {{"selected_objects", nlohmann::json::array()}};
+        output.step_index = input.step_index;
+        auto result = make_result(true, {}, {}, input.step_index);
+        result.outputs.push_back(std::move(output));
+        m_last_outputs = result.outputs;
+        return result;
+    }
+    case RuntimeInputType::RunAction: {
+        auto object_ids = input.object_ids.empty() ? m_selected_object_ids : input.object_ids;
+        const bool processed = m_controller->process_action(input.verb_id, object_ids);
+        if (!processed) {
+            return unsupported("action input was not processed");
+        }
+        m_selected_object_ids.clear();
+        return make_result(true, m_controller->take_commands(), {}, input.step_index);
+    }
+    case RuntimeInputType::SetEntrypoint:
+        return unsupported(
+            "set-entrypoint input is handled by editor preview sessions in this phase");
+    case RuntimeInputType::LoadSave:
+        return unsupported(
+            "load-save input is defined for the runtime contract but awaits save-slot policy");
+    case RuntimeInputType::ApplyTestStep:
+        return unsupported("apply-test-step input is defined for the runtime contract but has no "
+                           "step executor yet");
+    }
+
+    return unsupported("unknown runtime input");
+}
+
+RuntimeInputResult RuntimeSessionHost::make_result(bool handled,
+                                                   std::vector<ControllerCommand> commands,
+                                                   std::vector<RuntimeDiagnostic> diagnostics,
+                                                   std::optional<std::uint64_t> step_index)
+{
+    consume_commands(commands);
+
+    auto outputs = commands_to_outputs(commands, step_index);
+    for (const auto& diagnostic : diagnostics) {
+        RuntimeOutput output;
+        output.type = RuntimeOutputType::Diagnostic;
+        output.diagnostic = diagnostic;
+        output.step_index = diagnostic.playback_step_index;
+        outputs.push_back(std::move(output));
+    }
+
+    if (!commands.empty()) {
+        RuntimeOutput view_output;
+        view_output.type = RuntimeOutputType::ViewUpdated;
+        view_output.view = m_view.state();
+        view_output.step_index = step_index;
+        outputs.push_back(std::move(view_output));
+    }
+
+    m_last_commands = std::move(commands);
+    m_last_outputs = outputs;
+    m_last_diagnostics = diagnostics;
+
+    RuntimeInputResult result;
+    result.handled = handled;
+    result.view = m_view.state();
+    result.outputs = std::move(outputs);
+    result.diagnostics = std::move(diagnostics);
+    return result;
+}
+
+RuntimeDiagnostic RuntimeSessionHost::make_warning(const RuntimeInput& input,
+                                                   std::string message) const
+{
+    RuntimeDiagnostic diagnostic;
+    diagnostic.severity = RuntimeDiagnosticSeverity::Warning;
+    diagnostic.category = "runtime-input";
+    diagnostic.source = input.entity_ref;
+    diagnostic.message = std::move(message);
+    diagnostic.playback_step_index = input.step_index;
+    return diagnostic;
+}
+
+std::vector<RuntimeOutput>
+RuntimeSessionHost::commands_to_outputs(const std::vector<ControllerCommand>& commands,
+                                        std::optional<std::uint64_t> step_index) const
+{
+    std::vector<RuntimeOutput> outputs;
+    outputs.reserve(commands.size());
+    for (const auto& command : commands) {
+        RuntimeOutput output;
+        output.command = command;
+        output.step_index = step_index;
+        output.payload = command.data;
+
+        switch (command.type) {
+        case ControllerCommandType::ModeChanged:
+            output.type = RuntimeOutputType::ModeChanged;
+            break;
+        case ControllerCommandType::ScriptDeferred:
+            output.type = RuntimeOutputType::ScriptRequest;
+            break;
+        case ControllerCommandType::Notification:
+            output.type = RuntimeOutputType::Notification;
+            break;
+        case ControllerCommandType::TextLogged:
+            output.type = RuntimeOutputType::TextLogEntry;
+            break;
+        default:
+            output.type = RuntimeOutputType::Command;
+            break;
+        }
+
+        outputs.push_back(std::move(output));
+    }
+    return outputs;
+}
+
+void RuntimeSessionHost::consume_commands(const std::vector<ControllerCommand>& commands)
 {
     m_view.apply(commands);
     if (m_controller && m_controller->current_mode_name() == std::string_view("room")) {
@@ -143,7 +326,6 @@ void RuntimeSessionHost::consume_commands(std::vector<ControllerCommand> command
         }
         m_view.set_room_interactions(std::move(objects), std::move(actions));
     }
-    m_last_commands = std::move(commands);
 }
 
 } // namespace noveltea::core
