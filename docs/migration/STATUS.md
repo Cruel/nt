@@ -1,10 +1,10 @@
 # Migration Status
 
-Last updated: 2026-06-19 (runtime controller slice).
+Last updated: 2026-06-19 (Phase 6 runtime controllers complete).
 
 ## Current Core Domain Migration State
 
-The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, typed legacy entity schema views/parsers, old save/settings/profile document APIs, project/entity graph validation, backend-neutral typed project models/stores, a runtime event bus and timer scheduler, an expanded `GameSession` runtime facade, a `RuntimeController` that drains the entity queue and drives room-entry transitions with UI-neutral commands, the legacy `game` JSON importer, and a read-only legacy ZIP project package reader under `noveltea::core::legacy`.
+The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, typed legacy entity schema views/parsers, old save/settings/profile document APIs, project/entity graph validation, backend-neutral typed project models/stores, a runtime event bus and timer scheduler, an expanded `GameSession` runtime facade, a Phase 6-complete `RuntimeController` for room/dialogue/cutscene/script sequencing, the legacy `game` JSON importer, and a read-only legacy ZIP project package reader under `noveltea::core::legacy`.
 
 Durable report:
 
@@ -27,7 +27,7 @@ Current core decisions:
 - `ProjectModel` materializes validated `ProjectDocument` data into owned backend-neutral stores for `Object`, `Script`, `Action`, `Verb`, `Room`, `Map`, `Dialogue`, and `Cutscene`, including common entity metadata, parent ids, project properties, nested room/map/dialogue/cutscene values, parent metadata lookup, and parent-first project-property merging. It does not run scripts or apply save overrides.
 - `RuntimeEventBus` preserves old-style wildcard/type listener dispatch, immediate trigger, queued dispatch, listener removal, and next-dispatch deferral for events queued by listeners. `RuntimeTimerScheduler` supports one-shot and repeating timers, cancellation, reset, callback execution, safe timer creation from callbacks, and optional `TimerCompleted` event emission. It is independent of scripting, rendering, SDL, and `Engine::tick()` integration.
 - `GameSession` is a backend-neutral runtime facade. It loads a validated `ProjectDocument` into `ProjectModel`, owns a `SaveDocument`, runtime events, timers, play time, startup entrypoint resolution, current entity, current room/map ids, navigation/map flags, and an entity queue. It prefers a save entrypoint when present, falls back to the project entrypoint, restores old save metadata where possible, ignores stale saved map/queue entries with warnings, emits UI-neutral session commands plus a queued `GameLoaded` event, advances timers/play time on `tick()`, and deliberately avoids scripting, rendering, concrete mode controllers, and old service-locator behavior.
-- `RuntimeController` is a backend-neutral gameplay sequencer that owns queue draining, room-entry/exit transitions, visit-count tracking, navigation-path resolution, and UI-neutral `ControllerCommand` emission. It accepts a `GameSession&`, calls `session.tick()` each frame, processes the startup entrypoint (Room entrypoint enters room mode directly; other types are queued), drains one entity per tick when not in Room mode (Room mode blocks), and provides `navigate_path(direction)` to resolve a room path's target entity and exit the current room. Entities requiring scripting emit `ScriptDeferred` commands. It deliberately avoids scripting, specific mode controllers, rendering, and UI integration.
+- `RuntimeController` is a backend-neutral gameplay sequencer that owns queue draining, room-entry/exit transitions, visit-count tracking, navigation-path resolution, action resolution, transient script/custom-script mode, active mode save/restore, and UI-neutral `ControllerCommand` emission. It accepts a `GameSession&`, calls `session.tick()` each frame, processes the startup entrypoint (Room entrypoint enters room mode directly; other types are queued), drains one entity per tick when not in Room mode (Room mode blocks), provides `navigate_path(direction)` to resolve a room path's target entity and exit the current room, and provides `process_action(verb_id, object_ids)` for room actions. Action processing validates object availability against the current room plus starting inventory, matches actions with old position-dependent or order-insensitive object semantics, emits project before/after action scripts, emits parent action scripts before child scripts, and falls back to the verb default script when no action matches. Room enter/leave hook commands follow the old project-before, room-before, project-after, room-after order. Runtime notification and text-log events are forwarded into controller commands. Entities and hooks requiring script execution still emit `ScriptDeferred` commands. It deliberately avoids concrete script execution, rendering, and UI integration.
 - `EntityType::CustomScript` is known but not project-backed. It has no collection key because old runtime resolution treats the selected-entity id string as inline script content.
 - `EntityRef` remains only the old `[type, id]` selected-entity shape. It accepts `CustomScript` inline content structurally but does not validate referenced entity existence.
 
@@ -35,15 +35,15 @@ Core engine migration planning:
 
 - `docs/migration/PLAN.md` now expands the old-core migration into staged work from legacy wire schemas through domain models, save/settings/profile import, runtime controllers, Lua-based scripting compatibility, text semantics, RmlUi/bgfx adapters, package asset integration, and editor preview APIs.
 - `docs/migration/reports/core-engine-migration-plan.md` records the old `Game`, `Context`, `SaveData`, `Settings`, `ScriptManager`, entity schema, event/timer, text, and package analysis that informed the plan.
-- The Phase 6 runtime-controller first slice is complete. `RuntimeController` owns queue draining (one entity per tick, Room mode blocks), room-entry transitions with visit-count tracking, navigation-path resolution, and UI-neutral `ControllerCommand` emission (`ModeChanged`, `RoomEntry`, `RoomDescription`, `NavigationUpdate`, `ScriptDeferred`). Scripting-dependent entities emit `ScriptDeferred` commands. The next core-engine slice should add the first concrete mode controller for cutscene and dialogue entry, or integrate with the existing Lua scripting runtime to replace `ScriptDeferred` with actual execution.
+- Phase 6 is complete. Runtime-controller coverage now includes queue draining, entrypoint startup, room navigation, room enter/leave hook command order, active room/dialogue/cutscene save-state restore, transient script/custom-script mode, dialogue traversal/options/log commands, cutscene timeline expansion, next-entity transitions, room action resolution, notification/text-log event forwarding, and UI-neutral command emission. The next core-engine slice should start Phase 7 text semantics: old `TextTypes`/BBCode parsing into backend-neutral rich-text runs, followed by pagination/timeline models for dialogue and cutscene text.
 
 Verification:
 
-- `cmake --preset linux-debug`: passed.
-- `cmake --build --preset linux-debug`: passed.
-- `ctest --test-dir build/linux-debug --output-on-failure`: passed 126/127 (pre-existing SDL init failure for GPU readback capture in headless environment) after `RuntimeController` tests were added.
-- `cmake --preset web-debug`: passed.
-- `cmake --build --preset web-debug`: passed with the existing Emscripten SDL3 experimental warning.
+- `cmake --build --preset linux-debug`: passed after Phase 6 completion changes.
+- `ctest --test-dir build/linux-debug -R 'RuntimeController|DialogueController' --output-on-failure`: passed 33/33.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 174/174.
+- `cmake --preset web-debug`: passed before the final warning cleanup.
+- `cmake --build --preset web-debug`: passed after final changes with only the existing Emscripten SDL3 experimental warning.
 
 ## Current DPI-Aware Surface State
 

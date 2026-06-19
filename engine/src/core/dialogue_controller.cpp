@@ -21,6 +21,7 @@ void DialogueController::start(const std::string& dialogue_id)
     m_complete = false;
     m_waiting_for_text = false;
     m_waiting_for_choice = false;
+    m_current_text_logged = false;
     m_current_name.clear();
     m_current_text.clear();
     m_text_lines.clear();
@@ -150,6 +151,7 @@ void DialogueController::change_segment(int segment_index, bool run_segment, int
     }
 
     if (text_segment) {
+        m_current_text_logged = text_segment->is_logged;
         m_text_lines = get_text_multiline(
             evaluate_text(*text_segment, button_subindex),
             m_dialogue->default_name);
@@ -205,7 +207,6 @@ void DialogueController::gen_options(int parent_index, bool is_root)
     const auto& parent = segments[parent_index];
 
     bool has_working_option = false;
-    int button_index = 0;
 
     for (auto child_id : parent.children_ids) {
         if (child_id < 0 || child_id >= static_cast<int>(segments.size()))
@@ -255,7 +256,6 @@ void DialogueController::gen_options(int parent_index, bool is_root)
             if (m_dialogue->enable_disabled_options || !opt_disabled)
                 has_working_option = true;
 
-            ++button_index;
             m_options.push_back(std::move(opt));
         }
     }
@@ -352,6 +352,7 @@ void DialogueController::reset()
     m_complete = true;
     m_waiting_for_text = false;
     m_waiting_for_choice = false;
+    m_current_text_logged = false;
     m_current_name.clear();
     m_current_text.clear();
     m_text_lines.clear();
@@ -432,6 +433,40 @@ void DialogueController::emit_dialogue_text()
         EntityRef{EntityType::Dialogue, m_dialogue_id},
         m_current_text,
         std::move(data),
+    });
+
+    if (m_current_text_logged && !m_current_text.empty()) {
+        emit_command(ControllerCommand{
+            ControllerCommandType::TextLogged,
+            EntityRef{EntityType::Dialogue, m_dialogue_id},
+            m_current_text,
+            {{"name", m_current_name}, {"dialogue_id", m_dialogue_id}, {"line_index", m_text_line_index}},
+        });
+    }
+
+    if (m_waiting_for_choice) {
+        emit_dialogue_options();
+    }
+}
+
+void DialogueController::emit_dialogue_options()
+{
+    nlohmann::json opts = nlohmann::json::array();
+    for (const auto& opt : m_options) {
+        nlohmann::json o = nlohmann::json::object();
+        o["text"] = opt.text;
+        o["enabled"] = opt.enabled;
+        o["target_segment"] = opt.target_segment;
+        o["sub_index"] = opt.sub_index;
+        o["show_once"] = opt.show_once;
+        opts.push_back(std::move(o));
+    }
+
+    emit_command(ControllerCommand{
+        ControllerCommandType::DialogueOptions,
+        EntityRef{EntityType::Dialogue, m_dialogue_id},
+        m_dialogue_id,
+        {{"options", std::move(opts)}},
     });
 }
 

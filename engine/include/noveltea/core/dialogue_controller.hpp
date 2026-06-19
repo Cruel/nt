@@ -76,6 +76,7 @@ private:
     bool m_complete = false;
     bool m_waiting_for_text = false;
     bool m_waiting_for_choice = false;
+    bool m_current_text_logged = false;
 
     std::string m_current_name;
     std::string m_current_text;

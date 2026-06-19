@@ -187,6 +187,35 @@ TEST_CASE("DialogueController start shows text and options")
     }
 }
 
+TEST_CASE("DialogueController emits explicit options and text log commands")
+{
+    auto project = make_test_dialogue_project();
+    project.root()[project_ids::dialogue]["conversation"][9][1][7] = true;
+
+    GameSession session;
+    REQUIRE(session.load(std::move(project)).success);
+
+    DialogueController controller(session);
+    controller.start("conversation");
+
+    auto commands = controller.take_commands();
+    CHECK(has_command(commands, ControllerCommandType::DialogueText));
+    CHECK(has_command(commands, ControllerCommandType::DialogueOptions));
+    CHECK(has_command(commands, ControllerCommandType::TextLogged));
+
+    const auto* options_cmd = [&]() -> const ControllerCommand* {
+        for (const auto& c : commands) {
+            if (c.type == ControllerCommandType::DialogueOptions)
+                return &c;
+        }
+        return nullptr;
+    }();
+    REQUIRE(options_cmd != nullptr);
+    REQUIRE(options_cmd->data.contains("options"));
+    REQUIRE(options_cmd->data["options"].is_array());
+    CHECK(options_cmd->data["options"].size() == 2);
+}
+
 TEST_CASE("DialogueController select_option advances to next segment")
 {
     GameSession session;

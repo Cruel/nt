@@ -1,6 +1,6 @@
 # NovelTea Core Engine Migration Plan
 
-**Completion status: [███░░░░░░░] 3/11 phases fully done — Phase 4 expanded, 5–11 not started**
+**Completion status: [██████░░░░░] 6/11 phases fully done — Phase 7 next**
 
 See [`STATUS.md`](STATUS.md) for detailed completion tracking, verification results, and next-prompt recommendations. This file tracks phase-level scope only.
 
@@ -58,7 +58,7 @@ Goal: port old persistence formats without recreating the old service locator.
 - Separate save import/export from autosave policy and runtime session mutation.
 - Add tests for legacy save fixtures, profile naming, slot discovery, and malformed save diagnostics.
 
-## [x] Phase 4: Runtime Core Facade (partial — session state/queue done, DI/services pending)
+## [x] Phase 4: Runtime Core Facade
 
 Goal: replace old `Context`/`Subsystem` macros with explicit runtime ownership.
 
@@ -69,7 +69,7 @@ Goal: replace old `Context`/`Subsystem` macros with explicit runtime ownership.
 - Add runtime services through constructor injection or small interfaces, not global `GGame`/`GSave`/`ScriptMan` macros.
 - Keep renderer/UI output as commands or events consumed by adapters.
 
-## [ ] Phase 5: Scripting Compatibility Layer
+## [x] Phase 5: Scripting Compatibility Layer
 
 Goal: preserve old script-facing behavior on top of the current Lua runtime.
 
@@ -79,7 +79,7 @@ Goal: preserve old script-facing behavior on top of the current Lua runtime.
 - Implement or document a migration strategy for old JavaScript script bodies that targets Lua. Acceptable paths are project-level script migration tooling, a restricted source translator, compatibility shims in Lua, or clear unsupported-script diagnostics. Do not add Duktape, dukglue, or any JavaScript runtime to the new engine.
 - Add fixtures around old `core.js` semantics such as seeded random, `thisEntity`, `prop`, `setProp`, `toast`, and object/action helpers.
 
-## [ ] Phase 6: Runtime Controllers
+## [x] Phase 6: Runtime Controllers
 
 Goal: port old gameplay sequencing without old SFML state classes.
 
@@ -148,8 +148,8 @@ Goal: prove old projects survive migration with known limits.
 
 ## Immediate Next Slices
 
-1. Add legacy entity schema views/parsers and validation tests for every old entity array shape.
-2. Add old save/settings/profile document import with malformed fixture coverage.
-3. Add project/entity graph validation separate from import.
-4. Add the first runtime-controller slice for room entry and queue draining on top of `GameSession`.
-5. Add the Lua scripting compatibility design/API surface before wiring script execution into controllers.
+1. Begin Phase 7 by porting old `TextTypes` enums and BBCode tag semantics into backend-neutral rich-text runs.
+2. Add tests for object spans, page breaks, style/color/font/size/border/offset tags, and malformed BBCode recovery.
+3. Add a pagination/timeline model for dialogue and cutscene text that consumes rich-text runs without depending on bgfx or RmlUi.
+4. Integrate Phase 7 text semantics with `DialogueController` and `CutsceneController` command payloads.
+5. After text semantics are stable, wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.

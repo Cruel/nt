@@ -73,6 +73,85 @@ ProjectDocument make_non_room_entrypoint_project()
     return project;
 }
 
+nlohmann::json object_entry(const std::string& id, const std::string& name)
+{
+    return nlohmann::json::array({id, "", props(), name, false});
+}
+
+nlohmann::json verb_entry(const std::string& id, int object_count, const std::string& default_script = "")
+{
+    return nlohmann::json::array({
+        id,
+        "",
+        props(),
+        id,
+        object_count,
+        default_script,
+        "",
+        nlohmann::json::array(),
+    });
+}
+
+nlohmann::json action_entry(const std::string& id,
+                            const std::string& parent_id,
+                            const std::string& verb_id,
+                            const std::string& script,
+                            std::vector<std::string> object_ids,
+                            bool position_dependent)
+{
+    nlohmann::json objects = nlohmann::json::array();
+    for (const auto& object_id : object_ids) {
+        objects.push_back(object_id);
+    }
+    return nlohmann::json::array({id, parent_id, props(), verb_id, script, objects, position_dependent});
+}
+
+ProjectDocument make_action_project()
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::script_before_action] = "before();";
+    root[project_ids::script_after_action] = "after();";
+    root[project_ids::object] = nlohmann::json::object({
+        {"lamp", object_entry("lamp", "Lamp")},
+        {"key", object_entry("key", "Key")},
+        {"coin", object_entry("coin", "Coin")},
+    });
+    root[project_ids::verb] = nlohmann::json::object({
+        {"use", verb_entry("use", 2, "default_use();")},
+        {"look", verb_entry("look", 1, "default_look();")},
+    });
+    root[project_ids::action] = nlohmann::json::object({
+        {"base_use", action_entry("base_use", "", "look", "base_use();", {"coin"}, false)},
+        {"use_lamp_key", action_entry("use_lamp_key", "base_use", "use", "use_lamp_key();", {"lamp", "key"}, false)},
+        {"use_key_lamp_exact", action_entry("use_key_lamp_exact", "", "use", "use_key_lamp_exact();", {"key", "lamp"}, true)},
+    });
+
+    auto& foyer = root[project_ids::room]["foyer"];
+    foyer[8] = nlohmann::json::array({
+        nlohmann::json::array({"lamp", true}),
+        nlohmann::json::array({"key", true}),
+    });
+    root[project_ids::starting_inventory] = nlohmann::json::array({"coin"});
+    return project;
+}
+
+ProjectDocument make_room_hook_project()
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::script_before_enter] = "project_before_enter();";
+    root[project_ids::script_after_enter] = "project_after_enter();";
+    root[project_ids::script_before_leave] = "project_before_leave();";
+    root[project_ids::script_after_leave] = "project_after_leave();";
+    auto& foyer = root[project_ids::room]["foyer"];
+    foyer[4] = "room_before_enter();";
+    foyer[5] = "room_after_enter();";
+    foyer[6] = "room_before_leave();";
+    foyer[7] = "room_after_leave();";
+    return project;
+}
+
 bool has_command(const std::vector<ControllerCommand>& commands, ControllerCommandType type)
 {
     for (const auto& cmd : commands) {
@@ -179,6 +258,9 @@ TEST_CASE("RuntimeController queues non-room entrypoint and emits ScriptDeferred
     REQUIRE(deferred->entity.has_value());
     CHECK(deferred->entity->type == EntityType::Script);
     CHECK(deferred->entity->id == "init");
+    CHECK(deferred->text == "log('hello');");
+    CHECK(deferred->data.value("context", "") == "script");
+    CHECK(has_command(commands, ControllerCommandType::ModeChanged));
 }
 
 TEST_CASE("RuntimeController room mode blocks queue draining until navigate_path")
@@ -447,6 +529,190 @@ TEST_CASE("RuntimeController startup is handled exactly once")
     CHECK(controller.idle());
 }
 
+TEST_CASE("RuntimeController emits room enter and leave hook scripts in legacy order")
+{
+    GameSession session;
+    REQUIRE(session.load(make_room_hook_project()).success);
+
+    RuntimeController controller(session);
+    controller.tick(0.0);
+
+    auto enter_commands = controller.take_commands();
+    std::vector<std::string> enter_contexts;
+    for (const auto& cmd : enter_commands) {
+        if (cmd.type == ControllerCommandType::ScriptDeferred) {
+            enter_contexts.push_back(cmd.data.value("context", ""));
+        }
+    }
+    CHECK(enter_contexts == std::vector<std::string>{
+        "project_before_enter",
+        "room_before_enter",
+        "project_after_enter",
+        "room_after_enter",
+    });
+
+    controller.navigate_path(0);
+    auto leave_commands = controller.take_commands();
+    std::vector<std::string> leave_contexts;
+    for (const auto& cmd : leave_commands) {
+        if (cmd.type == ControllerCommandType::ScriptDeferred) {
+            leave_contexts.push_back(cmd.data.value("context", ""));
+        }
+    }
+    CHECK(leave_contexts == std::vector<std::string>{
+        "project_before_leave",
+        "room_before_leave",
+        "project_after_leave",
+        "room_after_leave",
+    });
+}
+
+TEST_CASE("RuntimeController save_state and restore_state preserve active room")
+{
+    GameSession session;
+    REQUIRE(session.load(make_room_project()).success);
+
+    RuntimeController controller(session);
+    controller.tick(0.0);
+    (void)controller.take_commands();
+    controller.navigate_path(0);
+    (void)controller.take_commands();
+    controller.tick(0.0);
+    (void)controller.take_commands();
+    CHECK(controller.visit_count("foyer") == 1);
+
+    auto saved = controller.save_state();
+
+    RuntimeController restored(session);
+    restored.restore_state(saved);
+
+    CHECK(restored.current_mode_name() == std::string_view("room"));
+    CHECK(restored.visit_count("foyer") == 1);
+    CHECK_FALSE(restored.idle());
+    auto commands = restored.take_commands();
+    CHECK(has_command(commands, ControllerCommandType::RoomEntry));
+}
+
+TEST_CASE("RuntimeController forwards notification and text log events as commands")
+{
+    GameSession session;
+    REQUIRE(session.load(make_room_project()).success);
+
+    RuntimeController controller(session);
+
+    RuntimeEvent notification;
+    notification.type = RuntimeEventType::Notification;
+    notification.text = "Saved";
+    notification.number_value = 1200.0;
+    session.events().push(notification);
+
+    RuntimeEvent text_log;
+    text_log.type = RuntimeEventType::TextLogged;
+    text_log.text = "A log entry";
+    session.events().push(text_log);
+
+    controller.tick(0.0);
+
+    auto commands = controller.take_commands();
+    CHECK(has_command(commands, ControllerCommandType::Notification));
+    CHECK(has_command(commands, ControllerCommandType::TextLogged));
+}
+
+TEST_CASE("RuntimeController process_action emits action script chain")
+{
+    GameSession session;
+    REQUIRE(session.load(make_action_project()).success);
+
+    RuntimeController controller(session);
+    controller.tick(0.0);
+    (void)controller.take_commands();
+
+    REQUIRE(controller.process_action("use", {"lamp", "key"}));
+
+    auto commands = controller.take_commands();
+    REQUIRE(commands.size() == 5);
+    CHECK(commands[0].type == ControllerCommandType::ScriptDeferred);
+    CHECK(commands[0].data.value("context", "") == "project_before_action");
+    CHECK(commands[1].type == ControllerCommandType::ScriptDeferred);
+    CHECK(commands[1].data.value("action_id", "") == "base_use");
+    CHECK(commands[2].type == ControllerCommandType::ScriptDeferred);
+    CHECK(commands[2].data.value("action_id", "") == "use_lamp_key");
+    CHECK(commands[3].type == ControllerCommandType::ActionResolved);
+    CHECK(commands[3].entity->id == "use_lamp_key");
+    CHECK(commands[3].data.value("used_default", true) == false);
+    CHECK(commands[4].type == ControllerCommandType::ScriptDeferred);
+    CHECK(commands[4].data.value("context", "") == "project_after_action");
+}
+
+TEST_CASE("RuntimeController process_action supports position-dependent matching")
+{
+    GameSession session;
+    REQUIRE(session.load(make_action_project()).success);
+
+    RuntimeController controller(session);
+    controller.tick(0.0);
+    (void)controller.take_commands();
+
+    REQUIRE(controller.process_action("use", {"key", "lamp"}));
+
+    auto commands = controller.take_commands();
+    const auto* resolved = [&]() -> const ControllerCommand* {
+        for (const auto& cmd : commands) {
+            if (cmd.type == ControllerCommandType::ActionResolved) return &cmd;
+        }
+        return nullptr;
+    }();
+    REQUIRE(resolved != nullptr);
+    REQUIRE(resolved->entity.has_value());
+    CHECK(resolved->entity->id == "use_key_lamp_exact");
+}
+
+TEST_CASE("RuntimeController process_action falls back to verb default script")
+{
+    GameSession session;
+    REQUIRE(session.load(make_action_project()).success);
+
+    RuntimeController controller(session);
+    controller.tick(0.0);
+    (void)controller.take_commands();
+
+    REQUIRE(controller.process_action("look", {"lamp"}));
+
+    auto commands = controller.take_commands();
+    CHECK(has_command(commands, ControllerCommandType::ActionResolved));
+    bool found_default_script = false;
+    for (const auto& cmd : commands) {
+        if (cmd.type == ControllerCommandType::ScriptDeferred &&
+            cmd.data.value("context", "") == "verb_default_action" &&
+            cmd.text == "default_look();") {
+            found_default_script = true;
+        }
+        if (cmd.type == ControllerCommandType::ActionResolved) {
+            CHECK(cmd.data.value("used_default", false) == true);
+            REQUIRE(cmd.entity.has_value());
+            CHECK(cmd.entity->type == EntityType::Verb);
+        }
+    }
+    CHECK(found_default_script);
+}
+
+TEST_CASE("RuntimeController process_action rejects unavailable objects")
+{
+    GameSession session;
+    REQUIRE(session.load(make_action_project()).success);
+
+    RuntimeController controller(session);
+    controller.tick(0.0);
+    (void)controller.take_commands();
+
+    CHECK_FALSE(controller.process_action("look", {"missing"}));
+
+    auto commands = controller.take_commands();
+    REQUIRE(commands.size() == 1);
+    CHECK(commands[0].type == ControllerCommandType::ActionRejected);
+    CHECK(commands[0].data.value("reason", "") == "object unavailable");
+}
+
 namespace {
 
 ProjectDocument make_dialogue_project()
@@ -607,4 +873,46 @@ TEST_CASE("RuntimeController cutscene click advances and completes")
     auto commands = controller.take_commands();
 
     CHECK(has_command(commands, ControllerCommandType::CutsceneComplete));
+}
+
+TEST_CASE("RuntimeController save_state and restore_state preserve active dialogue")
+{
+    GameSession session;
+    REQUIRE(session.load(make_dialogue_project()).success);
+
+    RuntimeController controller(session);
+    session.queue_entity(eref(EntityType::Dialogue, "talk_greeter"));
+    controller.tick(0.0);
+    (void)controller.take_commands();
+
+    auto saved = controller.save_state();
+
+    RuntimeController restored(session);
+    restored.restore_state(saved);
+
+    CHECK(restored.current_mode_name() == std::string_view("dialogue"));
+    auto commands = restored.take_commands();
+    CHECK(has_command(commands, ControllerCommandType::ModeChanged));
+    CHECK(has_command(commands, ControllerCommandType::DialogueText));
+}
+
+TEST_CASE("RuntimeController save_state and restore_state preserve active cutscene")
+{
+    GameSession session;
+    REQUIRE(session.load(make_cutscene_project()).success);
+
+    RuntimeController controller(session);
+    session.queue_entity(eref(EntityType::Cutscene, "intro"));
+    controller.tick(0.0);
+    (void)controller.take_commands();
+
+    auto saved = controller.save_state();
+
+    RuntimeController restored(session);
+    restored.restore_state(saved);
+
+    CHECK(restored.current_mode_name() == std::string_view("cutscene"));
+    auto commands = restored.take_commands();
+    CHECK(has_command(commands, ControllerCommandType::ModeChanged));
+    CHECK(has_command(commands, ControllerCommandType::CutsceneText));
 }
