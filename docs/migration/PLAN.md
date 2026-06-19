@@ -1,6 +1,6 @@
 # NovelTea Core Engine Migration Plan
 
-**Completion status: [██████░░░░░] 6/11 phases fully done — Phase 7 next**
+**Completion status: [███████░░░░] 7/11 phases fully done — Phase 8 next**
 
 See [`STATUS.md`](STATUS.md) for detailed completion tracking, verification results, and next-prompt recommendations. This file tracks phase-level scope only.
 
@@ -91,7 +91,7 @@ Goal: port old gameplay sequencing without old SFML state classes.
 - Add cutscene timeline expansion from page segments into text/page-break/script segments.
 - Emit UI-neutral commands for messages, notifications, text log entries, room text changes, dialogue options, cutscene pages, and navigation availability.
 
-## [ ] Phase 7: Text Semantics
+## [x] Phase 7: Text Semantics
 
 Goal: port old text behavior into the existing modern text stack in layers.
 
@@ -148,8 +148,8 @@ Goal: prove old projects survive migration with known limits.
 
 ## Immediate Next Slices
 
-1. Begin Phase 7 by porting old `TextTypes` enums and BBCode tag semantics into backend-neutral rich-text runs.
-2. Add tests for object spans, page breaks, style/color/font/size/border/offset tags, and malformed BBCode recovery.
-3. Add a pagination/timeline model for dialogue and cutscene text that consumes rich-text runs without depending on bgfx or RmlUi.
-4. Integrate Phase 7 text semantics with `DialogueController` and `CutsceneController` command payloads.
-5. After text semantics are stable, wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.
+1. Begin Phase 8 by building a minimal RmlUi-backed runtime view that consumes `RuntimeController` commands.
+2. Render dialogue text/options and cutscene text/page-break commands using the new backend-neutral rich-text payloads while keeping Dear ImGui limited to diagnostics.
+3. Add a room text view that can consume `diff_room_description()` output for changed-description highlights.
+4. Add runtime UI smoke coverage for Linux, then extend the same path to Web.
+5. After the runtime UI command path is stable, wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.

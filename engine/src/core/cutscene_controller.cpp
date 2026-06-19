@@ -1,5 +1,7 @@
 #include <noveltea/core/cutscene_controller.hpp>
 
+#include <noveltea/core/rich_text.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <sstream>
@@ -419,8 +421,13 @@ void CutsceneController::emit_script_deferred(
 
 void CutsceneController::emit_cutscene_text(const std::string& text)
 {
+    auto rich_text = parse_rich_text(text);
     nlohmann::json data = nlohmann::json::object();
     data["text"] = text;
+    data["rich_text"] = to_json(rich_text);
+    data["timeline"] = nlohmann::json::array();
+    for (const auto& item : make_rich_text_timeline(rich_text, 0))
+        data["timeline"].push_back(to_json(item));
     data["segment_index"] = m_segment_index;
     data["total_segments"] = m_expanded_segments.size();
     data["wait_for_click"] = m_waiting_for_click;

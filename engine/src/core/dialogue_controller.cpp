@@ -1,5 +1,7 @@
 #include <noveltea/core/dialogue_controller.hpp>
 
+#include <noveltea/core/rich_text.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -412,6 +414,7 @@ void DialogueController::emit_dialogue_text()
     nlohmann::json data = nlohmann::json::object();
     data["name"] = m_current_name;
     data["text"] = m_current_text;
+    data["rich_text"] = to_json(parse_rich_text(m_current_text));
     data["line_index"] = m_text_line_index;
     data["total_lines"] = m_text_lines.size();
     data["wait_for_click"] = true;
@@ -421,6 +424,7 @@ void DialogueController::emit_dialogue_text()
         for (const auto& opt : m_options) {
             nlohmann::json o = nlohmann::json::object();
             o["text"] = opt.text;
+            o["rich_text"] = to_json(parse_rich_text(opt.text));
             o["enabled"] = opt.enabled;
             opts.push_back(std::move(o));
         }
@@ -455,6 +459,7 @@ void DialogueController::emit_dialogue_options()
     for (const auto& opt : m_options) {
         nlohmann::json o = nlohmann::json::object();
         o["text"] = opt.text;
+        o["rich_text"] = to_json(parse_rich_text(opt.text));
         o["enabled"] = opt.enabled;
         o["target_segment"] = opt.target_segment;
         o["sub_index"] = opt.sub_index;
