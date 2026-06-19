@@ -8,6 +8,7 @@
 #include <string_view>
 
 namespace noveltea::assets { class AssetManager; }
+namespace noveltea::core { class GameSession; }
 
 namespace noveltea::script {
 
@@ -36,6 +37,9 @@ public:
     [[nodiscard]] ScriptResult<std::string> evaluate_string(std::string_view expression, std::string_view chunk_name = "expression");
 
     void collect_garbage();
+
+    void bind_game_session(core::GameSession* session);
+    void clear_game_bindings();
 
 private:
     friend struct detail::ScriptRuntimeAccess;

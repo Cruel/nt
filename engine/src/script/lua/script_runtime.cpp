@@ -259,6 +259,18 @@ void ScriptRuntime::collect_garbage()
     }
 }
 
+void ScriptRuntime::bind_game_session(core::GameSession* session)
+{
+    if (!is_initialized()) return;
+    noveltea::script::bind_game_session(m_impl->lua.lua_state(), session);
+}
+
+void ScriptRuntime::clear_game_bindings()
+{
+    if (!is_initialized()) return;
+    noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
+}
+
 lua_State* detail::ScriptRuntimeAccess::state(ScriptRuntime& runtime)
 {
     return runtime.m_impl ? runtime.m_impl->lua.lua_state() : nullptr;

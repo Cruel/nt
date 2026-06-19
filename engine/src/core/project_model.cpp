@@ -85,6 +85,7 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
     }
 
     ProjectModel model;
+    model.m_document_root = document.root();
 
     for (const auto& entity : parse_entities(document, EntityType::Object, project_ids::object, issues)) {
         if (!entity.object) {

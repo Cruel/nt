@@ -113,6 +113,7 @@ if(NOVELTEA_ENABLE_LUA)
         message(FATAL_ERROR "NOVELTEA_ENABLE_LUA=ON requires Lua::Lua and sol2::sol2")
     endif()
     target_sources(engine PRIVATE
+        src/script/lua/bind_game_session.cpp
         src/script/lua/bind_noveltea.cpp
         src/script/lua/script_runtime.cpp
     )

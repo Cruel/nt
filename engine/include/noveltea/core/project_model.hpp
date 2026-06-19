@@ -174,7 +174,11 @@ public:
     [[nodiscard]] std::optional<EntityMetadata> parent_metadata(EntityType type, const std::string& id) const;
     [[nodiscard]] nlohmann::json merged_properties(EntityType type, const std::string& id) const;
 
+    [[nodiscard]] const nlohmann::json& document_root() const noexcept { return m_document_root; }
+
 private:
+    nlohmann::json m_document_root = nlohmann::json::object();
+
     ObjectStore m_objects;
     ScriptStore m_scripts;
     ActionStore m_actions;

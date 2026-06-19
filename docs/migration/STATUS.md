@@ -224,8 +224,39 @@ The following changes were made before pushing the first test tag, without alter
 
 6. **Verification expectations**: YAML parse validation via Python/PyYAML passed. `cmake -P cmake/PackageNovelTeaRelease.cmake` with `-DNOVELTEA_PACKAGE_KIND=checksums` passed. Full release builds were not run locally; CI on a test tag is the definitive verification.
 
+## Current Phase 5 Script Compatibility State
+
+Phase 5 (Scripting Compatibility Layer) is now largely complete. `bind_game_session` exposes old NovelTea JS globals as Lua bindings via `noveltea::script::bind_game_session`:
+
+- **Game** table: `room`, `map_id`, `navigation`, `minimap`, `save_enabled` (read-only properties via `__index`); `prop`, `set_prop`, `push_next`, `load_room`, `exists_room`, `load_script`, `exists_script`, `save`, `load`, `autosave`, `quit`, `save_entity`, `inventory` (callable with `.method()` syntax).
+- **Script** table: `rand`, `seed`, `eval_expressions`, `run`, `get_text_input`.
+- **Log** table: `push` (emits `TextLogged` runtime event).
+- **Timer** table: `start`, `start_repeat` (schedules `RuntimeTimerScheduler` callbacks from Lua).
+- **Save** table: `reset_room_descriptions` (stub).
+- **Room** usertype: `id`, `prop`, `has_prop`, `set_prop`, `unset_prop`, `description`, `visit_count`, `name`, `script_before_enter`, `script_after_enter`, `script_before_leave`, `script_after_leave`.
+- **ScriptEntity** usertype: `id`, `prop`, `has_prop`, `set_prop`, `unset_prop`, `autorun`, `content`.
+- Legacy globals: `thisEntity`, `prop`, `set_prop`, `toast`, `alert`.
+- Seeded RNG (MT19937-64 stored in `ScriptBridge` in Lua registry).
+- Expression evaluation via `sol::state_view::load("return " + expr)` with `\{\{([\s\S]*?)\}\}` pattern.
+
+Key design decisions:
+- Global tables use `set_function` closures (not `new_usertype`) to support `.method()` syntax without requiring `:` colon syntax.
+- Entity types (Room, ScriptEntity) use `new_usertype` usertypes since they are returned as userdata and used with `:` syntax.
+- `Game.prop` reads save properties first, falls back to project default properties via `ProjectModel::document_root()`.
+- `ScriptBridge*` is stored in Lua registry as lightuserdata; the heap-allocated bridge is intentionally not freed (lifetime matches Lua state).
+- Entity types are registered once (`__noveltea_types_registered` flag); global tables are rebuilt on each `bind_game_session` call.
+
+Architecture changes:
+- `ProjectModel` now stores the original project document root (`m_document_root`) for fallback property reads, exposed via `document_root()`.
+
+Current verification:
+- 30 test cases in `noveltea_script_tests` with 238 assertions covering all bindings, property access, method calls, `:` syntax on entity types, `.` syntax on globals, `{{ }}` expression evaluation, timer creation, event dispatch, `thisEntity`/`prop`/`set_prop` forwarding, and clear/rebind lifecycle.
+- `cmake --preset linux-debug` passes.
+- `cmake --build --preset linux-debug` passes.
+- All test suites pass (core 684/86, script 238/30, text 176/13, asset 76/12).
+
 ## Next Recommended Prompt
 
-The Phase 6 runtime-controller first slice is done (`RuntimeController` with queue draining, room entry, navigation paths, visit tracking, and UI-neutral commands). The next step should add a mode controller for cutscene and dialogue sequencing, or wire the existing Lua scripting runtime into the controller to replace `ScriptDeferred` stubs with actual script evaluation for Action, Script, CustomScript, room lifecycle scripts, and description evaluation.
+Phase 5 script compatibility bindings are complete. The next step should wire `ScriptRuntime` into the `RuntimeController` to replace `ScriptDeferred` stubs with actual script evaluation for Action, Script, CustomScript, room lifecycle scripts, and description evaluation. Alternatively, add a mode controller for cutscene and dialogue sequencing.
 
 Independent RmlUi renderer work remains open: stencil overflow normalization, GL3-quality blur downsample/upsample, portable MSAA/resolve planning, forced shader-copy tests, expanded readback pixel assertions, RuntimeUI facade tests, Web browser smoke, and Android runtime smoke.
