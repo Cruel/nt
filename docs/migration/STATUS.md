@@ -10,6 +10,7 @@ Last updated: 2026-06-19.
 - Legacy `game` JSON import and read-only legacy package import.
 - Backend-neutral rich-text semantics and engine-owned Unicode text implementation.
 - Lua runtime foundation. Lua is the only runtime scripting target.
+- Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
 
