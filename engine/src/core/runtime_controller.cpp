@@ -1,4 +1,6 @@
 #include <noveltea/core/runtime_controller.hpp>
+#include <noveltea/core/dialogue_controller.hpp>
+#include <noveltea/core/cutscene_controller.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -6,8 +8,12 @@ namespace noveltea::core {
 
 RuntimeController::RuntimeController(GameSession& session)
     : m_session(&session)
+    , m_dialogue_controller(std::make_unique<DialogueController>(session))
+    , m_cutscene_controller(std::make_unique<CutsceneController>(session))
 {
 }
+
+RuntimeController::~RuntimeController() = default;
 
 void RuntimeController::tick(double delta_seconds)
 {
@@ -24,7 +30,17 @@ void RuntimeController::tick(double delta_seconds)
         }
     }
 
-    if (m_mode != Mode::Room) {
+    if (m_mode == Mode::Dialogue) {
+        m_dialogue_controller->tick(delta_seconds);
+        if (m_dialogue_controller->is_complete()) {
+            process_dialogue_commands();
+        }
+    } else if (m_mode == Mode::Cutscene) {
+        m_cutscene_controller->tick(delta_seconds);
+        if (m_cutscene_controller->is_complete()) {
+            process_cutscene_commands();
+        }
+    } else if (m_mode != Mode::Room) {
         drain_next();
     }
 }
@@ -48,6 +64,28 @@ void RuntimeController::drain_next()
     switch (ref->type) {
     case EntityType::Room:
         enter_room(ref->id);
+        break;
+    case EntityType::Dialogue:
+        m_dialogue_controller->start(ref->id);
+        m_mode = Mode::Dialogue;
+        m_mode_entity_id = ref->id;
+        emit_command(ControllerCommand{
+            ControllerCommandType::ModeChanged,
+            EntityRef{EntityType::Dialogue, ref->id},
+            "dialogue",
+            {{"entering", true}},
+        });
+        break;
+    case EntityType::Cutscene:
+        m_cutscene_controller->start(ref->id);
+        m_mode = Mode::Cutscene;
+        m_mode_entity_id = ref->id;
+        emit_command(ControllerCommand{
+            ControllerCommandType::ModeChanged,
+            EntityRef{EntityType::Cutscene, ref->id},
+            "cutscene",
+            {{"entering", true}},
+        });
         break;
     default:
         emit_command(ControllerCommand{
@@ -129,6 +167,80 @@ void RuntimeController::enter_room(const std::string& room_id)
     });
 }
 
+void RuntimeController::dialogue_continue()
+{
+    if (m_mode == Mode::Dialogue) {
+        m_dialogue_controller->continue_to_next();
+    }
+}
+
+bool RuntimeController::dialogue_select_option(int option_index)
+{
+    if (m_mode == Mode::Dialogue) {
+        return m_dialogue_controller->select_option(option_index);
+    }
+    return false;
+}
+
+void RuntimeController::cutscene_click()
+{
+    if (m_mode == Mode::Cutscene) {
+        m_cutscene_controller->click();
+    }
+}
+
+void RuntimeController::process_dialogue_commands()
+{
+    auto commands = m_dialogue_controller->take_commands();
+    for (auto& cmd : commands) {
+        if (cmd.type == ControllerCommandType::DialogueComplete) {
+            if (cmd.data.contains("next_entity_type") && cmd.data.contains("next_entity_id")) {
+                auto type_opt = entity_type_from_integer(cmd.data["next_entity_type"].get<int>());
+                if (type_opt.has_value()) {
+                    auto type = type_opt.value();
+                    auto id = cmd.data["next_entity_id"].get<std::string>();
+                    if (is_known_entity_type(type) && !id.empty()) {
+                        m_session->queue_entity(EntityRef{type, id});
+                    }
+                }
+            }
+            m_commands.push_back(std::move(cmd));
+        }
+    }
+
+    if (m_mode == Mode::Dialogue) {
+        exit_current_mode();
+    }
+
+    drain_next();
+}
+
+void RuntimeController::process_cutscene_commands()
+{
+    auto commands = m_cutscene_controller->take_commands();
+    for (auto& cmd : commands) {
+        if (cmd.type == ControllerCommandType::CutsceneComplete) {
+            if (cmd.data.contains("next_entity_type") && cmd.data.contains("next_entity_id")) {
+                auto type_opt = entity_type_from_integer(cmd.data["next_entity_type"].get<int>());
+                if (type_opt.has_value()) {
+                    auto type = type_opt.value();
+                    auto id = cmd.data["next_entity_id"].get<std::string>();
+                    if (is_known_entity_type(type) && !id.empty()) {
+                        m_session->queue_entity(EntityRef{type, id});
+                    }
+                }
+            }
+            m_commands.push_back(std::move(cmd));
+        }
+    }
+
+    if (m_mode == Mode::Cutscene) {
+        exit_current_mode();
+    }
+
+    drain_next();
+}
+
 void RuntimeController::exit_current_mode()
 {
     if (m_mode == Mode::None) {
@@ -202,6 +314,22 @@ void RuntimeController::navigate_path(int direction)
 
 std::vector<ControllerCommand> RuntimeController::take_commands()
 {
+    if (m_mode == Mode::Dialogue) {
+        if (m_dialogue_controller->is_complete()) {
+            process_dialogue_commands();
+        } else {
+            auto sub = m_dialogue_controller->take_commands();
+            m_commands.insert(m_commands.end(), sub.begin(), sub.end());
+        }
+    } else if (m_mode == Mode::Cutscene) {
+        if (m_cutscene_controller->is_complete()) {
+            process_cutscene_commands();
+        } else {
+            auto sub = m_cutscene_controller->take_commands();
+            m_commands.insert(m_commands.end(), sub.begin(), sub.end());
+        }
+    }
+
     auto commands = std::move(m_commands);
     m_commands.clear();
     return commands;

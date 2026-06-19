@@ -1,6 +1,8 @@
 include(Catch)
 
 add_executable(noveltea_core_tests
+    core/cutscene_controller_tests.cpp
+    core/dialogue_controller_tests.cpp
     core/entity_ref_tests.cpp
     core/game_session_tests.cpp
     core/legacy_entity_schema_tests.cpp

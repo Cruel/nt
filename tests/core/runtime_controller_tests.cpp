@@ -446,3 +446,165 @@ TEST_CASE("RuntimeController startup is handled exactly once")
     CHECK_FALSE(has_command(cmds, ControllerCommandType::ScriptDeferred));
     CHECK(controller.idle());
 }
+
+namespace {
+
+ProjectDocument make_dialogue_project()
+{
+    auto project = make_non_room_entrypoint_project();
+
+    auto seg0 = nlohmann::json::array();
+    seg0.push_back(0); seg0.push_back(-1); seg0.push_back(false);
+    seg0.push_back(false); seg0.push_back(false); seg0.push_back(false);
+    seg0.push_back(false); seg0.push_back(false);
+    seg0.push_back(""); seg0.push_back(""); seg0.push_back("");
+    auto ch1 = nlohmann::json::array(); ch1.push_back(1);
+    seg0.push_back(ch1);
+
+    auto seg1 = nlohmann::json::array();
+    seg1.push_back(1); seg1.push_back(-1); seg1.push_back(false);
+    seg1.push_back(false); seg1.push_back(false); seg1.push_back(false);
+    seg1.push_back(false); seg1.push_back(false);
+    seg1.push_back(""); seg1.push_back(""); seg1.push_back("[Greeter]Hello there!");
+    auto ch2 = nlohmann::json::array(); ch2.push_back(2);
+    seg1.push_back(ch2);
+
+    auto seg2 = nlohmann::json::array();
+    seg2.push_back(2); seg2.push_back(-1); seg2.push_back(false);
+    seg2.push_back(false); seg2.push_back(false); seg2.push_back(false);
+    seg2.push_back(false); seg2.push_back(false);
+    seg2.push_back(""); seg2.push_back(""); seg2.push_back("Go to kitchen");
+    seg2.push_back(nlohmann::json::array());
+
+    auto segments = nlohmann::json::array();
+    segments.push_back(seg0);
+    segments.push_back(seg1);
+    segments.push_back(seg2);
+
+    auto dialogueEntry = nlohmann::json::array();
+    dialogueEntry.push_back("talk_greeter");
+    dialogueEntry.push_back("");
+    dialogueEntry.push_back(props());
+    dialogueEntry.push_back("Greeter");
+    dialogueEntry.push_back(ref(EntityType::Room, "kitchen"));
+    dialogueEntry.push_back(0);
+    dialogueEntry.push_back(false);
+    dialogueEntry.push_back(false);
+    dialogueEntry.push_back(1);
+    dialogueEntry.push_back(segments);
+
+    auto dialogueRoot = nlohmann::json::object();
+    dialogueRoot["talk_greeter"] = dialogueEntry;
+    project.root()[project_ids::dialogue] = dialogueRoot;
+    return project;
+}
+
+ProjectDocument make_cutscene_project()
+{
+    auto project = make_non_room_entrypoint_project();
+
+    auto pageSeg = nlohmann::json::array();
+    pageSeg.push_back(2); pageSeg.push_back(true);
+    pageSeg.push_back("Welcome to the game.\n\nLet's begin!");
+    pageSeg.push_back("\n"); pageSeg.push_back("\n\n");
+    pageSeg.push_back(0); pageSeg.push_back(1);
+    pageSeg.push_back(1000); pageSeg.push_back(2000);
+    pageSeg.push_back(2000); pageSeg.push_back(3000);
+    pageSeg.push_back(true); pageSeg.push_back(true);
+    pageSeg.push_back(0); pageSeg.push_back(0);
+    pageSeg.push_back(""); pageSeg.push_back(true);
+
+    auto segments = nlohmann::json::array();
+    segments.push_back(pageSeg);
+
+    auto cutsceneEntry = nlohmann::json::array();
+    cutsceneEntry.push_back("intro");
+    cutsceneEntry.push_back("");
+    cutsceneEntry.push_back(props());
+    cutsceneEntry.push_back(true);
+    cutsceneEntry.push_back(true);
+    cutsceneEntry.push_back(1.0);
+    cutsceneEntry.push_back(ref(EntityType::Room, "foyer"));
+    cutsceneEntry.push_back(segments);
+
+    auto cutsceneRoot = nlohmann::json::object();
+    cutsceneRoot["intro"] = cutsceneEntry;
+    project.root()[project_ids::cutscene] = cutsceneRoot;
+    return project;
+}
+
+} // namespace
+
+TEST_CASE("RuntimeController enters dialogue mode from dialogue entity")
+{
+    GameSession session;
+    REQUIRE(session.load(make_dialogue_project()).success);
+
+    RuntimeController controller(session);
+    // Queue dialogue BEFORE tick so it's in front of startup's Script init
+    session.queue_entity(eref(EntityType::Dialogue, "talk_greeter"));
+
+    controller.tick(0.0);
+    auto commands = controller.take_commands();
+
+    CHECK(controller.current_mode_name() == std::string_view("dialogue"));
+    CHECK(has_command(commands, ControllerCommandType::ModeChanged));
+    CHECK(has_command(commands, ControllerCommandType::DialogueText));
+}
+
+TEST_CASE("RuntimeController enters cutscene mode from cutscene entity")
+{
+    GameSession session;
+    REQUIRE(session.load(make_cutscene_project()).success);
+
+    RuntimeController controller(session);
+    session.queue_entity(eref(EntityType::Cutscene, "intro"));
+
+    controller.tick(0.0);
+    auto commands = controller.take_commands();
+
+    CHECK(controller.current_mode_name() == std::string_view("cutscene"));
+    CHECK(has_command(commands, ControllerCommandType::ModeChanged));
+    CHECK(has_command(commands, ControllerCommandType::CutsceneText));
+}
+
+TEST_CASE("RuntimeController dialogue select option chains to next entity")
+{
+    GameSession session;
+    REQUIRE(session.load(make_dialogue_project()).success);
+
+    RuntimeController controller(session);
+    session.queue_entity(eref(EntityType::Dialogue, "talk_greeter"));
+
+    controller.tick(0.0);
+    (void)controller.take_commands();
+    CHECK(controller.current_mode_name() == std::string_view("dialogue"));
+
+    controller.dialogue_select_option(0);
+    auto commands = controller.take_commands();
+
+    CHECK(has_command(commands, ControllerCommandType::DialogueComplete));
+}
+
+TEST_CASE("RuntimeController cutscene click advances and completes")
+{
+    GameSession session;
+    REQUIRE(session.load(make_cutscene_project()).success);
+
+    RuntimeController controller(session);
+    session.queue_entity(eref(EntityType::Cutscene, "intro"));
+
+    controller.tick(0.0);
+    (void)controller.take_commands();
+    CHECK(controller.current_mode_name() == std::string_view("cutscene"));
+
+    // Click through: Text -> PageBreak -> Text -> PageBreak -> complete
+    controller.cutscene_click();
+    controller.tick(0.0);
+    (void)controller.take_commands();
+
+    controller.cutscene_click();
+    auto commands = controller.take_commands();
+
+    CHECK(has_command(commands, ControllerCommandType::CutsceneComplete));
+}
