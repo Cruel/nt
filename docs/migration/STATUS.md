@@ -1,10 +1,10 @@
 # Migration Status
 
-Last updated: 2026-06-18.
+Last updated: 2026-06-19.
 
 ## Current Core Domain Migration State
 
-The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, typed legacy entity schema views/parsers, old save/settings/profile document APIs, project/entity graph validation, backend-neutral typed project models/stores, a runtime event bus and timer scheduler, a first `GameSession` skeleton, the legacy `game` JSON importer, and a read-only legacy ZIP project package reader under `noveltea::core::legacy`.
+The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, typed legacy entity schema views/parsers, old save/settings/profile document APIs, project/entity graph validation, backend-neutral typed project models/stores, a runtime event bus and timer scheduler, an expanded `GameSession` runtime facade, the legacy `game` JSON importer, and a read-only legacy ZIP project package reader under `noveltea::core::legacy`.
 
 Durable report:
 
@@ -26,7 +26,7 @@ Current core decisions:
 - `ProjectValidator` is a post-import structural/reference validator. It reports schema diagnostics plus graph issues for entrypoint refs, starting inventory object ids, action verb/object refs, room object refs and enabled path refs, map room ids and connection indices, dialogue next refs/root/link/child indices, and cutscene next refs. Import remains lossless and separate from validation.
 - `ProjectModel` materializes validated `ProjectDocument` data into owned backend-neutral stores for `Object`, `Script`, `Action`, `Verb`, `Room`, `Map`, `Dialogue`, and `Cutscene`, including common entity metadata, parent ids, project properties, nested room/map/dialogue/cutscene values, parent metadata lookup, and parent-first project-property merging. It does not run scripts or apply save overrides.
 - `RuntimeEventBus` preserves old-style wildcard/type listener dispatch, immediate trigger, queued dispatch, listener removal, and next-dispatch deferral for events queued by listeners. `RuntimeTimerScheduler` supports one-shot and repeating timers, cancellation, reset, callback execution, safe timer creation from callbacks, and optional `TimerCompleted` event emission. It is independent of scripting, rendering, SDL, and `Engine::tick()` integration.
-- `GameSession` is a backend-neutral runtime skeleton. It loads a validated `ProjectDocument` into `ProjectModel`, owns a `SaveDocument`, runtime events, timers, play time, and startup entrypoint resolution. It prefers a save entrypoint when present, falls back to the project entrypoint, emits diagnostics and a queued `GameLoaded` event, advances timers/play time on `tick()`, and deliberately avoids scripting, rendering, concrete mode controllers, and old service-locator behavior.
+- `GameSession` is a backend-neutral runtime facade. It loads a validated `ProjectDocument` into `ProjectModel`, owns a `SaveDocument`, runtime events, timers, play time, startup entrypoint resolution, current entity, current room/map ids, navigation/map flags, and an entity queue. It prefers a save entrypoint when present, falls back to the project entrypoint, restores old save metadata where possible, ignores stale saved map/queue entries with warnings, emits UI-neutral session commands plus a queued `GameLoaded` event, advances timers/play time on `tick()`, and deliberately avoids scripting, rendering, concrete mode controllers, and old service-locator behavior.
 - `EntityType::CustomScript` is known but not project-backed. It has no collection key because old runtime resolution treats the selected-entity id string as inline script content.
 - `EntityRef` remains only the old `[type, id]` selected-entity shape. It accepts `CustomScript` inline content structurally but does not validate referenced entity existence.
 
@@ -34,13 +34,13 @@ Core engine migration planning:
 
 - `docs/migration/PLAN.md` now expands the old-core migration into staged work from legacy wire schemas through domain models, save/settings/profile import, runtime controllers, Lua-based scripting compatibility, text semantics, RmlUi/bgfx adapters, package asset integration, and editor preview APIs.
 - `docs/migration/reports/core-engine-migration-plan.md` records the old `Game`, `Context`, `SaveData`, `Settings`, `ScriptManager`, entity schema, event/timer, text, and package analysis that informed the plan.
-- The immediate next-slices list in `docs/migration/PLAN.md` is complete. The next core-engine slice should expand `GameSession` toward runtime ownership: entity queue, current room/map state, save-state restoration metadata, and UI-neutral diagnostics/commands, still without scripting or rendering.
+- The earlier immediate next-slices list in `docs/migration/PLAN.md` is complete. The next core-engine slice should add the first runtime-controller behavior on top of `GameSession`: queue draining, room-entry/current-room transitions, and UI-neutral room/navigation commands, still without scripting or rendering.
 
 Verification:
 
 - `cmake --preset linux-debug`: passed.
 - `cmake --build --preset linux-debug`: passed.
-- `ctest --test-dir build/linux-debug --output-on-failure`: passed 112/112 after `GameSession` skeleton tests were added.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 114/114 after `GameSession` runtime-state and entity-queue tests were added.
 - `cmake --preset web-debug`: passed.
 - `cmake --build --preset web-debug`: passed with the existing Emscripten SDL3 experimental warning.
 
@@ -225,6 +225,6 @@ The following changes were made before pushing the first test tag, without alter
 
 ## Next Recommended Prompt
 
-The immediate next-slices list in `docs/migration/PLAN.md` is complete. Continue the old NovelTea core migration by expanding `GameSession` toward runtime ownership: entity queue, current room/map state, save-state restoration metadata, and UI-neutral diagnostics/commands, still without scripting, rendering, or concrete gameplay mode controllers.
+The immediate next-slices list in `docs/migration/PLAN.md` is complete. Continue the old NovelTea core migration by adding the first runtime-controller behavior on top of `GameSession`: queue draining, room-entry/current-room transitions, and UI-neutral room/navigation commands, still without scripting, rendering, or concrete UI adapters.
 
 Independent RmlUi renderer work remains open: stencil overflow normalization, GL3-quality blur downsample/upsample, portable MSAA/resolve planning, forced shader-copy tests, expanded readback pixel assertions, RuntimeUI facade tests, Web browser smoke, and Android runtime smoke.

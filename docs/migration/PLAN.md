@@ -1,5 +1,9 @@
 # NovelTea Core Engine Migration Plan
 
+**Completion status: [███░░░░░░░] 3/11 phases fully done — Phase 4 expanded, 5–11 not started**
+
+See [`STATUS.md`](STATUS.md) for detailed completion tracking, verification results, and next-prompt recommendations. This file tracks phase-level scope only.
+
 Migration begins from the current portable `nt` framework, not from a direct transplant of the old engine. The old `refs/NovelTea/` tree is read-only reference material and must not be added as a production include path, CMake subdirectory, or linked target.
 
 The target architecture keeps old NovelTea project compatibility while splitting the old monolithic `Context`/`Game`/SFML state stack into backend-neutral core models, backend-neutral runtime controllers, and explicit SDL3/bgfx/RmlUi adapters.
@@ -23,7 +27,7 @@ The first backend-neutral core slices are in place:
 
 This foundation deliberately excludes old `Game`, `Context`, `SaveData`, runtime scripting, SFML, Qt, renderer/UI state classes, and gameplay runtime behavior.
 
-## Phase 1: Legacy Wire Schemas
+## [x] Phase 1: Legacy Wire Schemas
 
 Goal: make every old project/save shape explicit before building behavior on top of it.
 
@@ -34,7 +38,7 @@ Goal: make every old project/save shape explicit before building behavior on top
 - Add golden fixtures for representative old projects, including non-empty asset maps and unknown extension keys.
 - Keep validation structural: reject malformed shapes, but do not require referenced entities to exist until the project validation layer.
 
-## Phase 2: Backend-Neutral Domain Models
+## [x] Phase 2: Backend-Neutral Domain Models
 
 Goal: introduce typed models that can be used by runtime, editor preview, and validation without renderer dependencies.
 
@@ -44,7 +48,7 @@ Goal: introduce typed models that can be used by runtime, editor preview, and va
 - Add explicit graph validation for room paths, map rooms/connections, dialogue links, cutscene next-entity refs, and action verb/object references.
 - Keep conversion boundaries clear: legacy JSON import -> `ProjectDocument` -> typed project view/model.
 
-## Phase 3: Save, Settings, and Profiles
+## [x] Phase 3: Save, Settings, and Profiles
 
 Goal: port old persistence formats without recreating the old service locator.
 
@@ -54,7 +58,7 @@ Goal: port old persistence formats without recreating the old service locator.
 - Separate save import/export from autosave policy and runtime session mutation.
 - Add tests for legacy save fixtures, profile naming, slot discovery, and malformed save diagnostics.
 
-## Phase 4: Runtime Core Facade
+## [x] Phase 4: Runtime Core Facade (partial — session state/queue done, DI/services pending)
 
 Goal: replace old `Context`/`Subsystem` macros with explicit runtime ownership.
 
@@ -65,7 +69,7 @@ Goal: replace old `Context`/`Subsystem` macros with explicit runtime ownership.
 - Add runtime services through constructor injection or small interfaces, not global `GGame`/`GSave`/`ScriptMan` macros.
 - Keep renderer/UI output as commands or events consumed by adapters.
 
-## Phase 5: Scripting Compatibility Layer
+## [ ] Phase 5: Scripting Compatibility Layer
 
 Goal: preserve old script-facing behavior on top of the current Lua runtime.
 
@@ -75,7 +79,7 @@ Goal: preserve old script-facing behavior on top of the current Lua runtime.
 - Implement or document a migration strategy for old JavaScript script bodies that targets Lua. Acceptable paths are project-level script migration tooling, a restricted source translator, compatibility shims in Lua, or clear unsupported-script diagnostics. Do not add Duktape, dukglue, or any JavaScript runtime to the new engine.
 - Add fixtures around old `core.js` semantics such as seeded random, `thisEntity`, `prop`, `setProp`, `toast`, and object/action helpers.
 
-## Phase 6: Runtime Controllers
+## [ ] Phase 6: Runtime Controllers
 
 Goal: port old gameplay sequencing without old SFML state classes.
 
@@ -87,7 +91,7 @@ Goal: port old gameplay sequencing without old SFML state classes.
 - Add cutscene timeline expansion from page segments into text/page-break/script segments.
 - Emit UI-neutral commands for messages, notifications, text log entries, room text changes, dialogue options, cutscene pages, and navigation availability.
 
-## Phase 7: Text Semantics
+## [ ] Phase 7: Text Semantics
 
 Goal: port old text behavior into the existing modern text stack in layers.
 
@@ -97,7 +101,7 @@ Goal: port old text behavior into the existing modern text stack in layers.
 - Add a pagination and timeline model for cutscene/dialogue text separate from rendering.
 - Integrate with the existing engine-owned HarfBuzz/FreeType text layout after semantics are proven.
 
-## Phase 8: Runtime UI and Rendering Adapters
+## [ ] Phase 8: Runtime UI and Rendering Adapters
 
 Goal: connect controllers to the new SDL3/bgfx/RmlUi runtime without porting old GUI widgets.
 
@@ -107,7 +111,7 @@ Goal: connect controllers to the new SDL3/bgfx/RmlUi runtime without porting old
 - Keep platform/input concerns in SDL3-facing layers and renderer resource ownership in bgfx-facing layers.
 - Add Web and Android checks whenever UI/resource loading behavior changes.
 
-## Phase 9: Asset and Package Integration
+## [ ] Phase 9: Asset and Package Integration
 
 Goal: make imported old projects usable by runtime sessions.
 
@@ -116,7 +120,7 @@ Goal: make imported old projects usable by runtime sessions.
 - Decide when to add write support for old or new project packages; read-only compatibility is enough until runtime/editor workflows require saving packages.
 - Add deterministic package fixtures and asset lookup tests for Linux and Web.
 
-## Phase 10: Editor Preview and Tooling APIs
+## [ ] Phase 10: Editor Preview and Tooling APIs
 
 Goal: expose stable backend-neutral APIs for the future editor.
 
@@ -125,7 +129,7 @@ Goal: expose stable backend-neutral APIs for the future editor.
 - Provide entity editing and validation APIs without requiring the old Qt editor model.
 - Add migration diagnostics that can explain legacy compatibility issues to editor users.
 
-## Phase 11: Compatibility Completion
+## [ ] Phase 11: Compatibility Completion
 
 Goal: prove old projects survive migration with known limits.
 
@@ -147,5 +151,5 @@ Goal: prove old projects survive migration with known limits.
 1. Add legacy entity schema views/parsers and validation tests for every old entity array shape.
 2. Add old save/settings/profile document import with malformed fixture coverage.
 3. Add project/entity graph validation separate from import.
-4. Add a backend-neutral runtime event bus and timer scheduler.
-5. Add the first `GameSession` skeleton that can load a typed project model and emit startup/entrypoint diagnostics without scripting or rendering.
+4. Add the first runtime-controller slice for room entry and queue draining on top of `GameSession`.
+5. Add the Lua scripting compatibility design/API surface before wiring script execution into controllers.
