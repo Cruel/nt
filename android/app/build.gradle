@@ -28,6 +28,7 @@ android {
         targetSdk 35
         versionCode ciVersionCode
         versionName ciVersionName
+        ndkVersion "27.3.13750724"
 
         externalNativeBuild {
             cmake {

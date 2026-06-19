@@ -37,7 +37,8 @@
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/windows-release/vcpkg_installed",
                 "VCPKG_TARGET_TRIPLET": "x64-windows-static",
-                "VCPKG_HOST_TRIPLET": "x64-windows"
+                "VCPKG_HOST_TRIPLET": "x64-windows",
+                "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded"
             }
         },
         {

@@ -13,6 +13,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     name: 'NovelTea Editor',
+    executableName: 'noveltea-editor',
     // TODO: Add macOS signing/notarization with CI secrets when distribution identity is available.
   },
   rebuildConfig: {},

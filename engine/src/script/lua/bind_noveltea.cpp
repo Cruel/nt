@@ -13,7 +13,7 @@ namespace {
 
 std::string object_to_string(const sol::object& object)
 {
-    if (!object.valid() || object == sol::nil) return "nil";
+    if (!object.valid() || object == sol::lua_nil) return "nil";
     switch (object.get_type()) {
         case sol::type::boolean:
             return object.as<bool>() ? "true" : "false";

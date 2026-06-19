@@ -48,7 +48,7 @@ sol::object entity_prop(core::GameSession* session, core::EntityType type,
                         sol::optional<sol::object> default_value,
                         sol::this_state L)
 {
-    if (!session || !session->project()) return default_value.value_or(sol::nil);
+    if (!session || !session->project()) return default_value.value_or(sol::lua_nil);
     const auto merged = session->project()->merged_properties(type, id);
     if (merged.contains(key)) {
         const auto& val = merged[key];
@@ -64,7 +64,7 @@ sol::object entity_prop(core::GameSession* session, core::EntityType type,
         if (val.is_boolean()) return sol::make_object(lua, val.get<bool>());
         return sol::make_object(lua, val.dump());
     }
-    return default_value.value_or(sol::nil);
+    return default_value.value_or(sol::lua_nil);
 }
 
 bool entity_has_prop(core::GameSession* session, core::EntityType type,
@@ -242,14 +242,14 @@ struct GameBinding {
 
     sol::object get_room(sol::this_state L) const
     {
-        if (!session || !session->current_room_id()) return sol::nil;
+        if (!session || !session->current_room_id()) return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, RoomLua{session, *session->current_room_id()});
     }
 
     sol::object get_map_id(sol::this_state L) const
     {
-        if (!session || !session->current_map_id()) return sol::nil;
+        if (!session || !session->current_map_id()) return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, *session->current_map_id());
     }
@@ -309,7 +309,7 @@ struct GameBinding {
                 }
             }
         }
-        return default_value.value_or(sol::nil);
+        return default_value.value_or(sol::lua_nil);
     }
 
     void set_prop(const std::string& key, sol::object value) const
@@ -319,9 +319,9 @@ struct GameBinding {
 
     sol::object load_room(const std::string& id, sol::this_state L) const
     {
-        if (!session || !session->project()) return sol::nil;
+        if (!session || !session->project()) return sol::lua_nil;
         const auto& rooms = session->project()->rooms();
-        if (rooms.find(id) == rooms.end()) return sol::nil;
+        if (rooms.find(id) == rooms.end()) return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, RoomLua{session, id});
     }
@@ -334,9 +334,9 @@ struct GameBinding {
 
     sol::object load_script(const std::string& id, sol::this_state L) const
     {
-        if (!session || !session->project()) return sol::nil;
+        if (!session || !session->project()) return sol::lua_nil;
         const auto& scripts = session->project()->scripts();
-        if (scripts.find(id) == scripts.end()) return sol::nil;
+        if (scripts.find(id) == scripts.end()) return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, ScriptEntityLua{session, id});
     }
@@ -487,7 +487,7 @@ struct TimerBinding {
 
     sol::object start(double duration_ms, sol::function callback)
     {
-        if (!session) return sol::nil;
+        if (!session) return sol::lua_nil;
         auto handle = session->timers().start(duration_ms / 1000.0,
             [callback = std::make_shared<sol::function>(callback)](core::RuntimeTimerId id) {
                 if (callback->valid()) {
@@ -499,7 +499,7 @@ struct TimerBinding {
 
     sol::object start_repeat(double duration_ms, sol::function callback)
     {
-        if (!session) return sol::nil;
+        if (!session) return sol::lua_nil;
         auto handle = session->timers().start_repeat(duration_ms / 1000.0,
             [callback = std::make_shared<sol::function>(callback)](core::RuntimeTimerId id) {
                 if (callback->valid()) {
@@ -558,7 +558,7 @@ void build_game_table(lua_State* L, core::GameSession* session)
         if (key == "minimap") return sol::make_object(L_, binding.get_minimap());
         if (key == "save_enabled") return sol::make_object(L_, binding.get_save_enabled());
         if (key == "inventory") return binding.get_inventory(L_);
-        return sol::nil;
+        return sol::lua_nil;
     };
     meta[sol::meta_function::new_index] = [](sol::table, sol::object, sol::object) {
     };
@@ -601,7 +601,7 @@ void build_timer_table(lua_State* L, core::GameSession* session)
     sol::state_view lua(L);
     sol::table timer = lua.create_table();
     timer.set_function("start", [session, L](double duration_ms, sol::function callback) -> sol::object {
-        if (!session) return sol::nil;
+        if (!session) return sol::lua_nil;
         auto handle = session->timers().start(duration_ms / 1000.0,
             [callback = std::make_shared<sol::function>(std::move(callback))](core::RuntimeTimerId id) {
                 if (callback->valid()) {
@@ -611,7 +611,7 @@ void build_timer_table(lua_State* L, core::GameSession* session)
         return sol::make_object(L, static_cast<std::int64_t>(handle.id));
     });
     timer.set_function("start_repeat", [session, L](double duration_ms, sol::function callback) -> sol::object {
-        if (!session) return sol::nil;
+        if (!session) return sol::lua_nil;
         auto handle = session->timers().start_repeat(duration_ms / 1000.0,
             [callback = std::make_shared<sol::function>(std::move(callback))](core::RuntimeTimerId id) {
                 if (callback->valid()) {
@@ -638,19 +638,19 @@ void register_legacy_entity_functions(lua_State* L)
     sol::state_view lua(L);
     lua.set_function("prop", [lua](std::string key, sol::optional<sol::object> default_value, sol::this_state) -> sol::object {
         auto entity = lua["thisEntity"];
-        if (!entity.valid() || entity == sol::nil) {
-            return default_value.value_or(sol::nil);
+        if (!entity.valid() || entity == sol::lua_nil) {
+            return default_value.value_or(sol::lua_nil);
         }
         if (entity.get_type() == sol::type::userdata) {
             auto result = entity["prop"](entity, key, default_value);
             if (result.valid()) return result;
         }
-        return default_value.value_or(sol::nil);
+        return default_value.value_or(sol::lua_nil);
     });
 
     lua.set_function("set_prop", [lua](std::string key, sol::object value) {
         auto entity = lua["thisEntity"];
-        if (!entity.valid() || entity == sol::nil) return;
+        if (!entity.valid() || entity == sol::lua_nil) return;
         if (entity.get_type() == sol::type::userdata) {
             entity["set_prop"](entity, key, value);
         }
@@ -716,7 +716,7 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
     build_save_table(L);
 
     // Legacy single-function globals
-    lua["thisEntity"] = sol::nil;
+    lua["thisEntity"] = sol::lua_nil;
     register_legacy_entity_functions(L);
 
     lua.set_function("toast", [session](std::string msg, sol::optional<bool> add_to_log, sol::optional<double> duration_ms) {
@@ -751,16 +751,16 @@ void clear_game_bindings(lua_State* L)
         bridge->session = nullptr;
     }
 
-    lua["Game"] = sol::nil;
-    lua["Save"] = sol::nil;
-    lua["Script"] = sol::nil;
-    lua["Log"] = sol::nil;
-    lua["Timer"] = sol::nil;
-    lua["thisEntity"] = sol::nil;
-    lua["prop"] = sol::nil;
-    lua["set_prop"] = sol::nil;
-    lua["toast"] = sol::nil;
-    lua["alert"] = sol::nil;
+    lua["Game"] = sol::lua_nil;
+    lua["Save"] = sol::lua_nil;
+    lua["Script"] = sol::lua_nil;
+    lua["Log"] = sol::lua_nil;
+    lua["Timer"] = sol::lua_nil;
+    lua["thisEntity"] = sol::lua_nil;
+    lua["prop"] = sol::lua_nil;
+    lua["set_prop"] = sol::lua_nil;
+    lua["toast"] = sol::lua_nil;
+    lua["alert"] = sol::lua_nil;
 }
 
 } // namespace noveltea::script

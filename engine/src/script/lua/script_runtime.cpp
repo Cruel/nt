@@ -128,13 +128,13 @@ ScriptResult<void> ScriptRuntime::initialize(ScriptRuntimeConfig config)
             sol::lib::math,
             sol::lib::utf8
         );
-        m_impl->lua["os"] = sol::nil;
-        m_impl->lua["io"] = sol::nil;
-        m_impl->lua["debug"] = sol::nil;
-        m_impl->lua["package"] = sol::nil;
-        m_impl->lua["require"] = sol::nil;
-        m_impl->lua["dofile"] = sol::nil;
-        m_impl->lua["loadfile"] = sol::nil;
+        m_impl->lua["os"] = sol::lua_nil;
+        m_impl->lua["io"] = sol::lua_nil;
+        m_impl->lua["debug"] = sol::lua_nil;
+        m_impl->lua["package"] = sol::lua_nil;
+        m_impl->lua["require"] = sol::lua_nil;
+        m_impl->lua["dofile"] = sol::lua_nil;
+        m_impl->lua["loadfile"] = sol::lua_nil;
         m_impl->lua.set_function("__noveltea_traceback", traceback_handler);
         m_impl->traceback = m_impl->lua["__noveltea_traceback"];
         sol::protected_function::set_default_handler(m_impl->traceback);
