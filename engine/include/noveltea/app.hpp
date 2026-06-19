@@ -22,6 +22,7 @@ private:
         std::filesystem::path project_asset_root;
         std::filesystem::path cache_asset_root;
         std::string runtime_ui_document;
+        std::string runtime_project;
         std::string screenshot_path;
         bool no_imgui = false;
     };

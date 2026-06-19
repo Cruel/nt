@@ -1,0 +1,87 @@
+{
+  "engine": 1.0,
+  "name": "Phase 8 Runtime Smoke",
+  "version": "1.0",
+  "author": "NovelTea",
+  "website": "",
+  "fontDefault": "sys",
+  "fonts": {},
+  "startInv": [],
+  "shaders": {
+    "defaultFrag": "builtin:legacy-default-fragment",
+    "defaultVert": "builtin:legacy-default-vertex"
+  },
+  "systemShaders": ["defaultFrag", "defaultFrag"],
+  "engineFonts": {
+    "sys": "LiberationSans.ttf",
+    "sysIcon": "fontawesome.ttf"
+  },
+  "textures": {},
+  "tests": {},
+  "sbs": "",
+  "sas": "",
+  "saa": "",
+  "sba": "return true;",
+  "sua": "return false;",
+  "sal": "",
+  "sbl": "return true;",
+  "sae": "",
+  "sbe": "return true;",
+  "tabs": [],
+  "tabIndex": -1,
+  "object": {},
+  "verb": {},
+  "action": {},
+  "map": {},
+  "dialogue": {
+    "guide": [
+      "guide",
+      "",
+      {},
+      "Guide",
+      [3, "foyer"],
+      0,
+      false,
+      false,
+      1,
+      [
+        [0, -1, false, false, false, false, false, false, "", "", "", [1]],
+        [1, -1, false, false, false, false, false, false, "", "", "[Guide]The runtime UI is now driven by controller commands.", [2]],
+        [2, -1, false, false, false, false, false, false, "", "", "Enter the foyer", []]
+      ]
+    ]
+  },
+  "cutscene": {},
+  "script": {},
+  "room": {
+    "foyer": [
+      "foyer",
+      "",
+      {},
+      "You are standing in a compact test room rendered by RmlUi.",
+      "",
+      "",
+      "",
+      "",
+      [],
+      [
+        [true, [3, "gallery"]]
+      ],
+      "Foyer"
+    ],
+    "gallery": [
+      "gallery",
+      "",
+      {},
+      "The second room proves that navigation clicks can drive the runtime controller.",
+      "",
+      "",
+      "",
+      "",
+      [],
+      [],
+      "Gallery"
+    ]
+  },
+  "entrypoint": [5, "guide"]
+}

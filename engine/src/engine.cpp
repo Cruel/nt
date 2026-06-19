@@ -11,6 +11,8 @@
 #include <memory>
 #include <stdexcept>
 
+#include <nlohmann/json.hpp>
+
 namespace noveltea {
 
 Engine::Engine() = default;
@@ -139,6 +141,46 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
 #endif
 }
 
+bool Engine::load_runtime_project(const std::string& logical_path)
+{
+    auto text = m_assets.read_text(logical_path);
+    if (!text) {
+        std::fprintf(stderr, "[engine] failed to read runtime project %s: %s\n",
+            logical_path.c_str(),
+            text.error.c_str());
+        return false;
+    }
+
+    try {
+        auto json = nlohmann::json::parse(*text.value);
+        auto result = m_runtime_host.load(core::ProjectDocument(std::move(json)));
+        for (const auto& diagnostic : result.diagnostics) {
+            const char* severity = "info";
+            if (diagnostic.severity == core::SessionDiagnosticSeverity::Warning) severity = "warning";
+            if (diagnostic.severity == core::SessionDiagnosticSeverity::Error) severity = "error";
+            SDL_Log("[runtime] %s %s %s",
+                severity,
+                diagnostic.path.c_str(),
+                diagnostic.message.c_str());
+        }
+        if (!result.success) {
+            std::fprintf(stderr, "[engine] runtime project failed validation: %s\n", logical_path.c_str());
+            return false;
+        }
+    } catch (const std::exception& ex) {
+        std::fprintf(stderr, "[engine] runtime project parse failed: %s: %s\n",
+            logical_path.c_str(),
+            ex.what());
+        return false;
+    }
+
+    if (auto* controller = m_runtime_host.controller()) {
+        m_runtime_ui.bind_runtime_controller(controller);
+    }
+    SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
+    return true;
+}
+
 bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
 {
     SDL_Log("[engine] initializing...");
@@ -252,6 +294,11 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             debug_ui_initialized = true;
             SDL_Log("[engine] debug UI initialized");
         }
+    }
+
+    if (!run_config.runtime_project.empty() && !load_runtime_project(run_config.runtime_project)) {
+        rollback();
+        return false;
     }
 
     m_running = true;
@@ -430,6 +477,10 @@ void Engine::update(float dt)
 {
     if (!m_preview_running) return;
     m_elapsed_seconds += dt;
+    if (m_runtime_host.loaded()) {
+        m_runtime_host.tick(dt);
+        m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
+    }
 }
 
 void Engine::render()

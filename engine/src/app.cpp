@@ -78,6 +78,12 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.runtime_ui_document = argv[++i];
+        } else if (std::strcmp(arg, "--runtime-project") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --runtime-project requires an asset path\n");
+                return false;
+            }
+            options.runtime_project = argv[++i];
         } else if (std::strcmp(arg, "--screenshot") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "[app] --screenshot requires an output path\n");
@@ -108,6 +114,7 @@ bool App::initialize(int argc, char* argv[])
     run_config.project_asset_root = options.project_asset_root;
     run_config.cache_asset_root = options.cache_asset_root;
     run_config.runtime_ui_document = options.runtime_ui_document;
+    run_config.runtime_project = options.runtime_project;
     run_config.screenshot_path = options.screenshot_path;
     run_config.enable_debug_ui = !options.no_imgui;
 

@@ -6,6 +6,7 @@
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/runtime_session_host.hpp"
 #if defined(NOVELTEA_HAS_LUA)
 #include "noveltea/script/script_runtime.hpp"
 #endif
@@ -31,6 +32,7 @@ struct EngineRunConfig {
     std::filesystem::path project_asset_root;
     std::filesystem::path cache_asset_root;
     std::string runtime_ui_document;
+    std::string runtime_project;
     std::string screenshot_path;
     bool enable_debug_ui = true;
 };
@@ -63,6 +65,7 @@ private:
     void update(float dt);
     void render();
     void configure_assets(const EngineRunConfig& run_config);
+    bool load_runtime_project(const std::string& logical_path);
 
     assets::AssetManager m_assets;
     Platform m_platform;
@@ -71,6 +74,7 @@ private:
     script::ScriptRuntime m_scripts;
 #endif
     RuntimeUI m_runtime_ui;
+    core::RuntimeSessionHost m_runtime_host;
     DebugUI m_debug_ui;
     bool m_initialized = false;
     bool m_running = false;
