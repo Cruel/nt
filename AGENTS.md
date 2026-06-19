@@ -57,6 +57,15 @@ Run tests when core/runtime behavior changes:
 ctest --test-dir build/linux-debug --output-on-failure
 ```
 
+Run clang-format for touched C/C++ files before final verification. The project provides CMake targets:
+
+```sh
+cmake --build --preset linux-debug --target format-check
+cmake --build --preset linux-debug --target format
+```
+
+Prefer checking first. Use `format` when the touched files need mechanical cleanup, but do not reformat unrelated files as part of a behavior change unless the user explicitly asks for a formatting-only pass.
+
 Run the Linux sandbox when rendering, input, runtime loop, or UI behavior changes:
 
 ```sh
@@ -75,6 +84,8 @@ If a verification command cannot run in the current environment, state exactly w
 ## C++ and Architecture Conventions
 
 Use C++20 for new code. Prefer `noveltea` for new framework code. If old code is temporarily ported with the historical `NovelTea` namespace, isolate that compatibility choice and do not let it leak into new platform/renderer APIs without an explicit reason.
+
+Follow the repository `.clang-format` for C/C++ formatting. Formatting is an enforceable project convention; when adding or editing C/C++ files, keep the touched files clang-format clean or clearly report why the formatter could not be run.
 
 Keep backend-neutral core code free of SDL3, bgfx, RmlUi, ImGui, Lua, Electron, Android, Emscripten, SFML, and Qt types.
 
