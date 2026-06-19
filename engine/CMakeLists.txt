@@ -8,6 +8,7 @@ add_library(noveltea_core STATIC
     src/core/project_document.cpp
     src/core/project_model.cpp
     src/core/project_validator.cpp
+    src/core/runtime_controller.cpp
     src/core/runtime_events.cpp
     src/core/save_document.cpp
 )
