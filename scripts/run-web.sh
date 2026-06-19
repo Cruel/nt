@@ -11,7 +11,7 @@ echo "[run] configuring web build..."
 cmake --preset web-debug
 
 echo "[run] building..."
-cmake --build --preset web-debug
+cmake --build --preset web-debug --parallel
 
 echo "[run] starting web server at http://localhost:8080"
 cd build/web-debug/apps/sandbox/

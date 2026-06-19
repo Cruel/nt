@@ -11,7 +11,7 @@ echo "[run] configuring desktop build..."
 cmake --preset linux-debug
 
 echo "[run] building..."
-cmake --build --preset linux-debug
+cmake --build --preset linux-debug --parallel
 
 echo "[run] launching..."
 ./build/linux-debug/apps/sandbox/noveltea-sandbox "$@"

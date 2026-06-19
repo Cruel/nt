@@ -13,7 +13,7 @@ echo "[test] configuring $PRESET..."
 cmake --preset "$PRESET"
 
 echo "[test] building $PRESET..."
-cmake --build --preset "$PRESET"
+cmake --build --preset "$PRESET" --parallel
 
 echo "[test] running CTest in $BUILD_DIR..."
 ctest --test-dir "$BUILD_DIR" --output-on-failure "$@"
