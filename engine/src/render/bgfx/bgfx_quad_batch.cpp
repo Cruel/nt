@@ -16,8 +16,7 @@ using namespace bgfx_backend;
 
 namespace {
 
-struct QuadVertex
-{
+struct QuadVertex {
     float x, y;
     float u, v;
     float r, g, b, a;
@@ -35,16 +34,12 @@ void Renderer::draw_demo_2d(float time_seconds)
     const float pulse = 0.5f + 0.5f * std::sin(time_seconds * 2.0f);
     QuadBatch batch;
     batch.draw_colored_quad({72.0f, 96.0f, 220.0f, 132.0f}, {0.15f, 0.65f, 0.95f, 0.88f}, 0.1f);
-    const uint16_t texture = bgfx::isValid(bgfx::TextureHandle{m_disk_texture})
-        ? m_disk_texture
-        : m_checker_texture;
-    batch.draw_textured_quad(
-        {330.0f, 116.0f, 160.0f, 160.0f},
-        Texture{texture},
-        {0.0f, 0.0f, 1.0f, 1.0f},
-        {1.0f, 1.0f, 1.0f, 1.0f},
-        0.2f);
-    batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f}, {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f);
+    const uint16_t texture =
+        bgfx::isValid(bgfx::TextureHandle{m_disk_texture}) ? m_disk_texture : m_checker_texture;
+    batch.draw_textured_quad({330.0f, 116.0f, 160.0f, 160.0f}, Texture{texture},
+                             {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f);
+    batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f},
+                            {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f);
     draw_2d(batch);
 #else
     (void)time_seconds;
@@ -81,14 +76,14 @@ void Renderer::create_2d()
     m_use_texture_uniform = bgfx::createUniform("u_useTexture", bgfx::UniformType::Vec4).idx;
 
     constexpr uint32_t pixels[16] = {
-        0xffffffff, 0xff3b82f6, 0xffffffff, 0xff3b82f6,
-        0xff3b82f6, 0xffffffff, 0xff3b82f6, 0xffffffff,
-        0xffffffff, 0xff3b82f6, 0xffffffff, 0xff3b82f6,
+        0xffffffff, 0xff3b82f6, 0xffffffff, 0xff3b82f6, 0xff3b82f6, 0xffffffff,
+        0xff3b82f6, 0xffffffff, 0xffffffff, 0xff3b82f6, 0xffffffff, 0xff3b82f6,
         0xff3b82f6, 0xffffffff, 0xff3b82f6, 0xffffffff,
     };
-    m_checker_texture = bgfx::createTexture2D(
-        4, 4, false, 1, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
-        bgfx::copy(pixels, sizeof(pixels))).idx;
+    m_checker_texture = bgfx::createTexture2D(4, 4, false, 1, bgfx::TextureFormat::RGBA8,
+                                              BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
+                                              bgfx::copy(pixels, sizeof(pixels)))
+                            .idx;
 
     m_disk_texture = load_ppm_texture("project:/checker.ppm");
     if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture})) {
@@ -100,11 +95,16 @@ void Renderer::create_2d()
 
 void Renderer::destroy_2d()
 {
-    if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture})) bgfx::destroy(bgfx::TextureHandle{m_disk_texture});
-    if (bgfx::isValid(bgfx::TextureHandle{m_checker_texture})) bgfx::destroy(bgfx::TextureHandle{m_checker_texture});
-    if (bgfx::isValid(bgfx::UniformHandle{m_use_texture_uniform})) bgfx::destroy(bgfx::UniformHandle{m_use_texture_uniform});
-    if (bgfx::isValid(bgfx::UniformHandle{m_sampler})) bgfx::destroy(bgfx::UniformHandle{m_sampler});
-    if (bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) bgfx::destroy(bgfx::ProgramHandle{m_quad_program});
+    if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture}))
+        bgfx::destroy(bgfx::TextureHandle{m_disk_texture});
+    if (bgfx::isValid(bgfx::TextureHandle{m_checker_texture}))
+        bgfx::destroy(bgfx::TextureHandle{m_checker_texture});
+    if (bgfx::isValid(bgfx::UniformHandle{m_use_texture_uniform}))
+        bgfx::destroy(bgfx::UniformHandle{m_use_texture_uniform});
+    if (bgfx::isValid(bgfx::UniformHandle{m_sampler}))
+        bgfx::destroy(bgfx::UniformHandle{m_sampler});
+    if (bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
+        bgfx::destroy(bgfx::ProgramHandle{m_quad_program});
     m_checker_texture = UINT16_MAX;
     m_disk_texture = UINT16_MAX;
     m_use_texture_uniform = UINT16_MAX;

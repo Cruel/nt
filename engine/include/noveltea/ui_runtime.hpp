@@ -14,8 +14,12 @@ struct SDL_Window;
 
 namespace noveltea {
 
-namespace assets { class AssetManager; }
-namespace script { class ScriptRuntime; }
+namespace assets {
+class AssetManager;
+}
+namespace script {
+class ScriptRuntime;
+}
 
 class RuntimeUI {
 public:
@@ -25,11 +29,8 @@ public:
     RuntimeUI(const RuntimeUI&) = delete;
     RuntimeUI& operator=(const RuntimeUI&) = delete;
 
-    bool initialize(
-        const assets::AssetManager* assets = nullptr,
-        SDL_Window* window = nullptr,
-        bool load_demo_document = true,
-        script::ScriptRuntime* scripts = nullptr);
+    bool initialize(const assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr,
+                    bool load_demo_document = true, script::ScriptRuntime* scripts = nullptr);
     bool process_event(const SDL_Event& event);
     void resize(const SurfaceMetrics& surface);
     void begin_frame(float delta_time);
@@ -49,11 +50,8 @@ public:
     void apply_controller_commands(const std::vector<core::ControllerCommand>& commands);
     const core::RuntimeUIViewState& runtime_view_state() const;
     void bind_runtime_controller(core::RuntimeController* controller);
-    std::uintptr_t add_event_listener(
-        const std::string& document_id,
-        const std::string& element_id,
-        const std::string& event,
-        std::function<void()> callback);
+    std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
+                                      const std::string& event, std::function<void()> callback);
     bool remove_event_listener(std::uintptr_t listener_id);
     void* create_data_model(const std::string& name);
     void* data_model(const std::string& name) const;

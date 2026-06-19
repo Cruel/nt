@@ -10,10 +10,7 @@ using namespace noveltea::core;
 
 namespace {
 
-nlohmann::json props()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json props() { return nlohmann::json::object(); }
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -25,10 +22,7 @@ nlohmann::json path_entry(bool enabled, EntityType type, const std::string& id)
     return nlohmann::json::array({enabled, ref(type, id)});
 }
 
-EntityRef eref(EntityType type, std::string id)
-{
-    return EntityRef{type, std::move(id)};
-}
+EntityRef eref(EntityType type, std::string id) { return EntityRef{type, std::move(id)}; }
 
 ProjectDocument make_room_project()
 {
@@ -38,21 +32,16 @@ ProjectDocument make_room_project()
     root[project_ids::verb] = nlohmann::json::object();
     root[project_ids::action] = nlohmann::json::object();
     root[project_ids::room] = nlohmann::json::object({
-        {"foyer", nlohmann::json::array({"foyer", "", props(),
-                                         "text='Welcome to the foyer.';",
-                                         "", "", "", "",
-                                         nlohmann::json::array(),
+        {"foyer", nlohmann::json::array({"foyer", "", props(), "text='Welcome to the foyer.';", "",
+                                         "", "", "", nlohmann::json::array(),
                                          nlohmann::json::array({
                                              path_entry(true, EntityType::Room, "kitchen"),
                                              path_entry(false, EntityType::Room, "basement"),
                                          }),
                                          "Foyer"})},
-        {"kitchen", nlohmann::json::array({"kitchen", "", props(),
-                                           "text='A bright kitchen.';",
-                                           "", "", "", "",
-                                           nlohmann::json::array(),
-                                           nlohmann::json::array(),
-                                           "Kitchen"})},
+        {"kitchen",
+         nlohmann::json::array({"kitchen", "", props(), "text='A bright kitchen.';", "", "", "", "",
+                                nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
     root[project_ids::map] = nlohmann::json::object();
     root[project_ids::dialogue] = nlohmann::json::object();
@@ -78,7 +67,8 @@ nlohmann::json object_entry(const std::string& id, const std::string& name)
     return nlohmann::json::array({id, "", props(), name, false});
 }
 
-nlohmann::json verb_entry(const std::string& id, int object_count, const std::string& default_script = "")
+nlohmann::json verb_entry(const std::string& id, int object_count,
+                          const std::string& default_script = "")
 {
     return nlohmann::json::array({
         id,
@@ -92,18 +82,16 @@ nlohmann::json verb_entry(const std::string& id, int object_count, const std::st
     });
 }
 
-nlohmann::json action_entry(const std::string& id,
-                            const std::string& parent_id,
-                            const std::string& verb_id,
-                            const std::string& script,
-                            std::vector<std::string> object_ids,
-                            bool position_dependent)
+nlohmann::json action_entry(const std::string& id, const std::string& parent_id,
+                            const std::string& verb_id, const std::string& script,
+                            std::vector<std::string> object_ids, bool position_dependent)
 {
     nlohmann::json objects = nlohmann::json::array();
     for (const auto& object_id : object_ids) {
         objects.push_back(object_id);
     }
-    return nlohmann::json::array({id, parent_id, props(), verb_id, script, objects, position_dependent});
+    return nlohmann::json::array(
+        {id, parent_id, props(), verb_id, script, objects, position_dependent});
 }
 
 ProjectDocument make_action_project()
@@ -123,8 +111,10 @@ ProjectDocument make_action_project()
     });
     root[project_ids::action] = nlohmann::json::object({
         {"base_use", action_entry("base_use", "", "look", "base_use();", {"coin"}, false)},
-        {"use_lamp_key", action_entry("use_lamp_key", "base_use", "use", "use_lamp_key();", {"lamp", "key"}, false)},
-        {"use_key_lamp_exact", action_entry("use_key_lamp_exact", "", "use", "use_key_lamp_exact();", {"key", "lamp"}, true)},
+        {"use_lamp_key", action_entry("use_lamp_key", "base_use", "use", "use_lamp_key();",
+                                      {"lamp", "key"}, false)},
+        {"use_key_lamp_exact", action_entry("use_key_lamp_exact", "", "use",
+                                            "use_key_lamp_exact();", {"key", "lamp"}, true)},
     });
 
     auto& foyer = root[project_ids::room]["foyer"];
@@ -186,7 +176,8 @@ TEST_CASE("RuntimeController enters room mode from room entrypoint on first tick
 
     const auto* mode_cmd = [&]() -> const ControllerCommand* {
         for (const auto& c : commands) {
-            if (c.type == ControllerCommandType::ModeChanged && c.data.value("entering", false) == true) {
+            if (c.type == ControllerCommandType::ModeChanged &&
+                c.data.value("entering", false) == true) {
                 return &c;
             }
         }
@@ -344,7 +335,8 @@ TEST_CASE("RuntimeController navigate_path queues target and exits room mode")
     CHECK(has_command(commands, ControllerCommandType::ModeChanged));
     bool found_exit = false;
     for (const auto& cmd : commands) {
-        if (cmd.type == ControllerCommandType::ModeChanged && cmd.data.value("entering", true) == false) {
+        if (cmd.type == ControllerCommandType::ModeChanged &&
+            cmd.data.value("entering", true) == false) {
             found_exit = true;
             break;
         }
@@ -435,7 +427,8 @@ TEST_CASE("RuntimeController correctly reports first vs subsequent room entries"
         auto cmds = controller.take_commands();
         const auto* entry = [&]() -> const ControllerCommand* {
             for (const auto& c : cmds) {
-                if (c.type == ControllerCommandType::RoomEntry) return &c;
+                if (c.type == ControllerCommandType::RoomEntry)
+                    return &c;
             }
             return nullptr;
         }();
@@ -451,7 +444,8 @@ TEST_CASE("RuntimeController correctly reports first vs subsequent room entries"
         auto cmds = controller.take_commands();
         const auto* entry = [&]() -> const ControllerCommand* {
             for (const auto& c : cmds) {
-                if (c.type == ControllerCommandType::RoomEntry) return &c;
+                if (c.type == ControllerCommandType::RoomEntry)
+                    return &c;
             }
             return nullptr;
         }();
@@ -545,11 +539,11 @@ TEST_CASE("RuntimeController emits room enter and leave hook scripts in legacy o
         }
     }
     CHECK(enter_contexts == std::vector<std::string>{
-        "project_before_enter",
-        "room_before_enter",
-        "project_after_enter",
-        "room_after_enter",
-    });
+                                "project_before_enter",
+                                "room_before_enter",
+                                "project_after_enter",
+                                "room_after_enter",
+                            });
 
     controller.navigate_path(0);
     auto leave_commands = controller.take_commands();
@@ -560,11 +554,11 @@ TEST_CASE("RuntimeController emits room enter and leave hook scripts in legacy o
         }
     }
     CHECK(leave_contexts == std::vector<std::string>{
-        "project_before_leave",
-        "room_before_leave",
-        "project_after_leave",
-        "room_after_leave",
-    });
+                                "project_before_leave",
+                                "room_before_leave",
+                                "project_after_leave",
+                                "room_after_leave",
+                            });
 }
 
 TEST_CASE("RuntimeController save_state and restore_state preserve active room")
@@ -658,7 +652,8 @@ TEST_CASE("RuntimeController process_action supports position-dependent matching
     auto commands = controller.take_commands();
     const auto* resolved = [&]() -> const ControllerCommand* {
         for (const auto& cmd : commands) {
-            if (cmd.type == ControllerCommandType::ActionResolved) return &cmd;
+            if (cmd.type == ControllerCommandType::ActionResolved)
+                return &cmd;
         }
         return nullptr;
     }();
@@ -720,26 +715,49 @@ ProjectDocument make_dialogue_project()
     auto project = make_non_room_entrypoint_project();
 
     auto seg0 = nlohmann::json::array();
-    seg0.push_back(0); seg0.push_back(-1); seg0.push_back(false);
-    seg0.push_back(false); seg0.push_back(false); seg0.push_back(false);
-    seg0.push_back(false); seg0.push_back(false);
-    seg0.push_back(""); seg0.push_back(""); seg0.push_back("");
-    auto ch1 = nlohmann::json::array(); ch1.push_back(1);
+    seg0.push_back(0);
+    seg0.push_back(-1);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back("");
+    seg0.push_back("");
+    seg0.push_back("");
+    auto ch1 = nlohmann::json::array();
+    ch1.push_back(1);
     seg0.push_back(ch1);
 
     auto seg1 = nlohmann::json::array();
-    seg1.push_back(1); seg1.push_back(-1); seg1.push_back(false);
-    seg1.push_back(false); seg1.push_back(false); seg1.push_back(false);
-    seg1.push_back(false); seg1.push_back(false);
-    seg1.push_back(""); seg1.push_back(""); seg1.push_back("[Greeter]Hello there!");
-    auto ch2 = nlohmann::json::array(); ch2.push_back(2);
+    seg1.push_back(1);
+    seg1.push_back(-1);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back("");
+    seg1.push_back("");
+    seg1.push_back("[Greeter]Hello there!");
+    auto ch2 = nlohmann::json::array();
+    ch2.push_back(2);
     seg1.push_back(ch2);
 
     auto seg2 = nlohmann::json::array();
-    seg2.push_back(2); seg2.push_back(-1); seg2.push_back(false);
-    seg2.push_back(false); seg2.push_back(false); seg2.push_back(false);
-    seg2.push_back(false); seg2.push_back(false);
-    seg2.push_back(""); seg2.push_back(""); seg2.push_back("Go to kitchen");
+    seg2.push_back(2);
+    seg2.push_back(-1);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back("");
+    seg2.push_back("");
+    seg2.push_back("Go to kitchen");
     seg2.push_back(nlohmann::json::array());
 
     auto segments = nlohmann::json::array();
@@ -770,15 +788,23 @@ ProjectDocument make_cutscene_project()
     auto project = make_non_room_entrypoint_project();
 
     auto pageSeg = nlohmann::json::array();
-    pageSeg.push_back(2); pageSeg.push_back(true);
+    pageSeg.push_back(2);
+    pageSeg.push_back(true);
     pageSeg.push_back("Welcome to the game.\n\nLet's begin!");
-    pageSeg.push_back("\n"); pageSeg.push_back("\n\n");
-    pageSeg.push_back(0); pageSeg.push_back(1);
-    pageSeg.push_back(1000); pageSeg.push_back(2000);
-    pageSeg.push_back(2000); pageSeg.push_back(3000);
-    pageSeg.push_back(true); pageSeg.push_back(true);
-    pageSeg.push_back(0); pageSeg.push_back(0);
-    pageSeg.push_back(""); pageSeg.push_back(true);
+    pageSeg.push_back("\n");
+    pageSeg.push_back("\n\n");
+    pageSeg.push_back(0);
+    pageSeg.push_back(1);
+    pageSeg.push_back(1000);
+    pageSeg.push_back(2000);
+    pageSeg.push_back(2000);
+    pageSeg.push_back(3000);
+    pageSeg.push_back(true);
+    pageSeg.push_back(true);
+    pageSeg.push_back(0);
+    pageSeg.push_back(0);
+    pageSeg.push_back("");
+    pageSeg.push_back(true);
 
     auto segments = nlohmann::json::array();
     segments.push_back(pageSeg);

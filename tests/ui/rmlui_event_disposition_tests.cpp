@@ -2,9 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using noveltea::ui::rmlui::UiEventDisposition;
 using noveltea::ui::rmlui::is_consumed;
 using noveltea::ui::rmlui::rml_result_to_disposition;
+using noveltea::ui::rmlui::UiEventDisposition;
 
 TEST_CASE("RmlUi true result is ignored by gameplay-consumption contract")
 {

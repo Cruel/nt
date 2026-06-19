@@ -9,10 +9,7 @@ using namespace noveltea::core::editor;
 
 namespace {
 
-nlohmann::json props()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json props() { return nlohmann::json::object(); }
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -34,12 +31,14 @@ ProjectDocument make_preview_project()
     root[project_ids::verb] = nlohmann::json::object();
     root[project_ids::action] = nlohmann::json::object();
     root[project_ids::room] = nlohmann::json::object({
-        {"foyer", nlohmann::json::array({"foyer", "", props(), "A quiet foyer.", "", "", "", "",
-                                         nlohmann::json::array({nlohmann::json::array({"lamp", true})}),
-                                         nlohmann::json::array({path_entry(true, EntityType::Room, "kitchen")}),
-                                         "Foyer"})},
-        {"kitchen", nlohmann::json::array({"kitchen", "", props(), "A bright kitchen.", "", "", "", "",
-                                           nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
+        {"foyer",
+         nlohmann::json::array(
+             {"foyer", "", props(), "A quiet foyer.", "", "", "", "",
+              nlohmann::json::array({nlohmann::json::array({"lamp", true})}),
+              nlohmann::json::array({path_entry(true, EntityType::Room, "kitchen")}), "Foyer"})},
+        {"kitchen",
+         nlohmann::json::array({"kitchen", "", props(), "A bright kitchen.", "", "", "", "",
+                                nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
     root[project_ids::map] = nlohmann::json::object();
     root[project_ids::dialogue] = nlohmann::json::object();
@@ -53,7 +52,8 @@ ProjectDocument make_preview_project()
 bool has_command(const std::vector<ControllerCommand>& commands, ControllerCommandType type)
 {
     for (const auto& command : commands) {
-        if (command.type == type) return true;
+        if (command.type == type)
+            return true;
     }
     return false;
 }
@@ -90,7 +90,8 @@ TEST_CASE("ProjectTooling imports legacy game JSON with editor diagnostics")
     CHECK_FALSE(malformed.success());
     REQUIRE_FALSE(malformed.diagnostics.empty());
     CHECK(malformed.diagnostics.front().severity == DiagnosticSeverity::Error);
-    CHECK(malformed.diagnostics.front().message.find("Malformed legacy project JSON") != std::string::npos);
+    CHECK(malformed.diagnostics.front().message.find("Malformed legacy project JSON") !=
+          std::string::npos);
 }
 
 TEST_CASE("ProjectTooling edits entity records without old editor models")
@@ -98,9 +99,7 @@ TEST_CASE("ProjectTooling edits entity records without old editor models")
     auto project = make_preview_project();
 
     auto set = ProjectTooling::set_entity_record(
-        project,
-        project_ids::object,
-        "coin",
+        project, project_ids::object, "coin",
         nlohmann::json::array({"wrong_id", "", props(), "Coin", false}));
     CHECK(set.success());
     REQUIRE(set.diagnostics.size() == 1);
@@ -115,10 +114,12 @@ TEST_CASE("ProjectTooling edits entity records without old editor models")
     CHECK(erased.success());
     CHECK_FALSE(project.root()[project_ids::object].contains("coin"));
 
-    auto invalid = ProjectTooling::set_entity_record(project, "widgets", "bad", nlohmann::json::array());
+    auto invalid =
+        ProjectTooling::set_entity_record(project, "widgets", "bad", nlohmann::json::array());
     CHECK_FALSE(invalid.success());
     REQUIRE_FALSE(invalid.diagnostics.empty());
-    CHECK(invalid.diagnostics.front().message.find("Unknown entity collection") != std::string::npos);
+    CHECK(invalid.diagnostics.front().message.find("Unknown entity collection") !=
+          std::string::npos);
 }
 
 TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands")
@@ -157,7 +158,7 @@ TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands"
     CHECK(preview.running());
     CHECK(preview.inspect_state().view.title == "Foyer");
 
-    auto entrypoint = preview.set_entrypoint(EntityRef {EntityType::Room, "kitchen"});
+    auto entrypoint = preview.set_entrypoint(EntityRef{EntityType::Room, "kitchen"});
     REQUIRE(entrypoint.success);
     CHECK(preview.inspect_state().view.title == "Kitchen");
 }

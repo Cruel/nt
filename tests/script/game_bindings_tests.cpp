@@ -35,32 +35,25 @@ core::ProjectDocument make_test_project()
     root[core::project_ids::verb] = nlohmann::json::object();
     root[core::project_ids::action] = nlohmann::json::object();
     root[core::project_ids::room] = nlohmann::json::object({
-        {"foyer", nlohmann::json::array({"foyer", "", props(),
-            "text='Welcome to the foyer.';",
-            "", "", "", "",
-            nlohmann::json::array(),
-            nlohmann::json::array(),
-            "Foyer"})},
-        {"kitchen", nlohmann::json::array({"kitchen", "", props(),
-            "text='A warm kitchen.';",
-            "return true;",
-            "kitchen_after_enter",
-            "return true;",
-            "kitchen_after_leave",
-            nlohmann::json::array(),
-            nlohmann::json::array(),
-            "Kitchen"})},
+        {"foyer",
+         nlohmann::json::array({"foyer", "", props(), "text='Welcome to the foyer.';", "", "", "",
+                                "", nlohmann::json::array(), nlohmann::json::array(), "Foyer"})},
+        {"kitchen",
+         nlohmann::json::array({"kitchen", "", props(), "text='A warm kitchen.';", "return true;",
+                                "kitchen_after_enter", "return true;", "kitchen_after_leave",
+                                nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
     root[core::project_ids::map] = nlohmann::json::object();
     root[core::project_ids::dialogue] = nlohmann::json::object();
     root[core::project_ids::cutscene] = nlohmann::json::object();
     root[core::project_ids::script] = nlohmann::json::object({
-        {"greeting", nlohmann::json::array({"greeting", "", props(),
-            false, R"(return "Hello from script!")"})},
-        {"autorun_demo", nlohmann::json::array({"autorun_demo", "", props(),
-            true, R"(return "autorun ran")"})},
+        {"greeting",
+         nlohmann::json::array({"greeting", "", props(), false, R"(return "Hello from script!")"})},
+        {"autorun_demo",
+         nlohmann::json::array({"autorun_demo", "", props(), true, R"(return "autorun ran")"})},
     });
-    root[core::project_ids::entrypoint_entity] = ref(core::to_integer(core::EntityType::Room), "foyer");
+    root[core::project_ids::entrypoint_entity] =
+        ref(core::to_integer(core::EntityType::Room), "foyer");
     root[core::project_ids::starting_inventory] = nlohmann::json::array();
     root[core::project_ids::properties] = nlohmann::json::object({
         {"global_greeting", "Hello World"},
@@ -70,7 +63,8 @@ core::ProjectDocument make_test_project()
 }
 
 struct GameBindingsFixture {
-    std::shared_ptr<assets::MemoryAssetSource> memory = std::make_shared<assets::MemoryAssetSource>();
+    std::shared_ptr<assets::MemoryAssetSource> memory =
+        std::make_shared<assets::MemoryAssetSource>();
     assets::AssetManager assets;
     script::ScriptRuntime runtime;
     core::GameSession session;
@@ -85,10 +79,7 @@ struct GameBindingsFixture {
         runtime.bind_game_session(&session);
     }
 
-    ~GameBindingsFixture()
-    {
-        runtime.clear_game_bindings();
-    }
+    ~GameBindingsFixture() { runtime.clear_game_bindings(); }
 };
 
 } // namespace
@@ -98,7 +89,8 @@ TEST_CASE("Game bindings: basic Lua evaluation works")
     GameBindingsFixture f;
     // Verify basic evaluations work
     auto r1 = f.runtime.evaluate("42", "basic_int");
-    if (!r1) FAIL("42 failed: " + r1.error->message + " | " + r1.error->traceback);
+    if (!r1)
+        FAIL("42 failed: " + r1.error->message + " | " + r1.error->traceback);
     CHECK(std::holds_alternative<std::int64_t>(*r1.value));
     auto r2 = f.runtime.evaluate_string("'hello'", "basic_str");
     REQUIRE(r2);
@@ -125,7 +117,8 @@ TEST_CASE("Game bindings: Game.room.description returns raw description")
 {
     GameBindingsFixture f;
     auto res = f.runtime.evaluate("Game.room.description", "desc");
-    if (!res) FAIL("Game.room.description failed: " + res.error->message + " | " + res.error->traceback);
+    if (!res)
+        FAIL("Game.room.description failed: " + res.error->message + " | " + res.error->traceback);
     REQUIRE(res);
     auto result = f.runtime.evaluate_string("Game.room.description", "desc_str");
     REQUIRE(result);
@@ -146,7 +139,8 @@ TEST_CASE("Game bindings: Game.prop reads global properties")
     GameBindingsFixture f;
     auto eval_result = f.runtime.evaluate("Game.prop('global_greeting', 'default')", "greeting");
     if (!eval_result) {
-        FAIL("Game.prop evaluation failed: " + eval_result.error->message + " | traceback: " + eval_result.error->traceback);
+        FAIL("Game.prop evaluation failed: " + eval_result.error->message +
+             " | traceback: " + eval_result.error->traceback);
     }
     CHECK(std::holds_alternative<std::string>(*eval_result.value));
     if (auto* s = std::get_if<std::string>(&*eval_result.value)) {
@@ -163,7 +157,8 @@ TEST_CASE("Game bindings: Game.load_room loads an entity by id")
     GameBindingsFixture f;
     auto result = f.runtime.evaluate_string("Game.load_room('kitchen').name", "kitchen_name");
     if (!result) {
-        FAIL("Game.load_room name failed: " + result.error->message + " | " + result.error->traceback);
+        FAIL("Game.load_room name failed: " + result.error->message + " | " +
+             result.error->traceback);
     }
     CHECK(*result.value == "Kitchen");
 }
@@ -226,8 +221,8 @@ TEST_CASE("Game bindings: Script.eval_expressions evaluates {{ }} templates")
 {
     GameBindingsFixture f;
     // Simple expression
-    auto result = f.runtime.evaluate_string(
-        "Script.eval_expressions('Hello {{ 2 + 3 }}')", "simple");
+    auto result =
+        f.runtime.evaluate_string("Script.eval_expressions('Hello {{ 2 + 3 }}')", "simple");
     REQUIRE(result);
     CHECK(*result.value == "Hello 5");
 
@@ -242,10 +237,11 @@ TEST_CASE("Game bindings: Log.push adds text log events")
 {
     GameBindingsFixture f;
     int log_count = 0;
-    auto text_log_listener = f.session.events().listen(core::RuntimeEventType::TextLogged, [&](const core::RuntimeEvent&) {
-        ++log_count;
-        return true;
-    });
+    auto text_log_listener = f.session.events().listen(core::RuntimeEventType::TextLogged,
+                                                       [&](const core::RuntimeEvent&) {
+                                                           ++log_count;
+                                                           return true;
+                                                       });
     REQUIRE(text_log_listener != 0);
 
     auto exec = f.runtime.execute(R"(Log.push("test log entry"))", "log_push");
@@ -262,16 +258,18 @@ TEST_CASE("Game bindings: toast emits notification and optionally text log event
     GameBindingsFixture f;
     int notification_count = 0;
     int log_count = 0;
-    auto notif_listener = f.session.events().listen(core::RuntimeEventType::Notification, [&](const core::RuntimeEvent& e) {
-        CHECK(e.text == "hello");
-        ++notification_count;
-        return true;
-    });
+    auto notif_listener = f.session.events().listen(core::RuntimeEventType::Notification,
+                                                    [&](const core::RuntimeEvent& e) {
+                                                        CHECK(e.text == "hello");
+                                                        ++notification_count;
+                                                        return true;
+                                                    });
     REQUIRE(notif_listener != 0);
-    auto log_listener2 = f.session.events().listen(core::RuntimeEventType::TextLogged, [&](const core::RuntimeEvent&) {
-        ++log_count;
-        return true;
-    });
+    auto log_listener2 = f.session.events().listen(core::RuntimeEventType::TextLogged,
+                                                   [&](const core::RuntimeEvent&) {
+                                                       ++log_count;
+                                                       return true;
+                                                   });
     REQUIRE(log_listener2 != 0);
 
     auto toast_exec = f.runtime.execute(R"(toast("hello"))", "toast1");
@@ -290,11 +288,12 @@ TEST_CASE("Game bindings: thisEntity / prop / set_prop forward to entity")
     auto entity_exec = f.runtime.execute(R"(
         thisEntity = Game.load_room("foyer")
         prop("visited", true)
-    )", "thisEntity_set");
+    )",
+                                         "thisEntity_set");
     REQUIRE(entity_exec);
     // Just verify it doesn't crash and returns the default for unset key
-    auto result = f.runtime.evaluate_string(
-        R"(prop("nonexistent_key", "fallback_val"))", "prop_read");
+    auto result =
+        f.runtime.evaluate_string(R"(prop("nonexistent_key", "fallback_val"))", "prop_read");
     REQUIRE(result);
     CHECK(*result.value == "fallback_val");
 }
@@ -315,7 +314,8 @@ TEST_CASE("Game bindings: Script.run executes a Script entity's content")
     GameBindingsFixture f;
     auto exec_result = f.runtime.execute(R"(Script.run("greeting"))", "script_run_exec");
     if (!exec_result) {
-        FAIL("Script.run execution failed: " + exec_result.error->message + " | " + exec_result.error->traceback);
+        FAIL("Script.run execution failed: " + exec_result.error->message + " | " +
+             exec_result.error->traceback);
     }
     auto result = f.runtime.evaluate_string(R"(Script.run("greeting") and "done")", "script_run");
     REQUIRE(result);
@@ -330,7 +330,8 @@ TEST_CASE("Game bindings: Timer.start creates a one-shot timer")
         timer_id = Timer.start(100, function(id)
             -- timer callback
         end)
-    )", "timer_start");
+    )",
+                                        "timer_start");
     REQUIRE(timer_exec);
     auto result = f.runtime.evaluate("timer_id", "timer_id");
     REQUIRE(result);
@@ -355,13 +356,15 @@ TEST_CASE("Game bindings: Room usertype entity properties via :prop()")
 {
     GameBindingsFixture f;
     auto chain = f.runtime.evaluate_string("Game.load_room('foyer').name", "load_chain");
-    if (!chain) FAIL("load_chain failed: " + chain.error->message + " | " + chain.error->traceback);
+    if (!chain)
+        FAIL("load_chain failed: " + chain.error->message + " | " + chain.error->traceback);
     CHECK(*chain.value == "Foyer");
     // :prop() accesses the entity's properties JSON (not dedicated fields like .name)
     // Use description_raw which IS in the room entity data
     auto exec = f.runtime.execute(R"(
         room = Game.load_room("foyer")
-    )", "room_setup");
+    )",
+                                  "room_setup");
     REQUIRE(exec);
     auto result = f.runtime.evaluate_string(R"(room:prop("nonexistent", "fallback"))", "room_prop");
     REQUIRE(result);

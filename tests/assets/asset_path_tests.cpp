@@ -21,16 +21,16 @@ TEST_CASE("AssetPath parses namespaces and defaults")
 TEST_CASE("AssetPath rejects malformed paths")
 {
     for (const char* path : {
-        "/absolute",
-        "project:/../escape",
-        "project:/./same",
-        "project:/a//b",
-        "project:/a\\b",
-        "bad:path",
-        "project:/bad:component",
-        "project:/",
-        "Project:/case",
-    }) {
+             "/absolute",
+             "project:/../escape",
+             "project:/./same",
+             "project:/a//b",
+             "project:/a\\b",
+             "bad:path",
+             "project:/bad:component",
+             "project:/",
+             "Project:/case",
+         }) {
         CHECK_FALSE(AssetPath::parse(path).has_value());
     }
 }

@@ -129,9 +129,8 @@ struct BreakData {
 
 uint32_t checked_u32(size_t value)
 {
-    return value > std::numeric_limits<uint32_t>::max()
-        ? std::numeric_limits<uint32_t>::max()
-        : static_cast<uint32_t>(value);
+    return value > std::numeric_limits<uint32_t>::max() ? std::numeric_limits<uint32_t>::max()
+                                                        : static_cast<uint32_t>(value);
 }
 
 std::string logical_font_path(const std::filesystem::path& path)
@@ -230,7 +229,8 @@ BreakData collect_breaks(std::string_view value, const std::string& language)
     return breaks;
 }
 
-bool valid_boundary(size_t offset, std::string_view value, const BreakData& breaks, const std::set<uint32_t>& clusters)
+bool valid_boundary(size_t offset, std::string_view value, const BreakData& breaks,
+                    const std::set<uint32_t>& clusters)
 {
     if (offset == 0 || offset >= value.size()) {
         return offset == 0 || offset == value.size();
@@ -245,14 +245,15 @@ bool valid_boundary(size_t offset, std::string_view value, const BreakData& brea
     return clusters.contains(checked_u32(offset));
 }
 
-bool legal_wrap_boundary(size_t offset, std::string_view value, const BreakData& breaks, const std::set<uint32_t>& clusters)
+bool legal_wrap_boundary(size_t offset, std::string_view value, const BreakData& breaks,
+                         const std::set<uint32_t>& clusters)
 {
     if (!valid_boundary(offset, value, breaks, clusters)) {
         return false;
     }
     const auto marker_index = unibreak_marker_index_for_boundary(value, offset);
-    return marker_index
-        && (breaks.line[*marker_index] == LINEBREAK_ALLOWBREAK || breaks.line[*marker_index] == LINEBREAK_MUSTBREAK);
+    return marker_index && (breaks.line[*marker_index] == LINEBREAK_ALLOWBREAK ||
+                            breaks.line[*marker_index] == LINEBREAK_MUSTBREAK);
 }
 
 std::vector<uint32_t> cluster_ends(const std::vector<ShapedGlyphData>& glyphs, uint32_t run_end)
@@ -268,7 +269,8 @@ std::vector<uint32_t> cluster_ends(const std::vector<ShapedGlyphData>& glyphs, u
     return clusters;
 }
 
-uint32_t source_end_for_cluster(uint32_t cluster, const std::vector<uint32_t>& sorted_clusters, uint32_t run_end)
+uint32_t source_end_for_cluster(uint32_t cluster, const std::vector<uint32_t>& sorted_clusters,
+                                uint32_t run_end)
 {
     auto it = std::upper_bound(sorted_clusters.begin(), sorted_clusters.end(), cluster);
     return it == sorted_clusters.end() ? run_end : *it;
@@ -352,7 +354,8 @@ struct TextEngine::Impl {
         return it == fonts.end() ? nullptr : &it->second;
     }
 
-    ShapedData shape(const Text& text, uint32_t begin, uint32_t end, TextDirection direction, float physical_size, float inverse_scale) const
+    ShapedData shape(const Text& text, uint32_t begin, uint32_t end, TextDirection direction,
+                     float physical_size, float inverse_scale) const
     {
         ShapedData shaped;
         FontResource* font = find(text.font);
@@ -361,9 +364,12 @@ struct TextEngine::Impl {
         }
 
         hb_buffer_t* buffer = hb_buffer_create();
-        hb_buffer_add_utf8(buffer, text.value.data(), static_cast<int>(text.value.size()), static_cast<unsigned>(begin), static_cast<int>(end - begin));
+        hb_buffer_add_utf8(buffer, text.value.data(), static_cast<int>(text.value.size()),
+                           static_cast<unsigned>(begin), static_cast<int>(end - begin));
         hb_buffer_set_direction(buffer, hb_direction(direction));
-        hb_buffer_set_language(buffer, hb_language_from_string(text.language.c_str(), static_cast<int>(text.language.size())));
+        hb_buffer_set_language(
+            buffer,
+            hb_language_from_string(text.language.c_str(), static_cast<int>(text.language.size())));
         hb_buffer_guess_segment_properties(buffer);
         hb_shape(font->hb_font.get(), buffer, nullptr, 0);
 
@@ -375,8 +381,10 @@ struct TextEngine::Impl {
             ShapedGlyphData glyph;
             glyph.glyph_id = infos[i].codepoint;
             glyph.cluster = infos[i].cluster;
-            glyph.advance = {static_cast<float>(positions[i].x_advance) / 64.0f * inverse_scale, -static_cast<float>(positions[i].y_advance) / 64.0f * inverse_scale};
-            glyph.offset = {static_cast<float>(positions[i].x_offset) / 64.0f * inverse_scale, -static_cast<float>(positions[i].y_offset) / 64.0f * inverse_scale};
+            glyph.advance = {static_cast<float>(positions[i].x_advance) / 64.0f * inverse_scale,
+                             -static_cast<float>(positions[i].y_advance) / 64.0f * inverse_scale};
+            glyph.offset = {static_cast<float>(positions[i].x_offset) / 64.0f * inverse_scale,
+                            -static_cast<float>(positions[i].y_offset) / 64.0f * inverse_scale};
             shaped.width += glyph.advance.x;
             shaped.glyphs.push_back(glyph);
         }
@@ -384,23 +392,20 @@ struct TextEngine::Impl {
         return shaped;
     }
 
-    float range_width(const Text& text, uint32_t begin, uint32_t end, TextDirection direction, float physical_size, float inverse_scale) const
+    float range_width(const Text& text, uint32_t begin, uint32_t end, TextDirection direction,
+                      float physical_size, float inverse_scale) const
     {
         return shape(text, begin, end, direction, physical_size, inverse_scale).width;
     }
 };
 
-TextEngine::TextEngine(const assets::AssetManager& assets)
-    : m_impl(std::make_unique<Impl>(assets))
+TextEngine::TextEngine(const assets::AssetManager& assets) : m_impl(std::make_unique<Impl>(assets))
 {
 }
 
 TextEngine::~TextEngine() = default;
 
-bool TextEngine::valid() const
-{
-    return m_impl && m_impl->library;
-}
+bool TextEngine::valid() const { return m_impl && m_impl->library; }
 
 FontHandle TextEngine::load_font(const FontDesc& desc)
 {
@@ -411,7 +416,8 @@ FontHandle TextEngine::load_font(const FontDesc& desc)
     const std::string logical_path = logical_font_path(desc.asset_path);
     auto bytes = m_impl->assets.read_binary(logical_path);
     if (!bytes || bytes.value->bytes.empty()) {
-        std::fprintf(stderr, "[text] failed to load font: %s (%s)\n", logical_path.c_str(), bytes.error.c_str());
+        std::fprintf(stderr, "[text] failed to load font: %s (%s)\n", logical_path.c_str(),
+                     bytes.error.c_str());
         return {};
     }
 
@@ -421,11 +427,8 @@ FontHandle TextEngine::load_font(const FontDesc& desc)
 
     FT_Face raw_face = nullptr;
     const FT_Error face_error = FT_New_Memory_Face(
-        m_impl->library.get(),
-        font.bytes.data(),
-        static_cast<FT_Long>(font.bytes.size()),
-        static_cast<FT_Long>(desc.face_index),
-        &raw_face);
+        m_impl->library.get(), font.bytes.data(), static_cast<FT_Long>(font.bytes.size()),
+        static_cast<FT_Long>(desc.face_index), &raw_face);
     if (face_error != 0 || !raw_face) {
         std::fprintf(stderr, "[text] FreeType failed to create face: %s\n", logical_path.c_str());
         return {};
@@ -452,15 +455,9 @@ TextMetrics TextEngine::measure_text(FontHandle font, std::string_view value, fl
     return measure_text(text);
 }
 
-TextMetrics TextEngine::measure_text(const Text& text) const
-{
-    return layout_text(text).metrics;
-}
+TextMetrics TextEngine::measure_text(const Text& text) const { return layout_text(text).metrics; }
 
-TextLayout TextEngine::layout_text(const Text& text) const
-{
-    return layout_text(text, 1.0f);
-}
+TextLayout TextEngine::layout_text(const Text& text) const { return layout_text(text, 1.0f); }
 
 TextLayout TextEngine::layout_text(const Text& text, float scale) const
 {
@@ -475,8 +472,10 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
     }
 
     const float effective_scale = std::isfinite(scale) && scale > 0.0f ? scale : 1.0f;
-    const float physical_size = static_cast<float>(normalize_raster_pixel_size(text.style.size * effective_scale));
-    const float inverse_scale = text.style.size > 0.0f ? text.style.size / physical_size : 1.0f / effective_scale;
+    const float physical_size =
+        static_cast<float>(normalize_raster_pixel_size(text.style.size * effective_scale));
+    const float inverse_scale =
+        text.style.size > 0.0f ? text.style.size / physical_size : 1.0f / effective_scale;
     const FontMetrics physical_font_metrics = metrics_for(*font, physical_size);
     const FontMetrics font_metrics{
         physical_font_metrics.ascender * inverse_scale,
@@ -491,15 +490,19 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
     if (!algorithm) {
         return layout;
     }
-    SbParagraphPtr paragraph(SBAlgorithmCreateParagraph(algorithm.get(), 0, text.value.size(), base_level(text.direction)));
+    SbParagraphPtr paragraph(SBAlgorithmCreateParagraph(algorithm.get(), 0, text.value.size(),
+                                                        base_level(text.direction)));
     if (!paragraph) {
         return layout;
     }
 
-    const TextDirection paragraph_direction = direction_from_level(SBParagraphGetBaseLevel(paragraph.get()));
+    const TextDirection paragraph_direction =
+        direction_from_level(SBParagraphGetBaseLevel(paragraph.get()));
     layout.direction = paragraph_direction;
-    const float wrap_width = text.wrap == TextWrap::Word && text.bounds.width > 0.0f ? text.bounds.width : 0.0f;
-    const auto all_shaped = m_impl->shape(text, 0, checked_u32(text.value.size()), paragraph_direction, physical_size, inverse_scale);
+    const float wrap_width =
+        text.wrap == TextWrap::Word && text.bounds.width > 0.0f ? text.bounds.width : 0.0f;
+    const auto all_shaped = m_impl->shape(text, 0, checked_u32(text.value.size()),
+                                          paragraph_direction, physical_size, inverse_scale);
     std::set<uint32_t> cluster_boundaries;
     cluster_boundaries.insert(0);
     cluster_boundaries.insert(checked_u32(text.value.size()));
@@ -522,10 +525,12 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
             float best_width = 0.0f;
             uint32_t best = line_begin;
             for (uint32_t candidate = line_begin + 1; candidate <= mandatory_end; ++candidate) {
-                if (candidate < mandatory_end && !legal_wrap_boundary(candidate, text.value, breaks, cluster_boundaries)) {
+                if (candidate < mandatory_end &&
+                    !legal_wrap_boundary(candidate, text.value, breaks, cluster_boundaries)) {
                     continue;
                 }
-                const float width = m_impl->range_width(text, line_begin, candidate, paragraph_direction, physical_size, inverse_scale);
+                const float width = m_impl->range_width(
+                    text, line_begin, candidate, paragraph_direction, physical_size, inverse_scale);
                 if (width <= wrap_width || best == line_begin) {
                     best = candidate;
                     best_width = width;
@@ -536,16 +541,19 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
             }
             line_end = best > line_begin ? best : mandatory_end;
             if (best_width <= 0.0f && line_end > line_begin) {
-                best_width = m_impl->range_width(text, line_begin, line_end, paragraph_direction, physical_size, inverse_scale);
+                best_width = m_impl->range_width(text, line_begin, line_end, paragraph_direction,
+                                                 physical_size, inverse_scale);
             }
             (void)best_width;
         }
 
-        SbLinePtr bidi_line(SBParagraphCreateLine(paragraph.get(), line_begin, line_end - line_begin));
+        SbLinePtr bidi_line(
+            SBParagraphCreateLine(paragraph.get(), line_begin, line_end - line_begin));
         TextLine line;
         line.source_byte_begin = line_begin;
         line.source_byte_end = line_end;
-        line.baseline = text.bounds.y + font_metrics.ascender + static_cast<float>(layout.lines.size()) * line_height;
+        line.baseline = text.bounds.y + font_metrics.ascender +
+                        static_cast<float>(layout.lines.size()) * line_height;
 
         if (bidi_line) {
             const SBRun* runs = SBLineGetRunsPtr(bidi_line.get());
@@ -555,7 +563,8 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
                 const uint32_t run_begin = checked_u32(run.offset);
                 const uint32_t run_end = checked_u32(run.offset + run.length);
                 const TextDirection run_direction = direction_from_level(run.level);
-                auto shaped = m_impl->shape(text, run_begin, run_end, run_direction, physical_size, inverse_scale);
+                auto shaped = m_impl->shape(text, run_begin, run_end, run_direction, physical_size,
+                                            inverse_scale);
                 auto sorted_clusters = cluster_ends(shaped.glyphs, run_end);
                 ShapedRun visual_run;
                 visual_run.source_byte_begin = run_begin;
@@ -568,7 +577,8 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
                     PositionedGlyph positioned;
                     positioned.glyph_id = glyph.glyph_id;
                     positioned.source_byte_begin = glyph.cluster;
-                    positioned.source_byte_end = source_end_for_cluster(glyph.cluster, sorted_clusters, run_end);
+                    positioned.source_byte_end =
+                        source_end_for_cluster(glyph.cluster, sorted_clusters, run_end);
                     positioned.position = {pen_x, line.baseline};
                     positioned.advance = glyph.advance;
                     positioned.offset = glyph.offset;
@@ -590,8 +600,10 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
         if (box_width > line.width) {
             if (effective_align == TextAlign::Center) {
                 align_offset = (box_width - line.width) * 0.5f;
-            } else if ((effective_align == TextAlign::End && paragraph_direction == TextDirection::LeftToRight)
-                || (effective_align == TextAlign::Start && paragraph_direction == TextDirection::RightToLeft)) {
+            } else if ((effective_align == TextAlign::End &&
+                        paragraph_direction == TextDirection::LeftToRight) ||
+                       (effective_align == TextAlign::Start &&
+                        paragraph_direction == TextDirection::RightToLeft)) {
                 align_offset = box_width - line.width;
             } else if (effective_align == TextAlign::Justify && !final_line) {
                 uint32_t spaces = 0;
@@ -606,7 +618,8 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
                     for (auto& run : line.visual_runs) {
                         for (auto& glyph : run.glyphs) {
                             glyph.position.x += accumulated;
-                            if (glyph.source_byte_begin < text.value.size() && text.value[glyph.source_byte_begin] == ' ') {
+                            if (glyph.source_byte_begin < text.value.size() &&
+                                text.value[glyph.source_byte_begin] == ' ') {
                                 glyph.advance.x += extra;
                                 accumulated += extra;
                             }
@@ -642,7 +655,8 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
     layout.metrics.height = line_height * static_cast<float>(layout.lines.size());
     if (text.bounds.height > 0.0f && layout.metrics.height > text.bounds.height) {
         layout.overflowed = true;
-        const uint32_t visible_lines = static_cast<uint32_t>(std::floor(text.bounds.height / line_height));
+        const uint32_t visible_lines =
+            static_cast<uint32_t>(std::floor(text.bounds.height / line_height));
         if (visible_lines < layout.lines.size()) {
             layout.lines.resize(visible_lines);
             layout.metrics.line_count = checked_u32(layout.lines.size());
@@ -652,7 +666,8 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
     return layout;
 }
 
-std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32_t glyph_id, float pixel_size) const
+std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32_t glyph_id,
+                                                       float pixel_size) const
 {
     FontResource* font = m_impl->find(handle);
     if (!font || !set_size(*font, pixel_size)) {
@@ -674,7 +689,8 @@ std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32
     bitmap.height = slot->bitmap.rows;
     bitmap.bearing_x = slot->bitmap_left;
     bitmap.bearing_y = slot->bitmap_top;
-    bitmap.advance = {static_cast<float>(slot->advance.x) / 64.0f, -static_cast<float>(slot->advance.y) / 64.0f};
+    bitmap.advance = {static_cast<float>(slot->advance.x) / 64.0f,
+                      -static_cast<float>(slot->advance.y) / 64.0f};
     bitmap.coverage.assign(static_cast<size_t>(bitmap.width) * bitmap.height, 0);
     const int pitch = slot->bitmap.pitch;
     const size_t row_stride = static_cast<size_t>(std::abs(pitch));
@@ -683,10 +699,10 @@ std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32
         first_row = slot->bitmap.buffer + row_stride * static_cast<size_t>(bitmap.height - 1u);
     }
     for (uint32_t y = 0; y < bitmap.height; ++y) {
-        const auto* src = pitch >= 0
-            ? first_row + static_cast<size_t>(y) * row_stride
-            : first_row - static_cast<size_t>(y) * row_stride;
-        std::memcpy(bitmap.coverage.data() + static_cast<size_t>(y) * bitmap.width, src, bitmap.width);
+        const auto* src = pitch >= 0 ? first_row + static_cast<size_t>(y) * row_stride
+                                     : first_row - static_cast<size_t>(y) * row_stride;
+        std::memcpy(bitmap.coverage.data() + static_cast<size_t>(y) * bitmap.width, src,
+                    bitmap.width);
     }
     return bitmap;
 }

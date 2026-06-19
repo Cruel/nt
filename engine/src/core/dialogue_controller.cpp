@@ -9,10 +9,7 @@
 
 namespace noveltea::core {
 
-DialogueController::DialogueController(GameSession& session)
-    : m_session(&session)
-{
-}
+DialogueController::DialogueController(GameSession& session) : m_session(&session) {}
 
 void DialogueController::start(const std::string& dialogue_id)
 {
@@ -128,10 +125,9 @@ void DialogueController::change_segment(int segment_index, bool run_segment, int
             auto lines = get_option_multiline(start_seg.text_raw);
             if (!lines.empty()) {
                 int idx = button_subindex >= 0 && button_subindex < static_cast<int>(lines.size())
-                    ? button_subindex : 0;
-                emit_script_deferred(
-                    lines[idx],
-                    "dialogue option text (needs expression eval)");
+                              ? button_subindex
+                              : 0;
+                emit_script_deferred(lines[idx], "dialogue option text (needs expression eval)");
             }
         }
     }
@@ -154,9 +150,8 @@ void DialogueController::change_segment(int segment_index, bool run_segment, int
 
     if (text_segment) {
         m_current_text_logged = text_segment->is_logged;
-        m_text_lines = get_text_multiline(
-            evaluate_text(*text_segment, button_subindex),
-            m_dialogue->default_name);
+        m_text_lines = get_text_multiline(evaluate_text(*text_segment, button_subindex),
+                                          m_dialogue->default_name);
 
         if (run_segment && text_segment->script_enabled && !text_segment->script.empty()) {
             nlohmann::json script_data = nlohmann::json::object();
@@ -275,7 +270,8 @@ bool DialogueController::passes_condition(const DialogueSegmentModel& seg, int /
     return true;
 }
 
-std::string DialogueController::evaluate_text(const DialogueSegmentModel& seg, int /*button_subindex*/)
+std::string DialogueController::evaluate_text(const DialogueSegmentModel& seg,
+                                              int /*button_subindex*/)
 {
     if (seg.scripted_text && !seg.text_raw.empty()) {
         emit_script_deferred(seg.text_raw, "scripted text evaluation (using raw text)");
@@ -286,8 +282,7 @@ std::string DialogueController::evaluate_text(const DialogueSegmentModel& seg, i
 }
 
 std::vector<std::pair<std::string, std::string>>
-DialogueController::get_text_multiline(
-    const std::string& text_raw, const std::string& default_name)
+DialogueController::get_text_multiline(const std::string& text_raw, const std::string& default_name)
 {
     std::vector<std::pair<std::string, std::string>> result;
     std::istringstream stream(text_raw);
@@ -322,8 +317,7 @@ DialogueController::get_line_pair(const std::string& line, const std::string& de
     return {name, text};
 }
 
-std::vector<std::string>
-DialogueController::get_option_multiline(const std::string& text_raw)
+std::vector<std::string> DialogueController::get_option_multiline(const std::string& text_raw)
 {
     std::vector<std::string> result;
     std::istringstream stream(text_raw);
@@ -398,8 +392,8 @@ void DialogueController::restore_state(const nlohmann::json& state)
         change_segment(segment_index, false);
 }
 
-void DialogueController::emit_script_deferred(
-    const std::string& script, const std::string& context_desc)
+void DialogueController::emit_script_deferred(const std::string& script,
+                                              const std::string& context_desc)
 {
     emit_command(ControllerCommand{
         ControllerCommandType::ScriptDeferred,
@@ -444,7 +438,9 @@ void DialogueController::emit_dialogue_text()
             ControllerCommandType::TextLogged,
             EntityRef{EntityType::Dialogue, m_dialogue_id},
             m_current_text,
-            {{"name", m_current_name}, {"dialogue_id", m_dialogue_id}, {"line_index", m_text_line_index}},
+            {{"name", m_current_name},
+             {"dialogue_id", m_dialogue_id},
+             {"line_index", m_text_line_index}},
         });
     }
 

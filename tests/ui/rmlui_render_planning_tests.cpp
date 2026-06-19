@@ -161,7 +161,7 @@ TEST_CASE("RmlUi color filter matrices match expected scalar behavior")
 TEST_CASE("RmlUi color matrix helper uses row-major RGB rows with translation")
 {
     const auto identity = make_brightness_filter(1.0f);
-    const std::array<float, 4> premul {0.2f, 0.4f, 0.1f, 0.5f};
+    const std::array<float, 4> premul{0.2f, 0.4f, 0.1f, 0.5f};
     const auto unchanged = apply_color_matrix(identity.matrix, premul);
     CHECK(unchanged[0] == Catch::Approx(0.2f));
     CHECK(unchanged[1] == Catch::Approx(0.4f));
@@ -178,7 +178,7 @@ TEST_CASE("RmlUi color matrix helper uses row-major RGB rows with translation")
 
 TEST_CASE("RmlUi premultiplied color matrices match GL3 behavior for translucent input")
 {
-    const Color premul {0.18f, 0.30f, 0.42f, 0.60f};
+    const Color premul{0.18f, 0.30f, 0.42f, 0.60f};
 
     SECTION("identity")
     {
@@ -188,42 +188,49 @@ TEST_CASE("RmlUi premultiplied color matrices match GL3 behavior for translucent
     SECTION("brightness")
     {
         const auto filter = make_brightness_filter(1.25f);
-        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+        check_color(apply_color_matrix(filter.matrix, premul),
+                    css_color_matrix_expected(filter.matrix, premul));
     }
 
     SECTION("contrast")
     {
         const auto filter = make_contrast_filter(1.40f);
-        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+        check_color(apply_color_matrix(filter.matrix, premul),
+                    css_color_matrix_expected(filter.matrix, premul));
     }
 
     SECTION("invert")
     {
         const auto filter = make_invert_filter(0.75f);
-        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+        check_color(apply_color_matrix(filter.matrix, premul),
+                    css_color_matrix_expected(filter.matrix, premul));
     }
 
     SECTION("grayscale")
     {
         const auto filter = make_grayscale_filter(0.65f);
-        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+        check_color(apply_color_matrix(filter.matrix, premul),
+                    css_color_matrix_expected(filter.matrix, premul));
     }
 
     SECTION("sepia")
     {
         const auto filter = make_sepia_filter(0.80f);
-        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+        check_color(apply_color_matrix(filter.matrix, premul),
+                    css_color_matrix_expected(filter.matrix, premul));
     }
 
     SECTION("hue rotate")
     {
         const auto filter = make_hue_rotate_filter(0.70f);
-        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+        check_color(apply_color_matrix(filter.matrix, premul),
+                    css_color_matrix_expected(filter.matrix, premul));
     }
 
     SECTION("saturate")
     {
         const auto filter = make_saturate_filter(1.70f);
-        check_color(apply_color_matrix(filter.matrix, premul), css_color_matrix_expected(filter.matrix, premul));
+        check_color(apply_color_matrix(filter.matrix, premul),
+                    css_color_matrix_expected(filter.matrix, premul));
     }
 }

@@ -22,7 +22,7 @@ TEST_CASE("RuntimeEventBus dispatches wildcard and typed listeners")
     });
     CHECK(all_id != save_id);
 
-    const auto result = bus.trigger(RuntimeEvent {RuntimeEventType::GameSaving, 7, 0.0, "slot"});
+    const auto result = bus.trigger(RuntimeEvent{RuntimeEventType::GameSaving, 7, 0.0, "slot"});
 
     CHECK_FALSE(result);
     CHECK(all_count == 1);
@@ -47,10 +47,11 @@ TEST_CASE("RuntimeEventBus queues events and defers listener-queued work")
 
     CHECK(bus.queued_count() == 1);
     CHECK(bus.dispatch_queued());
-    CHECK(seen == std::vector<RuntimeEventType> {RuntimeEventType::Notification});
+    CHECK(seen == std::vector<RuntimeEventType>{RuntimeEventType::Notification});
     CHECK(bus.queued_count() == 1);
     CHECK(bus.dispatch_queued());
-    CHECK(seen == std::vector<RuntimeEventType> {RuntimeEventType::Notification, RuntimeEventType::TextLogged});
+    CHECK(seen == std::vector<RuntimeEventType>{RuntimeEventType::Notification,
+                                                RuntimeEventType::TextLogged});
     CHECK(bus.empty());
 }
 
@@ -121,9 +122,7 @@ TEST_CASE("RuntimeTimerScheduler cancels and resets timers")
 {
     RuntimeTimerScheduler timers;
     int callback_count = 0;
-    const auto timer = timers.start(0.1, [&](RuntimeTimerId) {
-        ++callback_count;
-    });
+    const auto timer = timers.start(0.1, [&](RuntimeTimerId) { ++callback_count; });
 
     CHECK(timers.cancel(timer.id));
     CHECK_FALSE(timers.cancel(timer.id));
@@ -146,9 +145,7 @@ TEST_CASE("RuntimeTimerScheduler defers timers created by callbacks until next u
 
     const auto parent = timers.start(0.1, [&](RuntimeTimerId) {
         ++callback_count;
-        const auto child = timers.start(0.0, [&](RuntimeTimerId) {
-            ++callback_count;
-        });
+        const auto child = timers.start(0.0, [&](RuntimeTimerId) { ++callback_count; });
         CHECK(child.id != 0);
     });
     CHECK(parent.id != 0);

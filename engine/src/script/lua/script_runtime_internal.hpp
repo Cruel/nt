@@ -18,7 +18,9 @@ void install_host_print(lua_State* state);
 
 } // namespace noveltea::script
 
-namespace noveltea::core { class GameSession; }
+namespace noveltea::core {
+class GameSession;
+}
 
 namespace noveltea::script {
 

@@ -6,11 +6,12 @@
 using namespace noveltea::core;
 
 namespace {
-ControllerCommand cmd(ControllerCommandType type, std::string text = {}, nlohmann::json data = nlohmann::json::object())
+ControllerCommand cmd(ControllerCommandType type, std::string text = {},
+                      nlohmann::json data = nlohmann::json::object())
 {
     return ControllerCommand{type, std::nullopt, std::move(text), std::move(data)};
 }
-}
+} // namespace
 
 TEST_CASE("RuntimeUIViewAdapter consumes room description and navigation")
 {
@@ -18,7 +19,10 @@ TEST_CASE("RuntimeUIViewAdapter consumes room description and navigation")
     adapter.apply({
         cmd(ControllerCommandType::RoomEntry, "atrium", {{"name", "Atrium"}}),
         cmd(ControllerCommandType::RoomDescription, "A quiet room.", {{"text", "A quiet room."}}),
-        cmd(ControllerCommandType::NavigationUpdate, {}, {{"north", true}, {"east", false}, {"paths", nlohmann::json::array({{{"label", "Downstairs"}, {"enabled", true}}})}}),
+        cmd(ControllerCommandType::NavigationUpdate, {},
+            {{"north", true},
+             {"east", false},
+             {"paths", nlohmann::json::array({{{"label", "Downstairs"}, {"enabled", true}}})}}),
     });
 
     const auto& state = adapter.state();
@@ -33,11 +37,13 @@ TEST_CASE("RuntimeUIViewAdapter consumes room description and navigation")
 TEST_CASE("RuntimeUIViewAdapter consumes dialogue text, options, and log lines")
 {
     RuntimeUIViewAdapter adapter;
-    adapter.apply(cmd(ControllerCommandType::DialogueText, "Hello.", {{"name", "Guide"}, {"text", "Hello."}, {"wait_for_click", true}}));
-    adapter.apply(cmd(ControllerCommandType::DialogueOptions, {}, {{"options", nlohmann::json::array({
-        {{"text", "Ask about the door"}, {"enabled", true}},
-        {{"text", "Leave"}, {"enabled", false}},
-    })}}));
+    adapter.apply(cmd(ControllerCommandType::DialogueText, "Hello.",
+                      {{"name", "Guide"}, {"text", "Hello."}, {"wait_for_click", true}}));
+    adapter.apply(cmd(ControllerCommandType::DialogueOptions, {},
+                      {{"options", nlohmann::json::array({
+                                       {{"text", "Ask about the door"}, {"enabled", true}},
+                                       {{"text", "Leave"}, {"enabled", false}},
+                                   })}}));
     adapter.apply(cmd(ControllerCommandType::TextLogged, "Hello.", {{"name", "Guide"}}));
 
     const auto& state = adapter.state();
@@ -56,7 +62,8 @@ TEST_CASE("RuntimeUIViewAdapter consumes dialogue text, options, and log lines")
 TEST_CASE("RuntimeUIViewAdapter consumes cutscene page break")
 {
     RuntimeUIViewAdapter adapter;
-    adapter.apply(cmd(ControllerCommandType::CutsceneText, "Opening crawl", {{"text", "Opening crawl"}, {"wait_for_click", false}}));
+    adapter.apply(cmd(ControllerCommandType::CutsceneText, "Opening crawl",
+                      {{"text", "Opening crawl"}, {"wait_for_click", false}}));
     adapter.apply(cmd(ControllerCommandType::CutscenePageBreak));
 
     const auto& state = adapter.state();

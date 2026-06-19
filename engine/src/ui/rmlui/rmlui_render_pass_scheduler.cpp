@@ -5,9 +5,7 @@
 namespace noveltea::ui::rmlui {
 
 RmlUiRenderPassScheduler::RmlUiRenderPassScheduler(RmlUiViewId begin, RmlUiViewId end)
-    : m_begin(begin)
-    , m_end(end)
-    , m_next(begin)
+    : m_begin(begin), m_end(end), m_next(begin)
 {
 }
 
@@ -22,14 +20,12 @@ void RmlUiRenderPassScheduler::reset()
 
 bool RmlUiRenderPassScheduler::can_reuse_current_pass(const RmlUiPassRequest& request) const
 {
-    if (!m_current || request.kind != RmlUiPassKind::Geometry) return false;
+    if (!m_current || request.kind != RmlUiPassKind::Geometry)
+        return false;
     const RmlUiPassRequest& current = m_current->request;
-    return current.kind == RmlUiPassKind::Geometry &&
-        current.framebuffer == request.framebuffer &&
-        !request.clears_color &&
-        !request.clears_stencil &&
-        current.width == request.width &&
-        current.height == request.height;
+    return current.kind == RmlUiPassKind::Geometry && current.framebuffer == request.framebuffer &&
+           !request.clears_color && !request.clears_stencil && current.width == request.width &&
+           current.height == request.height;
 }
 
 std::optional<RmlUiPass> RmlUiRenderPassScheduler::acquire(const RmlUiPassRequest& request)
@@ -41,7 +37,8 @@ std::optional<RmlUiPass> RmlUiRenderPassScheduler::acquire(const RmlUiPassReques
     if (m_next > m_end) {
         if (!m_exhausted) {
             m_error = "RmlUi bgfx view range exhausted";
-            std::fprintf(stderr, "[rmlui] %s (%u..%u)\n", m_error.c_str(), unsigned(m_begin), unsigned(m_end));
+            std::fprintf(stderr, "[rmlui] %s (%u..%u)\n", m_error.c_str(), unsigned(m_begin),
+                         unsigned(m_end));
         }
         m_exhausted = true;
         return std::nullopt;

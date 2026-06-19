@@ -17,8 +17,8 @@
 using namespace noveltea::core;
 using noveltea::core::legacy::ImportError;
 using noveltea::core::legacy::PackageError;
-using noveltea::core::legacy::ProjectPackageReader;
 using noveltea::core::legacy::ProjectImporter;
+using noveltea::core::legacy::ProjectPackageReader;
 
 namespace {
 
@@ -46,14 +46,14 @@ nlohmann::json make_legacy_game_json()
         {project_ids::open_tab_index, -1},
         {project_ids::textures, nlohmann::json::array()},
         {project_ids::shaders, nlohmann::json::object({
-            {"defaultFrag", "legacy fragment source"},
-            {"defaultVert", "legacy vertex source"},
-        })},
+                                   {"defaultFrag", "legacy fragment source"},
+                                   {"defaultVert", "legacy vertex source"},
+                               })},
         {project_ids::system_shaders, nlohmann::json::array({"defaultFrag", "defaultFrag"})},
         {project_ids::engine_fonts, nlohmann::json::object({
-            {"sys", "LiberationSans.ttf"},
-            {"sysIcon", "fontawesome.ttf"},
-        })},
+                                        {"sys", "LiberationSans.ttf"},
+                                        {"sysIcon", "fontawesome.ttf"},
+                                    })},
     });
     for (auto key : project_ids::entity_collection_keys) {
         legacy[key] = nlohmann::json::object();
@@ -63,17 +63,14 @@ nlohmann::json make_legacy_game_json()
 
 void add_zip_entry(mz_zip_archive& archive, const char* name, std::string_view payload)
 {
-    REQUIRE(mz_zip_writer_add_mem(
-        &archive,
-        name,
-        payload.data(),
-        payload.size(),
-        MZ_DEFAULT_COMPRESSION));
+    REQUIRE(mz_zip_writer_add_mem(&archive, name, payload.data(), payload.size(),
+                                  MZ_DEFAULT_COMPRESSION));
 }
 
-std::vector<std::byte> make_zip_fixture(const std::vector<std::pair<std::string, std::string>>& entries)
+std::vector<std::byte>
+make_zip_fixture(const std::vector<std::pair<std::string, std::string>>& entries)
 {
-    mz_zip_archive archive {};
+    mz_zip_archive archive{};
     REQUIRE(mz_zip_writer_init_heap(&archive, 0, 0));
     for (const auto& [name, payload] : entries) {
         add_zip_entry(archive, name.c_str(), payload);
@@ -152,10 +149,11 @@ TEST_CASE("ProjectDocument validates old entrypoint requirement")
     CHECK_FALSE(project.validate_entrypoint(&error));
     CHECK(error == "No valid entry point defined in project settings.");
 
-    project.root()[project_ids::entrypoint_entity] = EntityRef {EntityType::Cutscene, ""}.to_json();
+    project.root()[project_ids::entrypoint_entity] = EntityRef{EntityType::Cutscene, ""}.to_json();
     CHECK_FALSE(project.validate_entrypoint(&error));
 
-    project.root()[project_ids::entrypoint_entity] = EntityRef {EntityType::Cutscene, "intro"}.to_json();
+    project.root()[project_ids::entrypoint_entity] =
+        EntityRef{EntityType::Cutscene, "intro"}.to_json();
     CHECK(project.validate_entrypoint(&error));
     CHECK(error.empty());
 }
@@ -163,7 +161,8 @@ TEST_CASE("ProjectDocument validates old entrypoint requirement")
 TEST_CASE("ProjectDocument round-trips through its JSON representation")
 {
     auto project = ProjectDocument::new_project();
-    project.root()[project_ids::entrypoint_entity] = EntityRef {EntityType::Room, "start_room"}.to_json();
+    project.root()[project_ids::entrypoint_entity] =
+        EntityRef{EntityType::Room, "start_room"}.to_json();
 
     ProjectDocument copy(project.root());
 
@@ -176,7 +175,7 @@ TEST_CASE("ProjectDocument round-trips through its JSON representation")
 TEST_CASE("legacy ProjectImporter imports representative old game JSON")
 {
     auto legacy = make_legacy_game_json();
-    legacy[project_ids::entrypoint_entity] = EntityRef {EntityType::Cutscene, "intro"}.to_json();
+    legacy[project_ids::entrypoint_entity] = EntityRef{EntityType::Cutscene, "intro"}.to_json();
 
     std::vector<ImportError> errors;
     const auto result = ProjectImporter::import_game_json_text(legacy.dump(), errors);
@@ -211,7 +210,8 @@ TEST_CASE("legacy ProjectImporter accepts object-map font and texture assets")
 
     REQUIRE(result.has_value());
     CHECK(errors.empty());
-    CHECK(result->document.root()[project_ids::project_fonts] == legacy[project_ids::project_fonts]);
+    CHECK(result->document.root()[project_ids::project_fonts] ==
+          legacy[project_ids::project_fonts]);
     CHECK(result->document.root()[project_ids::textures] == legacy[project_ids::textures]);
 }
 
@@ -227,7 +227,8 @@ TEST_CASE("legacy ProjectImporter rejects scalar font and texture fields with ke
     CHECK_FALSE(result.has_value());
     REQUIRE(errors.size() >= 2);
     CHECK(errors[0].message.find("key 'fonts'") != std::string::npos);
-    CHECK(errors[0].message.find("expected object map or empty array placeholder") != std::string::npos);
+    CHECK(errors[0].message.find("expected object map or empty array placeholder") !=
+          std::string::npos);
     CHECK(errors[0].message.find("found string") != std::string::npos);
     CHECK(errors[1].message.find("key 'textures'") != std::string::npos);
     CHECK(errors[1].message.find("found number") != std::string::npos);
@@ -258,9 +259,11 @@ TEST_CASE("legacy ProjectImporter reports legacy shape diagnostics")
     CHECK_FALSE(result.has_value());
     REQUIRE(errors.size() >= 3);
     CHECK(errors[0].message.find("missing required key 'name'") != std::string::npos);
-    CHECK(errors[1].message.find("entity collection 'object' expected object") != std::string::npos);
+    CHECK(errors[1].message.find("entity collection 'object' expected object") !=
+          std::string::npos);
     CHECK(errors[1].message.find("found array") != std::string::npos);
-    CHECK(errors[2].message.find("entrypoint must use selected-entity array shape") != std::string::npos);
+    CHECK(errors[2].message.find("entrypoint must use selected-entity array shape") !=
+          std::string::npos);
 }
 
 TEST_CASE("legacy ProjectPackageReader reads old package entries and imports game")
@@ -268,7 +271,7 @@ TEST_CASE("legacy ProjectPackageReader reads old package entries and imports gam
     auto game = make_legacy_game_json();
     game[project_ids::project_fonts] = nlohmann::json::object({{"caption", "example.ttf"}});
     game[project_ids::textures] = nlohmann::json::object({{"example.png", "example.png"}});
-    game[project_ids::entrypoint_entity] = EntityRef {EntityType::Room, "start"}.to_json();
+    game[project_ids::entrypoint_entity] = EntityRef{EntityType::Room, "start"}.to_json();
 
     const auto zip = make_zip_fixture({
         {"game", game.dump()},
@@ -283,29 +286,34 @@ TEST_CASE("legacy ProjectPackageReader reads old package entries and imports gam
     });
 
     std::vector<PackageError> errors;
-    const auto package = ProjectPackageReader::read(std::span<const std::byte>(zip.data(), zip.size()), errors);
+    const auto package =
+        ProjectPackageReader::read(std::span<const std::byte>(zip.data(), zip.size()), errors);
 
     REQUIRE(package.has_value());
     CHECK(errors.empty());
     CHECK(package->game_json == game.dump());
     CHECK(package->imported_project.document.root() == game);
     REQUIRE(package->image.size() == 11);
-    CHECK(std::string(reinterpret_cast<const char*>(package->image.data()), package->image.size()) == "image-bytes");
+    CHECK(std::string(reinterpret_cast<const char*>(package->image.data()),
+                      package->image.size()) == "image-bytes");
     REQUIRE(package->fonts.contains("example.ttf"));
     CHECK(std::string(reinterpret_cast<const char*>(package->fonts.at("example.ttf").data()),
-              package->fonts.at("example.ttf").size()) == "font-bytes");
+                      package->fonts.at("example.ttf").size()) == "font-bytes");
     REQUIRE(package->textures.contains("example.png"));
     CHECK(std::string(reinterpret_cast<const char*>(package->textures.at("example.png").data()),
-              package->textures.at("example.png").size()) == "texture-bytes");
+                      package->textures.at("example.png").size()) == "texture-bytes");
     REQUIRE(package->assets.contains("scripts/bootstrap.lua"));
-    CHECK(std::string(reinterpret_cast<const char*>(package->assets.at("scripts/bootstrap.lua").data()),
+    CHECK(std::string(
+              reinterpret_cast<const char*>(package->assets.at("scripts/bootstrap.lua").data()),
               package->assets.at("scripts/bootstrap.lua").size()) == "script-bytes");
     REQUIRE(package->assets.contains("text/intro.txt"));
     CHECK(std::string(reinterpret_cast<const char*>(package->assets.at("text/intro.txt").data()),
-              package->assets.at("text/intro.txt").size()) == "intro-bytes");
+                      package->assets.at("text/intro.txt").size()) == "intro-bytes");
     REQUIRE(package->assets.contains("shaders/bgfx/glsl-120/custom.fs.bin"));
-    CHECK(std::string(reinterpret_cast<const char*>(package->assets.at("shaders/bgfx/glsl-120/custom.fs.bin").data()),
-              package->assets.at("shaders/bgfx/glsl-120/custom.fs.bin").size()) == "shader-bytes");
+    CHECK(std::string(reinterpret_cast<const char*>(
+                          package->assets.at("shaders/bgfx/glsl-120/custom.fs.bin").data()),
+                      package->assets.at("shaders/bgfx/glsl-120/custom.fs.bin").size()) ==
+          "shader-bytes");
     CHECK(package->fonts.size() == 1);
     CHECK(package->textures.size() == 1);
     CHECK(package->assets.size() == 3);
@@ -321,7 +329,8 @@ TEST_CASE("legacy ProjectPackageReader reports missing game entry")
     });
 
     std::vector<PackageError> errors;
-    const auto package = ProjectPackageReader::read(std::span<const std::byte>(zip.data(), zip.size()), errors);
+    const auto package =
+        ProjectPackageReader::read(std::span<const std::byte>(zip.data(), zip.size()), errors);
 
     CHECK_FALSE(package.has_value());
     REQUIRE_FALSE(errors.empty());
@@ -336,7 +345,8 @@ TEST_CASE("legacy ProjectPackageReader reports malformed game JSON")
     });
 
     std::vector<PackageError> errors;
-    const auto package = ProjectPackageReader::read(std::span<const std::byte>(zip.data(), zip.size()), errors);
+    const auto package =
+        ProjectPackageReader::read(std::span<const std::byte>(zip.data(), zip.size()), errors);
 
     CHECK_FALSE(package.has_value());
     REQUIRE_FALSE(errors.empty());

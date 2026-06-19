@@ -22,7 +22,7 @@ TEST_CASE("AssetRmlFileInterface opens, reads, seeks, tells, and closes")
 
     auto handle = files.Open("demo.rml");
     REQUIRE(handle != 0);
-    char buffer[5] {};
+    char buffer[5]{};
     CHECK(files.Read(buffer, 2, handle) == 2);
     CHECK(std::string(buffer, 2) == "de");
     CHECK(files.Tell(handle) == 2);
@@ -50,10 +50,14 @@ TEST_CASE("RmlUi logical asset path normalization is narrow")
     manager.mount("project", source);
     manager.mount("system", source);
 
-    CHECK(ui::rmlui::resolve_asset_path(manager, "project|/rmlui/lua_demo.lua") == "project:/rmlui/lua_demo.lua");
-    CHECK(ui::rmlui::resolve_asset_path(manager, "system|/scripts/bootstrap.lua") == "system:/scripts/bootstrap.lua");
-    CHECK(ui::rmlui::resolve_asset_path(manager, "project:/rmlui/lua_demo.lua") == "project:/rmlui/lua_demo.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "project|/rmlui/lua_demo.lua") ==
+          "project:/rmlui/lua_demo.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "system|/scripts/bootstrap.lua") ==
+          "system:/scripts/bootstrap.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "project:/rmlui/lua_demo.lua") ==
+          "project:/rmlui/lua_demo.lua");
     CHECK(ui::rmlui::resolve_asset_path(manager, "lua_demo.lua") == "project:/rmlui/lua_demo.lua");
-    CHECK(ui::rmlui::resolve_asset_path(manager, "nested/project|/lua_demo.lua") == "project:/nested/project|/lua_demo.lua");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "nested/project|/lua_demo.lua") ==
+          "project:/nested/project|/lua_demo.lua");
     CHECK(ui::rmlui::resolve_asset_path(manager, "|/lua_demo.lua") == "project:/|/lua_demo.lua");
 }

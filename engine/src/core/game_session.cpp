@@ -11,33 +11,33 @@ namespace {
 
 SessionDiagnostic validation_to_session(const ValidationIssue& issue)
 {
-    return SessionDiagnostic {SessionDiagnosticSeverity::Error, issue.path, issue.message};
+    return SessionDiagnostic{SessionDiagnosticSeverity::Error, issue.path, issue.message};
 }
 
 SessionDiagnostic document_to_session(const DocumentError& error)
 {
-    return SessionDiagnostic {SessionDiagnosticSeverity::Error, error.path, error.message};
+    return SessionDiagnostic{SessionDiagnosticSeverity::Error, error.path, error.message};
 }
 
 void add_info(std::vector<SessionDiagnostic>& diagnostics, std::string path, std::string message)
 {
-    diagnostics.push_back(SessionDiagnostic {SessionDiagnosticSeverity::Info, std::move(path), std::move(message)});
+    diagnostics.push_back(
+        SessionDiagnostic{SessionDiagnosticSeverity::Info, std::move(path), std::move(message)});
 }
 
 void add_error(std::vector<SessionDiagnostic>& diagnostics, std::string path, std::string message)
 {
-    diagnostics.push_back(SessionDiagnostic {SessionDiagnosticSeverity::Error, std::move(path), std::move(message)});
+    diagnostics.push_back(
+        SessionDiagnostic{SessionDiagnosticSeverity::Error, std::move(path), std::move(message)});
 }
 
 void add_warning(std::vector<SessionDiagnostic>& diagnostics, std::string path, std::string message)
 {
-    diagnostics.push_back(SessionDiagnostic {SessionDiagnosticSeverity::Warning, std::move(path), std::move(message)});
+    diagnostics.push_back(
+        SessionDiagnostic{SessionDiagnosticSeverity::Warning, std::move(path), std::move(message)});
 }
 
-std::string key(std::string_view value)
-{
-    return std::string(value);
-}
+std::string key(std::string_view value) { return std::string(value); }
 
 bool model_has_entity(const ProjectModel& model, const EntityRef& ref)
 {
@@ -94,8 +94,8 @@ GameSessionLoadResult GameSession::load(ProjectDocument project, SaveDocument sa
     event.data = m_startup_entrypoint->to_json();
     m_events.push(std::move(event));
 
-    emit_command(SessionCommand {SessionCommandType::StartupResolved, m_startup_entrypoint, m_startup_entrypoint->id,
-                                 true});
+    emit_command(SessionCommand{SessionCommandType::StartupResolved, m_startup_entrypoint,
+                                m_startup_entrypoint->id, true});
     add_info(result.diagnostics, "/entrypoint", "session startup entrypoint resolved");
     result.success = true;
     return result;
@@ -133,10 +133,7 @@ const ProjectModel* GameSession::project() const noexcept
     return m_project ? &*m_project : nullptr;
 }
 
-const SaveDocument* GameSession::save() const noexcept
-{
-    return m_save ? &*m_save : nullptr;
-}
+const SaveDocument* GameSession::save() const noexcept { return m_save ? &*m_save : nullptr; }
 
 RuntimeStateSnapshot GameSession::runtime_state() const
 {
@@ -153,7 +150,8 @@ RuntimeStateSnapshot GameSession::runtime_state() const
 void GameSession::queue_entity(EntityRef ref)
 {
     m_entity_queue.push_back(ref);
-    emit_command(SessionCommand {SessionCommandType::EntityQueued, std::move(ref), m_entity_queue.back().id, true});
+    emit_command(SessionCommand{SessionCommandType::EntityQueued, std::move(ref),
+                                m_entity_queue.back().id, true});
 }
 
 std::optional<EntityRef> GameSession::pop_next_entity()
@@ -164,7 +162,7 @@ std::optional<EntityRef> GameSession::pop_next_entity()
     auto next = m_entity_queue.front();
     m_entity_queue.pop_front();
     m_current_entity = next;
-    emit_command(SessionCommand {SessionCommandType::EntityDequeued, next, next.id, true});
+    emit_command(SessionCommand{SessionCommandType::EntityDequeued, next, next.id, true});
     if (next.type == EntityType::Room) {
         set_current_room(next.id);
     }
@@ -174,15 +172,15 @@ std::optional<EntityRef> GameSession::pop_next_entity()
 void GameSession::set_current_room(std::string room_id)
 {
     m_current_room_id = room_id;
-    emit_command(SessionCommand {SessionCommandType::CurrentRoomChanged, EntityRef {EntityType::Room, room_id}, room_id,
-                                 true});
+    emit_command(SessionCommand{SessionCommandType::CurrentRoomChanged,
+                                EntityRef{EntityType::Room, room_id}, room_id, true});
 }
 
 void GameSession::set_current_map(std::string map_id)
 {
     m_current_map_id = map_id;
-    emit_command(SessionCommand {SessionCommandType::CurrentMapChanged, EntityRef {EntityType::Map, map_id}, map_id,
-                                 true});
+    emit_command(SessionCommand{SessionCommandType::CurrentMapChanged,
+                                EntityRef{EntityType::Map, map_id}, map_id, true});
 }
 
 std::vector<SessionCommand> GameSession::take_commands()
@@ -192,11 +190,12 @@ std::vector<SessionCommand> GameSession::take_commands()
     return commands;
 }
 
-std::optional<EntityRef> GameSession::resolve_startup_entrypoint(const ProjectDocument& project,
-                                                                 const SaveDocument& save,
-                                                                 std::vector<SessionDiagnostic>& diagnostics) const
+std::optional<EntityRef>
+GameSession::resolve_startup_entrypoint(const ProjectDocument& project, const SaveDocument& save,
+                                        std::vector<SessionDiagnostic>& diagnostics) const
 {
-    if (const auto save_entrypoint = save.entrypoint(); save_entrypoint.has_value() && save_entrypoint->has_id()) {
+    if (const auto save_entrypoint = save.entrypoint();
+        save_entrypoint.has_value() && save_entrypoint->has_id()) {
         add_info(diagnostics, "/entrypoint", "using save entrypoint");
         return save_entrypoint;
     }
@@ -207,7 +206,8 @@ std::optional<EntityRef> GameSession::resolve_startup_entrypoint(const ProjectDo
         return std::nullopt;
     }
 
-    const auto parsed = EntityRef::from_json(project.root().at(std::string(project_ids::entrypoint_entity)));
+    const auto parsed =
+        EntityRef::from_json(project.root().at(std::string(project_ids::entrypoint_entity)));
     if (!parsed.has_value() || !parsed->has_id()) {
         add_error(diagnostics, "/" + std::string(project_ids::entrypoint_entity),
                   "project has no valid startup entrypoint");
@@ -217,28 +217,31 @@ std::optional<EntityRef> GameSession::resolve_startup_entrypoint(const ProjectDo
     return parsed;
 }
 
-void GameSession::restore_runtime_state(const SaveDocument& save, std::vector<SessionDiagnostic>& diagnostics)
+void GameSession::restore_runtime_state(const SaveDocument& save,
+                                        std::vector<SessionDiagnostic>& diagnostics)
 {
     m_current_entity = m_startup_entrypoint;
     m_navigation_enabled = save.navigation_enabled();
     m_map_enabled = save.map_enabled();
-    emit_command(SessionCommand {SessionCommandType::NavigationStateChanged, std::nullopt, "navigation",
-                                 m_navigation_enabled});
-    emit_command(SessionCommand {SessionCommandType::NavigationStateChanged, std::nullopt, "map", m_map_enabled});
+    emit_command(SessionCommand{SessionCommandType::NavigationStateChanged, std::nullopt,
+                                "navigation", m_navigation_enabled});
+    emit_command(SessionCommand{SessionCommandType::NavigationStateChanged, std::nullopt, "map",
+                                m_map_enabled});
 
     if (m_startup_entrypoint && m_startup_entrypoint->type == EntityType::Room) {
         m_current_room_id = m_startup_entrypoint->id;
-        emit_command(SessionCommand {SessionCommandType::CurrentRoomChanged, m_startup_entrypoint,
-                                     m_startup_entrypoint->id, true});
+        emit_command(SessionCommand{SessionCommandType::CurrentRoomChanged, m_startup_entrypoint,
+                                    m_startup_entrypoint->id, true});
     }
 
     if (const auto map_id = save.current_map_id(); !map_id.empty()) {
         if (m_project && m_project->maps().contains(map_id)) {
             m_current_map_id = map_id;
-            emit_command(SessionCommand {SessionCommandType::CurrentMapChanged, EntityRef {EntityType::Map, map_id},
-                                         map_id, true});
+            emit_command(SessionCommand{SessionCommandType::CurrentMapChanged,
+                                        EntityRef{EntityType::Map, map_id}, map_id, true});
         } else {
-            add_warning(diagnostics, "/map", "saved current map '" + map_id + "' does not exist in project");
+            add_warning(diagnostics, "/map",
+                        "saved current map '" + map_id + "' does not exist in project");
         }
     }
 
@@ -255,20 +258,19 @@ void GameSession::restore_runtime_state(const SaveDocument& save, std::vector<Se
         const auto path = "/entityQueue/" + std::to_string(i);
         auto ref = EntityRef::from_json((*queue_it)[i]);
         if (!ref.has_value() || !ref->has_id()) {
-            add_warning(diagnostics, path, "expected selected-entity array [type, id]; entry ignored");
+            add_warning(diagnostics, path,
+                        "expected selected-entity array [type, id]; entry ignored");
             continue;
         }
         if (m_project && !model_has_entity(*m_project, *ref)) {
-            add_warning(diagnostics, path, "queued entity '" + ref->id + "' does not exist in project; entry ignored");
+            add_warning(diagnostics, path,
+                        "queued entity '" + ref->id + "' does not exist in project; entry ignored");
             continue;
         }
         queue_entity(*ref);
     }
 }
 
-void GameSession::emit_command(SessionCommand command)
-{
-    m_commands.push_back(std::move(command));
-}
+void GameSession::emit_command(SessionCommand command) { m_commands.push_back(std::move(command)); }
 
 } // namespace noveltea::core

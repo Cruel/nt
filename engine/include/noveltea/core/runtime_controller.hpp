@@ -56,7 +56,10 @@ public:
 
     [[nodiscard]] bool idle() const noexcept { return m_idle; }
     [[nodiscard]] std::string_view current_mode_name() const noexcept;
-    [[nodiscard]] std::string_view current_mode_entity_id() const noexcept { return m_mode_entity_id; }
+    [[nodiscard]] std::string_view current_mode_entity_id() const noexcept
+    {
+        return m_mode_entity_id;
+    }
     [[nodiscard]] int visit_count(const std::string& room_id) const;
 
     void navigate_path(int direction);
@@ -71,8 +74,14 @@ public:
 
     [[nodiscard]] std::vector<ControllerCommand> take_commands();
 
-    [[nodiscard]] DialogueController& dialogue_controller() noexcept { return *m_dialogue_controller; }
-    [[nodiscard]] CutsceneController& cutscene_controller() noexcept { return *m_cutscene_controller; }
+    [[nodiscard]] DialogueController& dialogue_controller() noexcept
+    {
+        return *m_dialogue_controller;
+    }
+    [[nodiscard]] CutsceneController& cutscene_controller() noexcept
+    {
+        return *m_cutscene_controller;
+    }
 
     [[nodiscard]] nlohmann::json save_state() const;
     void restore_state(const nlohmann::json& state);
@@ -81,7 +90,8 @@ private:
     void drain_next();
     void enter_room(const std::string& room_id);
     void exit_current_mode();
-    void emit_room_hook_script(const RoomModel& room, std::string_view hook_context, const std::string& script);
+    void emit_room_hook_script(const RoomModel& room, std::string_view hook_context,
+                               const std::string& script);
     void emit_room_enter_hooks(const RoomModel* room);
     void emit_room_leave_hooks(const RoomModel* room);
     void process_script_entity(const EntityRef& ref);
@@ -91,16 +101,19 @@ private:
     [[nodiscard]] bool object_available_for_action(const std::string& object_id) const;
     [[nodiscard]] const ActionModel* find_action(const std::string& verb_id,
                                                  const std::vector<std::string>& object_ids) const;
-    void emit_action_script_chain(const ActionModel& action,
-                                  const std::string& verb_id,
+    void emit_action_script_chain(const ActionModel& action, const std::string& verb_id,
                                   const std::vector<std::string>& object_ids);
-    void emit_action_script(const std::string& script,
-                            const std::string& context,
-                            const std::string& verb_id,
-                            const std::vector<std::string>& object_ids,
+    void emit_action_script(const std::string& script, const std::string& context,
+                            const std::string& verb_id, const std::vector<std::string>& object_ids,
                             const std::optional<std::string>& action_id = std::nullopt);
 
-    enum class Mode { None, Room, Dialogue, Cutscene, Script };
+    enum class Mode {
+        None,
+        Room,
+        Dialogue,
+        Cutscene,
+        Script
+    };
 
     GameSession* m_session;
     Mode m_mode = Mode::None;

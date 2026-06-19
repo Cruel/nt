@@ -53,7 +53,8 @@ class ProjectTooling {
 public:
     [[nodiscard]] static ProjectLoadResult load_project_json(std::string_view source);
     [[nodiscard]] static ProjectLoadResult import_legacy_game_json(std::string_view source);
-    [[nodiscard]] static std::vector<ToolDiagnostic> validate_project(const ProjectDocument& project);
+    [[nodiscard]] static std::vector<ToolDiagnostic>
+    validate_project(const ProjectDocument& project);
     [[nodiscard]] static std::string save_project_json(const ProjectDocument& project);
 
     [[nodiscard]] static EntityEditResult set_entity_record(ProjectDocument& project,
@@ -78,7 +79,10 @@ public:
     void step(double delta_seconds);
 
     [[nodiscard]] RuntimePreviewState inspect_state() const;
-    [[nodiscard]] const RuntimeUIViewState& view_state() const noexcept { return m_host.view_state(); }
+    [[nodiscard]] const RuntimeUIViewState& view_state() const noexcept
+    {
+        return m_host.view_state();
+    }
     [[nodiscard]] const std::vector<ControllerCommand>& captured_commands() const noexcept
     {
         return m_captured_commands;

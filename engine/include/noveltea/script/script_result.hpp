@@ -12,8 +12,7 @@ struct ScriptError {
     std::string traceback;
 };
 
-template <typename T>
-struct ScriptResult {
+template<typename T> struct ScriptResult {
     std::optional<T> value;
     std::optional<ScriptError> error;
 
@@ -34,8 +33,7 @@ struct ScriptResult {
     }
 };
 
-template <>
-struct ScriptResult<void> {
+template<> struct ScriptResult<void> {
     bool ok = false;
     std::optional<ScriptError> error;
 

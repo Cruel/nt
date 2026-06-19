@@ -41,7 +41,8 @@ Image read_ppm(const std::filesystem::path& path)
     file.get();
 
     image.rgb.resize(size_t(image.width) * size_t(image.height) * 3u);
-    file.read(reinterpret_cast<char*>(image.rgb.data()), static_cast<std::streamsize>(image.rgb.size()));
+    file.read(reinterpret_cast<char*>(image.rgb.data()),
+              static_cast<std::streamsize>(image.rgb.size()));
     REQUIRE(file.gcount() == static_cast<std::streamsize>(image.rgb.size()));
     return image;
 }
@@ -49,44 +50,34 @@ Image read_ppm(const std::filesystem::path& path)
 bool close_to(std::array<int, 3> color, std::array<int, 3> expected, int tolerance = 8)
 {
     for (size_t i = 0; i < color.size(); ++i) {
-        if (std::abs(color[i] - expected[i]) > tolerance) return false;
+        if (std::abs(color[i] - expected[i]) > tolerance)
+            return false;
     }
     return true;
 }
 
-int brightness(std::array<int, 3> color)
-{
-    return color[0] + color[1] + color[2];
-}
+int brightness(std::array<int, 3> color) { return color[0] + color[1] + color[2]; }
 
-bool red_dominant(std::array<int, 3> color)
-{
-    return color[0] > color[1] && color[0] > color[2];
-}
+bool red_dominant(std::array<int, 3> color) { return color[0] > color[1] && color[0] > color[2]; }
 
-bool green_dominant(std::array<int, 3> color)
-{
-    return color[1] > color[0] && color[1] > color[2];
-}
+bool green_dominant(std::array<int, 3> color) { return color[1] > color[0] && color[1] > color[2]; }
 
-bool blue_dominant(std::array<int, 3> color)
-{
-    return color[2] > color[0] && color[2] > color[1];
-}
+bool blue_dominant(std::array<int, 3> color) { return color[2] > color[0] && color[2] > color[1]; }
 
 bool nearly_neutral(std::array<int, 3> color, int tolerance = 12)
 {
     return std::abs(color[0] - color[1]) <= tolerance &&
-        std::abs(color[1] - color[2]) <= tolerance &&
-        brightness(color) > 360;
+           std::abs(color[1] - color[2]) <= tolerance && brightness(color) > 360;
 }
 
-template <typename Predicate>
-bool has_pixel_matching(const Image& image, int left, int top, int right, int bottom, Predicate predicate)
+template<typename Predicate>
+bool has_pixel_matching(const Image& image, int left, int top, int right, int bottom,
+                        Predicate predicate)
 {
     for (int y = top; y < bottom; ++y) {
         for (int x = left; x < right; ++x) {
-            if (predicate(image.pixel(x, y))) return true;
+            if (predicate(image.pixel(x, y)))
+                return true;
         }
     }
     return false;
@@ -99,10 +90,18 @@ TEST_CASE("RmlUi readback gallery pixels verify advanced renderer output")
     const Image image = read_ppm(std::filesystem::path(NOVELTEA_RMLUI_READBACK_PPM));
     const auto bg = std::array<int, 3>{16, 24, 32};
 
-    CHECK(has_pixel_matching(image, 16, 16, 48, 48, [](auto color) { return red_dominant(color) && brightness(color) > 60; }));
-    CHECK(has_pixel_matching(image, 80, 16, 112, 48, [](auto color) { return green_dominant(color) && brightness(color) > 60; }));
-    CHECK(has_pixel_matching(image, 16, 80, 48, 112, [](auto color) { return blue_dominant(color) && brightness(color) > 60; }));
-    CHECK(has_pixel_matching(image, 80, 80, 112, 112, [](auto color) { return color[0] > color[2] && color[1] > color[2] && brightness(color) > 60; }));
+    CHECK(has_pixel_matching(image, 16, 16, 48, 48, [](auto color) {
+        return red_dominant(color) && brightness(color) > 60;
+    }));
+    CHECK(has_pixel_matching(image, 80, 16, 112, 48, [](auto color) {
+        return green_dominant(color) && brightness(color) > 60;
+    }));
+    CHECK(has_pixel_matching(image, 16, 80, 48, 112, [](auto color) {
+        return blue_dominant(color) && brightness(color) > 60;
+    }));
+    CHECK(has_pixel_matching(image, 80, 80, 112, 112, [](auto color) {
+        return color[0] > color[2] && color[1] > color[2] && brightness(color) > 60;
+    }));
 
     CHECK(red_dominant(image.pixel(140, 56)));
     CHECK(green_dominant(image.pixel(190, 70)));

@@ -13,14 +13,11 @@ namespace {
 
 using nlohmann::json;
 
-std::string key(std::string_view value)
-{
-    return std::string(value);
-}
+std::string key(std::string_view value) { return std::string(value); }
 
 void add_issue(std::vector<ValidationIssue>& issues, std::string path, std::string message)
 {
-    issues.push_back(ValidationIssue {std::move(path), std::move(message)});
+    issues.push_back(ValidationIssue{std::move(path), std::move(message)});
 }
 
 std::string type_name(EntityType type)
@@ -106,7 +103,8 @@ void validate_ref(const EntityIndex& index, const EntityRef& ref, std::string pa
         return;
     }
     if (!ref_exists(index, ref)) {
-        add_issue(issues, std::move(path), "missing " + type_name(ref.type) + " entity '" + ref.id + "'");
+        add_issue(issues, std::move(path),
+                  "missing " + type_name(ref.type) + " entity '" + ref.id + "'");
     }
 }
 
@@ -133,7 +131,8 @@ EntityIndex build_index(const json& root)
     return index;
 }
 
-std::vector<legacy::EntityView> parse_entities(EntityType type, const json& root, std::string_view collection_key,
+std::vector<legacy::EntityView> parse_entities(EntityType type, const json& root,
+                                               std::string_view collection_key,
                                                std::vector<ValidationIssue>& issues)
 {
     const auto collection_path = "/" + key(collection_key);
@@ -151,7 +150,8 @@ std::vector<legacy::EntityView> parse_entities(EntityType type, const json& root
     return entities;
 }
 
-void validate_starting_inventory(const EntityIndex& index, const json& root, std::vector<ValidationIssue>& issues)
+void validate_starting_inventory(const EntityIndex& index, const json& root,
+                                 std::vector<ValidationIssue>& issues)
 {
     const auto it = root.find(key(project_ids::starting_inventory));
     if (it == root.end() || !it->is_array()) {
@@ -170,7 +170,8 @@ void validate_starting_inventory(const EntityIndex& index, const json& root, std
     }
 }
 
-void validate_entrypoint(const EntityIndex& index, const json& root, std::vector<ValidationIssue>& issues)
+void validate_entrypoint(const EntityIndex& index, const json& root,
+                         std::vector<ValidationIssue>& issues)
 {
     const auto it = root.find(key(project_ids::entrypoint_entity));
     if (it == root.end()) {
@@ -198,7 +199,8 @@ void validate_actions(const EntityIndex& index, const std::vector<legacy::Entity
         for (std::size_t i = 0; i < entity.action->object_ids.size(); ++i) {
             const auto& object_id = entity.action->object_ids[i];
             if (!index.objects.contains(object_id)) {
-                add_issue(issues, base + "[5][" + std::to_string(i) + "]", "missing object entity '" + object_id + "'");
+                add_issue(issues, base + "[5][" + std::to_string(i) + "]",
+                          "missing object entity '" + object_id + "'");
             }
         }
     }
@@ -215,7 +217,8 @@ void validate_rooms(const EntityIndex& index, const std::vector<legacy::EntityVi
         for (std::size_t i = 0; i < entity.room->objects.size(); ++i) {
             const auto& object_id = entity.room->objects[i].object_id;
             if (!index.objects.contains(object_id)) {
-                add_issue(issues, base + "[8][" + std::to_string(i) + "][0]", "missing object entity '" + object_id + "'");
+                add_issue(issues, base + "[8][" + std::to_string(i) + "][0]",
+                          "missing object entity '" + object_id + "'");
             }
         }
         if (entity.room->paths == nullptr || !entity.room->paths->is_array()) {
@@ -254,7 +257,8 @@ void validate_maps(const EntityIndex& index, const std::vector<legacy::EntityVie
             for (std::size_t j = 0; j < room.room_ids.size(); ++j) {
                 const auto& room_id = room.room_ids[j];
                 if (!index.rooms.contains(room_id)) {
-                    add_issue(issues, base + "[5][" + std::to_string(i) + "][5][" + std::to_string(j) + "]",
+                    add_issue(issues,
+                              base + "[5][" + std::to_string(i) + "][5][" + std::to_string(j) + "]",
                               "missing room entity '" + room_id + "'");
                 }
             }
@@ -263,10 +267,12 @@ void validate_maps(const EntityIndex& index, const std::vector<legacy::EntityVie
             const auto& connection = entity.map->connections[i];
             const auto room_count = static_cast<int>(entity.map->rooms.size());
             if (connection.room_start < 0 || connection.room_start >= room_count) {
-                add_issue(issues, base + "[6][" + std::to_string(i) + "][0]", "map connection start room index is out of range");
+                add_issue(issues, base + "[6][" + std::to_string(i) + "][0]",
+                          "map connection start room index is out of range");
             }
             if (connection.room_end < 0 || connection.room_end >= room_count) {
-                add_issue(issues, base + "[6][" + std::to_string(i) + "][1]", "map connection end room index is out of range");
+                add_issue(issues, base + "[6][" + std::to_string(i) + "][1]",
+                          "map connection end room index is out of range");
             }
         }
     }
@@ -290,12 +296,15 @@ void validate_dialogues(const EntityIndex& index, const std::vector<legacy::Enti
         for (std::size_t i = 0; i < entity.dialogue->segments.size(); ++i) {
             const auto& segment = entity.dialogue->segments[i];
             if (segment.link_id >= segment_count) {
-                add_issue(issues, base + "[9][" + std::to_string(i) + "][1]", "dialogue link id is out of range");
+                add_issue(issues, base + "[9][" + std::to_string(i) + "][1]",
+                          "dialogue link id is out of range");
             }
             for (std::size_t j = 0; j < segment.children_ids.size(); ++j) {
                 const int child = segment.children_ids[j];
                 if (child < 0 || child >= segment_count) {
-                    add_issue(issues, base + "[9][" + std::to_string(i) + "][11][" + std::to_string(j) + "]",
+                    add_issue(issues,
+                              base + "[9][" + std::to_string(i) + "][11][" + std::to_string(j) +
+                                  "]",
                               "dialogue child id is out of range");
                 }
             }
@@ -333,8 +342,10 @@ std::vector<ValidationIssue> ProjectValidator::validate(const ProjectDocument& p
     validate_starting_inventory(index, root, issues);
 
     const auto actions = parse_entities(EntityType::Action, root, project_ids::action, issues);
-    const auto cutscenes = parse_entities(EntityType::Cutscene, root, project_ids::cutscene, issues);
-    const auto dialogues = parse_entities(EntityType::Dialogue, root, project_ids::dialogue, issues);
+    const auto cutscenes =
+        parse_entities(EntityType::Cutscene, root, project_ids::cutscene, issues);
+    const auto dialogues =
+        parse_entities(EntityType::Dialogue, root, project_ids::dialogue, issues);
     const auto maps = parse_entities(EntityType::Map, root, project_ids::map, issues);
     parse_entities(EntityType::Object, root, project_ids::object, issues);
     const auto rooms = parse_entities(EntityType::Room, root, project_ids::room, issues);

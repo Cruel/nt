@@ -6,10 +6,7 @@
 
 namespace noveltea::core {
 
-nlohmann::json EntityRef::to_json() const
-{
-    return nlohmann::json::array({to_integer(type), id});
-}
+nlohmann::json EntityRef::to_json() const { return nlohmann::json::array({to_integer(type), id}); }
 
 std::optional<EntityRef> EntityRef::from_json(const nlohmann::json& value)
 {
@@ -29,7 +26,7 @@ std::optional<EntityRef> EntityRef::from_json(const nlohmann::json& value)
         return std::nullopt;
     }
 
-    return EntityRef {*type, id_json.get<std::string>()};
+    return EntityRef{*type, id_json.get<std::string>()};
 }
 
 } // namespace noveltea::core

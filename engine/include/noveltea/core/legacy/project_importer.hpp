@@ -21,13 +21,11 @@ struct ImportedProject {
 
 class ProjectImporter {
 public:
-    [[nodiscard]] static std::optional<ImportedProject> import_game_json_text(
-        std::string_view source,
-        std::vector<ImportError>& errors);
+    [[nodiscard]] static std::optional<ImportedProject>
+    import_game_json_text(std::string_view source, std::vector<ImportError>& errors);
 
-    [[nodiscard]] static std::optional<ImportedProject> import_game_json(
-        const nlohmann::json& root,
-        std::vector<ImportError>& errors);
+    [[nodiscard]] static std::optional<ImportedProject>
+    import_game_json(const nlohmann::json& root, std::vector<ImportError>& errors);
 };
 
 } // namespace noveltea::core::legacy

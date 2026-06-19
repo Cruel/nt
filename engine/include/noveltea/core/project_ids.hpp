@@ -53,14 +53,7 @@ inline constexpr std::string_view script = "script";
 inline constexpr std::string_view verb = "verb";
 
 inline constexpr std::array<std::string_view, 8> entity_collection_keys = {
-    action,
-    cutscene,
-    dialogue,
-    map,
-    object,
-    room,
-    script,
-    verb,
+    action, cutscene, dialogue, map, object, room, script, verb,
 };
 
 inline constexpr std::string_view tests = "tests";

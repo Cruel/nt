@@ -17,7 +17,8 @@ namespace {
 
 ScriptError make_error(std::string message, std::string chunk, std::string traceback = {})
 {
-    if (traceback.empty()) traceback = message;
+    if (traceback.empty())
+        traceback = message;
     return ScriptError{std::move(message), std::move(chunk), std::move(traceback)};
 }
 
@@ -38,7 +39,8 @@ int traceback_handler(lua_State* state)
 std::string lua_value_message(lua_State* state, int index)
 {
     const char* message = lua_tostring(state, index);
-    if (message) return message;
+    if (message)
+        return message;
     return std::string(luaL_typename(state, index));
 }
 
@@ -47,42 +49,46 @@ std::string lua_type_name(lua_State* state, int index)
     return lua_typename(state, lua_type(state, index));
 }
 
-ScriptResult<ScriptValue> to_script_value(lua_State* state, const sol::protected_function_result& result, const std::string& chunk)
+ScriptResult<ScriptValue> to_script_value(lua_State* state,
+                                          const sol::protected_function_result& result,
+                                          const std::string& chunk)
 {
     const int returns = result.return_count();
     if (returns == 0) {
-        return ScriptResult<ScriptValue>::success(std::monostate {});
+        return ScriptResult<ScriptValue>::success(std::monostate{});
     }
     if (returns > 1) {
-        return ScriptResult<ScriptValue>::failure(make_error(
-            "expression returned multiple values; ScriptRuntime::evaluate expects exactly one result",
-            chunk));
+        return ScriptResult<ScriptValue>::failure(
+            make_error("expression returned multiple values; ScriptRuntime::evaluate expects "
+                       "exactly one result",
+                       chunk));
     }
 
     const int index = result.stack_index();
     switch (lua_type(state, index)) {
-        case LUA_TNIL:
-            return ScriptResult<ScriptValue>::success(std::monostate {});
-        case LUA_TBOOLEAN:
-            return ScriptResult<ScriptValue>::success(lua_toboolean(state, index) != 0);
-        case LUA_TNUMBER:
-            if (lua_isinteger(state, index)) {
-                return ScriptResult<ScriptValue>::success(static_cast<std::int64_t>(lua_tointeger(state, index)));
-            }
-            return ScriptResult<ScriptValue>::success(static_cast<double>(lua_tonumber(state, index)));
-        case LUA_TSTRING:
-            return ScriptResult<ScriptValue>::success(std::string(lua_tostring(state, index)));
-        default:
-            return ScriptResult<ScriptValue>::failure(make_error(
-                "unsupported Lua result type: " + lua_type_name(state, index),
-                chunk));
+    case LUA_TNIL:
+        return ScriptResult<ScriptValue>::success(std::monostate{});
+    case LUA_TBOOLEAN:
+        return ScriptResult<ScriptValue>::success(lua_toboolean(state, index) != 0);
+    case LUA_TNUMBER:
+        if (lua_isinteger(state, index)) {
+            return ScriptResult<ScriptValue>::success(
+                static_cast<std::int64_t>(lua_tointeger(state, index)));
+        }
+        return ScriptResult<ScriptValue>::success(static_cast<double>(lua_tonumber(state, index)));
+    case LUA_TSTRING:
+        return ScriptResult<ScriptValue>::success(std::string(lua_tostring(state, index)));
+    default:
+        return ScriptResult<ScriptValue>::failure(
+            make_error("unsupported Lua result type: " + lua_type_name(state, index), chunk));
     }
 }
 
 std::string prefixed_chunk(std::string_view chunk_name)
 {
     std::string name(chunk_name.empty() ? "chunk" : chunk_name);
-    if (!name.empty() && (name.front() == '@' || name.front() == '=')) return name;
+    if (!name.empty() && (name.front() == '@' || name.front() == '='))
+        return name;
     return "=" + name;
 }
 
@@ -94,7 +100,8 @@ struct ScriptRuntime::Impl {
     bool initialized = false;
     sol::protected_function traceback;
 
-    ScriptError error_from_result(const sol::protected_function_result& result, std::string chunk) const
+    ScriptError error_from_result(const sol::protected_function_result& result,
+                                  std::string chunk) const
     {
         const int index = result.stack_index();
         const std::string traceback_text = lua_value_message(lua.lua_state(), index);
@@ -112,22 +119,18 @@ ScriptRuntime::~ScriptRuntime() { shutdown(); }
 
 ScriptResult<void> ScriptRuntime::initialize(ScriptRuntimeConfig config)
 {
-    if (is_initialized()) return ScriptResult<void>::success();
+    if (is_initialized())
+        return ScriptResult<void>::success();
     if (!config.assets) {
-        return ScriptResult<void>::failure(make_error("ScriptRuntime requires an AssetManager", "initialize"));
+        return ScriptResult<void>::failure(
+            make_error("ScriptRuntime requires an AssetManager", "initialize"));
     }
 
     try {
         m_impl = std::make_unique<Impl>();
         m_impl->assets = config.assets;
-        m_impl->lua.open_libraries(
-            sol::lib::base,
-            sol::lib::coroutine,
-            sol::lib::table,
-            sol::lib::string,
-            sol::lib::math,
-            sol::lib::utf8
-        );
+        m_impl->lua.open_libraries(sol::lib::base, sol::lib::coroutine, sol::lib::table,
+                                   sol::lib::string, sol::lib::math, sol::lib::utf8);
         m_impl->lua["os"] = sol::lua_nil;
         m_impl->lua["io"] = sol::lua_nil;
         m_impl->lua["debug"] = sol::lua_nil;
@@ -147,7 +150,8 @@ ScriptResult<void> ScriptRuntime::initialize(ScriptRuntimeConfig config)
         return ScriptResult<void>::failure(make_error(ex.what(), "initialize"));
     } catch (...) {
         m_impl.reset();
-        return ScriptResult<void>::failure(make_error("unknown ScriptRuntime initialization failure", "initialize"));
+        return ScriptResult<void>::failure(
+            make_error("unknown ScriptRuntime initialization failure", "initialize"));
     }
 }
 
@@ -159,15 +163,13 @@ void ScriptRuntime::shutdown()
     }
 }
 
-bool ScriptRuntime::is_initialized() const
-{
-    return m_impl && m_impl->initialized;
-}
+bool ScriptRuntime::is_initialized() const { return m_impl && m_impl->initialized; }
 
 ScriptResult<void> ScriptRuntime::execute(std::string_view source, std::string_view chunk_name)
 {
     if (!is_initialized()) {
-        return ScriptResult<void>::failure(make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
+        return ScriptResult<void>::failure(
+            make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
     }
 
     try {
@@ -187,14 +189,16 @@ ScriptResult<void> ScriptRuntime::execute(std::string_view source, std::string_v
     } catch (const std::exception& ex) {
         return ScriptResult<void>::failure(make_error(ex.what(), std::string(chunk_name)));
     } catch (...) {
-        return ScriptResult<void>::failure(make_error("unknown ScriptRuntime execution failure", std::string(chunk_name)));
+        return ScriptResult<void>::failure(
+            make_error("unknown ScriptRuntime execution failure", std::string(chunk_name)));
     }
 }
 
 ScriptResult<void> ScriptRuntime::execute_asset(std::string_view logical_asset_path)
 {
     if (!is_initialized()) {
-        return ScriptResult<void>::failure(make_error("ScriptRuntime is not initialized", std::string(logical_asset_path)));
+        return ScriptResult<void>::failure(
+            make_error("ScriptRuntime is not initialized", std::string(logical_asset_path)));
     }
     auto text = m_impl->assets->read_text(logical_asset_path);
     if (!text) {
@@ -203,10 +207,12 @@ ScriptResult<void> ScriptRuntime::execute_asset(std::string_view logical_asset_p
     return execute(*text.value, "@" + std::string(logical_asset_path));
 }
 
-ScriptResult<ScriptValue> ScriptRuntime::evaluate(std::string_view expression, std::string_view chunk_name)
+ScriptResult<ScriptValue> ScriptRuntime::evaluate(std::string_view expression,
+                                                  std::string_view chunk_name)
 {
     if (!is_initialized()) {
-        return ScriptResult<ScriptValue>::failure(make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
+        return ScriptResult<ScriptValue>::failure(
+            make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
     }
 
     try {
@@ -228,28 +234,35 @@ ScriptResult<ScriptValue> ScriptRuntime::evaluate(std::string_view expression, s
     } catch (const std::exception& ex) {
         return ScriptResult<ScriptValue>::failure(make_error(ex.what(), std::string(chunk_name)));
     } catch (...) {
-        return ScriptResult<ScriptValue>::failure(make_error("unknown ScriptRuntime evaluation failure", std::string(chunk_name)));
+        return ScriptResult<ScriptValue>::failure(
+            make_error("unknown ScriptRuntime evaluation failure", std::string(chunk_name)));
     }
 }
 
-ScriptResult<bool> ScriptRuntime::evaluate_bool(std::string_view expression, std::string_view chunk_name)
+ScriptResult<bool> ScriptRuntime::evaluate_bool(std::string_view expression,
+                                                std::string_view chunk_name)
 {
     auto result = evaluate(expression, chunk_name);
-    if (!result) return ScriptResult<bool>::failure(*result.error);
+    if (!result)
+        return ScriptResult<bool>::failure(*result.error);
     if (auto* value = std::get_if<bool>(&*result.value)) {
         return ScriptResult<bool>::success(*value);
     }
-    return ScriptResult<bool>::failure(make_error("expression did not evaluate to bool", std::string(chunk_name)));
+    return ScriptResult<bool>::failure(
+        make_error("expression did not evaluate to bool", std::string(chunk_name)));
 }
 
-ScriptResult<std::string> ScriptRuntime::evaluate_string(std::string_view expression, std::string_view chunk_name)
+ScriptResult<std::string> ScriptRuntime::evaluate_string(std::string_view expression,
+                                                         std::string_view chunk_name)
 {
     auto result = evaluate(expression, chunk_name);
-    if (!result) return ScriptResult<std::string>::failure(*result.error);
+    if (!result)
+        return ScriptResult<std::string>::failure(*result.error);
     if (auto* value = std::get_if<std::string>(&*result.value)) {
         return ScriptResult<std::string>::success(*value);
     }
-    return ScriptResult<std::string>::failure(make_error("expression did not evaluate to string", std::string(chunk_name)));
+    return ScriptResult<std::string>::failure(
+        make_error("expression did not evaluate to string", std::string(chunk_name)));
 }
 
 void ScriptRuntime::collect_garbage()
@@ -261,13 +274,15 @@ void ScriptRuntime::collect_garbage()
 
 void ScriptRuntime::bind_game_session(core::GameSession* session)
 {
-    if (!is_initialized()) return;
+    if (!is_initialized())
+        return;
     noveltea::script::bind_game_session(m_impl->lua.lua_state(), session);
 }
 
 void ScriptRuntime::clear_game_bindings()
 {
-    if (!is_initialized()) return;
+    if (!is_initialized())
+        return;
     noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
 }
 

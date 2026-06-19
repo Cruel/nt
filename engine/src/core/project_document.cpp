@@ -8,33 +8,19 @@ namespace noveltea::core {
 namespace {
 
 constexpr std::array required_project_keys = {
-    project_ids::engine_version,
-    project_ids::engine_fonts,
-    project_ids::project_name,
-    project_ids::project_version,
-    project_ids::project_author,
-    project_ids::project_font_default,
-    project_ids::project_fonts,
-    project_ids::starting_inventory,
-    project_ids::shaders,
-    project_ids::system_shaders,
+    project_ids::engine_version, project_ids::engine_fonts,
+    project_ids::project_name,   project_ids::project_version,
+    project_ids::project_author, project_ids::project_font_default,
+    project_ids::project_fonts,  project_ids::starting_inventory,
+    project_ids::shaders,        project_ids::system_shaders,
     project_ids::textures,
 };
 
-nlohmann::json empty_object()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json empty_object() { return nlohmann::json::object(); }
 
-nlohmann::json empty_array()
-{
-    return nlohmann::json::array();
-}
+nlohmann::json empty_array() { return nlohmann::json::array(); }
 
-std::string key_to_string(std::string_view key)
-{
-    return std::string(key);
-}
+std::string key_to_string(std::string_view key) { return std::string(key); }
 
 } // namespace
 
@@ -132,9 +118,6 @@ bool ProjectDocument::validate_entrypoint(std::string* error_message) const
     return false;
 }
 
-std::string ProjectDocument::dump() const
-{
-    return m_root.dump();
-}
+std::string ProjectDocument::dump() const { return m_root.dump(); }
 
 } // namespace noveltea::core

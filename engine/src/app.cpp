@@ -15,10 +15,7 @@ namespace {
 Engine* g_preview_engine = nullptr;
 }
 
-App::~App()
-{
-    m_engine.shutdown();
-}
+App::~App() { m_engine.shutdown(); }
 
 bool App::parse_options(int argc, char* argv[], Options& options) const
 {
@@ -195,40 +192,23 @@ void noveltea_preview_set_running(int running)
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
-void noveltea_preview_resize(
-    int logical_width,
-    int logical_height,
-    int framebuffer_width,
-    int framebuffer_height,
-    float scale_x,
-    float scale_y)
+void noveltea_preview_resize(int logical_width, int logical_height, int framebuffer_width,
+                             int framebuffer_height, float scale_x, float scale_y)
 {
     if (noveltea::g_preview_engine) {
         noveltea::SurfaceMetrics surface{
-            logical_width,
-            logical_height,
-            framebuffer_width,
-            framebuffer_height,
-            scale_x,
-            scale_y,
+            logical_width, logical_height, framebuffer_width, framebuffer_height, scale_x, scale_y,
         };
-        surface = noveltea::make_surface_metrics(
-            logical_width,
-            logical_height,
-            framebuffer_width,
-            framebuffer_height);
+        surface = noveltea::make_surface_metrics(logical_width, logical_height, framebuffer_width,
+                                                 framebuffer_height);
 #if defined(__EMSCRIPTEN__)
-        emscripten_set_canvas_element_size("#canvas", surface.framebuffer_width, surface.framebuffer_height);
+        emscripten_set_canvas_element_size("#canvas", surface.framebuffer_width,
+                                           surface.framebuffer_height);
 #endif
         std::printf("[surface] web_resize logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
-            surface.logical_width,
-            surface.logical_height,
-            surface.framebuffer_width,
-            surface.framebuffer_height,
-            surface.scale_x,
-            surface.scale_y);
+                    surface.logical_width, surface.logical_height, surface.framebuffer_width,
+                    surface.framebuffer_height, surface.scale_x, surface.scale_y);
         noveltea::g_preview_engine->resize(surface);
     }
 }
-
 }

@@ -9,10 +9,7 @@ using namespace noveltea::core;
 
 namespace {
 
-nlohmann::json props()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json props() { return nlohmann::json::object(); }
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -32,12 +29,13 @@ ProjectDocument make_room_project()
     root[project_ids::verb] = nlohmann::json::object();
     root[project_ids::action] = nlohmann::json::object();
     root[project_ids::room] = nlohmann::json::object({
-        {"foyer", nlohmann::json::array({"foyer", "", props(), "A quiet foyer.", "", "", "", "",
-                                         nlohmann::json::array(),
-                                         nlohmann::json::array({path_entry(true, EntityType::Room, "kitchen")}),
-                                         "Foyer"})},
-        {"kitchen", nlohmann::json::array({"kitchen", "", props(), "A bright kitchen.", "", "", "", "",
-                                           nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
+        {"foyer",
+         nlohmann::json::array(
+             {"foyer", "", props(), "A quiet foyer.", "", "", "", "", nlohmann::json::array(),
+              nlohmann::json::array({path_entry(true, EntityType::Room, "kitchen")}), "Foyer"})},
+        {"kitchen",
+         nlohmann::json::array({"kitchen", "", props(), "A bright kitchen.", "", "", "", "",
+                                nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
     root[project_ids::map] = nlohmann::json::object();
     root[project_ids::dialogue] = nlohmann::json::object();
@@ -54,14 +52,18 @@ ProjectDocument make_dialogue_project()
     auto& root = project.root();
     root[project_ids::entrypoint_entity] = ref(EntityType::Dialogue, "talk");
 
-    auto root_segment = nlohmann::json::array({0, -1, false, false, false, false, false, false, "", "", "", nlohmann::json::array({1})});
-    auto text_segment = nlohmann::json::array({1, -1, false, false, false, false, false, false, "", "", "[Guide]Hello.", nlohmann::json::array({2})});
-    auto option_segment = nlohmann::json::array({2, -1, false, false, false, false, false, false, "", "", "Go on", nlohmann::json::array()});
+    auto root_segment = nlohmann::json::array(
+        {0, -1, false, false, false, false, false, false, "", "", "", nlohmann::json::array({1})});
+    auto text_segment = nlohmann::json::array({1, -1, false, false, false, false, false, false, "",
+                                               "", "[Guide]Hello.", nlohmann::json::array({2})});
+    auto option_segment = nlohmann::json::array({2, -1, false, false, false, false, false, false,
+                                                 "", "", "Go on", nlohmann::json::array()});
 
     root[project_ids::dialogue] = nlohmann::json::object({
-        {"talk", nlohmann::json::array({"talk", "", props(), "Guide", ref(EntityType::Room, "kitchen"),
-                                        0, false, false, 1,
-                                        nlohmann::json::array({root_segment, text_segment, option_segment})})},
+        {"talk",
+         nlohmann::json::array(
+             {"talk", "", props(), "Guide", ref(EntityType::Room, "kitchen"), 0, false, false, 1,
+              nlohmann::json::array({root_segment, text_segment, option_segment})})},
     });
     return project;
 }
@@ -73,20 +75,28 @@ ProjectDocument make_cutscene_project()
     root[project_ids::entrypoint_entity] = ref(EntityType::Cutscene, "intro");
 
     auto page = nlohmann::json::array();
-    page.push_back(2); page.push_back(true);
+    page.push_back(2);
+    page.push_back(true);
     page.push_back("One.\n\nTwo.");
-    page.push_back("\n"); page.push_back("\n\n");
-    page.push_back(0); page.push_back(1);
-    page.push_back(1000); page.push_back(2000);
-    page.push_back(2000); page.push_back(3000);
-    page.push_back(true); page.push_back(true);
-    page.push_back(0); page.push_back(0);
-    page.push_back(""); page.push_back(true);
+    page.push_back("\n");
+    page.push_back("\n\n");
+    page.push_back(0);
+    page.push_back(1);
+    page.push_back(1000);
+    page.push_back(2000);
+    page.push_back(2000);
+    page.push_back(3000);
+    page.push_back(true);
+    page.push_back(true);
+    page.push_back(0);
+    page.push_back(0);
+    page.push_back("");
+    page.push_back(true);
 
     root[project_ids::cutscene] = nlohmann::json::object({
-        {"intro", nlohmann::json::array({"intro", "", props(), true, true, 1.0,
-                                         ref(EntityType::Room, "foyer"),
-                                         nlohmann::json::array({page})})},
+        {"intro",
+         nlohmann::json::array({"intro", "", props(), true, true, 1.0,
+                                ref(EntityType::Room, "foyer"), nlohmann::json::array({page})})},
     });
     return project;
 }
@@ -100,10 +110,12 @@ ProjectDocument make_action_project()
         {"coin", nlohmann::json::array({"coin", "", props(), "Coin", false})},
     });
     root[project_ids::verb] = nlohmann::json::object({
-        {"look", nlohmann::json::array({"look", "", props(), "Look", 1, "default_look();", "", nlohmann::json::array()})},
+        {"look", nlohmann::json::array({"look", "", props(), "Look", 1, "default_look();", "",
+                                        nlohmann::json::array()})},
     });
     root[project_ids::action] = nlohmann::json::object({
-        {"look_lamp", nlohmann::json::array({"look_lamp", "", props(), "look", "look_lamp();", nlohmann::json::array({"lamp"}), false})},
+        {"look_lamp", nlohmann::json::array({"look_lamp", "", props(), "look", "look_lamp();",
+                                             nlohmann::json::array({"lamp"}), false})},
     });
     root[project_ids::room]["foyer"][8] = nlohmann::json::array({
         nlohmann::json::array({"lamp", true}),
@@ -115,7 +127,8 @@ ProjectDocument make_action_project()
 bool has_command(const std::vector<ControllerCommand>& commands, ControllerCommandType type)
 {
     for (const auto& command : commands) {
-        if (command.type == type) return true;
+        if (command.type == type)
+            return true;
     }
     return false;
 }

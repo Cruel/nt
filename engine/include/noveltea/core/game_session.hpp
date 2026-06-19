@@ -59,7 +59,8 @@ class GameSession {
 public:
     GameSession();
 
-    [[nodiscard]] GameSessionLoadResult load(ProjectDocument project, SaveDocument save = SaveDocument::new_save());
+    [[nodiscard]] GameSessionLoadResult load(ProjectDocument project,
+                                             SaveDocument save = SaveDocument::new_save());
     void reset();
     void tick(double delta_seconds);
 
@@ -71,11 +72,20 @@ public:
     [[nodiscard]] RuntimeTimerScheduler& timers() noexcept { return m_timers; }
     [[nodiscard]] const RuntimeTimerScheduler& timers() const noexcept { return m_timers; }
 
-    [[nodiscard]] std::optional<EntityRef> startup_entrypoint() const noexcept { return m_startup_entrypoint; }
+    [[nodiscard]] std::optional<EntityRef> startup_entrypoint() const noexcept
+    {
+        return m_startup_entrypoint;
+    }
     [[nodiscard]] RuntimeStateSnapshot runtime_state() const;
     [[nodiscard]] double play_time() const noexcept { return m_play_time; }
-    [[nodiscard]] const std::deque<EntityRef>& entity_queue() const noexcept { return m_entity_queue; }
-    [[nodiscard]] std::optional<EntityRef> current_entity() const noexcept { return m_current_entity; }
+    [[nodiscard]] const std::deque<EntityRef>& entity_queue() const noexcept
+    {
+        return m_entity_queue;
+    }
+    [[nodiscard]] std::optional<EntityRef> current_entity() const noexcept
+    {
+        return m_current_entity;
+    }
     [[nodiscard]] std::optional<std::string> current_room_id() const { return m_current_room_id; }
     [[nodiscard]] std::optional<std::string> current_map_id() const { return m_current_map_id; }
     [[nodiscard]] bool navigation_enabled() const noexcept { return m_navigation_enabled; }
@@ -88,10 +98,11 @@ public:
     [[nodiscard]] std::vector<SessionCommand> take_commands();
 
 private:
-    [[nodiscard]] std::optional<EntityRef> resolve_startup_entrypoint(const ProjectDocument& project,
-                                                                      const SaveDocument& save,
-                                                                      std::vector<SessionDiagnostic>& diagnostics) const;
-    void restore_runtime_state(const SaveDocument& save, std::vector<SessionDiagnostic>& diagnostics);
+    [[nodiscard]] std::optional<EntityRef>
+    resolve_startup_entrypoint(const ProjectDocument& project, const SaveDocument& save,
+                               std::vector<SessionDiagnostic>& diagnostics) const;
+    void restore_runtime_state(const SaveDocument& save,
+                               std::vector<SessionDiagnostic>& diagnostics);
     void emit_command(SessionCommand command);
 
     std::optional<ProjectModel> m_project;

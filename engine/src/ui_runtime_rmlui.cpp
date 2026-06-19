@@ -47,12 +47,24 @@ std::string escape_rml(std::string_view value)
     escaped.reserve(value.size());
     for (const char ch : value) {
         switch (ch) {
-        case '&': escaped += "&amp;"; break;
-        case '<': escaped += "&lt;"; break;
-        case '>': escaped += "&gt;"; break;
-        case '"': escaped += "&quot;"; break;
-        case '\'': escaped += "&#39;"; break;
-        default: escaped.push_back(ch); break;
+        case '&':
+            escaped += "&amp;";
+            break;
+        case '<':
+            escaped += "&lt;";
+            break;
+        case '>':
+            escaped += "&gt;";
+            break;
+        case '"':
+            escaped += "&quot;";
+            break;
+        case '\'':
+            escaped += "&#39;";
+            break;
+        default:
+            escaped.push_back(ch);
+            break;
         }
     }
     return escaped;
@@ -64,22 +76,28 @@ std::string paragraph_rml(const std::string& text)
     std::size_t start = 0;
     while (start <= text.size()) {
         const std::size_t end = text.find('\n', start);
-        const auto line = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        const auto line =
+            text.substr(start, end == std::string::npos ? std::string::npos : end - start);
         if (!line.empty()) {
             out << "<p>" << escape_rml(line) << "</p>";
         }
-        if (end == std::string::npos) break;
+        if (end == std::string::npos)
+            break;
         start = end + 1;
     }
     return out.str();
 }
-}
+} // namespace
 
 struct RuntimeUI::State {
 #if defined(NOVELTEA_HAS_RMLUI)
     struct CallbackListener final : Rml::EventListener {
         explicit CallbackListener(std::function<void()> cb) : callback(std::move(cb)) {}
-        void ProcessEvent(Rml::Event&) override { if (callback) callback(); }
+        void ProcessEvent(Rml::Event&) override
+        {
+            if (callback)
+                callback();
+        }
         std::function<void()> callback;
     };
     struct RuntimeControllerListener final : Rml::EventListener {
@@ -115,9 +133,11 @@ struct RuntimeUI::State {
 #if defined(NOVELTEA_HAS_RMLUI)
 void RuntimeUI::State::RuntimeControllerListener::ProcessEvent(Rml::Event& event)
 {
-    if (!owner.runtime_controller) return;
+    if (!owner.runtime_controller)
+        return;
     Rml::Element* target = event.GetTargetElement();
-    if (!target) return;
+    if (!target)
+        return;
 
     if (target->HasAttribute("nt-option")) {
         const int index = target->GetAttribute<int>("nt-option", -1);
@@ -139,7 +159,8 @@ void RuntimeUI::State::RuntimeControllerListener::ProcessEvent(Rml::Event& event
     } else if (target->HasAttribute("nt-object")) {
         const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
         if (!object_id.empty()) {
-            auto it = std::find(owner.selected_action_objects.begin(), owner.selected_action_objects.end(), object_id);
+            auto it = std::find(owner.selected_action_objects.begin(),
+                                owner.selected_action_objects.end(), object_id);
             if (it == owner.selected_action_objects.end()) {
                 owner.selected_action_objects.push_back(object_id);
             } else {
@@ -161,7 +182,8 @@ RuntimeUI::~RuntimeUI() { shutdown(); }
 
 void RuntimeUI::cleanup_state()
 {
-    if (!m_state) return;
+    if (!m_state)
+        return;
     if (m_state->context) {
         m_state->context->UnloadAllDocuments();
         Rml::RemoveContext("main");
@@ -188,13 +210,11 @@ void RuntimeUI::cleanup_state()
     m_state = nullptr;
 }
 
-bool RuntimeUI::initialize(
-    const assets::AssetManager* assets,
-    SDL_Window* window,
-    bool load_demo_document,
-    script::ScriptRuntime* scripts)
+bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window,
+                           bool load_demo_document, script::ScriptRuntime* scripts)
 {
-    if (m_initialized) return true;
+    if (m_initialized)
+        return true;
 
 #if defined(NOVELTEA_HAS_RMLUI) && defined(NOVELTEA_HAS_BGFX)
     if (!assets) {
@@ -220,7 +240,8 @@ bool RuntimeUI::initialize(
     m_state->rml_initialized = true;
 
 #if defined(NOVELTEA_HAS_RMLUI_LUA)
-    if (!scripts || !scripts->is_initialized() || !script::detail::ScriptRuntimeAccess::state(*scripts)) {
+    if (!scripts || !scripts->is_initialized() ||
+        !script::detail::ScriptRuntimeAccess::state(*scripts)) {
         std::fprintf(stderr, "[runtime_ui] RmlUi Lua requested but ScriptRuntime is unavailable\n");
         cleanup_state();
         return false;
@@ -239,7 +260,9 @@ bool RuntimeUI::initialize(
         return false;
     }
 
-    m_state->context = Rml::CreateContext("main", Rml::Vector2i(m_surface.logical_width, m_surface.logical_height), m_state->render_interface);
+    m_state->context =
+        Rml::CreateContext("main", Rml::Vector2i(m_surface.logical_width, m_surface.logical_height),
+                           m_state->render_interface);
     if (!m_state->context) {
         std::fprintf(stderr, "[runtime_ui] RmlUi::CreateContext failed\n");
         cleanup_state();
@@ -265,12 +288,8 @@ bool RuntimeUI::initialize(
     load_document("runtime_game", kRuntimeGameUiDocumentAsset, false);
 
     std::printf("[runtime_ui] RmlUi initialized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
-        m_surface.logical_width,
-        m_surface.logical_height,
-        m_surface.framebuffer_width,
-        m_surface.framebuffer_height,
-        m_surface.scale_x,
-        m_surface.scale_y);
+                m_surface.logical_width, m_surface.logical_height, m_surface.framebuffer_width,
+                m_surface.framebuffer_height, m_surface.scale_x, m_surface.scale_y);
 #elif defined(NOVELTEA_HAS_RMLUI)
     std::fprintf(stderr, "[runtime_ui] RmlUi enabled but bgfx backend unavailable\n");
     return false;
@@ -287,7 +306,8 @@ bool RuntimeUI::process_event(const SDL_Event& event)
     m_last_event_consumed = false;
 #if defined(NOVELTEA_HAS_RMLUI)
     if (m_state && m_state->context) {
-        m_last_event_consumed = ui::rmlui::process_sdl_event(*m_state->context, m_state->window, event);
+        m_last_event_consumed =
+            ui::rmlui::process_sdl_event(*m_state->context, m_state->window, event);
         return m_last_event_consumed;
     }
 #else
@@ -301,7 +321,8 @@ void RuntimeUI::resize(const SurfaceMetrics& surface)
     m_surface = sanitize_surface_metrics(surface);
 #if defined(NOVELTEA_HAS_RMLUI)
     if (m_state && m_state->context) {
-        m_state->context->SetDimensions(Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
+        m_state->context->SetDimensions(
+            Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
         m_state->context->SetDensityIndependentPixelRatio(m_surface.scale_x);
 #if defined(NOVELTEA_HAS_BGFX)
         if (m_state->render_interface) {
@@ -318,7 +339,8 @@ void RuntimeUI::begin_frame(float delta_time)
 #if defined(NOVELTEA_HAS_RMLUI)
     if (m_state && m_state->context) {
 #if defined(NOVELTEA_HAS_BGFX)
-        if (m_state->render_interface) m_state->render_interface->begin_frame();
+        if (m_state->render_interface)
+            m_state->render_interface->begin_frame();
 #endif
         m_state->context->Update();
     }
@@ -331,7 +353,8 @@ void RuntimeUI::end_frame()
     if (m_state && m_state->context) {
         m_state->context->Render();
 #if defined(NOVELTEA_HAS_BGFX)
-        if (m_state->render_interface) m_state->render_interface->end_frame();
+        if (m_state->render_interface)
+            m_state->render_interface->end_frame();
 #endif
     }
 #endif
@@ -339,7 +362,8 @@ void RuntimeUI::end_frame()
 
 void RuntimeUI::shutdown()
 {
-    if (!m_initialized) return;
+    if (!m_initialized)
+        return;
 #if defined(NOVELTEA_HAS_RMLUI)
     if (m_state) {
         cleanup_state();
@@ -351,15 +375,20 @@ void RuntimeUI::shutdown()
 bool RuntimeUI::load_document(const std::string& id, const std::string& path, bool show)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state || !m_state->context || id.empty()) return false;
+    if (!m_state || !m_state->context || id.empty())
+        return false;
     unload_document(id);
     Rml::ElementDocument* doc = m_state->context->LoadDocument(path);
-    if (!doc) return false;
+    if (!doc)
+        return false;
     m_state->documents[id] = doc;
-    if (show) doc->Show();
+    if (show)
+        doc->Show();
     return true;
 #else
-    (void)id; (void)path; (void)show;
+    (void)id;
+    (void)path;
+    (void)show;
     return false;
 #endif
 }
@@ -367,19 +396,24 @@ bool RuntimeUI::load_document(const std::string& id, const std::string& path, bo
 bool RuntimeUI::unload_document(const std::string& id)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state || id.empty()) return false;
+    if (!m_state || id.empty())
+        return false;
     auto it = m_state->documents.find(id);
-    if (it == m_state->documents.end()) return false;
+    if (it == m_state->documents.end())
+        return false;
     for (auto listener = m_state->listeners.begin(); listener != m_state->listeners.end();) {
-        if (listener->second.element && listener->second.element->GetOwnerDocument() == it->second) {
-            listener->second.element->RemoveEventListener(listener->second.event, listener->second.listener.get());
+        if (listener->second.element &&
+            listener->second.element->GetOwnerDocument() == it->second) {
+            listener->second.element->RemoveEventListener(listener->second.event,
+                                                          listener->second.listener.get());
             listener = m_state->listeners.erase(listener);
         } else {
             ++listener;
         }
     }
     it->second->Close();
-    if (it->second == m_state->demo_document) m_state->demo_document = nullptr;
+    if (it->second == m_state->demo_document)
+        m_state->demo_document = nullptr;
     m_state->documents.erase(it);
     return true;
 #else
@@ -417,7 +451,8 @@ bool RuntimeUI::hide_document(const std::string& id)
 void* RuntimeUI::document(const std::string& id) const
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state) return nullptr;
+    if (!m_state)
+        return nullptr;
     auto it = m_state->documents.find(id);
     return it == m_state->documents.end() ? nullptr : it->second;
 #else
@@ -432,7 +467,8 @@ void* RuntimeUI::element(const std::string& document_id, const std::string& elem
     auto* doc = static_cast<Rml::ElementDocument*>(document(document_id));
     return doc ? doc->GetElementById(element_id) : nullptr;
 #else
-    (void)document_id; (void)element_id;
+    (void)document_id;
+    (void)element_id;
     return nullptr;
 #endif
 }
@@ -440,7 +476,8 @@ void* RuntimeUI::element(const std::string& document_id, const std::string& elem
 bool RuntimeUI::reload_documents_and_styles()
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state || !m_state->context) return false;
+    if (!m_state || !m_state->context)
+        return false;
     m_state->listeners.clear();
     m_state->context->UnloadAllDocuments();
     m_state->documents.clear();
@@ -465,10 +502,12 @@ void RuntimeUI::set_density(float density)
 void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerCommand>& commands)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state) return;
+    if (!m_state)
+        return;
     m_state->runtime_view.apply(commands);
     auto* doc = static_cast<Rml::ElementDocument*>(document("runtime_game"));
-    if (!doc) return;
+    if (!doc)
+        return;
     const auto& view = m_state->runtime_view.state();
 
     if (auto* mode = doc->GetElementById("rt_mode")) {
@@ -498,9 +537,11 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
         for (std::size_t i = 0; i < view.dialogue_options.size(); ++i) {
             const auto& option = view.dialogue_options[i];
             out << "<button class=\"option";
-            if (!option.enabled) out << " disabled";
+            if (!option.enabled)
+                out << " disabled";
             out << "\" nt-option=\"" << i << "\"";
-            if (!option.enabled) out << " disabled";
+            if (!option.enabled)
+                out << " disabled";
             out << ">" << escape_rml(option.text) << "</button>";
         }
         options->SetInnerRML(out.str());
@@ -508,7 +549,8 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
     if (auto* nav = doc->GetElementById("rt_navigation")) {
         std::ostringstream out;
         for (std::size_t i = 0; i < view.navigation.size(); ++i) {
-            out << "<button class=\"nav\" nt-nav=\"" << i << "\">" << escape_rml(view.navigation[i]) << "</button>";
+            out << "<button class=\"nav\" nt-nav=\"" << i << "\">" << escape_rml(view.navigation[i])
+                << "</button>";
         }
         nav->SetInnerRML(out.str());
     }
@@ -517,7 +559,8 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
         for (const auto& object : view.objects) {
             out << "<button class=\"object\" nt-object=\"" << escape_rml(object.id) << "\">"
                 << escape_rml(object.name);
-            if (object.in_inventory && !object.in_room) out << " (inventory)";
+            if (object.in_inventory && !object.in_room)
+                out << " (inventory)";
             out << "</button>";
         }
         objects->SetInnerRML(out.str());
@@ -527,7 +570,8 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
         for (const auto& action : view.actions) {
             out << "<button class=\"action\" nt-action=\"" << escape_rml(action.verb_id) << "\">"
                 << escape_rml(action.label);
-            if (action.object_count > 0) out << " (" << action.object_count << ")";
+            if (action.object_count > 0)
+                out << " (" << action.object_count << ")";
             out << "</button>";
         }
         actions->SetInnerRML(out.str());
@@ -549,7 +593,8 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
 const core::RuntimeUIViewState& RuntimeUI::runtime_view_state() const
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (m_state) return m_state->runtime_view.state();
+    if (m_state)
+        return m_state->runtime_view.state();
 #endif
     static const core::RuntimeUIViewState empty;
     return empty;
@@ -558,12 +603,15 @@ const core::RuntimeUIViewState& RuntimeUI::runtime_view_state() const
 void RuntimeUI::bind_runtime_controller(core::RuntimeController* controller)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state) return;
+    if (!m_state)
+        return;
     m_state->runtime_controller = controller;
     auto* doc = static_cast<Rml::ElementDocument*>(document("runtime_game"));
-    if (!doc) return;
+    if (!doc)
+        return;
     if (!m_state->runtime_controller_listener) {
-        m_state->runtime_controller_listener = std::make_unique<State::RuntimeControllerListener>(*m_state);
+        m_state->runtime_controller_listener =
+            std::make_unique<State::RuntimeControllerListener>(*m_state);
         doc->AddEventListener("click", m_state->runtime_controller_listener.get());
     }
 #else
@@ -571,28 +619,32 @@ void RuntimeUI::bind_runtime_controller(core::RuntimeController* controller)
 #endif
 }
 
-std::uintptr_t RuntimeUI::add_event_listener(
-    const std::string& document_id,
-    const std::string& element_id,
-    const std::string& event,
-    std::function<void()> callback)
+std::uintptr_t RuntimeUI::add_event_listener(const std::string& document_id,
+                                             const std::string& element_id,
+                                             const std::string& event,
+                                             std::function<void()> callback)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state || event.empty() || !callback) return 0;
+    if (!m_state || event.empty() || !callback)
+        return 0;
     Rml::Element* target = nullptr;
     if (element_id.empty()) {
         target = static_cast<Rml::ElementDocument*>(document(document_id));
     } else {
         target = static_cast<Rml::Element*>(element(document_id, element_id));
     }
-    if (!target) return 0;
+    if (!target)
+        return 0;
     auto listener = std::make_unique<State::CallbackListener>(std::move(callback));
     const std::uintptr_t id = m_state->next_listener_id++;
     target->AddEventListener(event, listener.get());
     m_state->listeners.emplace(id, State::ListenerRecord{target, event, std::move(listener)});
     return id;
 #else
-    (void)document_id; (void)element_id; (void)event; (void)callback;
+    (void)document_id;
+    (void)element_id;
+    (void)event;
+    (void)callback;
     return 0;
 #endif
 }
@@ -600,9 +652,11 @@ std::uintptr_t RuntimeUI::add_event_listener(
 bool RuntimeUI::remove_event_listener(std::uintptr_t listener_id)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state) return false;
+    if (!m_state)
+        return false;
     auto it = m_state->listeners.find(listener_id);
-    if (it == m_state->listeners.end()) return false;
+    if (it == m_state->listeners.end())
+        return false;
     if (it->second.element) {
         it->second.element->RemoveEventListener(it->second.event, it->second.listener.get());
     }
@@ -617,8 +671,10 @@ bool RuntimeUI::remove_event_listener(std::uintptr_t listener_id)
 void* RuntimeUI::create_data_model(const std::string& name)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state || !m_state->context || name.empty()) return nullptr;
-    auto model = std::make_unique<Rml::DataModelConstructor>(m_state->context->CreateDataModel(name));
+    if (!m_state || !m_state->context || name.empty())
+        return nullptr;
+    auto model =
+        std::make_unique<Rml::DataModelConstructor>(m_state->context->CreateDataModel(name));
     void* result = model.get();
     m_state->data_models[name] = std::move(model);
     return result;
@@ -631,7 +687,8 @@ void* RuntimeUI::create_data_model(const std::string& name)
 void* RuntimeUI::data_model(const std::string& name) const
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state) return nullptr;
+    if (!m_state)
+        return nullptr;
     auto it = m_state->data_models.find(name);
     return it == m_state->data_models.end() ? nullptr : it->second.get();
 #else
@@ -643,7 +700,8 @@ void* RuntimeUI::data_model(const std::string& name) const
 bool RuntimeUI::remove_data_model(const std::string& name)
 {
 #if defined(NOVELTEA_HAS_RMLUI)
-    if (!m_state || !m_state->context) return false;
+    if (!m_state || !m_state->context)
+        return false;
     const bool removed = m_state->context->RemoveDataModel(name);
     m_state->data_models.erase(name);
     return removed;
@@ -673,10 +731,7 @@ const char* RuntimeUI::status_text() const
 #endif
 }
 
-bool RuntimeUI::wants_input() const
-{
-    return wants_pointer_input() || wants_keyboard_input();
-}
+bool RuntimeUI::wants_input() const { return wants_pointer_input() || wants_keyboard_input(); }
 
 bool RuntimeUI::wants_pointer_input() const
 {

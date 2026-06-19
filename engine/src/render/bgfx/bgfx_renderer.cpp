@@ -23,19 +23,18 @@ using namespace bgfx_backend;
 // Vertex / index data for a colored triangle
 // ---------------------------------------------------------------------------
 
-struct PosColorVertex
-{
+struct PosColorVertex {
     float x, y;
     float r, g, b, a;
 };
 
 static PosColorVertex s_triangle_vertices[3] = {
-    {  0.0f, -42.0f, 1.0f, 0.0f, 0.0f, 1.0f }, // top - red
-    { -48.0f,  42.0f, 0.0f, 1.0f, 0.0f, 1.0f }, // bottom-left - green
-    {  48.0f,  42.0f, 0.0f, 0.0f, 1.0f, 1.0f }, // bottom-right - blue
+    {0.0f, -42.0f, 1.0f, 0.0f, 0.0f, 1.0f},  // top - red
+    {-48.0f, 42.0f, 0.0f, 1.0f, 0.0f, 1.0f}, // bottom-left - green
+    {48.0f, 42.0f, 0.0f, 0.0f, 1.0f, 1.0f},  // bottom-right - blue
 };
 
-static const uint16_t s_triangle_indices[3] = { 0, 1, 2 };
+static const uint16_t s_triangle_indices[3] = {0, 1, 2};
 
 static void make_ortho(float* out, float width, float height)
 {
@@ -50,9 +49,11 @@ static void make_ortho(float* out, float width, float height)
 
 class RendererCallback final : public bgfx::CallbackI {
 public:
-    void fatal(const char* file_path, uint16_t line, bgfx::Fatal::Enum code, const char* message) override
+    void fatal(const char* file_path, uint16_t line, bgfx::Fatal::Enum code,
+               const char* message) override
     {
-        std::fprintf(stderr, "[bgfx] fatal %s:%u: %s\n", file_path ? file_path : "<unknown>", line, message ? message : "");
+        std::fprintf(stderr, "[bgfx] fatal %s:%u: %s\n", file_path ? file_path : "<unknown>", line,
+                     message ? message : "");
         if (code != bgfx::Fatal::DebugCheck) {
             std::abort();
         }
@@ -66,19 +67,14 @@ public:
     bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
     void cacheWrite(uint64_t, const void*, uint32_t) override {}
 
-    void screenShot(
-        const char* file_path,
-        uint32_t width,
-        uint32_t height,
-        uint32_t pitch,
+    void screenShot(const char* file_path, uint32_t width, uint32_t height, uint32_t pitch,
 #if BGFX_API_VERSION >= 143
-        bgfx::TextureFormat::Enum,
+                    bgfx::TextureFormat::Enum,
 #endif
-        const void* data,
-        uint32_t size,
-        bool yflip) override
+                    const void* data, uint32_t size, bool yflip) override
     {
-        if (!file_path || !data || width == 0 || height == 0 || pitch < width * 4u || size < pitch * height) {
+        if (!file_path || !data || width == 0 || height == 0 || pitch < width * 4u ||
+            size < pitch * height) {
             std::fprintf(stderr, "[renderer] invalid screenshot callback payload\n");
             return;
         }
@@ -103,7 +99,8 @@ public:
                 const uint8_t b = row[x * 4u + 0u];
                 const uint8_t g = row[x * 4u + 1u];
                 const uint8_t r = row[x * 4u + 2u];
-                const char rgb[3] = {static_cast<char>(r), static_cast<char>(g), static_cast<char>(b)};
+                const char rgb[3] = {static_cast<char>(r), static_cast<char>(g),
+                                     static_cast<char>(b)};
                 file.write(rgb, sizeof(rgb));
             }
         }
@@ -125,7 +122,8 @@ Renderer::~Renderer() { shutdown(); }
 
 bool Renderer::initialize(const RendererConfig& config)
 {
-    if (m_initialized) return true;
+    if (m_initialized)
+        return true;
 
     if (!config.native_window) {
         std::fprintf(stderr, "[renderer] no native window provided\n");
@@ -161,63 +159,58 @@ bool Renderer::initialize(const RendererConfig& config)
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x4040c0ff, 1.0f, 0);
-    bgfx::setViewRect(ViewGame2D, 0, 0,
-        static_cast<uint16_t>(m_surface.framebuffer_width),
-        static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::setViewRect(ViewGame2D, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
+                      static_cast<uint16_t>(m_surface.framebuffer_height));
 
     create_triangle();
     create_2d();
     create_text();
 
     SDL_Log("[renderer] bgfx initialized: %s logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
-        renderer_name(),
-        m_surface.logical_width,
-        m_surface.logical_height,
-        m_surface.framebuffer_width,
-        m_surface.framebuffer_height,
-        m_surface.scale_x,
-        m_surface.scale_y);
+            renderer_name(), m_surface.logical_width, m_surface.logical_height,
+            m_surface.framebuffer_width, m_surface.framebuffer_height, m_surface.scale_x,
+            m_surface.scale_y);
     return true;
 }
 
 void Renderer::begin_frame()
 {
     bgfx::setViewClear(ViewGame2D, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff, 1.0f, 0);
-    bgfx::setViewRect(ViewGame2D, 0, 0,
-        static_cast<uint16_t>(m_surface.framebuffer_width),
-        static_cast<uint16_t>(m_surface.framebuffer_height));
-    bgfx::setViewRect(ViewTextLab, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width), static_cast<uint16_t>(m_surface.framebuffer_height));
-    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width), static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::setViewRect(ViewGame2D, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
+                      static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::setViewRect(ViewTextLab, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
+                      static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
+                      static_cast<uint16_t>(m_surface.framebuffer_height));
 
     float ortho[16];
-    make_ortho(ortho, static_cast<float>(m_surface.logical_width), static_cast<float>(m_surface.logical_height));
+    make_ortho(ortho, static_cast<float>(m_surface.logical_width),
+               static_cast<float>(m_surface.logical_height));
     bgfx::setViewTransform(ViewGame2D, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::dbgTextClear();
     bgfx::touch(ViewGame2D);
-
 }
 
 void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position)
 {
-    if (!m_initialized || m_surface.logical_width <= 0 || m_surface.logical_height <= 0) return;
+    if (!m_initialized || m_surface.logical_width <= 0 || m_surface.logical_height <= 0)
+        return;
 
-    if (bgfx::isValid(bgfx::VertexBufferHandle{m_triangle_vb})
-        && bgfx::isValid(bgfx::IndexBufferHandle{m_triangle_ib})
-        && bgfx::isValid(bgfx::ProgramHandle{m_triangle_program}))
-    {
+    if (bgfx::isValid(bgfx::VertexBufferHandle{m_triangle_vb}) &&
+        bgfx::isValid(bgfx::IndexBufferHandle{m_triangle_ib}) &&
+        bgfx::isValid(bgfx::ProgramHandle{m_triangle_program})) {
         constexpr float half_width = 48.0f;
         constexpr float half_height = 42.0f;
         const float usable_width = static_cast<float>(m_surface.logical_width) - half_width * 2.0f;
-        const float usable_height = static_cast<float>(m_surface.logical_height) - half_height * 2.0f;
+        const float usable_height =
+            static_cast<float>(m_surface.logical_height) - half_height * 2.0f;
         const float x = half_width + position.x * (usable_width > 0.0f ? usable_width : 0.0f);
         const float y = half_height + position.y * (usable_height > 0.0f ? usable_height : 0.0f);
         const float transform[16] = {
-            1.0f, 0.0f, 0.0f, 0.0f,
-            0.0f, 1.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 1.0f, 0.0f,
-            x, y, 0.0f, 1.0f,
+            1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f, x,    y,    0.0f, 1.0f,
         };
         bgfx::setTransform(transform);
         bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{m_triangle_vb});
@@ -235,32 +228,23 @@ void Renderer::end_frame()
     bgfx::frame();
 }
 
-void Renderer::request_screenshot(const std::string& path)
-{
-    m_pending_screenshot = path;
-}
+void Renderer::request_screenshot(const std::string& path) { m_pending_screenshot = path; }
 
 void Renderer::resize(const SurfaceMetrics& surface)
 {
-    if (!m_initialized) return;
+    if (!m_initialized)
+        return;
 
     m_surface = sanitize_surface_metrics(surface);
 
-    bgfx::reset(
-        static_cast<uint32_t>(m_surface.framebuffer_width),
-        static_cast<uint32_t>(m_surface.framebuffer_height),
-        m_vsync ? BGFX_RESET_VSYNC : 0
-    );
-    bgfx::setViewRect(0, 0, 0,
-        static_cast<uint16_t>(m_surface.framebuffer_width),
-        static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::reset(static_cast<uint32_t>(m_surface.framebuffer_width),
+                static_cast<uint32_t>(m_surface.framebuffer_height),
+                m_vsync ? BGFX_RESET_VSYNC : 0);
+    bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
+                      static_cast<uint16_t>(m_surface.framebuffer_height));
     SDL_Log("[renderer] resized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
-        m_surface.logical_width,
-        m_surface.logical_height,
-        m_surface.framebuffer_width,
-        m_surface.framebuffer_height,
-        m_surface.scale_x,
-        m_surface.scale_y);
+            m_surface.logical_width, m_surface.logical_height, m_surface.framebuffer_width,
+            m_surface.framebuffer_height, m_surface.scale_x, m_surface.scale_y);
     resize_text();
 }
 
@@ -278,13 +262,15 @@ void Renderer::shutdown()
 
 const char* Renderer::renderer_name() const
 {
-    if (!m_initialized) return "uninitialized";
+    if (!m_initialized)
+        return "uninitialized";
     return bgfx::getRendererName(bgfx::getRendererType());
 }
 
 void Renderer::debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* fmt, ...)
 {
-    if (!m_initialized) return;
+    if (!m_initialized)
+        return;
     char buf[256];
     va_list args;
     va_start(args, fmt);
@@ -320,13 +306,11 @@ void Renderer::create_triangle()
         .end();
 
     m_triangle_vb = bgfx::createVertexBuffer(
-        bgfx::makeRef(s_triangle_vertices, sizeof(s_triangle_vertices)),
-        layout
-    ).idx;
+                        bgfx::makeRef(s_triangle_vertices, sizeof(s_triangle_vertices)), layout)
+                        .idx;
 
-    m_triangle_ib = bgfx::createIndexBuffer(
-        bgfx::makeRef(s_triangle_indices, sizeof(s_triangle_indices))
-    ).idx;
+    m_triangle_ib =
+        bgfx::createIndexBuffer(bgfx::makeRef(s_triangle_indices, sizeof(s_triangle_indices))).idx;
 
     SDL_Log("[renderer] triangle resources created");
 }

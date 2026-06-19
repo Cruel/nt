@@ -22,7 +22,8 @@ TEST_CASE("Rich text parser preserves old BBCode style semantics")
 
 TEST_CASE("Rich text parser handles object shorthand page breaks offsets and animation")
 {
-    auto doc = parse_rich_text("[[key|object-id]] [x=4][y=-2]nudge[p=1.5][a1 e=p cs=0 t=1 wait=1]pop[/a1]");
+    auto doc = parse_rich_text(
+        "[[key|object-id]] [x=4][y=-2]nudge[p=1.5][a1 e=p cs=0 t=1 wait=1]pop[/a1]");
 
     REQUIRE(doc.plain_text == "key nudgepop");
     REQUIRE(doc.page_breaks.size() == 1);

@@ -29,45 +29,54 @@ ProjectDocument make_model_project()
     auto& root = project.root();
 
     root[project_ids::object] = nlohmann::json::object({
-        {"thing", nlohmann::json::array({"thing", "", props({{"weight", 2}, {"name", "base"}}), "Thing", false})},
+        {"thing", nlohmann::json::array(
+                      {"thing", "", props({{"weight", 2}, {"name", "base"}}), "Thing", false})},
         {"lamp", nlohmann::json::array({"lamp", "thing", props({{"name", "lamp"}}), "Lamp", true})},
     });
     root[project_ids::verb] = nlohmann::json::object({
-        {"take", nlohmann::json::array({"take", "", props(), "Take", 1, "return false;", "return true;",
-                                         nlohmann::json::array({"take", ""})})},
+        {"take", nlohmann::json::array({"take", "", props(), "Take", 1, "return false;",
+                                        "return true;", nlohmann::json::array({"take", ""})})},
     });
     root[project_ids::action] = nlohmann::json::object({
-        {"take_lamp", nlohmann::json::array({"take_lamp", "", props(), "take", "setProp('taken', true);",
-                                             nlohmann::json::array({"lamp"}), true})},
+        {"take_lamp",
+         nlohmann::json::array({"take_lamp", "", props(), "take", "setProp('taken', true);",
+                                nlohmann::json::array({"lamp"}), true})},
     });
     root[project_ids::room] = nlohmann::json::object({
-        {"foyer", nlohmann::json::array({"foyer", "", props({{"lit", false}}), "text='Foyer';", "beforeEnter();",
-                                         "afterEnter();", "beforeLeave();", "afterLeave();",
-                                         nlohmann::json::array({nlohmann::json::array({"lamp", true})}),
-                                         nlohmann::json::array({nlohmann::json::array({true, ref(EntityType::Room, "foyer")})}),
-                                         "Foyer"})},
+        {"foyer", nlohmann::json::array(
+                      {"foyer", "", props({{"lit", false}}), "text='Foyer';", "beforeEnter();",
+                       "afterEnter();", "beforeLeave();", "afterLeave();",
+                       nlohmann::json::array({nlohmann::json::array({"lamp", true})}),
+                       nlohmann::json::array(
+                           {nlohmann::json::array({true, ref(EntityType::Room, "foyer")})}),
+                       "Foyer"})},
     });
     root[project_ids::map] = nlohmann::json::object({
-        {"main", nlohmann::json::array({"main", "", props(), "roomDefault();", "pathDefault();",
-                                        nlohmann::json::array({nlohmann::json::array(
-                                            {"Foyer", 0, 0, 10, 10, nlohmann::json::array({"foyer"}), "visible();", 1})}),
-                                        nlohmann::json::array({nlohmann::json::array({0, 0, 0, 0, 1, 1, "path();", 0})})})},
+        {"main",
+         nlohmann::json::array(
+             {"main", "", props(), "roomDefault();", "pathDefault();",
+              nlohmann::json::array({nlohmann::json::array(
+                  {"Foyer", 0, 0, 10, 10, nlohmann::json::array({"foyer"}), "visible();", 1})}),
+              nlohmann::json::array({nlohmann::json::array({0, 0, 0, 0, 1, 1, "path();", 0})})})},
     });
     root[project_ids::dialogue] = nlohmann::json::object({
-        {"intro_dialogue", nlohmann::json::array({"intro_dialogue", "", props(), "Guide", ref(EntityType::Room, "foyer"),
-                                                  0, false, true, 1,
-                                                  nlohmann::json::array({nlohmann::json::array(
-                                                      {0, -1, false, false, false, false, false, true, "", "", "",
-                                                       nlohmann::json::array({1})}),
-                                                                         nlohmann::json::array(
-                                                                             {1, -1, true, false, true, true, false,
-                                                                              true, "return true;", "script();", "Hello",
-                                                                              nlohmann::json::array()})})})},
+        {"intro_dialogue",
+         nlohmann::json::array(
+             {"intro_dialogue", "", props(), "Guide", ref(EntityType::Room, "foyer"), 0, false,
+              true, 1,
+              nlohmann::json::array(
+                  {nlohmann::json::array({0, -1, false, false, false, false, false, true, "", "",
+                                          "", nlohmann::json::array({1})}),
+                   nlohmann::json::array({1, -1, true, false, true, true, false, true,
+                                          "return true;", "script();", "Hello",
+                                          nlohmann::json::array()})})})},
     });
     root[project_ids::cutscene] = nlohmann::json::object({
-        {"intro", nlohmann::json::array({"intro", "", props(), true, false, 1.5, ref(EntityType::Dialogue, "intro_dialogue"),
-                                         nlohmann::json::array({nlohmann::json::array(
-                                             {0, false, "", 0, 1000, 100, 0, 0, true, true, "Hello"})})})},
+        {"intro",
+         nlohmann::json::array({"intro", "", props(), true, false, 1.5,
+                                ref(EntityType::Dialogue, "intro_dialogue"),
+                                nlohmann::json::array({nlohmann::json::array(
+                                    {0, false, "", 0, 1000, 100, 0, 0, true, true, "Hello"})})})},
     });
     root[project_ids::script] = nlohmann::json::object({
         {"boot", nlohmann::json::array({"boot", "", props(), true, "boot();"})},
@@ -104,7 +113,7 @@ TEST_CASE("ProjectModel materializes typed entity stores from validated document
 
     const auto& action = model->actions().at("take_lamp");
     CHECK(action.verb_id == "take");
-    CHECK(action.object_ids == std::vector<std::string> {"lamp"});
+    CHECK(action.object_ids == std::vector<std::string>{"lamp"});
     CHECK(action.position_dependent);
 }
 
@@ -124,7 +133,7 @@ TEST_CASE("ProjectModel owns nested room map dialogue and cutscene values")
 
     const auto& map = model->maps().at("main");
     REQUIRE(map.rooms.size() == 1);
-    CHECK(map.rooms[0].room_ids == std::vector<std::string> {"foyer"});
+    CHECK(map.rooms[0].room_ids == std::vector<std::string>{"foyer"});
     REQUIRE(map.connections.size() == 1);
     CHECK(map.connections[0].script == "path();");
 

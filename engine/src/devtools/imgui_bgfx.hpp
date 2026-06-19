@@ -6,7 +6,9 @@ struct ImDrawData;
 
 namespace noveltea {
 
-namespace assets { class AssetManager; }
+namespace assets {
+class AssetManager;
+}
 
 class ImGuiBgfxRenderer {
 public:

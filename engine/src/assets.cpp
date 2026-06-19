@@ -7,15 +7,9 @@
 
 namespace noveltea {
 
-AssetPath::AssetPath(std::filesystem::path root)
-    : m_root(std::move(root))
-{
-}
+AssetPath::AssetPath(std::filesystem::path root) : m_root(std::move(root)) {}
 
-void AssetPath::set_root(std::filesystem::path root)
-{
-    m_root = std::move(root);
-}
+void AssetPath::set_root(std::filesystem::path root) { m_root = std::move(root); }
 
 std::filesystem::path AssetPath::resolve(const std::filesystem::path& relative) const
 {
@@ -43,7 +37,8 @@ std::optional<std::vector<std::uint8_t>> read_binary_file(const std::filesystem:
 {
     SDL_IOStream* in = SDL_IOFromFile(path.string().c_str(), "rb");
     if (!in) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] failed to open %s", path.string().c_str());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] failed to open %s",
+                     path.string().c_str());
         return std::nullopt;
     }
 
@@ -58,7 +53,8 @@ std::optional<std::vector<std::uint8_t>> read_binary_file(const std::filesystem:
     if (!bytes.empty()) {
         const size_t read = SDL_ReadIO(in, bytes.data(), bytes.size());
         if (read != bytes.size()) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] incomplete read for %s", path.string().c_str());
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] incomplete read for %s",
+                         path.string().c_str());
             SDL_CloseIO(in);
             return std::nullopt;
         }

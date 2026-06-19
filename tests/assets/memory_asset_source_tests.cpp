@@ -9,12 +9,12 @@ using namespace noveltea::assets;
 TEST_CASE("MemoryAssetSource reads and opens independent cursors")
 {
     MemoryAssetSource source;
-    AssetBytes original {'a', 'b', 'c'};
+    AssetBytes original{'a', 'b', 'c'};
     source.add("project:/data.bin", std::move(original));
 
     auto blob = source.read_binary(*AssetPath::parse("project:/data.bin"));
     REQUIRE(blob);
-    CHECK(blob.value->bytes == AssetBytes {'a', 'b', 'c'});
+    CHECK(blob.value->bytes == AssetBytes{'a', 'b', 'c'});
 
     auto a = source.open(*AssetPath::parse("project:/data.bin"));
     auto b = source.open(*AssetPath::parse("project:/data.bin"));

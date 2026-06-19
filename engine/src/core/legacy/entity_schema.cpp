@@ -23,18 +23,20 @@ std::string child_path(std::string_view path, std::string_view suffix)
 
 void add_error(std::vector<SchemaError>& errors, std::string_view path, std::string message)
 {
-    errors.push_back(SchemaError {std::string(path), std::move(message)});
+    errors.push_back(SchemaError{std::string(path), std::move(message)});
 }
 
-bool expect_array(const json& value, std::size_t size, std::vector<SchemaError>& errors, std::string_view path)
+bool expect_array(const json& value, std::size_t size, std::vector<SchemaError>& errors,
+                  std::string_view path)
 {
     if (!value.is_array()) {
         add_error(errors, path, "expected array record");
         return false;
     }
     if (value.size() != size) {
-        add_error(errors, path, "expected array record with " + std::to_string(size) + " fields, found " +
-                                    std::to_string(value.size()));
+        add_error(errors, path,
+                  "expected array record with " + std::to_string(size) + " fields, found " +
+                      std::to_string(value.size()));
         return false;
     }
     return true;
@@ -58,7 +60,8 @@ bool expect_bool(const json& value, std::vector<SchemaError>& errors, std::strin
     return false;
 }
 
-bool expect_number_integer(const json& value, std::vector<SchemaError>& errors, std::string_view path)
+bool expect_number_integer(const json& value, std::vector<SchemaError>& errors,
+                           std::string_view path)
 {
     if (value.is_number_integer()) {
         return true;
@@ -85,8 +88,8 @@ bool expect_object(const json& value, std::vector<SchemaError>& errors, std::str
     return false;
 }
 
-bool expect_string_array(const json& value, std::vector<std::string>& out, std::vector<SchemaError>& errors,
-                         std::string_view path)
+bool expect_string_array(const json& value, std::vector<std::string>& out,
+                         std::vector<SchemaError>& errors, std::string_view path)
 {
     if (!value.is_array()) {
         add_error(errors, path, "expected string array");
@@ -121,7 +124,8 @@ bool expect_int_array(const json& value, std::vector<int>& out, std::vector<Sche
     return ok;
 }
 
-std::optional<EntityHeader> parse_header(const json& record, std::vector<SchemaError>& errors, std::string_view path)
+std::optional<EntityHeader> parse_header(const json& record, std::vector<SchemaError>& errors,
+                                         std::string_view path)
 {
     bool ok = true;
     ok = expect_string(record[0], errors, child_path(path, "[0]")) && ok;
@@ -130,11 +134,11 @@ std::optional<EntityHeader> parse_header(const json& record, std::vector<SchemaE
     if (!ok) {
         return std::nullopt;
     }
-    return EntityHeader {record[0].get<std::string>(), record[1].get<std::string>(), &record[2]};
+    return EntityHeader{record[0].get<std::string>(), record[1].get<std::string>(), &record[2]};
 }
 
-bool expect_entity_ref_or_inline_script(const json& value, std::optional<EntityRef>& out, std::vector<SchemaError>& errors,
-                                        std::string_view path)
+bool expect_entity_ref_or_inline_script(const json& value, std::optional<EntityRef>& out,
+                                        std::vector<SchemaError>& errors, std::string_view path)
 {
     auto parsed = EntityRef::from_json(value);
     if (!parsed.has_value()) {
@@ -145,8 +149,8 @@ bool expect_entity_ref_or_inline_script(const json& value, std::optional<EntityR
     return true;
 }
 
-std::optional<DialogueSegmentView> parse_dialogue_segment(const json& record, std::vector<SchemaError>& errors,
-                                                          std::string_view path)
+std::optional<DialogueSegmentView>
+parse_dialogue_segment(const json& record, std::vector<SchemaError>& errors, std::string_view path)
 {
     if (!expect_array(record, 12, errors, path)) {
         return std::nullopt;
@@ -155,11 +159,13 @@ std::optional<DialogueSegmentView> parse_dialogue_segment(const json& record, st
     ok = expect_number_integer(record[0], errors, child_path(path, "[0]")) && ok;
     ok = expect_number_integer(record[1], errors, child_path(path, "[1]")) && ok;
     for (int i = 2; i <= 7; ++i) {
-        ok = expect_bool(record[static_cast<std::size_t>(i)], errors, child_path(path, "[" + std::to_string(i) + "]")) &&
+        ok = expect_bool(record[static_cast<std::size_t>(i)], errors,
+                         child_path(path, "[" + std::to_string(i) + "]")) &&
              ok;
     }
     for (int i = 8; i <= 10; ++i) {
-        ok = expect_string(record[static_cast<std::size_t>(i)], errors, child_path(path, "[" + std::to_string(i) + "]")) &&
+        ok = expect_string(record[static_cast<std::size_t>(i)], errors,
+                           child_path(path, "[" + std::to_string(i) + "]")) &&
              ok;
     }
     DialogueSegmentView view;
@@ -181,7 +187,8 @@ std::optional<DialogueSegmentView> parse_dialogue_segment(const json& record, st
     return view;
 }
 
-bool validate_cutscene_segment(const json& record, std::vector<SchemaError>& errors, std::string_view path)
+bool validate_cutscene_segment(const json& record, std::vector<SchemaError>& errors,
+                               std::string_view path)
 {
     if (!record.is_array() || record.empty()) {
         add_error(errors, path, "expected non-empty cutscene segment array");
@@ -202,14 +209,16 @@ bool validate_cutscene_segment(const json& record, std::vector<SchemaError>& err
     case 3:
         return expect_array(record, 6, errors, path);
     default:
-        add_error(errors, child_path(path, "[0]"), "unknown cutscene segment type " + std::to_string(type));
+        add_error(errors, child_path(path, "[0]"),
+                  "unknown cutscene segment type " + std::to_string(type));
         return false;
     }
 }
 
 } // namespace
 
-std::optional<EntityView> parse_entity_record(EntityType type, const json& record, std::vector<SchemaError>& errors,
+std::optional<EntityView> parse_entity_record(EntityType type, const json& record,
+                                              std::vector<SchemaError>& errors,
                                               std::string_view path)
 {
     EntityView entity;
@@ -231,7 +240,7 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         if (!ok) {
             return std::nullopt;
         }
-        entity.object = ObjectView {*header, record[3].get<std::string>(), record[4].get<bool>()};
+        entity.object = ObjectView{*header, record[3].get<std::string>(), record[4].get<bool>()};
         return entity;
     }
     case EntityType::Script: {
@@ -242,7 +251,7 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         if (!ok) {
             return std::nullopt;
         }
-        entity.script = ScriptView {*header, record[3].get<bool>(), record[4].get<std::string>()};
+        entity.script = ScriptView{*header, record[3].get<bool>(), record[4].get<std::string>()};
         return entity;
     }
     case EntityType::Action: {
@@ -271,7 +280,9 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         ok = expect_number_integer(record[4], errors, child_path(path, "[4]")) && ok;
         ok = expect_string(record[5], errors, child_path(path, "[5]")) && ok;
         ok = expect_string(record[6], errors, child_path(path, "[6]")) && ok;
-        ok = expect_string_array(record[7], view.action_structure, errors, child_path(path, "[7]")) && ok;
+        ok = expect_string_array(record[7], view.action_structure, errors,
+                                 child_path(path, "[7]")) &&
+             ok;
         if (!ok) {
             return std::nullopt;
         }
@@ -288,7 +299,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         bool ok = header.has_value();
         RoomView view;
         for (int i = 3; i <= 7; ++i) {
-            ok = expect_string(record[static_cast<std::size_t>(i)], errors, child_path(path, "[" + std::to_string(i) + "]")) &&
+            ok = expect_string(record[static_cast<std::size_t>(i)], errors,
+                               child_path(path, "[" + std::to_string(i) + "]")) &&
                  ok;
         }
         if (!record[8].is_array()) {
@@ -302,7 +314,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
                 item_ok = item_ok && expect_string(item[0], errors, child_path(item_path, "[0]"));
                 item_ok = item_ok && expect_bool(item[1], errors, child_path(item_path, "[1]"));
                 if (item_ok) {
-                    view.objects.push_back(RoomObjectView {item[0].get<std::string>(), item[1].get<bool>()});
+                    view.objects.push_back(
+                        RoomObjectView{item[0].get<std::string>(), item[1].get<bool>()});
                 }
                 ok = item_ok && ok;
             }
@@ -343,13 +356,17 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
                 bool item_ok = expect_array(item, 8, errors, item_path);
                 item_ok = item_ok && expect_string(item[0], errors, child_path(item_path, "[0]"));
                 for (int field = 1; field <= 4; ++field) {
-                    item_ok = expect_number_integer(item[static_cast<std::size_t>(field)], errors,
-                                                    child_path(item_path, "[" + std::to_string(field) + "]")) &&
+                    item_ok = expect_number_integer(
+                                  item[static_cast<std::size_t>(field)], errors,
+                                  child_path(item_path, "[" + std::to_string(field) + "]")) &&
                               item_ok;
                 }
-                item_ok = expect_string_array(item[5], room.room_ids, errors, child_path(item_path, "[5]")) && item_ok;
+                item_ok = expect_string_array(item[5], room.room_ids, errors,
+                                              child_path(item_path, "[5]")) &&
+                          item_ok;
                 item_ok = expect_string(item[6], errors, child_path(item_path, "[6]")) && item_ok;
-                item_ok = expect_number_integer(item[7], errors, child_path(item_path, "[7]")) && item_ok;
+                item_ok =
+                    expect_number_integer(item[7], errors, child_path(item_path, "[7]")) && item_ok;
                 if (item_ok) {
                     room.name = item[0].get<std::string>();
                     room.left = item[1].get<int>();
@@ -372,17 +389,19 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
                 const auto& item = record[6][i];
                 bool item_ok = expect_array(item, 8, errors, item_path);
                 for (int field = 0; field <= 5; ++field) {
-                    item_ok = expect_number_integer(item[static_cast<std::size_t>(field)], errors,
-                                                    child_path(item_path, "[" + std::to_string(field) + "]")) &&
+                    item_ok = expect_number_integer(
+                                  item[static_cast<std::size_t>(field)], errors,
+                                  child_path(item_path, "[" + std::to_string(field) + "]")) &&
                               item_ok;
                 }
                 item_ok = expect_string(item[6], errors, child_path(item_path, "[6]")) && item_ok;
-                item_ok = expect_number_integer(item[7], errors, child_path(item_path, "[7]")) && item_ok;
+                item_ok =
+                    expect_number_integer(item[7], errors, child_path(item_path, "[7]")) && item_ok;
                 if (item_ok) {
-                    view.connections.push_back(MapConnectionView {item[0].get<int>(), item[1].get<int>(),
-                                                                  item[2].get<int>(), item[3].get<int>(),
-                                                                  item[4].get<int>(), item[5].get<int>(),
-                                                                  item[6].get<std::string>(), item[7].get<int>()});
+                    view.connections.push_back(MapConnectionView{
+                        item[0].get<int>(), item[1].get<int>(), item[2].get<int>(),
+                        item[3].get<int>(), item[4].get<int>(), item[5].get<int>(),
+                        item[6].get<std::string>(), item[7].get<int>()});
                 }
                 ok = item_ok && ok;
             }
@@ -401,7 +420,9 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         bool ok = header.has_value();
         DialogueView view;
         ok = expect_string(record[3], errors, child_path(path, "[3]")) && ok;
-        ok = expect_entity_ref_or_inline_script(record[4], view.next_entity, errors, child_path(path, "[4]")) && ok;
+        ok = expect_entity_ref_or_inline_script(record[4], view.next_entity, errors,
+                                                child_path(path, "[4]")) &&
+             ok;
         ok = expect_number_integer(record[5], errors, child_path(path, "[5]")) && ok;
         ok = expect_bool(record[6], errors, child_path(path, "[6]")) && ok;
         ok = expect_bool(record[7], errors, child_path(path, "[7]")) && ok;
@@ -411,7 +432,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             ok = false;
         } else {
             for (std::size_t i = 0; i < record[9].size(); ++i) {
-                auto segment = parse_dialogue_segment(record[9][i], errors, child_path(path, "[9][" + std::to_string(i) + "]"));
+                auto segment = parse_dialogue_segment(
+                    record[9][i], errors, child_path(path, "[9][" + std::to_string(i) + "]"));
                 if (segment.has_value()) {
                     view.segments.push_back(std::move(*segment));
                 } else {
@@ -438,7 +460,9 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         ok = expect_bool(record[3], errors, child_path(path, "[3]")) && ok;
         ok = expect_bool(record[4], errors, child_path(path, "[4]")) && ok;
         ok = expect_number(record[5], errors, child_path(path, "[5]")) && ok;
-        ok = expect_entity_ref_or_inline_script(record[6], view.next_entity, errors, child_path(path, "[6]")) && ok;
+        ok = expect_entity_ref_or_inline_script(record[6], view.next_entity, errors,
+                                                child_path(path, "[6]")) &&
+             ok;
         if (!record[7].is_array()) {
             add_error(errors, child_path(path, "[7]"), "expected cutscene segment array");
             ok = false;
@@ -446,7 +470,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             for (std::size_t i = 0; i < record[7].size(); ++i) {
                 const auto segment_path = child_path(path, "[7][" + std::to_string(i) + "]");
                 if (validate_cutscene_segment(record[7][i], errors, segment_path)) {
-                    view.segments.push_back(CutsceneSegmentView {record[7][i][0].get<int>(), &record[7][i]});
+                    view.segments.push_back(
+                        CutsceneSegmentView{record[7][i][0].get<int>(), &record[7][i]});
                 } else {
                     ok = false;
                 }
@@ -496,7 +521,8 @@ const EntityHeader* header_for(const EntityView& entity)
     return nullptr;
 }
 
-std::vector<EntityView> parse_project_entities(EntityType type, const json& collection, std::vector<SchemaError>& errors,
+std::vector<EntityView> parse_project_entities(EntityType type, const json& collection,
+                                               std::vector<SchemaError>& errors,
                                                std::string_view path)
 {
     std::vector<EntityView> out;

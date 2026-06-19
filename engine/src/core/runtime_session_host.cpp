@@ -31,7 +31,8 @@ void RuntimeSessionHost::reset()
 
 void RuntimeSessionHost::tick(double delta_seconds)
 {
-    if (!m_controller) return;
+    if (!m_controller)
+        return;
     m_controller->tick(delta_seconds);
     consume_commands(m_controller->take_commands());
 }
@@ -43,7 +44,8 @@ std::string_view RuntimeSessionHost::current_mode_name() const noexcept
 
 bool RuntimeSessionHost::navigate_path(int direction)
 {
-    if (!m_controller || current_mode_name() != std::string_view("room")) return false;
+    if (!m_controller || current_mode_name() != std::string_view("room"))
+        return false;
     m_controller->navigate_path(direction);
     consume_commands(m_controller->take_commands());
     return true;
@@ -51,7 +53,8 @@ bool RuntimeSessionHost::navigate_path(int direction)
 
 bool RuntimeSessionHost::select_dialogue_option(int option_index)
 {
-    if (!m_controller || current_mode_name() != std::string_view("dialogue")) return false;
+    if (!m_controller || current_mode_name() != std::string_view("dialogue"))
+        return false;
     const bool selected = m_controller->dialogue_select_option(option_index);
     consume_commands(m_controller->take_commands());
     return selected;
@@ -59,7 +62,8 @@ bool RuntimeSessionHost::select_dialogue_option(int option_index)
 
 bool RuntimeSessionHost::continue_active()
 {
-    if (!m_controller) return false;
+    if (!m_controller)
+        return false;
     const auto mode = current_mode_name();
     if (mode == std::string_view("dialogue")) {
         m_controller->dialogue_continue();
@@ -72,9 +76,11 @@ bool RuntimeSessionHost::continue_active()
     return true;
 }
 
-bool RuntimeSessionHost::process_action(const std::string& verb_id, const std::vector<std::string>& object_ids)
+bool RuntimeSessionHost::process_action(const std::string& verb_id,
+                                        const std::vector<std::string>& object_ids)
 {
-    if (!m_controller) return false;
+    if (!m_controller)
+        return false;
     const bool processed = m_controller->process_action(verb_id, object_ids);
     consume_commands(m_controller->take_commands());
     return processed;
@@ -93,7 +99,8 @@ void RuntimeSessionHost::consume_commands(std::vector<ControllerCommand> command
                     auto object_it = project->objects().find(room_object.object_id);
                     RuntimeUIObject object;
                     object.id = room_object.object_id;
-                    object.name = object_it != project->objects().end() ? object_it->second.name : room_object.object_id;
+                    object.name = object_it != project->objects().end() ? object_it->second.name
+                                                                        : room_object.object_id;
                     object.in_room = true;
                     objects.push_back(std::move(object));
                 }
@@ -103,18 +110,21 @@ void RuntimeSessionHost::consume_commands(std::vector<ControllerCommand> command
             if (auto inv_it = root.find(std::string(project_ids::starting_inventory));
                 inv_it != root.end() && inv_it->is_array()) {
                 for (const auto& item : *inv_it) {
-                    if (!item.is_string()) continue;
+                    if (!item.is_string())
+                        continue;
                     const auto id = item.get<std::string>();
                     auto object_it = project->objects().find(id);
-                    if (auto existing = std::find_if(objects.begin(), objects.end(), [&](const RuntimeUIObject& object) {
-                            return object.id == id;
-                        }); existing != objects.end()) {
+                    if (auto existing = std::find_if(
+                            objects.begin(), objects.end(),
+                            [&](const RuntimeUIObject& object) { return object.id == id; });
+                        existing != objects.end()) {
                         existing->in_inventory = true;
                         continue;
                     }
                     RuntimeUIObject object;
                     object.id = id;
-                    object.name = object_it != project->objects().end() ? object_it->second.name : id;
+                    object.name =
+                        object_it != project->objects().end() ? object_it->second.name : id;
                     object.in_inventory = true;
                     objects.push_back(std::move(object));
                 }

@@ -29,8 +29,7 @@ struct Rect {
 
     [[nodiscard]] bool contains(Vec2 point) const
     {
-        return point.x >= x && point.y >= y
-            && point.x <= x + width && point.y <= y + height;
+        return point.x >= x && point.y >= y && point.x <= x + width && point.y <= y + height;
     }
 };
 
@@ -61,10 +60,8 @@ struct Transform2D {
         const float c = std::cos(rotation_radians);
         const float s = std::sin(rotation_radians);
         return {
-            c * scale.x, s * scale.x, 0.0f, 0.0f,
-            -s * scale.y, c * scale.y, 0.0f, 0.0f,
-            0.0f, 0.0f, 1.0f, 0.0f,
-            position.x, position.y, 0.0f, 1.0f,
+            c * scale.x, s * scale.x, 0.0f, 0.0f, -s * scale.y, c * scale.y, 0.0f, 0.0f,
+            0.0f,        0.0f,        1.0f, 0.0f, position.x,   position.y,  0.0f, 1.0f,
         };
     }
 };
@@ -78,16 +75,17 @@ struct Viewport {
 
 [[nodiscard]] inline float clamp01(float value)
 {
-    if (value < 0.0f) return 0.0f;
-    if (value > 1.0f) return 1.0f;
+    if (value < 0.0f)
+        return 0.0f;
+    if (value > 1.0f)
+        return 1.0f;
     return value;
 }
 
 [[nodiscard]] inline bool point_in_triangle(Vec2 point, Vec2 a, Vec2 b, Vec2 c)
 {
     const auto sign = [](Vec2 p1, Vec2 p2, Vec2 p3) {
-        return (p1.x - p3.x) * (p2.y - p3.y)
-            - (p2.x - p3.x) * (p1.y - p3.y);
+        return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
     };
 
     const float d1 = sign(point, a, b);

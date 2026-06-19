@@ -6,28 +6,20 @@
 namespace noveltea {
 namespace {
 
-[[nodiscard]] int positive_dimension(int value)
-{
-    return std::max(value, 1);
-}
+[[nodiscard]] int positive_dimension(int value) { return std::max(value, 1); }
 
 [[nodiscard]] float derived_scale(int framebuffer, int logical)
 {
-    return static_cast<float>(positive_dimension(framebuffer)) / static_cast<float>(positive_dimension(logical));
+    return static_cast<float>(positive_dimension(framebuffer)) /
+           static_cast<float>(positive_dimension(logical));
 }
 
-[[nodiscard]] bool valid_scale(float value)
-{
-    return std::isfinite(value) && value > 0.0f;
-}
+[[nodiscard]] bool valid_scale(float value) { return std::isfinite(value) && value > 0.0f; }
 
 } // namespace
 
-SurfaceMetrics make_surface_metrics(
-    int logical_width,
-    int logical_height,
-    int framebuffer_width,
-    int framebuffer_height)
+SurfaceMetrics make_surface_metrics(int logical_width, int logical_height, int framebuffer_width,
+                                    int framebuffer_height)
 {
     return sanitize_surface_metrics({
         logical_width,
@@ -79,23 +71,23 @@ float proportional_y(const SurfaceMetrics& surface, float fraction)
     return static_cast<float>(sanitize_surface_metrics(surface).logical_height) * fraction;
 }
 
-float clamp_logical(float value, float min, float max)
-{
-    return std::clamp(value, min, max);
-}
+float clamp_logical(float value, float min, float max) { return std::clamp(value, min, max); }
 
 float title_font_size(const SurfaceMetrics& surface)
 {
     const SurfaceMetrics s = sanitize_surface_metrics(surface);
-    const float title_box_height = clamp_logical(static_cast<float>(s.logical_height) * 0.15f, 72.0f, 150.0f);
+    const float title_box_height =
+        clamp_logical(static_cast<float>(s.logical_height) * 0.15f, 72.0f, 150.0f);
     return clamp_logical(title_box_height * 0.55f, 28.0f, 72.0f);
 }
 
 Rect anchored_rect(const SurfaceMetrics& surface, Vec2 anchor, Size size, Vec2 pivot)
 {
     const SurfaceMetrics s = sanitize_surface_metrics(surface);
-    const Vec2 point{static_cast<float>(s.logical_width) * anchor.x, static_cast<float>(s.logical_height) * anchor.y};
-    return {point.x - size.width * pivot.x, point.y - size.height * pivot.y, size.width, size.height};
+    const Vec2 point{static_cast<float>(s.logical_width) * anchor.x,
+                     static_cast<float>(s.logical_height) * anchor.y};
+    return {point.x - size.width * pivot.x, point.y - size.height * pivot.y, size.width,
+            size.height};
 }
 
 } // namespace noveltea

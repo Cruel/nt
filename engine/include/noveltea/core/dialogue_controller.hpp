@@ -38,15 +38,18 @@ public:
     [[nodiscard]] const std::string& current_dialogue_id() const noexcept { return m_dialogue_id; }
     [[nodiscard]] const std::string& current_text_name() const noexcept { return m_current_name; }
     [[nodiscard]] const std::string& current_text_body() const noexcept { return m_current_text; }
-    [[nodiscard]] const std::vector<DialogueOptionInfo>& options() const noexcept { return m_options; }
+    [[nodiscard]] const std::vector<DialogueOptionInfo>& options() const noexcept
+    {
+        return m_options;
+    }
 
     [[nodiscard]] std::vector<ControllerCommand> take_commands();
     void reset();
 
-    static std::vector<std::pair<std::string, std::string>> get_text_multiline(
-        const std::string& text_raw, const std::string& default_name);
-    static std::pair<std::string, std::string> get_line_pair(
-        const std::string& line, const std::string& default_name);
+    static std::vector<std::pair<std::string, std::string>>
+    get_text_multiline(const std::string& text_raw, const std::string& default_name);
+    static std::pair<std::string, std::string> get_line_pair(const std::string& line,
+                                                             const std::string& default_name);
     static std::vector<std::string> get_option_multiline(const std::string& text_raw);
 
     // Save/restore for checkpoint save slots

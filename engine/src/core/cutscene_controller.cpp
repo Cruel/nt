@@ -9,10 +9,7 @@
 
 namespace noveltea::core {
 
-CutsceneController::CutsceneController(GameSession& session)
-    : m_session(&session)
-{
-}
+CutsceneController::CutsceneController(GameSession& session) : m_session(&session) {}
 
 void CutsceneController::start(const std::string& cutscene_id)
 {
@@ -121,10 +118,7 @@ void CutsceneController::expand_timeline()
     for (const auto& seg : m_cutscene->segments) {
         if (seg.type == 2) {
             auto expanded = expand_page_segment(seg);
-            m_expanded_segments.insert(
-                m_expanded_segments.end(),
-                expanded.begin(),
-                expanded.end());
+            m_expanded_segments.insert(m_expanded_segments.end(), expanded.begin(), expanded.end());
         } else {
             m_expanded_segments.push_back(seg);
         }
@@ -213,7 +207,8 @@ CutsceneController::expand_page_segment(const CutsceneSegmentModel& page_seg)
             result.push_back(std::move(break_seg));
         }
 
-        auto texts = [](const std::string& page, const std::string& delim) -> std::vector<std::string> {
+        auto texts = [](const std::string& page,
+                        const std::string& delim) -> std::vector<std::string> {
             std::vector<std::string> lines;
             std::string remaining = page;
             size_t pos = 0;
@@ -351,10 +346,18 @@ bool CutsceneController::passes_condition(const CutsceneSegmentModel& seg)
     int condition_index = -1;
 
     switch (seg.type) {
-    case 4: condition_index = 15; break; // Page
-    case 3: condition_index = 6; break;  // Script
-    case 1: condition_index = 6; break;  // PageBreak
-    case 0: condition_index = 10; break; // Text
+    case 4:
+        condition_index = 15;
+        break; // Page
+    case 3:
+        condition_index = 6;
+        break; // Script
+    case 1:
+        condition_index = 6;
+        break; // PageBreak
+    case 0:
+        condition_index = 10;
+        break; // Text
     }
 
     if (condition_index >= 0 && condition_index < static_cast<int>(rec.size()))
@@ -408,8 +411,8 @@ void CutsceneController::restore_state(const nlohmann::json& state)
     }
 }
 
-void CutsceneController::emit_script_deferred(
-    const std::string& script, const std::string& context_desc)
+void CutsceneController::emit_script_deferred(const std::string& script,
+                                              const std::string& context_desc)
 {
     emit_command(ControllerCommand{
         ControllerCommandType::ScriptDeferred,

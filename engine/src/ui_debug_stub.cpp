@@ -16,27 +16,14 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
     return true;
 }
 
-void DebugUI::process_event(const SDL_Event& event)
-{
-    (void)event;
-}
+void DebugUI::process_event(const SDL_Event& event) { (void)event; }
 
-void DebugUI::begin_frame(const SurfaceMetrics& surface)
-{
-    (void)surface;
-}
+void DebugUI::begin_frame(const SurfaceMetrics& surface) { (void)surface; }
 
-void DebugUI::end_frame()
-{
-}
+void DebugUI::end_frame() {}
 
-void DebugUI::shutdown()
-{
-}
+void DebugUI::shutdown() {}
 
-void DebugUI::log_printf(const char* fmt, ...)
-{
-    (void)fmt;
-}
+void DebugUI::log_printf(const char* fmt, ...) { (void)fmt; }
 
 } // namespace noveltea

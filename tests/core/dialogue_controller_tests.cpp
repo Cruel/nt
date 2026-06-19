@@ -11,10 +11,7 @@ using namespace noveltea::core;
 
 namespace {
 
-nlohmann::json props()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json props() { return nlohmann::json::object(); }
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -30,10 +27,13 @@ ProjectDocument make_test_dialogue_project()
     root[project_ids::action] = nlohmann::json::object();
 
     auto roomStart = nlohmann::json::array();
-    roomStart.push_back("start"); roomStart.push_back("");
+    roomStart.push_back("start");
+    roomStart.push_back("");
     roomStart.push_back(props());
     roomStart.push_back("text='A starting room.';");
-    roomStart.push_back(""); roomStart.push_back(""); roomStart.push_back("");
+    roomStart.push_back("");
+    roomStart.push_back("");
+    roomStart.push_back("");
     roomStart.push_back("");
     roomStart.push_back(nlohmann::json::array());
     roomStart.push_back(nlohmann::json::array());
@@ -50,34 +50,65 @@ ProjectDocument make_test_dialogue_project()
     // segments: index 0=Root, 1=Text(Greeting), 2=Option(Ask name), 3=Text(Reply)
 
     auto seg0 = nlohmann::json::array();
-    seg0.push_back(0); seg0.push_back(-1); seg0.push_back(false);
-    seg0.push_back(false); seg0.push_back(false); seg0.push_back(false);
-    seg0.push_back(false); seg0.push_back(false);
-    seg0.push_back(""); seg0.push_back(""); seg0.push_back("");
-    auto ch1 = nlohmann::json::array(); ch1.push_back(1);
+    seg0.push_back(0);
+    seg0.push_back(-1);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back(false);
+    seg0.push_back("");
+    seg0.push_back("");
+    seg0.push_back("");
+    auto ch1 = nlohmann::json::array();
+    ch1.push_back(1);
     seg0.push_back(ch1);
 
     auto seg1 = nlohmann::json::array();
-    seg1.push_back(1); seg1.push_back(-1); seg1.push_back(false);
-    seg1.push_back(false); seg1.push_back(false); seg1.push_back(false);
-    seg1.push_back(false); seg1.push_back(false);
-    seg1.push_back(""); seg1.push_back(""); seg1.push_back("[Greeter]Hello, traveler!");
-    auto ch2 = nlohmann::json::array(); ch2.push_back(2);
+    seg1.push_back(1);
+    seg1.push_back(-1);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back(false);
+    seg1.push_back("");
+    seg1.push_back("");
+    seg1.push_back("[Greeter]Hello, traveler!");
+    auto ch2 = nlohmann::json::array();
+    ch2.push_back(2);
     seg1.push_back(ch2);
 
     auto seg2 = nlohmann::json::array();
-    seg2.push_back(2); seg2.push_back(-1); seg2.push_back(false);
-    seg2.push_back(false); seg2.push_back(false); seg2.push_back(false);
-    seg2.push_back(false); seg2.push_back(false);
-    seg2.push_back(""); seg2.push_back(""); seg2.push_back("Who are you?\nNice to meet you!");
-    auto ch3 = nlohmann::json::array(); ch3.push_back(3);
+    seg2.push_back(2);
+    seg2.push_back(-1);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back(false);
+    seg2.push_back("");
+    seg2.push_back("");
+    seg2.push_back("Who are you?\nNice to meet you!");
+    auto ch3 = nlohmann::json::array();
+    ch3.push_back(3);
     seg2.push_back(ch3);
 
     auto seg3 = nlohmann::json::array();
-    seg3.push_back(1); seg3.push_back(-1); seg3.push_back(false);
-    seg3.push_back(false); seg3.push_back(false); seg3.push_back(false);
-    seg3.push_back(false); seg3.push_back(false);
-    seg3.push_back(""); seg3.push_back(""); seg3.push_back("[Greeter]I am the guardian of this place.");
+    seg3.push_back(1);
+    seg3.push_back(-1);
+    seg3.push_back(false);
+    seg3.push_back(false);
+    seg3.push_back(false);
+    seg3.push_back(false);
+    seg3.push_back(false);
+    seg3.push_back(false);
+    seg3.push_back("");
+    seg3.push_back("");
+    seg3.push_back("[Greeter]I am the guardian of this place.");
     seg3.push_back(nlohmann::json::array());
 
     auto segments = nlohmann::json::array();
@@ -86,7 +117,8 @@ ProjectDocument make_test_dialogue_project()
     segments.push_back(seg2);
     segments.push_back(seg3);
 
-    // Flat array format: [id, parent_id, properties, default_name, next_entity, root_index, enable_disabled, show_disabled, log_mode, segments]
+    // Flat array format: [id, parent_id, properties, default_name, next_entity, root_index,
+    // enable_disabled, show_disabled, log_mode, segments]
     auto dialogueEntry = nlohmann::json::array();
     dialogueEntry.push_back("conversation");
     dialogueEntry.push_back("");

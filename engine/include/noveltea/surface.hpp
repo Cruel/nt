@@ -13,11 +13,8 @@ struct SurfaceMetrics {
     float scale_y = 1.0f;
 };
 
-[[nodiscard]] SurfaceMetrics make_surface_metrics(
-    int logical_width,
-    int logical_height,
-    int framebuffer_width,
-    int framebuffer_height);
+[[nodiscard]] SurfaceMetrics make_surface_metrics(int logical_width, int logical_height,
+                                                  int framebuffer_width, int framebuffer_height);
 
 [[nodiscard]] SurfaceMetrics sanitize_surface_metrics(SurfaceMetrics metrics);
 
@@ -28,6 +25,7 @@ struct SurfaceMetrics {
 [[nodiscard]] float proportional_y(const SurfaceMetrics& surface, float fraction);
 [[nodiscard]] float clamp_logical(float value, float min, float max);
 [[nodiscard]] float title_font_size(const SurfaceMetrics& surface);
-[[nodiscard]] Rect anchored_rect(const SurfaceMetrics& surface, Vec2 anchor, Size size, Vec2 pivot = {0.5f, 0.5f});
+[[nodiscard]] Rect anchored_rect(const SurfaceMetrics& surface, Vec2 anchor, Size size,
+                                 Vec2 pivot = {0.5f, 0.5f});
 
 } // namespace noveltea

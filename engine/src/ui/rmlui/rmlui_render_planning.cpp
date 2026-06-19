@@ -16,10 +16,7 @@ std::array<FullscreenVertex, 3> fullscreen_triangle(bool origin_bottom_left)
     }};
 }
 
-void LayerPoolPlan::begin_frame()
-{
-    m_next_temporary = 1;
-}
+void LayerPoolPlan::begin_frame() { m_next_temporary = 1; }
 
 uint32_t LayerPoolPlan::push()
 {
@@ -54,7 +51,8 @@ static uint32_t postprocess_index(PostprocessTargetKind target)
 void PostprocessPoolPlan::mark_allocated(PostprocessTargetKind target)
 {
     const uint32_t index = postprocess_index(target);
-    if (index >= TargetCount) return;
+    if (index >= TargetCount)
+        return;
     if (!m_allocated[index]) {
         m_allocated[index] = true;
         ++m_allocation_count;
@@ -75,8 +73,10 @@ bool PostprocessPoolPlan::allocated(PostprocessTargetKind target) const
 
 StencilPlan choose_stencil_plan(bool d24s8_supported, bool d0s8_supported)
 {
-    if (d24s8_supported) return StencilPlan::D24S8;
-    if (d0s8_supported) return StencilPlan::D0S8;
+    if (d24s8_supported)
+        return StencilPlan::D24S8;
+    if (d0s8_supported)
+        return StencilPlan::D0S8;
     return StencilPlan::Unsupported;
 }
 
@@ -129,13 +129,7 @@ GaussianKernel gaussian_kernel(float sigma)
     return kernel;
 }
 
-static std::array<float, 16> identity()
-{
-    return {1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            0, 0, 0, 1};
-}
+static std::array<float, 16> identity() { return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; }
 
 static FilterRecord color_matrix(std::array<float, 16> matrix)
 {
@@ -192,14 +186,26 @@ FilterRecord make_invert_filter(float value)
 FilterRecord make_grayscale_filter(float value)
 {
     const float rev = 1.0f - value;
-    const std::array<float, 3> r {0.2126f, 0.7152f, 0.0722f};
-    const std::array<float, 3> g {0.2126f, 0.7152f, 0.0722f};
-    const std::array<float, 3> b {0.2126f, 0.7152f, 0.0722f};
+    const std::array<float, 3> r{0.2126f, 0.7152f, 0.0722f};
+    const std::array<float, 3> g{0.2126f, 0.7152f, 0.0722f};
+    const std::array<float, 3> b{0.2126f, 0.7152f, 0.0722f};
     return color_matrix({
-        r[0] * value + rev, r[1] * value,       r[2] * value,       0,
-        g[0] * value,       g[1] * value + rev, g[2] * value,       0,
-        b[0] * value,       b[1] * value,       b[2] * value + rev, 0,
-        0,                  0,                  0,                  1,
+        r[0] * value + rev,
+        r[1] * value,
+        r[2] * value,
+        0,
+        g[0] * value,
+        g[1] * value + rev,
+        g[2] * value,
+        0,
+        b[0] * value,
+        b[1] * value,
+        b[2] * value + rev,
+        0,
+        0,
+        0,
+        0,
+        1,
     });
 }
 
@@ -207,10 +213,22 @@ FilterRecord make_sepia_filter(float value)
 {
     const float rev = 1.0f - value;
     return color_matrix({
-        0.393f * value + rev, 0.769f * value,       0.189f * value,       0,
-        0.349f * value,       0.686f * value + rev, 0.168f * value,       0,
-        0.272f * value,       0.534f * value,       0.131f * value + rev, 0,
-        0,                    0,                    0,                    1,
+        0.393f * value + rev,
+        0.769f * value,
+        0.189f * value,
+        0,
+        0.349f * value,
+        0.686f * value + rev,
+        0.168f * value,
+        0,
+        0.272f * value,
+        0.534f * value,
+        0.131f * value + rev,
+        0,
+        0,
+        0,
+        0,
+        1,
     });
 }
 
@@ -219,20 +237,44 @@ FilterRecord make_hue_rotate_filter(float radians)
     const float s = std::sin(radians);
     const float c = std::cos(radians);
     return color_matrix({
-        0.213f + 0.787f * c - 0.213f * s, 0.715f - 0.715f * c - 0.715f * s, 0.072f - 0.072f * c + 0.928f * s, 0,
-        0.213f - 0.213f * c + 0.143f * s, 0.715f + 0.285f * c + 0.140f * s, 0.072f - 0.072f * c - 0.283f * s, 0,
-        0.213f - 0.213f * c - 0.787f * s, 0.715f - 0.715f * c + 0.715f * s, 0.072f + 0.928f * c + 0.072f * s, 0,
-        0,                                  0,                                  0,                                  1,
+        0.213f + 0.787f * c - 0.213f * s,
+        0.715f - 0.715f * c - 0.715f * s,
+        0.072f - 0.072f * c + 0.928f * s,
+        0,
+        0.213f - 0.213f * c + 0.143f * s,
+        0.715f + 0.285f * c + 0.140f * s,
+        0.072f - 0.072f * c - 0.283f * s,
+        0,
+        0.213f - 0.213f * c - 0.787f * s,
+        0.715f - 0.715f * c + 0.715f * s,
+        0.072f + 0.928f * c + 0.072f * s,
+        0,
+        0,
+        0,
+        0,
+        1,
     });
 }
 
 FilterRecord make_saturate_filter(float value)
 {
     return color_matrix({
-        0.213f + 0.787f * value, 0.715f - 0.715f * value, 0.072f - 0.072f * value, 0,
-        0.213f - 0.213f * value, 0.715f + 0.285f * value, 0.072f - 0.072f * value, 0,
-        0.213f - 0.213f * value, 0.715f - 0.715f * value, 0.072f + 0.928f * value, 0,
-        0,                         0,                         0,                         1,
+        0.213f + 0.787f * value,
+        0.715f - 0.715f * value,
+        0.072f - 0.072f * value,
+        0,
+        0.213f - 0.213f * value,
+        0.715f + 0.285f * value,
+        0.072f - 0.072f * value,
+        0,
+        0.213f - 0.213f * value,
+        0.715f - 0.715f * value,
+        0.072f + 0.928f * value,
+        0,
+        0,
+        0,
+        0,
+        1,
     });
 }
 
@@ -247,9 +289,6 @@ std::array<float, 4> apply_color_matrix(const std::array<float, 16>& m, std::arr
     };
 }
 
-GradientRecord make_invalid_gradient()
-{
-    return {};
-}
+GradientRecord make_invalid_gradient() { return {}; }
 
 } // namespace noveltea::ui::rmlui

@@ -8,15 +8,12 @@
 namespace noveltea::core {
 namespace {
 
-std::string key(std::string_view value)
-{
-    return std::string(value);
-}
+std::string key(std::string_view value) { return std::string(value); }
 
 EntityMetadata metadata_from(EntityType type, const legacy::EntityHeader& header)
 {
     EntityMetadata out;
-    out.entity = EntityId {type, header.id};
+    out.entity = EntityId{type, header.id};
     out.parent_id = header.parent_id;
     if (header.properties != nullptr && header.properties->is_object()) {
         out.properties = *header.properties;
@@ -24,25 +21,28 @@ EntityMetadata metadata_from(EntityType type, const legacy::EntityHeader& header
     return out;
 }
 
-void append_schema_issues(const std::vector<legacy::SchemaError>& schema_errors, std::vector<ValidationIssue>& issues)
+void append_schema_issues(const std::vector<legacy::SchemaError>& schema_errors,
+                          std::vector<ValidationIssue>& issues)
 {
     for (const auto& error : schema_errors) {
-        issues.push_back(ValidationIssue {error.path, error.message});
+        issues.push_back(ValidationIssue{error.path, error.message});
     }
 }
 
 std::vector<legacy::EntityView> parse_entities(const ProjectDocument& document, EntityType type,
-                                               std::string_view collection_key, std::vector<ValidationIssue>& issues)
+                                               std::string_view collection_key,
+                                               std::vector<ValidationIssue>& issues)
 {
     const auto& root = document.root();
     const auto it = root.find(key(collection_key));
     if (it == root.end()) {
-        issues.push_back(ValidationIssue {"/" + key(collection_key), "missing entity collection"});
+        issues.push_back(ValidationIssue{"/" + key(collection_key), "missing entity collection"});
         return {};
     }
 
     std::vector<legacy::SchemaError> schema_errors;
-    auto views = legacy::parse_project_entities(type, *it, schema_errors, "/" + key(collection_key));
+    auto views =
+        legacy::parse_project_entities(type, *it, schema_errors, "/" + key(collection_key));
     append_schema_issues(schema_errors, issues);
     return views;
 }
@@ -76,7 +76,8 @@ void merge_json_object(nlohmann::json& target, const nlohmann::json& source)
 
 } // namespace
 
-std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& document, std::vector<ValidationIssue>& issues)
+std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& document,
+                                                        std::vector<ValidationIssue>& issues)
 {
     auto validation_issues = ProjectValidator::validate(document);
     issues.insert(issues.end(), validation_issues.begin(), validation_issues.end());
@@ -87,7 +88,8 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
     ProjectModel model;
     model.m_document_root = document.root();
 
-    for (const auto& entity : parse_entities(document, EntityType::Object, project_ids::object, issues)) {
+    for (const auto& entity :
+         parse_entities(document, EntityType::Object, project_ids::object, issues)) {
         if (!entity.object) {
             continue;
         }
@@ -97,7 +99,8 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.case_sensitive = entity.object->case_sensitive;
         model.m_objects.emplace(value.metadata.entity.id, std::move(value));
     }
-    for (const auto& entity : parse_entities(document, EntityType::Script, project_ids::script, issues)) {
+    for (const auto& entity :
+         parse_entities(document, EntityType::Script, project_ids::script, issues)) {
         if (!entity.script) {
             continue;
         }
@@ -107,7 +110,8 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.content = entity.script->content;
         model.m_scripts.emplace(value.metadata.entity.id, std::move(value));
     }
-    for (const auto& entity : parse_entities(document, EntityType::Action, project_ids::action, issues)) {
+    for (const auto& entity :
+         parse_entities(document, EntityType::Action, project_ids::action, issues)) {
         if (!entity.action) {
             continue;
         }
@@ -119,7 +123,8 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.position_dependent = entity.action->position_dependent;
         model.m_actions.emplace(value.metadata.entity.id, std::move(value));
     }
-    for (const auto& entity : parse_entities(document, EntityType::Verb, project_ids::verb, issues)) {
+    for (const auto& entity :
+         parse_entities(document, EntityType::Verb, project_ids::verb, issues)) {
         if (!entity.verb) {
             continue;
         }
@@ -132,7 +137,8 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.action_structure = entity.verb->action_structure;
         model.m_verbs.emplace(value.metadata.entity.id, std::move(value));
     }
-    for (const auto& entity : parse_entities(document, EntityType::Room, project_ids::room, issues)) {
+    for (const auto& entity :
+         parse_entities(document, EntityType::Room, project_ids::room, issues)) {
         if (!entity.room) {
             continue;
         }
@@ -145,7 +151,7 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.script_after_leave = entity.room->script_after_leave;
         value.name = entity.room->name;
         for (const auto& object : entity.room->objects) {
-            value.objects.push_back(RoomObjectModel {object.object_id, object.place_in_room});
+            value.objects.push_back(RoomObjectModel{object.object_id, object.place_in_room});
         }
         value.paths = room_paths_from(*entity.room);
         model.m_rooms.emplace(value.metadata.entity.id, std::move(value));
@@ -159,18 +165,20 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.default_room_script = entity.map->default_room_script;
         value.default_path_script = entity.map->default_path_script;
         for (const auto& room : entity.map->rooms) {
-            value.rooms.push_back(MapRoomModel {room.name, room.left, room.top, room.width, room.height,
-                                                room.room_ids, room.script, room.style});
+            value.rooms.push_back(MapRoomModel{room.name, room.left, room.top, room.width,
+                                               room.height, room.room_ids, room.script,
+                                               room.style});
         }
         for (const auto& connection : entity.map->connections) {
-            value.connections.push_back(MapConnectionModel {connection.room_start, connection.room_end,
-                                                            connection.port_start_x, connection.port_start_y,
-                                                            connection.port_end_x, connection.port_end_y,
-                                                            connection.script, connection.style});
+            value.connections.push_back(MapConnectionModel{
+                connection.room_start, connection.room_end, connection.port_start_x,
+                connection.port_start_y, connection.port_end_x, connection.port_end_y,
+                connection.script, connection.style});
         }
         model.m_maps.emplace(value.metadata.entity.id, std::move(value));
     }
-    for (const auto& entity : parse_entities(document, EntityType::Dialogue, project_ids::dialogue, issues)) {
+    for (const auto& entity :
+         parse_entities(document, EntityType::Dialogue, project_ids::dialogue, issues)) {
         if (!entity.dialogue) {
             continue;
         }
@@ -183,15 +191,15 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.show_disabled_options = entity.dialogue->show_disabled_options;
         value.log_mode = entity.dialogue->log_mode;
         for (const auto& segment : entity.dialogue->segments) {
-            value.segments.push_back(DialogueSegmentModel {segment.type, segment.link_id, segment.conditional_enabled,
-                                                           segment.scripted_text, segment.script_enabled,
-                                                           segment.autosave, segment.show_once, segment.is_logged,
-                                                           segment.condition_script, segment.script,
-                                                           segment.text_raw, segment.children_ids});
+            value.segments.push_back(DialogueSegmentModel{
+                segment.type, segment.link_id, segment.conditional_enabled, segment.scripted_text,
+                segment.script_enabled, segment.autosave, segment.show_once, segment.is_logged,
+                segment.condition_script, segment.script, segment.text_raw, segment.children_ids});
         }
         model.m_dialogues.emplace(value.metadata.entity.id, std::move(value));
     }
-    for (const auto& entity : parse_entities(document, EntityType::Cutscene, project_ids::cutscene, issues)) {
+    for (const auto& entity :
+         parse_entities(document, EntityType::Cutscene, project_ids::cutscene, issues)) {
         if (!entity.cutscene) {
             continue;
         }
@@ -202,7 +210,7 @@ std::optional<ProjectModel> ProjectModel::from_document(const ProjectDocument& d
         value.speed_factor = entity.cutscene->speed_factor;
         value.next_entity = entity.cutscene->next_entity;
         for (const auto& segment : entity.cutscene->segments) {
-            value.segments.push_back(CutsceneSegmentModel {
+            value.segments.push_back(CutsceneSegmentModel{
                 segment.type,
                 segment.record != nullptr ? *segment.record : nlohmann::json::array(),
             });
@@ -263,7 +271,8 @@ std::optional<EntityMetadata> ProjectModel::metadata(EntityType type, const std:
     return std::nullopt;
 }
 
-std::optional<EntityMetadata> ProjectModel::parent_metadata(EntityType type, const std::string& id) const
+std::optional<EntityMetadata> ProjectModel::parent_metadata(EntityType type,
+                                                            const std::string& id) const
 {
     const auto child = metadata(type, id);
     if (!child.has_value() || child->parent_id.empty()) {

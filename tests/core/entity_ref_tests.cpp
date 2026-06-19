@@ -99,7 +99,7 @@ TEST_CASE("old project and entity key strings are preserved")
 
 TEST_CASE("EntityRef serializes to the old selected-entity array convention")
 {
-    const EntityRef ref {EntityType::Cutscene, "intro"};
+    const EntityRef ref{EntityType::Cutscene, "intro"};
     const auto json = ref.to_json();
 
     REQUIRE(json.is_array());

@@ -22,10 +22,7 @@ using namespace noveltea::core::editor;
 
 namespace {
 
-nlohmann::json props()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json props() { return nlohmann::json::object(); }
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -42,15 +39,14 @@ nlohmann::json object_entry(const std::string& id, const std::string& name)
     return nlohmann::json::array({id, "", props(), name, false});
 }
 
-nlohmann::json verb_entry(const std::string& id, const std::string& name, int object_count, std::string default_script)
+nlohmann::json verb_entry(const std::string& id, const std::string& name, int object_count,
+                          std::string default_script)
 {
-    return nlohmann::json::array({id, "", props(), name, object_count, std::move(default_script), "",
-                                  nlohmann::json::array()});
+    return nlohmann::json::array({id, "", props(), name, object_count, std::move(default_script),
+                                  "", nlohmann::json::array()});
 }
 
-nlohmann::json action_entry(const std::string& id,
-                            const std::string& verb_id,
-                            std::string script,
+nlohmann::json action_entry(const std::string& id, const std::string& verb_id, std::string script,
                             std::vector<std::string> object_ids)
 {
     nlohmann::json objects = nlohmann::json::array();
@@ -60,14 +56,8 @@ nlohmann::json action_entry(const std::string& id,
     return nlohmann::json::array({id, "", props(), verb_id, std::move(script), objects, false});
 }
 
-nlohmann::json dialogue_segment(int id,
-                                int link,
-                                bool is_option,
-                                bool show_once,
-                                bool logged,
-                                bool autosave,
-                                std::string text,
-                                std::vector<int> children)
+nlohmann::json dialogue_segment(int id, int link, bool is_option, bool show_once, bool logged,
+                                bool autosave, std::string text, std::vector<int> children)
 {
     nlohmann::json child_json = nlohmann::json::array();
     for (const int child : children) {
@@ -97,25 +87,28 @@ ProjectDocument make_reduced_legacy_project()
         {"look_lamp", action_entry("look_lamp", "look", "look_lamp();", {"lamp"})},
     });
     root[project_ids::room] = nlohmann::json::object({
-        {"foyer", nlohmann::json::array({"foyer", "", props(), "The foyer.", "", "", "", "",
-                                         nlohmann::json::array({nlohmann::json::array({"lamp", true})}),
-                                         nlohmann::json::array({path_entry(true, EntityType::Room, "kitchen")}),
-                                         "Foyer"})},
-        {"kitchen", nlohmann::json::array({"kitchen", "", props(), "The kitchen.", "", "", "", "",
-                                           nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
+        {"foyer",
+         nlohmann::json::array(
+             {"foyer", "", props(), "The foyer.", "", "", "", "",
+              nlohmann::json::array({nlohmann::json::array({"lamp", true})}),
+              nlohmann::json::array({path_entry(true, EntityType::Room, "kitchen")}), "Foyer"})},
+        {"kitchen",
+         nlohmann::json::array({"kitchen", "", props(), "The kitchen.", "", "", "", "",
+                                nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
     root[project_ids::map] = nlohmann::json::object();
     root[project_ids::script] = nlohmann::json::object({
         {"boot", nlohmann::json::array({"boot", "", props(), false, "toast('boot');"})},
     });
     root[project_ids::dialogue] = nlohmann::json::object({
-        {"guide", nlohmann::json::array({"guide", "", props(), "Guide", ref(EntityType::Room, "kitchen"),
-                                         0, false, true, 1,
-                                         nlohmann::json::array({
-                                             dialogue_segment(0, -1, false, false, false, false, "", {1}),
-                                             dialogue_segment(1, -1, false, false, true, true, "[Guide]Hello.", {2}),
-                                             dialogue_segment(2, -1, true, true, false, false, "Continue", {}),
-                                         })})},
+        {"guide",
+         nlohmann::json::array(
+             {"guide", "", props(), "Guide", ref(EntityType::Room, "kitchen"), 0, false, true, 1,
+              nlohmann::json::array({
+                  dialogue_segment(0, -1, false, false, false, false, "", {1}),
+                  dialogue_segment(1, -1, false, false, true, true, "[Guide]Hello.", {2}),
+                  dialogue_segment(2, -1, true, true, false, false, "Continue", {}),
+              })})},
     });
 
     auto page = nlohmann::json::array();
@@ -138,21 +131,23 @@ ProjectDocument make_reduced_legacy_project()
     page.push_back(true);
 
     root[project_ids::cutscene] = nlohmann::json::object({
-        {"intro", nlohmann::json::array({"intro", "", props(), true, true, 1.0,
-                                         ref(EntityType::Room, "foyer"),
-                                         nlohmann::json::array({page})})},
+        {"intro",
+         nlohmann::json::array({"intro", "", props(), true, true, 1.0,
+                                ref(EntityType::Room, "foyer"), nlohmann::json::array({page})})},
     });
     root[project_ids::starting_inventory] = nlohmann::json::array({"coin"});
     root[project_ids::entrypoint_entity] = ref(EntityType::Cutscene, "intro");
     return project;
 }
 
-std::vector<std::byte> make_zip_fixture(const std::vector<std::pair<std::string, std::string>>& entries)
+std::vector<std::byte>
+make_zip_fixture(const std::vector<std::pair<std::string, std::string>>& entries)
 {
-    mz_zip_archive archive {};
+    mz_zip_archive archive{};
     REQUIRE(mz_zip_writer_init_heap(&archive, 0, 0));
     for (const auto& [name, payload] : entries) {
-        REQUIRE(mz_zip_writer_add_mem(&archive, name.c_str(), payload.data(), payload.size(), MZ_DEFAULT_COMPRESSION));
+        REQUIRE(mz_zip_writer_add_mem(&archive, name.c_str(), payload.data(), payload.size(),
+                                      MZ_DEFAULT_COMPRESSION));
     }
 
     void* data = nullptr;
@@ -169,21 +164,36 @@ std::vector<std::byte> make_zip_fixture(const std::vector<std::pair<std::string,
 std::string command_name(ControllerCommandType type)
 {
     switch (type) {
-    case ControllerCommandType::ModeChanged: return "mode";
-    case ControllerCommandType::RoomEntry: return "room-entry";
-    case ControllerCommandType::RoomDescription: return "room-description";
-    case ControllerCommandType::NavigationUpdate: return "navigation";
-    case ControllerCommandType::ScriptDeferred: return "script-deferred";
-    case ControllerCommandType::Notification: return "notification";
-    case ControllerCommandType::TextLogged: return "text-log";
-    case ControllerCommandType::DialogueText: return "dialogue-text";
-    case ControllerCommandType::DialogueOptions: return "dialogue-options";
-    case ControllerCommandType::DialogueComplete: return "dialogue-complete";
-    case ControllerCommandType::CutsceneText: return "cutscene-text";
-    case ControllerCommandType::CutscenePageBreak: return "cutscene-page-break";
-    case ControllerCommandType::CutsceneComplete: return "cutscene-complete";
-    case ControllerCommandType::ActionResolved: return "action-resolved";
-    case ControllerCommandType::ActionRejected: return "action-rejected";
+    case ControllerCommandType::ModeChanged:
+        return "mode";
+    case ControllerCommandType::RoomEntry:
+        return "room-entry";
+    case ControllerCommandType::RoomDescription:
+        return "room-description";
+    case ControllerCommandType::NavigationUpdate:
+        return "navigation";
+    case ControllerCommandType::ScriptDeferred:
+        return "script-deferred";
+    case ControllerCommandType::Notification:
+        return "notification";
+    case ControllerCommandType::TextLogged:
+        return "text-log";
+    case ControllerCommandType::DialogueText:
+        return "dialogue-text";
+    case ControllerCommandType::DialogueOptions:
+        return "dialogue-options";
+    case ControllerCommandType::DialogueComplete:
+        return "dialogue-complete";
+    case ControllerCommandType::CutsceneText:
+        return "cutscene-text";
+    case ControllerCommandType::CutscenePageBreak:
+        return "cutscene-page-break";
+    case ControllerCommandType::CutsceneComplete:
+        return "cutscene-complete";
+    case ControllerCommandType::ActionResolved:
+        return "action-resolved";
+    case ControllerCommandType::ActionRejected:
+        return "action-rejected";
     }
     return "unknown";
 }
@@ -194,7 +204,8 @@ std::vector<std::string> command_golden(const std::vector<ControllerCommand>& co
     for (const auto& command : commands) {
         std::string line = command_name(command.type);
         if (command.entity.has_value()) {
-            line += ":" + std::to_string(to_integer(command.entity->type)) + ":" + command.entity->id;
+            line +=
+                ":" + std::to_string(to_integer(command.entity->type)) + ":" + command.entity->id;
         }
         if (!command.text.empty()) {
             line += ":" + command.text;
@@ -216,7 +227,8 @@ TEST_CASE("Compatibility fixture preserves legacy project JSON through import an
     CHECK(imported.imported_legacy);
     CHECK(imported.project->root() == project.root());
 
-    auto reloaded = ProjectTooling::load_project_json(ProjectTooling::save_project_json(*imported.project));
+    auto reloaded =
+        ProjectTooling::load_project_json(ProjectTooling::save_project_json(*imported.project));
     REQUIRE(reloaded.project.has_value());
     CHECK(reloaded.success());
     CHECK(reloaded.project->root() == project.root());
@@ -236,7 +248,8 @@ TEST_CASE("Compatibility fixture preserves save JSON where lossless save import 
         {"room", nlohmann::json::object({{"foyer", nlohmann::json::array({"lamp"})}})},
     });
     root[project_ids::log] = nlohmann::json::array({"first", "second"});
-    root[project_ids::properties] = nlohmann::json::object({{"global", nlohmann::json::object({{"flag", true}})}});
+    root[project_ids::properties] =
+        nlohmann::json::object({{"global", nlohmann::json::object({{"flag", true}})}});
     root[project_ids::room_descriptions] = nlohmann::json::object({{"foyer", "changed"}});
     root[project_ids::visited_rooms] = nlohmann::json::object({{"foyer", 2}});
     root["legacyExtraSaveKey"] = nlohmann::json::array({1, 2, 3});
@@ -264,7 +277,8 @@ TEST_CASE("Compatibility fixture imports legacy packages and preserves supported
     });
 
     std::vector<legacy::PackageError> errors;
-    const auto package = legacy::ProjectPackageReader::read(std::span<const std::byte>(package_bytes.data(), package_bytes.size()), errors);
+    const auto package = legacy::ProjectPackageReader::read(
+        std::span<const std::byte>(package_bytes.data(), package_bytes.size()), errors);
 
     REQUIRE(package.has_value());
     CHECK(errors.empty());
@@ -278,33 +292,36 @@ TEST_CASE("Compatibility fixture imports legacy packages and preserves supported
     CHECK_FALSE(package->assets.contains("notes/private.txt"));
 }
 
-TEST_CASE("Compatibility golden covers room action dialogue cutscene timers text log save and inventory")
+TEST_CASE(
+    "Compatibility golden covers room action dialogue cutscene timers text log save and inventory")
 {
     RuntimePreviewSession preview;
     REQUIRE(preview.load(make_reduced_legacy_project()).success);
     preview.start();
 
     CHECK(command_golden(preview.take_captured_commands()) == std::vector<std::string>({
-        "mode:1:intro:cutscene",
-        "cutscene-text:1:intro:Intro.",
-    }));
+                                                                  "mode:1:intro:cutscene",
+                                                                  "cutscene-text:1:intro:Intro.",
+                                                              }));
 
     CHECK(preview.inject_continue());
-    CHECK(command_golden(preview.take_captured_commands()) == std::vector<std::string>({
-        "cutscene-page-break:1:intro:intro",
-        "cutscene-text:1:intro:Done.",
-    }));
+    CHECK(command_golden(preview.take_captured_commands()) ==
+          std::vector<std::string>({
+              "cutscene-page-break:1:intro:intro",
+              "cutscene-text:1:intro:Done.",
+          }));
 
     CHECK(preview.inject_continue());
-    CHECK(command_golden(preview.take_captured_commands()) == std::vector<std::string>({
-        "cutscene-complete:1:intro:intro",
-        "mode:1:intro:cutscene",
-        "mode:3:foyer:room",
-        "script-deferred:3:foyer:return true;",
-        "room-entry:3:foyer:foyer",
-        "room-description:3:foyer:The foyer.",
-        "navigation:3:foyer:foyer",
-    }));
+    CHECK(command_golden(preview.take_captured_commands()) ==
+          std::vector<std::string>({
+              "cutscene-complete:1:intro:intro",
+              "mode:1:intro:cutscene",
+              "mode:3:foyer:room",
+              "script-deferred:3:foyer:return true;",
+              "room-entry:3:foyer:foyer",
+              "room-description:3:foyer:The foyer.",
+              "navigation:3:foyer:foyer",
+          }));
     REQUIRE(preview.inspect_state().view.objects.size() == 2);
     CHECK(preview.inspect_state().view.objects[0].id == "lamp");
     CHECK(preview.inspect_state().view.objects[0].in_room);
@@ -312,41 +329,44 @@ TEST_CASE("Compatibility golden covers room action dialogue cutscene timers text
     CHECK(preview.inspect_state().view.objects[1].in_inventory);
 
     CHECK(preview.inject_action("look", {"lamp"}));
-    CHECK(command_golden(preview.take_captured_commands()) == std::vector<std::string>({
-        "script-deferred:return true;",
-        "script-deferred:2:look_lamp:look_lamp();",
-        "action-resolved:2:look_lamp:look_lamp",
-    }));
+    CHECK(command_golden(preview.take_captured_commands()) ==
+          std::vector<std::string>({
+              "script-deferred:return true;",
+              "script-deferred:2:look_lamp:look_lamp();",
+              "action-resolved:2:look_lamp:look_lamp",
+          }));
 
     CHECK(preview.inject_navigation_choice(0));
     preview.step(0.0);
-    CHECK(command_golden(preview.take_captured_commands()) == std::vector<std::string>({
-        "script-deferred:3:foyer:return true;",
-        "mode:3:foyer:room",
-        "mode:3:kitchen:room",
-        "script-deferred:3:kitchen:return true;",
-        "room-entry:3:kitchen:kitchen",
-        "room-description:3:kitchen:The kitchen.",
-        "navigation:3:kitchen:kitchen",
-    }));
+    CHECK(command_golden(preview.take_captured_commands()) ==
+          std::vector<std::string>({
+              "script-deferred:3:foyer:return true;",
+              "mode:3:foyer:room",
+              "mode:3:kitchen:room",
+              "script-deferred:3:kitchen:return true;",
+              "room-entry:3:kitchen:kitchen",
+              "room-description:3:kitchen:The kitchen.",
+              "navigation:3:kitchen:kitchen",
+          }));
 
-    REQUIRE(preview.set_entrypoint(EntityRef {EntityType::Dialogue, "guide"}).success);
+    REQUIRE(preview.set_entrypoint(EntityRef{EntityType::Dialogue, "guide"}).success);
     CHECK(command_golden(preview.take_captured_commands()) == std::vector<std::string>({
-        "mode:5:guide:dialogue",
-        "dialogue-text:5:guide:Hello.",
-        "text-log:5:guide:Hello.",
-        "dialogue-options:5:guide:guide",
-    }));
+                                                                  "mode:5:guide:dialogue",
+                                                                  "dialogue-text:5:guide:Hello.",
+                                                                  "text-log:5:guide:Hello.",
+                                                                  "dialogue-options:5:guide:guide",
+                                                              }));
     CHECK(preview.inject_dialogue_option(0));
-    CHECK(command_golden(preview.take_captured_commands()) == std::vector<std::string>({
-        "dialogue-complete:5:guide:guide",
-        "mode:5:guide:dialogue",
-        "mode:3:kitchen:room",
-        "script-deferred:3:kitchen:return true;",
-        "room-entry:3:kitchen:kitchen",
-        "room-description:3:kitchen:The kitchen.",
-        "navigation:3:kitchen:kitchen",
-    }));
+    CHECK(command_golden(preview.take_captured_commands()) ==
+          std::vector<std::string>({
+              "dialogue-complete:5:guide:guide",
+              "mode:5:guide:dialogue",
+              "mode:3:kitchen:room",
+              "script-deferred:3:kitchen:return true;",
+              "room-entry:3:kitchen:kitchen",
+              "room-description:3:kitchen:The kitchen.",
+              "navigation:3:kitchen:kitchen",
+          }));
 
     GameSession session;
     auto save = SaveDocument::new_save();
@@ -355,7 +375,7 @@ TEST_CASE("Compatibility golden covers room action dialogue cutscene timers text
     save.root()[project_ids::log] = nlohmann::json::array({"loaded"});
     REQUIRE(session.load(make_reduced_legacy_project(), save).success);
     RuntimeController controller(session);
-    session.events().push(RuntimeEvent {RuntimeEventType::TextLogged, 0, 0.0, "runtime log"});
+    session.events().push(RuntimeEvent{RuntimeEventType::TextLogged, 0, 0.0, "runtime log"});
     const auto timer = session.timers().start(0.5);
     CHECK(timer.id != 0);
     controller.tick(0.5);
@@ -363,11 +383,11 @@ TEST_CASE("Compatibility golden covers room action dialogue cutscene timers text
     CHECK(session.play_time() == 4.5);
     CHECK(session.timers().active_count() == 0);
     CHECK(command_golden(controller.take_commands()) == std::vector<std::string>({
-        "text-log:runtime log",
-        "mode:3:foyer:room",
-        "script-deferred:3:foyer:return true;",
-        "room-entry:3:foyer:foyer",
-        "room-description:3:foyer:The foyer.",
-        "navigation:3:foyer:foyer",
-    }));
+                                                            "text-log:runtime log",
+                                                            "mode:3:foyer:room",
+                                                            "script-deferred:3:foyer:return true;",
+                                                            "room-entry:3:foyer:foyer",
+                                                            "room-description:3:foyer:The foyer.",
+                                                            "navigation:3:foyer:foyer",
+                                                        }));
 }

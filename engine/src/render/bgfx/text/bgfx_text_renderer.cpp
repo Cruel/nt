@@ -78,13 +78,22 @@ Vec2 transform_point(Vec2 point, Vec2 origin, const Transform2D& transform)
 
 class BgfxTextRenderer {
 public:
-    explicit BgfxTextRenderer(const assets::AssetManager& assets) : m_assets(assets), m_text(assets), m_packer(1024, 1024, kGlyphPadding) {}
+    explicit BgfxTextRenderer(const assets::AssetManager& assets)
+        : m_assets(assets), m_text(assets), m_packer(1024, 1024, kGlyphPadding)
+    {
+    }
     bool initialize();
     void shutdown();
     FontHandle load_font(const FontDesc& desc) { return m_text.load_font(desc); }
     void resize(const SurfaceMetrics& surface) { m_surface = sanitize_surface_metrics(surface); }
-    TextLayout layout_text(const Text& text) const { return m_text.layout_text(text, effective_scale()); }
-    TextMetrics measure(const Text& text) const { return m_text.layout_text(text, effective_scale()).metrics; }
+    TextLayout layout_text(const Text& text) const
+    {
+        return m_text.layout_text(text, effective_scale());
+    }
+    TextMetrics measure(const Text& text) const
+    {
+        return m_text.layout_text(text, effective_scale()).metrics;
+    }
     TextMetrics measure(FontHandle font, std::string_view value, float size) const;
     void draw_text(const Text& text) { draw_text(m_text.layout_text(text, effective_scale())); }
     void draw_text(const TextLayout& layout);
@@ -110,7 +119,8 @@ bool BgfxTextRenderer::initialize()
     if (!m_text.valid()) {
         return false;
     }
-    m_program = bgfx_backend::BgfxShaderLoader(m_assets).load_program(bgfx_backend::SystemShader::Text);
+    m_program =
+        bgfx_backend::BgfxShaderLoader(m_assets).load_program(bgfx_backend::SystemShader::Text);
     if (!bgfx::isValid(m_program)) {
         return false;
     }
@@ -151,25 +161,14 @@ bgfx::TextureHandle BgfxTextRenderer::ensure_page(uint16_t page_index)
 {
     while (m_pages.size() <= page_index) {
         AtlasPage page;
-        std::vector<uint8_t> zeroes(static_cast<size_t>(m_packer.width()) * m_packer.height() * 4u, 0);
-        page.texture = bgfx::createTexture2D(
-            m_packer.width(),
-            m_packer.height(),
-            false,
-            1,
-            bgfx::TextureFormat::RGBA8,
-            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
-            nullptr);
+        std::vector<uint8_t> zeroes(static_cast<size_t>(m_packer.width()) * m_packer.height() * 4u,
+                                    0);
+        page.texture = bgfx::createTexture2D(m_packer.width(), m_packer.height(), false, 1,
+                                             bgfx::TextureFormat::RGBA8,
+                                             BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, nullptr);
         if (bgfx::isValid(page.texture)) {
-            bgfx::updateTexture2D(
-                page.texture,
-                0,
-                0,
-                0,
-                0,
-                m_packer.width(),
-                m_packer.height(),
-                bgfx::copy(zeroes.data(), static_cast<uint32_t>(zeroes.size())));
+            bgfx::updateTexture2D(page.texture, 0, 0, 0, 0, m_packer.width(), m_packer.height(),
+                                  bgfx::copy(zeroes.data(), static_cast<uint32_t>(zeroes.size())));
         }
         m_pages.push_back(page);
     }
@@ -191,7 +190,8 @@ CachedGlyph* BgfxTextRenderer::ensure_glyph(const PositionedGlyph& glyph)
     if (!bitmap) {
         return nullptr;
     }
-    const auto rect = m_packer.add(static_cast<uint16_t>(bitmap->width), static_cast<uint16_t>(bitmap->height));
+    const auto rect =
+        m_packer.add(static_cast<uint16_t>(bitmap->width), static_cast<uint16_t>(bitmap->height));
     bgfx::TextureHandle texture = ensure_page(rect.page);
     if (!bgfx::isValid(texture)) {
         return nullptr;
@@ -200,13 +200,8 @@ CachedGlyph* BgfxTextRenderer::ensure_glyph(const PositionedGlyph& glyph)
     if (bitmap->width > 0 && bitmap->height > 0) {
         const auto upload = text::make_padded_glyph_upload(*bitmap, kGlyphPadding);
         bgfx::updateTexture2D(
-            texture,
-            0,
-            0,
-            static_cast<uint16_t>(rect.x - upload.glyph_x),
-            static_cast<uint16_t>(rect.y - upload.glyph_y),
-            upload.width,
-            upload.height,
+            texture, 0, 0, static_cast<uint16_t>(rect.x - upload.glyph_x),
+            static_cast<uint16_t>(rect.y - upload.glyph_y), upload.width, upload.height,
             bgfx::copy(upload.rgba.data(), static_cast<uint32_t>(upload.rgba.size())));
     }
 
@@ -240,9 +235,10 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         for (const auto& run : line.visual_runs) {
             for (const auto& positioned : run.glyphs) {
                 CachedGlyph* glyph = ensure_glyph(positioned);
-                const float glyph_scale = positioned.logical_pixel_size > 0.0f
-                    ? positioned.raster_pixel_size / positioned.logical_pixel_size
-                    : effective_scale();
+                const float glyph_scale =
+                    positioned.logical_pixel_size > 0.0f
+                        ? positioned.raster_pixel_size / positioned.logical_pixel_size
+                        : effective_scale();
                 const float inv_glyph_scale = 1.0f / std::max(glyph_scale, 0.0001f);
                 const float glyph_width = glyph ? glyph->width * inv_glyph_scale : 0.0f;
                 const float glyph_height = glyph ? glyph->height * inv_glyph_scale : 0.0f;
@@ -270,11 +266,18 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
                 const Vec2 p1 = transform_point({x1, y0}, origin, layout.transform);
                 const Vec2 p2 = transform_point({x1, y1}, origin, layout.transform);
                 const Vec2 p3 = transform_point({x0, y1}, origin, layout.transform);
-                vertices.push_back({p0.x, p0.y, glyph->u0, glyph->v0, color.r, color.g, color.b, alpha});
-                vertices.push_back({p1.x, p1.y, glyph->u1, glyph->v0, color.r, color.g, color.b, alpha});
-                vertices.push_back({p2.x, p2.y, glyph->u1, glyph->v1, color.r, color.g, color.b, alpha});
-                vertices.push_back({p3.x, p3.y, glyph->u0, glyph->v1, color.r, color.g, color.b, alpha});
-                indices.insert(indices.end(), {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2), base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
+                vertices.push_back(
+                    {p0.x, p0.y, glyph->u0, glyph->v0, color.r, color.g, color.b, alpha});
+                vertices.push_back(
+                    {p1.x, p1.y, glyph->u1, glyph->v0, color.r, color.g, color.b, alpha});
+                vertices.push_back(
+                    {p2.x, p2.y, glyph->u1, glyph->v1, color.r, color.g, color.b, alpha});
+                vertices.push_back(
+                    {p3.x, p3.y, glyph->u0, glyph->v1, color.r, color.g, color.b, alpha});
+                indices.insert(indices.end(),
+                               {base, static_cast<uint16_t>(base + 1),
+                                static_cast<uint16_t>(base + 2), base,
+                                static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
             }
         }
     }
@@ -286,23 +289,27 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         .end();
 
     const Rect physical_bounds = logical_to_framebuffer(layout.bounds, m_surface);
-    const uint16_t scissor = (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
-        ? bgfx::setScissor(
-            static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.x))),
-            static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.y))),
-            static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.width))),
-            static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.height))))
-        : UINT16_MAX;
+    const uint16_t scissor =
+        (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
+            ? bgfx::setScissor(
+                  static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.x))),
+                  static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.y))),
+                  static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.width))),
+                  static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.height))))
+            : UINT16_MAX;
 
     for (size_t page_index = 0; page_index < page_vertices.size(); ++page_index) {
         const auto& vertices = page_vertices[page_index];
         const auto& indices = page_indices[page_index];
-        if (vertices.empty() || indices.empty() || page_index >= m_pages.size() || !bgfx::isValid(m_pages[page_index].texture)) {
+        if (vertices.empty() || indices.empty() || page_index >= m_pages.size() ||
+            !bgfx::isValid(m_pages[page_index].texture)) {
             continue;
         }
         bgfx::TransientVertexBuffer tvb;
         bgfx::TransientIndexBuffer tib;
-        if (!bgfx::allocTransientBuffers(&tvb, vertex_layout, static_cast<uint32_t>(vertices.size()), &tib, static_cast<uint32_t>(indices.size()))) {
+        if (!bgfx::allocTransientBuffers(&tvb, vertex_layout,
+                                         static_cast<uint32_t>(vertices.size()), &tib,
+                                         static_cast<uint32_t>(indices.size()))) {
             continue;
         }
         std::memcpy(tvb.data, vertices.data(), vertices.size() * sizeof(TextVertex));
@@ -311,10 +318,8 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
             bgfx::setScissor(scissor);
         }
         const float identity[16] = {
-            1.0f, 0.0f, 0.0f, 0.0f,
-            0.0f, 1.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 1.0f, 0.0f,
-            0.0f, 0.0f, 0.0f, 1.0f,
+            1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
         };
         bgfx::setTransform(identity);
         bgfx::setTexture(0, m_sampler, m_pages[page_index].texture);
@@ -402,10 +407,7 @@ void Renderer::draw_text(const TextLayout& layout)
     }
 }
 
-void Renderer::draw_text(const TextRun& run)
-{
-    draw_text(to_text(run));
-}
+void Renderer::draw_text(const TextRun& run) { draw_text(to_text(run)); }
 
 TextMetrics Renderer::measure_text(FontHandle font, std::string_view text_value, float size) const
 {
@@ -419,10 +421,13 @@ void Renderer::draw_demo_text(float time_seconds)
         return;
     }
     const FontHandle font{m_default_text_font};
-    const float title_box_height = clamp_logical(static_cast<float>(m_surface.logical_height) * 0.15f, 72.0f, 150.0f);
+    const float title_box_height =
+        clamp_logical(static_cast<float>(m_surface.logical_height) * 0.15f, 72.0f, 150.0f);
     const float title_size = clamp_logical(title_box_height * 0.55f, 28.0f, 72.0f);
 
-    auto draw = [&](std::string value, Rect bounds, float size, Color color, TextAlign align = TextAlign::Start, TextDirection direction = TextDirection::Auto, Transform2D transform = {}) {
+    auto draw = [&](std::string value, Rect bounds, float size, Color color,
+                    TextAlign align = TextAlign::Start,
+                    TextDirection direction = TextDirection::Auto, Transform2D transform = {}) {
         Text text;
         text.value = std::move(value);
         text.font = font;
@@ -435,21 +440,36 @@ void Renderer::draw_demo_text(float time_seconds)
         draw_text(text);
     };
 
-    draw("Proportional title/header", {64.0f, 24.0f, 620.0f, title_box_height}, title_size, Color::from_rgba8(255, 196, 87));
-    draw("Grayscale text at 18 logical px", {64.0f, 126.0f, 420.0f, 30.0f}, 18.0f, Color::from_rgba8(245, 242, 232));
-    draw("Grayscale text at 24 logical px", {64.0f, 164.0f, 420.0f, 36.0f}, 24.0f, Color::from_rgba8(245, 242, 232));
-    draw("Grayscale text at 36 logical px", {64.0f, 212.0f, 500.0f, 52.0f}, 36.0f, Color::from_rgba8(255, 196, 87));
-    draw("Wrapped English text uses a boxed Text primitive and keeps shaping/layout separate from RmlUi.", {64.0f, 200.0f, 360.0f, 92.0f}, 22.0f, Color::from_rgba8(212, 230, 255));
-    draw("Combining marks: cafe\xCC\x81, A\xCC\x8A, n\xCC\x83", {64.0f, 320.0f, 520.0f, 42.0f}, 24.0f, Color::from_rgba8(176, 224, 188));
-    draw("Bidi CPU tests pass; bundled demo font has no Hebrew glyphs", {64.0f, 374.0f, 720.0f, 48.0f}, 24.0f, Color::from_rgba8(250, 214, 160));
-    draw("Centered boxed text", {500.0f, 64.0f, 300.0f, 44.0f}, 24.0f, Color::from_rgba8(160, 214, 250), TextAlign::Center);
-    draw("End aligned", {500.0f, 118.0f, 300.0f, 44.0f}, 24.0f, Color::from_rgba8(160, 214, 250), TextAlign::End);
-    draw("This height-constrained paragraph intentionally overflows after a couple of lines so clipping and overflow reporting can be exercised by the layout.", {500.0f, 186.0f, 320.0f, 58.0f}, 20.0f, Color::from_rgba8(235, 170, 170));
+    draw("Proportional title/header", {64.0f, 24.0f, 620.0f, title_box_height}, title_size,
+         Color::from_rgba8(255, 196, 87));
+    draw("Grayscale text at 18 logical px", {64.0f, 126.0f, 420.0f, 30.0f}, 18.0f,
+         Color::from_rgba8(245, 242, 232));
+    draw("Grayscale text at 24 logical px", {64.0f, 164.0f, 420.0f, 36.0f}, 24.0f,
+         Color::from_rgba8(245, 242, 232));
+    draw("Grayscale text at 36 logical px", {64.0f, 212.0f, 500.0f, 52.0f}, 36.0f,
+         Color::from_rgba8(255, 196, 87));
+    draw("Wrapped English text uses a boxed Text primitive and keeps shaping/layout separate from "
+         "RmlUi.",
+         {64.0f, 200.0f, 360.0f, 92.0f}, 22.0f, Color::from_rgba8(212, 230, 255));
+    draw("Combining marks: cafe\xCC\x81, A\xCC\x8A, n\xCC\x83", {64.0f, 320.0f, 520.0f, 42.0f},
+         24.0f, Color::from_rgba8(176, 224, 188));
+    draw("Bidi CPU tests pass; bundled demo font has no Hebrew glyphs",
+         {64.0f, 374.0f, 720.0f, 48.0f}, 24.0f, Color::from_rgba8(250, 214, 160));
+    draw("Centered boxed text", {500.0f, 64.0f, 300.0f, 44.0f}, 24.0f,
+         Color::from_rgba8(160, 214, 250), TextAlign::Center);
+    draw("End aligned", {500.0f, 118.0f, 300.0f, 44.0f}, 24.0f, Color::from_rgba8(160, 214, 250),
+         TextAlign::End);
+    draw("This height-constrained paragraph intentionally overflows after a couple of lines so "
+         "clipping and overflow "
+         "reporting can be exercised by the layout.",
+         {500.0f, 186.0f, 320.0f, 58.0f}, 20.0f, Color::from_rgba8(235, 170, 170));
 
     Transform2D transform;
-    transform.scale = {1.0f + 0.2f * std::sin(time_seconds * 2.0f), 1.0f + 0.2f * std::sin(time_seconds * 2.0f)};
+    transform.scale = {1.0f + 0.2f * std::sin(time_seconds * 2.0f),
+                       1.0f + 0.2f * std::sin(time_seconds * 2.0f)};
     transform.rotation_radians = 0.08f;
-    draw("Transformed Text", {500.0f, 330.0f, 360.0f, 60.0f}, 30.0f, Color::from_rgba8(190, 170, 245), TextAlign::Start, TextDirection::Auto, transform);
+    draw("Transformed Text", {500.0f, 330.0f, 360.0f, 60.0f}, 30.0f,
+         Color::from_rgba8(190, 170, 245), TextAlign::Start, TextDirection::Auto, transform);
 }
 
 } // namespace noveltea

@@ -21,7 +21,8 @@ assets::AssetManager make_assets()
     return assets;
 }
 
-std::optional<char> marker_at_boundary(const std::vector<char>& markers, const std::string& value, size_t offset)
+std::optional<char> marker_at_boundary(const std::vector<char>& markers, const std::string& value,
+                                       size_t offset)
 {
     const auto index = noveltea::text::unibreak_marker_index_for_boundary(value, offset);
     if (!index) {
@@ -92,8 +93,8 @@ TEST_CASE("TextEngine keeps logical text metrics stable while raster size follow
     CHECK(glyphs_1.front().raster_pixel_size == 24.0f);
     CHECK(glyphs_125.front().raster_pixel_size == 30.0f);
     CHECK(glyphs_2.front().raster_pixel_size == 48.0f);
-    CHECK(noveltea::text::glyph_cache_pixel_size_key(glyphs_1.front().raster_pixel_size)
-        != noveltea::text::glyph_cache_pixel_size_key(glyphs_125.front().raster_pixel_size));
+    CHECK(noveltea::text::glyph_cache_pixel_size_key(glyphs_1.front().raster_pixel_size) !=
+          noveltea::text::glyph_cache_pixel_size_key(glyphs_125.front().raster_pixel_size));
     CHECK(layout_125.metrics.width == Catch::Approx(layout_1.metrics.width).margin(1.0f));
     CHECK(layout_2.metrics.width == Catch::Approx(layout_1.metrics.width).margin(1.0f));
 }
@@ -104,7 +105,8 @@ TEST_CASE("Combining marks and emoji ZWJ sequences are not corrupted by boundary
 
     const std::string combining = "e\xCC\x81";
     std::vector<char> combining_breaks(combining.size(), GRAPHEMEBREAK_NOBREAK);
-    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(combining.data()), combining.size(), "en", combining_breaks.data());
+    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(combining.data()), combining.size(),
+                            "en", combining_breaks.data());
     CHECK(combining_breaks[1] != GRAPHEMEBREAK_BREAK);
 
     auto assets = make_assets();
@@ -127,42 +129,51 @@ TEST_CASE("libunibreak UTF-8 boundary conversion uses previous byte marker")
     const std::string ascii = "one two";
     std::vector<char> ascii_line(ascii.size(), LINEBREAK_NOBREAK);
     std::vector<char> ascii_word(ascii.size(), WORDBREAK_NOBREAK);
-    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(ascii.data()), ascii.size(), "en", ascii_line.data());
-    set_wordbreaks_utf8(reinterpret_cast<const utf8_t*>(ascii.data()), ascii.size(), "en", ascii_word.data());
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(ascii.data()), ascii.size(), "en",
+                        ascii_line.data());
+    set_wordbreaks_utf8(reinterpret_cast<const utf8_t*>(ascii.data()), ascii.size(), "en",
+                        ascii_word.data());
     REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(ascii, 4) == 3u);
     CHECK(marker_at_boundary(ascii_line, ascii, 4) == LINEBREAK_ALLOWBREAK);
     CHECK(marker_at_boundary(ascii_word, ascii, 3) == WORDBREAK_BREAK);
 
-    const std::string nbsp = "a\xC2\xA0" "b";
+    const std::string nbsp = "a\xC2\xA0"
+                             "b";
     std::vector<char> nbsp_line(nbsp.size(), LINEBREAK_NOBREAK);
-    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(nbsp.data()), nbsp.size(), "en", nbsp_line.data());
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(nbsp.data()), nbsp.size(), "en",
+                        nbsp_line.data());
     REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(nbsp, 3) == 2u);
     CHECK(marker_at_boundary(nbsp_line, nbsp, 3) != LINEBREAK_ALLOWBREAK);
     CHECK_FALSE(noveltea::text::unibreak_marker_index_for_boundary(nbsp, 2).has_value());
 
     const std::string combining = "e\xCC\x81";
     std::vector<char> combining_grapheme(combining.size(), GRAPHEMEBREAK_NOBREAK);
-    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(combining.data()), combining.size(), "en", combining_grapheme.data());
+    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(combining.data()), combining.size(),
+                            "en", combining_grapheme.data());
     CHECK(marker_at_boundary(combining_grapheme, combining, 1) != GRAPHEMEBREAK_BREAK);
     CHECK_FALSE(noveltea::text::unibreak_marker_index_for_boundary(combining, 2).has_value());
 
-    const std::string family = "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7\xE2\x80\x8D\xF0\x9F\x91\xA6";
+    const std::string family = "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F"
+                               "\x91\xA7\xE2\x80\x8D\xF0\x9F\x91\xA6";
     std::vector<char> family_grapheme(family.size(), GRAPHEMEBREAK_NOBREAK);
-    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(family.data()), family.size(), "en", family_grapheme.data());
+    set_graphemebreaks_utf8(reinterpret_cast<const utf8_t*>(family.data()), family.size(), "en",
+                            family_grapheme.data());
     for (size_t offset : {4u, 7u, 11u, 14u, 18u, 21u}) {
         CHECK(marker_at_boundary(family_grapheme, family, offset) != GRAPHEMEBREAK_BREAK);
     }
 
     const std::string cjk = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
     std::vector<char> cjk_line(cjk.size(), LINEBREAK_NOBREAK);
-    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(cjk.data()), cjk.size(), "ja", cjk_line.data());
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(cjk.data()), cjk.size(), "ja",
+                        cjk_line.data());
     REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(cjk, 3) == 2u);
     CHECK(marker_at_boundary(cjk_line, cjk, 3) == LINEBREAK_ALLOWBREAK);
     CHECK_FALSE(noveltea::text::unibreak_marker_index_for_boundary(cjk, 1).has_value());
 
     const std::string mixed = "\xC3\xA9 xyz";
     std::vector<char> mixed_line(mixed.size(), LINEBREAK_NOBREAK);
-    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(mixed.data()), mixed.size(), "en", mixed_line.data());
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(mixed.data()), mixed.size(), "en",
+                        mixed_line.data());
     REQUIRE(noveltea::text::unibreak_marker_index_for_boundary(mixed, 3) == 2u);
     CHECK(marker_at_boundary(mixed_line, mixed, 3) == LINEBREAK_ALLOWBREAK);
 }
@@ -175,7 +186,8 @@ TEST_CASE("HarfBuzz shapes Latin kerning and Arabic without byte reversal")
     REQUIRE(font);
 
     const auto av = engine.measure_text(make_text(font, "AV")).width;
-    const auto a_plus_v = engine.measure_text(make_text(font, "A")).width + engine.measure_text(make_text(font, "V")).width;
+    const auto a_plus_v = engine.measure_text(make_text(font, "A")).width +
+                          engine.measure_text(make_text(font, "V")).width;
     CHECK(av < a_plus_v);
 
     Text arabic = make_text(font, "\xD8\xB3\xD9\x84\xD8\xA7\xD9\x85");
@@ -236,18 +248,23 @@ TEST_CASE("Wrapping respects no-break spaces and CJK line break opportunities")
 {
     init_linebreak();
 
-    const std::string nbsp = "a\xC2\xA0" "b";
+    const std::string nbsp = "a\xC2\xA0"
+                             "b";
     std::vector<char> nbsp_breaks(nbsp.size(), LINEBREAK_NOBREAK);
-    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(nbsp.data()), nbsp.size(), "en", nbsp_breaks.data());
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(nbsp.data()), nbsp.size(), "en",
+                        nbsp_breaks.data());
     CHECK(std::ranges::none_of(nbsp_breaks, [](char brk) { return brk == LINEBREAK_ALLOWBREAK; }));
 
-    const std::string cjk = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E\xE3\x83\x86\xE3\x82\xAD\xE3\x82\xB9\xE3\x83\x88";
+    const std::string cjk =
+        "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E\xE3\x83\x86\xE3\x82\xAD\xE3\x82\xB9\xE3\x83\x88";
     std::vector<char> cjk_breaks(cjk.size(), LINEBREAK_NOBREAK);
-    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(cjk.data()), cjk.size(), "ja", cjk_breaks.data());
+    set_linebreaks_utf8(reinterpret_cast<const utf8_t*>(cjk.data()), cjk.size(), "ja",
+                        cjk_breaks.data());
     CHECK(std::ranges::any_of(cjk_breaks, [](char brk) { return brk == LINEBREAK_ALLOWBREAK; }));
 }
 
-TEST_CASE("Glyph rasterization and atlas upload preserve grayscale coverage and transparent padding")
+TEST_CASE(
+    "Glyph rasterization and atlas upload preserve grayscale coverage and transparent padding")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
@@ -259,7 +276,8 @@ TEST_CASE("Glyph rasterization and atlas upload preserve grayscale coverage and 
     auto bitmap = engine.rasterize_glyph(font, glyph_id, 24.4f);
     REQUIRE(bitmap);
     CHECK(bitmap->coverage.size() == static_cast<size_t>(bitmap->width) * bitmap->height);
-    CHECK(std::ranges::any_of(bitmap->coverage, [](uint8_t value) { return value > 0 && value < 255; }));
+    CHECK(std::ranges::any_of(bitmap->coverage,
+                              [](uint8_t value) { return value > 0 && value < 255; }));
 
     auto upload = noveltea::text::make_padded_glyph_upload(*bitmap, 1);
     REQUIRE(upload.width == bitmap->width + 2);
@@ -274,12 +292,14 @@ TEST_CASE("Glyph rasterization and atlas upload preserve grayscale coverage and 
         const size_t right = (static_cast<size_t>(y) * upload.width + upload.width - 1u) * 4u;
         CHECK(upload.rgba[right + 3u] == 0);
     }
-    const size_t first_glyph_alpha = (static_cast<size_t>(upload.glyph_y) * upload.width + upload.glyph_x) * 4u + 3u;
+    const size_t first_glyph_alpha =
+        (static_cast<size_t>(upload.glyph_y) * upload.width + upload.glyph_x) * 4u + 3u;
     CHECK(upload.rgba[first_glyph_alpha] == bitmap->coverage.front());
 
     CHECK(noveltea::text::normalize_raster_pixel_size(24.4f) == 24);
     CHECK(noveltea::text::normalize_raster_pixel_size(24.6f) == 25);
-    CHECK(noveltea::text::glyph_cache_pixel_size_key(24.4f) == noveltea::text::glyph_cache_pixel_size_key(24.49f));
+    CHECK(noveltea::text::glyph_cache_pixel_size_key(24.4f) ==
+          noveltea::text::glyph_cache_pixel_size_key(24.49f));
 }
 
 TEST_CASE("Non-Latin glyph IDs rasterize when the font contains them")
@@ -345,7 +365,8 @@ TEST_CASE("ShelfAtlasPacker creates non-overlapping pages")
 
     CHECK(a.page == 0);
     CHECK(b.page == 0);
-    const bool disjoint = a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+    const bool disjoint = a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y ||
+                          b.y + b.height <= a.y;
     CHECK(disjoint);
     CHECK(c.page > 0);
     CHECK(packer.page_count() > 1);

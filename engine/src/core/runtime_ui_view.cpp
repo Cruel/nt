@@ -16,12 +16,9 @@ std::string json_string_or(const nlohmann::json& value, const char* key, std::st
     const auto it = value.find(key);
     return it != value.end() && it->is_string() ? it->get<std::string>() : std::move(fallback);
 }
-}
+} // namespace
 
-void RuntimeUIViewAdapter::reset()
-{
-    m_state = RuntimeUIViewState{};
-}
+void RuntimeUIViewAdapter::reset() { m_state = RuntimeUIViewState{}; }
 
 void RuntimeUIViewAdapter::apply(const std::vector<ControllerCommand>& commands)
 {
@@ -126,9 +123,11 @@ void RuntimeUIViewAdapter::set_room_interactions(std::vector<RuntimeUIObject> ob
 void RuntimeUIViewAdapter::apply_options(const nlohmann::json& options)
 {
     m_state.dialogue_options.clear();
-    if (!options.is_array()) return;
+    if (!options.is_array())
+        return;
     for (const auto& option : options) {
-        if (!option.is_object()) continue;
+        if (!option.is_object())
+            continue;
         RuntimeUIOption out;
         out.text = json_string_or(option, "text");
         out.enabled = option.value("enabled", true);
@@ -153,8 +152,10 @@ void RuntimeUIViewAdapter::apply_navigation(const nlohmann::json& data)
                 m_state.navigation.push_back(path.get<std::string>());
             } else if (path.is_object()) {
                 auto label = json_string_or(path, "label");
-                if (label.empty()) label = json_string_or(path, "direction");
-                if (label.empty()) label = json_string_or(path, "target_id");
+                if (label.empty())
+                    label = json_string_or(path, "direction");
+                if (label.empty())
+                    label = json_string_or(path, "target_id");
                 if (!label.empty() && path.value("enabled", true)) {
                     m_state.navigation.push_back(std::move(label));
                 }
@@ -165,11 +166,14 @@ void RuntimeUIViewAdapter::apply_navigation(const nlohmann::json& data)
 
 void RuntimeUIViewAdapter::push_log_line(std::string line)
 {
-    if (line.empty()) return;
+    if (line.empty())
+        return;
     m_state.text_log.push_back(std::move(line));
     if (m_state.text_log.size() > kMaxTextLogLines) {
-        m_state.text_log.erase(m_state.text_log.begin(),
-                               m_state.text_log.begin() + static_cast<std::ptrdiff_t>(m_state.text_log.size() - kMaxTextLogLines));
+        m_state.text_log.erase(
+            m_state.text_log.begin(),
+            m_state.text_log.begin() +
+                static_cast<std::ptrdiff_t>(m_state.text_log.size() - kMaxTextLogLines));
     }
 }
 

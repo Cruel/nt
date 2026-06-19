@@ -16,20 +16,15 @@ using namespace noveltea;
 
 namespace {
 
-assets::AssetBytes bytes(std::string text)
-{
-    return assets::AssetBytes(text.begin(), text.end());
-}
+assets::AssetBytes bytes(std::string text) { return assets::AssetBytes(text.begin(), text.end()); }
 
 struct RuntimeFixture {
-    std::shared_ptr<assets::MemoryAssetSource> memory = std::make_shared<assets::MemoryAssetSource>();
+    std::shared_ptr<assets::MemoryAssetSource> memory =
+        std::make_shared<assets::MemoryAssetSource>();
     assets::AssetManager assets;
     script::ScriptRuntime runtime;
 
-    RuntimeFixture()
-    {
-        assets.mount("project", memory);
-    }
+    RuntimeFixture() { assets.mount("project", memory); }
 };
 
 } // namespace
@@ -150,7 +145,8 @@ TEST_CASE("ScriptRuntime reports syntax errors and nested runtime tracebacks")
             deepest()
         end
         middle()
-    )", "nested_runtime");
+    )",
+                                          "nested_runtime");
     REQUIRE_FALSE(nested);
     REQUIRE(nested.error);
     CHECK(nested.error->message.find("boom") != std::string::npos);
@@ -192,9 +188,7 @@ TEST_CASE("ScriptRuntime converts bound C++ exceptions into failures and stays u
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
     sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
-    lua.set_function("throw_from_cpp", []() -> int {
-        throw std::runtime_error("cpp boom");
-    });
+    lua.set_function("throw_from_cpp", []() -> int { throw std::runtime_error("cpp boom"); });
 
     auto failed = fixture.runtime.execute("throw_from_cpp()", "cpp_throw");
     REQUIRE_FALSE(failed);
@@ -210,7 +204,8 @@ TEST_CASE("ScriptRuntime converts bound C++ exceptions into failures and stays u
 TEST_CASE("ScriptRuntime executes scripts through AssetManager logical paths")
 {
     RuntimeFixture fixture;
-    fixture.memory->add("project:/scripts/example.lua", bytes("asset_value = noveltea.echo('asset-ok')"));
+    fixture.memory->add("project:/scripts/example.lua",
+                        bytes("asset_value = noveltea.echo('asset-ok')"));
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
     auto executed = fixture.runtime.execute_asset("project:/scripts/example.lua");
     REQUIRE(executed);
@@ -236,18 +231,16 @@ TEST_CASE("ScriptRuntime supports shared_ptr-backed sol2 usertypes for future bi
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
     sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
     lua.new_usertype<TestObject>(
-        "TestObject",
-        sol::no_constructor,
-        "ping", &TestObject::ping,
-        "calls", sol::property([](const TestObject& object) { return object.calls; })
-    );
+        "TestObject", sol::no_constructor, "ping", &TestObject::ping, "calls",
+        sol::property([](const TestObject& object) { return object.calls; }));
 
     auto object = std::make_shared<TestObject>("kept");
     std::weak_ptr<TestObject> weak = object;
     lua["test_object"] = object;
     object.reset();
 
-    REQUIRE(fixture.runtime.execute("stored_object = test_object\nobserved = stored_object:ping()", "shared_ptr"));
+    REQUIRE(fixture.runtime.execute("stored_object = test_object\nobserved = stored_object:ping()",
+                                    "shared_ptr"));
     CHECK_FALSE(weak.expired());
     auto observed = fixture.runtime.evaluate_string("observed", "observed");
     REQUIRE(observed);

@@ -11,10 +11,7 @@ using namespace noveltea::core;
 
 namespace {
 
-nlohmann::json props()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json props() { return nlohmann::json::object(); }
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -29,12 +26,9 @@ ProjectDocument make_test_cutscene_project()
     root[project_ids::verb] = nlohmann::json::object();
     root[project_ids::action] = nlohmann::json::object();
     root[project_ids::room] = nlohmann::json::object({
-        {"start", nlohmann::json::array({"start", "", props(),
-                                         "text='A starting room.';",
-                                         "", "", "", "",
-                                         nlohmann::json::array(),
-                                         nlohmann::json::array(),
-                                         "Start"})},
+        {"start",
+         nlohmann::json::array({"start", "", props(), "text='A starting room.';", "", "", "", "",
+                                nlohmann::json::array(), nlohmann::json::array(), "Start"})},
     });
     root[project_ids::map] = nlohmann::json::object();
     root[project_ids::script] = nlohmann::json::object();
@@ -43,15 +37,23 @@ ProjectDocument make_test_cutscene_project()
     root[project_ids::starting_inventory] = nlohmann::json::array();
 
     auto pageSeg = nlohmann::json::array();
-    pageSeg.push_back(2); pageSeg.push_back(true);
+    pageSeg.push_back(2);
+    pageSeg.push_back(true);
     pageSeg.push_back("Welcome to the game.\n\nLet's begin!");
-    pageSeg.push_back("\n"); pageSeg.push_back("\n\n");
-    pageSeg.push_back(0); pageSeg.push_back(1);
-    pageSeg.push_back(1000); pageSeg.push_back(2000);
-    pageSeg.push_back(2000); pageSeg.push_back(3000);
-    pageSeg.push_back(true); pageSeg.push_back(true);
-    pageSeg.push_back(0); pageSeg.push_back(0);
-    pageSeg.push_back(""); pageSeg.push_back(true);
+    pageSeg.push_back("\n");
+    pageSeg.push_back("\n\n");
+    pageSeg.push_back(0);
+    pageSeg.push_back(1);
+    pageSeg.push_back(1000);
+    pageSeg.push_back(2000);
+    pageSeg.push_back(2000);
+    pageSeg.push_back(3000);
+    pageSeg.push_back(true);
+    pageSeg.push_back(true);
+    pageSeg.push_back(0);
+    pageSeg.push_back(0);
+    pageSeg.push_back("");
+    pageSeg.push_back(true);
 
     auto segments = nlohmann::json::array();
     segments.push_back(pageSeg);
@@ -81,9 +83,14 @@ ProjectDocument make_multi_segment_cutscene_project()
     root[project_ids::verb] = nlohmann::json::object();
     root[project_ids::action] = nlohmann::json::object();
     auto roomStart = nlohmann::json::array();
-    roomStart.push_back("start"); roomStart.push_back(""); roomStart.push_back(props());
-    roomStart.push_back("text='Room.';"); roomStart.push_back(""); roomStart.push_back("");
-    roomStart.push_back(""); roomStart.push_back("");
+    roomStart.push_back("start");
+    roomStart.push_back("");
+    roomStart.push_back(props());
+    roomStart.push_back("text='Room.';");
+    roomStart.push_back("");
+    roomStart.push_back("");
+    roomStart.push_back("");
+    roomStart.push_back("");
     roomStart.push_back(nlohmann::json::array());
     roomStart.push_back(nlohmann::json::array());
     roomStart.push_back("Start");
@@ -98,22 +105,41 @@ ProjectDocument make_multi_segment_cutscene_project()
     nlohmann::json segments = nlohmann::json::array();
 
     auto text1 = nlohmann::json::array();
-    text1.push_back(0); text1.push_back("Hello world!"); text1.push_back(true);
-    text1.push_back(true); text1.push_back(0); text1.push_back(1000);
-    text1.push_back(2000); text1.push_back(0); text1.push_back(0);
-    text1.push_back(true); text1.push_back("");
+    text1.push_back(0);
+    text1.push_back("Hello world!");
+    text1.push_back(true);
+    text1.push_back(true);
+    text1.push_back(0);
+    text1.push_back(1000);
+    text1.push_back(2000);
+    text1.push_back(0);
+    text1.push_back(0);
+    text1.push_back(true);
+    text1.push_back("");
     segments.push_back(text1);
 
     auto pb = nlohmann::json::array();
-    pb.push_back(1); pb.push_back(1); pb.push_back(2000);
-    pb.push_back(3000); pb.push_back(true); pb.push_back(false); pb.push_back("");
+    pb.push_back(1);
+    pb.push_back(1);
+    pb.push_back(2000);
+    pb.push_back(3000);
+    pb.push_back(true);
+    pb.push_back(false);
+    pb.push_back("");
     segments.push_back(pb);
 
     auto text2 = nlohmann::json::array();
-    text2.push_back(0); text2.push_back("Chapter 2"); text2.push_back(true);
-    text2.push_back(true); text2.push_back(0); text2.push_back(1000);
-    text2.push_back(2000); text2.push_back(0); text2.push_back(0);
-    text2.push_back(true); text2.push_back("");
+    text2.push_back(0);
+    text2.push_back("Chapter 2");
+    text2.push_back(true);
+    text2.push_back(true);
+    text2.push_back(0);
+    text2.push_back(1000);
+    text2.push_back(2000);
+    text2.push_back(0);
+    text2.push_back(0);
+    text2.push_back(true);
+    text2.push_back("");
     segments.push_back(text2);
 
     auto cutsceneEntry = nlohmann::json::array();
@@ -140,9 +166,14 @@ ProjectDocument make_script_cutscene_project()
     root[project_ids::verb] = nlohmann::json::object();
     root[project_ids::action] = nlohmann::json::object();
     auto roomStart = nlohmann::json::array();
-    roomStart.push_back("start"); roomStart.push_back(""); roomStart.push_back(props());
-    roomStart.push_back("text='Room.';"); roomStart.push_back(""); roomStart.push_back("");
-    roomStart.push_back(""); roomStart.push_back("");
+    roomStart.push_back("start");
+    roomStart.push_back("");
+    roomStart.push_back(props());
+    roomStart.push_back("text='Room.';");
+    roomStart.push_back("");
+    roomStart.push_back("");
+    roomStart.push_back("");
+    roomStart.push_back("");
     roomStart.push_back(nlohmann::json::array());
     roomStart.push_back(nlohmann::json::array());
     roomStart.push_back("Start");
@@ -157,16 +188,26 @@ ProjectDocument make_script_cutscene_project()
     nlohmann::json segments = nlohmann::json::array();
 
     auto scriptSeg = nlohmann::json::array();
-    scriptSeg.push_back(3); scriptSeg.push_back("log('intro started');");
-    scriptSeg.push_back(false); scriptSeg.push_back(true);
-    scriptSeg.push_back(false); scriptSeg.push_back("");
+    scriptSeg.push_back(3);
+    scriptSeg.push_back("log('intro started');");
+    scriptSeg.push_back(false);
+    scriptSeg.push_back(true);
+    scriptSeg.push_back(false);
+    scriptSeg.push_back("");
     segments.push_back(scriptSeg);
 
     auto textSeg = nlohmann::json::array();
-    textSeg.push_back(0); textSeg.push_back("After script"); textSeg.push_back(true);
-    textSeg.push_back(true); textSeg.push_back(0); textSeg.push_back(1000);
-    textSeg.push_back(2000); textSeg.push_back(0); textSeg.push_back(0);
-    textSeg.push_back(true); textSeg.push_back("");
+    textSeg.push_back(0);
+    textSeg.push_back("After script");
+    textSeg.push_back(true);
+    textSeg.push_back(true);
+    textSeg.push_back(0);
+    textSeg.push_back(1000);
+    textSeg.push_back(2000);
+    textSeg.push_back(0);
+    textSeg.push_back(0);
+    textSeg.push_back(true);
+    textSeg.push_back("");
     segments.push_back(textSeg);
 
     auto cutsceneEntry = nlohmann::json::array();

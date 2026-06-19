@@ -11,14 +11,11 @@ constexpr std::string_view size_factor_key = "sizeFactor";
 constexpr std::string_view active_profile_key = "activeProfile";
 constexpr std::string_view profiles_key = "profiles";
 
-std::string key(std::string_view value)
-{
-    return std::string(value);
-}
+std::string key(std::string_view value) { return std::string(value); }
 
 void add_error(std::vector<DocumentError>& errors, std::string_view path, std::string message)
 {
-    errors.push_back(DocumentError {std::string(path), std::move(message)});
+    errors.push_back(DocumentError{std::string(path), std::move(message)});
 }
 
 bool expect_object(const json& value, std::vector<DocumentError>& errors, std::string_view path)
@@ -84,12 +81,14 @@ bool require_key(const json& root, std::string_view field, std::vector<DocumentE
     return false;
 }
 
-std::optional<json> parse_text(std::string_view text, std::vector<DocumentError>& errors, std::string_view label)
+std::optional<json> parse_text(std::string_view text, std::vector<DocumentError>& errors,
+                               std::string_view label)
 {
     try {
         return json::parse(text.begin(), text.end());
     } catch (const json::parse_error& e) {
-        add_error(errors, "", std::string("malformed ") + std::string(label) + " JSON: " + e.what());
+        add_error(errors, "",
+                  std::string("malformed ") + std::string(label) + " JSON: " + e.what());
         return std::nullopt;
     }
 }
@@ -112,7 +111,8 @@ SaveDocument SaveDocument::new_save()
     return SaveDocument(std::move(root));
 }
 
-std::optional<SaveDocument> SaveDocument::parse_json_text(std::string_view text, std::vector<DocumentError>& errors)
+std::optional<SaveDocument> SaveDocument::parse_json_text(std::string_view text,
+                                                          std::vector<DocumentError>& errors)
 {
     auto root = parse_text(text, errors, ".ntsav");
     if (!root.has_value()) {
@@ -148,7 +148,9 @@ bool SaveDocument::validate(std::vector<DocumentError>& errors) const
     ok = expect_bool(m_root.at(key(project_ids::map_enabled)), errors, "/mapEnabled") && ok;
     ok = expect_array(m_root.at(key(project_ids::log)), errors, "/log") && ok;
     ok = expect_object(m_root.at(key(project_ids::properties)), errors, "/properties") && ok;
-    ok = expect_object(m_root.at(key(project_ids::room_descriptions)), errors, "/roomDescriptions") && ok;
+    ok = expect_object(m_root.at(key(project_ids::room_descriptions)), errors,
+                       "/roomDescriptions") &&
+         ok;
     ok = expect_object(m_root.at(key(project_ids::visited_rooms)), errors, "/visitedRooms") && ok;
 
     if (m_root.contains(key(project_ids::entrypoint_entity)) &&
@@ -175,20 +177,14 @@ bool SaveDocument::validate(std::vector<DocumentError>& errors) const
     return ok;
 }
 
-double SaveDocument::play_time() const
-{
-    return m_root.value(key(project_ids::play_time), 0.0);
-}
+double SaveDocument::play_time() const { return m_root.value(key(project_ids::play_time), 0.0); }
 
 bool SaveDocument::navigation_enabled() const
 {
     return m_root.value(key(project_ids::navigation_enabled), true);
 }
 
-bool SaveDocument::map_enabled() const
-{
-    return m_root.value(key(project_ids::map_enabled), true);
-}
+bool SaveDocument::map_enabled() const { return m_root.value(key(project_ids::map_enabled), true); }
 
 std::optional<EntityRef> SaveDocument::entrypoint() const
 {
@@ -203,10 +199,7 @@ std::string SaveDocument::current_map_id() const
     return m_root.value(key(project_ids::save_map), std::string());
 }
 
-std::string SaveDocument::dump() const
-{
-    return m_root.dump();
-}
+std::string SaveDocument::dump() const { return m_root.dump(); }
 
 SettingsDocument::SettingsDocument() : m_root(json::object()) {}
 SettingsDocument::SettingsDocument(json root) : m_root(std::move(root)) {}
@@ -220,8 +213,8 @@ SettingsDocument SettingsDocument::defaults()
     return SettingsDocument(std::move(root));
 }
 
-std::optional<SettingsDocument> SettingsDocument::parse_json_text(std::string_view text,
-                                                                  std::vector<DocumentError>& errors)
+std::optional<SettingsDocument>
+SettingsDocument::parse_json_text(std::string_view text, std::vector<DocumentError>& errors)
 {
     auto root = parse_text(text, errors, "settings.conf");
     if (!root.has_value()) {
@@ -266,7 +259,8 @@ bool SettingsDocument::validate(std::vector<DocumentError>& errors) const
         }
     }
 
-    if (m_root.at(key(active_profile_key)).is_number_integer() && m_root.at(key(profiles_key)).is_array()) {
+    if (m_root.at(key(active_profile_key)).is_number_integer() &&
+        m_root.at(key(profiles_key)).is_array()) {
         const int active = m_root.at(key(active_profile_key)).get<int>();
         const auto count = static_cast<int>(m_root.at(key(profiles_key)).size());
         if (active >= count) {
@@ -297,28 +291,19 @@ std::vector<Profile> SettingsDocument::profiles() const
     }
     for (const auto& item : *it) {
         if (item.is_array() && item.size() == 1 && item[0].is_string()) {
-            out.push_back(Profile {item[0].get<std::string>()});
+            out.push_back(Profile{item[0].get<std::string>()});
         }
     }
     return out;
 }
 
-std::string SettingsDocument::dump() const
-{
-    return m_root.dump();
-}
+std::string SettingsDocument::dump() const { return m_root.dump(); }
 
 namespace profile_paths {
 
-std::string profile_directory_name(int profile_index)
-{
-    return std::to_string(profile_index);
-}
+std::string profile_directory_name(int profile_index) { return std::to_string(profile_index); }
 
-std::string slot_filename(int slot)
-{
-    return std::to_string(slot) + std::string(save_extension);
-}
+std::string slot_filename(int slot) { return std::to_string(slot) + std::string(save_extension); }
 
 std::string slot_path(int profile_index, int slot)
 {

@@ -9,10 +9,7 @@ using namespace noveltea::core;
 
 namespace {
 
-nlohmann::json props()
-{
-    return nlohmann::json::object();
-}
+nlohmann::json props() { return nlohmann::json::object(); }
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -27,8 +24,9 @@ ProjectDocument make_session_project()
     root[project_ids::verb] = nlohmann::json::object();
     root[project_ids::action] = nlohmann::json::object();
     root[project_ids::room] = nlohmann::json::object({
-        {"foyer", nlohmann::json::array({"foyer", "", props(), "text='Foyer';", "", "", "", "",
-                                         nlohmann::json::array(), nlohmann::json::array(), "Foyer"})},
+        {"foyer",
+         nlohmann::json::array({"foyer", "", props(), "text='Foyer';", "", "", "", "",
+                                nlohmann::json::array(), nlohmann::json::array(), "Foyer"})},
     });
     root[project_ids::map] = nlohmann::json::object();
     root[project_ids::dialogue] = nlohmann::json::object();
@@ -70,7 +68,8 @@ TEST_CASE("GameSession loads typed project model and project startup entrypoint"
     CHECK(session.current_room_id() == std::optional<std::string>("foyer"));
     CHECK(session.navigation_enabled());
     CHECK(session.map_enabled());
-    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Info, "using project entrypoint"));
+    CHECK(
+        has_diag(result.diagnostics, SessionDiagnosticSeverity::Info, "using project entrypoint"));
     CHECK(session.events().queued_count() == 1);
     const auto state = session.runtime_state();
     CHECK(state.current_room_id == std::optional<std::string>("foyer"));
@@ -143,9 +142,12 @@ TEST_CASE("GameSession ignores stale saved map and queued entity metadata with w
     CHECK_FALSE(session.current_map_id().has_value());
     REQUIRE(session.entity_queue().size() == 1);
     CHECK(session.entity_queue().front().id == "foyer");
-    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning, "saved current map 'missing-map'"));
-    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning, "does not exist in project"));
-    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning, "expected selected-entity array"));
+    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning,
+                   "saved current map 'missing-map'"));
+    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning,
+                   "does not exist in project"));
+    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning,
+                   "expected selected-entity array"));
 }
 
 TEST_CASE("GameSession reports validation diagnostics and refuses invalid project")
@@ -158,7 +160,8 @@ TEST_CASE("GameSession reports validation diagnostics and refuses invalid projec
 
     CHECK_FALSE(result.success);
     CHECK_FALSE(session.loaded());
-    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Error, "missing room entity 'missing'"));
+    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Error,
+                   "missing room entity 'missing'"));
 }
 
 TEST_CASE("GameSession reports save diagnostics and refuses invalid save")
@@ -180,15 +183,17 @@ TEST_CASE("GameSession tick advances play time, timers, and queued events")
     REQUIRE(session.load(make_session_project()).success);
     int loaded_events = 0;
     int timer_events = 0;
-    const auto loaded_listener = session.events().listen(RuntimeEventType::GameLoaded, [&](const RuntimeEvent& event) {
-        CHECK(event.text == "foyer");
-        ++loaded_events;
-        return true;
-    });
-    const auto timer_listener = session.events().listen(RuntimeEventType::TimerCompleted, [&](const RuntimeEvent&) {
-        ++timer_events;
-        return true;
-    });
+    const auto loaded_listener =
+        session.events().listen(RuntimeEventType::GameLoaded, [&](const RuntimeEvent& event) {
+            CHECK(event.text == "foyer");
+            ++loaded_events;
+            return true;
+        });
+    const auto timer_listener =
+        session.events().listen(RuntimeEventType::TimerCompleted, [&](const RuntimeEvent&) {
+            ++timer_events;
+            return true;
+        });
     CHECK(loaded_listener != timer_listener);
     const auto timer = session.timers().start(0.5);
     CHECK(timer.id != 0);

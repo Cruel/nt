@@ -24,13 +24,22 @@ public:
     void reset();
     void tick(double delta_seconds);
 
-    [[nodiscard]] bool loaded() const noexcept { return m_session.loaded() && m_controller != nullptr; }
+    [[nodiscard]] bool loaded() const noexcept
+    {
+        return m_session.loaded() && m_controller != nullptr;
+    }
     [[nodiscard]] GameSession& session() noexcept { return m_session; }
     [[nodiscard]] const GameSession& session() const noexcept { return m_session; }
     [[nodiscard]] RuntimeController* controller() noexcept { return m_controller.get(); }
-    [[nodiscard]] const RuntimeController* controller() const noexcept { return m_controller.get(); }
+    [[nodiscard]] const RuntimeController* controller() const noexcept
+    {
+        return m_controller.get();
+    }
     [[nodiscard]] const RuntimeUIViewState& view_state() const noexcept { return m_view.state(); }
-    [[nodiscard]] const std::vector<ControllerCommand>& last_commands() const noexcept { return m_last_commands; }
+    [[nodiscard]] const std::vector<ControllerCommand>& last_commands() const noexcept
+    {
+        return m_last_commands;
+    }
     [[nodiscard]] std::string_view current_mode_name() const noexcept;
 
     bool navigate_path(int direction);

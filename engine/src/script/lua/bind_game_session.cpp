@@ -43,17 +43,18 @@ core::GameSession* get_session(lua_State* L)
 // -------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------
-sol::object entity_prop(core::GameSession* session, core::EntityType type,
-                        const std::string& id, const std::string& key,
-                        sol::optional<sol::object> default_value,
+sol::object entity_prop(core::GameSession* session, core::EntityType type, const std::string& id,
+                        const std::string& key, sol::optional<sol::object> default_value,
                         sol::this_state L)
 {
-    if (!session || !session->project()) return default_value.value_or(sol::lua_nil);
+    if (!session || !session->project())
+        return default_value.value_or(sol::lua_nil);
     const auto merged = session->project()->merged_properties(type, id);
     if (merged.contains(key)) {
         const auto& val = merged[key];
         sol::state_view lua(L);
-        if (val.is_string()) return sol::make_object(lua, val.get<std::string>());
+        if (val.is_string())
+            return sol::make_object(lua, val.get<std::string>());
         if (val.is_number()) {
             double d = val.get<double>();
             if (d == static_cast<double>(static_cast<std::int64_t>(d))) {
@@ -61,35 +62,34 @@ sol::object entity_prop(core::GameSession* session, core::EntityType type,
             }
             return sol::make_object(lua, d);
         }
-        if (val.is_boolean()) return sol::make_object(lua, val.get<bool>());
+        if (val.is_boolean())
+            return sol::make_object(lua, val.get<bool>());
         return sol::make_object(lua, val.dump());
     }
     return default_value.value_or(sol::lua_nil);
 }
 
-bool entity_has_prop(core::GameSession* session, core::EntityType type,
-                     const std::string& id, const std::string& key)
+bool entity_has_prop(core::GameSession* session, core::EntityType type, const std::string& id,
+                     const std::string& key)
 {
-    if (!session || !session->project()) return false;
+    if (!session || !session->project())
+        return false;
     const auto merged = session->project()->merged_properties(type, id);
     return merged.contains(key);
 }
 
-void entity_set_prop(core::GameSession* session, core::EntityType type,
-                     const std::string& id, const std::string& key,
-                     const sol::object& value)
+void entity_set_prop(core::GameSession* session, core::EntityType type, const std::string& id,
+                     const std::string& key, const sol::object& value)
 {
     SDL_Log("[lua] set_prop(%s/%s, %s) — stub (no save mutation)",
-            core::entity_type_collection_key(type).value_or("?").data(),
-            id.c_str(), key.c_str());
+            core::entity_type_collection_key(type).value_or("?").data(), id.c_str(), key.c_str());
 }
 
-void entity_unset_prop(core::GameSession* session, core::EntityType type,
-                       const std::string& id, const std::string& key)
+void entity_unset_prop(core::GameSession* session, core::EntityType type, const std::string& id,
+                       const std::string& key)
 {
     SDL_Log("[lua] unset_prop(%s/%s, %s) — stub",
-            core::entity_type_collection_key(type).value_or("?").data(),
-            id.c_str(), key.c_str());
+            core::entity_type_collection_key(type).value_or("?").data(), id.c_str(), key.c_str());
 }
 
 // -------------------------------------------------------------------
@@ -101,7 +101,8 @@ struct RoomLua {
 
     std::string get_id() const { return id; }
 
-    sol::object prop(const std::string& key, sol::optional<sol::object> default_value, sol::this_state L) const
+    sol::object prop(const std::string& key, sol::optional<sol::object> default_value,
+                     sol::this_state L) const
     {
         return entity_prop(session, core::EntityType::Room, id, key, default_value, L);
     }
@@ -123,11 +124,13 @@ struct RoomLua {
 
     std::string get_description() const
     {
-        if (!session || !session->project()) return {};
+        if (!session || !session->project())
+            return {};
         auto* model = session->project();
         const auto& rooms = model->rooms();
         auto it = rooms.find(id);
-        if (it == rooms.end()) return {};
+        if (it == rooms.end())
+            return {};
         return it->second.description_raw;
     }
 
@@ -135,51 +138,61 @@ struct RoomLua {
 
     std::string get_script_before_enter() const
     {
-        if (!session || !session->project()) return {};
+        if (!session || !session->project())
+            return {};
         auto* model = session->project();
         const auto& rooms = model->rooms();
         auto it = rooms.find(id);
-        if (it == rooms.end()) return {};
+        if (it == rooms.end())
+            return {};
         return it->second.script_before_enter;
     }
 
     std::string get_script_after_enter() const
     {
-        if (!session || !session->project()) return {};
+        if (!session || !session->project())
+            return {};
         auto* model = session->project();
         const auto& rooms = model->rooms();
         auto it = rooms.find(id);
-        if (it == rooms.end()) return {};
+        if (it == rooms.end())
+            return {};
         return it->second.script_after_enter;
     }
 
     std::string get_script_before_leave() const
     {
-        if (!session || !session->project()) return {};
+        if (!session || !session->project())
+            return {};
         auto* model = session->project();
         const auto& rooms = model->rooms();
         auto it = rooms.find(id);
-        if (it == rooms.end()) return {};
+        if (it == rooms.end())
+            return {};
         return it->second.script_before_leave;
     }
 
     std::string get_script_after_leave() const
     {
-        if (!session || !session->project()) return {};
+        if (!session || !session->project())
+            return {};
         auto* model = session->project();
         const auto& rooms = model->rooms();
         auto it = rooms.find(id);
-        if (it == rooms.end()) return {};
+        if (it == rooms.end())
+            return {};
         return it->second.script_after_leave;
     }
 
     std::string get_name() const
     {
-        if (!session || !session->project()) return {};
+        if (!session || !session->project())
+            return {};
         auto* model = session->project();
         const auto& rooms = model->rooms();
         auto it = rooms.find(id);
-        if (it == rooms.end()) return {};
+        if (it == rooms.end())
+            return {};
         return it->second.name;
     }
 };
@@ -193,7 +206,8 @@ struct ScriptEntityLua {
 
     std::string get_id() const { return id; }
 
-    sol::object prop(const std::string& key, sol::optional<sol::object> default_value, sol::this_state L) const
+    sol::object prop(const std::string& key, sol::optional<sol::object> default_value,
+                     sol::this_state L) const
     {
         return entity_prop(session, core::EntityType::Script, id, key, default_value, L);
     }
@@ -215,21 +229,25 @@ struct ScriptEntityLua {
 
     bool get_autorun() const
     {
-        if (!session || !session->project()) return false;
+        if (!session || !session->project())
+            return false;
         auto* model = session->project();
         const auto& scripts = model->scripts();
         auto it = scripts.find(id);
-        if (it == scripts.end()) return false;
+        if (it == scripts.end())
+            return false;
         return it->second.autorun;
     }
 
     std::string get_content() const
     {
-        if (!session || !session->project()) return {};
+        if (!session || !session->project())
+            return {};
         auto* model = session->project();
         const auto& scripts = model->scripts();
         auto it = scripts.find(id);
-        if (it == scripts.end()) return {};
+        if (it == scripts.end())
+            return {};
         return it->second.content;
     }
 };
@@ -242,14 +260,16 @@ struct GameBinding {
 
     sol::object get_room(sol::this_state L) const
     {
-        if (!session || !session->current_room_id()) return sol::lua_nil;
+        if (!session || !session->current_room_id())
+            return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, RoomLua{session, *session->current_room_id()});
     }
 
     sol::object get_map_id(sol::this_state L) const
     {
-        if (!session || !session->current_map_id()) return sol::lua_nil;
+        if (!session || !session->current_map_id())
+            return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, *session->current_map_id());
     }
@@ -260,14 +280,16 @@ struct GameBinding {
 
     void push_next(int type, std::string id)
     {
-        if (!session) return;
+        if (!session)
+            return;
         auto et = core::entity_type_from_integer(type);
         if (et) {
             session->queue_entity(core::EntityRef{*et, std::move(id)});
         }
     }
 
-    sol::object prop(const std::string& key, sol::optional<sol::object> default_value, sol::this_state L) const
+    sol::object prop(const std::string& key, sol::optional<sol::object> default_value,
+                     sol::this_state L) const
     {
         // Check save properties first, then fall back to project default properties
         if (session && session->save()) {
@@ -276,7 +298,8 @@ struct GameBinding {
             if (props.contains(key)) {
                 const auto& val = props[key];
                 sol::state_view lua(L);
-                if (val.is_string()) return sol::make_object(lua, val.get<std::string>());
+                if (val.is_string())
+                    return sol::make_object(lua, val.get<std::string>());
                 if (val.is_number()) {
                     double d = val.get<double>();
                     if (d == static_cast<double>(static_cast<std::int64_t>(d))) {
@@ -284,7 +307,8 @@ struct GameBinding {
                     }
                     return sol::make_object(lua, d);
                 }
-                if (val.is_boolean()) return sol::make_object(lua, val.get<bool>());
+                if (val.is_boolean())
+                    return sol::make_object(lua, val.get<bool>());
                 return sol::make_object(lua, val.dump());
             }
         }
@@ -296,7 +320,8 @@ struct GameBinding {
                 if (props.contains(key)) {
                     const auto& val = props[key];
                     sol::state_view lua(L);
-                    if (val.is_string()) return sol::make_object(lua, val.get<std::string>());
+                    if (val.is_string())
+                        return sol::make_object(lua, val.get<std::string>());
                     if (val.is_number()) {
                         double d = val.get<double>();
                         if (d == static_cast<double>(static_cast<std::int64_t>(d))) {
@@ -304,7 +329,8 @@ struct GameBinding {
                         }
                         return sol::make_object(lua, d);
                     }
-                    if (val.is_boolean()) return sol::make_object(lua, val.get<bool>());
+                    if (val.is_boolean())
+                        return sol::make_object(lua, val.get<bool>());
                     return sol::make_object(lua, val.dump());
                 }
             }
@@ -319,31 +345,37 @@ struct GameBinding {
 
     sol::object load_room(const std::string& id, sol::this_state L) const
     {
-        if (!session || !session->project()) return sol::lua_nil;
+        if (!session || !session->project())
+            return sol::lua_nil;
         const auto& rooms = session->project()->rooms();
-        if (rooms.find(id) == rooms.end()) return sol::lua_nil;
+        if (rooms.find(id) == rooms.end())
+            return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, RoomLua{session, id});
     }
 
     bool exists_room(const std::string& id) const
     {
-        if (!session || !session->project()) return false;
+        if (!session || !session->project())
+            return false;
         return session->project()->rooms().find(id) != session->project()->rooms().end();
     }
 
     sol::object load_script(const std::string& id, sol::this_state L) const
     {
-        if (!session || !session->project()) return sol::lua_nil;
+        if (!session || !session->project())
+            return sol::lua_nil;
         const auto& scripts = session->project()->scripts();
-        if (scripts.find(id) == scripts.end()) return sol::lua_nil;
+        if (scripts.find(id) == scripts.end())
+            return sol::lua_nil;
         sol::state_view lua(L);
         return sol::make_object(lua, ScriptEntityLua{session, id});
     }
 
     bool exists_script(const std::string& id) const
     {
-        if (!session || !session->project()) return false;
+        if (!session || !session->project())
+            return false;
         return session->project()->scripts().find(id) != session->project()->scripts().end();
     }
 
@@ -369,7 +401,8 @@ struct ScriptBinding {
     double rand()
     {
         auto* bridge = get_bridge(L);
-        if (!bridge) return 0.0;
+        if (!bridge)
+            return 0.0;
         return bridge->dist(bridge->rng);
     }
 
@@ -395,14 +428,16 @@ struct ScriptBinding {
             auto load_result = lua.load("return " + expr, "={{expression}}");
             if (!load_result.valid()) {
                 sol::error err = load_result;
-                SDL_Log("[lua] eval_expressions: failed to compile '{{%s}}': %s", expr.c_str(), err.what());
+                SDL_Log("[lua] eval_expressions: failed to compile '{{%s}}': %s", expr.c_str(),
+                        err.what());
                 result += "{{" + expr + "}}";
             } else {
                 sol::protected_function eval_fn(load_result);
                 sol::protected_function_result eval_result = eval_fn();
                 if (!eval_result.valid()) {
                     sol::error err = eval_result;
-                    SDL_Log("[lua] eval_expressions: failed to evaluate '{{%s}}': %s", expr.c_str(), err.what());
+                    SDL_Log("[lua] eval_expressions: failed to evaluate '{{%s}}': %s", expr.c_str(),
+                            err.what());
                     result += "{{" + expr + "}}";
                 } else {
                     auto type = eval_result.get_type();
@@ -429,10 +464,12 @@ struct ScriptBinding {
     bool run(std::string script_id)
     {
         auto* session = get_session(L);
-        if (!session || !session->project()) return false;
+        if (!session || !session->project())
+            return false;
         const auto& scripts = session->project()->scripts();
         auto it = scripts.find(script_id);
-        if (it == scripts.end()) return false;
+        if (it == scripts.end())
+            return false;
 
         const std::string& source = it->second.content;
         sol::state_view lua(L);
@@ -471,9 +508,8 @@ struct LogBinding {
     {
         SDL_Log("[lua] Log.push: %s", text.c_str());
         if (session) {
-            session->events().push(core::RuntimeEvent{
-                core::RuntimeEventType::TextLogged, 0, 0.0, std::move(text)
-            });
+            session->events().push(
+                core::RuntimeEvent{core::RuntimeEventType::TextLogged, 0, 0.0, std::move(text)});
         }
     }
 };
@@ -487,8 +523,10 @@ struct TimerBinding {
 
     sol::object start(double duration_ms, sol::function callback)
     {
-        if (!session) return sol::lua_nil;
-        auto handle = session->timers().start(duration_ms / 1000.0,
+        if (!session)
+            return sol::lua_nil;
+        auto handle = session->timers().start(
+            duration_ms / 1000.0,
             [callback = std::make_shared<sol::function>(callback)](core::RuntimeTimerId id) {
                 if (callback->valid()) {
                     (*callback)(static_cast<std::int64_t>(id));
@@ -499,8 +537,10 @@ struct TimerBinding {
 
     sol::object start_repeat(double duration_ms, sol::function callback)
     {
-        if (!session) return sol::lua_nil;
-        auto handle = session->timers().start_repeat(duration_ms / 1000.0,
+        if (!session)
+            return sol::lua_nil;
+        auto handle = session->timers().start_repeat(
+            duration_ms / 1000.0,
             [callback = std::make_shared<sol::function>(callback)](core::RuntimeTimerId id) {
                 if (callback->valid()) {
                     (*callback)(static_cast<std::int64_t>(id));
@@ -514,10 +554,7 @@ struct TimerBinding {
 // SaveBinding — exposed as "Save" usertype
 // -------------------------------------------------------------------
 struct SaveBinding {
-    void reset_room_descriptions() const
-    {
-        SDL_Log("[lua] Save.reset_room_descriptions — stub");
-    }
+    void reset_room_descriptions() const { SDL_Log("[lua] Save.reset_room_descriptions — stub"); }
 };
 
 // -------------------------------------------------------------------
@@ -529,19 +566,27 @@ void build_game_table(lua_State* L, core::GameSession* session)
     GameBinding binding{session};
     sol::table game = lua.create_table();
 
-    game.set_function("push_next", [binding](int type, std::string id) mutable { binding.push_next(type, std::move(id)); });
-    game.set_function("prop", [binding](std::string key, sol::optional<sol::object> def, sol::this_state L_) mutable {
-        return binding.prop(key, def, L_);
+    game.set_function("push_next", [binding](int type, std::string id) mutable {
+        binding.push_next(type, std::move(id));
     });
-    game.set_function("set_prop", [binding](std::string key, sol::object value) mutable { binding.set_prop(key, value); });
+    game.set_function("prop",
+                      [binding](std::string key, sol::optional<sol::object> def,
+                                sol::this_state L_) mutable { return binding.prop(key, def, L_); });
+    game.set_function("set_prop", [binding](std::string key, sol::object value) mutable {
+        binding.set_prop(key, value);
+    });
     game.set_function("load_room", [binding](std::string id, sol::this_state L_) mutable {
         return binding.load_room(std::move(id), L_);
     });
-    game.set_function("exists_room", [binding](std::string id) mutable { return binding.exists_room(std::move(id)); });
+    game.set_function("exists_room", [binding](std::string id) mutable {
+        return binding.exists_room(std::move(id));
+    });
     game.set_function("load_script", [binding](std::string id, sol::this_state L_) mutable {
         return binding.load_script(std::move(id), L_);
     });
-    game.set_function("exists_script", [binding](std::string id) mutable { return binding.exists_script(std::move(id)); });
+    game.set_function("exists_script", [binding](std::string id) mutable {
+        return binding.exists_script(std::move(id));
+    });
     game.set_function("save", [binding](sol::optional<int> slot) mutable { binding.save(slot); });
     game.set_function("load", [binding](sol::optional<int> slot) mutable { binding.load(slot); });
     game.set_function("autosave", [binding]() mutable { binding.autosave(); });
@@ -550,18 +595,24 @@ void build_game_table(lua_State* L, core::GameSession* session)
 
     // Properties via __index
     sol::table meta = lua.create_table();
-    meta[sol::meta_function::index] = [binding](sol::table t, const std::string& key) -> sol::object {
+    meta[sol::meta_function::index] = [binding](sol::table t,
+                                                const std::string& key) -> sol::object {
         lua_State* L_ = t.lua_state();
-        if (key == "room") return binding.get_room(L_);
-        if (key == "map_id") return binding.get_map_id(L_);
-        if (key == "navigation") return sol::make_object(L_, binding.get_navigation());
-        if (key == "minimap") return sol::make_object(L_, binding.get_minimap());
-        if (key == "save_enabled") return sol::make_object(L_, binding.get_save_enabled());
-        if (key == "inventory") return binding.get_inventory(L_);
+        if (key == "room")
+            return binding.get_room(L_);
+        if (key == "map_id")
+            return binding.get_map_id(L_);
+        if (key == "navigation")
+            return sol::make_object(L_, binding.get_navigation());
+        if (key == "minimap")
+            return sol::make_object(L_, binding.get_minimap());
+        if (key == "save_enabled")
+            return sol::make_object(L_, binding.get_save_enabled());
+        if (key == "inventory")
+            return binding.get_inventory(L_);
         return sol::lua_nil;
     };
-    meta[sol::meta_function::new_index] = [](sol::table, sol::object, sol::object) {
-    };
+    meta[sol::meta_function::new_index] = [](sol::table, sol::object, sol::object) {};
     game[sol::metatable_key] = meta;
     lua["Game"] = game;
 }
@@ -573,7 +624,9 @@ void build_script_table(lua_State* L)
     sol::table script = lua.create_table();
     script.set_function("rand", [sb]() mutable -> double { return sb.rand(); });
     script.set_function("seed", [sb](int v) mutable { sb.seed(v); });
-    script.set_function("eval_expressions", [sb](std::string text) mutable { return sb.eval_expressions(std::move(text)); });
+    script.set_function("eval_expressions", [sb](std::string text) mutable {
+        return sb.eval_expressions(std::move(text));
+    });
     script.set_function("run", [sb](std::string id) mutable { return sb.run(std::move(id)); });
     script.set_function("get_text_input", [sb](std::string msg, sol::function cb) mutable {
         sb.get_text_input(std::move(msg), std::move(cb));
@@ -588,9 +641,8 @@ void build_log_table(lua_State* L, core::GameSession* session)
     log.set_function("push", [session](std::string text) {
         SDL_Log("[lua] Log.push: %s", text.c_str());
         if (session) {
-            session->events().push(core::RuntimeEvent{
-                core::RuntimeEventType::TextLogged, 0, 0.0, std::move(text)
-            });
+            session->events().push(
+                core::RuntimeEvent{core::RuntimeEventType::TextLogged, 0, 0.0, std::move(text)});
         }
     });
     lua["Log"] = log;
@@ -600,26 +652,32 @@ void build_timer_table(lua_State* L, core::GameSession* session)
 {
     sol::state_view lua(L);
     sol::table timer = lua.create_table();
-    timer.set_function("start", [session, L](double duration_ms, sol::function callback) -> sol::object {
-        if (!session) return sol::lua_nil;
-        auto handle = session->timers().start(duration_ms / 1000.0,
-            [callback = std::make_shared<sol::function>(std::move(callback))](core::RuntimeTimerId id) {
-                if (callback->valid()) {
-                    (*callback)(static_cast<std::int64_t>(id));
-                }
-            });
-        return sol::make_object(L, static_cast<std::int64_t>(handle.id));
-    });
-    timer.set_function("start_repeat", [session, L](double duration_ms, sol::function callback) -> sol::object {
-        if (!session) return sol::lua_nil;
-        auto handle = session->timers().start_repeat(duration_ms / 1000.0,
-            [callback = std::make_shared<sol::function>(std::move(callback))](core::RuntimeTimerId id) {
-                if (callback->valid()) {
-                    (*callback)(static_cast<std::int64_t>(id));
-                }
-            });
-        return sol::make_object(L, static_cast<std::int64_t>(handle.id));
-    });
+    timer.set_function(
+        "start", [session, L](double duration_ms, sol::function callback) -> sol::object {
+            if (!session)
+                return sol::lua_nil;
+            auto handle = session->timers().start(
+                duration_ms / 1000.0, [callback = std::make_shared<sol::function>(
+                                           std::move(callback))](core::RuntimeTimerId id) {
+                    if (callback->valid()) {
+                        (*callback)(static_cast<std::int64_t>(id));
+                    }
+                });
+            return sol::make_object(L, static_cast<std::int64_t>(handle.id));
+        });
+    timer.set_function(
+        "start_repeat", [session, L](double duration_ms, sol::function callback) -> sol::object {
+            if (!session)
+                return sol::lua_nil;
+            auto handle = session->timers().start_repeat(
+                duration_ms / 1000.0, [callback = std::make_shared<sol::function>(
+                                           std::move(callback))](core::RuntimeTimerId id) {
+                    if (callback->valid()) {
+                        (*callback)(static_cast<std::int64_t>(id));
+                    }
+                });
+            return sol::make_object(L, static_cast<std::int64_t>(handle.id));
+        });
     lua["Timer"] = timer;
 }
 
@@ -627,30 +685,33 @@ void build_save_table(lua_State* L)
 {
     sol::state_view lua(L);
     sol::table save = lua.create_table();
-    save.set_function("reset_room_descriptions", []() {
-        SDL_Log("[lua] Save.reset_room_descriptions — stub");
-    });
+    save.set_function("reset_room_descriptions",
+                      []() { SDL_Log("[lua] Save.reset_room_descriptions — stub"); });
     lua["Save"] = save;
 }
 
 void register_legacy_entity_functions(lua_State* L)
 {
     sol::state_view lua(L);
-    lua.set_function("prop", [lua](std::string key, sol::optional<sol::object> default_value, sol::this_state) -> sol::object {
-        auto entity = lua["thisEntity"];
-        if (!entity.valid() || entity == sol::lua_nil) {
-            return default_value.value_or(sol::lua_nil);
-        }
-        if (entity.get_type() == sol::type::userdata) {
-            auto result = entity["prop"](entity, key, default_value);
-            if (result.valid()) return result;
-        }
-        return default_value.value_or(sol::lua_nil);
-    });
+    lua.set_function("prop",
+                     [lua](std::string key, sol::optional<sol::object> default_value,
+                           sol::this_state) -> sol::object {
+                         auto entity = lua["thisEntity"];
+                         if (!entity.valid() || entity == sol::lua_nil) {
+                             return default_value.value_or(sol::lua_nil);
+                         }
+                         if (entity.get_type() == sol::type::userdata) {
+                             auto result = entity["prop"](entity, key, default_value);
+                             if (result.valid())
+                                 return result;
+                         }
+                         return default_value.value_or(sol::lua_nil);
+                     });
 
     lua.set_function("set_prop", [lua](std::string key, sol::object value) {
         auto entity = lua["thisEntity"];
-        if (!entity.valid() || entity == sol::lua_nil) return;
+        if (!entity.valid() || entity == sol::lua_nil)
+            return;
         if (entity.get_type() == sol::type::userdata) {
             entity["set_prop"](entity, key, value);
         }
@@ -680,30 +741,21 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
         if (!reg["__noveltea_types_registered"].valid() ||
             !reg["__noveltea_types_registered"].get<bool>()) {
             lua.new_usertype<RoomLua>(
-                "Room", sol::no_constructor,
-                "id", sol::property(&RoomLua::get_id),
-                "prop", &RoomLua::prop,
-                "has_prop", &RoomLua::has_prop,
-                "set_prop", &RoomLua::set_prop,
-                "unset_prop", &RoomLua::unset_prop,
-                "description", sol::property(&RoomLua::get_description),
-                "visit_count", sol::property(&RoomLua::get_visit_count),
-                "name", sol::property(&RoomLua::get_name),
+                "Room", sol::no_constructor, "id", sol::property(&RoomLua::get_id), "prop",
+                &RoomLua::prop, "has_prop", &RoomLua::has_prop, "set_prop", &RoomLua::set_prop,
+                "unset_prop", &RoomLua::unset_prop, "description",
+                sol::property(&RoomLua::get_description), "visit_count",
+                sol::property(&RoomLua::get_visit_count), "name", sol::property(&RoomLua::get_name),
                 "script_before_enter", sol::property(&RoomLua::get_script_before_enter),
                 "script_after_enter", sol::property(&RoomLua::get_script_after_enter),
                 "script_before_leave", sol::property(&RoomLua::get_script_before_leave),
-                "script_after_leave", sol::property(&RoomLua::get_script_after_leave)
-            );
+                "script_after_leave", sol::property(&RoomLua::get_script_after_leave));
             lua.new_usertype<ScriptEntityLua>(
-                "ScriptEntity", sol::no_constructor,
-                "id", sol::property(&ScriptEntityLua::get_id),
-                "prop", &ScriptEntityLua::prop,
-                "has_prop", &ScriptEntityLua::has_prop,
-                "set_prop", &ScriptEntityLua::set_prop,
-                "unset_prop", &ScriptEntityLua::unset_prop,
-                "autorun", sol::property(&ScriptEntityLua::get_autorun),
-                "content", sol::property(&ScriptEntityLua::get_content)
-            );
+                "ScriptEntity", sol::no_constructor, "id", sol::property(&ScriptEntityLua::get_id),
+                "prop", &ScriptEntityLua::prop, "has_prop", &ScriptEntityLua::has_prop, "set_prop",
+                &ScriptEntityLua::set_prop, "unset_prop", &ScriptEntityLua::unset_prop, "autorun",
+                sol::property(&ScriptEntityLua::get_autorun), "content",
+                sol::property(&ScriptEntityLua::get_content));
             reg["__noveltea_types_registered"] = true;
         }
     }
@@ -719,18 +771,18 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
     lua["thisEntity"] = sol::lua_nil;
     register_legacy_entity_functions(L);
 
-    lua.set_function("toast", [session](std::string msg, sol::optional<bool> add_to_log, sol::optional<double> duration_ms) {
+    lua.set_function("toast", [session](std::string msg, sol::optional<bool> add_to_log,
+                                        sol::optional<double> duration_ms) {
         bool log = add_to_log.value_or(true);
         double dur = duration_ms.value_or(3000.0 + msg.size() * 30.0);
-        SDL_Log("[lua] toast(msg='%s', add_to_log=%s, duration=%.0f)", msg.c_str(), log ? "true" : "false", dur);
+        SDL_Log("[lua] toast(msg='%s', add_to_log=%s, duration=%.0f)", msg.c_str(),
+                log ? "true" : "false", dur);
         if (session) {
-            session->events().push(core::RuntimeEvent{
-                core::RuntimeEventType::Notification, 0, dur, msg
-            });
+            session->events().push(
+                core::RuntimeEvent{core::RuntimeEventType::Notification, 0, dur, msg});
             if (log) {
-                session->events().push(core::RuntimeEvent{
-                    core::RuntimeEventType::TextLogged, 0, 0.0, msg
-                });
+                session->events().push(
+                    core::RuntimeEvent{core::RuntimeEventType::TextLogged, 0, 0.0, msg});
             }
         }
     });

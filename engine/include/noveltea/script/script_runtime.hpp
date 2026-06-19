@@ -7,12 +7,18 @@
 #include <string>
 #include <string_view>
 
-namespace noveltea::assets { class AssetManager; }
-namespace noveltea::core { class GameSession; }
+namespace noveltea::assets {
+class AssetManager;
+}
+namespace noveltea::core {
+class GameSession;
+}
 
 namespace noveltea::script {
 
-namespace detail { struct ScriptRuntimeAccess; }
+namespace detail {
+struct ScriptRuntimeAccess;
+}
 
 struct ScriptRuntimeConfig {
     const assets::AssetManager* assets = nullptr;
@@ -30,11 +36,15 @@ public:
     void shutdown();
     [[nodiscard]] bool is_initialized() const;
 
-    [[nodiscard]] ScriptResult<void> execute(std::string_view source, std::string_view chunk_name = "chunk");
+    [[nodiscard]] ScriptResult<void> execute(std::string_view source,
+                                             std::string_view chunk_name = "chunk");
     [[nodiscard]] ScriptResult<void> execute_asset(std::string_view logical_asset_path);
-    [[nodiscard]] ScriptResult<ScriptValue> evaluate(std::string_view expression, std::string_view chunk_name = "expression");
-    [[nodiscard]] ScriptResult<bool> evaluate_bool(std::string_view expression, std::string_view chunk_name = "expression");
-    [[nodiscard]] ScriptResult<std::string> evaluate_string(std::string_view expression, std::string_view chunk_name = "expression");
+    [[nodiscard]] ScriptResult<ScriptValue> evaluate(std::string_view expression,
+                                                     std::string_view chunk_name = "expression");
+    [[nodiscard]] ScriptResult<bool> evaluate_bool(std::string_view expression,
+                                                   std::string_view chunk_name = "expression");
+    [[nodiscard]] ScriptResult<std::string>
+    evaluate_string(std::string_view expression, std::string_view chunk_name = "expression");
 
     void collect_garbage();
 

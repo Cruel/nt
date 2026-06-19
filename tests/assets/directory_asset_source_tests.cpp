@@ -18,7 +18,7 @@ TEST_CASE("DirectoryAssetSource reads files and exposes native metadata")
     DirectoryAssetSource source(root);
     auto blob = source.read_binary(*AssetPath::parse("project:/nested/file.txt"));
     REQUIRE(blob);
-    CHECK(blob.value->bytes == AssetBytes {'h', 'e', 'l', 'l', 'o'});
+    CHECK(blob.value->bytes == AssetBytes{'h', 'e', 'l', 'l', 'o'});
     CHECK(blob.value->native_path.has_value());
 
     auto empty = source.read_binary(*AssetPath::parse("project:/empty.bin"));

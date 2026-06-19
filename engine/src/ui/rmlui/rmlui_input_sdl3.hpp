@@ -6,7 +6,9 @@
 #include <SDL3/SDL_events.h>
 
 struct SDL_Window;
-namespace Rml { class Context; }
+namespace Rml {
+class Context;
+}
 
 namespace noveltea::ui::rmlui {
 

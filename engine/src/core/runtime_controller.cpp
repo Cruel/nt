@@ -42,28 +42,29 @@ bool action_objects_match(const ActionModel& action, const std::vector<std::stri
 } // namespace
 
 RuntimeController::RuntimeController(GameSession& session)
-    : m_session(&session)
-    , m_dialogue_controller(std::make_unique<DialogueController>(session))
-    , m_cutscene_controller(std::make_unique<CutsceneController>(session))
+    : m_session(&session), m_dialogue_controller(std::make_unique<DialogueController>(session)),
+      m_cutscene_controller(std::make_unique<CutsceneController>(session))
 {
-    m_notification_listener = m_session->events().listen(RuntimeEventType::Notification, [this](const RuntimeEvent& event) {
-        emit_command(ControllerCommand{
-            ControllerCommandType::Notification,
-            std::nullopt,
-            event.text,
-            {{"duration_ms", event.number_value}, {"data", event.data}},
+    m_notification_listener = m_session->events().listen(
+        RuntimeEventType::Notification, [this](const RuntimeEvent& event) {
+            emit_command(ControllerCommand{
+                ControllerCommandType::Notification,
+                std::nullopt,
+                event.text,
+                {{"duration_ms", event.number_value}, {"data", event.data}},
+            });
+            return true;
         });
-        return true;
-    });
-    m_text_log_listener = m_session->events().listen(RuntimeEventType::TextLogged, [this](const RuntimeEvent& event) {
-        emit_command(ControllerCommand{
-            ControllerCommandType::TextLogged,
-            std::nullopt,
-            event.text,
-            {{"data", event.data}},
+    m_text_log_listener =
+        m_session->events().listen(RuntimeEventType::TextLogged, [this](const RuntimeEvent& event) {
+            emit_command(ControllerCommand{
+                ControllerCommandType::TextLogged,
+                std::nullopt,
+                event.text,
+                {{"data", event.data}},
+            });
+            return true;
         });
-        return true;
-    });
 }
 
 RuntimeController::~RuntimeController()
@@ -157,7 +158,9 @@ void RuntimeController::drain_next()
     default:
         emit_command(ControllerCommand{
             ControllerCommandType::ScriptDeferred,
-            *ref, ref->id, {
+            *ref,
+            ref->id,
+            {
                 {"entity_type", to_integer(ref->type)},
                 {"message", "scripting required to process this entity type"},
             },
@@ -318,11 +321,20 @@ void RuntimeController::exit_current_mode()
 
     auto exited_type = EntityType::Invalid;
     switch (m_mode) {
-    case Mode::Room: exited_type = EntityType::Room; break;
-    case Mode::Dialogue: exited_type = EntityType::Dialogue; break;
-    case Mode::Cutscene: exited_type = EntityType::Cutscene; break;
-    case Mode::Script: exited_type = EntityType::Script; break;
-    case Mode::None: break;
+    case Mode::Room:
+        exited_type = EntityType::Room;
+        break;
+    case Mode::Dialogue:
+        exited_type = EntityType::Dialogue;
+        break;
+    case Mode::Cutscene:
+        exited_type = EntityType::Cutscene;
+        break;
+    case Mode::Script:
+        exited_type = EntityType::Script;
+        break;
+    case Mode::None:
+        break;
     }
 
     if (m_mode == Mode::Room) {
@@ -347,7 +359,8 @@ void RuntimeController::exit_current_mode()
     m_mode_entity_id.clear();
 }
 
-void RuntimeController::emit_room_hook_script(const RoomModel& room, std::string_view hook_context, const std::string& script)
+void RuntimeController::emit_room_hook_script(const RoomModel& room, std::string_view hook_context,
+                                              const std::string& script)
 {
     if (script.empty()) {
         return;
@@ -434,11 +447,16 @@ void RuntimeController::process_script_entity(const EntityRef& ref)
 std::string_view RuntimeController::current_mode_name() const noexcept
 {
     switch (m_mode) {
-    case Mode::Room: return "room";
-    case Mode::Dialogue: return "dialogue";
-    case Mode::Cutscene: return "cutscene";
-    case Mode::Script: return "script";
-    case Mode::None: return "none";
+    case Mode::Room:
+        return "room";
+    case Mode::Dialogue:
+        return "dialogue";
+    case Mode::Cutscene:
+        return "cutscene";
+    case Mode::Script:
+        return "script";
+    case Mode::None:
+        return "none";
     }
     return "none";
 }
@@ -481,7 +499,8 @@ void RuntimeController::navigate_path(int direction)
     exit_current_mode();
 }
 
-bool RuntimeController::process_action(const std::string& verb_id, const std::vector<std::string>& object_ids)
+bool RuntimeController::process_action(const std::string& verb_id,
+                                       const std::vector<std::string>& object_ids)
 {
     if (m_mode != Mode::Room) {
         return false;
@@ -543,7 +562,8 @@ bool RuntimeController::process_action(const std::string& verb_id, const std::ve
             {{"verb_id", verb_id}, {"object_ids", objects_json}, {"used_default", false}},
         });
     } else {
-        emit_action_script(verb_it->second.default_script, "verb_default_action", verb_id, object_ids);
+        emit_action_script(verb_it->second.default_script, "verb_default_action", verb_id,
+                           object_ids);
         emit_command(ControllerCommand{
             ControllerCommandType::ActionResolved,
             EntityRef{EntityType::Verb, verb_id},
@@ -736,8 +756,7 @@ void RuntimeController::emit_action_script_chain(const ActionModel& action,
     emit_action_script(action.script, "action", verb_id, object_ids, action.metadata.entity.id);
 }
 
-void RuntimeController::emit_action_script(const std::string& script,
-                                           const std::string& context,
+void RuntimeController::emit_action_script(const std::string& script, const std::string& context,
                                            const std::string& verb_id,
                                            const std::vector<std::string>& object_ids,
                                            const std::optional<std::string>& action_id)
@@ -761,7 +780,8 @@ void RuntimeController::emit_action_script(const std::string& script,
 
     emit_command(ControllerCommand{
         ControllerCommandType::ScriptDeferred,
-        action_id.has_value() ? std::optional<EntityRef>{EntityRef{EntityType::Action, *action_id}} : std::nullopt,
+        action_id.has_value() ? std::optional<EntityRef>{EntityRef{EntityType::Action, *action_id}}
+                              : std::nullopt,
         script,
         std::move(data),
     });

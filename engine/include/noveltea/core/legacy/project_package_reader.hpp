@@ -28,17 +28,14 @@ struct ProjectPackage {
 
 class ProjectPackageReader {
 public:
-    [[nodiscard]] static std::optional<ProjectPackage> read(
-        std::span<const std::byte> bytes,
-        std::vector<PackageError>& errors);
+    [[nodiscard]] static std::optional<ProjectPackage> read(std::span<const std::byte> bytes,
+                                                            std::vector<PackageError>& errors);
 
-    [[nodiscard]] static std::optional<ProjectPackage> read(
-        std::span<const std::uint8_t> bytes,
-        std::vector<PackageError>& errors);
+    [[nodiscard]] static std::optional<ProjectPackage> read(std::span<const std::uint8_t> bytes,
+                                                            std::vector<PackageError>& errors);
 
-    [[nodiscard]] static std::optional<ProjectPackage> read_file(
-        const std::filesystem::path& path,
-        std::vector<PackageError>& errors);
+    [[nodiscard]] static std::optional<ProjectPackage> read_file(const std::filesystem::path& path,
+                                                                 std::vector<PackageError>& errors);
 };
 
 } // namespace noveltea::core::legacy

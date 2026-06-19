@@ -42,7 +42,8 @@ private:
     void emit_cutscene_complete();
     void emit_command(ControllerCommand cmd);
 
-    static std::vector<CutsceneSegmentModel> expand_page_segment(const CutsceneSegmentModel& page_seg);
+    static std::vector<CutsceneSegmentModel>
+    expand_page_segment(const CutsceneSegmentModel& page_seg);
 
     bool passes_condition(const CutsceneSegmentModel& seg);
 

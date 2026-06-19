@@ -8,7 +8,8 @@ namespace {
 
 bool valid_asset_namespace(std::string_view value)
 {
-    if (value.empty()) return false;
+    if (value.empty())
+        return false;
     return std::all_of(value.begin(), value.end(), [](char ch) {
         return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
     });
@@ -19,7 +20,8 @@ bool valid_asset_namespace(std::string_view value)
 std::string resolve_asset_path(const assets::AssetManager& assets, const std::string& path)
 {
     const std::size_t encoded_scheme = path.find("|/");
-    if (encoded_scheme != std::string::npos && encoded_scheme > 0 && path.find('/') == encoded_scheme + 1) {
+    if (encoded_scheme != std::string::npos && encoded_scheme > 0 &&
+        path.find('/') == encoded_scheme + 1) {
         const std::string_view ns(path.data(), encoded_scheme);
         if (valid_asset_namespace(ns) && assets.has_namespace(ns)) {
             return path.substr(0, encoded_scheme) + ":/" + path.substr(encoded_scheme + 2);
@@ -37,8 +39,7 @@ std::string resolve_asset_path(const assets::AssetManager& assets, const std::st
 
 #if defined(NOVELTEA_HAS_RMLUI)
 
-AssetRmlFileInterface::AssetRmlFileInterface(const assets::AssetManager& assets)
-    : m_assets(assets)
+AssetRmlFileInterface::AssetRmlFileInterface(const assets::AssetManager& assets) : m_assets(assets)
 {
 }
 
@@ -47,8 +48,8 @@ Rml::FileHandle AssetRmlFileInterface::Open(const Rml::String& path)
     const std::string logical = resolve_asset_path(m_assets, path.c_str());
     auto opened = m_assets.open(logical);
     if (!opened) {
-        std::fprintf(stderr, "[rmlui] failed to open %s as %s: %s\n",
-            path.c_str(), logical.c_str(), opened.error.c_str());
+        std::fprintf(stderr, "[rmlui] failed to open %s as %s: %s\n", path.c_str(), logical.c_str(),
+                     opened.error.c_str());
         return 0;
     }
     return reinterpret_cast<Rml::FileHandle>(opened.value->release());

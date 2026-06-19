@@ -20,20 +20,12 @@ namespace {
 constexpr std::string_view fonts_prefix = "fonts/";
 constexpr std::string_view textures_prefix = "textures/";
 constexpr std::string_view auxiliary_prefixes[] = {
-    "audio/",
-    "data/",
-    "music/",
-    "resources/",
-    "scripts/",
-    "shaders/",
-    "sounds/",
-    "text/",
-    "texts/",
+    "audio/", "data/", "music/", "resources/", "scripts/", "shaders/", "sounds/", "text/", "texts/",
 };
 
 void add_error(std::vector<PackageError>& errors, std::string message)
 {
-    errors.push_back(PackageError {std::move(message)});
+    errors.push_back(PackageError{std::move(message)});
 }
 
 std::string bytes_to_string(const std::vector<std::byte>& bytes)
@@ -62,7 +54,8 @@ bool is_safe_relative_asset_path(std::string_view value)
     std::size_t start = 0;
     while (start <= value.size()) {
         const std::size_t slash = value.find('/', start);
-        const std::string_view part = value.substr(start, slash == std::string_view::npos ? slash : slash - start);
+        const std::string_view part =
+            value.substr(start, slash == std::string_view::npos ? slash : slash - start);
         if (part.empty() || part == "." || part == "..") {
             return false;
         }
@@ -76,16 +69,13 @@ bool is_safe_relative_asset_path(std::string_view value)
 
 bool is_auxiliary_asset_path(std::string_view name)
 {
-    return std::any_of(std::begin(auxiliary_prefixes), std::end(auxiliary_prefixes), [&](std::string_view prefix) {
-        return starts_with(name, prefix);
-    });
+    return std::any_of(std::begin(auxiliary_prefixes), std::end(auxiliary_prefixes),
+                       [&](std::string_view prefix) { return starts_with(name, prefix); });
 }
 
-std::optional<std::vector<std::byte>> extract_entry(
-    mz_zip_archive& archive,
-    mz_uint index,
-    std::string_view name,
-    std::vector<PackageError>& errors)
+std::optional<std::vector<std::byte>> extract_entry(mz_zip_archive& archive, mz_uint index,
+                                                    std::string_view name,
+                                                    std::vector<PackageError>& errors)
 {
     size_t size = 0;
     void* data = mz_zip_reader_extract_to_heap(&archive, index, &size, 0);
@@ -105,13 +95,12 @@ std::optional<std::vector<std::byte>> extract_entry(
 
 } // namespace
 
-std::optional<ProjectPackage> ProjectPackageReader::read(
-    std::span<const std::byte> bytes,
-    std::vector<PackageError>& errors)
+std::optional<ProjectPackage> ProjectPackageReader::read(std::span<const std::byte> bytes,
+                                                         std::vector<PackageError>& errors)
 {
     errors.clear();
 
-    mz_zip_archive archive {};
+    mz_zip_archive archive{};
     if (!mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0)) {
         add_error(errors, "Failed to open legacy project package as ZIP data.");
         return std::nullopt;
@@ -122,7 +111,7 @@ std::optional<ProjectPackage> ProjectPackageReader::read(
 
     const mz_uint file_count = mz_zip_reader_get_num_files(&archive);
     for (mz_uint index = 0; index < file_count; ++index) {
-        mz_zip_archive_file_stat stat {};
+        mz_zip_archive_file_stat stat{};
         if (!mz_zip_reader_file_stat(&archive, index, &stat)) {
             add_error(errors, "Failed to inspect legacy package ZIP entry.");
             continue;
@@ -180,20 +169,16 @@ std::optional<ProjectPackage> ProjectPackageReader::read(
     return package;
 }
 
-std::optional<ProjectPackage> ProjectPackageReader::read(
-    std::span<const std::uint8_t> bytes,
-    std::vector<PackageError>& errors)
+std::optional<ProjectPackage> ProjectPackageReader::read(std::span<const std::uint8_t> bytes,
+                                                         std::vector<PackageError>& errors)
 {
     return read(
-        std::span<const std::byte>(
-            reinterpret_cast<const std::byte*>(bytes.data()),
-            bytes.size()),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(bytes.data()), bytes.size()),
         errors);
 }
 
-std::optional<ProjectPackage> ProjectPackageReader::read_file(
-    const std::filesystem::path& path,
-    std::vector<PackageError>& errors)
+std::optional<ProjectPackage> ProjectPackageReader::read_file(const std::filesystem::path& path,
+                                                              std::vector<PackageError>& errors)
 {
     errors.clear();
     std::ifstream file(path, std::ios::binary);
@@ -211,11 +196,10 @@ std::optional<ProjectPackage> ProjectPackageReader::read_file(
         }
         file.seekg(0, std::ios::beg);
     }
-    std::transform(
-        std::istreambuf_iterator<char>(file),
-        std::istreambuf_iterator<char>(),
-        std::back_inserter(bytes),
-        [](char value) { return static_cast<std::byte>(static_cast<unsigned char>(value)); });
+    std::transform(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>(),
+                   std::back_inserter(bytes), [](char value) {
+                       return static_cast<std::byte>(static_cast<unsigned char>(value));
+                   });
     if (file.bad()) {
         add_error(errors, "Failed to read legacy project package file '" + path.string() + "'.");
         return std::nullopt;

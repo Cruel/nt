@@ -31,7 +31,7 @@ TEST_CASE("AssetManager uses first mounted source that contains the asset")
     manager.mount("project", memory_source("project:/same", {'2'}));
     auto blob = manager.read_binary("same");
     REQUIRE(blob);
-    CHECK(blob.value->bytes == AssetBytes {'1'});
+    CHECK(blob.value->bytes == AssetBytes{'1'});
 }
 
 TEST_CASE("AssetManager reads binary, text, and streams without native paths")
@@ -77,7 +77,7 @@ TEST_CASE("AssetManager mounts legacy package entries as project assets")
 
     auto image = manager.read_binary("project:/image");
     REQUIRE(image);
-    CHECK(image.value->bytes == AssetBytes {'c', 'o', 'v', 'e', 'r'});
+    CHECK(image.value->bytes == AssetBytes{'c', 'o', 'v', 'e', 'r'});
 
     auto font = manager.read_text("project:/fonts/caption.ttf");
     REQUIRE(font);

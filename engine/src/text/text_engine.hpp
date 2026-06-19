@@ -56,8 +56,10 @@ public:
     [[nodiscard]] TextLayout layout_text(const Text& text) const;
     [[nodiscard]] TextLayout layout_text(const Text& text, float scale) const;
     [[nodiscard]] TextMetrics measure_text(const Text& text) const;
-    [[nodiscard]] TextMetrics measure_text(FontHandle font, std::string_view value, float size) const;
-    [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id, float raster_pixel_size) const;
+    [[nodiscard]] TextMetrics measure_text(FontHandle font, std::string_view value,
+                                           float size) const;
+    [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id,
+                                                             float raster_pixel_size) const;
     [[nodiscard]] FontMetrics metrics(FontHandle font, float pixel_size) const;
     [[nodiscard]] uint32_t glyph_index(FontHandle font, uint32_t codepoint) const;
 
@@ -68,9 +70,11 @@ private:
 
 [[nodiscard]] uint32_t normalize_raster_pixel_size(float pixel_size);
 [[nodiscard]] uint32_t glyph_cache_pixel_size_key(float pixel_size);
-[[nodiscard]] std::optional<size_t> unibreak_marker_index_for_boundary(std::string_view value, size_t offset);
+[[nodiscard]] std::optional<size_t> unibreak_marker_index_for_boundary(std::string_view value,
+                                                                       size_t offset);
 [[nodiscard]] bool is_utf8_boundary(std::string_view value, size_t offset);
-[[nodiscard]] GlyphAtlasUpload make_padded_glyph_upload(const GlyphBitmap& bitmap, uint16_t padding);
+[[nodiscard]] GlyphAtlasUpload make_padded_glyph_upload(const GlyphBitmap& bitmap,
+                                                        uint16_t padding);
 
 struct AtlasRect {
     uint16_t page = 0;

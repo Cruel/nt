@@ -22,7 +22,8 @@ TEST_CASE("RmlUi advanced gallery covers renderer acceptance features")
 {
     const std::filesystem::path root = NOVELTEA_SOURCE_DIR;
     const std::filesystem::path gallery = root / "apps/sandbox/assets/rmlui/advanced_gallery.rml";
-    const std::filesystem::path stylesheet = root / "apps/sandbox/assets/rmlui/advanced_gallery.rcss";
+    const std::filesystem::path stylesheet =
+        root / "apps/sandbox/assets/rmlui/advanced_gallery.rcss";
 
     const std::string rml = read_text(gallery);
     const std::string rcss = read_text(stylesheet);

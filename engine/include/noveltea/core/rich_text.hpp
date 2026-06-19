@@ -115,7 +115,10 @@ struct RichTextPage {
 };
 
 struct RichTextTimelineItem {
-    enum class Type { Text, PageBreak };
+    enum class Type {
+        Text,
+        PageBreak
+    };
     Type type = Type::Text;
     RichTextPage page;
     int delay_ms = 0;
@@ -129,8 +132,8 @@ struct RichTextTimelineItem {
                                                      const RichTextParseOptions& options = {});
 [[nodiscard]] std::vector<RichTextPage> paginate_rich_text(const RichTextDocument& document,
                                                            std::size_t max_plain_chars);
-[[nodiscard]] std::vector<RichTextTimelineItem> make_rich_text_timeline(const RichTextDocument& document,
-                                                                        std::size_t max_plain_chars);
+[[nodiscard]] std::vector<RichTextTimelineItem>
+make_rich_text_timeline(const RichTextDocument& document, std::size_t max_plain_chars);
 
 [[nodiscard]] nlohmann::json to_json(const RichTextDocument& document);
 [[nodiscard]] nlohmann::json to_json(const RichTextPage& page);

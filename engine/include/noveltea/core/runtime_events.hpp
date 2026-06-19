@@ -36,7 +36,8 @@ using RuntimeEventListener = std::function<bool(const RuntimeEvent&)>;
 class RuntimeEventBus {
 public:
     [[nodiscard]] RuntimeEventListenerId listen(RuntimeEventListener listener);
-    [[nodiscard]] RuntimeEventListenerId listen(RuntimeEventType type, RuntimeEventListener listener);
+    [[nodiscard]] RuntimeEventListenerId listen(RuntimeEventType type,
+                                                RuntimeEventListener listener);
     [[nodiscard]] bool remove(RuntimeEventListenerId id);
 
     [[nodiscard]] bool trigger(const RuntimeEvent& event);
@@ -71,8 +72,10 @@ struct RuntimeTimerHandle {
 
 class RuntimeTimerScheduler {
 public:
-    [[nodiscard]] RuntimeTimerHandle start(double duration_seconds, RuntimeTimerCallback callback = {});
-    [[nodiscard]] RuntimeTimerHandle start_repeat(double duration_seconds, RuntimeTimerCallback callback = {});
+    [[nodiscard]] RuntimeTimerHandle start(double duration_seconds,
+                                           RuntimeTimerCallback callback = {});
+    [[nodiscard]] RuntimeTimerHandle start_repeat(double duration_seconds,
+                                                  RuntimeTimerCallback callback = {});
 
     [[nodiscard]] bool cancel(RuntimeTimerId id);
     [[nodiscard]] bool active(RuntimeTimerId id) const;

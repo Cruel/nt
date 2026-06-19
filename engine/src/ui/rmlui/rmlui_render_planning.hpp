@@ -53,7 +53,7 @@ public:
     [[nodiscard]] uint32_t allocation_count() const { return m_allocation_count; }
 
 private:
-    std::array<bool, TargetCount> m_allocated {};
+    std::array<bool, TargetCount> m_allocated{};
     uint32_t m_allocation_count = 0;
 };
 
@@ -85,7 +85,8 @@ struct StencilClipPlan {
     bool normalize_before_render = false;
 };
 
-[[nodiscard]] StencilClipPlan plan_stencil_clip_operation(uint8_t current_ref, ClipOperationPlan operation);
+[[nodiscard]] StencilClipPlan plan_stencil_clip_operation(uint8_t current_ref,
+                                                          ClipOperationPlan operation);
 
 struct GaussianKernel {
     std::vector<float> weights;
@@ -106,9 +107,9 @@ struct FilterRecord {
     FilterKind kind = FilterKind::Invalid;
     float scalar = 1.0f;
     float sigma = 0.0f;
-    std::array<float, 2> offset {};
-    std::array<float, 4> color {};
-    std::array<float, 16> matrix {};
+    std::array<float, 2> offset{};
+    std::array<float, 4> color{};
+    std::array<float, 16> matrix{};
     uint64_t resource = 0;
 };
 
@@ -123,7 +124,8 @@ struct FilterRecord {
 // Matrix storage is row-major. Vectors are treated as columns. The fourth
 // column stores RGB constants and is multiplied by source alpha for
 // premultiplied-alpha parity with RmlUi's GL3 renderer. Alpha is preserved.
-[[nodiscard]] std::array<float, 4> apply_color_matrix(const std::array<float, 16>& row_major_matrix, std::array<float, 4> rgba);
+[[nodiscard]] std::array<float, 4> apply_color_matrix(const std::array<float, 16>& row_major_matrix,
+                                                      std::array<float, 4> rgba);
 
 enum class GradientKind {
     Invalid,
@@ -137,13 +139,13 @@ enum class GradientKind {
 
 struct GradientStop {
     float position = 0.0f;
-    std::array<float, 4> color {};
+    std::array<float, 4> color{};
 };
 
 struct GradientRecord {
     GradientKind kind = GradientKind::Invalid;
-    std::array<float, 4> p_v {};
-    std::array<GradientStop, 16> stops {};
+    std::array<float, 4> p_v{};
+    std::array<GradientStop, 16> stops{};
     uint32_t stop_count = 0;
 };
 

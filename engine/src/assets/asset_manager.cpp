@@ -19,14 +19,14 @@ namespace {
 
 bool valid_namespace(std::string_view value)
 {
-    if (value.empty()) return false;
+    if (value.empty())
+        return false;
     return std::all_of(value.begin(), value.end(), [](char ch) {
         return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
     });
 }
 
-template<class T>
-AssetResult<T> fail(std::string message)
+template<class T> AssetResult<T> fail(std::string message)
 {
     return {std::nullopt, std::move(message)};
 }
@@ -35,9 +35,8 @@ AssetBytes bytes_from(std::span<const std::byte> bytes)
 {
     AssetBytes out;
     out.reserve(bytes.size());
-    std::transform(bytes.begin(), bytes.end(), std::back_inserter(out), [](std::byte value) {
-        return static_cast<std::uint8_t>(value);
-    });
+    std::transform(bytes.begin(), bytes.end(), std::back_inserter(out),
+                   [](std::byte value) { return static_cast<std::uint8_t>(value); });
     return out;
 }
 
@@ -87,8 +86,7 @@ private:
 
 class FileReader final : public AssetReader {
 public:
-    explicit FileReader(std::filesystem::path path)
-        : m_stream(path, std::ios::binary)
+    explicit FileReader(std::filesystem::path path) : m_stream(path, std::ios::binary)
     {
         if (m_stream) {
             m_stream.seekg(0, std::ios::end);
@@ -127,7 +125,8 @@ public:
     {
         auto& stream = const_cast<std::ifstream&>(m_stream);
         const auto pos = stream.tellg();
-        if (pos < 0) return std::nullopt;
+        if (pos < 0)
+            return std::nullopt;
         return static_cast<std::uint64_t>(pos);
     }
 
@@ -140,8 +139,7 @@ private:
 
 class SdlReader final : public AssetReader {
 public:
-    explicit SdlReader(SDL_IOStream* stream)
-        : m_stream(stream)
+    explicit SdlReader(SDL_IOStream* stream) : m_stream(stream)
     {
         const Sint64 current = SDL_TellIO(m_stream);
         const Sint64 end = SDL_SeekIO(m_stream, 0, SDL_IO_SEEK_END);
@@ -179,7 +177,8 @@ public:
     std::optional<std::uint64_t> tell() const override
     {
         const Sint64 pos = SDL_TellIO(m_stream);
-        if (pos < 0) return std::nullopt;
+        if (pos < 0)
+            return std::nullopt;
         return static_cast<std::uint64_t>(pos);
     }
 
@@ -201,30 +200,38 @@ AssetPath::AssetPath(std::string logical)
 
 std::optional<AssetPath> AssetPath::parse(std::string_view logical)
 {
-    if (logical.empty()) return std::nullopt;
-    if (logical.front() == '/' || logical.find('\\') != std::string_view::npos) return std::nullopt;
+    if (logical.empty())
+        return std::nullopt;
+    if (logical.front() == '/' || logical.find('\\') != std::string_view::npos)
+        return std::nullopt;
 
     AssetPath result;
     std::string_view rest = logical;
     const std::size_t scheme = logical.find(":/");
     if (scheme != std::string_view::npos) {
         const std::string_view ns = logical.substr(0, scheme);
-        if (!valid_namespace(ns)) return std::nullopt;
+        if (!valid_namespace(ns))
+            return std::nullopt;
         result.m_namespace = std::string(ns);
         rest = logical.substr(scheme + 2);
     } else if (logical.find(':') != std::string_view::npos) {
         return std::nullopt;
     }
 
-    if (rest.empty() || rest.front() == '/' || rest.find("//") != std::string_view::npos) return std::nullopt;
+    if (rest.empty() || rest.front() == '/' || rest.find("//") != std::string_view::npos)
+        return std::nullopt;
 
     std::size_t start = 0;
     while (start <= rest.size()) {
         const std::size_t slash = rest.find('/', start);
-        const std::string_view part = rest.substr(start, slash == std::string_view::npos ? slash : slash - start);
-        if (part.empty() || part == "." || part == "..") return std::nullopt;
-        if (part.find(':') != std::string_view::npos) return std::nullopt;
-        if (slash == std::string_view::npos) break;
+        const std::string_view part =
+            rest.substr(start, slash == std::string_view::npos ? slash : slash - start);
+        if (part.empty() || part == "." || part == "..")
+            return std::nullopt;
+        if (part.find(':') != std::string_view::npos)
+            return std::nullopt;
+        if (slash == std::string_view::npos)
+            break;
         start = slash + 1;
     }
 
@@ -232,14 +239,15 @@ std::optional<AssetPath> AssetPath::parse(std::string_view logical)
     return result;
 }
 
-std::optional<AssetPath> AssetPath::parse_with_default_namespace(
-    std::string_view logical,
-    std::string_view default_namespace)
+std::optional<AssetPath> AssetPath::parse_with_default_namespace(std::string_view logical,
+                                                                 std::string_view default_namespace)
 {
     auto parsed = parse(logical);
-    if (!parsed) return std::nullopt;
+    if (!parsed)
+        return std::nullopt;
     if (!parsed->has_namespace()) {
-        if (!valid_namespace(default_namespace)) return std::nullopt;
+        if (!valid_namespace(default_namespace))
+            return std::nullopt;
         parsed->m_namespace = std::string(default_namespace);
     }
     return parsed;
@@ -247,7 +255,8 @@ std::optional<AssetPath> AssetPath::parse_with_default_namespace(
 
 std::string AssetPath::logical_path() const
 {
-    if (m_namespace.empty()) return m_relative_path;
+    if (m_namespace.empty())
+        return m_relative_path;
     return m_namespace + ":/" + m_relative_path;
 }
 
@@ -264,20 +273,23 @@ AssetResult<AssetBlob> AssetSource::read_binary(const AssetPath& path) const
     blob.source_description = describe();
     if (const auto size = reader.size()) {
         if (*size > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-            return fail<AssetBlob>("asset too large to read " + path.logical_path() + " from " + describe());
+            return fail<AssetBlob>("asset too large to read " + path.logical_path() + " from " +
+                                   describe());
         }
         blob.bytes.resize(static_cast<std::size_t>(*size));
         if (!blob.bytes.empty()) {
             const std::size_t read_count = reader.read(blob.bytes.data(), blob.bytes.size());
             if (read_count != blob.bytes.size()) {
-                return fail<AssetBlob>("short read for " + path.logical_path() + " from " + describe());
+                return fail<AssetBlob>("short read for " + path.logical_path() + " from " +
+                                       describe());
             }
         }
     } else {
-        std::array<std::uint8_t, 8192> buffer {};
+        std::array<std::uint8_t, 8192> buffer{};
         for (;;) {
             const std::size_t read_count = reader.read(buffer.data(), buffer.size());
-            blob.bytes.insert(blob.bytes.end(), buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(read_count));
+            blob.bytes.insert(blob.bytes.end(), buffer.begin(),
+                              buffer.begin() + static_cast<std::ptrdiff_t>(read_count));
             if (read_count < buffer.size()) {
                 break;
             }
@@ -301,8 +313,7 @@ bool path_is_inside_root(const std::filesystem::path& root, const std::filesyste
 }
 
 DirectoryAssetSource::DirectoryAssetSource(std::filesystem::path root, bool writable)
-    : m_root(std::move(root))
-    , m_writable(writable)
+    : m_root(std::move(root)), m_writable(writable)
 {
 }
 
@@ -315,12 +326,13 @@ AssetResult<AssetReaderPtr> DirectoryAssetSource::open(const AssetPath& path) co
 {
     const auto physical = resolve(path);
     if (!path_is_inside_root(m_root, physical)) {
-        return fail<AssetReaderPtr>("directory source rejected path outside root " + path.logical_path());
+        return fail<AssetReaderPtr>("directory source rejected path outside root " +
+                                    path.logical_path());
     }
     auto reader = std::make_unique<FileReader>(physical);
     if (!reader->valid()) {
-        return fail<AssetReaderPtr>("directory source could not open " + path.logical_path()
-            + " as " + physical.string());
+        return fail<AssetReaderPtr>("directory source could not open " + path.logical_path() +
+                                    " as " + physical.string());
     }
     return {std::move(reader), {}};
 }
@@ -329,12 +341,13 @@ AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) 
 {
     const auto physical = resolve(path);
     if (!path_is_inside_root(m_root, physical)) {
-        return fail<AssetBlob>("directory source rejected path outside root " + path.logical_path());
+        return fail<AssetBlob>("directory source rejected path outside root " +
+                               path.logical_path());
     }
     std::ifstream in(physical, std::ios::binary);
     if (!in) {
-        return fail<AssetBlob>("directory source could not open " + path.logical_path()
-            + " as " + physical.string());
+        return fail<AssetBlob>("directory source could not open " + path.logical_path() + " as " +
+                               physical.string());
     }
     AssetBlob result;
     result.logical_path = path;
@@ -352,7 +365,8 @@ bool DirectoryAssetSource::exists(const AssetPath& path) const
 
 std::string DirectoryAssetSource::describe() const
 {
-    return std::string(writable() ? "directory writable:" : "directory read-only:") + m_root.string();
+    return std::string(writable() ? "directory writable:" : "directory read-only:") +
+           m_root.string();
 }
 
 SdlPackagedAssetSource::SdlPackagedAssetSource(std::string internal_prefix)
@@ -376,8 +390,8 @@ AssetResult<AssetReaderPtr> SdlPackagedAssetSource::open(const AssetPath& path) 
     const std::string mapped = map_path(path);
     SDL_IOStream* io = SDL_IOFromFile(mapped.c_str(), "rb");
     if (!io) {
-        return fail<AssetReaderPtr>("SDL packaged source could not open " + path.logical_path()
-            + " as " + mapped + ": " + SDL_GetError());
+        return fail<AssetReaderPtr>("SDL packaged source could not open " + path.logical_path() +
+                                    " as " + mapped + ": " + SDL_GetError());
     }
     return {std::make_unique<SdlReader>(io), {}};
 }
@@ -387,14 +401,14 @@ AssetResult<AssetBlob> SdlPackagedAssetSource::read_binary(const AssetPath& path
     const std::string mapped = map_path(path);
     SDL_IOStream* stream = SDL_IOFromFile(mapped.c_str(), "rb");
     if (!stream) {
-        return fail<AssetBlob>("SDL packaged source could not open " + path.logical_path()
-            + " as " + mapped + ": " + SDL_GetError());
+        return fail<AssetBlob>("SDL packaged source could not open " + path.logical_path() +
+                               " as " + mapped + ": " + SDL_GetError());
     }
     size_t size = 0;
     void* data = SDL_LoadFile_IO(stream, &size, true);
     if (!data) {
-        return fail<AssetBlob>("SDL packaged source could not load " + path.logical_path()
-            + " as " + mapped + ": " + SDL_GetError());
+        return fail<AssetBlob>("SDL packaged source could not load " + path.logical_path() +
+                               " as " + mapped + ": " + SDL_GetError());
     }
 
     AssetBlob blob;
@@ -416,7 +430,8 @@ bool SdlPackagedAssetSource::exists(const AssetPath& path) const
 
 std::string SdlPackagedAssetSource::describe() const
 {
-    return "SDL packaged read-only:" + (m_internal_prefix.empty() ? std::string("<asset-root>") : m_internal_prefix);
+    return "SDL packaged read-only:" +
+           (m_internal_prefix.empty() ? std::string("<asset-root>") : m_internal_prefix);
 }
 
 void MemoryAssetSource::add(AssetPath path, AssetBytes bytes, std::string description)
@@ -424,7 +439,8 @@ void MemoryAssetSource::add(AssetPath path, AssetBytes bytes, std::string descri
     m_entries[path.relative_path()] = Entry{std::move(bytes), std::move(description)};
 }
 
-void MemoryAssetSource::add(std::string_view logical_path, AssetBytes bytes, std::string description)
+void MemoryAssetSource::add(std::string_view logical_path, AssetBytes bytes,
+                            std::string description)
 {
     if (auto path = AssetPath::parse(logical_path)) {
         add(std::move(*path), std::move(bytes), std::move(description));
@@ -465,56 +481,54 @@ std::string MemoryAssetSource::describe() const
 
 AssetResult<AssetReaderPtr> ZipAssetSource::open(const AssetPath& path) const
 {
-    return fail<AssetReaderPtr>("ZipAssetSource decompression is not linked yet for " + path.logical_path());
+    return fail<AssetReaderPtr>("ZipAssetSource decompression is not linked yet for " +
+                                path.logical_path());
 }
 
-bool ZipAssetSource::exists(const AssetPath&) const
-{
-    return false;
-}
+bool ZipAssetSource::exists(const AssetPath&) const { return false; }
 
-std::string ZipAssetSource::describe() const
-{
-    return "ZIP read-only:<deferred>";
-}
+std::string ZipAssetSource::describe() const { return "ZIP read-only:<deferred>"; }
 
 void AssetManager::mount(std::string namespace_name, AssetSourcePtr source)
 {
-    if (!source || !valid_namespace(namespace_name)) return;
+    if (!source || !valid_namespace(namespace_name))
+        return;
     m_mounts[std::move(namespace_name)].push_back(std::move(source));
 }
 
-void AssetManager::mount_directory(std::string namespace_name, std::filesystem::path root, bool writable)
+void AssetManager::mount_directory(std::string namespace_name, std::filesystem::path root,
+                                   bool writable)
 {
-    mount(std::move(namespace_name), std::make_shared<DirectoryAssetSource>(std::move(root), writable));
+    mount(std::move(namespace_name),
+          std::make_shared<DirectoryAssetSource>(std::move(root), writable));
 }
 
 void AssetManager::mount_legacy_package(std::string namespace_name,
-                                         const ::noveltea::core::legacy::ProjectPackage& package)
+                                        const ::noveltea::core::legacy::ProjectPackage& package)
 {
     auto source = std::make_shared<MemoryAssetSource>();
-    source->add("project:/game",
-        AssetBytes(package.game_json.begin(), package.game_json.end()),
-        "legacy package game");
+    source->add("project:/game", AssetBytes(package.game_json.begin(), package.game_json.end()),
+                "legacy package game");
     if (!package.image.empty()) {
-        source->add("project:/image",
+        source->add(
+            "project:/image",
             bytes_from(std::span<const std::byte>(package.image.data(), package.image.size())),
             "legacy package cover image");
     }
     for (const auto& [name, bytes] : package.fonts) {
         source->add("project:/fonts/" + name,
-            bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
-            "legacy package font:" + name);
+                    bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
+                    "legacy package font:" + name);
     }
     for (const auto& [name, bytes] : package.textures) {
         source->add("project:/textures/" + name,
-            bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
-            "legacy package texture:" + name);
+                    bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
+                    "legacy package texture:" + name);
     }
     for (const auto& [name, bytes] : package.assets) {
         source->add("project:/" + name,
-            bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
-            "legacy package asset:" + name);
+                    bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
+                    "legacy package asset:" + name);
     }
     mount(std::move(namespace_name), std::move(source));
 }
@@ -527,7 +541,8 @@ std::string AssetManager::namespace_for(const AssetPath& path) const
 const std::vector<AssetSourcePtr>* AssetManager::sources_for(const AssetPath& path) const
 {
     auto it = m_mounts.find(namespace_for(path));
-    if (it == m_mounts.end()) return nullptr;
+    if (it == m_mounts.end())
+        return nullptr;
     return &it->second;
 }
 
@@ -541,7 +556,8 @@ AssetResult<AssetReaderPtr> AssetManager::open(std::string_view logical_path) co
     const auto ns = namespace_for(*path);
     const auto* sources = sources_for(*path);
     if (!sources || sources->empty()) {
-        return fail<AssetReaderPtr>("no mount for asset namespace '" + ns + "' while opening " + path->logical_path());
+        return fail<AssetReaderPtr>("no mount for asset namespace '" + ns + "' while opening " +
+                                    path->logical_path());
     }
 
     std::ostringstream searched;
@@ -550,11 +566,12 @@ AssetResult<AssetReaderPtr> AssetManager::open(std::string_view logical_path) co
         if (result) {
             return result;
         }
-        searched << "[" << source->kind() << " " << source->describe() << " -> " << result.error << "] ";
+        searched << "[" << source->kind() << " " << source->describe() << " -> " << result.error
+                 << "] ";
     }
 
-    return fail<AssetReaderPtr>("asset not found while opening " + path->logical_path()
-        + " namespace:" + ns + " searched:" + searched.str());
+    return fail<AssetReaderPtr>("asset not found while opening " + path->logical_path() +
+                                " namespace:" + ns + " searched:" + searched.str());
 }
 
 AssetResult<AssetBlob> AssetManager::read_binary(std::string_view logical_path) const
@@ -567,7 +584,8 @@ AssetResult<AssetBlob> AssetManager::read_binary(std::string_view logical_path) 
     const auto ns = namespace_for(*path);
     const auto* sources = sources_for(*path);
     if (!sources || sources->empty()) {
-        return fail<AssetBlob>("no mount for asset namespace '" + ns + "' while reading " + path->logical_path());
+        return fail<AssetBlob>("no mount for asset namespace '" + ns + "' while reading " +
+                               path->logical_path());
     }
 
     std::ostringstream searched;
@@ -576,11 +594,12 @@ AssetResult<AssetBlob> AssetManager::read_binary(std::string_view logical_path) 
         if (result) {
             return result;
         }
-        searched << "[" << source->kind() << " " << source->describe() << " -> " << result.error << "] ";
+        searched << "[" << source->kind() << " " << source->describe() << " -> " << result.error
+                 << "] ";
     }
 
-    return fail<AssetBlob>("asset not found while reading " + path->logical_path()
-        + " namespace:" + ns + " searched:" + searched.str());
+    return fail<AssetBlob>("asset not found while reading " + path->logical_path() +
+                           " namespace:" + ns + " searched:" + searched.str());
 }
 
 AssetResult<AssetText> AssetManager::read_text(std::string_view logical_path) const
@@ -595,17 +614,19 @@ AssetResult<AssetText> AssetManager::read_text(std::string_view logical_path) co
 bool AssetManager::exists(std::string_view logical_path) const
 {
     const auto path = AssetPath::parse(logical_path);
-    if (!path) return false;
+    if (!path)
+        return false;
     const auto* sources = sources_for(*path);
-    if (!sources) return false;
-    return std::any_of(sources->begin(), sources->end(), [&](const auto& source) {
-        return source->exists(*path);
-    });
+    if (!sources)
+        return false;
+    return std::any_of(sources->begin(), sources->end(),
+                       [&](const auto& source) { return source->exists(*path); });
 }
 
 bool AssetManager::has_namespace(std::string_view namespace_name) const
 {
-    return valid_namespace(namespace_name) && m_mounts.find(std::string(namespace_name)) != m_mounts.end();
+    return valid_namespace(namespace_name) &&
+           m_mounts.find(std::string(namespace_name)) != m_mounts.end();
 }
 
 std::vector<std::string> AssetManager::describe_mounts() const
@@ -613,9 +634,8 @@ std::vector<std::string> AssetManager::describe_mounts() const
     std::vector<std::string> result;
     for (const auto& [ns, sources] : m_mounts) {
         for (const auto& source : sources) {
-            result.push_back(ns + ":/ -> " + source->describe()
-                + " kind:" + source->kind()
-                + (source->writable() ? " writable" : " read-only"));
+            result.push_back(ns + ":/ -> " + source->describe() + " kind:" + source->kind() +
+                             (source->writable() ? " writable" : " read-only"));
         }
     }
     return result;

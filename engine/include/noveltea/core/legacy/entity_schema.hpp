@@ -151,16 +151,14 @@ struct EntityView {
     std::optional<CutsceneView> cutscene;
 };
 
-[[nodiscard]] std::optional<EntityView> parse_entity_record(
-    EntityType type,
-    const nlohmann::json& record,
-    std::vector<SchemaError>& errors,
-    std::string_view path = {});
+[[nodiscard]] std::optional<EntityView> parse_entity_record(EntityType type,
+                                                            const nlohmann::json& record,
+                                                            std::vector<SchemaError>& errors,
+                                                            std::string_view path = {});
 
-[[nodiscard]] std::vector<EntityView> parse_project_entities(
-    EntityType type,
-    const nlohmann::json& collection,
-    std::vector<SchemaError>& errors,
-    std::string_view path = {});
+[[nodiscard]] std::vector<EntityView> parse_project_entities(EntityType type,
+                                                             const nlohmann::json& collection,
+                                                             std::vector<SchemaError>& errors,
+                                                             std::string_view path = {});
 
 } // namespace noveltea::core::legacy

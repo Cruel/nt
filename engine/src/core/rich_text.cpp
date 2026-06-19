@@ -20,9 +20,8 @@ struct StyleTag {
 
 std::string lower(std::string value)
 {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return value;
 }
 
@@ -89,14 +88,23 @@ RichTextColor parse_color(std::string value)
 std::optional<TextEffect> effect_from_string(const std::string& raw)
 {
     static const std::map<std::string, TextEffect> effects = {
-        {"0", TextEffect::None}, {"no", TextEffect::None}, {"none", TextEffect::None},
-        {"f", TextEffect::Fade}, {"fade", TextEffect::Fade},
-        {"fa", TextEffect::FadeAcross}, {"fadeacross", TextEffect::FadeAcross},
-        {"glow", TextEffect::Glow}, {"g", TextEffect::Glow},
-        {"n", TextEffect::Nod}, {"nod", TextEffect::Nod},
-        {"s", TextEffect::Shake}, {"shake", TextEffect::Shake},
-        {"p", TextEffect::Pop}, {"pop", TextEffect::Pop},
-        {"t", TextEffect::Tremble}, {"tremble", TextEffect::Tremble},
+        {"0", TextEffect::None},
+        {"no", TextEffect::None},
+        {"none", TextEffect::None},
+        {"f", TextEffect::Fade},
+        {"fade", TextEffect::Fade},
+        {"fa", TextEffect::FadeAcross},
+        {"fadeacross", TextEffect::FadeAcross},
+        {"glow", TextEffect::Glow},
+        {"g", TextEffect::Glow},
+        {"n", TextEffect::Nod},
+        {"nod", TextEffect::Nod},
+        {"s", TextEffect::Shake},
+        {"shake", TextEffect::Shake},
+        {"p", TextEffect::Pop},
+        {"pop", TextEffect::Pop},
+        {"t", TextEffect::Tremble},
+        {"tremble", TextEffect::Tremble},
         {"test", TextEffect::Test},
     };
     auto it = effects.find(lower(raw));
@@ -134,7 +142,8 @@ std::string replace_object_shorthand(std::string_view text)
     return result;
 }
 
-std::optional<std::string> parse_tag_at(std::string_view text, std::size_t start, std::size_t& end_out)
+std::optional<std::string> parse_tag_at(std::string_view text, std::size_t start,
+                                        std::size_t& end_out)
 {
     static constexpr std::string_view allowed = " =_,.-#";
     if (start >= text.size() || text[start] != '[')
@@ -204,15 +213,33 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
             if (key.empty())
                 continue;
             switch (key[0]) {
-            case 'e': normalized["effect"] = value; break;
-            case 'f': normalized["func"] = value; break;
-            case 't': normalized["time"] = value; break;
-            case 'd': normalized["delay"] = value; break;
-            case 'l': normalized["loop"] = value; break;
-            case 's': normalized["speed"] = value; break;
-            case 'c': normalized["cs"] = value; break;
-            case 'v': normalized["value"] = value; break;
-            case 'w': normalized["wait"] = value; break;
+            case 'e':
+                normalized["effect"] = value;
+                break;
+            case 'f':
+                normalized["func"] = value;
+                break;
+            case 't':
+                normalized["time"] = value;
+                break;
+            case 'd':
+                normalized["delay"] = value;
+                break;
+            case 'l':
+                normalized["loop"] = value;
+                break;
+            case 's':
+                normalized["speed"] = value;
+                break;
+            case 'c':
+                normalized["cs"] = value;
+                break;
+            case 'v':
+                normalized["value"] = value;
+                break;
+            case 'w':
+                normalized["wait"] = value;
+                break;
             }
         }
         tag.params = std::move(normalized);
@@ -274,20 +301,40 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
 void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& tag)
 {
     switch (tag.type) {
-    case TextStyleType::Bold: style.font_style |= FontBold; break;
-    case TextStyleType::BorderColor: style.outline_color = parse_color(tag.params.at("color")); break;
-    case TextStyleType::BorderSize: style.outline_thickness = std::max(parse_float(tag.params.at("size")), 0.0f); break;
-    case TextStyleType::Color: style.color = parse_color(tag.params.at("color")); break;
+    case TextStyleType::Bold:
+        style.font_style |= FontBold;
+        break;
+    case TextStyleType::BorderColor:
+        style.outline_color = parse_color(tag.params.at("color"));
+        break;
+    case TextStyleType::BorderSize:
+        style.outline_thickness = std::max(parse_float(tag.params.at("size")), 0.0f);
+        break;
+    case TextStyleType::Color:
+        style.color = parse_color(tag.params.at("color"));
+        break;
     case TextStyleType::Diff:
         style.diff = true;
         style.color = {150, 0, 0, 255};
         break;
-    case TextStyleType::Font: style.font_alias = tag.params.at("id"); break;
-    case TextStyleType::Italic: style.font_style |= FontItalic; break;
-    case TextStyleType::Object: style.object_id = tag.params.at("id"); break;
-    case TextStyleType::Size: style.font_size = static_cast<unsigned int>(std::max(parse_int(tag.params.at("size")), 0)); break;
-    case TextStyleType::XOffset: style.x_offset = parse_int(tag.params.at("x")); break;
-    case TextStyleType::YOffset: style.y_offset = parse_int(tag.params.at("y")); break;
+    case TextStyleType::Font:
+        style.font_alias = tag.params.at("id");
+        break;
+    case TextStyleType::Italic:
+        style.font_style |= FontItalic;
+        break;
+    case TextStyleType::Object:
+        style.object_id = tag.params.at("id");
+        break;
+    case TextStyleType::Size:
+        style.font_size = static_cast<unsigned int>(std::max(parse_int(tag.params.at("size")), 0));
+        break;
+    case TextStyleType::XOffset:
+        style.x_offset = parse_int(tag.params.at("x"));
+        break;
+    case TextStyleType::YOffset:
+        style.y_offset = parse_int(tag.params.at("y"));
+        break;
     case TextStyleType::Shader:
         if (auto it = tag.params.find("f"); it != tag.params.end())
             style.fragment_shader_id = it->second;
@@ -335,15 +382,13 @@ void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& ta
             }
         }
         break;
-    default: break;
+    default:
+        break;
     }
 }
 
-RichTextRun make_run(std::string text,
-                     const std::vector<StyleTag>& stack,
-                     const RichTextParseOptions& options,
-                     bool new_group,
-                     bool start_on_new_line)
+RichTextRun make_run(std::string text, const std::vector<StyleTag>& stack,
+                     const RichTextParseOptions& options, bool new_group, bool start_on_new_line)
 {
     RichTextRun run;
     run.text = std::move(text);
@@ -371,21 +416,34 @@ nlohmann::json color_json(const RichTextColor& c)
 nlohmann::json animation_json(const RichTextAnimation& a)
 {
     return {
-        {"type", static_cast<int>(a.type)}, {"equation", a.equation}, {"value", a.value},
-        {"duration_ms", a.duration_ms}, {"delay_ms", a.delay_ms}, {"loop_count", a.loop_count},
-        {"loop_delay_ms", a.loop_delay_ms}, {"speed", a.speed}, {"loop_yoyo", a.loop_yoyo},
-        {"skippable", a.skippable}, {"wait_for_click", a.wait_for_click},
+        {"type", static_cast<int>(a.type)},
+        {"equation", a.equation},
+        {"value", a.value},
+        {"duration_ms", a.duration_ms},
+        {"delay_ms", a.delay_ms},
+        {"loop_count", a.loop_count},
+        {"loop_delay_ms", a.loop_delay_ms},
+        {"speed", a.speed},
+        {"loop_yoyo", a.loop_yoyo},
+        {"skippable", a.skippable},
+        {"wait_for_click", a.wait_for_click},
     };
 }
 
 nlohmann::json style_json(const RichTextStyle& s)
 {
     return {
-        {"font_alias", s.font_alias}, {"object_id", s.object_id},
-        {"vertex_shader_id", s.vertex_shader_id}, {"fragment_shader_id", s.fragment_shader_id},
-        {"x_offset", s.x_offset}, {"y_offset", s.y_offset}, {"font_size", s.font_size},
-        {"font_style", s.font_style}, {"color", color_json(s.color)},
-        {"outline_color", color_json(s.outline_color)}, {"outline_thickness", s.outline_thickness},
+        {"font_alias", s.font_alias},
+        {"object_id", s.object_id},
+        {"vertex_shader_id", s.vertex_shader_id},
+        {"fragment_shader_id", s.fragment_shader_id},
+        {"x_offset", s.x_offset},
+        {"y_offset", s.y_offset},
+        {"font_size", s.font_size},
+        {"font_style", s.font_style},
+        {"color", color_json(s.color)},
+        {"outline_color", color_json(s.outline_color)},
+        {"outline_thickness", s.outline_thickness},
         {"diff", s.diff},
     };
 }
@@ -393,8 +451,11 @@ nlohmann::json style_json(const RichTextStyle& s)
 nlohmann::json run_json(const RichTextRun& r)
 {
     return {
-        {"text", r.text}, {"style", style_json(r.style)}, {"animation", animation_json(r.animation)},
-        {"new_group", r.new_group}, {"start_on_new_line", r.start_on_new_line},
+        {"text", r.text},
+        {"style", style_json(r.style)},
+        {"animation", animation_json(r.animation)},
+        {"new_group", r.new_group},
+        {"start_on_new_line", r.start_on_new_line},
     };
 }
 
@@ -422,9 +483,12 @@ RichTextDocument parse_rich_text(std::string_view input, const RichTextParseOpti
         new_line = false;
         buffer.str("");
         buffer.clear();
-        stack.erase(std::remove_if(stack.begin(), stack.end(), [](const StyleTag& tag) {
-            return tag.type == TextStyleType::XOffset || tag.type == TextStyleType::YOffset;
-        }), stack.end());
+        stack.erase(std::remove_if(stack.begin(), stack.end(),
+                                   [](const StyleTag& tag) {
+                                       return tag.type == TextStyleType::XOffset ||
+                                              tag.type == TextStyleType::YOffset;
+                                   }),
+                    stack.end());
     };
 
     for (std::size_t i = 0; i < text.size(); ++i) {
@@ -468,10 +532,8 @@ RichTextDocument parse_rich_text(std::string_view input, const RichTextParseOpti
                 }
 
                 push_run();
-                if (tag.type == TextStyleType::Animation ||
-                    tag.type == TextStyleType::XOffset ||
-                    tag.type == TextStyleType::YOffset ||
-                    tag.type == TextStyleType::Shader) {
+                if (tag.type == TextStyleType::Animation || tag.type == TextStyleType::XOffset ||
+                    tag.type == TextStyleType::YOffset || tag.type == TextStyleType::Shader) {
                     new_group = true;
                 }
                 if (closing) {
@@ -491,19 +553,16 @@ RichTextDocument parse_rich_text(std::string_view input, const RichTextParseOpti
         }
     }
 
-    if (buffer.str().empty() && !document.runs.empty() && new_group && !document.runs.back().animation.wait_for_click)
+    if (buffer.str().empty() && !document.runs.empty() && new_group &&
+        !document.runs.back().animation.wait_for_click)
         push_run(true);
     push_run(text.empty());
     return document;
 }
 
-std::string strip_rich_text_tags(std::string_view text)
-{
-    return parse_rich_text(text).plain_text;
-}
+std::string strip_rich_text_tags(std::string_view text) { return parse_rich_text(text).plain_text; }
 
-RichTextDocument diff_room_description(std::string_view previous,
-                                       std::string_view current,
+RichTextDocument diff_room_description(std::string_view previous, std::string_view current,
                                        const RichTextParseOptions& options)
 {
     const std::string prev_plain = strip_rich_text_tags(previous);
@@ -513,12 +572,13 @@ RichTextDocument diff_room_description(std::string_view previous,
         return parse_rich_text(current, options);
 
     std::size_t prefix = 0;
-    while (prefix < prev_plain.size() && prefix < curr_plain.size() && prev_plain[prefix] == curr_plain[prefix])
+    while (prefix < prev_plain.size() && prefix < curr_plain.size() &&
+           prev_plain[prefix] == curr_plain[prefix])
         ++prefix;
     std::size_t suffix = 0;
-    while (suffix + prefix < prev_plain.size() &&
-           suffix + prefix < curr_plain.size() &&
-           prev_plain[prev_plain.size() - suffix - 1] == curr_plain[curr_plain.size() - suffix - 1]) {
+    while (suffix + prefix < prev_plain.size() && suffix + prefix < curr_plain.size() &&
+           prev_plain[prev_plain.size() - suffix - 1] ==
+               curr_plain[curr_plain.size() - suffix - 1]) {
         ++suffix;
     }
 
@@ -552,7 +612,8 @@ std::vector<RichTextPage> paginate_rich_text(const RichTextDocument& document,
 
     std::size_t next_break = 0;
     for (std::size_t i = 0; i < document.runs.size(); ++i) {
-        while (next_break < document.page_breaks.size() && document.page_breaks[next_break].run_index == i) {
+        while (next_break < document.page_breaks.size() &&
+               document.page_breaks[next_break].run_index == i) {
             flush();
             ++next_break;
         }
@@ -612,7 +673,10 @@ nlohmann::json to_json(const RichTextDocument& document)
     nlohmann::json breaks = nlohmann::json::array();
     for (const auto& br : document.page_breaks)
         breaks.push_back({{"run_index", br.run_index}, {"delay_ms", br.delay_ms}});
-    return {{"source", document.source}, {"plain_text", document.plain_text}, {"runs", std::move(runs)}, {"page_breaks", std::move(breaks)}};
+    return {{"source", document.source},
+            {"plain_text", document.plain_text},
+            {"runs", std::move(runs)},
+            {"page_breaks", std::move(breaks)}};
 }
 
 nlohmann::json to_json(const RichTextPage& page)

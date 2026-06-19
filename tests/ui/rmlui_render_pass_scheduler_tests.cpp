@@ -4,7 +4,8 @@
 
 using namespace noveltea::ui::rmlui;
 
-static RmlUiPassRequest request(RmlUiPassKind kind, uintptr_t framebuffer, bool clears_color, bool clears_stencil, const char* name)
+static RmlUiPassRequest request(RmlUiPassKind kind, uintptr_t framebuffer, bool clears_color,
+                                bool clears_stencil, const char* name)
 {
     return {kind, framebuffer, 0, clears_color, clears_stencil, 800, 600, name};
 }
@@ -24,10 +25,13 @@ TEST_CASE("RmlUi pass scheduler reuses ordinary geometry view")
 TEST_CASE("RmlUi pass scheduler creates passes for dependency boundaries")
 {
     RmlUiRenderPassScheduler scheduler(32, 36);
-    const auto geometry = scheduler.acquire(request(RmlUiPassKind::Geometry, 7, false, false, "geo"));
+    const auto geometry =
+        scheduler.acquire(request(RmlUiPassKind::Geometry, 7, false, false, "geo"));
     const auto clear = scheduler.acquire(request(RmlUiPassKind::Clear, 7, true, true, "clear"));
-    const auto other_framebuffer = scheduler.acquire(request(RmlUiPassKind::Geometry, 8, false, false, "geo"));
-    const auto postprocess = scheduler.acquire(request(RmlUiPassKind::Postprocess, 8, false, false, "post"));
+    const auto other_framebuffer =
+        scheduler.acquire(request(RmlUiPassKind::Geometry, 8, false, false, "geo"));
+    const auto postprocess =
+        scheduler.acquire(request(RmlUiPassKind::Postprocess, 8, false, false, "post"));
 
     REQUIRE(geometry);
     REQUIRE(clear);
@@ -44,7 +48,8 @@ TEST_CASE("RmlUi pass scheduler reports exhaustion without reusing final view")
     RmlUiRenderPassScheduler scheduler(32, 33);
     REQUIRE(scheduler.acquire(request(RmlUiPassKind::Clear, 0, true, false, "a")));
     REQUIRE(scheduler.acquire(request(RmlUiPassKind::Resolve, 0, false, false, "b")));
-    const auto exhausted = scheduler.acquire(request(RmlUiPassKind::FinalComposite, 0, false, false, "c"));
+    const auto exhausted =
+        scheduler.acquire(request(RmlUiPassKind::FinalComposite, 0, false, false, "c"));
 
     CHECK_FALSE(exhausted);
     CHECK(scheduler.exhausted());

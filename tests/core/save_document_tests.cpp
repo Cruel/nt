@@ -41,7 +41,8 @@ TEST_CASE("SaveDocument parses representative runtime save shape")
     auto root = SaveDocument::new_save().root();
     root[project_ids::play_time] = 42.5;
     root[project_ids::entrypoint_entity] = entity_ref(EntityType::Dialogue, "intro");
-    root[project_ids::entrypoint_metadata] = nlohmann::json::array({"foyer", nlohmann::json::object({{"index", 2}})});
+    root[project_ids::entrypoint_metadata] =
+        nlohmann::json::array({"foyer", nlohmann::json::object({{"index", 2}})});
     root[project_ids::save_map] = "main";
     root[project_ids::object_locations] = nlohmann::json::object({
         {"room", nlohmann::json::object({

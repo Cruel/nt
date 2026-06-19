@@ -17,7 +17,10 @@ struct EntityId {
     EntityType type = EntityType::Invalid;
     std::string id;
 
-    [[nodiscard]] bool valid() const noexcept { return is_project_entity_type(type) && !id.empty(); }
+    [[nodiscard]] bool valid() const noexcept
+    {
+        return is_project_entity_type(type) && !id.empty();
+    }
 };
 
 struct EntityMetadata {
@@ -158,8 +161,8 @@ public:
     using DialogueStore = std::map<std::string, DialogueModel>;
     using CutsceneStore = std::map<std::string, CutsceneModel>;
 
-    [[nodiscard]] static std::optional<ProjectModel> from_document(const ProjectDocument& document,
-                                                                   std::vector<ValidationIssue>& issues);
+    [[nodiscard]] static std::optional<ProjectModel>
+    from_document(const ProjectDocument& document, std::vector<ValidationIssue>& issues);
 
     [[nodiscard]] const ObjectStore& objects() const noexcept { return m_objects; }
     [[nodiscard]] const ScriptStore& scripts() const noexcept { return m_scripts; }
@@ -170,8 +173,10 @@ public:
     [[nodiscard]] const DialogueStore& dialogues() const noexcept { return m_dialogues; }
     [[nodiscard]] const CutsceneStore& cutscenes() const noexcept { return m_cutscenes; }
 
-    [[nodiscard]] std::optional<EntityMetadata> metadata(EntityType type, const std::string& id) const;
-    [[nodiscard]] std::optional<EntityMetadata> parent_metadata(EntityType type, const std::string& id) const;
+    [[nodiscard]] std::optional<EntityMetadata> metadata(EntityType type,
+                                                         const std::string& id) const;
+    [[nodiscard]] std::optional<EntityMetadata> parent_metadata(EntityType type,
+                                                                const std::string& id) const;
     [[nodiscard]] nlohmann::json merged_properties(EntityType type, const std::string& id) const;
 
     [[nodiscard]] const nlohmann::json& document_root() const noexcept { return m_document_root; }

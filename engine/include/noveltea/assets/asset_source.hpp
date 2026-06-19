@@ -16,16 +16,14 @@ namespace noveltea::assets {
 using AssetBytes = std::vector<std::uint8_t>;
 using AssetText = std::string;
 
-template<class T>
-struct AssetResult {
+template<class T> struct AssetResult {
     std::optional<T> value;
     std::string error;
 
     [[nodiscard]] explicit operator bool() const { return value.has_value(); }
 };
 
-template<>
-struct AssetResult<void> {
+template<> struct AssetResult<void> {
     bool ok = false;
     std::string error;
 
@@ -57,13 +55,17 @@ public:
     [[nodiscard]] virtual AssetResult<AssetBlob> read_binary(const AssetPath& path) const;
     [[nodiscard]] virtual bool exists(const AssetPath& path) const = 0;
     [[nodiscard]] virtual std::string describe() const = 0;
-    [[nodiscard]] virtual bool writable() const { return false; } // Capability metadata; writes are exposed by WritableAssetSource.
+    [[nodiscard]] virtual bool writable() const
+    {
+        return false;
+    } // Capability metadata; writes are exposed by WritableAssetSource.
     [[nodiscard]] virtual const char* kind() const = 0;
 };
 
 class WritableAssetSource : public AssetSource {
 public:
-    [[nodiscard]] virtual AssetResult<void> write_binary(const AssetPath& path, const AssetBytes& bytes) = 0;
+    [[nodiscard]] virtual AssetResult<void> write_binary(const AssetPath& path,
+                                                         const AssetBytes& bytes) = 0;
     [[nodiscard]] virtual AssetResult<void> remove(const AssetPath& path) = 0;
 };
 

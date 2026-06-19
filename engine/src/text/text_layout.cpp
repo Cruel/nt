@@ -11,10 +11,7 @@ void TextBuffer::clear()
     m_metrics = {};
 }
 
-void TextBuffer::append(TextRun run)
-{
-    m_runs.push_back(run);
-}
+void TextBuffer::append(TextRun run) { m_runs.push_back(run); }
 
 TextMetrics measure_text(Renderer& renderer, FontHandle font, std::string_view text, float size)
 {
@@ -26,9 +23,6 @@ TextMetrics measure_text(Renderer& renderer, const Text& text)
     return renderer.measure_text(text);
 }
 
-TextLayout layout_text(Renderer& renderer, const Text& text)
-{
-    return renderer.layout_text(text);
-}
+TextLayout layout_text(Renderer& renderer, const Text& text) { return renderer.layout_text(text); }
 
 } // namespace noveltea

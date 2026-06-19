@@ -10,16 +10,15 @@
 namespace noveltea::ui::rmlui {
 
 SdlSystemInterface::SdlSystemInterface(SDL_Window* window)
-    : m_window(window)
-    , m_default_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT))
-    , m_move_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE))
-    , m_pointer_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER))
-    , m_resize_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE))
-    , m_cross_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR))
-    , m_text_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT))
-    , m_unavailable_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED))
-    , m_start(SDL_GetPerformanceCounter())
-    , m_frequency(static_cast<double>(SDL_GetPerformanceFrequency()))
+    : m_window(window), m_default_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT)),
+      m_move_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE)),
+      m_pointer_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER)),
+      m_resize_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE)),
+      m_cross_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR)),
+      m_text_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT)),
+      m_unavailable_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED)),
+      m_start(SDL_GetPerformanceCounter()),
+      m_frequency(static_cast<double>(SDL_GetPerformanceFrequency()))
 {
 }
 
@@ -42,15 +41,24 @@ double SdlSystemInterface::GetElapsedTime()
 void SdlSystemInterface::SetMouseCursor(const Rml::String& cursor_name)
 {
     SDL_Cursor* cursor = nullptr;
-    if (cursor_name.empty() || cursor_name == "arrow") cursor = m_default_cursor;
-    else if (cursor_name == "pointer") cursor = m_pointer_cursor;
-    else if (cursor_name == "text") cursor = m_text_cursor;
-    else if (cursor_name == "move") cursor = m_move_cursor;
-    else if (cursor_name == "resize") cursor = m_resize_cursor;
-    else if (cursor_name == "cross") cursor = m_cross_cursor;
-    else if (cursor_name == "unavailable") cursor = m_unavailable_cursor;
-    else if (Rml::StringUtilities::StartsWith(cursor_name, "rmlui-scroll")) cursor = m_move_cursor;
-    if (cursor) SDL_SetCursor(cursor);
+    if (cursor_name.empty() || cursor_name == "arrow")
+        cursor = m_default_cursor;
+    else if (cursor_name == "pointer")
+        cursor = m_pointer_cursor;
+    else if (cursor_name == "text")
+        cursor = m_text_cursor;
+    else if (cursor_name == "move")
+        cursor = m_move_cursor;
+    else if (cursor_name == "resize")
+        cursor = m_resize_cursor;
+    else if (cursor_name == "cross")
+        cursor = m_cross_cursor;
+    else if (cursor_name == "unavailable")
+        cursor = m_unavailable_cursor;
+    else if (Rml::StringUtilities::StartsWith(cursor_name, "rmlui-scroll"))
+        cursor = m_move_cursor;
+    if (cursor)
+        SDL_SetCursor(cursor);
 }
 
 void SdlSystemInterface::SetClipboardText(const Rml::String& text)
@@ -67,15 +75,18 @@ void SdlSystemInterface::GetClipboardText(Rml::String& text)
 
 void SdlSystemInterface::ActivateKeyboard(Rml::Vector2f caret_position, float line_height)
 {
-    if (!m_window) return;
-    const SDL_Rect rect{int(caret_position.x), int(caret_position.y), 1, std::max(1, int(line_height))};
+    if (!m_window)
+        return;
+    const SDL_Rect rect{int(caret_position.x), int(caret_position.y), 1,
+                        std::max(1, int(line_height))};
     SDL_SetTextInputArea(m_window, &rect, 0);
     SDL_StartTextInput(m_window);
 }
 
 void SdlSystemInterface::DeactivateKeyboard()
 {
-    if (m_window) SDL_StopTextInput(m_window);
+    if (m_window)
+        SDL_StopTextInput(m_window);
 }
 
 bool SdlSystemInterface::LogMessage(Rml::Log::Type type, const Rml::String& message)

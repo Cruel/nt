@@ -22,8 +22,8 @@ public:
     explicit SaveDocument(nlohmann::json root);
 
     [[nodiscard]] static SaveDocument new_save();
-    [[nodiscard]] static std::optional<SaveDocument> parse_json_text(std::string_view text,
-                                                                     std::vector<DocumentError>& errors);
+    [[nodiscard]] static std::optional<SaveDocument>
+    parse_json_text(std::string_view text, std::vector<DocumentError>& errors);
 
     [[nodiscard]] const nlohmann::json& root() const noexcept { return m_root; }
     [[nodiscard]] nlohmann::json& root() noexcept { return m_root; }
@@ -52,8 +52,8 @@ public:
     explicit SettingsDocument(nlohmann::json root);
 
     [[nodiscard]] static SettingsDocument defaults();
-    [[nodiscard]] static std::optional<SettingsDocument> parse_json_text(std::string_view text,
-                                                                         std::vector<DocumentError>& errors);
+    [[nodiscard]] static std::optional<SettingsDocument>
+    parse_json_text(std::string_view text, std::vector<DocumentError>& errors);
 
     [[nodiscard]] const nlohmann::json& root() const noexcept { return m_root; }
     [[nodiscard]] nlohmann::json& root() noexcept { return m_root; }
