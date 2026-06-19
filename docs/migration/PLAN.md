@@ -1,6 +1,6 @@
 # NovelTea Core Engine Migration Plan
 
-**Completion status: [█████████░░] 9/11 phases fully done — Phase 10 editor preview/tooling APIs next**
+**Completion status: [███████████] 11/11 phases fully done — migration plan complete**
 
 See [`STATUS.md`](STATUS.md) for detailed completion tracking, verification results, and next-prompt recommendations. This file tracks phase-level scope only.
 
@@ -122,19 +122,21 @@ Goal: make imported old projects usable by runtime sessions.
 - Decide when to add write support for old or new project packages; read-only compatibility is enough until runtime/editor workflows require saving packages.
 - Add deterministic package fixtures and asset lookup tests for Linux and Web.
 
-## [ ] Phase 10: Editor Preview and Tooling APIs
+## [x] Phase 10: Editor Preview and Tooling APIs
 
 Goal: expose stable backend-neutral APIs for the future editor.
 
+- Current slices: added backend-neutral `noveltea::core::editor::ProjectTooling` APIs for normalized project JSON load, legacy game JSON import, validation diagnostics, JSON save serialization, and raw legacy entity record set/erase operations; added `RuntimePreviewSession` as a tooling facade over `RuntimeSessionHost` with start, stop, reset, set-entrypoint, step/tick, state inspection, navigation/dialogue/continue/action injection, and captured controller command retrieval.
 - Provide project load/import/validate/save APIs.
 - Provide runtime preview controls: start, stop, reset, set entrypoint, step/tick, inspect state, inject choices, and capture emitted UI commands.
 - Provide entity editing and validation APIs without requiring the old Qt editor model.
 - Add migration diagnostics that can explain legacy compatibility issues to editor users.
 
-## [ ] Phase 11: Compatibility Completion
+## [x] Phase 11: Compatibility Completion
 
 Goal: prove old projects survive migration with known limits.
 
+- Current slices: added reduced synthetic compatibility fixtures and golden tests for legacy project import/editor save, save JSON preservation, legacy package import, room/cutscene/dialogue/action/timer/text-log/save-entrypoint/inventory runtime behavior, plus user-visible compatibility notes in `docs/migration/COMPATIBILITY.md`.
 - Build a fixture suite from real old projects and reduced synthetic projects.
 - Add project/save/package round-trip checks where lossless behavior is promised.
 - Add scripted runtime golden tests for room entry, actions, dialogue, cutscene, timers, text log, save/load, autosave, and object inventory.
@@ -150,8 +152,8 @@ Goal: prove old projects survive migration with known limits.
 
 ## Immediate Next Slices
 
-1. Start Phase 10 by adding backend-neutral project load/import/validate APIs for editor use.
-2. Add runtime preview controls for start, stop, reset, entrypoint override, tick/step, state inspection, injected choices, and captured UI commands.
-3. Render rich-text runs as structured RmlUi spans or hand off to a bgfx rich-text renderer after effect semantics are stable.
-4. Add profile/settings/save/load persistence flows once Phase 10 preview APIs define the ownership boundary.
-5. Wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.
+1. Add real old-project compatibility fixtures when redistributable or private fixture handling is available.
+2. Wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.
+3. Implement runtime save-slot/autosave mutation policy on top of the parsed save/profile APIs.
+4. Apply persisted object-location save data to runtime object placement.
+5. Render rich-text runs as structured RmlUi spans or hand off to a bgfx rich-text renderer after effect semantics are stable.

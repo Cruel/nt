@@ -1,6 +1,7 @@
 add_library(noveltea_core STATIC
     src/core/cutscene_controller.cpp
     src/core/dialogue_controller.cpp
+    src/core/editor_api.cpp
     src/core/entity_ref.cpp
     src/core/entity_type.cpp
     src/core/game_session.cpp
