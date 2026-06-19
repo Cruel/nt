@@ -1,4 +1,8 @@
-# Old Core Map
+# Historical: Old Core Map
+
+This document is historical archive material from the completed backend-neutral core migration. Current migration status lives in `docs/migration/STATUS.md`.
+
+---
 
 Files inspected: `NovelTea/include/NovelTea/*.hpp`, `NovelTea/src/core/*.cpp`, `NovelTea/test/*.cpp`.
 

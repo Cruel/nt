@@ -1,4 +1,8 @@
-# Old NovelTea Core Engine Migration Analysis
+# Historical: Legacy Core Analysis
+
+This document is historical archive material from the completed backend-neutral core migration. It may mention old constraints, risks, or migration options that are no longer current direction. Current guidance lives in `AGENTS.md`, `README.md`, `docs/migration/STATUS.md`, `docs/migration/PLAN.md`, and `docs/migration/COMPATIBILITY.md`.
+
+---
 
 Date: 2026-06-18
 

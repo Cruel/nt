@@ -1,4 +1,8 @@
-# Web NovelTea Text Sampling Fix - 2026-06-18
+# Historical: Web NovelTea Text Sampling Fix - 2026-06-18
+
+This document is historical archive material from the text-rendering investigation on 2026-06-18. Current text implementation status lives in `docs/rendering/TEXT_IMPLEMENTATION.md`.
+
+---
 
 ## Summary
 

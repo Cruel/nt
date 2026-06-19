@@ -1,4 +1,8 @@
-# Core Domain Import Slice
+# Historical: Core Domain Import Slice
+
+This document is historical archive material from the completed backend-neutral core migration. Current migration status lives in `docs/migration/STATUS.md`.
+
+---
 
 Date: 2026-06-18
 

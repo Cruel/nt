@@ -1,4 +1,4 @@
-# RmlUi GL3 Parity Completion State
+# RmlUi bgfx Status
 
 Status values: NOT STARTED, IMPLEMENTED, NOT VERIFIED, VERIFIED.
 

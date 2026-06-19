@@ -1,4 +1,8 @@
-# NovelTea Lua Runtime
+# Historical: NovelTea Lua Runtime
+
+This document is historical archive material from an earlier implementation slice. Current Lua runtime direction lives in `docs/runtime/LUA_RUNTIME.md`.
+
+---
 
 ## Versions and dependencies
 

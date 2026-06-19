@@ -1,4 +1,8 @@
-# Framework Bootstrap Plan
+# Historical: Framework Bootstrap Plan
+
+This document is historical archive material. It predates the current Lua-only scripting direction and should not be treated as active migration guidance.
+
+---
 
 ## Current nt Architecture Summary
 

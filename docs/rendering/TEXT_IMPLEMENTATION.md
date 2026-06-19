@@ -1,4 +1,4 @@
-# NovelTea Text Implementation
+# Text Implementation
 
 ## Status
 
