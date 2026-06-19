@@ -36,6 +36,10 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
     case ControllerCommandType::ModeChanged:
         m_state.mode = json_string_or(command.data, "mode", m_state.mode);
         m_state.dialogue_options.clear();
+        if (m_state.mode != "room") {
+            m_state.objects.clear();
+            m_state.actions.clear();
+        }
         m_state.awaiting_continue = false;
         m_state.page_break = false;
         break;
@@ -67,6 +71,8 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
         m_state.mode = "dialogue";
         m_state.title = json_string_or(command.data, "name");
         m_state.body = json_string_or(command.data, "text", command.text);
+        m_state.objects.clear();
+        m_state.actions.clear();
         m_state.awaiting_continue = command.data.value("wait_for_click", false);
         m_state.page_break = false;
         break;
@@ -84,6 +90,8 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
         m_state.title.clear();
         m_state.body = json_string_or(command.data, "text", command.text);
         m_state.dialogue_options.clear();
+        m_state.objects.clear();
+        m_state.actions.clear();
         m_state.awaiting_continue = command.data.value("wait_for_click", false);
         m_state.page_break = false;
         break;
@@ -106,6 +114,13 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
     case ControllerCommandType::ScriptDeferred:
         break;
     }
+}
+
+void RuntimeUIViewAdapter::set_room_interactions(std::vector<RuntimeUIObject> objects,
+                                                 std::vector<RuntimeUIAction> actions)
+{
+    m_state.objects = std::move(objects);
+    m_state.actions = std::move(actions);
 }
 
 void RuntimeUIViewAdapter::apply_options(const nlohmann::json& options)

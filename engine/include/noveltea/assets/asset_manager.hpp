@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/core/legacy/project_package_reader.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -15,6 +16,7 @@ class AssetManager {
 public:
     void mount(std::string namespace_name, AssetSourcePtr source);
     void mount_directory(std::string namespace_name, std::filesystem::path root, bool writable = false);
+    void mount_legacy_package(std::string namespace_name, const ::noveltea::core::legacy::ProjectPackage& package);
 
     [[nodiscard]] AssetResult<AssetReaderPtr> open(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetBlob> read_binary(std::string_view logical_path) const;

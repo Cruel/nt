@@ -66,6 +66,29 @@ TEST_CASE("RuntimeUIViewAdapter consumes cutscene page break")
     CHECK(state.awaiting_continue);
 }
 
+TEST_CASE("RuntimeUIViewAdapter stores room interaction controls")
+{
+    RuntimeUIViewAdapter adapter;
+    adapter.apply(cmd(ControllerCommandType::RoomEntry, "atrium", {{"name", "Atrium"}}));
+    adapter.set_room_interactions(
+        {RuntimeUIObject{.id = "lamp", .name = "Lamp", .in_room = true},
+         RuntimeUIObject{.id = "coin", .name = "Coin", .in_inventory = true}},
+        {RuntimeUIAction{.verb_id = "look", .label = "Look", .object_count = 1}});
+
+    const auto& state = adapter.state();
+    REQUIRE(state.objects.size() == 2);
+    CHECK(state.objects[0].id == "lamp");
+    CHECK(state.objects[0].in_room);
+    CHECK(state.objects[1].in_inventory);
+    REQUIRE(state.actions.size() == 1);
+    CHECK(state.actions[0].verb_id == "look");
+    CHECK(state.actions[0].object_count == 1);
+
+    adapter.apply(cmd(ControllerCommandType::DialogueText, "Hello.", {{"text", "Hello."}}));
+    CHECK(state.objects.empty());
+    CHECK(state.actions.empty());
+}
+
 TEST_CASE("RuntimeUIViewAdapter bounds text log")
 {
     RuntimeUIViewAdapter adapter;

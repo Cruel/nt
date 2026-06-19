@@ -18,6 +18,8 @@
             </div>
             <div id="side_view">
                 <div id="rt_navigation"></div>
+                <div id="rt_objects"></div>
+                <div id="rt_actions"></div>
                 <div id="rt_log"></div>
             </div>
         </div>

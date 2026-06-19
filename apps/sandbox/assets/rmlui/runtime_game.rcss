@@ -76,12 +76,16 @@ body {
 
 #rt_options,
 #rt_navigation,
+#rt_objects,
+#rt_actions,
 #rt_log {
     display: block;
 }
 
 button.option,
 button.nav,
+button.object,
+button.action,
 button.continue {
     display: block;
     width: 100%;
@@ -94,6 +98,8 @@ button.continue {
 
 button.option:hover,
 button.nav:hover,
+button.object:hover,
+button.action:hover,
 button.continue:hover {
     background-color: #324652;
 }
@@ -113,4 +119,9 @@ button.disabled {
     color: #cfcac0;
     background-color: #111315cc;
     border: 1px #4b555acc;
+}
+
+#rt_objects,
+#rt_actions {
+    margin-top: 12px;
 }

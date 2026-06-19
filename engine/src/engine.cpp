@@ -1,5 +1,6 @@
 #include "noveltea/engine.hpp"
 
+#include "noveltea/core/legacy/project_package_reader.hpp"
 #include "noveltea/math/geometry.hpp"
 #include "noveltea/preview_bridge.hpp"
 #include "platform/sdl/sdl_platform.hpp"
@@ -9,7 +10,9 @@
 #include <cstdio>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stdexcept>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -143,17 +146,16 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
 
 bool Engine::load_runtime_project(const std::string& logical_path)
 {
-    auto text = m_assets.read_text(logical_path);
-    if (!text) {
+    auto blob = m_assets.read_binary(logical_path);
+    if (!blob) {
         std::fprintf(stderr, "[engine] failed to read runtime project %s: %s\n",
             logical_path.c_str(),
-            text.error.c_str());
+            blob.error.c_str());
         return false;
     }
 
-    try {
-        auto json = nlohmann::json::parse(*text.value);
-        auto result = m_runtime_host.load(core::ProjectDocument(std::move(json)));
+    auto load_document = [&](core::ProjectDocument document) {
+        auto result = m_runtime_host.load(std::move(document));
         for (const auto& diagnostic : result.diagnostics) {
             const char* severity = "info";
             if (diagnostic.severity == core::SessionDiagnosticSeverity::Warning) severity = "warning";
@@ -167,11 +169,35 @@ bool Engine::load_runtime_project(const std::string& logical_path)
             std::fprintf(stderr, "[engine] runtime project failed validation: %s\n", logical_path.c_str());
             return false;
         }
+        return true;
+    };
+
+    const auto& bytes = blob.value->bytes;
+    const std::string text(bytes.begin(), bytes.end());
+    try {
+        auto json = nlohmann::json::parse(text);
+        if (!load_document(core::ProjectDocument(std::move(json)))) {
+            return false;
+        }
     } catch (const std::exception& ex) {
-        std::fprintf(stderr, "[engine] runtime project parse failed: %s: %s\n",
-            logical_path.c_str(),
-            ex.what());
-        return false;
+        std::vector<core::legacy::PackageError> errors;
+        auto package = core::legacy::ProjectPackageReader::read(
+            std::span<const std::uint8_t>(bytes.data(), bytes.size()),
+            errors);
+        if (!package) {
+            std::fprintf(stderr, "[engine] runtime project parse failed: %s: %s\n",
+                logical_path.c_str(),
+                ex.what());
+            for (const auto& error : errors) {
+                std::fprintf(stderr, "[engine] legacy package import failed: %s\n", error.message.c_str());
+            }
+            return false;
+        }
+        m_assets.mount_legacy_package("project", *package);
+        if (!load_document(std::move(package->imported_project.document))) {
+            return false;
+        }
+        SDL_Log("[engine] mounted legacy runtime package assets: %s", logical_path.c_str());
     }
 
     if (auto* controller = m_runtime_host.controller()) {

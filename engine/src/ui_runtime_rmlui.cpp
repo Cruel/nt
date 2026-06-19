@@ -4,6 +4,7 @@
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -11,6 +12,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <SDL3/SDL.h>
 
@@ -105,6 +107,7 @@ struct RuntimeUI::State {
     core::RuntimeController* runtime_controller = nullptr;
     std::uintptr_t next_listener_id = 1;
     bool rml_initialized = false;
+    std::vector<std::string> selected_action_objects;
 #endif
     core::RuntimeUIViewAdapter runtime_view;
 };
@@ -132,6 +135,22 @@ void RuntimeUI::State::RuntimeControllerListener::ProcessEvent(Rml::Event& event
             owner.runtime_controller->dialogue_continue();
         } else if (mode == std::string_view("cutscene")) {
             owner.runtime_controller->cutscene_click();
+        }
+    } else if (target->HasAttribute("nt-object")) {
+        const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
+        if (!object_id.empty()) {
+            auto it = std::find(owner.selected_action_objects.begin(), owner.selected_action_objects.end(), object_id);
+            if (it == owner.selected_action_objects.end()) {
+                owner.selected_action_objects.push_back(object_id);
+            } else {
+                owner.selected_action_objects.erase(it);
+            }
+        }
+    } else if (target->HasAttribute("nt-action")) {
+        const auto verb_id = target->GetAttribute<Rml::String>("nt-action", "");
+        if (!verb_id.empty()) {
+            owner.runtime_controller->process_action(verb_id, owner.selected_action_objects);
+            owner.selected_action_objects.clear();
         }
     }
 }
@@ -492,6 +511,26 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
             out << "<button class=\"nav\" nt-nav=\"" << i << "\">" << escape_rml(view.navigation[i]) << "</button>";
         }
         nav->SetInnerRML(out.str());
+    }
+    if (auto* objects = doc->GetElementById("rt_objects")) {
+        std::ostringstream out;
+        for (const auto& object : view.objects) {
+            out << "<button class=\"object\" nt-object=\"" << escape_rml(object.id) << "\">"
+                << escape_rml(object.name);
+            if (object.in_inventory && !object.in_room) out << " (inventory)";
+            out << "</button>";
+        }
+        objects->SetInnerRML(out.str());
+    }
+    if (auto* actions = doc->GetElementById("rt_actions")) {
+        std::ostringstream out;
+        for (const auto& action : view.actions) {
+            out << "<button class=\"action\" nt-action=\"" << escape_rml(action.verb_id) << "\">"
+                << escape_rml(action.label);
+            if (action.object_count > 0) out << " (" << action.object_count << ")";
+            out << "</button>";
+        }
+        actions->SetInnerRML(out.str());
     }
     if (auto* log = doc->GetElementById("rt_log")) {
         std::ostringstream out;

@@ -56,6 +56,7 @@ public:
 
     [[nodiscard]] bool idle() const noexcept { return m_idle; }
     [[nodiscard]] std::string_view current_mode_name() const noexcept;
+    [[nodiscard]] std::string_view current_mode_entity_id() const noexcept { return m_mode_entity_id; }
     [[nodiscard]] int visit_count(const std::string& room_id) const;
 
     void navigate_path(int direction);

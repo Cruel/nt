@@ -1,6 +1,6 @@
 # NovelTea Core Engine Migration Plan
 
-**Completion status: [███████░░░░] 7/11 phases fully done — Phase 8 runtime UI adapter slice started**
+**Completion status: [████████░░░] 8/11 phases fully done — Phase 9 asset/package integration started**
 
 See [`STATUS.md`](STATUS.md) for detailed completion tracking, verification results, and next-prompt recommendations. This file tracks phase-level scope only.
 
@@ -101,11 +101,11 @@ Goal: port old text behavior into the existing modern text stack in layers.
 - Add a pagination and timeline model for cutscene/dialogue text separate from rendering.
 - Integrate with the existing engine-owned HarfBuzz/FreeType text layout after semantics are proven.
 
-## [ ] Phase 8: Runtime UI and Rendering Adapters
+## [x] Phase 8: Runtime UI and Rendering Adapters
 
 Goal: connect controllers to the new SDL3/bgfx/RmlUi runtime without porting old GUI widgets.
 
-- Current slices: added a backend-neutral `RuntimeUIViewAdapter` that consumes `RuntimeController` command streams into view state; added `RuntimeSessionHost` to own `GameSession`, `RuntimeController`, and the UI adapter together; added a RmlUi document updater and sandbox runtime-game RML/RCSS assets for room text, navigation choices, dialogue options, cutscene text/page-break prompts, notifications, and text log rendering; added RmlUi click delegation hooks for dialogue options, navigation choices, and active dialogue/cutscene continuation; and wired `Engine`/sandbox loading through `--runtime-project` so a real project asset can drive the runtime UI each frame.
+- Current slices: added a backend-neutral `RuntimeUIViewAdapter` that consumes `RuntimeController` command streams into view state; added `RuntimeSessionHost` to own `GameSession`, `RuntimeController`, and the UI adapter together; added a RmlUi document updater and sandbox runtime-game RML/RCSS assets for room text, navigation choices, dialogue options, cutscene text/page-break prompts, notifications, text log rendering, room objects, inventory objects, and verb action controls; added RmlUi click delegation hooks for dialogue options, navigation choices, active dialogue/cutscene continuation, object selection, and room action submission; and wired `Engine`/sandbox loading through `--runtime-project` so a real project asset can drive the runtime UI each frame.
 - Build RmlUi-backed runtime views for room text, navigation choices, dialogue options, inventory/object interaction, notifications, text log, profiles, settings, and save/load slots.
 - Build bgfx or RmlUi adapters for map visualization and rich text effects only after backend-neutral data is stable.
 - Keep Dear ImGui limited to diagnostics and developer tooling.
@@ -116,7 +116,8 @@ Goal: connect controllers to the new SDL3/bgfx/RmlUi runtime without porting old
 
 Goal: make imported old projects usable by runtime sessions.
 
-- Map legacy package entries into the existing logical `AssetManager` mounts.
+- Current slices: added a read-only bridge from `legacy::ProjectPackageReader` output into `AssetManager` memory mounts, exposing `game`, cover `image`, `fonts/*`, and `textures/*` as project logical assets; updated `--runtime-project` loading to accept normalized JSON first, then fall back to importing legacy ZIP package bytes and mounting package assets before loading the imported project document.
+- Map remaining legacy package entries into the existing logical `AssetManager` mounts where old projects require them.
 - Resolve fonts, textures, shaders, cover `image`, and project-relative script/text assets without exposing old package internals.
 - Decide when to add write support for old or new project packages; read-only compatibility is enough until runtime/editor workflows require saving packages.
 - Add deterministic package fixtures and asset lookup tests for Linux and Web.
@@ -149,8 +150,8 @@ Goal: prove old projects survive migration with known limits.
 
 ## Immediate Next Slices
 
-1. Add controller-backed RmlUi event callbacks for room actions and inventory/object interaction.
-2. Add legacy package/project loading through Phase 9 asset mounts so `--runtime-project` can point at imported old project data, not only normalized JSON assets.
+1. Add a deterministic generated legacy package smoke asset so sandbox verification can exercise the `--runtime-project` package path directly.
+2. Extend project-relative script/text asset resolution through `AssetManager` as the Lua script integration boundary is wired.
 3. Render rich-text runs as structured RmlUi spans or hand off to a bgfx rich-text renderer after effect semantics are stable.
-4. Add profiles, settings, and save/load slot views.
+4. Add profile/settings/save/load persistence flows once Phase 9 package/asset loading and Phase 10 preview APIs define the ownership boundary.
 5. After the runtime UI command path is stable, wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.

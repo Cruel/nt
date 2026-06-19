@@ -91,6 +91,27 @@ ProjectDocument make_cutscene_project()
     return project;
 }
 
+ProjectDocument make_action_project()
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::object] = nlohmann::json::object({
+        {"lamp", nlohmann::json::array({"lamp", "", props(), "Lamp", false})},
+        {"coin", nlohmann::json::array({"coin", "", props(), "Coin", false})},
+    });
+    root[project_ids::verb] = nlohmann::json::object({
+        {"look", nlohmann::json::array({"look", "", props(), "Look", 1, "default_look();", "", nlohmann::json::array()})},
+    });
+    root[project_ids::action] = nlohmann::json::object({
+        {"look_lamp", nlohmann::json::array({"look_lamp", "", props(), "look", "look_lamp();", nlohmann::json::array({"lamp"}), false})},
+    });
+    root[project_ids::room]["foyer"][8] = nlohmann::json::array({
+        nlohmann::json::array({"lamp", true}),
+    });
+    root[project_ids::starting_inventory] = nlohmann::json::array({"coin"});
+    return project;
+}
+
 bool has_command(const std::vector<ControllerCommand>& commands, ControllerCommandType type)
 {
     for (const auto& command : commands) {
@@ -165,4 +186,26 @@ TEST_CASE("RuntimeSessionHost routes active continue for cutscenes")
     CHECK(host.current_mode_name() == std::string_view("room"));
     CHECK(host.view_state().title == "Foyer");
     CHECK(host.view_state().body == "A quiet foyer.");
+}
+
+TEST_CASE("RuntimeSessionHost exposes room objects, inventory, and actions")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_action_project()).success);
+    host.tick(0.0);
+
+    const auto& view = host.view_state();
+    REQUIRE(view.objects.size() == 2);
+    CHECK(view.objects[0].id == "lamp");
+    CHECK(view.objects[0].name == "Lamp");
+    CHECK(view.objects[0].in_room);
+    CHECK(view.objects[1].id == "coin");
+    CHECK(view.objects[1].in_inventory);
+    REQUIRE(view.actions.size() == 1);
+    CHECK(view.actions[0].verb_id == "look");
+    CHECK(view.actions[0].label == "Look");
+    CHECK(view.actions[0].object_count == 1);
+
+    CHECK(host.process_action("look", {"lamp"}));
+    CHECK(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
 }
