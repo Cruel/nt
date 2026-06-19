@@ -51,6 +51,7 @@ if(NOVELTEA_HAS_LUA)
     add_executable(noveltea_script_tests
         script/script_runtime_tests.cpp
         script/game_bindings_tests.cpp
+        script/runtime_script_executor_tests.cpp
     )
     target_include_directories(noveltea_script_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
     target_link_libraries(noveltea_script_tests PRIVATE engine Lua::Lua sol2::sol2 Catch2::Catch2WithMain)

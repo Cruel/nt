@@ -152,6 +152,23 @@ TEST_CASE("Game bindings: Game.prop reads global properties")
     CHECK(*missing.value == "fallback");
 }
 
+TEST_CASE("Game bindings: Game.set_prop and unset_prop mutate save-backed properties")
+{
+    GameBindingsFixture f;
+
+    REQUIRE(f.runtime.execute("Game.set_prop('runtime_score', 12)", "set_prop"));
+    auto score = f.runtime.evaluate("Game.prop('runtime_score')", "runtime_score");
+    REQUIRE(score);
+    CHECK(std::get<std::int64_t>(*score.value) == 12);
+    REQUIRE(f.session.save() != nullptr);
+    CHECK(f.session.save()->root()[core::project_ids::properties]["runtime_score"] == 12);
+
+    REQUIRE(f.runtime.execute("Game.unset_prop('runtime_score')", "unset_prop"));
+    auto missing = f.runtime.evaluate_string("Game.prop('runtime_score', 'missing')", "missing");
+    REQUIRE(missing);
+    CHECK(*missing.value == "missing");
+}
+
 TEST_CASE("Game bindings: Game.load_room loads an entity by id")
 {
     GameBindingsFixture f;
@@ -298,6 +315,46 @@ TEST_CASE("Game bindings: thisEntity / prop / set_prop forward to entity")
     CHECK(*result.value == "fallback_val");
 }
 
+TEST_CASE("Game bindings: entity set_prop and unset_prop mutate save-backed overrides")
+{
+    GameBindingsFixture f;
+
+    REQUIRE(f.runtime.execute(R"(
+        room = Game.load_room("foyer")
+        room:set_prop("runtime_note", "saved")
+    )",
+                              "entity_set_prop"));
+    auto value =
+        f.runtime.evaluate_string(R"(Game.load_room("foyer"):prop("runtime_note"))", "entity_prop");
+    REQUIRE(value);
+    CHECK(*value.value == "saved");
+
+    REQUIRE(f.runtime.execute(R"(Game.load_room("foyer"):unset_prop("runtime_note"))",
+                              "entity_unset_prop"));
+    auto missing = f.runtime.evaluate_string(
+        R"(Game.load_room("foyer"):prop("runtime_note", "missing"))", "entity_missing");
+    REQUIRE(missing);
+    CHECK(*missing.value == "missing");
+}
+
+TEST_CASE("Game bindings: object location helpers mutate save object locations")
+{
+    GameBindingsFixture f;
+
+    REQUIRE(f.runtime.execute("Game.set_object_location('coin', 3, 'foyer')", "set_location"));
+    auto location = f.session.object_location("coin");
+    REQUIRE(location.has_value());
+    CHECK(location->type == core::EntityType::Room);
+    CHECK(location->id == "foyer");
+
+    auto location_id = f.runtime.evaluate_string("Game.object_location('coin').id", "location_id");
+    REQUIRE(location_id);
+    CHECK(*location_id.value == "foyer");
+
+    REQUIRE(f.runtime.execute("Game.clear_object_location('coin')", "clear_location"));
+    CHECK_FALSE(f.session.object_location("coin").has_value());
+}
+
 TEST_CASE("Game bindings: Game.push_next queues an entity")
 {
     GameBindingsFixture f;
@@ -339,6 +396,29 @@ TEST_CASE("Game bindings: Timer.start creates a one-shot timer")
     auto tid = static_cast<core::RuntimeTimerId>(std::get<std::int64_t>(*result.value));
     CHECK(tid != 0);
     CHECK(f.session.timers().active(tid));
+}
+
+TEST_CASE("Game bindings: Timer.cancel and Timer.active inspect timers")
+{
+    GameBindingsFixture f;
+    REQUIRE(f.runtime.execute(R"(
+        timer_id = Timer.start(100, function() end)
+        was_active = Timer.active(timer_id)
+        was_cancelled = Timer.cancel(timer_id)
+        is_active_after_cancel = Timer.active(timer_id)
+    )",
+                              "timer_cancel"));
+
+    auto was_active = f.runtime.evaluate_bool("was_active", "was_active");
+    REQUIRE(was_active);
+    CHECK(*was_active.value);
+    auto was_cancelled = f.runtime.evaluate_bool("was_cancelled", "was_cancelled");
+    REQUIRE(was_cancelled);
+    CHECK(*was_cancelled.value);
+    auto is_active_after_cancel =
+        f.runtime.evaluate_bool("is_active_after_cancel", "is_active_after_cancel");
+    REQUIRE(is_active_after_cancel);
+    CHECK_FALSE(*is_active_after_cancel.value);
 }
 
 TEST_CASE("Game bindings: Game navigation and minimap flags")

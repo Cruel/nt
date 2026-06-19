@@ -52,6 +52,8 @@ public:
     [[nodiscard]] std::string_view current_mode_name() const noexcept;
 
     RuntimeInputResult apply_input(const RuntimeInput& input);
+    RuntimeInputResult
+    flush_pending_outputs(std::optional<std::uint64_t> step_index = std::nullopt);
 
     bool navigate_path(int direction);
     bool select_dialogue_option(int option_index);

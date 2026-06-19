@@ -7,8 +7,10 @@
 #include <SDL3/SDL_log.h>
 
 #include <lua.hpp>
+#include <nlohmann/json.hpp>
 #include <sol/sol.hpp>
 
+#include <algorithm>
 #include <random>
 #include <regex>
 #include <string>
@@ -40,6 +42,82 @@ core::GameSession* get_session(lua_State* L)
     return bridge ? bridge->session : nullptr;
 }
 
+nlohmann::json sol_to_json(const sol::object& object)
+{
+    if (!object.valid() || object == sol::lua_nil) {
+        return nullptr;
+    }
+    switch (object.get_type()) {
+    case sol::type::boolean:
+        return object.as<bool>();
+    case sol::type::number:
+        if (object.is<std::int64_t>()) {
+            return object.as<std::int64_t>();
+        }
+        return object.as<double>();
+    case sol::type::string:
+        return object.as<std::string>();
+    case sol::type::table: {
+        sol::table table = object;
+        nlohmann::json result = nlohmann::json::object();
+        bool array_like = true;
+        std::size_t max_index = 0;
+        std::size_t count = 0;
+        for (const auto& pair : table) {
+            if (pair.first.get_type() != sol::type::number || !pair.first.is<std::int64_t>()) {
+                array_like = false;
+                break;
+            }
+            const auto index = pair.first.as<std::int64_t>();
+            if (index <= 0) {
+                array_like = false;
+                break;
+            }
+            max_index = std::max(max_index, static_cast<std::size_t>(index));
+            ++count;
+        }
+        if (array_like && max_index == count) {
+            result = nlohmann::json::array();
+            for (std::size_t i = 1; i <= max_index; ++i) {
+                result.push_back(sol_to_json(table[static_cast<int>(i)]));
+            }
+            return result;
+        }
+        result = nlohmann::json::object();
+        for (const auto& pair : table) {
+            if (pair.first.get_type() == sol::type::string) {
+                result[pair.first.as<std::string>()] = sol_to_json(pair.second);
+            }
+        }
+        return result;
+    }
+    default:
+        return nullptr;
+    }
+}
+
+sol::object json_to_sol(lua_State* L, const nlohmann::json& value,
+                        sol::optional<sol::object> default_value)
+{
+    if (value.is_null()) {
+        return default_value.value_or(sol::lua_nil);
+    }
+    sol::state_view lua(L);
+    if (value.is_string()) {
+        return sol::make_object(lua, value.get<std::string>());
+    }
+    if (value.is_number_integer()) {
+        return sol::make_object(lua, value.get<std::int64_t>());
+    }
+    if (value.is_number()) {
+        return sol::make_object(lua, value.get<double>());
+    }
+    if (value.is_boolean()) {
+        return sol::make_object(lua, value.get<bool>());
+    }
+    return sol::make_object(lua, value.dump());
+}
+
 // -------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------
@@ -47,26 +125,9 @@ sol::object entity_prop(core::GameSession* session, core::EntityType type, const
                         const std::string& key, sol::optional<sol::object> default_value,
                         sol::this_state L)
 {
-    if (!session || !session->project())
+    if (!session)
         return default_value.value_or(sol::lua_nil);
-    const auto merged = session->project()->merged_properties(type, id);
-    if (merged.contains(key)) {
-        const auto& val = merged[key];
-        sol::state_view lua(L);
-        if (val.is_string())
-            return sol::make_object(lua, val.get<std::string>());
-        if (val.is_number()) {
-            double d = val.get<double>();
-            if (d == static_cast<double>(static_cast<std::int64_t>(d))) {
-                return sol::make_object(lua, static_cast<std::int64_t>(d));
-            }
-            return sol::make_object(lua, d);
-        }
-        if (val.is_boolean())
-            return sol::make_object(lua, val.get<bool>());
-        return sol::make_object(lua, val.dump());
-    }
-    return default_value.value_or(sol::lua_nil);
+    return json_to_sol(L, session->entity_property(type, id, key), default_value);
 }
 
 bool entity_has_prop(core::GameSession* session, core::EntityType type, const std::string& id,
@@ -74,22 +135,23 @@ bool entity_has_prop(core::GameSession* session, core::EntityType type, const st
 {
     if (!session || !session->project())
         return false;
-    const auto merged = session->project()->merged_properties(type, id);
-    return merged.contains(key);
+    return !session->entity_property(type, id, key).is_null();
 }
 
 void entity_set_prop(core::GameSession* session, core::EntityType type, const std::string& id,
                      const std::string& key, const sol::object& value)
 {
-    SDL_Log("[lua] set_prop(%s/%s, %s) — stub (no save mutation)",
-            core::entity_type_collection_key(type).value_or("?").data(), id.c_str(), key.c_str());
+    if (session) {
+        session->set_entity_property(type, id, key, sol_to_json(value));
+    }
 }
 
 void entity_unset_prop(core::GameSession* session, core::EntityType type, const std::string& id,
                        const std::string& key)
 {
-    SDL_Log("[lua] unset_prop(%s/%s, %s) — stub",
-            core::entity_type_collection_key(type).value_or("?").data(), id.c_str(), key.c_str());
+    if (session) {
+        session->unset_entity_property(type, id, key);
+    }
 }
 
 // -------------------------------------------------------------------
@@ -291,56 +353,23 @@ struct GameBinding {
     sol::object prop(const std::string& key, sol::optional<sol::object> default_value,
                      sol::this_state L) const
     {
-        // Check save properties first, then fall back to project default properties
-        if (session && session->save()) {
-            const auto& root = session->save()->root();
-            const auto& props = root[std::string(core::project_ids::properties)];
-            if (props.contains(key)) {
-                const auto& val = props[key];
-                sol::state_view lua(L);
-                if (val.is_string())
-                    return sol::make_object(lua, val.get<std::string>());
-                if (val.is_number()) {
-                    double d = val.get<double>();
-                    if (d == static_cast<double>(static_cast<std::int64_t>(d))) {
-                        return sol::make_object(lua, static_cast<std::int64_t>(d));
-                    }
-                    return sol::make_object(lua, d);
-                }
-                if (val.is_boolean())
-                    return sol::make_object(lua, val.get<bool>());
-                return sol::make_object(lua, val.dump());
-            }
-        }
-        // Fall back to project default properties
-        if (session && session->project()) {
-            const auto& doc = session->project()->document_root();
-            if (doc.contains(std::string(core::project_ids::properties))) {
-                const auto& props = doc[std::string(core::project_ids::properties)];
-                if (props.contains(key)) {
-                    const auto& val = props[key];
-                    sol::state_view lua(L);
-                    if (val.is_string())
-                        return sol::make_object(lua, val.get<std::string>());
-                    if (val.is_number()) {
-                        double d = val.get<double>();
-                        if (d == static_cast<double>(static_cast<std::int64_t>(d))) {
-                            return sol::make_object(lua, static_cast<std::int64_t>(d));
-                        }
-                        return sol::make_object(lua, d);
-                    }
-                    if (val.is_boolean())
-                        return sol::make_object(lua, val.get<bool>());
-                    return sol::make_object(lua, val.dump());
-                }
-            }
-        }
-        return default_value.value_or(sol::lua_nil);
+        if (!session)
+            return default_value.value_or(sol::lua_nil);
+        return json_to_sol(L, session->property(key), default_value);
     }
 
     void set_prop(const std::string& key, sol::object value) const
     {
-        SDL_Log("[lua] Game.set_prop(%s) — stub", key.c_str());
+        if (session) {
+            session->set_property(key, sol_to_json(value));
+        }
+    }
+
+    void unset_prop(const std::string& key) const
+    {
+        if (session) {
+            session->unset_property(key);
+        }
     }
 
     sol::object load_room(const std::string& id, sol::this_state L) const
@@ -390,6 +419,38 @@ struct GameBinding {
     void autosave() const { SDL_Log("[lua] Game.autosave — stub"); }
     void quit() const { SDL_Log("[lua] Game.quit — stub"); }
     void save_entity(sol::object) const { SDL_Log("[lua] Game.save_entity — stub"); }
+
+    void set_object_location(const std::string& object_id, int location_type,
+                             const std::string& location_id) const
+    {
+        if (!session)
+            return;
+        auto type = core::entity_type_from_integer(location_type);
+        if (!type)
+            return;
+        session->set_object_location(object_id, core::EntityRef{*type, location_id});
+    }
+
+    sol::object object_location(const std::string& object_id, sol::this_state L) const
+    {
+        if (!session)
+            return sol::lua_nil;
+        auto location = session->object_location(object_id);
+        if (!location)
+            return sol::lua_nil;
+        sol::state_view lua(L);
+        sol::table table = lua.create_table();
+        table["type"] = core::to_integer(location->type);
+        table["id"] = location->id;
+        return table;
+    }
+
+    void clear_object_location(const std::string& object_id) const
+    {
+        if (session) {
+            session->clear_object_location(object_id);
+        }
+    }
 };
 
 // -------------------------------------------------------------------
@@ -508,8 +569,7 @@ struct LogBinding {
     {
         SDL_Log("[lua] Log.push: %s", text.c_str());
         if (session) {
-            session->events().push(
-                core::RuntimeEvent{core::RuntimeEventType::TextLogged, 0, 0.0, std::move(text)});
+            session->append_log(std::move(text));
         }
     }
 };
@@ -548,6 +608,16 @@ struct TimerBinding {
             });
         return sol::make_object(L, static_cast<std::int64_t>(handle.id));
     }
+
+    bool cancel(std::int64_t id)
+    {
+        return session ? session->timers().cancel(static_cast<core::RuntimeTimerId>(id)) : false;
+    }
+
+    bool active(std::int64_t id) const
+    {
+        return session ? session->timers().active(static_cast<core::RuntimeTimerId>(id)) : false;
+    }
 };
 
 // -------------------------------------------------------------------
@@ -575,6 +645,8 @@ void build_game_table(lua_State* L, core::GameSession* session)
     game.set_function("set_prop", [binding](std::string key, sol::object value) mutable {
         binding.set_prop(key, value);
     });
+    game.set_function("unset_prop",
+                      [binding](std::string key) mutable { binding.unset_prop(key); });
     game.set_function("load_room", [binding](std::string id, sol::this_state L_) mutable {
         return binding.load_room(std::move(id), L_);
     });
@@ -592,6 +664,17 @@ void build_game_table(lua_State* L, core::GameSession* session)
     game.set_function("autosave", [binding]() mutable { binding.autosave(); });
     game.set_function("quit", [binding]() mutable { binding.quit(); });
     game.set_function("save_entity", [binding](sol::object e) mutable { binding.save_entity(e); });
+    game.set_function("set_object_location",
+                      [binding](std::string object_id, int type, std::string id) mutable {
+                          binding.set_object_location(object_id, type, id);
+                      });
+    game.set_function("object_location",
+                      [binding](std::string object_id, sol::this_state L_) mutable {
+                          return binding.object_location(object_id, L_);
+                      });
+    game.set_function("clear_object_location", [binding](std::string object_id) mutable {
+        binding.clear_object_location(object_id);
+    });
 
     // Properties via __index
     sol::table meta = lua.create_table();
@@ -641,8 +724,7 @@ void build_log_table(lua_State* L, core::GameSession* session)
     log.set_function("push", [session](std::string text) {
         SDL_Log("[lua] Log.push: %s", text.c_str());
         if (session) {
-            session->events().push(
-                core::RuntimeEvent{core::RuntimeEventType::TextLogged, 0, 0.0, std::move(text)});
+            session->append_log(std::move(text));
         }
     });
     lua["Log"] = log;
@@ -678,6 +760,12 @@ void build_timer_table(lua_State* L, core::GameSession* session)
                 });
             return sol::make_object(L, static_cast<std::int64_t>(handle.id));
         });
+    timer.set_function("cancel", [session](std::int64_t id) {
+        return session ? session->timers().cancel(static_cast<core::RuntimeTimerId>(id)) : false;
+    });
+    timer.set_function("active", [session](std::int64_t id) {
+        return session ? session->timers().active(static_cast<core::RuntimeTimerId>(id)) : false;
+    });
     lua["Timer"] = timer;
 }
 
@@ -778,11 +866,9 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
         SDL_Log("[lua] toast(msg='%s', add_to_log=%s, duration=%.0f)", msg.c_str(),
                 log ? "true" : "false", dur);
         if (session) {
-            session->events().push(
-                core::RuntimeEvent{core::RuntimeEventType::Notification, 0, dur, msg});
+            session->notify(msg, dur);
             if (log) {
-                session->events().push(
-                    core::RuntimeEvent{core::RuntimeEventType::TextLogged, 0, 0.0, msg});
+                session->append_log(msg);
             }
         }
     });

@@ -186,6 +186,16 @@ RuntimeInputResult RuntimeSessionHost::apply_input(const RuntimeInput& input)
     return unsupported("unknown runtime input");
 }
 
+RuntimeInputResult
+RuntimeSessionHost::flush_pending_outputs(std::optional<std::uint64_t> step_index)
+{
+    if (!m_controller) {
+        return make_result(false, {}, {}, step_index);
+    }
+    (void)m_session.events().dispatch_queued();
+    return make_result(true, m_controller->take_commands(), {}, step_index);
+}
+
 RuntimeInputResult RuntimeSessionHost::make_result(bool handled,
                                                    std::vector<ControllerCommand> commands,
                                                    std::vector<RuntimeDiagnostic> diagnostics,

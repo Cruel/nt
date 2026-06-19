@@ -39,12 +39,57 @@ void add_warning(std::vector<SessionDiagnostic>& diagnostics, std::string path, 
 
 std::string key(std::string_view value) { return std::string(value); }
 
+constexpr std::string_view entity_properties_key = "entityProperties";
+
 bool model_has_entity(const ProjectModel& model, const EntityRef& ref)
 {
     if (ref.type == EntityType::CustomScript) {
         return ref.has_id();
     }
     return model.metadata(ref.type, ref.id).has_value();
+}
+
+nlohmann::json& ensure_object(nlohmann::json& root, std::string_view field)
+{
+    auto& value = root[key(field)];
+    if (!value.is_object()) {
+        value = nlohmann::json::object();
+    }
+    return value;
+}
+
+nlohmann::json& ensure_entity_properties(nlohmann::json& root, EntityType type,
+                                         const std::string& id)
+{
+    auto& overrides = ensure_object(root, entity_properties_key);
+    const auto type_key = std::to_string(to_integer(type));
+    auto& type_bucket = overrides[type_key];
+    if (!type_bucket.is_object()) {
+        type_bucket = nlohmann::json::object();
+    }
+    auto& entity_bucket = type_bucket[id];
+    if (!entity_bucket.is_object()) {
+        entity_bucket = nlohmann::json::object();
+    }
+    return entity_bucket;
+}
+
+const nlohmann::json* find_entity_properties(const nlohmann::json& root, EntityType type,
+                                             const std::string& id)
+{
+    const auto overrides_it = root.find(key(entity_properties_key));
+    if (overrides_it == root.end() || !overrides_it->is_object()) {
+        return nullptr;
+    }
+    const auto type_it = overrides_it->find(std::to_string(to_integer(type)));
+    if (type_it == overrides_it->end() || !type_it->is_object()) {
+        return nullptr;
+    }
+    const auto entity_it = type_it->find(id);
+    if (entity_it == type_it->end() || !entity_it->is_object()) {
+        return nullptr;
+    }
+    return &*entity_it;
 }
 
 } // namespace
@@ -181,6 +226,150 @@ void GameSession::set_current_map(std::string map_id)
     m_current_map_id = map_id;
     emit_command(SessionCommand{SessionCommandType::CurrentMapChanged,
                                 EntityRef{EntityType::Map, map_id}, map_id, true});
+}
+
+nlohmann::json GameSession::property(std::string_view property_key) const
+{
+    if (m_save) {
+        const auto& root = m_save->root();
+        if (auto props_it = root.find(key(project_ids::properties));
+            props_it != root.end() && props_it->is_object()) {
+            if (auto value_it = props_it->find(std::string(property_key));
+                value_it != props_it->end()) {
+                return *value_it;
+            }
+        }
+    }
+    if (m_project) {
+        const auto& root = m_project->document_root();
+        if (auto props_it = root.find(key(project_ids::properties));
+            props_it != root.end() && props_it->is_object()) {
+            if (auto value_it = props_it->find(std::string(property_key));
+                value_it != props_it->end()) {
+                return *value_it;
+            }
+        }
+    }
+    return nullptr;
+}
+
+void GameSession::set_property(std::string property_key, nlohmann::json value)
+{
+    if (!m_save) {
+        return;
+    }
+    ensure_object(m_save->root(), project_ids::properties)[std::move(property_key)] =
+        std::move(value);
+}
+
+void GameSession::unset_property(std::string_view property_key)
+{
+    if (!m_save) {
+        return;
+    }
+    auto& properties = ensure_object(m_save->root(), project_ids::properties);
+    properties.erase(std::string(property_key));
+}
+
+nlohmann::json GameSession::entity_property(EntityType type, const std::string& id,
+                                            std::string_view property_key) const
+{
+    if (m_save) {
+        if (const auto* overrides = find_entity_properties(m_save->root(), type, id)) {
+            if (auto value_it = overrides->find(std::string(property_key));
+                value_it != overrides->end()) {
+                return *value_it;
+            }
+        }
+    }
+    if (m_project) {
+        const auto merged = m_project->merged_properties(type, id);
+        if (auto value_it = merged.find(std::string(property_key)); value_it != merged.end()) {
+            return *value_it;
+        }
+    }
+    return nullptr;
+}
+
+void GameSession::set_entity_property(EntityType type, std::string id, std::string property_key,
+                                      nlohmann::json value)
+{
+    if (!m_save) {
+        return;
+    }
+    ensure_entity_properties(m_save->root(), type, id)[std::move(property_key)] = std::move(value);
+}
+
+void GameSession::unset_entity_property(EntityType type, const std::string& id,
+                                        std::string_view property_key)
+{
+    if (!m_save) {
+        return;
+    }
+    auto& properties = ensure_entity_properties(m_save->root(), type, id);
+    properties.erase(std::string(property_key));
+}
+
+std::optional<EntityRef> GameSession::object_location(const std::string& object_id) const
+{
+    if (!m_save) {
+        return std::nullopt;
+    }
+    const auto& root = m_save->root();
+    const auto locations_it = root.find(key(project_ids::object_locations));
+    if (locations_it == root.end() || !locations_it->is_object()) {
+        return std::nullopt;
+    }
+    const auto location_it = locations_it->find(object_id);
+    if (location_it == locations_it->end()) {
+        return std::nullopt;
+    }
+    return EntityRef::from_json(*location_it);
+}
+
+void GameSession::set_object_location(std::string object_id, EntityRef location)
+{
+    if (!m_save) {
+        return;
+    }
+    ensure_object(m_save->root(), project_ids::object_locations)[std::move(object_id)] =
+        location.to_json();
+}
+
+void GameSession::clear_object_location(const std::string& object_id)
+{
+    if (!m_save) {
+        return;
+    }
+    auto& locations = ensure_object(m_save->root(), project_ids::object_locations);
+    locations.erase(object_id);
+}
+
+void GameSession::append_log(std::string text, nlohmann::json data)
+{
+    if (m_save) {
+        auto& log = m_save->root()[key(project_ids::log)];
+        if (!log.is_array()) {
+            log = nlohmann::json::array();
+        }
+        log.push_back(text);
+    }
+
+    RuntimeEvent event;
+    event.type = RuntimeEventType::TextLogged;
+    event.text = std::move(text);
+    event.data = std::move(data);
+    m_events.push(std::move(event));
+}
+
+void GameSession::notify(std::string text, double duration_ms, nlohmann::json data)
+{
+    RuntimeEvent event;
+    event.type = RuntimeEventType::Notification;
+    event.number_value = duration_ms;
+    event.text = std::move(text);
+    event.data = std::move(data);
+    m_events.push(std::move(event));
 }
 
 std::vector<SessionCommand> GameSession::take_commands()

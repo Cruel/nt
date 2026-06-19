@@ -167,6 +167,9 @@ bool Engine::load_runtime_project(const std::string& logical_path)
                          logical_path.c_str());
             return false;
         }
+#if defined(NOVELTEA_HAS_LUA)
+        m_script_executor.initialize(&m_scripts, &m_runtime_host);
+#endif
         return true;
     };
 
@@ -495,8 +498,24 @@ void Engine::update(float dt)
         return;
     m_elapsed_seconds += dt;
     if (m_runtime_host.loaded()) {
-        m_runtime_host.tick(dt);
+        core::RuntimeInput input;
+        input.type = core::RuntimeInputType::Tick;
+        input.delta_seconds = dt;
+        auto result = m_runtime_host.apply_input(input);
         m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
+#if defined(NOVELTEA_HAS_LUA)
+        bool has_script_request = false;
+        for (const auto& output : result.outputs) {
+            if (output.type == core::RuntimeOutputType::ScriptRequest) {
+                has_script_request = true;
+                break;
+            }
+        }
+        m_script_executor.process(result);
+        if (has_script_request) {
+            m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
+        }
+#endif
     }
 }
 
@@ -544,6 +563,7 @@ void Engine::shutdown()
     }
     m_runtime_ui.shutdown();
 #if defined(NOVELTEA_HAS_LUA)
+    m_script_executor.shutdown();
     m_scripts.shutdown();
 #endif
     m_renderer.shutdown();

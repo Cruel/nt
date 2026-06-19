@@ -95,6 +95,20 @@ public:
     [[nodiscard]] std::optional<EntityRef> pop_next_entity();
     void set_current_room(std::string room_id);
     void set_current_map(std::string map_id);
+    [[nodiscard]] nlohmann::json property(std::string_view key) const;
+    void set_property(std::string key, nlohmann::json value);
+    void unset_property(std::string_view key);
+    [[nodiscard]] nlohmann::json entity_property(EntityType type, const std::string& id,
+                                                 std::string_view key) const;
+    void set_entity_property(EntityType type, std::string id, std::string key,
+                             nlohmann::json value);
+    void unset_entity_property(EntityType type, const std::string& id, std::string_view key);
+    [[nodiscard]] std::optional<EntityRef> object_location(const std::string& object_id) const;
+    void set_object_location(std::string object_id, EntityRef location);
+    void clear_object_location(const std::string& object_id);
+    void append_log(std::string text, nlohmann::json data = nlohmann::json::object());
+    void notify(std::string text, double duration_ms = 0.0,
+                nlohmann::json data = nlohmann::json::object());
     [[nodiscard]] std::vector<SessionCommand> take_commands();
 
 private:

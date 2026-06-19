@@ -8,6 +8,8 @@ Last updated: 2026-06-19.
 - RmlUi runtime UI integration and Dear ImGui developer/debug separation.
 - Backend-neutral core migration for legacy project data, typed domain models, validation, save/settings/profile documents, runtime sessions/controllers, runtime view-state adapter, editor preview/tooling APIs, and reduced compatibility fixtures.
 - Phase 1 runtime input/output contract around `RuntimeSessionHost`, including structured runtime diagnostics and shared headless/editor/RmlUi input routing.
+- Phase 2 Lua runtime execution bridge. Runtime script requests can be executed through the engine-layer Lua executor while `noveltea_core` stays Lua-free.
+- Save-backed Lua mutation APIs for global properties, entity property overrides, object locations, text logs, notifications, and timers.
 - Legacy `game` JSON import and read-only legacy package import.
 - Backend-neutral rich-text semantics and engine-owned Unicode text implementation.
 - Lua runtime foundation. Lua is the only runtime scripting target.
@@ -15,9 +17,8 @@ Last updated: 2026-06-19.
 
 ## Active Gaps
 
-- Runtime controller `ScriptDeferred` commands now surface as runtime script-request outputs, but still need complete Lua execution wiring.
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
-- Runtime save-slot mutation, autosave policy, and persisted object placement are incomplete.
+- Runtime save-slot mutation, manual save/load, autosave policy, and full persisted object placement policy are incomplete.
 - RmlUi runtime game UI needs production components for complex widgets such as ActiveText, MapView, TextLog, and similar custom behavior.
 - Rich-text visual rendering parity, ActiveText effects, map rendering, and text-log rendering remain active.
 - Editor preview/test playback needs hardening around real workflows.
@@ -53,4 +54,4 @@ For documentation-only cleanup, a targeted `rg` check for stale active-doc instr
 
 ## Next Planning Task
 
-Implement Phase 2 from [`PLAN.md`](PLAN.md): wire runtime script-request outputs into the Lua runtime adapter and surface Lua failures as structured runtime diagnostics.
+Implement Phase 3 from [`PLAN.md`](PLAN.md): save-slot, autosave, load/restore, and object placement runtime policy.

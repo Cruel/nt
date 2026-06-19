@@ -130,7 +130,7 @@ Acceptance criteria:
 - Existing room/dialogue/cutscene/action behavior remains covered by tests.
 - Diagnostics are structured enough for editor display.
 
-## Phase 2 [next]: Lua Runtime Execution
+## Phase 2 [done]: Lua Runtime Execution
 
 Goal: make runtime script points execute Lua through the new runtime architecture.
 
@@ -174,7 +174,7 @@ Acceptance criteria:
 - Runtime tests cover successful script execution and failing script diagnostics.
 - Active docs no longer describe JavaScript compatibility as an implementation path.
 
-## Phase 3 [pending]: Save, Autosave, and Object Placement Runtime Policy
+## Phase 3 [next]: Save, Autosave, and Object Placement Runtime Policy
 
 Goal: finish the runtime behavior that sits on top of already parsed save/profile data.
 
