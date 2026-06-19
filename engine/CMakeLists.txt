@@ -1,9 +1,15 @@
 add_library(noveltea_core STATIC
     src/core/entity_ref.cpp
     src/core/entity_type.cpp
+    src/core/game_session.cpp
+    src/core/legacy/entity_schema.cpp
     src/core/legacy/project_package_reader.cpp
     src/core/legacy/project_importer.cpp
     src/core/project_document.cpp
+    src/core/project_model.cpp
+    src/core/project_validator.cpp
+    src/core/runtime_events.cpp
+    src/core/save_document.cpp
 )
 
 target_compile_features(noveltea_core PUBLIC cxx_std_20)

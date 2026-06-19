@@ -2,7 +2,13 @@ include(Catch)
 
 add_executable(noveltea_core_tests
     core/entity_ref_tests.cpp
+    core/game_session_tests.cpp
+    core/legacy_entity_schema_tests.cpp
     core/project_document_tests.cpp
+    core/project_model_tests.cpp
+    core/project_validator_tests.cpp
+    core/runtime_events_tests.cpp
+    core/save_document_tests.cpp
 )
 target_link_libraries(noveltea_core_tests PRIVATE noveltea_core Catch2::Catch2WithMain)
 target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)

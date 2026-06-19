@@ -20,5 +20,7 @@ local.properties
 *.swo
 *~
 .DS_Store
+pingdotgg/
+refs/
 .cxx
 android/app/libs/*.aar

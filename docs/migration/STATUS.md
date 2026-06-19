@@ -4,7 +4,7 @@ Last updated: 2026-06-18.
 
 ## Current Core Domain Migration State
 
-The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, the legacy `game` JSON importer, and a read-only legacy ZIP project package reader under `noveltea::core::legacy`.
+The backend-neutral old NovelTea core foundation is implemented and hardened. `noveltea_core` owns stable project/schema identifiers, old-compatible `EntityType` integer values, selected-entity `EntityRef` arrays, contained `nlohmann::json` project-document/import APIs, a normalized `ProjectDocument` default document model, typed legacy entity schema views/parsers, old save/settings/profile document APIs, project/entity graph validation, backend-neutral typed project models/stores, a runtime event bus and timer scheduler, a first `GameSession` skeleton, the legacy `game` JSON importer, and a read-only legacy ZIP project package reader under `noveltea::core::legacy`.
 
 Durable report:
 
@@ -20,6 +20,13 @@ Current core decisions:
 - `ProjectDocument::new_project()` is a normalized new in-memory model using old-compatible key names and defaults. It uses keyed objects for project fonts and textures.
 - `legacy::ProjectImporter` preserves the old `game` JSON wire document as read. It accepts empty array placeholders and object maps for `fonts` and `textures`.
 - `legacy::ProjectPackageReader` uses private `miniz` ZIP reading to extract `game`, `image`, `fonts/*`, and `textures/*`, then feeds `game` into `ProjectImporter`. It ignores unrelated entries and exposes no ZIP library types publicly.
+- `legacy::parse_entity_record()` and `legacy::parse_project_entities()` expose typed structural views for old `Object`, `Script`, `Action`, `Verb`, `Room`, `Map`, `Dialogue`, `DialogueSegment`, `Cutscene`, and cutscene segment records. The parser validates old array sizes and field types, checks keyed collection id consistency, and reports field paths for malformed nested records. It does not validate graph references or execute scripts.
+- `SaveDocument` exposes old `.ntsav` JSON shapes, reset-compatible baseline keys, selected-entity entrypoint access, current map id access, and structural diagnostics for known save fields. It preserves the old boundary by not performing project graph validation or runtime mutation.
+- `SettingsDocument` exposes old `settings.conf` keys (`sizeFactor`, `profiles`, `activeProfile`) and profile-name extraction. `profile_paths` preserves old profile directory, slot filename, `settings.conf`, and `lastSave` naming without mutating the filesystem.
+- `ProjectValidator` is a post-import structural/reference validator. It reports schema diagnostics plus graph issues for entrypoint refs, starting inventory object ids, action verb/object refs, room object refs and enabled path refs, map room ids and connection indices, dialogue next refs/root/link/child indices, and cutscene next refs. Import remains lossless and separate from validation.
+- `ProjectModel` materializes validated `ProjectDocument` data into owned backend-neutral stores for `Object`, `Script`, `Action`, `Verb`, `Room`, `Map`, `Dialogue`, and `Cutscene`, including common entity metadata, parent ids, project properties, nested room/map/dialogue/cutscene values, parent metadata lookup, and parent-first project-property merging. It does not run scripts or apply save overrides.
+- `RuntimeEventBus` preserves old-style wildcard/type listener dispatch, immediate trigger, queued dispatch, listener removal, and next-dispatch deferral for events queued by listeners. `RuntimeTimerScheduler` supports one-shot and repeating timers, cancellation, reset, callback execution, safe timer creation from callbacks, and optional `TimerCompleted` event emission. It is independent of scripting, rendering, SDL, and `Engine::tick()` integration.
+- `GameSession` is a backend-neutral runtime skeleton. It loads a validated `ProjectDocument` into `ProjectModel`, owns a `SaveDocument`, runtime events, timers, play time, and startup entrypoint resolution. It prefers a save entrypoint when present, falls back to the project entrypoint, emits diagnostics and a queued `GameLoaded` event, advances timers/play time on `tick()`, and deliberately avoids scripting, rendering, concrete mode controllers, and old service-locator behavior.
 - `EntityType::CustomScript` is known but not project-backed. It has no collection key because old runtime resolution treats the selected-entity id string as inline script content.
 - `EntityRef` remains only the old `[type, id]` selected-entity shape. It accepts `CustomScript` inline content structurally but does not validate referenced entity existence.
 
@@ -27,13 +34,13 @@ Core engine migration planning:
 
 - `docs/migration/PLAN.md` now expands the old-core migration into staged work from legacy wire schemas through domain models, save/settings/profile import, runtime controllers, Lua-based scripting compatibility, text semantics, RmlUi/bgfx adapters, package asset integration, and editor preview APIs.
 - `docs/migration/reports/core-engine-migration-plan.md` records the old `Game`, `Context`, `SaveData`, `Settings`, `ScriptManager`, entity schema, event/timer, text, and package analysis that informed the plan.
-- The next core-engine slice should add typed legacy entity schema views/parsers and structural validation tests before migrating save data or runtime behavior.
+- The immediate next-slices list in `docs/migration/PLAN.md` is complete. The next core-engine slice should expand `GameSession` toward runtime ownership: entity queue, current room/map state, save-state restoration metadata, and UI-neutral diagnostics/commands, still without scripting or rendering.
 
 Verification:
 
 - `cmake --preset linux-debug`: passed.
 - `cmake --build --preset linux-debug`: passed.
-- `ctest --test-dir build/linux-debug --output-on-failure`: passed 78/78.
+- `ctest --test-dir build/linux-debug --output-on-failure`: passed 112/112 after `GameSession` skeleton tests were added.
 - `cmake --preset web-debug`: passed.
 - `cmake --build --preset web-debug`: passed with the existing Emscripten SDL3 experimental warning.
 
@@ -218,6 +225,6 @@ The following changes were made before pushing the first test tag, without alter
 
 ## Next Recommended Prompt
 
-Continue the old NovelTea core migration by adding typed legacy entity schema views/parsers and structural validation tests for `Object`, `Script`, `Action`, `Verb`, `Room`, `Map`, `Dialogue`, `DialogueSegment`, `Cutscene`, and cutscene segment records. Keep this backend-neutral and do not migrate old `Game`, `Context`, save/profile behavior, scripting runtime behavior, SFML, Qt, renderer/UI/state code, or concrete gameplay runtime behavior yet.
+The immediate next-slices list in `docs/migration/PLAN.md` is complete. Continue the old NovelTea core migration by expanding `GameSession` toward runtime ownership: entity queue, current room/map state, save-state restoration metadata, and UI-neutral diagnostics/commands, still without scripting, rendering, or concrete gameplay mode controllers.
 
 Independent RmlUi renderer work remains open: stencil overflow normalization, GL3-quality blur downsample/upsample, portable MSAA/resolve planning, forced shader-copy tests, expanded readback pixel assertions, RuntimeUI facade tests, Web browser smoke, and Android runtime smoke.
