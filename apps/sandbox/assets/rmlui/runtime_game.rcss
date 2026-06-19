@@ -1,0 +1,116 @@
+body {
+    font-family: Liberation Sans;
+    color: #ece7da;
+}
+
+#runtime_root {
+    position: absolute;
+    left: 32px;
+    right: 32px;
+    bottom: 28px;
+}
+
+#top_bar {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #c8d9e6;
+}
+
+#rt_mode {
+    display: inline-block;
+    min-width: 88px;
+    padding: 5px 8px;
+    background-color: #1b2a32dd;
+    border: 1px #5c7e8fdd;
+}
+
+#rt_notification {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 5px 8px;
+    background-color: #253223dd;
+    border: 1px #6e8d59dd;
+}
+
+#content {
+    display: flex;
+    flex-direction: row;
+}
+
+#main_view {
+    flex: 1 1 auto;
+    min-height: 190px;
+    padding: 18px 20px;
+    background-color: #141516ee;
+    border: 1px #777064cc;
+}
+
+#side_view {
+    width: 260px;
+    margin-left: 12px;
+}
+
+#rt_title {
+    margin: 0 0 10px 0;
+    font-size: 22px;
+    color: #ffffff;
+}
+
+#rt_body {
+    min-height: 84px;
+    font-size: 17px;
+    line-height: 1.35;
+}
+
+#rt_body p,
+#rt_log p {
+    margin: 0 0 7px 0;
+}
+
+#rt_prompt {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #d5c38f;
+}
+
+#rt_options,
+#rt_navigation,
+#rt_log {
+    display: block;
+}
+
+button.option,
+button.nav,
+button.continue {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 10px;
+    color: #f7f4ed;
+    background-color: #27333b;
+    border: 1px #6d8796;
+}
+
+button.option:hover,
+button.nav:hover,
+button.continue:hover {
+    background-color: #324652;
+}
+
+button.disabled {
+    color: #8a8983;
+    background-color: #242424;
+    border-color: #4b4b4b;
+}
+
+#rt_log {
+    margin-top: 12px;
+    max-height: 130px;
+    padding: 10px;
+    font-size: 13px;
+    line-height: 1.25;
+    color: #cfcac0;
+    background-color: #111315cc;
+    border: 1px #4b555acc;
+}

@@ -1,6 +1,6 @@
 # NovelTea Core Engine Migration Plan
 
-**Completion status: [███████░░░░] 7/11 phases fully done — Phase 8 next**
+**Completion status: [███████░░░░] 7/11 phases fully done — Phase 8 runtime UI adapter slice started**
 
 See [`STATUS.md`](STATUS.md) for detailed completion tracking, verification results, and next-prompt recommendations. This file tracks phase-level scope only.
 
@@ -105,6 +105,7 @@ Goal: port old text behavior into the existing modern text stack in layers.
 
 Goal: connect controllers to the new SDL3/bgfx/RmlUi runtime without porting old GUI widgets.
 
+- Current slices: added a backend-neutral `RuntimeUIViewAdapter` that consumes `RuntimeController` command streams into view state; added `RuntimeSessionHost` to own `GameSession`, `RuntimeController`, and the UI adapter together; added a RmlUi document updater and sandbox runtime-game RML/RCSS assets for room text, navigation choices, dialogue options, cutscene text/page-break prompts, notifications, and text log rendering; and added RmlUi click delegation hooks for dialogue options, navigation choices, and active dialogue/cutscene continuation.
 - Build RmlUi-backed runtime views for room text, navigation choices, dialogue options, inventory/object interaction, notifications, text log, profiles, settings, and save/load slots.
 - Build bgfx or RmlUi adapters for map visualization and rich text effects only after backend-neutral data is stable.
 - Keep Dear ImGui limited to diagnostics and developer tooling.
@@ -148,8 +149,8 @@ Goal: prove old projects survive migration with known limits.
 
 ## Immediate Next Slices
 
-1. Begin Phase 8 by building a minimal RmlUi-backed runtime view that consumes `RuntimeController` commands.
-2. Render dialogue text/options and cutscene text/page-break commands using the new backend-neutral rich-text payloads while keeping Dear ImGui limited to diagnostics.
-3. Add a room text view that can consume `diff_room_description()` output for changed-description highlights.
-4. Add runtime UI smoke coverage for Linux, then extend the same path to Web.
+1. Wire `RuntimeSessionHost` into `Engine`/sandbox project loading so `RuntimeUI::apply_controller_commands()` is driven every frame by loaded project data, not only by tests/manual calls.
+2. Add controller-backed RmlUi event callbacks for room actions and inventory/object interaction.
+3. Render rich-text runs as structured RmlUi spans or hand off to a bgfx rich-text renderer after effect semantics are stable.
+4. Add profiles, settings, and save/load slot views.
 5. After the runtime UI command path is stable, wire `RuntimeController` `ScriptDeferred` commands to the Lua compatibility runtime with deterministic success/failure policy.

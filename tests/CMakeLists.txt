@@ -12,6 +12,8 @@ add_executable(noveltea_core_tests
     core/rich_text_tests.cpp
     core/runtime_controller_tests.cpp
     core/runtime_events_tests.cpp
+    core/runtime_session_host_tests.cpp
+    core/runtime_ui_view_tests.cpp
     core/save_document_tests.cpp
 )
 target_link_libraries(noveltea_core_tests PRIVATE noveltea_core Catch2::Catch2WithMain)

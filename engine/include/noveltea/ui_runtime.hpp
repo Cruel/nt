@@ -3,7 +3,10 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
+#include "noveltea/core/runtime_controller.hpp"
+#include "noveltea/core/runtime_ui_view.hpp"
 #include "noveltea/surface.hpp"
 
 union SDL_Event;
@@ -43,6 +46,9 @@ public:
     void* element(const std::string& document_id, const std::string& element_id) const;
     bool reload_documents_and_styles();
     void set_density(float density);
+    void apply_controller_commands(const std::vector<core::ControllerCommand>& commands);
+    const core::RuntimeUIViewState& runtime_view_state() const;
+    void bind_runtime_controller(core::RuntimeController* controller);
     std::uintptr_t add_event_listener(
         const std::string& document_id,
         const std::string& element_id,
