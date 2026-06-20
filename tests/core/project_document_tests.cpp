@@ -4,8 +4,13 @@
 
 #include <noveltea/core/legacy/project_package_reader.hpp>
 #include <noveltea/core/legacy/project_importer.hpp>
+#include <noveltea/core/package_export.hpp>
 #include <noveltea/core/project_document.hpp>
 #include <noveltea/core/project_ids.hpp>
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 
 #define MINIZ_NO_ZLIB_APIS
 #if __has_include(<miniz/miniz.h>)
@@ -85,6 +90,42 @@ make_zip_fixture(const std::vector<std::pair<std::string, std::string>>& entries
     mz_free(data);
     REQUIRE(mz_zip_writer_end(&archive));
     return bytes;
+}
+
+std::filesystem::path unique_temp_dir(std::string_view name)
+{
+    auto path = std::filesystem::temp_directory_path() /
+                ("noveltea-" + std::string(name) + "-" +
+                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path);
+    return path;
+}
+
+void write_file(const std::filesystem::path& path, std::string_view payload)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream file(path, std::ios::binary);
+    REQUIRE(file);
+    file.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    REQUIRE(file);
+}
+
+std::optional<std::string> zip_entry_text(std::span<const std::byte> bytes, const char* name)
+{
+    mz_zip_archive archive{};
+    REQUIRE(mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0));
+    const int index = mz_zip_reader_locate_file(&archive, name, nullptr, 0);
+    if (index < 0) {
+        mz_zip_reader_end(&archive);
+        return std::nullopt;
+    }
+    size_t size = 0;
+    void* data = mz_zip_reader_extract_to_heap(&archive, static_cast<mz_uint>(index), &size, 0);
+    REQUIRE((data != nullptr || size == 0));
+    std::string text(static_cast<const char*>(data), static_cast<const char*>(data) + size);
+    mz_free(data);
+    REQUIRE(mz_zip_reader_end(&archive));
+    return text;
 }
 
 } // namespace
@@ -319,6 +360,125 @@ TEST_CASE("legacy ProjectPackageReader reads old package entries and imports gam
     CHECK(package->assets.size() == 3);
     CHECK_FALSE(package->assets.contains("notes/ignored.txt"));
     CHECK_FALSE(package->assets.contains("scripts/../escape.lua"));
+}
+
+TEST_CASE("ProjectPackageWriter exports runtime package with manifest and legacy-readable layout")
+{
+    auto project = ProjectDocument::new_project();
+    project.root()[project_ids::project_name] = "Packaged Game";
+    project.root()[project_ids::project_version] = "2.0";
+    project.root()[project_ids::entrypoint_entity] = EntityRef{EntityType::Room, "start"}.to_json();
+
+    const auto temp = unique_temp_dir("package-export");
+    write_file(temp / "project" / "image", "cover-bytes");
+    write_file(temp / "project" / "fonts" / "caption.ttf", "font-bytes");
+    write_file(temp / "project" / "textures" / "foyer.png", "texture-bytes");
+    write_file(temp / "project" / "scripts" / "bootstrap.lua", "return true");
+    write_file(temp / "project" / "text" / "intro.txt", "intro");
+    write_file(temp / "shaders" / "shaders" / "bgfx" / "glsl-120" / "quad.vs.bin", "vertex-shader");
+    write_file(temp / "shaders" / "shaders" / "bgfx" / "glsl-120" / "quad.fs.bin",
+               "fragment-shader");
+
+    PackageExportOptions options;
+    options.project_name = "Packaged Game";
+    options.project_version = "2.0";
+    options.created_by = "test";
+    options.asset_roots.push_back(PackageExportAssetRoot{temp / "project", ""});
+    options.shader_asset_root = temp / "shaders";
+    options.shader_variants = {"glsl-120"};
+
+    std::vector<std::byte> bytes;
+    const auto exported = ProjectPackageWriter::write_to_memory(project, options, bytes);
+    REQUIRE(exported.success);
+    CHECK(exported.diagnostics.empty());
+    CHECK(exported.byte_count == bytes.size());
+    CHECK(exported.checksums.contains("game"));
+    CHECK_FALSE(exported.checksums.contains("manifest.json"));
+    CHECK(exported.checksums.contains("shaders/bgfx/glsl-120/quad.vs.bin"));
+
+    std::vector<PackageError> errors;
+    const auto package =
+        ProjectPackageReader::read(std::span<const std::byte>(bytes.data(), bytes.size()), errors);
+    REQUIRE(package.has_value());
+    CHECK(errors.empty());
+    CHECK(package->imported_project.document.root() == project.root());
+    REQUIRE(package->fonts.contains("caption.ttf"));
+    REQUIRE(package->textures.contains("foyer.png"));
+    REQUIRE(package->assets.contains("scripts/bootstrap.lua"));
+    REQUIRE(package->assets.contains("text/intro.txt"));
+    REQUIRE(package->assets.contains("shaders/bgfx/glsl-120/quad.fs.bin"));
+
+    const auto manifest_text =
+        zip_entry_text(std::span<const std::byte>(bytes.data(), bytes.size()), "manifest.json");
+    REQUIRE(manifest_text.has_value());
+    const auto manifest = nlohmann::json::parse(*manifest_text);
+    CHECK(manifest["format"] == "noveltea.runtime-package");
+    CHECK(manifest["format_version"] == 1);
+    CHECK(manifest["kind"] == "runtime");
+    CHECK(manifest["created_by"] == "test");
+    CHECK(manifest["project"]["name"] == "Packaged Game");
+    CHECK(manifest["project"]["version"] == "2.0");
+    CHECK(manifest["shader_variants"] == nlohmann::json::array({"glsl-120"}));
+    CHECK(manifest["checksums"]["game"] == exported.checksums.at("game"));
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE("ProjectPackageWriter writes packages to files and reports stable checksums")
+{
+    auto project = ProjectDocument::new_project();
+    project.root()[project_ids::entrypoint_entity] = EntityRef{EntityType::Room, "start"}.to_json();
+    const auto temp = unique_temp_dir("package-file-export");
+    write_file(temp / "project" / "text" / "intro.txt", "intro");
+
+    PackageExportOptions options;
+    options.project_name = "File Export";
+    options.project_version = "1.0";
+    options.asset_roots.push_back(PackageExportAssetRoot{temp / "project", ""});
+
+    const auto first =
+        ProjectPackageWriter::write_to_file(project, temp / "out" / "first.ntpkg", options);
+    const auto second =
+        ProjectPackageWriter::write_to_file(project, temp / "out" / "second.ntpkg", options);
+
+    REQUIRE(first.success);
+    REQUIRE(second.success);
+    CHECK(first.checksums == second.checksums);
+    CHECK(first.byte_count > 0);
+    CHECK(std::filesystem::exists(temp / "out" / "first.ntpkg"));
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE("ProjectPackageWriter rejects unsafe paths and reports missing shader variants")
+{
+    CHECK(ProjectPackageWriter::is_safe_package_path("text/intro.txt"));
+    CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("../intro.txt"));
+    CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("scripts/../intro.lua"));
+    CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("/absolute/image"));
+    CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("project:/image"));
+    CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("textures\\image.png"));
+
+    auto project = ProjectDocument::new_project();
+    const auto temp = unique_temp_dir("package-missing-shader");
+
+    PackageExportOptions options;
+    options.project_name = "Missing Shader";
+    options.project_version = "1.0";
+    options.shader_asset_root = temp / "shaders";
+    options.shader_variants = {"glsl-120"};
+
+    std::vector<std::byte> bytes;
+    const auto result = ProjectPackageWriter::write_to_memory(project, options, bytes);
+    CHECK_FALSE(result.success);
+    REQUIRE_FALSE(result.diagnostics.empty());
+    CHECK(result.diagnostics.front().category == "shader");
+    CHECK(result.diagnostics.front().path == "shaders/bgfx/glsl-120");
+    CHECK(result.diagnostics.front().message.find("Missing compiled shader variant directory") !=
+          std::string::npos);
+    CHECK(bytes.empty());
+
+    std::filesystem::remove_all(temp);
 }
 
 TEST_CASE("legacy ProjectPackageReader reports missing game entry")

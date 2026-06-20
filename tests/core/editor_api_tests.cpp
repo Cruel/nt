@@ -4,6 +4,9 @@
 
 #include <noveltea/core/project_ids.hpp>
 
+#include <chrono>
+#include <filesystem>
+
 using namespace noveltea::core;
 using namespace noveltea::core::editor;
 
@@ -65,6 +68,15 @@ ProjectDocument make_preview_project()
     root[project_ids::entrypoint_entity] = ref(EntityType::Room, "foyer");
     root[project_ids::starting_inventory] = nlohmann::json::array();
     return project;
+}
+
+std::filesystem::path unique_temp_dir(std::string_view name)
+{
+    auto path = std::filesystem::temp_directory_path() /
+                ("noveltea-editor-" + std::string(name) + "-" +
+                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path);
+    return path;
 }
 
 bool has_command(const std::vector<ControllerCommand>& commands, ControllerCommandType type)
@@ -147,6 +159,27 @@ TEST_CASE("ProjectTooling edits entity records without old editor models")
     REQUIRE_FALSE(invalid.diagnostics.empty());
     CHECK(invalid.diagnostics.front().message.find("Unknown entity collection") !=
           std::string::npos);
+}
+
+TEST_CASE("ProjectTooling exports runtime project packages for editor workflows")
+{
+    const auto temp = unique_temp_dir("package-export");
+    PackageExportOptions options;
+    options.project_name = "Editor Export";
+    options.project_version = "1.0";
+
+    const auto output = temp / "editor.ntpkg";
+    const auto result =
+        ProjectTooling::export_project_package(make_preview_project(), output, options);
+
+    REQUIRE(result.success);
+    CHECK(result.diagnostics.empty());
+    CHECK(result.manifest["format"] == "noveltea.runtime-package");
+    CHECK(result.manifest["project"]["name"] == "Editor Export");
+    CHECK(result.byte_count > 0);
+    CHECK(std::filesystem::exists(output));
+
+    std::filesystem::remove_all(temp);
 }
 
 TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands")

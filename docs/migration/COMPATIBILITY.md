@@ -1,6 +1,6 @@
 # NovelTea Compatibility Contract
 
-Last updated: 2026-06-19.
+Last updated: 2026-06-20.
 
 This document defines the current compatibility boundary for the migrated `nt` runtime.
 
@@ -14,7 +14,13 @@ This document defines the current compatibility boundary for the migrated `nt` r
 
 - Legacy packages are supported as read-only imports.
 - Current package import covers `game`, cover `image`, `fonts/*`, `textures/*`, and safe project-relative auxiliary entries under paths such as `audio/`, `data/`, `music/`, `resources/`, `scripts/`, `shaders/`, `sounds/`, `text/`, and `texts/`.
-- Package writing/export is not part of the current compatibility promise.
+
+## Runtime Package Export
+
+- Runtime export writes ZIP-based `.ntpkg` packages with legacy-compatible entries plus additive `manifest.json` metadata.
+- Exported runtime packages contain `game`, optional `image`, safe `fonts/*`, `textures/*`, auxiliary resources, and compiled shader binaries under `shaders/bgfx/<variant>/*.bin`.
+- Public export APIs expose options, results, checksums, and diagnostics; ZIP/miniz types remain private implementation details.
+- `manifest.json` uses format `noveltea.runtime-package` with `format_version` 1. It records project metadata, package kind, shader variants, entries, and per-entry checksums where enabled.
 
 ## Save JSON Preservation
 
@@ -45,7 +51,6 @@ Imported script text is treated as Lua. Invalid imported legacy script text must
 ## Known Limits
 
 - Real-project fixture coverage is still limited; broad compatibility claims need private or redistributable old-project fixtures.
-- Package writing is not implemented.
 - Platform-specific save-slot persistence is not implemented.
 - Persisted object-location application currently covers room and inventory behavior.
 - Rich-text semantics are backend-neutral, but full visual parity for old ActiveText/effect rendering is not complete.

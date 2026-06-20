@@ -110,6 +110,13 @@ After a successful runtime project load, `Engine` binds `RuntimeUI` to the curre
 
 Runtime visual presentation uses the same logical asset paths. The backend-neutral view state exposes cover, background, room, and object image slots; the RmlUi runtime layer validates them against `AssetManager` and lets the bgfx RmlUi renderer decode/upload image bytes. Legacy package covers are mounted as `project:/image`, and package textures are mounted under `project:/textures/`.
 
+Runtime package export is backend-neutral core functionality. `core::ProjectPackageWriter` writes
+ZIP-based `.ntpkg` files using the legacy-compatible runtime layout plus additive
+`manifest.json` metadata, safe asset-path filtering, per-entry checksums, and compiled bgfx shader
+variant inclusion. Editor-facing callers use `core::editor::ProjectTooling::export_project_package`
+so archive-library types do not leak through public APIs. The v1 package contract is documented in
+[`docs/runtime/PACKAGE_EXPORT.md`](runtime/PACKAGE_EXPORT.md).
+
 ## Main Loop
 
 `Engine::run` loops while `m_running` and calls `tick`.

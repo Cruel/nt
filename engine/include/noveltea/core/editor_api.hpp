@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -10,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <noveltea/core/entity_ref.hpp>
+#include <noveltea/core/package_export.hpp>
 #include <noveltea/core/project_document.hpp>
 #include <noveltea/core/project_validator.hpp>
 #include <noveltea/core/runtime_session_host.hpp>
@@ -144,6 +146,9 @@ public:
     [[nodiscard]] static std::vector<ToolDiagnostic>
     validate_project(const ProjectDocument& project);
     [[nodiscard]] static std::string save_project_json(const ProjectDocument& project);
+    [[nodiscard]] static PackageExportResult
+    export_project_package(const ProjectDocument& project, const std::filesystem::path& path,
+                           const PackageExportOptions& options);
 
     [[nodiscard]] static EntityEditResult set_entity_record(ProjectDocument& project,
                                                             std::string_view collection,

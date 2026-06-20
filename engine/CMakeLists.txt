@@ -8,6 +8,7 @@ add_library(noveltea_core STATIC
     src/core/legacy/entity_schema.cpp
     src/core/legacy/project_package_reader.cpp
     src/core/legacy/project_importer.cpp
+    src/core/package_export.cpp
     src/core/project_document.cpp
     src/core/project_model.cpp
     src/core/project_validator.cpp

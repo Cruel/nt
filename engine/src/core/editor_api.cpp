@@ -639,6 +639,13 @@ std::string ProjectTooling::save_project_json(const ProjectDocument& project)
     return project.dump();
 }
 
+PackageExportResult ProjectTooling::export_project_package(const ProjectDocument& project,
+                                                           const std::filesystem::path& path,
+                                                           const PackageExportOptions& options)
+{
+    return ProjectPackageWriter::write_to_file(project, path, options);
+}
+
 EntityEditResult ProjectTooling::set_entity_record(ProjectDocument& project,
                                                    std::string_view collection,
                                                    std::string_view entity_id,

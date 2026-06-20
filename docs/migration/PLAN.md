@@ -545,9 +545,13 @@ Acceptance criteria:
 - Assertions can check current mode, room, log, properties, inventory/object locations, and emitted outputs.
 - The editor can call the same API later.
 
-## Phase 13 [pending]: Package Writing and Export
+## Phase 13 [done]: Package Writing and Export
 
 Goal: move from read-only legacy package support to editor/runtime package workflows.
+
+Status: complete for the v1 runtime package/export slice. Runtime packages are ZIP-based
+`.ntpkg` files with a NovelTea manifest and legacy-compatible runtime entries, so current
+sandbox/runtime loading can consume them through the existing package fallback path.
 
 Implement:
 
