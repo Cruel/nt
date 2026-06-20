@@ -68,6 +68,16 @@ body {
     line-height: 1.35;
 }
 
+nt-active-text {
+    display: block;
+}
+
+nt-active-text .nt-active-text__prompt {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #d5c38f;
+}
+
 #rt_body p,
 #rt_log p {
     margin: 0 0 7px 0;
@@ -125,6 +135,21 @@ button.disabled {
     line-height: 1.25;
     color: #cfcac0;
     background-color: #111315cc;
+    border: 1px #4b555acc;
+}
+
+nt-text-log,
+nt-map-view {
+    display: block;
+}
+
+nt-map-view {
+    margin-top: 12px;
+    padding: 10px;
+    font-size: 13px;
+    line-height: 1.25;
+    color: #c8d9e6;
+    background-color: #101820cc;
     border: 1px #4b555acc;
 }
 

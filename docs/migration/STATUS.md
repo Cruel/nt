@@ -15,6 +15,7 @@ Last updated: 2026-06-20.
 - Backend-neutral rich-text semantics and engine-owned Unicode text implementation.
 - Lua runtime foundation. Lua is the only runtime scripting target.
 - Phase 4 RmlUi runtime UI baseline: project/theme/system template override policy, centralized `RuntimeUiDocumentBinder`, `RuntimeUiTemplateResolver`, system fallback RML/RCSS files, hardened document reload lifecycle with input listener reattachment, and updated runtime UI docs.
+- Phase 5 RmlUi custom component foundation: `nt-active-text`, `nt-map-view`, and `nt-text-log` register as C++-backed runtime UI elements with deterministic fallback binding from `RuntimeUIViewState`.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -22,7 +23,6 @@ Last updated: 2026-06-20.
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Rich-text visual rendering parity, ActiveText effects, map rendering, and text-log rendering remain active.
-- C++-backed RmlUi custom components (`nt-active-text`, `nt-map-view`, `nt-text-log`) remain unimplemented.
 - Phase 6 tween integration through `twink` is not started.
 - Editor preview/test playback needs hardening around real workflows.
 - Packaging/export workflows and real old-project fixture coverage remain incomplete.
@@ -68,5 +68,4 @@ For documentation-only cleanup, a targeted `rg` check for stale active-doc instr
 
 ## Next Implementation Task
 
-Implement Phase 5 from [`PLAN.md`](PLAN.md): C++-backed RmlUi custom components
-(`nt-active-text`, `nt-map-view`, `nt-text-log`).
+Implement Phase 6 from [`PLAN.md`](PLAN.md): tween integration through `twink`.

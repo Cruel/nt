@@ -72,6 +72,7 @@ add_library(engine STATIC
     src/surface.cpp
     src/text/text_engine.cpp
     src/text/text_layout.cpp
+    src/ui/rmlui/rmlui_custom_components.cpp
     src/ui/rmlui/rmlui_document_binder.cpp
     src/ui/rmlui/rmlui_file_interface.cpp
     src/ui/rmlui/rmlui_render_planning.cpp

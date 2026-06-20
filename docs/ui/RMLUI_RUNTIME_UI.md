@@ -41,6 +41,11 @@ All runtime game documents must provide these element IDs for the binder to upda
 
 The binder tolerates missing optional slots by logging a one-time warning per slot. Missing required slots produce an immediate diagnostic. The system fallback template includes all slots.
 
+`rt_body`, `rt_log`, and `rt_map` are implemented by default as C++-backed custom elements:
+`nt-active-text`, `nt-text-log`, and `nt-map-view`. Project/theme templates may still use
+ordinary elements with the same IDs; the binder will populate them with the same safe
+fallback RML.
+
 ## Event Attributes
 
 UI actions must route through `RuntimeInput` attributes, not inline event handlers:
@@ -80,6 +85,8 @@ The encoded form `namespace|/path` is recognized by `resolve_asset_path()` and i
 The binder:
 - Escapes all text content for RML safety.
 - Separates room objects from inventory objects into `rt_objects` and `rt_inventory` slots.
+- Feeds `RuntimeUIViewState` into the Phase 5 custom components when the document contains
+  `nt-active-text`, `nt-text-log`, or `nt-map-view`.
 - Logs missing optional slots once per slot per document lifetime.
 - Populates `rt_map` with a placeholder when empty.
 

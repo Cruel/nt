@@ -79,6 +79,7 @@ endif()
 if(NOVELTEA_HAS_RMLUI)
     add_executable(noveltea_ui_tests
         ui/rmlui_advanced_gallery_asset_tests.cpp
+        ui/rmlui_custom_components_tests.cpp
         ui/rmlui_document_binder_tests.cpp
         ui/rmlui_event_disposition_tests.cpp
         ui/rmlui_file_interface_tests.cpp

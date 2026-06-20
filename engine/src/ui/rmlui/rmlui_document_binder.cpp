@@ -1,61 +1,13 @@
 #include "ui/rmlui/rmlui_document_binder.hpp"
 
+#include "ui/rmlui/rmlui_custom_components.hpp"
+
 #include <cstdio>
 #include <sstream>
 
 namespace noveltea::ui::rmlui {
 
 namespace {
-
-std::string escape_rml(std::string_view value)
-{
-    std::string escaped;
-    escaped.reserve(value.size());
-    for (const char ch : value) {
-        switch (ch) {
-        case '&':
-            escaped += "&amp;";
-            break;
-        case '<':
-            escaped += "&lt;";
-            break;
-        case '>':
-            escaped += "&gt;";
-            break;
-        case '"':
-            escaped += "&quot;";
-            break;
-        case '\'':
-            escaped += "&#39;";
-            break;
-        default:
-            escaped.push_back(ch);
-            break;
-        }
-    }
-    return escaped;
-}
-
-std::string paragraph_rml(const std::string& text)
-{
-    if (text.empty())
-        return {};
-    std::ostringstream out;
-    std::size_t start = 0;
-    while (start <= text.size()) {
-        const std::size_t end = text.find('\n', start);
-        const auto line =
-            text.substr(start, end == std::string::npos ? std::string::npos : end - start);
-        if (!line.empty()) {
-            out << "<p>" << escape_rml(line) << "</p>";
-        }
-        if (end == std::string::npos)
-            break;
-        start = end + 1;
-    }
-    return out.str();
-}
-
 Rml::Element* find_element(Rml::ElementDocument& doc, const std::string& id,
                            std::unordered_set<std::string>& logged)
 {
@@ -65,6 +17,13 @@ Rml::Element* find_element(Rml::ElementDocument& doc, const std::string& id,
         logged.insert(id);
     }
     return el;
+}
+
+Rml::Element* find_component(Rml::ElementDocument& doc, const std::string& tag)
+{
+    Rml::ElementList elements;
+    doc.GetElementsByTagName(elements, tag);
+    return elements.empty() ? nullptr : elements.front();
 }
 
 } // namespace
@@ -80,9 +39,11 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
     if (auto* title = find_element(doc, "rt_title", m_logged_missing)) {
         title->SetInnerRML(escape_rml(state.title));
     }
-    if (auto* body = find_element(doc, "rt_body", m_logged_missing)) {
-        const auto rml = paragraph_rml(state.body);
-        body->SetInnerRML(rml.empty() ? "&nbsp;" : rml);
+    if (auto* active_text =
+            dynamic_cast<NtActiveTextElement*>(find_component(doc, "nt-active-text"))) {
+        active_text->set_snapshot(make_active_text_snapshot(state));
+    } else if (auto* body = find_element(doc, "rt_body", m_logged_missing)) {
+        body->SetInnerRML(active_text_rml(make_active_text_snapshot(state)));
     }
     if (auto* note = find_element(doc, "rt_notification", m_logged_missing)) {
         note->SetInnerRML(escape_rml(state.notification));
@@ -149,17 +110,15 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
         }
         actions->SetInnerRML(out.str());
     }
-    if (auto* log = find_element(doc, "rt_log", m_logged_missing)) {
-        std::ostringstream out;
-        for (const auto& line : state.text_log) {
-            out << "<p>" << escape_rml(line) << "</p>";
-        }
-        log->SetInnerRML(out.str());
+    if (auto* text_log = dynamic_cast<NtTextLogElement*>(find_component(doc, "nt-text-log"))) {
+        text_log->set_snapshot(make_text_log_snapshot(state));
+    } else if (auto* log = find_element(doc, "rt_log", m_logged_missing)) {
+        log->SetInnerRML(text_log_rml(make_text_log_snapshot(state)));
     }
-    if (auto* map = find_element(doc, "rt_map", m_logged_missing)) {
-        if (map->GetNumChildren() == 0) {
-            map->SetInnerRML("<p>Map placeholder</p>");
-        }
+    if (auto* map_view = dynamic_cast<NtMapViewElement*>(find_component(doc, "nt-map-view"))) {
+        map_view->set_snapshot(make_map_view_snapshot(state));
+    } else if (auto* map = find_element(doc, "rt_map", m_logged_missing)) {
+        map->SetInnerRML(map_view_rml(make_map_view_snapshot(state)));
     }
 
     doc.Show();

@@ -12,7 +12,7 @@
         <div id="content">
             <div id="main_view">
                 <h1 id="rt_title"></h1>
-                <div id="rt_body"></div>
+                <nt-active-text id="rt_body"></nt-active-text>
                 <div id="rt_prompt"></div>
                 <div id="rt_options"></div>
             </div>
@@ -21,8 +21,8 @@
                 <div id="rt_objects"></div>
                 <div id="rt_inventory"></div>
                 <div id="rt_actions"></div>
-                <div id="rt_log"></div>
-                <div id="rt_map"></div>
+                <nt-text-log id="rt_log"></nt-text-log>
+                <nt-map-view id="rt_map"></nt-map-view>
             </div>
         </div>
     </div>

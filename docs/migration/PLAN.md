@@ -241,9 +241,15 @@ Acceptance criteria:
 - Layout remains correct across at least two logical sizes and high-DPI scale.
 - RmlUi remains independent from Dear ImGui.
 
-## Phase 5 [next]: C++-Backed RmlUi Custom Components
+## Phase 5 [done]: C++-Backed RmlUi Custom Components
 
 Goal: create the extension model for complex NovelTea widgets.
+
+Status: complete for the component foundation. Runtime UI registers `nt-active-text`,
+`nt-map-view`, and `nt-text-log` as C++-backed RmlUi elements, and the document binder
+feeds current `RuntimeUIViewState` into deterministic fallback RML. Full ActiveText
+animation/effects, real map rendering, and text-log scrollback behavior remain in
+Phases 7, 8, and 9.
 
 Components to define first:
 

@@ -25,6 +25,7 @@
 #include <RmlUi/Lua.h>
 #endif
 #include "ui/rmlui/rmlui_document_binder.hpp"
+#include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
 #include "ui/rmlui/rmlui_input_sdl3.hpp"
 #include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
@@ -76,6 +77,7 @@ struct RuntimeUI::State {
 #endif
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiDocumentBinder* document_binder = nullptr;
+    ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
     std::unordered_map<std::string, Rml::ElementDocument*> documents;
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
@@ -202,6 +204,8 @@ void RuntimeUI::cleanup_state()
         Rml::Shutdown();
         m_state->rml_initialized = false;
     }
+    delete m_state->component_registry;
+    m_state->component_registry = nullptr;
 #if defined(NOVELTEA_HAS_BGFX)
     delete m_state->render_interface;
     m_state->render_interface = nullptr;
@@ -251,6 +255,7 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         return false;
     }
     m_state->rml_initialized = true;
+    m_state->component_registry = new ui::rmlui::RuntimeUiComponentRegistry;
 
 #if defined(NOVELTEA_HAS_RMLUI_LUA)
     if (!scripts || !scripts->is_initialized() ||
