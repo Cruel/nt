@@ -237,8 +237,8 @@ jobs:
           test -f build/web-release/apps/sandbox/index.html
           test -f build/web-release/apps/sandbox/index.js
           test -f build/web-release/apps/sandbox/index.wasm
-          grep -q '/assets/rmlui/lua_demo.rml' build/web-release/apps/sandbox/index.js
-          grep -q '/assets/rmlui/lua_demo.lua' build/web-release/apps/sandbox/index.js
+          grep -q '/assets/project/rmlui/lua_demo.rml' build/web-release/apps/sandbox/index.js
+          grep -q '/assets/project/rmlui/lua_demo.lua' build/web-release/apps/sandbox/index.js
 
       - name: Upload web release preview
         uses: actions/upload-artifact@v7
@@ -319,15 +319,15 @@ jobs:
       - name: Verify Android packaged assets
         working-directory: android
         run: |
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/shaders/bgfx/essl-300/triangle.vs.bin'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/system/shaders/bgfx/essl-300/triangle.vs.bin'
           for shader in triangle quad text imgui rmlui; do
-            unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/shaders/bgfx/essl-300/${shader}\.vs\.bin"
-            unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/shaders/bgfx/essl-300/${shader}\.fs\.bin"
+            unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/system/shaders/bgfx/essl-300/${shader}\.vs\.bin"
+            unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/system/shaders/bgfx/essl-300/${shader}\.fs\.bin"
           done
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/LiberationSans.ttf'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/demo.rml'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/lua_demo.rml'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/rmlui/lua_demo.lua'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/LiberationSans.ttf'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/demo.rml'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/lua_demo.rml'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/lua_demo.lua'
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
