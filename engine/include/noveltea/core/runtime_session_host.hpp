@@ -73,7 +73,14 @@ private:
                                    std::vector<RuntimeDiagnostic> diagnostics = {},
                                    std::optional<std::uint64_t> step_index = std::nullopt);
     RuntimeDiagnostic make_warning(const RuntimeInput& input, std::string message) const;
+    RuntimeDiagnostic make_input_diagnostic(const RuntimeInput& input, std::string category,
+                                            std::string message) const;
     void consume_commands(const std::vector<ControllerCommand>& commands);
+    void sync_room_interactions();
+    [[nodiscard]] bool visible_object_available(const std::string& object_id) const;
+    [[nodiscard]] bool selected_objects_available() const;
+    [[nodiscard]] RuntimeOutput
+    make_selection_observation(std::optional<std::uint64_t> step_index) const;
     [[nodiscard]] std::vector<ControllerCommand> make_save_hook_commands(bool before,
                                                                          bool autosave) const;
     [[nodiscard]] RuntimeInputResult finish_save(SaveSlotId slot, bool autosave,

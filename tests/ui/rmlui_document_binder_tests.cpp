@@ -32,8 +32,10 @@ TEST_CASE("RuntimeUiDocumentBinder state holds populated data")
     state.notification = "New area discovered";
     state.dialogue_options = {{"Ask about the door", true}, {"Leave", false}};
     state.navigation = {"north", "east"};
-    state.objects = {{"lamp", "Lamp", true, false}, {"key", "Brass Key", false, true}};
-    state.actions = {{"look", "Look at", 1}, {"take", "Take", 1}};
+    state.objects = {{"lamp", "Lamp", true, false, true, true, ""},
+                     {"key", "Brass Key", false, true, false, true, ""}};
+    state.actions = {{"look", "Look at", 1, true, "", 1},
+                     {"take", "Take", 1, false, "requires 1 object", 0}};
     state.text_log.push_back(
         RuntimeUITextLogEntry{.sequence = 0, .plain_text = "Hello, traveler.", .speaker = "Guide"});
     state.text_log.back().rich_text = parse_rich_text(state.text_log.back().plain_text);
@@ -54,10 +56,14 @@ TEST_CASE("RuntimeUiDocumentBinder state holds populated data")
     REQUIRE(state.objects.size() == 2);
     CHECK(state.objects[0].id == "lamp");
     CHECK(state.objects[0].in_room);
+    CHECK(state.objects[0].selected);
     CHECK(state.objects[1].in_inventory);
     REQUIRE(state.actions.size() == 2);
     CHECK(state.actions[0].verb_id == "look");
     CHECK(state.actions[0].object_count == 1);
+    CHECK(state.actions[0].enabled);
+    CHECK_FALSE(state.actions[1].enabled);
+    CHECK(state.actions[1].reason == "requires 1 object");
     REQUIRE(state.text_log.size() == 2);
     CHECK(state.text_log[0].speaker == "Guide");
     CHECK(state.text_log[0].plain_text == "Hello, traveler.");

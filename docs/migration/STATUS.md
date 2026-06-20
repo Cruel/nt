@@ -20,6 +20,7 @@ Last updated: 2026-06-20.
 - Phase 7 ActiveText: runtime view state preserves `RichTextDocument` data, the engine builds deterministic per-glyph ActiveText frames with reveal/effect state, and `nt-active-text` renders fallback RML with object/style/effect/shader metadata, page-break prompts, and semantic shader stubs.
 - Phase 8 MapView v1: runtime view state exposes typed map rooms/connections, derives current-room and direct-path click targets from `ProjectModel`/runtime state, editor preview can inspect map state, and `nt-map-view` renders deterministic RmlUi fallback DOM with current-room highlighting.
 - Phase 9 TextLog v1: runtime view state exposes structured text-log entries with rich-text snapshots, speaker/source/category metadata, deterministic sequence ids, save-loaded string restoration, and structured `TextLogEntry` output payloads; `nt-text-log` renders deterministic RmlUi fallback markup.
+- Phase 10 Object, Inventory, and Action Presentation: runtime view state tracks selected/available room and inventory objects, predicts action enabled/disabled state from current selection, exposes clearable selection through RmlUi/editor preview, and reports invalid selection/action diagnostics.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -34,7 +35,7 @@ Last updated: 2026-06-20.
 
 ## Current Verification Commands
 
-Latest Phase 9 implementation — use these commands to verify:
+Latest Phase 10 implementation — use these commands to verify:
 
 ```sh
 cmake --preset linux-debug
@@ -70,7 +71,7 @@ cd android
 
 For documentation-only cleanup, a targeted `rg` check for stale active-doc instructions is sufficient.
 
-Latest Phase 9 verification completed:
+Latest Phase 10 verification completed:
 
 ```sh
 cmake --preset linux-debug
@@ -87,5 +88,5 @@ app after startup with exit code 124.
 
 ## Next Implementation Task
 
-Start Phase 10 Object, Inventory, and Action Presentation from [`PLAN.md`](PLAN.md), unless the
+Start Phase 11 Runtime Renderer and Asset Presentation from [`PLAN.md`](PLAN.md), unless the
 explicitly deferred Phase 8 Lua map-visibility bridge is selected first.

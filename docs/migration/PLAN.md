@@ -449,7 +449,7 @@ Deferred beyond v1:
 - Optional filtering UI.
 - Platform-specific save/load screens that expose log scrollback.
 
-## Phase 10 [pending]: Object, Inventory, and Action Presentation
+## Phase 10 [done]: Object, Inventory, and Action Presentation
 
 Goal: make old object/action interaction work cleanly in the new UI model.
 

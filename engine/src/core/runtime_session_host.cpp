@@ -140,7 +140,24 @@ RuntimeInputResult RuntimeSessionHost::apply_input(const RuntimeInput& input)
                                           ? input.object_ids.front()
                                           : input.payload.value("object_id", std::string{});
         if (object_id.empty()) {
-            return unsupported("object selection input requires an object id");
+            return make_result(
+                false, {},
+                {make_input_diagnostic(input, "object-selection",
+                                       "object selection input requires an object id")},
+                input.step_index);
+        }
+        if (current_mode_name() != std::string_view("room")) {
+            return make_result(
+                false, {},
+                {make_input_diagnostic(input, "object-selection",
+                                       "object selection input is only valid in room mode")},
+                input.step_index);
+        }
+        if (!visible_object_available(object_id)) {
+            RuntimeDiagnostic diagnostic = make_input_diagnostic(
+                input, "object-selection", "object is not available for selection");
+            diagnostic.source = EntityRef{EntityType::Object, object_id};
+            return make_result(false, {}, {std::move(diagnostic)}, input.step_index);
         }
         auto it = std::find(m_selected_object_ids.begin(), m_selected_object_ids.end(), object_id);
         if (it == m_selected_object_ids.end()) {
@@ -148,34 +165,33 @@ RuntimeInputResult RuntimeSessionHost::apply_input(const RuntimeInput& input)
         } else {
             m_selected_object_ids.erase(it);
         }
-        RuntimeOutput output;
-        output.type = RuntimeOutputType::TestObservation;
-        output.payload = {{"selected_objects", m_selected_object_ids}};
-        output.step_index = input.step_index;
         auto result = make_result(true, {}, {}, input.step_index);
-        result.outputs.push_back(std::move(output));
+        result.outputs.push_back(make_selection_observation(input.step_index));
         m_last_outputs = result.outputs;
         return result;
     }
     case RuntimeInputType::ClearObjectSelection: {
         m_selected_object_ids.clear();
-        RuntimeOutput output;
-        output.type = RuntimeOutputType::TestObservation;
-        output.payload = {{"selected_objects", nlohmann::json::array()}};
-        output.step_index = input.step_index;
         auto result = make_result(true, {}, {}, input.step_index);
-        result.outputs.push_back(std::move(output));
+        result.outputs.push_back(make_selection_observation(input.step_index));
         m_last_outputs = result.outputs;
         return result;
     }
     case RuntimeInputType::RunAction: {
         auto object_ids = input.object_ids.empty() ? m_selected_object_ids : input.object_ids;
         const bool processed = m_controller->process_action(input.verb_id, object_ids);
+        auto commands = m_controller->take_commands();
         if (!processed) {
-            return unsupported("action input was not processed");
+            RuntimeDiagnostic diagnostic =
+                make_input_diagnostic(input, "action", "action input was not processed");
+            if (!input.verb_id.empty()) {
+                diagnostic.source = EntityRef{EntityType::Verb, input.verb_id};
+            }
+            return make_result(false, std::move(commands), {std::move(diagnostic)},
+                               input.step_index);
         }
         m_selected_object_ids.clear();
-        return make_result(true, m_controller->take_commands(), {}, input.step_index);
+        return make_result(true, std::move(commands), {}, input.step_index);
     }
     case RuntimeInputType::SetEntrypoint:
         return unsupported(
@@ -339,9 +355,16 @@ RuntimeInputResult RuntimeSessionHost::make_result(bool handled,
 RuntimeDiagnostic RuntimeSessionHost::make_warning(const RuntimeInput& input,
                                                    std::string message) const
 {
+    return make_input_diagnostic(input, "runtime-input", std::move(message));
+}
+
+RuntimeDiagnostic RuntimeSessionHost::make_input_diagnostic(const RuntimeInput& input,
+                                                            std::string category,
+                                                            std::string message) const
+{
     RuntimeDiagnostic diagnostic;
     diagnostic.severity = RuntimeDiagnosticSeverity::Warning;
-    diagnostic.category = "runtime-input";
+    diagnostic.category = std::move(category);
     diagnostic.source = input.entity_ref;
     diagnostic.message = std::move(message);
     diagnostic.playback_step_index = input.step_index;
@@ -456,59 +479,108 @@ RuntimeSessionHost::commands_to_outputs(const std::vector<ControllerCommand>& co
 void RuntimeSessionHost::consume_commands(const std::vector<ControllerCommand>& commands)
 {
     m_view.apply(commands);
-    if (m_controller && m_controller->current_mode_name() == std::string_view("room")) {
-        std::vector<RuntimeUIObject> objects;
-        std::vector<RuntimeUIAction> actions;
-        if (const auto* project = m_session.project()) {
-            const auto room_id = std::string(m_controller->current_mode_entity_id());
-            if (auto room_it = project->rooms().find(room_id); room_it != project->rooms().end()) {
-                for (const auto& [object_id, object_model] : project->objects()) {
-                    auto location = m_session.effective_object_location(object_id);
-                    if (!location || location->type != EntityType::Room ||
-                        location->id != room_id) {
-                        continue;
-                    }
-                    RuntimeUIObject object;
-                    object.id = object_id;
-                    object.name = object_model.name.empty() ? object_id : object_model.name;
-                    object.in_room = true;
-                    objects.push_back(std::move(object));
-                }
-            }
+    sync_room_interactions();
+}
 
-            for (const auto& [id, object_model] : project->objects()) {
-                auto location = m_session.effective_object_location(id);
-                if (!location || location->type != EntityType::CustomScript ||
-                    location->id != project_ids::player) {
-                    continue;
-                }
-                if (auto existing = std::find_if(
-                        objects.begin(), objects.end(),
-                        [&](const RuntimeUIObject& object) { return object.id == id; });
-                    existing != objects.end()) {
-                    existing->in_inventory = true;
+void RuntimeSessionHost::sync_room_interactions()
+{
+    if (!m_controller || m_controller->current_mode_name() != std::string_view("room")) {
+        return;
+    }
+
+    std::vector<RuntimeUIObject> objects;
+    std::vector<RuntimeUIAction> actions;
+    if (const auto* project = m_session.project()) {
+        const auto room_id = std::string(m_controller->current_mode_entity_id());
+        if (auto room_it = project->rooms().find(room_id); room_it != project->rooms().end()) {
+            for (const auto& [object_id, object_model] : project->objects()) {
+                auto location = m_session.effective_object_location(object_id);
+                if (!location || location->type != EntityType::Room || location->id != room_id) {
                     continue;
                 }
                 RuntimeUIObject object;
-                object.id = id;
-                object.name = object_model.name.empty() ? id : object_model.name;
-                object.in_inventory = true;
+                object.id = object_id;
+                object.name = object_model.name.empty() ? object_id : object_model.name;
+                object.in_room = true;
+                object.selected =
+                    std::find(m_selected_object_ids.begin(), m_selected_object_ids.end(),
+                              object_id) != m_selected_object_ids.end();
                 objects.push_back(std::move(object));
             }
-
-            for (const auto& [id, verb] : project->verbs()) {
-                (void)id;
-                if (verb.object_count > 0 || verb.object_count == 0) {
-                    RuntimeUIAction action;
-                    action.verb_id = verb.metadata.entity.id;
-                    action.label = verb.name.empty() ? verb.metadata.entity.id : verb.name;
-                    action.object_count = verb.object_count;
-                    actions.push_back(std::move(action));
-                }
-            }
         }
-        m_view.set_room_interactions(std::move(objects), std::move(actions));
+
+        for (const auto& [id, object_model] : project->objects()) {
+            auto location = m_session.effective_object_location(id);
+            if (!location || location->type != EntityType::CustomScript ||
+                location->id != project_ids::player) {
+                continue;
+            }
+            const bool selected =
+                std::find(m_selected_object_ids.begin(), m_selected_object_ids.end(), id) !=
+                m_selected_object_ids.end();
+            if (auto existing =
+                    std::find_if(objects.begin(), objects.end(),
+                                 [&](const RuntimeUIObject& object) { return object.id == id; });
+                existing != objects.end()) {
+                existing->in_inventory = true;
+                existing->selected = selected;
+                continue;
+            }
+            RuntimeUIObject object;
+            object.id = id;
+            object.name = object_model.name.empty() ? id : object_model.name;
+            object.in_inventory = true;
+            object.selected = selected;
+            objects.push_back(std::move(object));
+        }
+
+        const auto selected_count = static_cast<int>(m_selected_object_ids.size());
+        const bool selected_available = selected_objects_available();
+        for (const auto& [id, verb] : project->verbs()) {
+            (void)id;
+            RuntimeUIAction action;
+            action.verb_id = verb.metadata.entity.id;
+            action.label = verb.name.empty() ? verb.metadata.entity.id : verb.name;
+            action.object_count = verb.object_count;
+            action.selected_count = selected_count;
+            action.enabled = selected_available && verb.object_count == selected_count;
+            if (verb.object_count != selected_count) {
+                action.reason = "requires " + std::to_string(verb.object_count) + " object";
+                if (verb.object_count != 1) {
+                    action.reason += "s";
+                }
+            } else if (!selected_available) {
+                action.reason = "selected object unavailable";
+            }
+            actions.push_back(std::move(action));
+        }
     }
+    m_view.set_room_interactions(std::move(objects), std::move(actions));
+}
+
+bool RuntimeSessionHost::visible_object_available(const std::string& object_id) const
+{
+    const auto& objects = m_view.state().objects;
+    return std::any_of(objects.begin(), objects.end(), [&](const RuntimeUIObject& object) {
+        return object.id == object_id && object.enabled && (object.in_room || object.in_inventory);
+    });
+}
+
+bool RuntimeSessionHost::selected_objects_available() const
+{
+    return std::all_of(
+        m_selected_object_ids.begin(), m_selected_object_ids.end(),
+        [&](const std::string& object_id) { return visible_object_available(object_id); });
+}
+
+RuntimeOutput
+RuntimeSessionHost::make_selection_observation(std::optional<std::uint64_t> step_index) const
+{
+    RuntimeOutput output;
+    output.type = RuntimeOutputType::TestObservation;
+    output.payload = {{"selected_objects", m_selected_object_ids}};
+    output.step_index = step_index;
+    return output;
 }
 
 } // namespace noveltea::core

@@ -103,7 +103,8 @@ button.option,
 button.nav,
 button.object,
 button.action,
-button.continue {
+button.continue,
+button.clear-selection {
     display: block;
     width: 100%;
     margin-top: 8px;
@@ -117,8 +118,21 @@ button.option:hover,
 button.nav:hover,
 button.object:hover,
 button.action:hover,
-button.continue:hover {
+button.continue:hover,
+button.clear-selection:hover {
     background-color: #324652;
+}
+
+button.selected {
+    color: #101820;
+    background-color: #9ad1ef;
+    border-color: #d6f1ff;
+}
+
+button.clear-selection {
+    color: #101820;
+    background-color: #d5c38f;
+    border-color: #f0dda5;
 }
 
 button.disabled {

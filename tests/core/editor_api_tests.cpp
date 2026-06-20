@@ -28,8 +28,14 @@ ProjectDocument make_preview_project()
     root[project_ids::object] = nlohmann::json::object({
         {"lamp", nlohmann::json::array({"lamp", "", props(), "Lamp", false})},
     });
-    root[project_ids::verb] = nlohmann::json::object();
-    root[project_ids::action] = nlohmann::json::object();
+    root[project_ids::verb] = nlohmann::json::object({
+        {"look",
+         nlohmann::json::array({"look", "", props(), "Look", 1, "", "", nlohmann::json::array()})},
+    });
+    root[project_ids::action] = nlohmann::json::object({
+        {"look_lamp", nlohmann::json::array({"look_lamp", "", props(), "look", "look_lamp();",
+                                             nlohmann::json::array({"lamp"}), false})},
+    });
     root[project_ids::room] = nlohmann::json::object({
         {"foyer",
          nlohmann::json::array(
@@ -178,6 +184,16 @@ TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands"
     preview.start();
     CHECK(preview.running());
     CHECK(preview.inspect_state().view.title == "Foyer");
+    REQUIRE(preview.inspect_state().view.objects.size() == 1);
+    CHECK_FALSE(preview.inspect_state().view.objects[0].selected);
+    CHECK(preview.inject_object_selection("lamp"));
+    CHECK(preview.inspect_state().view.objects[0].selected);
+    CHECK(preview.clear_object_selection());
+    CHECK_FALSE(preview.inspect_state().view.objects[0].selected);
+    CHECK(preview.inject_object_selection("lamp"));
+    CHECK(preview.inject_action("look", {}));
+    CHECK_FALSE(preview.inspect_state().view.objects[0].selected);
+    CHECK(has_command(preview.captured_commands(), ControllerCommandType::ActionResolved));
 
     auto entrypoint = preview.set_entrypoint(EntityRef{EntityType::Room, "kitchen"});
     REQUIRE(entrypoint.success);

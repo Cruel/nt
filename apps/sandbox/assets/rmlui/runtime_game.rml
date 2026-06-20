@@ -19,6 +19,7 @@
             <div id="side_view">
                 <div id="rt_navigation"></div>
                 <div id="rt_objects"></div>
+                <div id="rt_inventory"></div>
                 <div id="rt_actions"></div>
                 <nt-text-log id="rt_log"></nt-text-log>
                 <nt-map-view id="rt_map"></nt-map-view>

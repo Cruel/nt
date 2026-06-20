@@ -5,6 +5,7 @@
 
 #include <noveltea/core/project_ids.hpp>
 
+#include <algorithm>
 #include <utility>
 
 using namespace noveltea::core;
@@ -138,6 +139,30 @@ ProjectDocument make_action_project()
     return project;
 }
 
+ProjectDocument make_multi_action_project(bool position_dependent)
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::object] = nlohmann::json::object({
+        {"lamp", nlohmann::json::array({"lamp", "", props(), "Lamp", false})},
+        {"coin", nlohmann::json::array({"coin", "", props(), "Coin", false})},
+    });
+    root[project_ids::verb] = nlohmann::json::object({
+        {"combine", nlohmann::json::array(
+                        {"combine", "", props(), "Combine", 2, "", "", nlohmann::json::array()})},
+    });
+    root[project_ids::action] = nlohmann::json::object({
+        {"combine_lamp_coin",
+         nlohmann::json::array({"combine_lamp_coin", "", props(), "combine", "combine();",
+                                nlohmann::json::array({"lamp", "coin"}), position_dependent})},
+    });
+    root[project_ids::room]["foyer"][8] = nlohmann::json::array({
+        nlohmann::json::array({"lamp", true}),
+    });
+    root[project_ids::starting_inventory] = nlohmann::json::array({"coin"});
+    return project;
+}
+
 bool has_command(const std::vector<ControllerCommand>& commands, ControllerCommandType type)
 {
     for (const auto& command : commands) {
@@ -154,6 +179,21 @@ bool has_output(const std::vector<RuntimeOutput>& outputs, RuntimeOutputType typ
             return true;
     }
     return false;
+}
+
+const RuntimeUIObject* find_object(const RuntimeUIViewState& view, const std::string& id)
+{
+    const auto it = std::find_if(view.objects.begin(), view.objects.end(),
+                                 [&](const RuntimeUIObject& object) { return object.id == id; });
+    return it == view.objects.end() ? nullptr : &*it;
+}
+
+const RuntimeUIAction* find_action(const RuntimeUIViewState& view, const std::string& id)
+{
+    const auto it =
+        std::find_if(view.actions.begin(), view.actions.end(),
+                     [&](const RuntimeUIAction& action) { return action.verb_id == id; });
+    return it == view.actions.end() ? nullptr : &*it;
 }
 
 ProjectDocument make_script_project()
@@ -344,14 +384,26 @@ TEST_CASE("RuntimeSessionHost exposes room objects, inventory, and actions")
     CHECK(view.actions[0].verb_id == "look");
     CHECK(view.actions[0].label == "Look");
     CHECK(view.actions[0].object_count == 1);
+    CHECK_FALSE(view.actions[0].enabled);
+    CHECK(view.actions[0].selected_count == 0);
 
     CHECK(host.apply_input(
                   RuntimeInput{.type = RuntimeInputType::SelectObject, .object_ids = {"lamp"}})
               .handled);
+    const auto* selected_lamp = find_object(host.view_state(), "lamp");
+    REQUIRE(selected_lamp != nullptr);
+    CHECK(selected_lamp->selected);
+    const auto* look = find_action(host.view_state(), "look");
+    REQUIRE(look != nullptr);
+    CHECK(look->enabled);
+    CHECK(look->selected_count == 1);
     auto result =
         host.apply_input(RuntimeInput{.type = RuntimeInputType::RunAction, .verb_id = "look"});
     CHECK(result.handled);
     CHECK(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
+    selected_lamp = find_object(host.view_state(), "lamp");
+    REQUIRE(selected_lamp != nullptr);
+    CHECK_FALSE(selected_lamp->selected);
 }
 
 TEST_CASE("RuntimeSessionHost uses save-backed object locations for room and inventory")
@@ -375,10 +427,119 @@ TEST_CASE("RuntimeSessionHost uses save-backed object locations for room and inv
     auto unavailable = host.apply_input(RuntimeInput{
         .type = RuntimeInputType::RunAction, .verb_id = "look", .object_ids = {"lamp"}});
     CHECK_FALSE(unavailable.handled);
+    REQUIRE_FALSE(unavailable.diagnostics.empty());
+    CHECK(unavailable.diagnostics.front().category == "action");
 
     auto available = host.apply_input(RuntimeInput{
         .type = RuntimeInputType::RunAction, .verb_id = "look", .object_ids = {"coin"}});
     CHECK(available.handled);
+}
+
+TEST_CASE("RuntimeSessionHost validates object selection and clears selection")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_action_project()).success);
+    host.tick(0.0);
+
+    auto missing = host.apply_input(
+        RuntimeInput{.type = RuntimeInputType::SelectObject, .object_ids = {"missing"}});
+    CHECK_FALSE(missing.handled);
+    REQUIRE_FALSE(missing.diagnostics.empty());
+    CHECK(missing.diagnostics.front().category == "object-selection");
+
+    CHECK(host.apply_input(
+                  RuntimeInput{.type = RuntimeInputType::SelectObject, .object_ids = {"coin"}})
+              .handled);
+    const auto* coin = find_object(host.view_state(), "coin");
+    REQUIRE(coin != nullptr);
+    CHECK(coin->selected);
+    REQUIRE(has_output(host.last_outputs(), RuntimeOutputType::TestObservation));
+
+    auto clear = host.apply_input(RuntimeInput{.type = RuntimeInputType::ClearObjectSelection});
+    CHECK(clear.handled);
+    coin = find_object(host.view_state(), "coin");
+    REQUIRE(coin != nullptr);
+    CHECK_FALSE(coin->selected);
+    REQUIRE(has_output(clear.outputs, RuntimeOutputType::TestObservation));
+}
+
+TEST_CASE("RuntimeSessionHost keeps selection after failed action")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_action_project()).success);
+    host.tick(0.0);
+
+    REQUIRE(host.apply_input(
+                    RuntimeInput{.type = RuntimeInputType::SelectObject, .object_ids = {"lamp"}})
+                .handled);
+    auto failed =
+        host.apply_input(RuntimeInput{.type = RuntimeInputType::RunAction, .verb_id = "missing"});
+    CHECK_FALSE(failed.handled);
+    REQUIRE_FALSE(failed.diagnostics.empty());
+    CHECK(failed.diagnostics.front().category == "action");
+    const auto* lamp = find_object(host.view_state(), "lamp");
+    REQUIRE(lamp != nullptr);
+    CHECK(lamp->selected);
+}
+
+TEST_CASE("RuntimeSessionHost supports multi-object action selection semantics")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_multi_action_project(false)).success);
+    host.tick(0.0);
+
+    auto* combine = find_action(host.view_state(), "combine");
+    REQUIRE(combine != nullptr);
+    CHECK_FALSE(combine->enabled);
+    CHECK(combine->reason == "requires 2 objects");
+
+    REQUIRE(host.apply_input(
+                    RuntimeInput{.type = RuntimeInputType::SelectObject, .object_ids = {"coin"}})
+                .handled);
+    REQUIRE(host.apply_input(
+                    RuntimeInput{.type = RuntimeInputType::SelectObject, .object_ids = {"lamp"}})
+                .handled);
+    combine = find_action(host.view_state(), "combine");
+    REQUIRE(combine != nullptr);
+    CHECK(combine->enabled);
+    CHECK(combine->selected_count == 2);
+
+    auto result =
+        host.apply_input(RuntimeInput{.type = RuntimeInputType::RunAction, .verb_id = "combine"});
+    CHECK(result.handled);
+    CHECK(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
+}
+
+TEST_CASE("RuntimeSessionHost preserves position-dependent action order")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_multi_action_project(true)).success);
+    host.tick(0.0);
+
+    auto reversed = host.apply_input(RuntimeInput{
+        .type = RuntimeInputType::RunAction, .verb_id = "combine", .object_ids = {"coin", "lamp"}});
+    CHECK(reversed.handled);
+    REQUIRE(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
+    CHECK(host.last_commands().back().data.value("used_default", false));
+
+    auto ordered = host.apply_input(RuntimeInput{
+        .type = RuntimeInputType::RunAction, .verb_id = "combine", .object_ids = {"lamp", "coin"}});
+    CHECK(ordered.handled);
+    REQUIRE(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
+    CHECK_FALSE(host.last_commands().back().data.value("used_default", true));
+}
+
+TEST_CASE("RuntimeSessionHost accepts reversed order for order-insensitive actions")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_multi_action_project(false)).success);
+    host.tick(0.0);
+
+    auto result = host.apply_input(RuntimeInput{
+        .type = RuntimeInputType::RunAction, .verb_id = "combine", .object_ids = {"coin", "lamp"}});
+    CHECK(result.handled);
+    REQUIRE(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
+    CHECK_FALSE(host.last_commands().back().data.value("used_default", true));
 }
 
 TEST_CASE("RuntimeSessionHost restores saved log strings into structured view state")

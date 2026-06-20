@@ -23,12 +23,18 @@ struct RuntimeUIObject {
     std::string name;
     bool in_room = false;
     bool in_inventory = false;
+    bool selected = false;
+    bool enabled = true;
+    std::string reason;
 };
 
 struct RuntimeUIAction {
     std::string verb_id;
     std::string label;
     int object_count = 0;
+    bool enabled = true;
+    std::string reason;
+    int selected_count = 0;
 };
 
 struct RuntimeUITextLogEntry {

@@ -94,6 +94,8 @@ public:
     bool inject_navigation_choice(int direction);
     bool inject_dialogue_option(int option_index);
     bool inject_continue();
+    bool inject_object_selection(const std::string& object_id);
+    bool clear_object_selection();
     bool inject_action(const std::string& verb_id, const std::vector<std::string>& object_ids);
 
 private:

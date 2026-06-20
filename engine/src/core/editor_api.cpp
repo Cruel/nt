@@ -295,6 +295,29 @@ bool RuntimePreviewSession::inject_continue()
     return result.handled;
 }
 
+bool RuntimePreviewSession::inject_object_selection(const std::string& object_id)
+{
+    RuntimeInput input;
+    input.type = RuntimeInputType::SelectObject;
+    input.object_ids = {object_id};
+    auto result = m_host.apply_input(input);
+    if (result.handled) {
+        capture_output_commands(result, m_captured_commands);
+    }
+    return result.handled;
+}
+
+bool RuntimePreviewSession::clear_object_selection()
+{
+    RuntimeInput input;
+    input.type = RuntimeInputType::ClearObjectSelection;
+    auto result = m_host.apply_input(input);
+    if (result.handled) {
+        capture_output_commands(result, m_captured_commands);
+    }
+    return result.handled;
+}
+
 bool RuntimePreviewSession::inject_action(const std::string& verb_id,
                                           const std::vector<std::string>& object_ids)
 {

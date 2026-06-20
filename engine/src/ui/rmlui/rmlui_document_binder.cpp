@@ -84,8 +84,20 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
         for (const auto& obj : state.objects) {
             if (obj.in_inventory && !obj.in_room)
                 continue;
-            out << "<button class=\"object\" nt-object=\"" << escape_rml(obj.id) << "\">"
-                << escape_rml(obj.name) << "</button>";
+            out << "<button class=\"object";
+            if (obj.selected)
+                out << " selected";
+            if (!obj.enabled)
+                out << " disabled";
+            out << "\" nt-object=\"" << escape_rml(obj.id) << "\"";
+            if (!obj.enabled)
+                out << " disabled";
+            out << ">" << escape_rml(obj.name);
+            if (obj.selected)
+                out << " [selected]";
+            if (!obj.reason.empty())
+                out << " - " << escape_rml(obj.reason);
+            out << "</button>";
         }
         objects->SetInnerRML(out.str());
     }
@@ -94,18 +106,44 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
         for (const auto& obj : state.objects) {
             if (!obj.in_inventory)
                 continue;
-            out << "<button class=\"object\" nt-object=\"" << escape_rml(obj.id) << "\">"
-                << escape_rml(obj.name) << "</button>";
+            out << "<button class=\"object";
+            if (obj.selected)
+                out << " selected";
+            if (!obj.enabled)
+                out << " disabled";
+            out << "\" nt-object=\"" << escape_rml(obj.id) << "\"";
+            if (!obj.enabled)
+                out << " disabled";
+            out << ">" << escape_rml(obj.name);
+            if (obj.selected)
+                out << " [selected]";
+            if (!obj.reason.empty())
+                out << " - " << escape_rml(obj.reason);
+            out << "</button>";
         }
         inventory->SetInnerRML(out.str());
     }
     if (auto* actions = find_element(doc, "rt_actions", m_logged_missing)) {
         std::ostringstream out;
+        bool has_selection = false;
+        for (const auto& obj : state.objects) {
+            has_selection = has_selection || obj.selected;
+        }
+        if (has_selection) {
+            out << "<button class=\"clear-selection\" nt-clear-selection=\"1\">Clear "
+                   "selection</button>";
+        }
         for (const auto& action : state.actions) {
-            out << "<button class=\"action\" nt-action=\"" << escape_rml(action.verb_id) << "\">"
-                << escape_rml(action.label);
-            if (action.object_count > 0)
-                out << " (" << action.object_count << ")";
+            out << "<button class=\"action";
+            if (!action.enabled)
+                out << " disabled";
+            out << "\" nt-action=\"" << escape_rml(action.verb_id) << "\"";
+            if (!action.enabled)
+                out << " disabled";
+            out << ">" << escape_rml(action.label) << " (" << action.selected_count << "/"
+                << action.object_count << ")";
+            if (!action.reason.empty())
+                out << " - " << escape_rml(action.reason);
             out << "</button>";
         }
         actions->SetInnerRML(out.str());
