@@ -61,3 +61,31 @@ TEST_CASE("RmlUi logical asset path normalization is narrow")
           "project:/nested/project|/lua_demo.lua");
     CHECK(ui::rmlui::resolve_asset_path(manager, "|/lua_demo.lua") == "project:/|/lua_demo.lua");
 }
+
+TEST_CASE("Encoded namespace paths resolve stylesheets correctly")
+{
+    auto project_source = std::make_shared<MemoryAssetSource>();
+    project_source->add("project:/rmlui/runtime_game.rcss", {'r', 'c', 's', 's'});
+    auto system_source = std::make_shared<MemoryAssetSource>();
+    system_source->add("system:/ui/runtime/runtime_game.rcss", {'r', 'c', 's', 's'});
+    AssetManager manager;
+    manager.mount("project", project_source);
+    manager.mount("system", system_source);
+
+    CHECK(ui::rmlui::resolve_asset_path(manager, "system|/ui/runtime/runtime_game.rcss") ==
+          "system:/ui/runtime/runtime_game.rcss");
+    CHECK(ui::rmlui::resolve_asset_path(manager, "project|/rmlui/runtime_game.rcss") ==
+          "project:/rmlui/runtime_game.rcss");
+}
+
+TEST_CASE("Encoded namespace paths fall through for unknown namespaces")
+{
+    auto source = std::make_shared<MemoryAssetSource>();
+    source->add("project:/rmlui/foo.rml", {'f'});
+    AssetManager manager;
+    manager.mount("project", source);
+
+    // Unknown namespace "unknown" with no matching mount falls through to project:/ path.
+    CHECK(ui::rmlui::resolve_asset_path(manager, "unknown|/rmlui/foo.rml") ==
+          "project:/unknown|/rmlui/foo.rml");
+}

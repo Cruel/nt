@@ -6,35 +6,37 @@
 
 namespace noveltea::preview_bridge {
 
+// clang-format off
 #if defined(__EMSCRIPTEN__)
 EM_JS(void, nt_preview_emit_ready, (float x, float y, int running), {
     const bridge = globalThis.NovelTeaPreviewBridge;
-    if (bridge&& typeof bridge.markEngineReady == = 'function') {
+    if (bridge && typeof bridge.markEngineReady === 'function') {
         bridge.markEngineReady({x, y}, !!running);
     }
 });
 
 EM_JS(void, nt_preview_emit_state, (float x, float y, int running), {
     const bridge = globalThis.NovelTeaPreviewBridge;
-    if (bridge&& typeof bridge.send == = 'function') {
-        bridge.send({version : 1, type : 'state', position : {x, y}, running : !!running});
+    if (bridge && typeof bridge.send === 'function') {
+        bridge.send({version: 1, type: 'state', position: {x, y}, running: !!running});
     }
 });
 
 EM_JS(void, nt_preview_emit_object_clicked,
       (const char* object_id, float ox, float oy, float px, float py), {
-          const bridge = globalThis.NovelTeaPreviewBridge;
-          if (bridge&& typeof bridge.send == = 'function') {
-              bridge.send({
-                  version : 1,
-                  type : 'object-clicked',
-                  objectId : UTF8ToString(object_id),
-                  position : {x : ox, y : oy},
-                  pointerPosition : {x : px, y : py}
-              });
-          }
-      });
+    const bridge = globalThis.NovelTeaPreviewBridge;
+    if (bridge && typeof bridge.send === 'function') {
+        bridge.send({
+            version: 1,
+            type: 'object-clicked',
+            objectId: UTF8ToString(object_id),
+            position: {x: ox, y: oy},
+            pointerPosition: {x: px, y: py}
+        });
+    }
+});
 #endif
+// clang-format on
 
 void emit_ready(NormalizedPosition position, bool running)
 {

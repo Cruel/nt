@@ -16,11 +16,13 @@ The long-running project is migration from the old `Cruel/NovelTea` engine into 
 - `docs/` contains current architecture, build, runtime, UI, rendering, editor, migration, and archive notes.
 - `docs/migration/` contains current migration status and the next migration-plan index.
 - `docs/archive/` contains historical reports that must not be treated as current implementation direction.
-- `refs/NovelTea/`, when present, is a local read-only clone of the old engine used only as migration reference material.
+- `refs/` contains local read-only clones used solely as migration/implementation reference. Currently: `NovelTea/` (old engine), `bgfx/`, `bimg/`, `bx/`, and `RmlUi/` (upstream library snapshots).
 
 ## Non-Negotiable Migration Rules
 
 Treat `refs/NovelTea/` as read-only reference code. Do not edit files under `refs/NovelTea/`. Do not add `refs/NovelTea/` as a CMake subdirectory, production include path, or linked target. Port intentionally selected behavior into the new structure instead.
+
+The same read-only policy applies to all `refs/` entries (`bgfx/`, `bimg/`, `bx/`, `RmlUi/`). These are upstream snapshots for reference; do not edit them or add them as CMake subdirectories.
 
 Keep the new `nt` tree buildable after each implementation slice. Do not start broad rewrites that require several later fixes before the repository compiles again.
 

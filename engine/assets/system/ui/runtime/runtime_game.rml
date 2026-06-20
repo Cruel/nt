@@ -1,0 +1,30 @@
+<rml>
+<head>
+    <title>NovelTea Runtime</title>
+    <link type="text/rcss" href="system|/ui/runtime/runtime_game.rcss"/>
+</head>
+<body>
+    <div id="rt_root">
+        <div id="top_bar">
+            <span id="rt_mode">idle</span>
+            <span id="rt_notification"></span>
+        </div>
+        <div id="content">
+            <div id="main_view">
+                <h1 id="rt_title"></h1>
+                <div id="rt_body"></div>
+                <div id="rt_prompt"></div>
+                <div id="rt_options"></div>
+            </div>
+            <div id="side_view">
+                <div id="rt_navigation"></div>
+                <div id="rt_objects"></div>
+                <div id="rt_inventory"></div>
+                <div id="rt_actions"></div>
+                <div id="rt_log"></div>
+                <div id="rt_map"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

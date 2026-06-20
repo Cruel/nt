@@ -72,9 +72,11 @@ add_library(engine STATIC
     src/surface.cpp
     src/text/text_engine.cpp
     src/text/text_layout.cpp
+    src/ui/rmlui/rmlui_document_binder.cpp
     src/ui/rmlui/rmlui_file_interface.cpp
     src/ui/rmlui/rmlui_render_planning.cpp
     src/ui/rmlui/rmlui_render_pass_scheduler.cpp
+    src/ui/rmlui/rmlui_template_resolver.cpp
     src/ui_runtime_rmlui.cpp
 )
 
@@ -138,8 +140,8 @@ else()
 endif()
 
 target_compile_definitions(engine PUBLIC
-    NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets"
-    NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets"
+    NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets/system"
+    NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets/project"
     NOVELTEA_DEFAULT_CACHE_ASSET_ROOT="${CMAKE_BINARY_DIR}/cache"
 )
 
@@ -246,6 +248,7 @@ set(NOVELTEA_HAS_RMLUI_LUA OFF CACHE INTERNAL "RmlUi Lua plugin available")
 
 if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
     file(GLOB_RECURSE NOVELTEA_PROJECT_ASSET_INPUTS CONFIGURE_DEPENDS "${NOVELTEA_PROJECT_ASSET_SOURCE}/*")
+    file(GLOB_RECURSE NOVELTEA_ENGINE_ASSET_INPUTS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/engine/assets/system/*")
     add_custom_command(
         OUTPUT "${NOVELTEA_RUNTIME_ASSET_STAMP}"
         COMMAND "${CMAKE_COMMAND}"
@@ -254,7 +257,11 @@ if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
             "-DNOVELTEA_RUNTIME_ASSET_ROOT=${NOVELTEA_RUNTIME_ASSET_ROOT}"
             "-DNOVELTEA_STAGE_STAMP=${NOVELTEA_RUNTIME_ASSET_STAMP}"
             -P "${CMAKE_SOURCE_DIR}/cmake/StageNovelTeaAssets.cmake"
-        DEPENDS ${NOVELTEA_PROJECT_ASSET_INPUTS} ${NOVELTEA_SHADER_OUTPUTS}
+        DEPENDS
+            "${CMAKE_SOURCE_DIR}/cmake/StageNovelTeaAssets.cmake"
+            ${NOVELTEA_PROJECT_ASSET_INPUTS}
+            ${NOVELTEA_ENGINE_ASSET_INPUTS}
+            ${NOVELTEA_SHADER_OUTPUTS}
         COMMENT "Staging NovelTea runtime assets"
         VERBATIM
     )

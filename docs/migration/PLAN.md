@@ -203,9 +203,10 @@ Acceptance criteria:
 - Autosave-triggering dialogue/cutscene/action behavior is deterministic.
 - Editor preview can load a save or run from a clean project state.
 
-## Phase 4 [pending]: RmlUi Runtime UI Baseline
+## Phase 4 [done]: RmlUi Runtime UI Baseline
 
 Goal: make RmlUi the real runtime UI shell, not a temporary string-injected smoke view.
+
 
 Baseline RmlUi should own:
 
@@ -240,7 +241,7 @@ Acceptance criteria:
 - Layout remains correct across at least two logical sizes and high-DPI scale.
 - RmlUi remains independent from Dear ImGui.
 
-## Phase 5 [pending]: C++-Backed RmlUi Custom Components
+## Phase 5 [next]: C++-Backed RmlUi Custom Components
 
 Goal: create the extension model for complex NovelTea widgets.
 

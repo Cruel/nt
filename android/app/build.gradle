@@ -164,12 +164,18 @@ tasks.register("stageNovelTeaProjectAssets", Sync) {
 
 tasks.register("stageNovelTeaRuntimeAssets", Sync) {
     dependsOn("stageNovelTeaProjectAssets", "compileNovelTeaShaderAssets")
-    from file("$buildDir/generated/noveltea/project")
+    from(file("$buildDir/generated/noveltea/project")) {
+        into "project"
+    }
+    from(file("../../engine/assets/system")) {
+        into "system"
+    }
     def prebuiltRoot = project.hasProperty("novelteaPrebuiltShaderAssetRoot")
             ? file(project.property("novelteaPrebuiltShaderAssetRoot"))
             : file("$buildDir/generated/noveltea/shaders")
     from(prebuiltRoot) {
         include "shaders/bgfx/essl-300/**"
+        into "system"
     }
     into file("$buildDir/generated/runtime-assets/noveltea")
     doLast {

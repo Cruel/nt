@@ -35,13 +35,13 @@ std::filesystem::path default_system_asset_root()
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
     if (const char* base = SDL_GetBasePath()) {
         std::filesystem::path packaged = std::filesystem::path(base) / "assets";
-        if (std::filesystem::exists(packaged)) {
-            return packaged;
+        if (std::filesystem::exists(packaged / "system")) {
+            return packaged / "system";
         }
     }
     return NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT;
 #elif defined(NOVELTEA_PLATFORM_WEB)
-    return "/assets";
+    return "/assets/system";
 #else
     return {};
 #endif
@@ -52,8 +52,8 @@ std::filesystem::path default_project_asset_root()
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
     if (const char* base = SDL_GetBasePath()) {
         std::filesystem::path packaged = std::filesystem::path(base) / "assets";
-        if (std::filesystem::exists(packaged)) {
-            return packaged;
+        if (std::filesystem::exists(packaged / "project")) {
+            return packaged / "project";
         }
     }
 #if defined(NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT)
@@ -62,7 +62,7 @@ std::filesystem::path default_project_asset_root()
     return NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT;
 #endif
 #elif defined(NOVELTEA_PLATFORM_WEB)
-    return "/assets";
+    return "/assets/project";
 #else
     return {};
 #endif
@@ -102,7 +102,7 @@ void mount_default_source(assets::AssetManager& assets, const char* ns,
     } else if (writable) {
         assets.mount_directory(ns, default_root, true);
     } else {
-        assets.mount(ns, std::make_shared<assets::SdlPackagedAssetSource>());
+        assets.mount(ns, std::make_shared<assets::SdlPackagedAssetSource>(ns));
     }
 #else
     assets.mount_directory(ns, override_root.empty() ? default_root : override_root, writable);

@@ -1,6 +1,6 @@
 # Migration Status
 
-Last updated: 2026-06-19.
+Last updated: 2026-06-20.
 
 ## Completed Foundation
 
@@ -14,21 +14,23 @@ Last updated: 2026-06-19.
 - Legacy `game` JSON import and read-only legacy package import.
 - Backend-neutral rich-text semantics and engine-owned Unicode text implementation.
 - Lua runtime foundation. Lua is the only runtime scripting target.
+- Phase 4 RmlUi runtime UI baseline: project/theme/system template override policy, centralized `RuntimeUiDocumentBinder`, `RuntimeUiTemplateResolver`, system fallback RML/RCSS files, hardened document reload lifecycle with input listener reattachment, and updated runtime UI docs.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
 
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
-- RmlUi runtime game UI needs production components for complex widgets such as ActiveText, MapView, TextLog, and similar custom behavior.
 - Rich-text visual rendering parity, ActiveText effects, map rendering, and text-log rendering remain active.
+- C++-backed RmlUi custom components (`nt-active-text`, `nt-map-view`, `nt-text-log`) remain unimplemented.
+- Phase 6 tween integration through `twink` is not started.
 - Editor preview/test playback needs hardening around real workflows.
 - Packaging/export workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 
 ## Current Verification Commands
 
-Latest Phase 3 verification completed on 2026-06-19:
+Latest Phase 4 implementation — use these commands to verify:
 
 ```sh
 cmake --preset linux-debug
@@ -64,6 +66,7 @@ cd android
 
 For documentation-only cleanup, a targeted `rg` check for stale active-doc instructions is sufficient.
 
-## Next Planning Task
+## Next Implementation Task
 
-Plan Phase 4 from [`PLAN.md`](PLAN.md): RmlUi runtime UI baseline and project/theme override policy.
+Implement Phase 5 from [`PLAN.md`](PLAN.md): C++-backed RmlUi custom components
+(`nt-active-text`, `nt-map-view`, `nt-text-log`).
