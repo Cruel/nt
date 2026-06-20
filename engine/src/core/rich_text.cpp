@@ -694,4 +694,90 @@ nlohmann::json to_json(const RichTextTimelineItem& item)
     return {{"type", "text"}, {"page", to_json(item.page)}};
 }
 
+bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out)
+{
+    if (!value.is_object())
+        return false;
+
+    RichTextDocument document;
+    document.source = value.value("source", "");
+    document.plain_text = value.value("plain_text", "");
+
+    const auto runs = value.find("runs");
+    if (runs != value.end()) {
+        if (!runs->is_array())
+            return false;
+        for (const auto& run_value : *runs) {
+            if (!run_value.is_object())
+                return false;
+            RichTextRun run;
+            run.text = run_value.value("text", "");
+            run.new_group = run_value.value("new_group", false);
+            run.start_on_new_line = run_value.value("start_on_new_line", false);
+
+            const auto style_value = run_value.find("style");
+            if (style_value != run_value.end() && style_value->is_object()) {
+                run.style.font_alias = style_value->value("font_alias", "");
+                run.style.object_id = style_value->value("object_id", "");
+                run.style.vertex_shader_id = style_value->value("vertex_shader_id", "");
+                run.style.fragment_shader_id = style_value->value("fragment_shader_id", "");
+                run.style.x_offset = style_value->value("x_offset", 0);
+                run.style.y_offset = style_value->value("y_offset", 0);
+                run.style.font_size = style_value->value("font_size", 12u);
+                run.style.font_style = style_value->value("font_style", 0u);
+                run.style.outline_thickness = style_value->value("outline_thickness", 0.0f);
+                run.style.diff = style_value->value("diff", false);
+
+                const auto read_color = [](const nlohmann::json& color, RichTextColor& out_color) {
+                    if (!color.is_object())
+                        return;
+                    out_color.r = static_cast<std::uint8_t>(color.value("r", 0));
+                    out_color.g = static_cast<std::uint8_t>(color.value("g", 0));
+                    out_color.b = static_cast<std::uint8_t>(color.value("b", 0));
+                    out_color.a = static_cast<std::uint8_t>(color.value("a", 255));
+                };
+                if (const auto color = style_value->find("color"); color != style_value->end())
+                    read_color(*color, run.style.color);
+                if (const auto color = style_value->find("outline_color");
+                    color != style_value->end())
+                    read_color(*color, run.style.outline_color);
+            }
+
+            const auto animation_value = run_value.find("animation");
+            if (animation_value != run_value.end() && animation_value->is_object()) {
+                run.animation.type = static_cast<TextEffect>(animation_value->value("type", 0));
+                run.animation.equation = animation_value->value("equation", "quad");
+                run.animation.value = animation_value->value("value", "");
+                run.animation.duration_ms = animation_value->value("duration_ms", 0);
+                run.animation.delay_ms = animation_value->value("delay_ms", 0);
+                run.animation.loop_count = animation_value->value("loop_count", 0);
+                run.animation.loop_delay_ms = animation_value->value("loop_delay_ms", 0);
+                run.animation.speed = animation_value->value("speed", 1.0f);
+                run.animation.loop_yoyo = animation_value->value("loop_yoyo", true);
+                run.animation.skippable = animation_value->value("skippable", true);
+                run.animation.wait_for_click = animation_value->value("wait_for_click", false);
+            }
+
+            document.runs.push_back(std::move(run));
+        }
+    }
+
+    const auto page_breaks = value.find("page_breaks");
+    if (page_breaks != value.end()) {
+        if (!page_breaks->is_array())
+            return false;
+        for (const auto& break_value : *page_breaks) {
+            if (!break_value.is_object())
+                return false;
+            document.page_breaks.push_back(RichTextPageBreak{
+                break_value.value("run_index", std::size_t{}),
+                break_value.value("delay_ms", 0),
+            });
+        }
+    }
+
+    out = std::move(document);
+    return true;
+}
+
 } // namespace noveltea::core

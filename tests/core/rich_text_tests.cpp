@@ -1,6 +1,7 @@
 #include <noveltea/core/rich_text.hpp>
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 using namespace noveltea::core;
 
@@ -73,4 +74,30 @@ TEST_CASE("Rich text pagination and timeline split semantic documents without re
     CHECK(timeline[0].type == RichTextTimelineItem::Type::Text);
     CHECK(timeline[1].type == RichTextTimelineItem::Type::PageBreak);
     CHECK(timeline[1].delay_ms == 250);
+}
+
+TEST_CASE("Rich text JSON round-trips semantic document data")
+{
+    auto doc = parse_rich_text(
+        "[[Key|key-object]] [b][i]bold[/i][/b] [c=#bed]color[/c][p=0.5][a1 e=s t=2]shake[/a1]");
+
+    RichTextDocument copy;
+    REQUIRE(rich_text_from_json(to_json(doc), copy));
+
+    CHECK(copy.source == doc.source);
+    CHECK(copy.plain_text == doc.plain_text);
+    REQUIRE(copy.runs.size() == doc.runs.size());
+    CHECK(copy.runs[0].style.object_id == "key-object");
+    CHECK((copy.runs[2].style.font_style & FontBold) != 0);
+    CHECK((copy.runs[2].style.font_style & FontItalic) != 0);
+    CHECK(copy.runs[4].style.color.r == 0xbb);
+    bool found_shake = false;
+    for (const auto& run : copy.runs) {
+        if (run.animation.type == TextEffect::Shake && run.animation.duration_ms == 2000) {
+            found_shake = true;
+        }
+    }
+    CHECK(found_shake);
+    REQUIRE(copy.page_breaks.size() == 1);
+    CHECK(copy.page_breaks[0].delay_ms == 500);
 }

@@ -18,7 +18,8 @@ TEST_CASE("RuntimeUIViewAdapter consumes room description and navigation")
     RuntimeUIViewAdapter adapter;
     adapter.apply({
         cmd(ControllerCommandType::RoomEntry, "atrium", {{"name", "Atrium"}}),
-        cmd(ControllerCommandType::RoomDescription, "A quiet room.", {{"text", "A quiet room."}}),
+        cmd(ControllerCommandType::RoomDescription, "[b]A quiet room.[/b]",
+            {{"text", "[b]A quiet room.[/b]"}}),
         cmd(ControllerCommandType::NavigationUpdate, {},
             {{"north", true},
              {"east", false},
@@ -28,7 +29,10 @@ TEST_CASE("RuntimeUIViewAdapter consumes room description and navigation")
     const auto& state = adapter.state();
     CHECK(state.mode == "room");
     CHECK(state.title == "Atrium");
-    CHECK(state.body == "A quiet room.");
+    CHECK(state.body == "[b]A quiet room.[/b]");
+    CHECK(state.active_text.plain_text == "A quiet room.");
+    REQUIRE_FALSE(state.active_text.runs.empty());
+    CHECK((state.active_text.runs.front().style.font_style & FontBold) != 0);
     REQUIRE(state.navigation.size() == 2);
     CHECK(state.navigation[0] == "north");
     CHECK(state.navigation[1] == "Downstairs");
@@ -37,8 +41,12 @@ TEST_CASE("RuntimeUIViewAdapter consumes room description and navigation")
 TEST_CASE("RuntimeUIViewAdapter consumes dialogue text, options, and log lines")
 {
     RuntimeUIViewAdapter adapter;
-    adapter.apply(cmd(ControllerCommandType::DialogueText, "Hello.",
-                      {{"name", "Guide"}, {"text", "Hello."}, {"wait_for_click", true}}));
+    const auto rich = to_json(parse_rich_text("[[key|object-key]]"));
+    adapter.apply(cmd(ControllerCommandType::DialogueText, "[[key|object-key]]",
+                      {{"name", "Guide"},
+                       {"text", "[[key|object-key]]"},
+                       {"rich_text", rich},
+                       {"wait_for_click", true}}));
     adapter.apply(cmd(ControllerCommandType::DialogueOptions, {},
                       {{"options", nlohmann::json::array({
                                        {{"text", "Ask about the door"}, {"enabled", true}},
@@ -49,7 +57,10 @@ TEST_CASE("RuntimeUIViewAdapter consumes dialogue text, options, and log lines")
     const auto& state = adapter.state();
     CHECK(state.mode == "dialogue");
     CHECK(state.title == "Guide");
-    CHECK(state.body == "Hello.");
+    CHECK(state.body == "[[key|object-key]]");
+    CHECK(state.active_text.plain_text == "key");
+    REQUIRE_FALSE(state.active_text.runs.empty());
+    CHECK(state.active_text.runs.front().style.object_id == "object-key");
     CHECK_FALSE(state.awaiting_continue);
     REQUIRE(state.dialogue_options.size() == 2);
     CHECK(state.dialogue_options[0].text == "Ask about the door");
@@ -62,13 +73,18 @@ TEST_CASE("RuntimeUIViewAdapter consumes dialogue text, options, and log lines")
 TEST_CASE("RuntimeUIViewAdapter consumes cutscene page break")
 {
     RuntimeUIViewAdapter adapter;
-    adapter.apply(cmd(ControllerCommandType::CutsceneText, "Opening crawl",
-                      {{"text", "Opening crawl"}, {"wait_for_click", false}}));
+    adapter.apply(cmd(ControllerCommandType::CutsceneText, "[a1 e=p t=1]Opening crawl[/a1]",
+                      {{"text", "[a1 e=p t=1]Opening crawl[/a1]"},
+                       {"rich_text", to_json(parse_rich_text("[a1 e=p t=1]Opening crawl[/a1]"))},
+                       {"wait_for_click", false}}));
     adapter.apply(cmd(ControllerCommandType::CutscenePageBreak));
 
     const auto& state = adapter.state();
     CHECK(state.mode == "cutscene");
-    CHECK(state.body == "Opening crawl");
+    CHECK(state.body == "[a1 e=p t=1]Opening crawl[/a1]");
+    CHECK(state.active_text.plain_text == "Opening crawl");
+    REQUIRE_FALSE(state.active_text.runs.empty());
+    CHECK(state.active_text.runs.front().animation.type == TextEffect::Pop);
     CHECK(state.page_break);
     CHECK(state.awaiting_continue);
 }

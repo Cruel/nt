@@ -62,6 +62,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 add_library(engine STATIC
+    src/active_text.cpp
     src/assets/asset_manager.cpp
     src/assets.cpp
     src/app.cpp

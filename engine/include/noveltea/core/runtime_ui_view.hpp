@@ -6,6 +6,7 @@
 #include <nlohmann/json_fwd.hpp>
 
 #include <noveltea/core/runtime_controller.hpp>
+#include <noveltea/core/rich_text.hpp>
 
 namespace noveltea::core {
 
@@ -37,6 +38,7 @@ struct RuntimeUIViewState {
     std::vector<RuntimeUIObject> objects;
     std::vector<RuntimeUIAction> actions;
     std::vector<std::string> text_log;
+    RichTextDocument active_text;
     float active_text_reveal_progress = 1.0f;
     bool awaiting_continue = false;
     bool page_break = false;

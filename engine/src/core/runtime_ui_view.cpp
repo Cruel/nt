@@ -16,6 +16,16 @@ std::string json_string_or(const nlohmann::json& value, const char* key, std::st
     const auto it = value.find(key);
     return it != value.end() && it->is_string() ? it->get<std::string>() : std::move(fallback);
 }
+
+RichTextDocument rich_text_or_parse(const nlohmann::json& data, std::string_view fallback)
+{
+    if (const auto rich = data.find("rich_text"); rich != data.end()) {
+        RichTextDocument document;
+        if (rich_text_from_json(*rich, document))
+            return document;
+    }
+    return parse_rich_text(fallback);
+}
 } // namespace
 
 void RuntimeUIViewAdapter::reset() { m_state = RuntimeUIViewState{}; }
@@ -50,6 +60,7 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
     case ControllerCommandType::RoomDescription:
         m_state.mode = "room";
         m_state.body = json_string_or(command.data, "text", command.text);
+        m_state.active_text = rich_text_or_parse(command.data, m_state.body);
         m_state.dialogue_options.clear();
         m_state.page_break = false;
         break;
@@ -68,6 +79,7 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
         m_state.mode = "dialogue";
         m_state.title = json_string_or(command.data, "name");
         m_state.body = json_string_or(command.data, "text", command.text);
+        m_state.active_text = rich_text_or_parse(command.data, m_state.body);
         m_state.objects.clear();
         m_state.actions.clear();
         m_state.awaiting_continue = command.data.value("wait_for_click", false);
@@ -86,6 +98,7 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
         m_state.mode = "cutscene";
         m_state.title.clear();
         m_state.body = json_string_or(command.data, "text", command.text);
+        m_state.active_text = rich_text_or_parse(command.data, m_state.body);
         m_state.dialogue_options.clear();
         m_state.objects.clear();
         m_state.actions.clear();

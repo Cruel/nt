@@ -325,9 +325,15 @@ Acceptance criteria:
 - Tween updates are deterministic under fixed timestep playback.
 - At least one runtime component uses `TweenService` in tests or sandbox.
 
-## Phase 7 [pending]: ActiveText
+## Phase 7 [done]: ActiveText
 
 Goal: migrate NovelTea’s animated/rich text behavior without directly porting old SFML `ActiveText`.
+
+Status: complete except for real shader/material rendering hooks. Runtime view state now
+preserves backend-neutral `RichTextDocument` data, the engine exposes deterministic
+ActiveText frame data with per-glyph reveal/effect state, and `nt-active-text` projects
+that state into fallback RML with object/style/effect/shader metadata and page-break
+prompts. Shader/material ids are preserved as metadata stubs for later renderer work.
 
 Use the existing rich-text semantic model as the source of truth. It already models text styles, object spans, page breaks, shader IDs, offsets, diff spans, and effects such as fade, glow, nod, shake, tremble, and pop.
 

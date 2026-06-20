@@ -17,13 +17,14 @@ Last updated: 2026-06-20.
 - Phase 4 RmlUi runtime UI baseline: project/theme/system template override policy, centralized `RuntimeUiDocumentBinder`, `RuntimeUiTemplateResolver`, system fallback RML/RCSS files, hardened document reload lifecycle with input listener reattachment, and updated runtime UI docs.
 - Phase 5 RmlUi custom component foundation: `nt-active-text`, `nt-map-view`, and `nt-text-log` register as C++-backed runtime UI elements with deterministic fallback binding from `RuntimeUIViewState`.
 - Phase 6 tween integration: `twink` is resolved as an external package or pinned FetchContent fallback, `TweenService` owns engine-side tween instances, and RuntimeUI uses it for deterministic ActiveText reveal progress.
+- Phase 7 ActiveText: runtime view state preserves `RichTextDocument` data, the engine builds deterministic per-glyph ActiveText frames with reveal/effect state, and `nt-active-text` renders fallback RML with object/style/effect/shader metadata, page-break prompts, and semantic shader stubs.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
 
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
-- Rich-text visual rendering parity, ActiveText effects, map rendering, and text-log rendering remain active.
+- Shader-backed ActiveText rendering, map rendering, and text-log rendering remain active.
 - Editor preview/test playback needs hardening around real workflows.
 - Packaging/export workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
@@ -68,4 +69,4 @@ For documentation-only cleanup, a targeted `rg` check for stale active-doc instr
 
 ## Next Implementation Task
 
-Implement Phase 7 from [`PLAN.md`](PLAN.md): ActiveText rich-text layout, reveal, and effects on top of the Phase 6 `TweenService`.
+Implement Phase 8 from [`PLAN.md`](PLAN.md): MapView runtime presentation and interaction.

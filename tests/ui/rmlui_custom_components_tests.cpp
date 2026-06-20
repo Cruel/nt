@@ -20,10 +20,9 @@ TEST_CASE("RmlUi custom component helpers escape fallback RML")
     const auto active = make_active_text_snapshot(state);
     CHECK(active.title == "Room <One>");
     CHECK(active.body == "Look & listen\nUse \"quotes\"");
-    CHECK(active_text_rml(active) ==
-          "<div class=\"nt-active-text__body\" data-reveal-progress=\"1.000\"><p>Look "
-          "&amp; listen</p><p>Use "
-          "&quot;quotes&quot;</p></div>");
+    const auto active_rml = active_text_rml(active);
+    CHECK(active_rml.find("<p>Look &amp; listen</p>") != std::string::npos);
+    CHECK(active_rml.find("<p>Use &quot;quotes&quot;</p>") != std::string::npos);
 
     const auto log = make_text_log_snapshot(state);
     CHECK(text_log_rml(log) == "<p>A &lt; B</p><p>quote &quot; and apostrophe &#39;</p>");
@@ -87,4 +86,56 @@ TEST_CASE("RmlUi active text fallback exposes clamped reveal progress")
 
     snapshot.reveal_progress = 2.0f;
     CHECK(active_text_rml(snapshot).find("data-reveal-progress=\"1.000\"") != std::string::npos);
+}
+
+TEST_CASE("RmlUi active text fallback renders rich semantic spans")
+{
+    RuntimeUIViewState state;
+    state.body = "[[Key|key-object]] [b][i]bold[/i][/b] [c=#bed]color[/c] "
+                 "[d]diff[/d] [a1 e=s t=2]shake[/a1]";
+    state.active_text = parse_rich_text(state.body);
+
+    const auto rml = active_text_rml(make_active_text_snapshot(state));
+
+    CHECK(rml.find("data-object-id=\"key-object\"") != std::string::npos);
+    CHECK(rml.find("nt-active-text__run--object") != std::string::npos);
+    CHECK(rml.find("nt-active-text__run--bold") != std::string::npos);
+    CHECK(rml.find("nt-active-text__run--italic") != std::string::npos);
+    CHECK(rml.find("data-color=\"#bbeeddff\"") != std::string::npos);
+    CHECK(rml.find("data-diff=\"true\"") != std::string::npos);
+    CHECK(rml.find("data-effect=\"shake\"") != std::string::npos);
+    CHECK(rml.find("data-effect-fallback=\"semantic\"") != std::string::npos);
+    CHECK(rml.find("data-effect-duration-ms=\"2000\"") != std::string::npos);
+}
+
+TEST_CASE("RmlUi active text reveal slices rich text deterministically")
+{
+    ActiveTextComponentSnapshot snapshot;
+    snapshot.rich_text = parse_rich_text("[b]abcd[/b]");
+
+    snapshot.reveal_progress = 0.0f;
+    CHECK(active_text_rml(snapshot).find("&nbsp;") != std::string::npos);
+
+    snapshot.reveal_progress = 0.5f;
+    const auto partial = active_text_rml(snapshot);
+    CHECK(partial.find(">a</span>") != std::string::npos);
+    CHECK(partial.find(">b</span>") != std::string::npos);
+    CHECK(partial.find(">c</span>") == std::string::npos);
+
+    snapshot.reveal_progress = 1.0f;
+    const auto complete = active_text_rml(snapshot);
+    CHECK(complete.find(">a</span>") != std::string::npos);
+    CHECK(complete.find(">d</span>") != std::string::npos);
+}
+
+TEST_CASE("RmlUi active text fallback preserves prompts with rich text")
+{
+    ActiveTextComponentSnapshot snapshot;
+    snapshot.rich_text = parse_rich_text("[p=0.25]next");
+    snapshot.page_break = true;
+    snapshot.awaiting_continue = true;
+
+    const auto rml = active_text_rml(snapshot);
+    CHECK(rml.find("Page break") != std::string::npos);
+    CHECK(rml.find("Awaiting continue") == std::string::npos);
 }

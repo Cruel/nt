@@ -138,5 +138,6 @@ make_rich_text_timeline(const RichTextDocument& document, std::size_t max_plain_
 [[nodiscard]] nlohmann::json to_json(const RichTextDocument& document);
 [[nodiscard]] nlohmann::json to_json(const RichTextPage& page);
 [[nodiscard]] nlohmann::json to_json(const RichTextTimelineItem& item);
+[[nodiscard]] bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out);
 
 } // namespace noveltea::core

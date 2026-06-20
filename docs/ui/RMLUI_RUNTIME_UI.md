@@ -90,6 +90,10 @@ The binder:
 - RuntimeUI may bind a borrowed engine `TweenService`. When present, ActiveText body changes
   start a deterministic `runtime-ui` / `active-text-reveal` tween and expose current progress
   in fallback RML. Without a bound service, progress is complete and the UI remains static.
+- ActiveText fallback RML consumes backend-neutral `RichTextDocument` state from
+  `RuntimeUIViewState` through the engine `ActiveTextFrame` projection. It emits per-glyph
+  classes/data attributes for style, object, diff, offset, reveal, and effect state. Shader
+  ids are preserved as metadata stubs until renderer-specific material hooks are implemented.
 - Logs missing optional slots once per slot per document lifetime.
 - Populates `rt_map` with a placeholder when empty.
 

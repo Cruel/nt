@@ -15,6 +15,7 @@ namespace noveltea::ui::rmlui {
 struct ActiveTextComponentSnapshot {
     std::string title;
     std::string body;
+    core::RichTextDocument rich_text;
     bool awaiting_continue = false;
     bool page_break = false;
     float reveal_progress = 1.0f;
