@@ -5,6 +5,8 @@
 
 #include <noveltea/core/project_ids.hpp>
 
+#include <utility>
+
 using namespace noveltea::core;
 
 namespace {
@@ -377,6 +379,56 @@ TEST_CASE("RuntimeSessionHost uses save-backed object locations for room and inv
     auto available = host.apply_input(RuntimeInput{
         .type = RuntimeInputType::RunAction, .verb_id = "look", .object_ids = {"coin"}});
     CHECK(available.handled);
+}
+
+TEST_CASE("RuntimeSessionHost restores saved log strings into structured view state")
+{
+    auto save = SaveDocument::new_save();
+    save.root()[project_ids::log] = nlohmann::json::array({"loaded", "[b]rich[/b]"});
+
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_room_project(), save).success);
+
+    const auto& log = host.view_state().text_log;
+    REQUIRE(log.size() == 2);
+    CHECK(log[0].sequence == 0);
+    CHECK(log[0].plain_text == "loaded");
+    CHECK(log[0].rich_text.plain_text == "loaded");
+    CHECK(log[1].sequence == 1);
+    CHECK(log[1].plain_text == "[b]rich[/b]");
+    CHECK(log[1].rich_text.plain_text == "rich");
+}
+
+TEST_CASE("RuntimeSessionHost emits structured text log output payloads")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_room_project()).success);
+
+    RuntimeEvent event;
+    event.type = RuntimeEventType::TextLogged;
+    event.text = "[i]Hello[/i]";
+    event.data = {{"speaker", "Guide"},
+                  {"source", EntityRef{EntityType::Dialogue, "intro"}.to_json()},
+                  {"category", "dialogue"}};
+    host.session().events().push(std::move(event));
+
+    auto result = host.flush_pending_outputs(12);
+
+    CHECK(result.handled);
+    REQUIRE(result.view.text_log.size() == 1);
+    REQUIRE(has_output(result.outputs, RuntimeOutputType::TextLogEntry));
+    for (const auto& output : result.outputs) {
+        if (output.type != RuntimeOutputType::TextLogEntry) {
+            continue;
+        }
+        CHECK(output.step_index == 12);
+        CHECK(output.payload["sequence"] == 0);
+        CHECK(output.payload["plain_text"] == "[i]Hello[/i]");
+        CHECK(output.payload["rich_text"]["plain_text"] == "Hello");
+        CHECK(output.payload["speaker"] == "Guide");
+        CHECK(output.payload["source"] == ref(EntityType::Dialogue, "intro"));
+        CHECK(output.payload["category"] == "dialogue");
+    }
 }
 
 TEST_CASE("RuntimeSessionHost saves, loads, and autosaves through slot store")

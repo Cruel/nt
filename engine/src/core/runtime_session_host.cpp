@@ -19,6 +19,9 @@ GameSessionLoadResult RuntimeSessionHost::load(ProjectDocument project, SaveDocu
     }
 
     m_controller = std::make_unique<RuntimeController>(m_session);
+    if (const auto* session_save = m_session.save()) {
+        m_view.set_saved_text_log(session_save->root()[project_ids::log]);
+    }
     return result;
 }
 
@@ -408,6 +411,14 @@ RuntimeSessionHost::commands_to_outputs(const std::vector<ControllerCommand>& co
 {
     std::vector<RuntimeOutput> outputs;
     outputs.reserve(commands.size());
+    const auto text_command_count = static_cast<std::size_t>(
+        std::count_if(commands.begin(), commands.end(), [](const auto& command) {
+            return command.type == ControllerCommandType::TextLogged;
+        }));
+    const auto& text_log = m_view.state().text_log;
+    const std::size_t first_text_index =
+        text_log.size() >= text_command_count ? text_log.size() - text_command_count : 0;
+    std::size_t text_output_index = 0;
     for (const auto& command : commands) {
         RuntimeOutput output;
         output.command = command;
@@ -426,6 +437,11 @@ RuntimeSessionHost::commands_to_outputs(const std::vector<ControllerCommand>& co
             break;
         case ControllerCommandType::TextLogged:
             output.type = RuntimeOutputType::TextLogEntry;
+            if (first_text_index + text_output_index < text_log.size()) {
+                output.payload =
+                    text_log_entry_to_json(text_log[first_text_index + text_output_index]);
+            }
+            ++text_output_index;
             break;
         default:
             output.type = RuntimeOutputType::Command;

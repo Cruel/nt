@@ -11,7 +11,10 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
   connections from `RuntimeUIViewState`, highlights the current room, preserves style ids and
   visibility script text as metadata, and emits `nt-nav` click targets for directly reachable
   rooms. Lua visibility scripts are not executed by backend-neutral core in this v1 fallback.
-- `nt-text-log`: registered as a C++ RmlUi element. Phase 5 binds saved/runtime log lines into safe fallback RML. Scrollback policy, richer entry metadata, and playback assertions are Phase 9 work.
+- `nt-text-log`: registered as a C++ RmlUi element. Phase 9 binds structured runtime log
+  entries into deterministic fallback RML with sequence ids, rich-text snapshots,
+  speaker/source/category metadata, and playback-assertable output payloads. Filtering remains
+  later work.
 - Inventory/object interaction widgets where generic RML is insufficient
 - Save/load or profile widgets if they need custom behavior beyond ordinary controls
 

@@ -34,7 +34,11 @@ TEST_CASE("RuntimeUiDocumentBinder state holds populated data")
     state.navigation = {"north", "east"};
     state.objects = {{"lamp", "Lamp", true, false}, {"key", "Brass Key", false, true}};
     state.actions = {{"look", "Look at", 1}, {"take", "Take", 1}};
-    state.text_log = {"Guide: Hello, traveler.", "You see a lamp."};
+    state.text_log.push_back(
+        RuntimeUITextLogEntry{.sequence = 0, .plain_text = "Hello, traveler.", .speaker = "Guide"});
+    state.text_log.back().rich_text = parse_rich_text(state.text_log.back().plain_text);
+    state.text_log.push_back(RuntimeUITextLogEntry{.sequence = 1, .plain_text = "You see a lamp."});
+    state.text_log.back().rich_text = parse_rich_text(state.text_log.back().plain_text);
     state.awaiting_continue = true;
 
     CHECK(state.mode == "dialogue");
@@ -55,7 +59,8 @@ TEST_CASE("RuntimeUiDocumentBinder state holds populated data")
     CHECK(state.actions[0].verb_id == "look");
     CHECK(state.actions[0].object_count == 1);
     REQUIRE(state.text_log.size() == 2);
-    CHECK(state.text_log[0] == "Guide: Hello, traveler.");
+    CHECK(state.text_log[0].speaker == "Guide");
+    CHECK(state.text_log[0].plain_text == "Hello, traveler.");
     CHECK(state.awaiting_continue);
 }
 

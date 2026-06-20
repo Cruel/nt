@@ -219,8 +219,25 @@ MapViewComponentSnapshot make_map_view_snapshot(const core::RuntimeUIViewState& 
 TextLogComponentSnapshot make_text_log_snapshot(const core::RuntimeUIViewState& state)
 {
     std::ostringstream out;
-    for (const auto& line : state.text_log) {
-        out << "<p>" << escape_rml(line) << "</p>";
+    for (const auto& entry : state.text_log) {
+        out << "<div class=\"nt-text-log__entry\" data-sequence=\"" << entry.sequence << "\"";
+        if (!entry.category.empty())
+            out << " data-category=\"" << escape_rml(entry.category) << "\"";
+        if (!entry.source_name.empty())
+            out << " data-source-name=\"" << escape_rml(entry.source_name) << "\"";
+        if (entry.source.has_value()) {
+            out << " data-source-type=\"" << core::to_integer(entry.source->type) << "\"";
+            out << " data-source-id=\"" << escape_rml(entry.source->id) << "\"";
+        }
+        out << ">";
+        if (!entry.speaker.empty()) {
+            out << "<span class=\"nt-text-log__speaker\">" << escape_rml(entry.speaker)
+                << "</span>";
+        }
+        const auto rich = rich_text_rml(entry.rich_text, 1.0f);
+        const auto body = rich.empty() ? paragraph_rml(entry.plain_text) : rich;
+        out << "<div class=\"nt-text-log__body\">" << (body.empty() ? "&nbsp;" : body)
+            << "</div></div>";
     }
     return {out.str()};
 }

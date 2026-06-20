@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,6 +29,16 @@ struct RuntimeUIAction {
     std::string verb_id;
     std::string label;
     int object_count = 0;
+};
+
+struct RuntimeUITextLogEntry {
+    std::uint64_t sequence = 0;
+    std::string plain_text;
+    RichTextDocument rich_text;
+    std::string speaker;
+    std::string source_name;
+    std::optional<EntityRef> source;
+    std::string category;
 };
 
 struct RuntimeUIMapRoom {
@@ -80,7 +92,7 @@ struct RuntimeUIViewState {
     std::vector<std::string> navigation;
     std::vector<RuntimeUIObject> objects;
     std::vector<RuntimeUIAction> actions;
-    std::vector<std::string> text_log;
+    std::vector<RuntimeUITextLogEntry> text_log;
     RuntimeUIMapView map_view;
     RichTextDocument active_text;
     float active_text_reveal_progress = 1.0f;
@@ -95,6 +107,7 @@ public:
     void apply(const std::vector<ControllerCommand>& commands);
     void set_room_interactions(std::vector<RuntimeUIObject> objects,
                                std::vector<RuntimeUIAction> actions);
+    void set_saved_text_log(const nlohmann::json& log);
     void sync_map(const GameSession& session);
 
     [[nodiscard]] const RuntimeUIViewState& state() const noexcept { return m_state; }
@@ -102,9 +115,14 @@ public:
 private:
     void apply_options(const nlohmann::json& options);
     void apply_navigation(const nlohmann::json& data);
-    void push_log_line(std::string line);
+    void push_log_entry(RuntimeUITextLogEntry entry);
 
     RuntimeUIViewState m_state;
+    std::uint64_t m_next_text_log_sequence = 0;
 };
+
+[[nodiscard]] RuntimeUITextLogEntry
+make_text_log_entry(std::string text, const nlohmann::json& data, std::uint64_t sequence);
+[[nodiscard]] nlohmann::json text_log_entry_to_json(const RuntimeUITextLogEntry& entry);
 
 } // namespace noveltea::core

@@ -61,7 +61,7 @@ RuntimeController::RuntimeController(GameSession& session)
                 ControllerCommandType::TextLogged,
                 std::nullopt,
                 event.text,
-                {{"data", event.data}},
+                event.data,
             });
             return true;
         });

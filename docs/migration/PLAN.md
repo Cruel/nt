@@ -415,9 +415,16 @@ Blocked/deferred before Phase 8 can be marked fully done:
 - Optional transition animation. No concrete behavior is specified yet.
 - bgfx/custom map geometry. This is deferred until the RmlUi DOM fallback proves insufficient.
 
-## Phase 9 [pending]: TextLog
+## Phase 9 [done]: TextLog
 
 Goal: turn text log into a real runtime component.
+
+Status: complete for the v1 structured runtime/UI slice. Runtime view state now exposes structured
+text-log entries with rich-text snapshots, speaker/source/category metadata, and deterministic
+sequence ids. Legacy save `/log` remains a string array for compatibility, and saved string log
+entries are restored into structured runtime view entries. `nt-text-log` renders deterministic RmlUi
+fallback markup with entry wrappers and metadata attributes, while runtime `TextLogEntry` outputs
+carry structured payloads for playback assertions.
 
 TextLog should support:
 
@@ -436,6 +443,11 @@ Acceptance criteria:
 - Runtime log entries are visible and persisted.
 - TextLog does not depend on direct string-injected DOM updates.
 - Playback tests can assert log contents.
+
+Deferred beyond v1:
+
+- Optional filtering UI.
+- Platform-specific save/load screens that expose log scrollback.
 
 ## Phase 10 [pending]: Object, Inventory, and Action Presentation
 

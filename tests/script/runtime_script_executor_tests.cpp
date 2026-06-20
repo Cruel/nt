@@ -93,8 +93,8 @@ std::vector<std::string> text_log_outputs(const std::vector<core::RuntimeOutput>
 {
     std::vector<std::string> result;
     for (const auto& output : outputs) {
-        if (output.type == core::RuntimeOutputType::TextLogEntry && output.command.has_value()) {
-            result.push_back(output.command->text);
+        if (output.type == core::RuntimeOutputType::TextLogEntry) {
+            result.push_back(output.payload.value("plain_text", std::string{}));
         }
     }
     return result;

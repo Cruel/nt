@@ -7,6 +7,8 @@
 #include <limits>
 #include <utility>
 
+#include <noveltea/core/project_ids.hpp>
+
 namespace noveltea::core {
 
 namespace {
@@ -26,6 +28,23 @@ RichTextDocument rich_text_or_parse(const nlohmann::json& data, std::string_view
             return document;
     }
     return parse_rich_text(fallback);
+}
+
+const nlohmann::json& text_log_metadata(const nlohmann::json& data)
+{
+    if (const auto nested = data.find("data"); nested != data.end() && nested->is_object()) {
+        return *nested;
+    }
+    return data;
+}
+
+std::optional<EntityRef> entity_ref_or_empty(const nlohmann::json& data, const char* key)
+{
+    const auto it = data.find(key);
+    if (it == data.end()) {
+        return std::nullopt;
+    }
+    return EntityRef::from_json(*it);
 }
 
 bool contains_room_id(const MapRoomModel& room, const std::string& room_id)
@@ -71,7 +90,11 @@ std::vector<int> reachable_path_indices(const ProjectModel& project, const std::
 }
 } // namespace
 
-void RuntimeUIViewAdapter::reset() { m_state = RuntimeUIViewState{}; }
+void RuntimeUIViewAdapter::reset()
+{
+    m_state = RuntimeUIViewState{};
+    m_next_text_log_sequence = 0;
+}
 
 void RuntimeUIViewAdapter::apply(const std::vector<ControllerCommand>& commands)
 {
@@ -114,8 +137,7 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
         m_state.notification = command.text;
         break;
     case ControllerCommandType::TextLogged: {
-        const std::string name = json_string_or(command.data, "name");
-        push_log_line(name.empty() ? command.text : name + ": " + command.text);
+        push_log_entry(make_text_log_entry(command.text, command.data, m_next_text_log_sequence++));
         break;
     }
     case ControllerCommandType::DialogueText:
@@ -174,6 +196,21 @@ void RuntimeUIViewAdapter::set_room_interactions(std::vector<RuntimeUIObject> ob
 {
     m_state.objects = std::move(objects);
     m_state.actions = std::move(actions);
+}
+
+void RuntimeUIViewAdapter::set_saved_text_log(const nlohmann::json& log)
+{
+    m_state.text_log.clear();
+    m_next_text_log_sequence = 0;
+    if (!log.is_array()) {
+        return;
+    }
+    for (const auto& item : log) {
+        if (item.is_string()) {
+            push_log_entry(make_text_log_entry(item.get<std::string>(), nlohmann::json::object(),
+                                               m_next_text_log_sequence++));
+        }
+    }
 }
 
 void RuntimeUIViewAdapter::sync_map(const GameSession& session)
@@ -317,17 +354,61 @@ void RuntimeUIViewAdapter::apply_navigation(const nlohmann::json& data)
     }
 }
 
-void RuntimeUIViewAdapter::push_log_line(std::string line)
+void RuntimeUIViewAdapter::push_log_entry(RuntimeUITextLogEntry entry)
 {
-    if (line.empty())
+    if (entry.plain_text.empty())
         return;
-    m_state.text_log.push_back(std::move(line));
+    m_state.text_log.push_back(std::move(entry));
     if (m_state.text_log.size() > kMaxTextLogLines) {
         m_state.text_log.erase(
             m_state.text_log.begin(),
             m_state.text_log.begin() +
                 static_cast<std::ptrdiff_t>(m_state.text_log.size() - kMaxTextLogLines));
     }
+}
+
+RuntimeUITextLogEntry make_text_log_entry(std::string text, const nlohmann::json& data,
+                                          std::uint64_t sequence)
+{
+    const auto& metadata = text_log_metadata(data);
+
+    RuntimeUITextLogEntry entry;
+    entry.sequence = sequence;
+    entry.plain_text = std::move(text);
+    entry.rich_text = rich_text_or_parse(metadata, entry.plain_text);
+    entry.speaker = json_string_or(metadata, "speaker", json_string_or(metadata, "name"));
+    entry.source_name = json_string_or(metadata, "source_name");
+    if (entry.source_name.empty()) {
+        entry.source_name = entry.speaker;
+    }
+    entry.category = json_string_or(metadata, "category");
+    entry.source = entity_ref_or_empty(metadata, "source");
+    if (!entry.source.has_value()) {
+        entry.source = entity_ref_or_empty(metadata, "source_ref");
+    }
+    return entry;
+}
+
+nlohmann::json text_log_entry_to_json(const RuntimeUITextLogEntry& entry)
+{
+    nlohmann::json out = {
+        {"sequence", entry.sequence},
+        {"plain_text", entry.plain_text},
+        {"rich_text", to_json(entry.rich_text)},
+    };
+    if (!entry.speaker.empty()) {
+        out["speaker"] = entry.speaker;
+    }
+    if (!entry.source_name.empty()) {
+        out["source_name"] = entry.source_name;
+    }
+    if (entry.source.has_value()) {
+        out["source"] = entry.source->to_json();
+    }
+    if (!entry.category.empty()) {
+        out["category"] = entry.category;
+    }
+    return out;
 }
 
 } // namespace noveltea::core

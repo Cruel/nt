@@ -67,7 +67,11 @@ TEST_CASE("RuntimeUIViewAdapter consumes dialogue text, options, and log lines")
     CHECK(state.dialogue_options[0].enabled);
     CHECK_FALSE(state.dialogue_options[1].enabled);
     REQUIRE(state.text_log.size() == 1);
-    CHECK(state.text_log[0] == "Guide: Hello.");
+    CHECK(state.text_log[0].sequence == 0);
+    CHECK(state.text_log[0].speaker == "Guide");
+    CHECK(state.text_log[0].source_name == "Guide");
+    CHECK(state.text_log[0].plain_text == "Hello.");
+    CHECK(state.text_log[0].rich_text.plain_text == "Hello.");
 }
 
 TEST_CASE("RuntimeUIViewAdapter consumes cutscene page break")
@@ -121,6 +125,45 @@ TEST_CASE("RuntimeUIViewAdapter bounds text log")
 
     const auto& log = adapter.state().text_log;
     REQUIRE(log.size() == 64);
-    CHECK(log.front() == "line 6");
-    CHECK(log.back() == "line 69");
+    CHECK(log.front().sequence == 6);
+    CHECK(log.front().plain_text == "line 6");
+    CHECK(log.back().sequence == 69);
+    CHECK(log.back().plain_text == "line 69");
+}
+
+TEST_CASE("RuntimeUIViewAdapter preserves structured text log metadata")
+{
+    RuntimeUIViewAdapter adapter;
+    adapter.apply(cmd(ControllerCommandType::TextLogged, "[b]Hello[/b]",
+                      {{"speaker", "Guide"},
+                       {"source_name", "Guide NPC"},
+                       {"source", EntityRef{EntityType::Dialogue, "intro"}.to_json()},
+                       {"category", "dialogue"},
+                       {"rich_text", to_json(parse_rich_text("[b]Hello[/b]"))}}));
+
+    const auto& log = adapter.state().text_log;
+    REQUIRE(log.size() == 1);
+    CHECK(log[0].plain_text == "[b]Hello[/b]");
+    CHECK(log[0].rich_text.plain_text == "Hello");
+    CHECK(log[0].speaker == "Guide");
+    CHECK(log[0].source_name == "Guide NPC");
+    REQUIRE(log[0].source.has_value());
+    CHECK(log[0].source->type == EntityType::Dialogue);
+    CHECK(log[0].source->id == "intro");
+    CHECK(log[0].category == "dialogue");
+}
+
+TEST_CASE("RuntimeUIViewAdapter restores saved string log entries")
+{
+    RuntimeUIViewAdapter adapter;
+    adapter.set_saved_text_log(nlohmann::json::array({"loaded", "[i]rich[/i]", 7}));
+
+    const auto& log = adapter.state().text_log;
+    REQUIRE(log.size() == 2);
+    CHECK(log[0].sequence == 0);
+    CHECK(log[0].plain_text == "loaded");
+    CHECK(log[0].rich_text.plain_text == "loaded");
+    CHECK(log[1].sequence == 1);
+    CHECK(log[1].plain_text == "[i]rich[/i]");
+    CHECK(log[1].rich_text.plain_text == "rich");
 }

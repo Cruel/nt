@@ -5,6 +5,7 @@
 #include "ui/rmlui/rmlui_custom_components.hpp"
 
 #include <string>
+#include <utility>
 
 using namespace noveltea;
 using namespace noveltea::core;
@@ -15,7 +16,11 @@ TEST_CASE("RmlUi custom component helpers escape fallback RML")
     RuntimeUIViewState state;
     state.title = "Room <One>";
     state.body = "Look & listen\nUse \"quotes\"";
-    state.text_log = {"A < B", "quote \" and apostrophe '"};
+    state.text_log.push_back(RuntimeUITextLogEntry{.sequence = 0, .plain_text = "A < B"});
+    state.text_log.back().rich_text = parse_rich_text(state.text_log.back().plain_text);
+    state.text_log.push_back(RuntimeUITextLogEntry{
+        .sequence = 1, .plain_text = "quote \" and apostrophe '", .category = "meta < data"});
+    state.text_log.back().rich_text = parse_rich_text(state.text_log.back().plain_text);
 
     const auto active = make_active_text_snapshot(state);
     CHECK(active.title == "Room <One>");
@@ -25,7 +30,11 @@ TEST_CASE("RmlUi custom component helpers escape fallback RML")
     CHECK(active_rml.find("<p>Use &quot;quotes&quot;</p>") != std::string::npos);
 
     const auto log = make_text_log_snapshot(state);
-    CHECK(text_log_rml(log) == "<p>A &lt; B</p><p>quote &quot; and apostrophe &#39;</p>");
+    CHECK(text_log_rml(log).find("data-sequence=\"0\"") != std::string::npos);
+    CHECK(text_log_rml(log).find("&lt;") != std::string::npos);
+    CHECK(text_log_rml(log).find("&quot;") != std::string::npos);
+    CHECK(text_log_rml(log).find("&#39;") != std::string::npos);
+    CHECK(text_log_rml(log).find("data-category=\"meta &lt; data\"") != std::string::npos);
 }
 
 TEST_CASE("RmlUi custom component snapshots tolerate empty runtime state")
@@ -55,7 +64,10 @@ TEST_CASE("RmlUi custom component snapshots are deterministic")
     state.body = "First\nSecond";
     state.awaiting_continue = true;
     state.navigation = {"north", "east"};
-    state.text_log = {"one", "two"};
+    state.text_log.push_back(RuntimeUITextLogEntry{.sequence = 0, .plain_text = "one"});
+    state.text_log.back().rich_text = parse_rich_text(state.text_log.back().plain_text);
+    state.text_log.push_back(RuntimeUITextLogEntry{.sequence = 1, .plain_text = "two"});
+    state.text_log.back().rich_text = parse_rich_text(state.text_log.back().plain_text);
     state.map_view.available = true;
     state.map_view.enabled = true;
     state.map_view.map_id = "main";
@@ -81,7 +93,35 @@ TEST_CASE("RmlUi custom component snapshots are deterministic")
     const auto log_a = text_log_rml(make_text_log_snapshot(state));
     const auto log_b = text_log_rml(make_text_log_snapshot(state));
     CHECK(log_a == log_b);
-    CHECK(log_a == "<p>one</p><p>two</p>");
+    CHECK(log_a.find("data-sequence=\"0\"") != std::string::npos);
+    CHECK(log_a.find("data-sequence=\"1\"") != std::string::npos);
+    CHECK(log_a.find(">o</span>") != std::string::npos);
+    CHECK(log_a.find(">t</span>") != std::string::npos);
+}
+
+TEST_CASE("RmlUi text log fallback exposes metadata and rich text")
+{
+    RuntimeUIViewState state;
+    RuntimeUITextLogEntry entry;
+    entry.sequence = 42;
+    entry.plain_text = "[b]Hello[/b]";
+    entry.rich_text = parse_rich_text(entry.plain_text);
+    entry.speaker = "Guide <One>";
+    entry.source_name = "Guide Source";
+    entry.source = EntityRef{EntityType::Dialogue, "intro"};
+    entry.category = "dialogue";
+    state.text_log.push_back(std::move(entry));
+
+    const auto rml = text_log_rml(make_text_log_snapshot(state));
+
+    CHECK(rml.find("class=\"nt-text-log__entry\"") != std::string::npos);
+    CHECK(rml.find("data-sequence=\"42\"") != std::string::npos);
+    CHECK(rml.find("data-category=\"dialogue\"") != std::string::npos);
+    CHECK(rml.find("data-source-name=\"Guide Source\"") != std::string::npos);
+    CHECK(rml.find("data-source-id=\"intro\"") != std::string::npos);
+    CHECK(rml.find("Guide &lt;One&gt;") != std::string::npos);
+    CHECK(rml.find("nt-active-text__run--bold") != std::string::npos);
+    CHECK(rml.find(">H</span>") != std::string::npos);
 }
 
 TEST_CASE("RmlUi active text fallback exposes clamped reveal progress")
