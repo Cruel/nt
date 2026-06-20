@@ -70,10 +70,8 @@ public:
 
 private:
     struct State;
-#if defined(NOVELTEA_HAS_RMLUI)
     void cleanup_state();
     State* m_state = nullptr;
-#endif
 
     bool m_initialized = false;
     bool m_last_event_consumed = false;

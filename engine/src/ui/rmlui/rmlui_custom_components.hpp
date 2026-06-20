@@ -5,10 +5,8 @@
 
 #include <noveltea/core/runtime_ui_view.hpp>
 
-#if defined(NOVELTEA_HAS_RMLUI)
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementInstancer.h>
-#endif
 
 namespace noveltea::ui::rmlui {
 
@@ -41,7 +39,6 @@ make_text_log_snapshot(const core::RuntimeUIViewState& state);
 [[nodiscard]] std::string map_view_rml(const MapViewComponentSnapshot& snapshot);
 [[nodiscard]] std::string text_log_rml(const TextLogComponentSnapshot& snapshot);
 
-#if defined(NOVELTEA_HAS_RMLUI)
 class NtActiveTextElement final : public Rml::Element {
 public:
     explicit NtActiveTextElement(const Rml::String& tag);
@@ -73,6 +70,5 @@ private:
     std::unique_ptr<Rml::ElementInstancer> m_map_view;
     std::unique_ptr<Rml::ElementInstancer> m_text_log;
 };
-#endif
 
 } // namespace noveltea::ui::rmlui

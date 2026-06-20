@@ -2,17 +2,23 @@
 
 NovelTea is a C++20 runtime/framework for migrating and modernizing the old NovelTea engine on top of a portable SDL3/bgfx baseline.
 
-## Current Stack
+## Required Stack for `engine`
 
 - SDL3: platform, windowing, input, and lifecycle.
 - bgfx: rendering across Linux desktop, Web/Emscripten, and Android.
-- RmlUi: general runtime UI.
-- Dear ImGui: developer/debug UI only.
-- Lua: the only runtime scripting target.
+- RmlUi (with Lua plugin): general runtime UI.
+- Lua 5.5 + sol2: the only runtime scripting target.
 - FreeType, HarfBuzz, SheenBidi, and libunibreak: engine-owned text shaping/layout support.
-- miniaudio: available for the future audio backend.
 
-Backend-neutral core code must stay free of SDL3, bgfx, RmlUi, ImGui, Lua, Electron, Android, Emscripten, SFML, and Qt types.
+## Optional Components
+
+- twink: animation backend for the tween service. If absent, tweens resolve as immediate value changes.
+- Dear ImGui: developer/debug UI only (controlled by `NOVELTEA_ENABLE_DEVTOOLS`).
+
+## Backend-Neutral Core
+
+`noveltea_core` stays free of SDL3, bgfx, RmlUi, ImGui, Lua, Electron, Android, Emscripten, SFML, and Qt types.
+It depends only on `nlohmann_json` and `miniz`.
 
 ## Supported Targets
 
@@ -35,6 +41,8 @@ refs/NovelTea/   Optional read-only legacy reference clone.
 ```
 
 ## Build and Verify
+
+See [docs/build/CMAKE_OPTIONS.md](docs/build/CMAKE_OPTIONS.md) for the full list of supported CMake variables.
 
 Linux:
 

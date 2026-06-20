@@ -1,8 +1,6 @@
 #include "noveltea/render/resources.hpp"
 
-#if defined(NOVELTEA_HAS_BGFX)
 #include <bgfx/bgfx.h>
-#endif
 
 #include <utility>
 
@@ -22,11 +20,9 @@ TextureHandle& TextureHandle::operator=(TextureHandle&& other) noexcept
 
 void TextureHandle::reset(uint16_t index)
 {
-#if defined(NOVELTEA_HAS_BGFX)
     if (valid() && bgfx::isValid(bgfx::TextureHandle{m_index})) {
         bgfx::destroy(bgfx::TextureHandle{m_index});
     }
-#endif
     m_index = index;
 }
 
@@ -46,11 +42,9 @@ ProgramHandle& ProgramHandle::operator=(ProgramHandle&& other) noexcept
 
 void ProgramHandle::reset(uint16_t index)
 {
-#if defined(NOVELTEA_HAS_BGFX)
     if (valid() && bgfx::isValid(bgfx::ProgramHandle{m_index})) {
         bgfx::destroy(bgfx::ProgramHandle{m_index});
     }
-#endif
     m_index = index;
 }
 

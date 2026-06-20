@@ -43,7 +43,7 @@ The exported `noveltea_preview_*` functions forward preview controls and resize 
 assets::AssetManager m_assets;
 Platform m_platform;
 Renderer m_renderer;
-script::ScriptRuntime m_scripts; // only when NOVELTEA_HAS_LUA
+script::ScriptRuntime m_scripts;
 RuntimeUI m_runtime_ui;
 core::RuntimeSessionHost m_runtime_host;
 DebugUI m_debug_ui;
@@ -56,7 +56,7 @@ The owned subsystems have these current responsibilities:
 - `AssetManager`: logical asset namespaces and mounted sources for system, project, cache, and legacy package assets.
 - `Platform`: SDL3 window, events, native window handles, timing, quit state, and surface metrics.
 - `Renderer`: bgfx renderer ownership, view setup, demo drawing, screenshots, and resize handling.
-- `ScriptRuntime`: optional Lua state, host bindings, asset-backed script execution helpers, and `bind_game_session`.
+- `ScriptRuntime`: Lua state, host bindings, asset-backed script execution helpers, and `bind_game_session`.
 - `RuntimeUI`: RmlUi lifecycle, SDL3 input translation, bgfx RmlUi rendering, document management, and current runtime-game document updates.
 - `core::RuntimeSessionHost`: backend-neutral loaded game session, controller, derived runtime view state, and last controller command batch.
 - `DebugUI`: Dear ImGui developer/debug UI only.
@@ -173,13 +173,13 @@ This is the current bridge, not the final component model. There is no productio
 
 Lua is the only runtime scripting target in this repository.
 
-When `NOVELTEA_HAS_LUA` is enabled, `Engine` initializes `ScriptRuntime` after `Renderer` and before `RuntimeUI`. `ScriptRuntime` opens a restricted Lua state, removes direct OS/file/package entry points, registers NovelTea host bindings, installs host `print`, and can execute source strings or logical asset paths through `AssetManager`.
+`Engine` initializes `ScriptRuntime` after `Renderer` and before `RuntimeUI`. `ScriptRuntime` opens a restricted Lua state, removes direct OS/file/package entry points, registers NovelTea host bindings, installs host `print`, and can execute source strings or logical asset paths through `AssetManager`.
 
 `ScriptRuntime` exposes `bind_game_session(core::GameSession*)` and `clear_game_bindings()`. The binding implementation registers game compatibility globals and wraps the current `GameSession` pointer. Many mutation APIs are intentionally still stubs, including property mutation, save/load/autosave/quit behavior, script text input, and some save helpers.
 
 ### Tween Service
 
-`twink` is an external dependency, resolved through `find_package(twink CONFIG)` or a pinned FetchContent fallback. The engine target owns `TweenService`, which wraps `twink::TweenManager`, advances from the same deterministic delta used for runtime ticks, and exposes owner/channel pause, resume, kill, reset, and debug snapshot operations. `noveltea_core` does not include or link `twink`; core may carry declarative presentation values such as ActiveText reveal progress, while runtime/UI owns active tween instances.
+`twink` is an optional animation backend controlled by `NOVELTEA_ENABLE_TWINK`. When enabled, `TweenService` wraps `twink::TweenManager`, advances from the same deterministic delta used for runtime ticks, and exposes owner/channel pause, resume, kill, reset, and debug snapshot operations. When twink is disabled, tweens resolve as immediate value changes. `noveltea_core` does not include or link `twink`; core may carry declarative presentation values such as ActiveText reveal progress, while runtime/UI owns active tween instances.
 
 The runtime controller does not yet execute emitted runtime scripts through `ScriptRuntime`. Script hooks and script entities are still represented as `ScriptDeferred` controller commands. `RuntimeUIViewAdapter` ignores those commands, and `Engine::update` currently forwards the command batch only to the RmlUi bridge.
 

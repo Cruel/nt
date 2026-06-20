@@ -3,8 +3,6 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/surface.hpp"
 
-#if defined(NOVELTEA_HAS_RMLUI) && defined(NOVELTEA_HAS_BGFX)
-
 #include <RmlUi/Core/RenderInterface.h>
 #include <bgfx/bgfx.h>
 
@@ -64,5 +62,3 @@ private:
 };
 
 } // namespace noveltea::ui::rmlui
-
-#endif

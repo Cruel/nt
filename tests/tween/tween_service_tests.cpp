@@ -5,6 +5,8 @@
 
 using namespace noveltea;
 
+#if defined(NOVELTEA_HAS_TWINK)
+
 TEST_CASE("TweenService advances float tweens deterministically")
 {
     TweenService tweens;
@@ -27,18 +29,6 @@ TEST_CASE("TweenService advances float tweens deterministically")
     CHECK(tweens.active_count() == 0);
 }
 
-TEST_CASE("TweenService ignores negative delta")
-{
-    TweenService tweens;
-    float value = 0.0f;
-
-    tweens.tween_float("owner", "channel", value, 0.0f, 1.0f, 1.0);
-    tweens.advance(-1.0);
-
-    CHECK(value == Catch::Approx(0.0f));
-    CHECK(tweens.active_count() == 1);
-}
-
 TEST_CASE("TweenService pauses and resumes owner tweens")
 {
     TweenService tweens;
@@ -59,6 +49,35 @@ TEST_CASE("TweenService pauses and resumes owner tweens")
     CHECK(value == Catch::Approx(0.5f));
 }
 
+#else
+
+TEST_CASE("TweenService immediately applies final value without twink")
+{
+    TweenService tweens;
+    float value = 0.0f;
+    int completed = 0;
+
+    tweens.tween_float("owner", "channel", value, 0.0f, 10.0f, 1.0, [&] { ++completed; });
+
+    CHECK(value == Catch::Approx(10.0f));
+    CHECK(completed == 1);
+    CHECK(tweens.active_count() == 0);
+}
+
+TEST_CASE("TweenService ignores negative delta without twink")
+{
+    TweenService tweens;
+    float value = 0.0f;
+
+    tweens.tween_float("owner", "channel", value, 0.0f, 1.0f, 1.0);
+    tweens.advance(-1.0);
+
+    CHECK(value == Catch::Approx(1.0f));
+    CHECK(tweens.active_count() == 0);
+}
+
+#endif
+
 TEST_CASE("TweenService kills by owner and channel")
 {
     TweenService tweens;
@@ -67,10 +86,18 @@ TEST_CASE("TweenService kills by owner and channel")
 
     tweens.tween_float("owner-a", "first", first, 0.0f, 1.0f, 1.0);
     tweens.tween_float("owner-b", "second", second, 0.0f, 1.0f, 1.0);
+#if defined(NOVELTEA_HAS_TWINK)
     CHECK(tweens.active_count() == 2);
+#else
+    CHECK(tweens.active_count() == 0);
+#endif
 
     tweens.kill_owner("owner-a");
+#if defined(NOVELTEA_HAS_TWINK)
     CHECK(tweens.active_count() == 1);
+#else
+    CHECK(tweens.active_count() == 0);
+#endif
 
     tweens.kill_channel("second");
     CHECK(tweens.active_count() == 0);
@@ -89,8 +116,13 @@ TEST_CASE("TweenService completion callback can kill related tweens")
     });
     tweens.tween_float("owner", "second", second, 0.0f, 1.0f, 1.0);
 
+#if defined(NOVELTEA_HAS_TWINK)
     tweens.advance(0.25);
-
     CHECK(completed == 1);
     CHECK(tweens.active_count() == 0);
+#else
+    CHECK(completed == 1);
+    CHECK(first == Catch::Approx(1.0f));
+    CHECK(second == Catch::Approx(1.0f));
+#endif
 }

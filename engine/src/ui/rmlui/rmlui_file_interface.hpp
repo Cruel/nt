@@ -2,17 +2,13 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 
-#if defined(NOVELTEA_HAS_RMLUI)
 #include <RmlUi/Core/FileInterface.h>
-#endif
 
 #include <string>
 
 namespace noveltea::ui::rmlui {
 
 std::string resolve_asset_path(const assets::AssetManager& assets, const std::string& path);
-
-#if defined(NOVELTEA_HAS_RMLUI)
 
 class AssetRmlFileInterface : public Rml::FileInterface {
 public:
@@ -27,7 +23,5 @@ public:
 private:
     const assets::AssetManager& m_assets;
 };
-
-#endif
 
 } // namespace noveltea::ui::rmlui

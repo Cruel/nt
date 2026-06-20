@@ -1,7 +1,5 @@
 #pragma once
 
-#if defined(NOVELTEA_HAS_RMLUI)
-
 #include <RmlUi/Core/SystemInterface.h>
 
 struct SDL_Cursor;
@@ -36,5 +34,3 @@ private:
 };
 
 } // namespace noveltea::ui::rmlui
-
-#endif

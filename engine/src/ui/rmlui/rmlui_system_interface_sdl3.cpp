@@ -1,7 +1,5 @@
 #include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
 
-#if defined(NOVELTEA_HAS_RMLUI)
-
 #include <SDL3/SDL.h>
 #include <RmlUi/Core/StringUtilities.h>
 
@@ -104,5 +102,3 @@ bool SdlSystemInterface::LogMessage(Rml::Log::Type type, const Rml::String& mess
 }
 
 } // namespace noveltea::ui::rmlui
-
-#endif

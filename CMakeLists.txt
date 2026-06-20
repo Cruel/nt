@@ -44,26 +44,14 @@ else()
     )
 endif()
 
+# --- User-facing options ---
+
 option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
-option(NOVELTEA_ENABLE_BGFX "Use bgfx renderer when available for supported targets" ON)
-option(NOVELTEA_ENABLE_RENDER2D "Enable the engine-owned 2D bgfx draw substrate" ON)
-option(NOVELTEA_ENABLE_RMLUI "Enable RmlUi runtime UI integration when the package is available" ON)
-option(NOVELTEA_ENABLE_LUA "Enable the NovelTea Lua scripting runtime" ON)
-option(NOVELTEA_ENABLE_RMLUI_LUA "Enable RmlUi's official Lua plugin against the NovelTea Lua state" ON)
-option(NOVELTEA_ENABLE_TEXT "Enable the engine-owned Unicode text subsystem" ON)
-option(NOVELTEA_ENABLE_TWINK "Enable twink-backed engine animation service" ON)
-option(NOVELTEA_ENABLE_TEXT_LAB "Deprecated alias for NOVELTEA_ENABLE_TEXT" ON)
-if(DEFINED NOVELTEA_ENABLE_TEXT_LAB AND NOT NOVELTEA_ENABLE_TEXT_LAB)
-    set(NOVELTEA_ENABLE_TEXT OFF CACHE BOOL "Enable the engine-owned Unicode text subsystem" FORCE)
-endif()
-option(NOVELTEA_FETCH_BGFX "Download bgfx via FetchContent (Emscripten, Android)" ON)
-option(NOVELTEA_FETCH_RMLUI "Download RmlUi via FetchContent (Emscripten, Android)" ON)
+option(NOVELTEA_ENABLE_TWINK "Enable twink-backed engine animation service (optional)" ON)
+option(NOVELTEA_FETCH_BGFX "Fetch/build bgfx via FetchContent (required for Web/Android)" ON)
+option(NOVELTEA_FETCH_RMLUI "Fetch/build RmlUi via FetchContent (required for Web/Android)" ON)
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ON)
-option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader headers with shaderc" ON)
-option(NOVELTEA_USE_IMGUI "Deprecated alias for NOVELTEA_ENABLE_DEVTOOLS" ON)
-if(DEFINED NOVELTEA_USE_IMGUI AND NOT NOVELTEA_USE_IMGUI)
-    set(NOVELTEA_ENABLE_DEVTOOLS OFF CACHE BOOL "Include Dear ImGui dev/debug overlay" FORCE)
-endif()
+option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
 
 # --- SDL3: provide the SDL3::SDL3 target for all platforms ---
 
@@ -76,15 +64,12 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # SDL3 provided via Prefab from the AAR dependency.
     find_package(SDL3 REQUIRED CONFIG)
 else()
-    find_package(SDL3 CONFIG QUIET)
-    if(NOT SDL3_FOUND)
-        message(FATAL_ERROR "SDL3 required. Install via vcpkg (Linux) or SDK (Web).")
-    endif()
+    find_package(SDL3 CONFIG REQUIRED)
 endif()
 
-# --- bgfx: provide the bgfx::bgfx target for all platforms ---
+# --- bgfx: mandatory for the engine ---
 
-if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
+if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
     include(FetchContent)
     set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
@@ -133,24 +118,40 @@ if(NOVELTEA_ENABLE_BGFX AND NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_
     if(NOT TARGET bx::bx)
         add_library(bx::bx ALIAS bx)
     endif()
-    set(NOVELTEA_HAS_BGFX ON CACHE INTERNAL "bgfx available for this target")
 elseif(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
-    find_package(bgfx CONFIG QUIET)
-    if(bgfx_FOUND)
-        set(NOVELTEA_HAS_BGFX ON CACHE INTERNAL "bgfx available for this target")
-    endif()
+    find_package(bgfx CONFIG REQUIRED)
 endif()
 
-# --- RmlUi: provide the RmlUi::RmlUi target for all platforms ---
+if(NOT TARGET bgfx::bgfx)
+    message(FATAL_ERROR "bgfx is required for the NovelTea engine. "
+        "Install via vcpkg (desktop) or enable NOVELTEA_FETCH_BGFX (Web/Android).")
+endif()
+
+# --- Dependency helpers ---
 
 include(NovelTeaLua)
 include(NovelTeaText)
-if(NOVELTEA_ENABLE_LUA)
-    noveltea_provide_lua_dependencies()
+
+# --- Lua dependencies: mandatory for the engine ---
+
+noveltea_provide_lua_dependencies()
+if(NOT TARGET Lua::Lua OR NOT TARGET sol2::sol2)
+    message(FATAL_ERROR "Lua::Lua and sol2::sol2 are required for the NovelTea engine. "
+        "Install via vcpkg (desktop) or enable the corresponding fetch mechanism.")
 endif()
-if(NOVELTEA_ENABLE_TEXT)
-    noveltea_provide_text_dependencies()
+
+# --- Text dependencies: mandatory for the engine ---
+
+noveltea_provide_text_dependencies()
+if(NOT TARGET noveltea_text_freetype
+    OR NOT TARGET noveltea_text_harfbuzz
+    OR NOT TARGET noveltea_text_sheenbidi
+    OR NOT TARGET noveltea_text_unibreak)
+    message(FATAL_ERROR "Text dependency targets (FreeType, HarfBuzz, SheenBidi, libunibreak) "
+        "are required for the NovelTea engine.")
 endif()
+
+# --- Twink (optional animation backend) ---
 
 if(NOVELTEA_ENABLE_TWINK)
     find_package(twink CONFIG QUIET)
@@ -171,19 +172,17 @@ if(NOVELTEA_ENABLE_TWINK)
     endif()
 endif()
 
-if(NOVELTEA_ENABLE_RMLUI AND NOVELTEA_FETCH_RMLUI AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
+# --- RmlUi + RmlUi Lua: mandatory for the engine ---
+
+if(NOVELTEA_FETCH_RMLUI AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
     include(FetchContent)
     if(NOT TARGET Freetype::Freetype)
         noveltea_provide_freetype_dependency()
     endif()
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
-    if(NOVELTEA_ENABLE_LUA AND NOVELTEA_ENABLE_RMLUI_LUA)
-        set(RMLUI_LUA_BINDINGS ON CACHE BOOL "" FORCE)
-        set(RMLUI_LUA_BINDINGS_LIBRARY lua CACHE STRING "" FORCE)
-    else()
-        set(RMLUI_LUA_BINDINGS OFF CACHE BOOL "" FORCE)
-    endif()
+    set(RMLUI_LUA_BINDINGS ON CACHE BOOL "" FORCE)
+    set(RMLUI_LUA_BINDINGS_LIBRARY lua CACHE STRING "" FORCE)
     set(RMLUI_LOTTIE_PLUGIN OFF CACHE BOOL "" FORCE)
     set(RMLUI_SVG_PLUGIN OFF CACHE BOOL "" FORCE)
     set(RMLUI_HARFBUZZ_SAMPLE OFF CACHE BOOL "" FORCE)
@@ -197,6 +196,17 @@ if(NOVELTEA_ENABLE_RMLUI AND NOVELTEA_FETCH_RMLUI AND (EMSCRIPTEN OR CMAKE_SYSTE
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(RmlUi)
+endif()
+
+# Desktop: RmlUi comes from vcpkg
+if(NOT TARGET RmlUi::RmlUi AND NOT TARGET RmlUi::Core)
+    find_package(RmlUi CONFIG REQUIRED)
+endif()
+
+if(NOT TARGET RmlUi::Lua)
+    message(FATAL_ERROR "RmlUi::Lua is required for the NovelTea engine. "
+        "Ensure the 'lua' feature is enabled for rmlui in your package manager "
+        "(vcpkg: \"rmlui\": {\"features\": [\"freetype\", \"lua\"]}).")
 endif()
 
 add_subdirectory(engine)

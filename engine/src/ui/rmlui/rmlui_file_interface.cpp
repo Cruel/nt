@@ -37,8 +37,6 @@ std::string resolve_asset_path(const assets::AssetManager& assets, const std::st
     return "project:/" + path;
 }
 
-#if defined(NOVELTEA_HAS_RMLUI)
-
 AssetRmlFileInterface::AssetRmlFileInterface(const assets::AssetManager& assets) : m_assets(assets)
 {
 }
@@ -74,7 +72,5 @@ size_t AssetRmlFileInterface::Tell(Rml::FileHandle file)
 {
     return static_cast<size_t>(reinterpret_cast<assets::AssetReader*>(file)->tell().value_or(0));
 }
-
-#endif
 
 } // namespace noveltea::ui::rmlui

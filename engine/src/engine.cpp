@@ -168,9 +168,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
                          logical_path.c_str());
             return false;
         }
-#if defined(NOVELTEA_HAS_LUA)
         m_script_executor.initialize(&m_scripts, &m_runtime_host);
-#endif
         return true;
     };
 
@@ -228,12 +226,10 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
         }
-#if defined(NOVELTEA_HAS_LUA)
         if (scripts_initialized) {
             m_scripts.shutdown();
             scripts_initialized = false;
         }
-#endif
         if (renderer_initialized) {
             m_renderer.shutdown();
             renderer_initialized = false;
@@ -277,28 +273,23 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
     renderer_initialized = true;
 
-#if defined(NOVELTEA_HAS_LUA)
-    auto script_init = m_scripts.initialize({&m_assets});
-    if (!script_init) {
-        std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
-                     script_init.error ? script_init.error->message.c_str() : "unknown error");
-        rollback();
-        return false;
+    {
+        auto script_init = m_scripts.initialize({&m_assets});
+        if (!script_init) {
+            std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
+                         script_init.error ? script_init.error->message.c_str() : "unknown error");
+            rollback();
+            return false;
+        }
+        scripts_initialized = true;
     }
-    scripts_initialized = true;
-#endif
 
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     m_runtime_ui.resize(m_platform.surface());
     const bool should_load_runtime_document =
         run_config.runtime_ui_document.empty() && run_config.demo_mode == DemoMode::None;
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
-#if defined(NOVELTEA_HAS_LUA)
-                                 &m_scripts
-#else
-                                 nullptr
-#endif
-                                 )) {
+                                 &m_scripts)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else if (!run_config.runtime_ui_document.empty()) {
         m_runtime_ui.bind_tween_service(&m_tweens);
@@ -512,7 +503,6 @@ void Engine::update(float dt)
         input.delta_seconds = dt;
         auto result = m_runtime_host.apply_input(input);
         m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
-#if defined(NOVELTEA_HAS_LUA)
         bool has_script_request = false;
         for (const auto& output : result.outputs) {
             if (output.type == core::RuntimeOutputType::ScriptRequest) {
@@ -524,7 +514,6 @@ void Engine::update(float dt)
         if (has_script_request) {
             m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
         }
-#endif
     }
 }
 
@@ -538,16 +527,12 @@ void Engine::render()
     if (m_demo_mode != DemoMode::None) {
         m_renderer.draw_preview_triangle(m_demo_position);
     }
-#if defined(NOVELTEA_HAS_RENDER2D)
     if (demo_enabled(m_demo_mode, DemoMode::Render2D)) {
         m_renderer.draw_demo_2d(m_elapsed_seconds);
     }
-#endif
-#if defined(NOVELTEA_HAS_BGFX)
     if (demo_enabled(m_demo_mode, DemoMode::Text)) {
         m_renderer.draw_demo_text(m_elapsed_seconds);
     }
-#endif
 
     ++m_frame_count;
 
@@ -574,10 +559,8 @@ void Engine::shutdown()
     }
     m_runtime_ui.shutdown();
     m_tweens.reset();
-#if defined(NOVELTEA_HAS_LUA)
     m_script_executor.shutdown();
     m_scripts.shutdown();
-#endif
     m_renderer.shutdown();
     m_platform.shutdown();
 

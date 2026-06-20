@@ -1,7 +1,5 @@
 #include "ui/rmlui/rmlui_render_interface_bgfx.hpp"
 
-#if defined(NOVELTEA_HAS_RMLUI) && defined(NOVELTEA_HAS_BGFX)
-
 #include "render/bgfx/bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
@@ -1722,5 +1720,3 @@ void BgfxRenderInterface::ReleaseShader(Rml::CompiledShaderHandle shader)
 }
 
 } // namespace noveltea::ui::rmlui
-
-#endif

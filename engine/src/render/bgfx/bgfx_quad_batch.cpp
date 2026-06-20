@@ -42,7 +42,6 @@ bgfx::ViewId game_layer_view_id(GameLayer layer)
 
 void Renderer::draw_demo_2d(float time_seconds)
 {
-#if defined(NOVELTEA_HAS_RENDER2D)
     if (!m_initialized || !bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) {
         return;
     }
@@ -59,14 +58,10 @@ void Renderer::draw_demo_2d(float time_seconds)
     batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f},
                             {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f, GameLayer::Foreground);
     draw_2d(batch);
-#else
-    (void)time_seconds;
-#endif
 }
 
 void Renderer::draw_2d(const QuadBatch& batch)
 {
-#if defined(NOVELTEA_HAS_RENDER2D)
     if (!m_initialized || !bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) {
         return;
     }
@@ -74,9 +69,6 @@ void Renderer::draw_2d(const QuadBatch& batch)
     for (const QuadCommand& command : batch.commands()) {
         submit_quad(command);
     }
-#else
-    (void)batch;
-#endif
 }
 
 void Renderer::create_2d()

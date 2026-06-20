@@ -13,10 +13,8 @@
 #include <emscripten/emscripten.h>
 #endif
 
-#ifdef NOVELTEA_HAS_BGFX
 #include "devtools/imgui_bgfx.hpp"
 #include <bgfx/bgfx.h>
-#endif
 
 #if defined(__EMSCRIPTEN__)
 extern "C" {
@@ -84,7 +82,6 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
         return false;
     }
 
-#ifdef NOVELTEA_HAS_BGFX
     {
         auto* backend = new ImGuiBgfxRenderer();
         if (m_assets && backend->initialize(*m_assets)) {
@@ -96,10 +93,6 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
             delete backend;
         }
     }
-#else
-    io.Fonts->Build();
-    SDL_Log("[debug_ui] ImGui initialized (input only - no bgfx renderer)");
-#endif
 
     m_initialized = true;
     return true;
@@ -163,13 +156,7 @@ void DebugUI::end_frame()
         ImGui::Text("Frame time: %.3f ms", 1000.0f / io.Framerate);
         ImGui::Separator();
 
-        ImGui::Text("Renderer: %s",
-#ifdef NOVELTEA_HAS_BGFX
-                    bgfx::getRendererName(bgfx::getRendererType())
-#else
-                    "(stub)"
-#endif
-        );
+        ImGui::Text("Renderer: %s", bgfx::getRendererName(bgfx::getRendererType()));
         ImGui::Text("Viewport: %.0f x %.0f", io.DisplaySize.x, io.DisplaySize.y);
         ImGui::Text("Backend: %s", "SDL3");
         ImGui::Text("Triangle smoke test: running on view 0");
@@ -196,16 +183,12 @@ void DebugUI::end_frame()
     }
 #endif
 
-#ifdef NOVELTEA_HAS_BGFX
     if (m_bgfx_backend) {
         const ImGuiIO& io = ImGui::GetIO();
         auto* backend = static_cast<ImGuiBgfxRenderer*>(m_bgfx_backend);
         backend->render(ImGui::GetDrawData(), static_cast<int>(io.DisplaySize.x),
                         static_cast<int>(io.DisplaySize.y));
     }
-#else
-    // Without bgfx, ImGui draw data is not rendered.
-#endif
 }
 
 void DebugUI::shutdown()
@@ -213,14 +196,12 @@ void DebugUI::shutdown()
     if (!m_initialized)
         return;
 
-#ifdef NOVELTEA_HAS_BGFX
     if (m_bgfx_backend) {
         auto* backend = static_cast<ImGuiBgfxRenderer*>(m_bgfx_backend);
         backend->shutdown();
         delete backend;
         m_bgfx_backend = nullptr;
     }
-#endif
 
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

@@ -41,7 +41,6 @@ std::string image_rml(std::string_view path, std::string_view css_class, std::st
 
 RuntimeUiDocumentBinder::RuntimeUiDocumentBinder() = default;
 
-#if defined(NOVELTEA_HAS_RMLUI)
 void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::RuntimeUIViewState& state)
 {
     if (auto* mode = find_element(doc, "rt_mode", m_logged_missing)) {
@@ -198,6 +197,5 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
 }
 
 void RuntimeUiDocumentBinder::clear_missing_slot_log() { m_logged_missing.clear(); }
-#endif
 
 } // namespace noveltea::ui::rmlui

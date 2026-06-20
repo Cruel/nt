@@ -6,9 +6,7 @@
 #include <iomanip>
 #include <sstream>
 
-#if defined(NOVELTEA_HAS_RMLUI)
 #include <RmlUi/Core/Factory.h>
-#endif
 
 namespace noveltea::ui::rmlui {
 
@@ -353,7 +351,6 @@ std::string text_log_rml(const TextLogComponentSnapshot& snapshot)
                                         : snapshot.entries_rml;
 }
 
-#if defined(NOVELTEA_HAS_RMLUI)
 NtActiveTextElement::NtActiveTextElement(const Rml::String& tag) : Rml::Element(tag) {}
 
 void NtActiveTextElement::set_snapshot(const ActiveTextComponentSnapshot& snapshot)
@@ -386,6 +383,5 @@ RuntimeUiComponentRegistry::RuntimeUiComponentRegistry()
 }
 
 RuntimeUiComponentRegistry::~RuntimeUiComponentRegistry() = default;
-#endif
 
 } // namespace noveltea::ui::rmlui

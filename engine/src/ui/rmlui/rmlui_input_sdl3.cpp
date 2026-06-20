@@ -1,7 +1,5 @@
 #include "ui/rmlui/rmlui_input_sdl3.hpp"
 
-#if defined(NOVELTEA_HAS_RMLUI)
-
 #include "ui/rmlui/rmlui_event_disposition.hpp"
 
 #include <RmlUi/Core/Context.h>
@@ -366,5 +364,3 @@ bool process_sdl_event(Rml::Context& context, SDL_Window* window, const SDL_Even
 }
 
 } // namespace noveltea::ui::rmlui
-
-#endif

@@ -8,10 +8,8 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
 #include "noveltea/tween_service.hpp"
-#if defined(NOVELTEA_HAS_LUA)
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/runtime_script_executor.hpp"
-#endif
 
 #include <cstdint>
 #include <filesystem>
@@ -73,10 +71,8 @@ private:
     Platform m_platform;
     Renderer m_renderer;
     TweenService m_tweens;
-#if defined(NOVELTEA_HAS_LUA)
     script::ScriptRuntime m_scripts;
     script::RuntimeScriptExecutor m_script_executor;
-#endif
     RuntimeUI m_runtime_ui;
     core::RuntimeSessionHost m_runtime_host;
     DebugUI m_debug_ui;
