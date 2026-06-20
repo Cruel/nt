@@ -22,6 +22,7 @@ Last updated: 2026-06-20.
 - Phase 9 TextLog v1: runtime view state exposes structured text-log entries with rich-text snapshots, speaker/source/category metadata, deterministic sequence ids, save-loaded string restoration, and structured `TextLogEntry` output payloads; `nt-text-log` renders deterministic RmlUi fallback markup.
 - Phase 10 Object, Inventory, and Action Presentation: runtime view state tracks selected/available room and inventory objects, predicts action enabled/disabled state from current selection, exposes clearable selection through RmlUi/editor preview, and reports invalid selection/action diagnostics.
 - Phase 11 Runtime Renderer and Asset Presentation v1: runtime view state exposes cover/background/room/object image slots, resolves visual metadata from room/object properties into logical project asset paths, validates missing visual assets in the RmlUi layer, and renders visuals through the existing RmlUi/bgfx texture path. Renderer layer system: 4-layer `GameLayer` enum (Background, Main, Foreground, UIOverlay) each dispatched to its own bgfx view. Scissor/clip stack: `push_scissor`/`pop_scissor` on Renderer with per-draw-call application. Frame timing: wall-clock delta drives ActiveText reveal progress in `RuntimeUI::begin_frame`. Material/shader resolution: deferred stubs in `render/material.hpp` (material registry) and `render/shader.hpp` (Shader class).
+- Phase 12 Editor Preview and Recorded Test Playback: `RuntimePlaybackSession` runs backend-neutral recorded specs from JSON or project `tests`, drives `RuntimeSessionHost` through shared `RuntimeInput`, supports fixed-delta deterministic steps, captures outputs/diagnostics, evaluates assertions, exports JSON reports, and exposes a Lua-free hook callback for engine-layer setup/check execution.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -30,13 +31,13 @@ Last updated: 2026-06-20.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
-- Editor preview/test playback needs hardening around real workflows.
+- Editor preview/test playback has a backend-neutral runner; richer branch/story traversal tooling and real workflow fixtures remain incomplete.
 - Packaging/export workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 
 ## Current Verification Commands
 
-Latest Phase 11 implementation — use these commands to verify:
+Latest Phase 12 implementation — use these commands to verify:
 
 ```sh
 cmake --preset linux-debug
@@ -72,7 +73,15 @@ cd android
 
 For documentation-only cleanup, a targeted `rg` check for stale active-doc instructions is sufficient.
 
-Latest Phase 11 verification completed:
+Latest Phase 12 targeted verification completed:
+
+```sh
+cmake --build --preset linux-debug --target noveltea_core_tests noveltea_script_tests
+./build/linux-debug/tests/noveltea_core_tests "*RuntimePlaybackSession*"
+./build/linux-debug/tests/noveltea_script_tests "*RuntimePlaybackSession*"
+```
+
+Latest Phase 12 full verification completed:
 
 ```sh
 cmake --preset linux-debug
@@ -81,13 +90,9 @@ ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
 cmake --build --preset web-debug
 cmake --build --preset linux-debug --target format-check
-timeout 5s ./build/linux-debug/apps/sandbox/noveltea-sandbox
 ```
-
-The sandbox launch initialized and loaded the runtime document; `timeout` ended the long-running
-app after startup with exit code 124.
 
 ## Next Implementation Task
 
-Start Phase 12 Editor Preview and Recorded Test Playback from [`PLAN.md`](PLAN.md), unless the
-explicitly deferred Phase 8 Lua map-visibility bridge is selected first.
+Start Phase 13 Package Writing and Export from [`PLAN.md`](PLAN.md), unless the explicitly
+deferred Phase 8 Lua map-visibility bridge is selected first.

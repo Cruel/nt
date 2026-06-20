@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <noveltea/assets/asset_manager.hpp>
+#include <noveltea/core/editor_api.hpp>
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/core/runtime_session_host.hpp>
 #include <noveltea/script/runtime_script_executor.hpp>
@@ -233,6 +234,99 @@ TEST_CASE("RuntimeScriptExecutor lets Lua save and autosave runtime slots")
     REQUIRE(saved.success);
     REQUIRE(saved.save.has_value());
     CHECK(saved.save->root()[core::project_ids::properties]["slot_value"] == "saved");
+}
+
+TEST_CASE("RuntimePlaybackSession executes Lua setup and check hooks through callback")
+{
+    auto project = make_base_project();
+
+    core::editor::RuntimePlaybackSpec spec;
+    spec.id = "lua-hooks";
+    spec.init_script = "Game.set_prop('phase12_lua', 'ok')";
+    spec.check_script = "if Game.prop('phase12_lua') ~= 'ok' then error('missing prop') end";
+
+    core::editor::RuntimePlaybackStep step;
+    step.input = core::editor::RuntimePlaybackInputType::Tick;
+    step.assertions.push_back(core::editor::RuntimePlaybackAssertion{
+        .type = core::editor::RuntimePlaybackAssertionType::PropertyEquals,
+        .key = "phase12_lua",
+        .expected = "ok",
+    });
+    spec.steps.push_back(std::move(step));
+
+    auto memory = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", memory);
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+
+    core::editor::RuntimePlaybackSession playback;
+    playback.set_hook_executor([&scripts](std::string_view source, std::string_view context,
+                                          std::optional<std::uint64_t> step_index,
+                                          core::RuntimeSessionHost& host) {
+        scripts.bind_runtime_host(&host);
+        auto executed = scripts.execute(source, context);
+        core::editor::RuntimePlaybackHookResult result;
+        if (!executed) {
+            result.passed = false;
+            core::RuntimeDiagnostic diagnostic;
+            diagnostic.severity = core::RuntimeDiagnosticSeverity::Error;
+            diagnostic.category = "lua";
+            diagnostic.script_context = std::string(context);
+            diagnostic.message = executed.error ? executed.error->message : "Lua hook failed";
+            diagnostic.lua_traceback = executed.error ? executed.error->traceback : std::string{};
+            diagnostic.playback_step_index = step_index;
+            result.diagnostics.push_back(std::move(diagnostic));
+        }
+        return result;
+    });
+
+    auto report = playback.run(std::move(project), spec);
+    CHECK(report.passed);
+    CHECK(report.final_state.save_snapshot[core::project_ids::properties]["phase12_lua"] == "ok");
+}
+
+TEST_CASE("RuntimePlaybackSession fails on Lua hook errors")
+{
+    auto project = make_base_project();
+
+    core::editor::RuntimePlaybackSpec spec;
+    spec.id = "lua-error";
+    spec.init_script = "error('phase12 hook boom')";
+    spec.steps.push_back(core::editor::RuntimePlaybackStep{});
+
+    auto memory = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", memory);
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+
+    core::editor::RuntimePlaybackSession playback;
+    playback.set_hook_executor([&scripts](std::string_view source, std::string_view context,
+                                          std::optional<std::uint64_t> step_index,
+                                          core::RuntimeSessionHost& host) {
+        scripts.bind_runtime_host(&host);
+        auto executed = scripts.execute(source, context);
+        core::editor::RuntimePlaybackHookResult result;
+        if (!executed) {
+            result.passed = false;
+            core::RuntimeDiagnostic diagnostic;
+            diagnostic.severity = core::RuntimeDiagnosticSeverity::Error;
+            diagnostic.category = "lua";
+            diagnostic.script_context = std::string(context);
+            diagnostic.message = executed.error ? executed.error->message : "Lua hook failed";
+            diagnostic.lua_traceback = executed.error ? executed.error->traceback : std::string{};
+            diagnostic.playback_step_index = step_index;
+            result.diagnostics.push_back(std::move(diagnostic));
+        }
+        return result;
+    });
+
+    auto report = playback.run(std::move(project), spec);
+    CHECK_FALSE(report.passed);
+    REQUIRE_FALSE(report.diagnostics.empty());
+    CHECK(report.diagnostics.front().category == "lua");
+    CHECK(report.diagnostics.front().message.find("phase12 hook boom") != std::string::npos);
 }
 
 TEST_CASE("RuntimeScriptExecutor lets Lua load a runtime slot")

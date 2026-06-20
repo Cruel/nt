@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -50,6 +52,91 @@ struct RuntimePreviewState {
     nlohmann::json save_snapshot = nlohmann::json::object();
 };
 
+enum class RuntimePlaybackInputType {
+    Tick,
+    Continue,
+    DialogueOption,
+    Navigate,
+    SelectObject,
+    ClearObjectSelection,
+    RunAction,
+    LoadSave,
+    SetEntrypoint,
+};
+
+enum class RuntimePlaybackAssertionType {
+    Mode,
+    CurrentRoom,
+    Title,
+    TextLogContains,
+    PropertyEquals,
+    ObjectLocation,
+    InventoryContains,
+    OutputType,
+    DiagnosticCategory,
+};
+
+struct RuntimePlaybackAssertion {
+    RuntimePlaybackAssertionType type = RuntimePlaybackAssertionType::Mode;
+    std::string value;
+    std::string key;
+    nlohmann::json expected = nullptr;
+    std::optional<EntityRef> entity_ref;
+};
+
+struct RuntimePlaybackStep {
+    RuntimePlaybackInputType input = RuntimePlaybackInputType::Tick;
+    std::optional<std::uint64_t> index;
+    std::optional<double> delta_seconds;
+    int option_index = -1;
+    int direction = -1;
+    std::string verb_id;
+    std::vector<std::string> object_ids;
+    std::optional<EntityRef> entity_ref;
+    nlohmann::json payload = nlohmann::json::object();
+    std::string init_script;
+    std::string check_script;
+    std::vector<RuntimePlaybackAssertion> assertions;
+};
+
+struct RuntimePlaybackSpec {
+    std::string id;
+    std::optional<EntityRef> entrypoint;
+    std::optional<double> fixed_delta_seconds;
+    std::string init_script;
+    std::string check_script;
+    std::vector<RuntimePlaybackStep> steps;
+};
+
+struct RuntimePlaybackObservation {
+    std::uint64_t step_index = 0;
+    bool handled = false;
+    bool passed = true;
+    std::string input;
+    RuntimePreviewState state;
+    std::vector<RuntimeOutput> outputs;
+    std::vector<RuntimeDiagnostic> diagnostics;
+    std::vector<std::string> assertion_failures;
+};
+
+struct RuntimePlaybackHookResult {
+    bool passed = true;
+    std::vector<RuntimeOutput> outputs;
+    std::vector<RuntimeDiagnostic> diagnostics;
+};
+
+struct RuntimePlaybackReport {
+    std::string id;
+    bool passed = true;
+    std::vector<RuntimePlaybackObservation> observations;
+    RuntimePreviewState final_state;
+    std::vector<RuntimeOutput> outputs;
+    std::vector<RuntimeDiagnostic> diagnostics;
+    std::vector<std::string> failures;
+
+    [[nodiscard]] nlohmann::json to_json() const;
+};
+
 class ProjectTooling {
 public:
     [[nodiscard]] static ProjectLoadResult load_project_json(std::string_view source);
@@ -65,6 +152,28 @@ public:
     [[nodiscard]] static EntityEditResult erase_entity_record(ProjectDocument& project,
                                                               std::string_view collection,
                                                               std::string_view entity_id);
+};
+
+class RuntimePlaybackSession {
+public:
+    using HookExecutor = std::function<RuntimePlaybackHookResult(
+        std::string_view source, std::string_view context, std::optional<std::uint64_t> step_index,
+        RuntimeSessionHost& host)>;
+
+    [[nodiscard]] static std::optional<RuntimePlaybackSpec>
+    parse_spec(const nlohmann::json& json, std::vector<ToolDiagnostic>& diagnostics,
+               std::string_view path = "/");
+    [[nodiscard]] static std::vector<RuntimePlaybackSpec>
+    specs_from_project(const ProjectDocument& project, std::vector<ToolDiagnostic>& diagnostics);
+
+    void set_hook_executor(HookExecutor executor) { m_hook_executor = std::move(executor); }
+    [[nodiscard]] RuntimePlaybackReport run(ProjectDocument project,
+                                            const RuntimePlaybackSpec& spec);
+    [[nodiscard]] RuntimePlaybackReport run(ProjectDocument project, SaveDocument save,
+                                            const RuntimePlaybackSpec& spec);
+
+private:
+    HookExecutor m_hook_executor;
 };
 
 class RuntimePreviewSession {

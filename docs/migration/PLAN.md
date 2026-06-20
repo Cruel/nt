@@ -512,25 +512,27 @@ Acceptance criteria:
 - Missing assets are diagnosable.
 - Linux/Web/Android asset paths behave consistently.
 
-## Phase 12 [pending]: Editor Preview and Recorded Test Playback
+## Phase 12 [done]: Editor Preview and Recorded Test Playback
 
 Goal: build the future editor’s runtime-preview/test foundation.
+
+Status: acceptance criteria are met for the backend-neutral playback runner.
 
 The current preview facade already supports start, stop, reset, entrypoint override, step/tick, state inspection, input injection, and command capture. Preserve and expand that seam.
 
 Implement:
 
-- `RuntimePlaybackSession`
-- recorded step format
-- deterministic tick policy
-- fixed delta option
-- assertion/check format
-- Lua test setup/check hooks
-- command/output capture
-- diagnostics capture
-- final pass/fail report
-- branch/story traversal support
-- editor-friendly JSON result export
+- `RuntimePlaybackSession` — done in the core editor API.
+- recorded step format — done, including JSON parsing and project `tests` discovery.
+- deterministic tick policy — done with fixed-delta support and zero-delta drain ticks after non-tick inputs.
+- fixed delta option — done.
+- assertion/check format — done for mode, current room/title, text log, properties, inventory/object locations, outputs, and diagnostics.
+- Lua test setup/check hooks — done through an engine/script callback that keeps core Lua-free.
+- command/output capture — done.
+- diagnostics capture — done.
+- final pass/fail report — done.
+- branch/story traversal support — v1 foundation only; richer graph traversal tooling remains future editor work.
+- editor-friendly JSON result export — done.
 
 Playback inputs should be the same `RuntimeInput` used by RmlUi.
 

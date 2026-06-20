@@ -18,7 +18,8 @@ Supported input types are:
 - `Tick` for deterministic time advancement.
 - `Continue`, `SelectDialogueOption`, `Navigate`, `SelectObject`, `ClearObjectSelection`, and `RunAction` for player/runtime interactions.
 - `LoadSave` accepts either a slot id or a save payload and restores through the same host path used by manual load APIs.
-- `SetEntrypoint` and `ApplyTestStep` remain editor/test-playback extension points.
+- `SetEntrypoint` and `ApplyTestStep` remain runtime contract extension points. Recorded
+  playback currently maps test steps to concrete runtime inputs in the editor API layer.
 
 Mode-specific inputs validate their current runtime mode. Invalid inputs return `handled = false` and a structured warning diagnostic instead of silently routing through UI-specific behavior.
 
@@ -51,6 +52,16 @@ Object placement resolves in this order: save `objectLocations`, project room me
 
 `RuntimeDiagnostic` includes severity, category, optional source entity, script/hook context fields, message, optional Lua traceback, and optional playback step index. Load/save diagnostics are used for missing slots, invalid save documents, and stale saved entity references.
 
+## Recorded Playback
+
+`core::editor::RuntimePlaybackSession` is the backend-neutral recorded test runner. It accepts a `RuntimePlaybackSpec`, loads a project, emits an initial deterministic zero-delta tick, then applies each recorded step through `RuntimeSessionHost::apply_input()`.
+
+Non-tick inputs are followed by a zero-delta drain tick using the same playback step index. This preserves the runtime controller's queued-command behavior while making recorded navigation/dialogue/action steps useful as single editor timeline steps.
+
+Project-level tests live under `tests` and use `init`, `steps`, and `check`. Core records hook source and script-request outputs; the engine/script layer may provide a hook executor callback to run Lua setup/check code and return structured diagnostics.
+
+Playback reports include pass/fail, per-step observations, outputs, diagnostics, final preview state, and stable JSON export for the future editor.
+
 ## Remaining Work
 
-Remaining work includes richer editor test-step playback, platform-specific slot persistence, and production RmlUi runtime save/load screens.
+Remaining work includes richer branch/story traversal tooling, platform-specific slot persistence, and production RmlUi runtime save/load screens.

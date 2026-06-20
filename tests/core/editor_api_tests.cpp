@@ -76,6 +76,15 @@ bool has_command(const std::vector<ControllerCommand>& commands, ControllerComma
     return false;
 }
 
+bool has_runtime_output(const std::vector<RuntimeOutput>& outputs, RuntimeOutputType type)
+{
+    for (const auto& output : outputs) {
+        if (output.type == type)
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 TEST_CASE("ProjectTooling loads validates and saves normalized project JSON")
@@ -198,4 +207,123 @@ TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands"
     auto entrypoint = preview.set_entrypoint(EntityRef{EntityType::Room, "kitchen"});
     REQUIRE(entrypoint.success);
     CHECK(preview.inspect_state().view.title == "Kitchen");
+}
+
+TEST_CASE("RuntimePlaybackSession runs headless steps and exports report JSON")
+{
+    RuntimePlaybackSpec spec;
+    spec.id = "navigate";
+    spec.fixed_delta_seconds = 0.0;
+
+    RuntimePlaybackStep navigate;
+    navigate.input = RuntimePlaybackInputType::Navigate;
+    navigate.direction = 0;
+    navigate.assertions.push_back(
+        RuntimePlaybackAssertion{.type = RuntimePlaybackAssertionType::Mode, .value = "room"});
+    navigate.assertions.push_back(RuntimePlaybackAssertion{
+        .type = RuntimePlaybackAssertionType::CurrentRoom, .value = "kitchen"});
+    navigate.assertions.push_back(
+        RuntimePlaybackAssertion{.type = RuntimePlaybackAssertionType::Title, .value = "Kitchen"});
+    navigate.assertions.push_back(RuntimePlaybackAssertion{
+        .type = RuntimePlaybackAssertionType::OutputType, .value = "mode_changed"});
+    spec.steps.push_back(std::move(navigate));
+
+    RuntimePlaybackSession playback;
+    auto report = playback.run(make_preview_project(), spec);
+
+    CHECK(report.passed);
+    REQUIRE(report.observations.size() == 1);
+    CHECK(report.observations.front().handled);
+    CHECK(report.final_state.view.title == "Kitchen");
+    auto exported = report.to_json();
+    CHECK(exported["id"] == "navigate");
+    CHECK(exported["passed"] == true);
+    CHECK(exported["final_state"]["current_room"] == "kitchen");
+}
+
+TEST_CASE("RuntimePlaybackSession parses project tests and supports hook assertions")
+{
+    auto project = make_preview_project();
+    project.root()[project_ids::tests] = nlohmann::json::object({
+        {"smoke",
+         nlohmann::json::object({
+             {project_ids::test_script_init, "set flag"},
+             {project_ids::test_script_check, "check flag"},
+             {project_ids::test_steps, nlohmann::json::array({
+                                           nlohmann::json::object({
+                                               {"input", "tick"},
+                                               {"assertions", nlohmann::json::array({
+                                                                  nlohmann::json::object({
+                                                                      {"type", "property_equals"},
+                                                                      {"key", "phase12"},
+                                                                      {"expected", "ok"},
+                                                                  }),
+                                                              })},
+                                           }),
+                                       })},
+         })},
+    });
+
+    std::vector<ToolDiagnostic> diagnostics;
+    auto specs = RuntimePlaybackSession::specs_from_project(project, diagnostics);
+    REQUIRE(diagnostics.empty());
+    REQUIRE(specs.size() == 1);
+    CHECK(specs.front().id == "smoke");
+    CHECK(specs.front().init_script == "set flag");
+    CHECK(specs.front().check_script == "check flag");
+
+    RuntimePlaybackSession playback;
+    playback.set_hook_executor([](std::string_view source, std::string_view context,
+                                  std::optional<std::uint64_t> step_index,
+                                  RuntimeSessionHost& host) {
+        RuntimePlaybackHookResult result;
+        if (source == "set flag") {
+            host.session().set_property("phase12", "ok");
+        }
+        if (source == "check flag" && host.session().property("phase12") != "ok") {
+            result.passed = false;
+            RuntimeDiagnostic diagnostic;
+            diagnostic.severity = RuntimeDiagnosticSeverity::Error;
+            diagnostic.category = "hook";
+            diagnostic.message = "phase12 property was not set";
+            diagnostic.playback_step_index = step_index;
+            result.diagnostics.push_back(std::move(diagnostic));
+        }
+        (void)context;
+        return result;
+    });
+
+    auto report = playback.run(project, specs.front());
+    CHECK(report.passed);
+    CHECK(report.final_state.save_snapshot[project_ids::properties]["phase12"] == "ok");
+    CHECK(has_runtime_output(report.outputs, RuntimeOutputType::ScriptRequest));
+}
+
+TEST_CASE("RuntimePlaybackSession reports failed assertions and invalid inputs")
+{
+    RuntimePlaybackSpec spec;
+    spec.id = "failure";
+
+    RuntimePlaybackStep invalid_dialogue;
+    invalid_dialogue.input = RuntimePlaybackInputType::DialogueOption;
+    invalid_dialogue.option_index = 0;
+    invalid_dialogue.assertions.push_back(RuntimePlaybackAssertion{
+        .type = RuntimePlaybackAssertionType::DiagnosticCategory, .value = "runtime-input"});
+    spec.steps.push_back(std::move(invalid_dialogue));
+
+    RuntimePlaybackStep bad_assertion;
+    bad_assertion.input = RuntimePlaybackInputType::Tick;
+    bad_assertion.assertions.push_back(
+        RuntimePlaybackAssertion{.type = RuntimePlaybackAssertionType::Title, .value = "Nowhere"});
+    spec.steps.push_back(std::move(bad_assertion));
+
+    RuntimePlaybackSession playback;
+    auto report = playback.run(make_preview_project(), spec);
+
+    CHECK_FALSE(report.passed);
+    REQUIRE(report.observations.size() == 2);
+    CHECK_FALSE(report.observations[0].handled);
+    CHECK_FALSE(report.observations[1].passed);
+    CHECK_FALSE(report.failures.empty());
+    CHECK(report.to_json()["passed"] == false);
 }
