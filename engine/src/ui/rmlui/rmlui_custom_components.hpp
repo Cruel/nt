@@ -22,7 +22,7 @@ struct ActiveTextComponentSnapshot {
 };
 
 struct MapViewComponentSnapshot {
-    std::string label;
+    core::RuntimeUIMapView map;
 };
 
 struct TextLogComponentSnapshot {

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <utility>
 
 namespace noveltea::core {
@@ -25,6 +26,48 @@ RichTextDocument rich_text_or_parse(const nlohmann::json& data, std::string_view
             return document;
     }
     return parse_rich_text(fallback);
+}
+
+bool contains_room_id(const MapRoomModel& room, const std::string& room_id)
+{
+    return std::find(room.room_ids.begin(), room.room_ids.end(), room_id) != room.room_ids.end();
+}
+
+const MapModel* find_map_for_room(const ProjectModel& project, const std::string& room_id,
+                                  std::string& map_id)
+{
+    for (const auto& [id, map] : project.maps()) {
+        const auto room_it =
+            std::find_if(map.rooms.begin(), map.rooms.end(),
+                         [&](const MapRoomModel& room) { return contains_room_id(room, room_id); });
+        if (room_it != map.rooms.end()) {
+            map_id = id;
+            return &map;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<int> reachable_path_indices(const ProjectModel& project, const std::string& room_id,
+                                        const MapRoomModel& map_room)
+{
+    std::vector<int> out;
+    auto room_it = project.rooms().find(room_id);
+    if (room_it == project.rooms().end()) {
+        return out;
+    }
+
+    const auto& paths = room_it->second.paths;
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        const auto& path = paths[i];
+        if (!path.enabled || !path.target || path.target->type != EntityType::Room) {
+            continue;
+        }
+        if (contains_room_id(map_room, path.target->id)) {
+            out.push_back(static_cast<int>(i));
+        }
+    }
+    return out;
 }
 } // namespace
 
@@ -131,6 +174,103 @@ void RuntimeUIViewAdapter::set_room_interactions(std::vector<RuntimeUIObject> ob
 {
     m_state.objects = std::move(objects);
     m_state.actions = std::move(actions);
+}
+
+void RuntimeUIViewAdapter::sync_map(const GameSession& session)
+{
+    RuntimeUIMapView view;
+    const auto* project = session.project();
+    const auto current_room = session.current_room_id();
+    if (!project || !current_room.has_value() || project->maps().empty()) {
+        m_state.map_view = std::move(view);
+        return;
+    }
+
+    const MapModel* map = nullptr;
+    std::string map_id;
+    if (const auto current_map = session.current_map_id(); current_map.has_value()) {
+        auto it = project->maps().find(*current_map);
+        if (it != project->maps().end()) {
+            map_id = it->first;
+            map = &it->second;
+        }
+    }
+    if (!map) {
+        map = find_map_for_room(*project, *current_room, map_id);
+    }
+    if (!map) {
+        m_state.map_view = std::move(view);
+        return;
+    }
+
+    view.available = true;
+    view.enabled = session.map_enabled();
+    view.map_id = map_id;
+    view.current_room_id = *current_room;
+    view.default_room_script = map->default_room_script;
+    view.default_path_script = map->default_path_script;
+
+    int min_x = std::numeric_limits<int>::max();
+    int min_y = std::numeric_limits<int>::max();
+    int max_x = std::numeric_limits<int>::min();
+    int max_y = std::numeric_limits<int>::min();
+
+    for (const auto& room : map->rooms) {
+        RuntimeUIMapRoom out;
+        out.name = room.name;
+        out.room_ids = room.room_ids;
+        out.visibility_script = room.script;
+        out.left = room.left;
+        out.top = room.top;
+        out.width = room.width;
+        out.height = room.height;
+        out.style = room.style;
+        out.visible = view.enabled;
+        out.current = contains_room_id(room, *current_room);
+
+        const auto reachable = reachable_path_indices(*project, *current_room, room);
+        if (out.visible && !out.current && !reachable.empty()) {
+            out.enabled = true;
+            out.navigation_index = reachable.front();
+        }
+
+        min_x = std::min(min_x, room.left);
+        min_y = std::min(min_y, room.top);
+        max_x = std::max(max_x, room.left + room.width);
+        max_y = std::max(max_y, room.top + room.height);
+        view.rooms.push_back(std::move(out));
+    }
+
+    if (view.rooms.empty()) {
+        min_x = 0;
+        min_y = 0;
+        max_x = 0;
+        max_y = 0;
+    }
+
+    for (const auto& connection : map->connections) {
+        RuntimeUIMapConnection out;
+        out.room_start = connection.room_start;
+        out.room_end = connection.room_end;
+        out.port_start_x = connection.port_start_x;
+        out.port_start_y = connection.port_start_y;
+        out.port_end_x = connection.port_end_x;
+        out.port_end_y = connection.port_end_y;
+        out.visibility_script = connection.script;
+        out.style = connection.style;
+        const auto start = static_cast<std::size_t>(connection.room_start);
+        const auto end = static_cast<std::size_t>(connection.room_end);
+        out.visible = view.enabled && connection.room_start >= 0 && connection.room_end >= 0 &&
+                      start < view.rooms.size() && end < view.rooms.size() &&
+                      view.rooms[start].visible && view.rooms[end].visible;
+        view.connections.push_back(std::move(out));
+    }
+
+    view.min_x = min_x;
+    view.min_y = min_y;
+    view.max_x = max_x;
+    view.max_y = max_y;
+    m_state.map_view = std::move(view);
 }
 
 void RuntimeUIViewAdapter::apply_options(const nlohmann::json& options)

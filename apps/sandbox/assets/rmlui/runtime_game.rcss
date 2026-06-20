@@ -146,6 +146,45 @@ nt-map-view {
     border: 1px #4b555acc;
 }
 
+.nt-map-view__connection {
+    margin: 3px 0;
+    height: 2px;
+    background-color: #5f7f91;
+}
+
+.nt-map-view__connection--hidden {
+    display: none;
+}
+
+.nt-map-view__rooms {
+    margin-top: 8px;
+}
+
+.nt-map-view__room {
+    display: block;
+    width: 100%;
+    margin: 4px 0;
+    padding: 6px 8px;
+    color: #dceaf2;
+    background-color: #1c2d36;
+    border: 1px #5f7f91;
+    text-align: left;
+}
+
+.nt-map-view__room--current {
+    color: #101820;
+    background-color: #9ad1ef;
+}
+
+.nt-map-view__room--disabled {
+    color: #77838a;
+    background-color: #172128;
+}
+
+.nt-map-view__room--hidden {
+    display: none;
+}
+
 #rt_objects,
 #rt_actions {
     margin-top: 12px;

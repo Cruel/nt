@@ -300,6 +300,9 @@ RuntimeInputResult RuntimeSessionHost::make_result(bool handled,
                                                    std::optional<std::uint64_t> step_index)
 {
     consume_commands(commands);
+    if (m_session.loaded()) {
+        m_view.sync_map(m_session);
+    }
 
     auto outputs = commands_to_outputs(commands, step_index);
     for (const auto& diagnostic : diagnostics) {

@@ -368,7 +368,7 @@ Acceptance criteria:
 - Tests cover parsing-to-presentation behavior and at least one deterministic animation/reveal path.
 - Visual effects can be unsupported initially only if the semantic data is preserved and diagnostics/fallback behavior are explicit.
 
-## Phase 8 [pending]: MapView
+## Phase 8 [blocked]: MapView
 
 Goal: replace old map presentation with a new RmlUi-hosted custom component.
 
@@ -400,6 +400,20 @@ Acceptance criteria:
 - Current room updates deterministically.
 - Visibility and click behavior are testable.
 - Editor preview can inspect map presentation state.
+
+Status: complete for the v1 RmlUi DOM-backed MapView slice, but not fully complete against the
+original Phase 8 behavior list. Runtime view state now exposes typed map presentation data, the host
+derives it from `ProjectModel` plus current runtime room/map flags, editor preview can inspect it,
+and `nt-map-view` renders deterministic fallback RML with current-room highlighting and `nt-nav`
+targets for directly reachable rooms.
+
+Blocked/deferred before Phase 8 can be marked fully done:
+
+- Lua-evaluated room/connection visibility. `noveltea_core` must remain Lua-free, so this needs an
+  explicit engine-layer contract for evaluating map visibility scripts, applying boolean results
+  back to `RuntimeUIViewState`, and surfacing diagnostics deterministically.
+- Optional transition animation. No concrete behavior is specified yet.
+- bgfx/custom map geometry. This is deferred until the RmlUi DOM fallback proves insufficient.
 
 ## Phase 9 [pending]: TextLog
 

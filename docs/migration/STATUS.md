@@ -18,20 +18,22 @@ Last updated: 2026-06-20.
 - Phase 5 RmlUi custom component foundation: `nt-active-text`, `nt-map-view`, and `nt-text-log` register as C++-backed runtime UI elements with deterministic fallback binding from `RuntimeUIViewState`.
 - Phase 6 tween integration: `twink` is resolved as an external package or pinned FetchContent fallback, `TweenService` owns engine-side tween instances, and RuntimeUI uses it for deterministic ActiveText reveal progress.
 - Phase 7 ActiveText: runtime view state preserves `RichTextDocument` data, the engine builds deterministic per-glyph ActiveText frames with reveal/effect state, and `nt-active-text` renders fallback RML with object/style/effect/shader metadata, page-break prompts, and semantic shader stubs.
+- Phase 8 MapView v1: runtime view state exposes typed map rooms/connections, derives current-room and direct-path click targets from `ProjectModel`/runtime state, editor preview can inspect map state, and `nt-map-view` renders deterministic RmlUi fallback DOM with current-room highlighting.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
 
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
-- Shader-backed ActiveText rendering, map rendering, and text-log rendering remain active.
+- Phase 8 is blocked from full completion on Lua-evaluated map visibility. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
+- Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, optional map transition animation, and text-log rendering remain active.
 - Editor preview/test playback needs hardening around real workflows.
 - Packaging/export workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 
 ## Current Verification Commands
 
-Latest Phase 6 implementation — use these commands to verify:
+Latest Phase 8 implementation — use these commands to verify:
 
 ```sh
 cmake --preset linux-debug
@@ -67,6 +69,22 @@ cd android
 
 For documentation-only cleanup, a targeted `rg` check for stale active-doc instructions is sufficient.
 
+Latest Phase 8 verification completed:
+
+```sh
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+ctest --test-dir build/linux-debug --output-on-failure
+cmake --preset web-debug
+cmake --build --preset web-debug
+cmake --build --preset linux-debug --target format-check
+timeout 5s ./build/linux-debug/apps/sandbox/noveltea-sandbox
+```
+
+The sandbox launch initialized and loaded the runtime document; `timeout` ended the long-running
+app after startup.
+
 ## Next Implementation Task
 
-Implement Phase 8 from [`PLAN.md`](PLAN.md): MapView runtime presentation and interaction.
+Resolve the Phase 8 Lua map-visibility design gap from [`PLAN.md`](PLAN.md), then either implement
+that bridge or explicitly defer it before starting Phase 9 TextLog work.

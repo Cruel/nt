@@ -32,7 +32,22 @@
   "object": {},
   "verb": {},
   "action": {},
-  "map": {},
+  "map": {
+    "main": [
+      "main",
+      "",
+      {},
+      "return true;",
+      "return true;",
+      [
+        ["Foyer", 0, 0, 120, 80, ["foyer"], "", 1],
+        ["Gallery", 160, 0, 120, 80, ["gallery"], "return true;", 2]
+      ],
+      [
+        [0, 1, 120, 40, 160, 40, "return true;", 1]
+      ]
+    ]
+  },
   "dialogue": {
     "guide": [
       "guide",

@@ -37,7 +37,19 @@ ProjectDocument make_room_project()
          nlohmann::json::array({"kitchen", "", props(), "A bright kitchen.", "", "", "", "",
                                 nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
-    root[project_ids::map] = nlohmann::json::object();
+    root[project_ids::map] = nlohmann::json::object({
+        {"main",
+         nlohmann::json::array(
+             {"main", "", props(), "return true;", "return true;",
+              nlohmann::json::array({
+                  nlohmann::json::array(
+                      {"Foyer", 0, 0, 120, 80, nlohmann::json::array({"foyer"}), "", 1}),
+                  nlohmann::json::array({"Kitchen", 160, 0, 120, 80,
+                                         nlohmann::json::array({"kitchen"}), "visible()", 2}),
+              }),
+              nlohmann::json::array(
+                  {nlohmann::json::array({0, 1, 120, 40, 160, 40, "pathVisible()", 3})})})},
+    });
     root[project_ids::dialogue] = nlohmann::json::object();
     root[project_ids::cutscene] = nlohmann::json::object();
     root[project_ids::script] = nlohmann::json::object();
@@ -190,6 +202,73 @@ TEST_CASE("RuntimeSessionHost loads project and drives room UI state")
     CHECK(view.navigation[0] == "kitchen");
 }
 
+TEST_CASE("RuntimeSessionHost derives map presentation from current room")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_room_project()).success);
+    host.tick(0.0);
+
+    const auto& map = host.view_state().map_view;
+    CHECK(map.available);
+    CHECK(map.enabled);
+    CHECK(map.map_id == "main");
+    CHECK(map.current_room_id == "foyer");
+    CHECK(map.default_room_script == "return true;");
+    CHECK(map.default_path_script == "return true;");
+    CHECK(map.min_x == 0);
+    CHECK(map.min_y == 0);
+    CHECK(map.max_x == 280);
+    CHECK(map.max_y == 80);
+    REQUIRE(map.rooms.size() == 2);
+    CHECK(map.rooms[0].name == "Foyer");
+    CHECK(map.rooms[0].current);
+    CHECK(map.rooms[0].visible);
+    CHECK_FALSE(map.rooms[0].enabled);
+    CHECK(map.rooms[1].name == "Kitchen");
+    CHECK_FALSE(map.rooms[1].current);
+    CHECK(map.rooms[1].visible);
+    CHECK(map.rooms[1].enabled);
+    CHECK(map.rooms[1].navigation_index == 0);
+    CHECK(map.rooms[1].visibility_script == "visible()");
+    REQUIRE(map.connections.size() == 1);
+    CHECK(map.connections[0].visible);
+    CHECK(map.connections[0].visibility_script == "pathVisible()");
+}
+
+TEST_CASE("RuntimeSessionHost map presentation tolerates missing maps")
+{
+    auto project = make_room_project();
+    project.root()[project_ids::map] = nlohmann::json::object();
+
+    RuntimeSessionHost host;
+    REQUIRE(host.load(std::move(project)).success);
+    host.tick(0.0);
+
+    CHECK_FALSE(host.view_state().map_view.available);
+    CHECK_FALSE(host.view_state().map_view.enabled);
+}
+
+TEST_CASE("RuntimeSessionHost disables map hit targets when map is disabled")
+{
+    auto save = SaveDocument::new_save();
+    save.root()[project_ids::map_enabled] = false;
+
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_room_project(), save).success);
+    host.tick(0.0);
+
+    const auto& map = host.view_state().map_view;
+    CHECK(map.available);
+    CHECK_FALSE(map.enabled);
+    REQUIRE(map.rooms.size() == 2);
+    CHECK_FALSE(map.rooms[0].visible);
+    CHECK_FALSE(map.rooms[0].enabled);
+    CHECK_FALSE(map.rooms[1].visible);
+    CHECK_FALSE(map.rooms[1].enabled);
+    REQUIRE(map.connections.size() == 1);
+    CHECK_FALSE(map.connections[0].visible);
+}
+
 TEST_CASE("RuntimeSessionHost routes navigation and updates room state")
 {
     RuntimeSessionHost host;
@@ -204,6 +283,11 @@ TEST_CASE("RuntimeSessionHost routes navigation and updates room state")
     CHECK(host.current_mode_name() == std::string_view("room"));
     CHECK(host.view_state().title == "Kitchen");
     CHECK(host.view_state().body == "A bright kitchen.");
+    const auto& map = host.view_state().map_view;
+    REQUIRE(map.rooms.size() == 2);
+    CHECK_FALSE(map.rooms[0].current);
+    CHECK(map.rooms[1].current);
+    CHECK(map.current_room_id == "kitchen");
 }
 
 TEST_CASE("RuntimeSessionHost routes dialogue option selection")

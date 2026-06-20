@@ -40,7 +40,19 @@ ProjectDocument make_preview_project()
          nlohmann::json::array({"kitchen", "", props(), "A bright kitchen.", "", "", "", "",
                                 nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
-    root[project_ids::map] = nlohmann::json::object();
+    root[project_ids::map] = nlohmann::json::object({
+        {"main",
+         nlohmann::json::array(
+             {"main", "", props(), "return true;", "return true;",
+              nlohmann::json::array({
+                  nlohmann::json::array(
+                      {"Foyer", 0, 0, 120, 80, nlohmann::json::array({"foyer"}), "", 1}),
+                  nlohmann::json::array({"Kitchen", 160, 0, 120, 80,
+                                         nlohmann::json::array({"kitchen"}), "visible()", 2}),
+              }),
+              nlohmann::json::array(
+                  {nlohmann::json::array({0, 1, 120, 40, 160, 40, "pathVisible()", 3})})})},
+    });
     root[project_ids::dialogue] = nlohmann::json::object();
     root[project_ids::cutscene] = nlohmann::json::object();
     root[project_ids::script] = nlohmann::json::object();
@@ -136,6 +148,11 @@ TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands"
     CHECK(state.running);
     CHECK(state.mode == "room");
     CHECK(state.view.title == "Foyer");
+    CHECK(state.view.map_view.available);
+    CHECK(state.view.map_view.current_room_id == "foyer");
+    REQUIRE(state.view.map_view.rooms.size() == 2);
+    CHECK(state.view.map_view.rooms[0].current);
+    CHECK(state.view.map_view.rooms[1].navigation_index == 0);
     CHECK(has_command(preview.captured_commands(), ControllerCommandType::RoomDescription));
 
     auto commands = preview.take_captured_commands();
@@ -144,7 +161,11 @@ TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands"
 
     CHECK(preview.inject_navigation_choice(0));
     preview.step(0.0);
-    CHECK(preview.inspect_state().view.title == "Kitchen");
+    state = preview.inspect_state();
+    CHECK(state.view.title == "Kitchen");
+    CHECK(state.view.map_view.current_room_id == "kitchen");
+    REQUIRE(state.view.map_view.rooms.size() == 2);
+    CHECK(state.view.map_view.rooms[1].current);
 
     preview.stop();
     preview.step(1.0);
