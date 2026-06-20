@@ -15,6 +15,14 @@ env:
   CMAKE_BUILD_PARALLEL_LEVEL: 2
   VCPKG_MAX_CONCURRENCY: 2
   RELEASE_TAG: ${{ github.ref_name }}
+  EMSDK_VERSION: 6.0.0
+  CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+  CCACHE_MAXSIZE: 500M
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  ANDROID_API_LEVEL: "35"
+  ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
+  ANDROID_CMAKE_VERSION: "3.31.6"
+  ANDROID_NDK_VERSION: "27.3.13750724"
 
 jobs:
   shader-assets:
@@ -103,22 +111,29 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols libltdl-dev libxtst-dev autoconf automake autoconf-archive libtool bison flex
+          sudo apt-get install -y build-essential ninja-build ccache cmake pkg-config curl zip unzip tar git libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols libltdl-dev libxtst-dev autoconf automake autoconf-archive libtool bison flex
 
       - name: Install macOS packages
         if: runner.os == 'macOS'
-        run: brew install ninja
+        run: brew install ninja ccache
 
-      - name: Cache vcpkg
+      - name: Cache vcpkg SDK
         uses: actions/cache@v5
         with:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-            build/${{ matrix.preset }}/vcpkg_installed
-          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-${{ matrix.preset }}-
+            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-sdk-
+
+      - name: Cache vcpkg installed
+        uses: actions/cache@v5
+        with:
+          path: build/${{ matrix.preset }}/vcpkg_installed
+          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-
 
       - name: Bootstrap vcpkg
         shell: pwsh
@@ -144,15 +159,27 @@ jobs:
           name: noveltea-release-shader-assets
           path: build/prebuilt-shader-assets
 
+      - name: Cache ccache
+        if: runner.os != 'Windows'
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-
+
       - name: Build desktop sandbox
         shell: pwsh
         run: |
+          $ccacheArgs = @()
+          if ("${{ runner.os }}" -ne "Windows") { $ccacheArgs = @("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache") }
           cmake --preset ${{ matrix.preset }} -G Ninja `
             -DNOVELTEA_COMPILE_SHADERS=OFF `
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" `
             -DBUILD_TESTING=OFF `
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
-            -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }}
+            -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
+            @ccacheArgs
           cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox
 
       - name: Stage desktop sandbox artifact
@@ -186,24 +213,30 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git autoconf automake autoconf-archive libtool bison flex
+          sudo apt-get install -y build-essential ninja-build ccache cmake curl zip unzip tar git autoconf automake autoconf-archive libtool bison flex
 
       - name: Cache Emscripten SDK
+        id: cache-emsdk
         uses: actions/cache@v5
         with:
           path: .cache/emsdk
-          key: ${{ runner.os }}-emsdk-latest
-          restore-keys: |
-            ${{ runner.os }}-emsdk-
+          key: ${{ runner.os }}-emsdk-${{ env.EMSDK_VERSION }}
 
       - name: Install Emscripten
+        if: steps.cache-emsdk.outputs.cache-hit != 'true'
         run: |
-          if [ ! -d "${{ github.workspace }}/.cache/emsdk/.git" ]; then
-            git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
-          fi
+          git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
           cd "${{ github.workspace }}/.cache/emsdk"
-          ./emsdk install latest
-          ./emsdk activate latest
+          ./emsdk install $EMSDK_VERSION
+          ./emsdk activate $EMSDK_VERSION
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache-emscripten-${{ env.EMSDK_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-emscripten-${{ env.EMSDK_VERSION }}-
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
@@ -216,7 +249,7 @@ jobs:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
+          emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-release --target noveltea-sandbox
 
       - name: Stage Web bundle
@@ -260,18 +293,45 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git autoconf automake autoconf-archive libtool bison flex
+          sudo apt-get install -y build-essential ninja-build ccache cmake curl zip unzip tar git autoconf automake autoconf-archive libtool bison flex
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+
+      - name: Cache Android SDK packages
+        id: cache-android-sdk
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+            ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
+          key: ${{ runner.os }}-android-sdk-android${{ env.ANDROID_API_LEVEL }}-buildtools${{ env.ANDROID_BUILD_TOOLS_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}-ndk${{ env.ANDROID_NDK_VERSION }}
 
       - name: Install Android SDK packages
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724" "cmake;3.31.6"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}"
+
+      - name: Cache SDL3 Android AAR
+        id: cache-sdl3-aar
+        uses: actions/cache@v5
+        with:
+          path: android/app/libs/SDL3-3.4.10.aar
+          key: ${{ runner.os }}-sdl3-aar-3.4.10
 
       - name: Download SDL3 Android AAR
+        if: steps.cache-sdl3-aar.outputs.cache-hit != 'true'
         run: |
           mkdir -p android/app/libs .cache/sdl3-android
           curl -L -o .cache/sdl3-android/SDL3-devel-3.4.10-android.zip https://github.com/libsdl-org/SDL/releases/download/release-3.4.10/SDL3-devel-3.4.10-android.zip
           unzip -p .cache/sdl3-android/SDL3-devel-3.4.10-android.zip SDL3-3.4.10.aar > android/app/libs/SDL3-3.4.10.aar
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache-android-ndk${{ env.ANDROID_NDK_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-android-ndk${{ env.ANDROID_NDK_VERSION }}-
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
@@ -305,7 +365,7 @@ jobs:
       - name: Build Android release APK
         working-directory: android
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.3.13750724
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: |
           args=(
             --no-daemon
@@ -314,6 +374,7 @@ jobs:
             -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets"
             -PnovelteaVersionName="$NOVELTEA_VERSION_NAME"
             -PnovelteaVersionCode="$NOVELTEA_VERSION_CODE"
+            -PnovelteaUseCcache=true
           )
           if [[ "$NOVELTEA_ANDROID_RELEASE_FLAVOR" == "signed" ]]; then
             args+=(

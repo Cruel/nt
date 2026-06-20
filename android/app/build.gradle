@@ -34,6 +34,9 @@ android {
             cmake {
                 arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_SANDBOX=ON", "-DBUILD_TESTING=OFF"
                 arguments "-DNOVELTEA_COMPILE_SHADERS=OFF"
+                if (project.hasProperty("novelteaUseCcache")) {
+                    arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+                }
             }
         }
         ndk {
