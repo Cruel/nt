@@ -38,6 +38,19 @@ TEST_CASE("ActiveTextFrame preserves object shader and offset metadata")
     CHECK(glyph.offset.y == Catch::Approx(-2.0f));
 }
 
+TEST_CASE("ActiveTextFrame preserves material metadata from [mat] tag")
+{
+    const auto doc = parse_rich_text("[mat id=my_material][[Key|key-object]][/mat]");
+
+    const auto frame = build_active_text_frame(doc);
+
+    REQUIRE(frame.runs.size() == 1);
+    REQUIRE(frame.runs[0].glyphs.size() == 3);
+    const auto& glyph = frame.runs[0].glyphs[0];
+    CHECK(glyph.style.object_id == "key-object");
+    CHECK(glyph.style.material_id == "my_material");
+}
+
 TEST_CASE("ActiveTextFrame computes deterministic effect state")
 {
     const auto shake_doc = parse_rich_text("[a1 e=s t=1]abc[/a1]");

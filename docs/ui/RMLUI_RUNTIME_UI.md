@@ -79,7 +79,7 @@ Visual metadata is read from backend-neutral entity properties. Supported keys a
 - Rooms: `background`, `image`, `texture`
 - Objects: `image`, `texture`
 
-Values may be full logical paths such as `project:/textures/foyer.png`, relative texture paths such as `textures/foyer.png`, or texture ids/names that resolve to `project:/textures/<value>`. Unsupported shader/material properties are not interpreted by the runtime UI v1 path; rich-text shader ids remain preserved as ActiveText metadata.
+Values may be full logical paths such as `project:/textures/foyer.png`, relative texture paths such as `textures/foyer.png`, or texture ids/names that resolve to `project:/textures/<value>`. Material properties are not interpreted by the runtime UI v1 path; rich-text material IDs and low-level shader IDs remain preserved as ActiveText metadata stubs.
 
 `RuntimeUI` validates resolved visual paths with `AssetManager::exists()` before binding and records missing paths in `RuntimeUIViewState::asset_diagnostics` for display in `rt_asset_status`. Decode/upload failures remain renderer diagnostics from the RmlUi/bgfx texture loader.
 

@@ -39,8 +39,9 @@ inline constexpr std::string_view player = "player";
 
 inline constexpr std::string_view shaders = "shaders";
 inline constexpr std::string_view system_shaders = "systemShaders";
-inline constexpr std::size_t shader_background = 0;
-inline constexpr std::size_t shader_post_process = 1;
+inline constexpr std::string_view materials = "materials";
+inline constexpr std::size_t material_background = 0;
+inline constexpr std::size_t material_post_process = 1;
 inline constexpr std::string_view textures = "textures";
 
 inline constexpr std::string_view action = "action";

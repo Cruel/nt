@@ -6,7 +6,7 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
 
 ## Initial Component Candidates
 
-- `nt-active-text`: registered as a C++ RmlUi element. Phase 5 binds room/dialogue/cutscene body state into safe fallback RML. Phase 6 adds deterministic reveal progress through the engine-owned `TweenService`. Phase 7 preserves `RichTextDocument` state, builds deterministic per-glyph ActiveText frames, and emits fallback RML glyph spans with style, object, shader, offset, diff, and effect state. Shader/material ids remain metadata stubs until renderer-specific hooks are added.
+- `nt-active-text`: registered as a C++ RmlUi element. Phase 5 binds room/dialogue/cutscene body state into safe fallback RML. Phase 6 adds deterministic reveal progress through the engine-owned `TweenService`. Phase 7 preserves `RichTextDocument` state, builds deterministic per-glyph ActiveText frames, and emits fallback RML glyph spans with style, object, material, shader, offset, diff, and effect state. Material and shader ids remain metadata stubs until renderer-specific hooks are added.
 - `nt-map-view`: registered as a C++ RmlUi element. Phase 8 binds typed map rooms and
   connections from `RuntimeUIViewState`, highlights the current room, preserves style ids and
   visibility script text as metadata, and emits `nt-nav` click targets for directly reachable

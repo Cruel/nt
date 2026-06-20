@@ -270,6 +270,15 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
     } else if (c == 'f') {
         tag.type = TextStyleType::Font;
         parse_single_arg(tag, tag_full, "id");
+    } else if (c == 'm') {
+        if (tag_lower.size() > 2 && tag_lower[1] == 'a' && tag_lower[2] == 't') {
+            tag.type = TextStyleType::Material;
+            parse_key_values(tag, tag_full, false);
+            if (tag.params.empty() && !closing)
+                throw std::runtime_error("empty material tag");
+        } else {
+            throw std::runtime_error("unknown tag");
+        }
     } else if (c == 'o') {
         tag.type = TextStyleType::Object;
         parse_single_arg(tag, tag_full, "id");
@@ -334,6 +343,10 @@ void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& ta
         break;
     case TextStyleType::YOffset:
         style.y_offset = parse_int(tag.params.at("y"));
+        break;
+    case TextStyleType::Material:
+        if (auto it = tag.params.find("id"); it != tag.params.end())
+            style.material_id = it->second;
         break;
     case TextStyleType::Shader:
         if (auto it = tag.params.find("f"); it != tag.params.end())
@@ -434,6 +447,7 @@ nlohmann::json style_json(const RichTextStyle& s)
 {
     return {
         {"font_alias", s.font_alias},
+        {"material_id", s.material_id},
         {"object_id", s.object_id},
         {"vertex_shader_id", s.vertex_shader_id},
         {"fragment_shader_id", s.fragment_shader_id},
@@ -533,7 +547,8 @@ RichTextDocument parse_rich_text(std::string_view input, const RichTextParseOpti
 
                 push_run();
                 if (tag.type == TextStyleType::Animation || tag.type == TextStyleType::XOffset ||
-                    tag.type == TextStyleType::YOffset || tag.type == TextStyleType::Shader) {
+                    tag.type == TextStyleType::YOffset || tag.type == TextStyleType::Material ||
+                    tag.type == TextStyleType::Shader) {
                     new_group = true;
                 }
                 if (closing) {
@@ -718,6 +733,7 @@ bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out)
             const auto style_value = run_value.find("style");
             if (style_value != run_value.end() && style_value->is_object()) {
                 run.style.font_alias = style_value->value("font_alias", "");
+                run.style.material_id = style_value->value("material_id", "");
                 run.style.object_id = style_value->value("object_id", "");
                 run.style.vertex_shader_id = style_value->value("vertex_shader_id", "");
                 run.style.fragment_shader_id = style_value->value("fragment_shader_id", "");

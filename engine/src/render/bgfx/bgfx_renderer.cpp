@@ -95,14 +95,14 @@ public:
             bx::FileWriter writer;
             bx::Error err;
             if (!writer.open(bx::FilePath(file_path), false, &err)) {
-                std::fprintf(stderr, "[renderer] failed to open PNG screenshot: %s\n",
-                             file_path);
+                std::fprintf(stderr, "[renderer] failed to open PNG screenshot: %s\n", file_path);
                 return;
             }
-            bimg::imageWritePng(&writer, width, height, pitch, data,
-                                bimg::TextureFormat::BGRA8, yflip, &err);
+            bimg::imageWritePng(&writer, width, height, pitch, data, bimg::TextureFormat::BGRA8,
+                                yflip, &err);
             if (!err.isOk()) {
-                std::fprintf(stderr, "[renderer] PNG write error: %s\n", err.getMessage().getCPtr());
+                std::fprintf(stderr, "[renderer] PNG write error: %s\n",
+                             err.getMessage().getCPtr());
             }
             writer.close();
             return;

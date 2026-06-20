@@ -20,10 +20,11 @@ enum class TextStyleType : int {
     Diff,
     Font,
     Italic,
+    Material,
     Object,
     PageBreak,
-    Size,
     Shader,
+    Size,
     XOffset,
     YOffset,
 };
@@ -71,6 +72,7 @@ struct RichTextAnimation {
 
 struct RichTextStyle {
     std::string font_alias;
+    std::string material_id;
     std::string object_id;
     std::string vertex_shader_id;
     std::string fragment_shader_id;

@@ -129,6 +129,8 @@ std::string glyph_rml(const ActiveTextGlyph& glyph)
     out << " data-glyph-index=\"" << glyph.glyph_index << "\"";
     if (!glyph.style.object_id.empty())
         out << " data-object-id=\"" << escape_rml(glyph.style.object_id) << "\"";
+    if (!glyph.style.material_id.empty())
+        out << " data-material=\"" << escape_rml(glyph.style.material_id) << "\"";
     if (!glyph.style.font_alias.empty())
         out << " data-font=\"" << escape_rml(glyph.style.font_alias) << "\"";
     if (!glyph.style.vertex_shader_id.empty())

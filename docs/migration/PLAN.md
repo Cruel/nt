@@ -329,11 +329,11 @@ Acceptance criteria:
 
 Goal: migrate NovelTea’s animated/rich text behavior without directly porting old SFML `ActiveText`.
 
-Status: complete except for real shader/material rendering hooks. Runtime view state now
+Status: complete except for real rendering hooks. Runtime view state now
 preserves backend-neutral `RichTextDocument` data, the engine exposes deterministic
 ActiveText frame data with per-glyph reveal/effect state, and `nt-active-text` projects
-that state into fallback RML with object/style/effect/shader metadata and page-break
-prompts. Shader/material ids are preserved as metadata stubs for later renderer work.
+that state into fallback RML with object/style/effect/material/shader metadata and page-break
+prompts. Material and shader ids are preserved as metadata stubs for later renderer work.
 
 Use the existing rich-text semantic model as the source of truth. It already models text styles, object spans, page breaks, shader IDs, offsets, diff spans, and effects such as fade, glow, nod, shake, tremble, and pop.
 
@@ -357,7 +357,7 @@ Rendering strategy:
 1. First pass: RmlUi fallback spans/plain text with correct state and events.
 2. Second pass: engine-owned shaped text layout with style runs.
 3. Third pass: per-glyph effects/tweens through `twink`.
-4. Fourth pass: shader/material hooks where needed.
+4. Fourth pass: material/shader hooks where needed.
 
 Use `twink` for ActiveText animation timelines rather than ad hoc interpolation. `twink` supports basic tweens, callbacks, delay, repeat, yoyo, pause/resume/kill, easing equations, and multi-value/path properties. It should be wrapped in an engine adapter so ActiveText does not expose `twink` details through backend-neutral core APIs.
 
@@ -499,12 +499,12 @@ Do not invent old SFML behavior blindly. Use `refs/NovelTea/` only to understand
 
 Deferred items:
 
-- Shader/material resolution policy (`render/shader_policy.hpp` contains a stub).
-  When implemented this must define property-key → ShaderId/MaterialId mapping,
-  a `ShaderPolicy` resolving ShaderId → bgfx ProgramHandle with platform-aware
-  variant selection, and a bind() path on QuadCommand. ActiveText effects, map
-  overlays, per-object materials, and per-room background shaders all depend on
-  this step.
+- Material/shader resolution (`render/material.hpp` and `render/shader.hpp`
+  contain deferred stubs). When implemented this must define property-key →
+  MaterialId mapping, a material registry resolving MaterialId → bgfx
+  ProgramHandle with platform-aware variant selection, and a bind() path on
+  QuadCommand. ActiveText effects, map overlays, per-object materials, and
+  per-room background materials all depend on this step.
 
 Acceptance criteria:
 
@@ -645,7 +645,7 @@ cmake --build --preset web-debug
 Renderer/RmlUi/text changes:
 
 ```sh
-ctest --test-dir build/linux-debug -R "rmlui|RmlUi|text|Text|shader" --output-on-failure
+ctest --test-dir build/linux-debug -R "rmlui|RmlUi|text|Text|shader|material" --output-on-failure
 ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
 ```
 
