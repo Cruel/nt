@@ -9,6 +9,7 @@
 #include <noveltea/core/runtime_controller.hpp>
 #include <noveltea/core/runtime_io.hpp>
 #include <noveltea/core/runtime_ui_view.hpp>
+#include <noveltea/core/save_document.hpp>
 
 namespace noveltea::core {
 
@@ -22,6 +23,8 @@ public:
 
     [[nodiscard]] GameSessionLoadResult load(ProjectDocument project,
                                              SaveDocument save = SaveDocument::new_save());
+    void set_save_slot_store(SaveSlotStore* store) noexcept { m_save_slots = store; }
+    [[nodiscard]] bool has_save_slot_store() const noexcept { return m_save_slots != nullptr; }
     void reset();
     void tick(double delta_seconds);
 
@@ -59,6 +62,11 @@ public:
     bool select_dialogue_option(int option_index);
     bool continue_active();
     bool process_action(const std::string& verb_id, const std::vector<std::string>& object_ids);
+    [[nodiscard]] SaveDocument snapshot_save() const;
+    RuntimeInputResult save(SaveSlotId slot);
+    RuntimeInputResult autosave();
+    RuntimeInputResult load_save(SaveSlotId slot);
+    RuntimeInputResult load_save(SaveDocument save);
 
 private:
     RuntimeInputResult make_result(bool handled, std::vector<ControllerCommand> commands,
@@ -66,6 +74,10 @@ private:
                                    std::optional<std::uint64_t> step_index = std::nullopt);
     RuntimeDiagnostic make_warning(const RuntimeInput& input, std::string message) const;
     void consume_commands(const std::vector<ControllerCommand>& commands);
+    [[nodiscard]] std::vector<ControllerCommand> make_save_hook_commands(bool before,
+                                                                         bool autosave) const;
+    [[nodiscard]] RuntimeInputResult finish_save(SaveSlotId slot, bool autosave,
+                                                 std::vector<ControllerCommand> commands);
     [[nodiscard]] std::vector<RuntimeOutput>
     commands_to_outputs(const std::vector<ControllerCommand>& commands,
                         std::optional<std::uint64_t> step_index) const;
@@ -77,6 +89,8 @@ private:
     std::vector<RuntimeOutput> m_last_outputs;
     std::vector<RuntimeDiagnostic> m_last_diagnostics;
     std::vector<std::string> m_selected_object_ids;
+    std::optional<ProjectDocument> m_loaded_project;
+    SaveSlotStore* m_save_slots = nullptr;
 };
 
 } // namespace noveltea::core

@@ -173,10 +173,20 @@ EntityEditResult ProjectTooling::erase_entity_record(ProjectDocument& project,
 
 GameSessionLoadResult RuntimePreviewSession::load(ProjectDocument project)
 {
+    m_initial_save.reset();
     m_project = project;
     m_captured_commands.clear();
     m_running = false;
     return m_host.load(std::move(project));
+}
+
+GameSessionLoadResult RuntimePreviewSession::load(ProjectDocument project, SaveDocument save)
+{
+    m_project = project;
+    m_initial_save = save;
+    m_captured_commands.clear();
+    m_running = false;
+    return m_host.load(std::move(project), std::move(save));
 }
 
 void RuntimePreviewSession::start()
@@ -198,7 +208,8 @@ GameSessionLoadResult RuntimePreviewSession::reset()
         return GameSessionLoadResult{};
     }
     const bool was_running = m_running;
-    auto result = m_host.load(*m_project);
+    auto result =
+        m_initial_save ? m_host.load(*m_project, *m_initial_save) : m_host.load(*m_project);
     m_captured_commands.clear();
     m_running = was_running && result.success;
     if (m_running)
@@ -235,6 +246,9 @@ RuntimePreviewState RuntimePreviewSession::inspect_state() const
     state.view = m_host.view_state();
     if (const auto* controller = m_host.controller()) {
         state.controller_state = controller->save_state();
+    }
+    if (m_host.loaded()) {
+        state.save_snapshot = m_host.snapshot_save().root();
     }
     return state;
 }

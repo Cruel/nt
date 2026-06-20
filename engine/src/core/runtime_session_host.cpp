@@ -12,6 +12,7 @@ RuntimeSessionHost::~RuntimeSessionHost() = default;
 GameSessionLoadResult RuntimeSessionHost::load(ProjectDocument project, SaveDocument save)
 {
     reset();
+    m_loaded_project = project;
     auto result = m_session.load(std::move(project), std::move(save));
     if (!result.success) {
         return result;
@@ -30,6 +31,7 @@ void RuntimeSessionHost::reset()
     m_last_outputs.clear();
     m_last_diagnostics.clear();
     m_selected_object_ids.clear();
+    m_loaded_project.reset();
 }
 
 void RuntimeSessionHost::tick(double delta_seconds)
@@ -176,14 +178,110 @@ RuntimeInputResult RuntimeSessionHost::apply_input(const RuntimeInput& input)
         return unsupported(
             "set-entrypoint input is handled by editor preview sessions in this phase");
     case RuntimeInputType::LoadSave:
-        return unsupported(
-            "load-save input is defined for the runtime contract but awaits save-slot policy");
+        if (input.payload.contains("slot") && input.payload["slot"].is_number_integer()) {
+            return load_save(SaveSlotId{input.payload["slot"].get<int>()});
+        }
+        if (input.payload.contains("save") && input.payload["save"].is_object()) {
+            return load_save(SaveDocument(input.payload["save"]));
+        }
+        return unsupported("load-save input requires a slot or save payload");
     case RuntimeInputType::ApplyTestStep:
         return unsupported("apply-test-step input is defined for the runtime contract but has no "
                            "step executor yet");
     }
 
     return unsupported("unknown runtime input");
+}
+
+SaveDocument RuntimeSessionHost::snapshot_save() const
+{
+    auto save = m_session.snapshot_save();
+    if (m_controller) {
+        save.root()["_novelteaRuntime"]["controller"] = m_controller->save_state();
+    }
+    return save;
+}
+
+RuntimeInputResult RuntimeSessionHost::save(SaveSlotId slot)
+{
+    return finish_save(slot, slot.is_autosave(), make_save_hook_commands(true, slot.is_autosave()));
+}
+
+RuntimeInputResult RuntimeSessionHost::autosave() { return save(SaveSlotId::autosave()); }
+
+RuntimeInputResult RuntimeSessionHost::load_save(SaveSlotId slot)
+{
+    if (!m_save_slots) {
+        return make_result(false, {},
+                           {RuntimeDiagnostic{RuntimeDiagnosticSeverity::Warning,
+                                              "save-slot",
+                                              std::nullopt,
+                                              {},
+                                              {},
+                                              "no save slot store is bound",
+                                              {},
+                                              std::nullopt}});
+    }
+    auto loaded = m_save_slots->read_slot(slot);
+    if (!loaded.success || !loaded.save.has_value()) {
+        RuntimeDiagnostic diagnostic;
+        diagnostic.severity = RuntimeDiagnosticSeverity::Warning;
+        diagnostic.category = "save-slot";
+        diagnostic.message =
+            loaded.errors.empty() ? "failed to read save slot" : loaded.errors.front().message;
+        return make_result(false, {}, {std::move(diagnostic)});
+    }
+    return load_save(std::move(*loaded.save));
+}
+
+RuntimeInputResult RuntimeSessionHost::load_save(SaveDocument save)
+{
+    if (!m_loaded_project) {
+        RuntimeDiagnostic diagnostic;
+        diagnostic.severity = RuntimeDiagnosticSeverity::Warning;
+        diagnostic.category = "save-slot";
+        diagnostic.message = "runtime session has no project to reload";
+        return make_result(false, {}, {std::move(diagnostic)});
+    }
+
+    auto project = *m_loaded_project;
+    auto result = load(std::move(project), std::move(save));
+    std::vector<RuntimeDiagnostic> diagnostics;
+    for (const auto& session_diag : result.diagnostics) {
+        RuntimeDiagnostic diagnostic;
+        diagnostic.severity = session_diag.severity == SessionDiagnosticSeverity::Error
+                                  ? RuntimeDiagnosticSeverity::Error
+                              : session_diag.severity == SessionDiagnosticSeverity::Warning
+                                  ? RuntimeDiagnosticSeverity::Warning
+                                  : RuntimeDiagnosticSeverity::Info;
+        diagnostic.category = "save-load";
+        diagnostic.message = session_diag.message;
+        diagnostics.push_back(std::move(diagnostic));
+    }
+    if (!result.success) {
+        return make_result(false, {}, std::move(diagnostics));
+    }
+
+    std::vector<ControllerCommand> commands;
+    if (m_controller) {
+        const auto& root = m_session.save()->root();
+        if (auto rt = root.find("_novelteaRuntime");
+            rt != root.end() && rt->is_object() && rt->contains("controller")) {
+            m_controller->restore_state((*rt)["controller"]);
+            auto restored = m_controller->take_commands();
+            commands.insert(commands.end(), restored.begin(), restored.end());
+        }
+    }
+    auto after = make_save_hook_commands(false, false);
+    commands.insert(commands.end(), after.begin(), after.end());
+
+    auto input_result = make_result(true, std::move(commands), std::move(diagnostics));
+    RuntimeOutput output;
+    output.type = RuntimeOutputType::SaveMutationRequest;
+    output.payload = {{"operation", "load"}};
+    input_result.outputs.push_back(output);
+    m_last_outputs = input_result.outputs;
+    return input_result;
 }
 
 RuntimeInputResult
@@ -244,6 +342,63 @@ RuntimeDiagnostic RuntimeSessionHost::make_warning(const RuntimeInput& input,
     return diagnostic;
 }
 
+std::vector<ControllerCommand> RuntimeSessionHost::make_save_hook_commands(bool before,
+                                                                           bool autosave) const
+{
+    std::vector<ControllerCommand> commands;
+    const auto* project = m_session.project();
+    if (!project) {
+        return commands;
+    }
+    const auto& root = project->document_root();
+    const auto hook_key = before ? project_ids::script_before_save : project_ids::script_after_load;
+    auto it = root.find(std::string(hook_key));
+    if (it == root.end() || !it->is_string() || it->get<std::string>().empty()) {
+        return commands;
+    }
+
+    ControllerCommand command;
+    command.type = ControllerCommandType::ScriptDeferred;
+    command.text = it->get<std::string>();
+    command.data = {{"context", before ? "project_before_save" : "project_after_load"},
+                    {"autosave", autosave}};
+    commands.push_back(std::move(command));
+    return commands;
+}
+
+RuntimeInputResult RuntimeSessionHost::finish_save(SaveSlotId slot, bool autosave,
+                                                   std::vector<ControllerCommand> commands)
+{
+    if (!m_save_slots) {
+        RuntimeDiagnostic diagnostic;
+        diagnostic.severity = RuntimeDiagnosticSeverity::Warning;
+        diagnostic.category = "save-slot";
+        diagnostic.message = "no save slot store is bound";
+        return make_result(false, std::move(commands), {std::move(diagnostic)});
+    }
+
+    auto saved = snapshot_save();
+    auto write = m_save_slots->write_slot(slot, saved);
+    std::vector<RuntimeDiagnostic> diagnostics;
+    if (!write.success) {
+        RuntimeDiagnostic diagnostic;
+        diagnostic.severity = RuntimeDiagnosticSeverity::Error;
+        diagnostic.category = "save-slot";
+        diagnostic.message =
+            write.errors.empty() ? "failed to write save slot" : write.errors.front().message;
+        diagnostics.push_back(std::move(diagnostic));
+        return make_result(false, std::move(commands), std::move(diagnostics));
+    }
+
+    auto result = make_result(true, std::move(commands), {});
+    RuntimeOutput output;
+    output.type = RuntimeOutputType::SaveMutationRequest;
+    output.payload = {{"operation", "save"}, {"slot", slot.value}, {"autosave", autosave}};
+    result.outputs.push_back(std::move(output));
+    m_last_outputs = result.outputs;
+    return result;
+}
+
 std::vector<RuntimeOutput>
 RuntimeSessionHost::commands_to_outputs(const std::vector<ControllerCommand>& commands,
                                         std::optional<std::uint64_t> step_index) const
@@ -288,39 +443,38 @@ void RuntimeSessionHost::consume_commands(const std::vector<ControllerCommand>& 
         if (const auto* project = m_session.project()) {
             const auto room_id = std::string(m_controller->current_mode_entity_id());
             if (auto room_it = project->rooms().find(room_id); room_it != project->rooms().end()) {
-                for (const auto& room_object : room_it->second.objects) {
-                    auto object_it = project->objects().find(room_object.object_id);
+                for (const auto& [object_id, object_model] : project->objects()) {
+                    auto location = m_session.effective_object_location(object_id);
+                    if (!location || location->type != EntityType::Room ||
+                        location->id != room_id) {
+                        continue;
+                    }
                     RuntimeUIObject object;
-                    object.id = room_object.object_id;
-                    object.name = object_it != project->objects().end() ? object_it->second.name
-                                                                        : room_object.object_id;
+                    object.id = object_id;
+                    object.name = object_model.name.empty() ? object_id : object_model.name;
                     object.in_room = true;
                     objects.push_back(std::move(object));
                 }
             }
 
-            const auto& root = project->document_root();
-            if (auto inv_it = root.find(std::string(project_ids::starting_inventory));
-                inv_it != root.end() && inv_it->is_array()) {
-                for (const auto& item : *inv_it) {
-                    if (!item.is_string())
-                        continue;
-                    const auto id = item.get<std::string>();
-                    auto object_it = project->objects().find(id);
-                    if (auto existing = std::find_if(
-                            objects.begin(), objects.end(),
-                            [&](const RuntimeUIObject& object) { return object.id == id; });
-                        existing != objects.end()) {
-                        existing->in_inventory = true;
-                        continue;
-                    }
-                    RuntimeUIObject object;
-                    object.id = id;
-                    object.name =
-                        object_it != project->objects().end() ? object_it->second.name : id;
-                    object.in_inventory = true;
-                    objects.push_back(std::move(object));
+            for (const auto& [id, object_model] : project->objects()) {
+                auto location = m_session.effective_object_location(id);
+                if (!location || location->type != EntityType::CustomScript ||
+                    location->id != project_ids::player) {
+                    continue;
                 }
+                if (auto existing = std::find_if(
+                        objects.begin(), objects.end(),
+                        [&](const RuntimeUIObject& object) { return object.id == id; });
+                    existing != objects.end()) {
+                    existing->in_inventory = true;
+                    continue;
+                }
+                RuntimeUIObject object;
+                object.id = id;
+                object.name = object_model.name.empty() ? id : object_model.name;
+                object.in_inventory = true;
+                objects.push_back(std::move(object));
             }
 
             for (const auto& [id, verb] : project->verbs()) {

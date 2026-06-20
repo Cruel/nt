@@ -12,7 +12,8 @@ class AssetManager;
 }
 namespace noveltea::core {
 class GameSession;
-}
+class RuntimeSessionHost;
+} // namespace noveltea::core
 
 namespace noveltea::script {
 
@@ -49,6 +50,7 @@ public:
     void collect_garbage();
 
     void bind_game_session(core::GameSession* session);
+    void bind_runtime_host(core::RuntimeSessionHost* host);
     void clear_game_bindings();
 
 private:

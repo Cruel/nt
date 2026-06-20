@@ -150,6 +150,54 @@ TEST_CASE("GameSession ignores stale saved map and queued entity metadata with w
                    "expected selected-entity array"));
 }
 
+TEST_CASE("GameSession snapshots runtime mutations and preserves unknown save keys")
+{
+    auto save = SaveDocument::new_save();
+    save.root()["customFutureKey"] = nlohmann::json::object({{"kept", true}});
+
+    GameSession session;
+    REQUIRE(session.load(make_session_project(), save).success);
+    session.tick(1.25);
+    session.set_property("flag", true);
+    session.set_object_location("missing-object", EntityRef{EntityType::Room, "foyer"});
+    session.append_log("hello");
+    session.mark_room_visited("foyer");
+
+    auto snapshot = session.snapshot_save();
+
+    CHECK(snapshot.root()["customFutureKey"]["kept"] == true);
+    CHECK(snapshot.root()[project_ids::play_time] == 1.25);
+    CHECK(snapshot.root()[project_ids::properties]["flag"] == true);
+    CHECK(snapshot.root()[project_ids::object_locations]["missing-object"] ==
+          ref(EntityType::Room, "foyer"));
+    REQUIRE(snapshot.root()[project_ids::log].is_array());
+    CHECK(snapshot.root()[project_ids::log].back() == "hello");
+    CHECK(snapshot.root()[project_ids::visited_rooms]["foyer"] == 1);
+}
+
+TEST_CASE("GameSession warns about stale saved object locations")
+{
+    auto project = make_session_project();
+    project.root()[project_ids::object] = nlohmann::json::object({
+        {"lamp", nlohmann::json::array({"lamp", "", props(), "Lamp", false})},
+    });
+
+    auto save = SaveDocument::new_save();
+    save.root()[project_ids::object_locations] = nlohmann::json::object({
+        {"lamp", ref(EntityType::Room, "missing-room")},
+        {"ghost", ref(EntityType::Room, "foyer")},
+    });
+
+    GameSession session;
+    auto result = session.load(std::move(project), save);
+
+    REQUIRE(result.success);
+    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning,
+                   "saved object location target 'missing-room'"));
+    CHECK(has_diag(result.diagnostics, SessionDiagnosticSeverity::Warning,
+                   "saved object location for missing object 'ghost'"));
+}
+
 TEST_CASE("GameSession reports validation diagnostics and refuses invalid project")
 {
     auto project = make_session_project();

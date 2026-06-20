@@ -279,6 +279,13 @@ void ScriptRuntime::bind_game_session(core::GameSession* session)
     noveltea::script::bind_game_session(m_impl->lua.lua_state(), session);
 }
 
+void ScriptRuntime::bind_runtime_host(core::RuntimeSessionHost* host)
+{
+    if (!is_initialized())
+        return;
+    noveltea::script::bind_runtime_host(m_impl->lua.lua_state(), host);
+}
+
 void ScriptRuntime::clear_game_bindings()
 {
     if (!is_initialized())

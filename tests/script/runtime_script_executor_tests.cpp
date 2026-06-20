@@ -50,6 +50,7 @@ struct RuntimeScriptFixture {
     assets::AssetManager assets;
     script::ScriptRuntime scripts;
     core::RuntimeSessionHost host;
+    core::MemorySaveSlotStore slots;
     script::RuntimeScriptExecutor executor;
 
     RuntimeScriptFixture()
@@ -62,6 +63,7 @@ struct RuntimeScriptFixture {
 
     void load(core::ProjectDocument project)
     {
+        host.set_save_slot_store(&slots);
         REQUIRE(host.load(std::move(project)).success);
         executor.initialize(&scripts, &host);
     }
@@ -188,6 +190,7 @@ TEST_CASE("RuntimeScriptExecutor executes room action hooks in command order")
 
     CHECK(text_log_outputs(result.outputs) ==
           std::vector<std::string>{"before", "action", "after"});
+    CHECK(f.slots.has_slot(core::SaveSlotId::autosave()));
 }
 
 TEST_CASE("RuntimeScriptExecutor lets timer callbacks mutate runtime state")
@@ -208,4 +211,44 @@ TEST_CASE("RuntimeScriptExecutor lets timer callbacks mutate runtime state")
 
     CHECK(f.host.session().property("timer_done") == true);
     CHECK(text_log_outputs(result.outputs) == std::vector<std::string>{"timer fired"});
+}
+
+TEST_CASE("RuntimeScriptExecutor lets Lua save and autosave runtime slots")
+{
+    auto project = make_base_project(core::EntityType::Script, "bootstrap");
+    project.root()[core::project_ids::script] = nlohmann::json::object({
+        {"bootstrap", nlohmann::json::array({"bootstrap", "", props(), false,
+                                             "Game.set_prop('slot_value', 'saved'); Game.save(4); "
+                                             "Game.autosave()"})},
+    });
+
+    RuntimeScriptFixture f;
+    f.load(std::move(project));
+
+    (void)f.tick();
+
+    REQUIRE(f.slots.has_slot(core::SaveSlotId{4}));
+    REQUIRE(f.slots.has_slot(core::SaveSlotId::autosave()));
+    auto saved = f.slots.read_slot(core::SaveSlotId{4});
+    REQUIRE(saved.success);
+    REQUIRE(saved.save.has_value());
+    CHECK(saved.save->root()[core::project_ids::properties]["slot_value"] == "saved");
+}
+
+TEST_CASE("RuntimeScriptExecutor lets Lua load a runtime slot")
+{
+    auto project = make_base_project(core::EntityType::Script, "bootstrap");
+    project.root()[core::project_ids::script] = nlohmann::json::object({
+        {"bootstrap",
+         nlohmann::json::array({"bootstrap", "", props(), false,
+                                "Game.set_prop('slot_value', 'saved'); Game.save(2); "
+                                "Game.set_prop('slot_value', 'mutated'); Game.load(2)"})},
+    });
+
+    RuntimeScriptFixture f;
+    f.load(std::move(project));
+
+    (void)f.tick();
+
+    CHECK(f.host.session().property("slot_value") == "saved");
 }

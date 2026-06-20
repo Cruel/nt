@@ -47,6 +47,7 @@ struct RuntimePreviewState {
     std::string mode = "none";
     RuntimeUIViewState view;
     nlohmann::json controller_state = nlohmann::json::object();
+    nlohmann::json save_snapshot = nlohmann::json::object();
 };
 
 class ProjectTooling {
@@ -69,6 +70,7 @@ public:
 class RuntimePreviewSession {
 public:
     [[nodiscard]] GameSessionLoadResult load(ProjectDocument project);
+    [[nodiscard]] GameSessionLoadResult load(ProjectDocument project, SaveDocument save);
     [[nodiscard]] bool loaded() const noexcept { return m_host.loaded(); }
     [[nodiscard]] bool running() const noexcept { return m_running; }
 
@@ -97,6 +99,7 @@ public:
 private:
     RuntimeSessionHost m_host;
     std::optional<ProjectDocument> m_project;
+    std::optional<SaveDocument> m_initial_save;
     bool m_running = false;
     std::vector<ControllerCommand> m_captured_commands;
 };

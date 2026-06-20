@@ -268,6 +268,84 @@ TEST_CASE("RuntimeSessionHost exposes room objects, inventory, and actions")
     CHECK(has_command(host.last_commands(), ControllerCommandType::ActionResolved));
 }
 
+TEST_CASE("RuntimeSessionHost uses save-backed object locations for room and inventory")
+{
+    RuntimeSessionHost host;
+    auto project = make_action_project();
+    auto save = SaveDocument::new_save();
+    save.root()[project_ids::object_locations] = nlohmann::json::object({
+        {"lamp", ref(EntityType::Room, "kitchen")},
+        {"coin", ref(EntityType::CustomScript, std::string(project_ids::player))},
+    });
+
+    REQUIRE(host.load(std::move(project), save).success);
+    host.tick(0.0);
+
+    const auto& view = host.view_state();
+    REQUIRE(view.objects.size() == 1);
+    CHECK(view.objects[0].id == "coin");
+    CHECK(view.objects[0].in_inventory);
+
+    auto unavailable = host.apply_input(RuntimeInput{
+        .type = RuntimeInputType::RunAction, .verb_id = "look", .object_ids = {"lamp"}});
+    CHECK_FALSE(unavailable.handled);
+
+    auto available = host.apply_input(RuntimeInput{
+        .type = RuntimeInputType::RunAction, .verb_id = "look", .object_ids = {"coin"}});
+    CHECK(available.handled);
+}
+
+TEST_CASE("RuntimeSessionHost saves, loads, and autosaves through slot store")
+{
+    MemorySaveSlotStore slots;
+    RuntimeSessionHost host;
+    host.set_save_slot_store(&slots);
+    REQUIRE(host.load(make_action_project()).success);
+    host.tick(0.0);
+
+    host.session().set_property("saved_value", "before");
+    host.session().set_object_location(
+        "lamp", EntityRef{EntityType::CustomScript, std::string(project_ids::player)});
+    auto saved = host.save(SaveSlotId{2});
+    CHECK(saved.handled);
+    CHECK(slots.has_slot(SaveSlotId{2}));
+    CHECK(has_output(saved.outputs, RuntimeOutputType::SaveMutationRequest));
+
+    host.session().set_property("saved_value", "after");
+    host.session().set_object_location("lamp", EntityRef{EntityType::Room, "kitchen"});
+    auto loaded = host.load_save(SaveSlotId{2});
+    CHECK(loaded.handled);
+    CHECK(host.session().property("saved_value") == "before");
+    auto location = host.session().effective_object_location("lamp");
+    REQUIRE(location.has_value());
+    CHECK(location->type == EntityType::CustomScript);
+    CHECK(location->id == project_ids::player);
+
+    auto autosaved = host.autosave();
+    CHECK(autosaved.handled);
+    CHECK(slots.has_slot(SaveSlotId::autosave()));
+}
+
+TEST_CASE("RuntimeSessionHost handles LoadSave input payload")
+{
+    RuntimeSessionHost host;
+    REQUIRE(host.load(make_room_project()).success);
+    host.tick(0.0);
+
+    auto save = host.snapshot_save();
+    save.root()[project_ids::entrypoint_entity] = ref(EntityType::Room, "kitchen");
+    save.root().erase("_novelteaRuntime");
+
+    RuntimeInput input;
+    input.type = RuntimeInputType::LoadSave;
+    input.payload["save"] = save.root();
+    auto result = host.apply_input(input);
+
+    CHECK(result.handled);
+    host.tick(0.0);
+    CHECK(host.view_state().title == "Kitchen");
+}
+
 TEST_CASE("RuntimeSessionHost invalid input returns structured diagnostics")
 {
     RuntimeSessionHost host;

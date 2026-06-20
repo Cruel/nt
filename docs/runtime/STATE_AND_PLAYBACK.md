@@ -6,7 +6,7 @@ Define how runtime state, controller progression, entrypoints, save restoration,
 
 ## Current Status
 
-The backend-neutral session/controller foundation exists, and runtime driving now has a formal input/output boundary around `RuntimeSessionHost`.
+The backend-neutral session/controller foundation exists, and runtime driving now has a formal input/output boundary around `RuntimeSessionHost`. Save snapshotting, in-memory slot storage, manual save/load, autosave, and save-backed object placement are implemented in core.
 
 ## Runtime Input Contract
 
@@ -17,7 +17,8 @@ Supported input types are:
 - `Start`, `Stop`, and `Reset` for session lifecycle coordination.
 - `Tick` for deterministic time advancement.
 - `Continue`, `SelectDialogueOption`, `Navigate`, `SelectObject`, `ClearObjectSelection`, and `RunAction` for player/runtime interactions.
-- `SetEntrypoint`, `LoadSave`, and `ApplyTestStep` are part of the contract but remain minimal/stubbed until the editor playback and save-slot phases define their full behavior.
+- `LoadSave` accepts either a slot id or a save payload and restores through the same host path used by manual load APIs.
+- `SetEntrypoint` and `ApplyTestStep` remain editor/test-playback extension points.
 
 Mode-specific inputs validate their current runtime mode. Invalid inputs return `handled = false` and a structured warning diagnostic instead of silently routing through UI-specific behavior.
 
@@ -35,12 +36,21 @@ Mode-specific inputs validate their current runtime mode. Invalid inputs return 
 - `ModeChanged` commands become mode outputs.
 - `ScriptDeferred` commands become script request outputs for the Lua execution phase.
 - notification and text-log commands become explicit notification/text-log outputs.
+- successful save/load/autosave operations emit `SaveMutationRequest` outputs.
 - command batches that change presentation also emit a view update output.
+
+## Save Policy
+
+`RuntimeSessionHost` owns the runtime save boundary. It can snapshot the current `GameSession` and controller state into a `SaveDocument`, write/read `SaveSlotId` values through a bound `SaveSlotStore`, and use `MemorySaveSlotStore` for tests and editor preview. Platform file, browser, or Android storage is intentionally outside core.
+
+Snapshots preserve recognized legacy save fields plus unknown JSON keys where possible. Runtime-owned controller state is stored under `_novelteaRuntime` so it does not collide with legacy fields.
+
+Object placement resolves in this order: save `objectLocations`, project room membership, then project `startInv`. Runtime inventory is represented by object location `[CustomScript, "player"]`; `startInv` remains immutable project data.
 
 ## Diagnostics
 
-`RuntimeDiagnostic` includes severity, category, optional source entity, script/hook context fields, message, optional Lua traceback, and optional playback step index. Lua traceback is reserved for Phase 2 script execution; Phase 1 uses diagnostics primarily for invalid runtime inputs.
+`RuntimeDiagnostic` includes severity, category, optional source entity, script/hook context fields, message, optional Lua traceback, and optional playback step index. Load/save diagnostics are used for missing slots, invalid save documents, and stale saved entity references.
 
 ## Remaining Work
 
-Remaining work includes full Lua execution integration, save/autosave mutation policy, persisted object placement behavior, and richer editor test-step playback.
+Remaining work includes richer editor test-step playback, platform-specific slot persistence, and production RmlUi runtime save/load screens.

@@ -90,11 +90,17 @@ public:
     [[nodiscard]] std::optional<std::string> current_map_id() const { return m_current_map_id; }
     [[nodiscard]] bool navigation_enabled() const noexcept { return m_navigation_enabled; }
     [[nodiscard]] bool map_enabled() const noexcept { return m_map_enabled; }
+    [[nodiscard]] SaveDocument snapshot_save() const;
+    void replace_save(SaveDocument save);
 
     void queue_entity(EntityRef ref);
     [[nodiscard]] std::optional<EntityRef> pop_next_entity();
     void set_current_room(std::string room_id);
     void set_current_map(std::string map_id);
+    void set_navigation_enabled(bool enabled);
+    void set_map_enabled(bool enabled);
+    void mark_room_visited(const std::string& room_id);
+    [[nodiscard]] int visited_room_count(const std::string& room_id) const;
     [[nodiscard]] nlohmann::json property(std::string_view key) const;
     void set_property(std::string key, nlohmann::json value);
     void unset_property(std::string_view key);
@@ -104,6 +110,8 @@ public:
                              nlohmann::json value);
     void unset_entity_property(EntityType type, const std::string& id, std::string_view key);
     [[nodiscard]] std::optional<EntityRef> object_location(const std::string& object_id) const;
+    [[nodiscard]] std::optional<EntityRef>
+    effective_object_location(const std::string& object_id) const;
     void set_object_location(std::string object_id, EntityRef location);
     void clear_object_location(const std::string& object_id);
     void append_log(std::string text, nlohmann::json data = nlohmann::json::object());

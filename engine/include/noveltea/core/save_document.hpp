@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -40,6 +41,41 @@ public:
 
 private:
     nlohmann::json m_root;
+};
+
+struct SaveSlotId {
+    int value = 0;
+
+    [[nodiscard]] static constexpr SaveSlotId autosave() noexcept { return SaveSlotId{-1}; }
+    [[nodiscard]] constexpr bool is_autosave() const noexcept { return value < 0; }
+    [[nodiscard]] constexpr bool operator==(const SaveSlotId&) const noexcept = default;
+};
+
+struct SaveSlotResult {
+    bool success = false;
+    std::optional<SaveDocument> save;
+    std::vector<DocumentError> errors;
+};
+
+class SaveSlotStore {
+public:
+    virtual ~SaveSlotStore() = default;
+
+    [[nodiscard]] virtual bool has_slot(SaveSlotId slot) const = 0;
+    [[nodiscard]] virtual SaveSlotResult read_slot(SaveSlotId slot) const = 0;
+    [[nodiscard]] virtual SaveSlotResult write_slot(SaveSlotId slot, const SaveDocument& save) = 0;
+    virtual void delete_slot(SaveSlotId slot) = 0;
+};
+
+class MemorySaveSlotStore final : public SaveSlotStore {
+public:
+    [[nodiscard]] bool has_slot(SaveSlotId slot) const override;
+    [[nodiscard]] SaveSlotResult read_slot(SaveSlotId slot) const override;
+    [[nodiscard]] SaveSlotResult write_slot(SaveSlotId slot, const SaveDocument& save) override;
+    void delete_slot(SaveSlotId slot) override;
+
+private:
+    std::unordered_map<int, SaveDocument> m_slots;
 };
 
 struct Profile {

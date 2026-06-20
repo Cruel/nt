@@ -346,6 +346,7 @@ void RuntimeController::exit_current_mode()
         }
         emit_room_leave_hooks(room);
         m_visit_counts[m_mode_entity_id]++;
+        m_session->mark_room_visited(m_mode_entity_id);
     }
 
     emit_command(ControllerCommand{
@@ -466,7 +467,7 @@ int RuntimeController::visit_count(const std::string& room_id) const
     if (auto it = m_visit_counts.find(room_id); it != m_visit_counts.end()) {
         return it->second;
     }
-    return 0;
+    return m_session ? m_session->visited_room_count(room_id) : 0;
 }
 
 void RuntimeController::navigate_path(int direction)
@@ -702,26 +703,12 @@ bool RuntimeController::object_available_for_action(const std::string& object_id
         return false;
     }
 
-    auto room_it = project->rooms().find(m_mode_entity_id);
-    if (room_it != project->rooms().end()) {
-        for (const auto& object : room_it->second.objects) {
-            if (object.object_id == object_id) {
-                return true;
-            }
-        }
+    auto location = m_session->effective_object_location(object_id);
+    if (!location) {
+        return false;
     }
-
-    const auto& root = project->document_root();
-    auto inv_it = root.find(std::string(project_ids::starting_inventory));
-    if (inv_it != root.end() && inv_it->is_array()) {
-        for (const auto& item : *inv_it) {
-            if (item.is_string() && item.get<std::string>() == object_id) {
-                return true;
-            }
-        }
-    }
-
-    return false;
+    return (location->type == EntityType::Room && location->id == m_mode_entity_id) ||
+           (location->type == EntityType::CustomScript && location->id == project_ids::player);
 }
 
 const ActionModel* RuntimeController::find_action(const std::string& verb_id,

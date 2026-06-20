@@ -3,6 +3,7 @@
 #include <noveltea/core/game_session.hpp>
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/core/project_model.hpp>
+#include <noveltea/core/runtime_session_host.hpp>
 
 #include <SDL3/SDL_log.h>
 
@@ -24,6 +25,7 @@ namespace {
 // -------------------------------------------------------------------
 struct ScriptBridge {
     core::GameSession* session = nullptr;
+    core::RuntimeSessionHost* host = nullptr;
     std::mt19937_64 rng;
     std::uniform_real_distribution<double> dist; // [0, 1)
 };
@@ -319,6 +321,7 @@ struct ScriptEntityLua {
 // -------------------------------------------------------------------
 struct GameBinding {
     core::GameSession* session = nullptr;
+    core::RuntimeSessionHost* host = nullptr;
 
     sol::object get_room(sol::this_state L) const
     {
@@ -414,9 +417,26 @@ struct GameBinding {
         return sol::make_object(lua, lua.create_table());
     }
 
-    void save(sol::optional<int>) const { SDL_Log("[lua] Game.save — stub"); }
-    void load(sol::optional<int>) const { SDL_Log("[lua] Game.load — stub"); }
-    void autosave() const { SDL_Log("[lua] Game.autosave — stub"); }
+    void save(sol::optional<int> slot) const
+    {
+        if (host) {
+            (void)host->save(core::SaveSlotId{slot.value_or(0)});
+        }
+    }
+
+    void load(sol::optional<int> slot) const
+    {
+        if (host) {
+            (void)host->load_save(core::SaveSlotId{slot.value_or(0)});
+        }
+    }
+
+    void autosave() const
+    {
+        if (host) {
+            (void)host->autosave();
+        }
+    }
     void quit() const { SDL_Log("[lua] Game.quit — stub"); }
     void save_entity(sol::object) const { SDL_Log("[lua] Game.save_entity — stub"); }
 
@@ -630,10 +650,10 @@ struct SaveBinding {
 // -------------------------------------------------------------------
 // Builder for Game table
 // -------------------------------------------------------------------
-void build_game_table(lua_State* L, core::GameSession* session)
+void build_game_table(lua_State* L, core::GameSession* session, core::RuntimeSessionHost* host)
 {
     sol::state_view lua(L);
-    GameBinding binding{session};
+    GameBinding binding{session, host};
     sol::table game = lua.create_table();
 
     game.set_function("push_next", [binding](int type, std::string id) mutable {
@@ -822,6 +842,7 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
         lua.registry().set(kBridgeKey, bridge);
     }
     bridge->session = session;
+    bridge->host = nullptr;
 
     // Register entity usertypes once (harmless to do multiple times but avoid it)
     {
@@ -849,7 +870,7 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
     }
 
     // Recreate global tables each bind — captures current session pointer
-    build_game_table(L, session);
+    build_game_table(L, session, nullptr);
     build_script_table(L);
     build_log_table(L, session);
     build_timer_table(L, session);
@@ -878,6 +899,17 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
     });
 }
 
+void bind_runtime_host(lua_State* L, noveltea::core::RuntimeSessionHost* host)
+{
+    bind_game_session(L, host ? &host->session() : nullptr);
+    sol::state_view lua(L);
+    auto* bridge = lua.registry().get<ScriptBridge*>(kBridgeKey);
+    if (bridge) {
+        bridge->host = host;
+    }
+    build_game_table(L, host ? &host->session() : nullptr, host);
+}
+
 // -------------------------------------------------------------------
 // clear_game_bindings — remove game globals, keep the state reusable
 // -------------------------------------------------------------------
@@ -887,6 +919,7 @@ void clear_game_bindings(lua_State* L)
     auto* bridge = lua.registry().get<ScriptBridge*>(kBridgeKey);
     if (bridge) {
         bridge->session = nullptr;
+        bridge->host = nullptr;
     }
 
     lua["Game"] = sol::lua_nil;

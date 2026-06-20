@@ -19,7 +19,8 @@ This document defines the current compatibility boundary for the migrated `nt` r
 ## Save JSON Preservation
 
 - Save JSON import/export preserves recognized runtime fields and unknown extra keys when parsed through the save document APIs.
-- Save parsing preserves the compatibility boundary; runtime mutation policy, autosave behavior, and object placement application are still active work.
+- Runtime save snapshots preserve save-backed mutations, object locations, text logs, visited rooms, current runtime state, and namespaced controller state.
+- Manual save/load/autosave are implemented through a backend-neutral slot-store contract; platform-specific persistence is outside this compatibility layer.
 
 ## Runtime Controller Coverage
 
@@ -27,6 +28,7 @@ Current backend-neutral controller coverage includes:
 
 - room entry and room navigation
 - room object and starting-inventory views
+- save-backed object placement and inventory views
 - verb/action resolution
 - dialogue traversal, options, and logging
 - cutscene page expansion and continuation
@@ -44,7 +46,7 @@ Imported script text is treated as Lua. Invalid imported legacy script text must
 
 - Real-project fixture coverage is still limited; broad compatibility claims need private or redistributable old-project fixtures.
 - Package writing is not implemented.
-- Runtime autosave and save-slot mutation policy are incomplete.
-- Persisted object-location application beyond the currently modeled room/inventory behavior is incomplete.
+- Platform-specific save-slot persistence is not implemented.
+- Persisted object-location application currently covers room and inventory behavior.
 - Rich-text semantics are backend-neutral, but full visual parity for old ActiveText/effect rendering is not complete.
 - RmlUi runtime components for complex widgets such as ActiveText, MapView, and TextLog are still active work.

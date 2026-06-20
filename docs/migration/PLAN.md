@@ -174,9 +174,11 @@ Acceptance criteria:
 - Runtime tests cover successful script execution and failing script diagnostics.
 - Active docs no longer describe JavaScript compatibility as an implementation path.
 
-## Phase 3 [next]: Save, Autosave, and Object Placement Runtime Policy
+## Phase 3 [done]: Save, Autosave, and Object Placement Runtime Policy
 
 Goal: finish the runtime behavior that sits on top of already parsed save/profile data.
+
+Status: complete for the backend-neutral core/runtime slice. Platform-specific disk/browser save persistence and runtime save/load screens remain later-phase work.
 
 Implement:
 

@@ -201,6 +201,40 @@ std::string SaveDocument::current_map_id() const
 
 std::string SaveDocument::dump() const { return m_root.dump(); }
 
+bool MemorySaveSlotStore::has_slot(SaveSlotId slot) const
+{
+    return m_slots.find(slot.value) != m_slots.end();
+}
+
+SaveSlotResult MemorySaveSlotStore::read_slot(SaveSlotId slot) const
+{
+    SaveSlotResult result;
+    auto it = m_slots.find(slot.value);
+    if (it == m_slots.end()) {
+        add_error(result.errors, "/slot", "save slot does not exist");
+        return result;
+    }
+    result.success = true;
+    result.save = it->second;
+    return result;
+}
+
+SaveSlotResult MemorySaveSlotStore::write_slot(SaveSlotId slot, const SaveDocument& save)
+{
+    SaveSlotResult result;
+    std::vector<DocumentError> errors;
+    if (!save.validate(errors)) {
+        result.errors = std::move(errors);
+        return result;
+    }
+    m_slots[slot.value] = save;
+    result.success = true;
+    result.save = save;
+    return result;
+}
+
+void MemorySaveSlotStore::delete_slot(SaveSlotId slot) { m_slots.erase(slot.value); }
+
 SettingsDocument::SettingsDocument() : m_root(json::object()) {}
 SettingsDocument::SettingsDocument(json root) : m_root(std::move(root)) {}
 

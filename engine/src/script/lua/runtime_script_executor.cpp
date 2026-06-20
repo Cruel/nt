@@ -94,7 +94,7 @@ void RuntimeScriptExecutor::initialize(ScriptRuntime* runtime, core::RuntimeSess
     m_runtime = runtime;
     m_host = host;
     if (m_runtime && m_host) {
-        m_runtime->bind_game_session(&m_host->session());
+        m_runtime->bind_runtime_host(m_host);
     }
 }
 
@@ -129,7 +129,22 @@ void RuntimeScriptExecutor::process_outputs(std::vector<core::RuntimeOutput>& ou
 
     const auto initial_outputs = outputs;
     bool ran_script = false;
+    bool should_autosave = false;
     for (const auto& output : initial_outputs) {
+        if (output.command.has_value()) {
+            const auto& command = *output.command;
+            if (command.type == core::ControllerCommandType::ActionResolved) {
+                should_autosave = true;
+            } else if (command.type == core::ControllerCommandType::ScriptDeferred &&
+                       command.data.is_object()) {
+                const bool dialogue_autosave = command.data.value("autosave", false);
+                const bool cutscene_before = command.data.value("autosave_before", false);
+                const bool cutscene_after = command.data.value("autosave_after", false);
+                should_autosave =
+                    should_autosave || dialogue_autosave || cutscene_before || cutscene_after;
+            }
+        }
+
         if (output.type != core::RuntimeOutputType::ScriptRequest || !output.command.has_value() ||
             output.command->type != core::ControllerCommandType::ScriptDeferred) {
             continue;
@@ -137,7 +152,7 @@ void RuntimeScriptExecutor::process_outputs(std::vector<core::RuntimeOutput>& ou
 
         const auto& command = *output.command;
         const auto effective_step = output.step_index.has_value() ? output.step_index : step_index;
-        m_runtime->bind_game_session(&m_host->session());
+        m_runtime->bind_runtime_host(m_host);
         auto result = m_runtime->execute(command.text, chunk_name(command));
         ran_script = true;
         if (result) {
@@ -150,6 +165,11 @@ void RuntimeScriptExecutor::process_outputs(std::vector<core::RuntimeOutput>& ou
     if (ran_script) {
         auto flushed = m_host->flush_pending_outputs(step_index);
         outputs.insert(outputs.end(), flushed.outputs.begin(), flushed.outputs.end());
+    }
+
+    if (should_autosave && m_host->has_save_slot_store()) {
+        auto saved = m_host->autosave();
+        outputs.insert(outputs.end(), saved.outputs.begin(), saved.outputs.end());
     }
 }
 

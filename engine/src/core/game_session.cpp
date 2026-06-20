@@ -40,6 +40,7 @@ void add_warning(std::vector<SessionDiagnostic>& diagnostics, std::string path, 
 std::string key(std::string_view value) { return std::string(value); }
 
 constexpr std::string_view entity_properties_key = "entityProperties";
+constexpr std::string_view controller_state_key = "_novelteaRuntime";
 
 bool model_has_entity(const ProjectModel& model, const EntityRef& ref)
 {
@@ -192,6 +193,56 @@ RuntimeStateSnapshot GameSession::runtime_state() const
     return snapshot;
 }
 
+SaveDocument GameSession::snapshot_save() const
+{
+    nlohmann::json root = m_save ? m_save->root() : SaveDocument::new_save().root();
+    root[key(project_ids::play_time)] = m_play_time;
+    root[key(project_ids::navigation_enabled)] = m_navigation_enabled;
+    root[key(project_ids::map_enabled)] = m_map_enabled;
+
+    if (m_current_entity && m_current_entity->has_id()) {
+        root[key(project_ids::entrypoint_entity)] = m_current_entity->to_json();
+    } else if (m_startup_entrypoint && m_startup_entrypoint->has_id()) {
+        root[key(project_ids::entrypoint_entity)] = m_startup_entrypoint->to_json();
+    }
+
+    if (m_current_map_id && !m_current_map_id->empty()) {
+        root[key(project_ids::save_map)] = *m_current_map_id;
+    } else {
+        root.erase(key(project_ids::save_map));
+    }
+
+    nlohmann::json queue = nlohmann::json::array();
+    for (const auto& ref : m_entity_queue) {
+        queue.push_back(ref.to_json());
+    }
+    root[key(project_ids::entity_queue)] = std::move(queue);
+
+    ensure_object(root, project_ids::properties);
+    ensure_object(root, project_ids::room_descriptions);
+    ensure_object(root, project_ids::visited_rooms);
+    ensure_object(root, project_ids::object_locations);
+    if (!root.contains(key(project_ids::log)) || !root[key(project_ids::log)].is_array()) {
+        root[key(project_ids::log)] = nlohmann::json::array();
+    }
+
+    if (!root.contains(std::string(controller_state_key)) ||
+        !root[std::string(controller_state_key)].is_object()) {
+        root[std::string(controller_state_key)] = nlohmann::json::object();
+    }
+
+    return SaveDocument(std::move(root));
+}
+
+void GameSession::replace_save(SaveDocument save)
+{
+    std::vector<SessionDiagnostic> diagnostics;
+    m_save = std::move(save);
+    m_play_time = m_save->play_time();
+    m_entity_queue.clear();
+    restore_runtime_state(*m_save, diagnostics);
+}
+
 void GameSession::queue_entity(EntityRef ref)
 {
     m_entity_queue.push_back(ref);
@@ -226,6 +277,49 @@ void GameSession::set_current_map(std::string map_id)
     m_current_map_id = map_id;
     emit_command(SessionCommand{SessionCommandType::CurrentMapChanged,
                                 EntityRef{EntityType::Map, map_id}, map_id, true});
+}
+
+void GameSession::set_navigation_enabled(bool enabled)
+{
+    m_navigation_enabled = enabled;
+    if (m_save) {
+        m_save->root()[key(project_ids::navigation_enabled)] = enabled;
+    }
+    emit_command(SessionCommand{SessionCommandType::NavigationStateChanged, std::nullopt,
+                                "navigation", enabled});
+}
+
+void GameSession::set_map_enabled(bool enabled)
+{
+    m_map_enabled = enabled;
+    if (m_save) {
+        m_save->root()[key(project_ids::map_enabled)] = enabled;
+    }
+    emit_command(
+        SessionCommand{SessionCommandType::NavigationStateChanged, std::nullopt, "map", enabled});
+}
+
+void GameSession::mark_room_visited(const std::string& room_id)
+{
+    if (!m_save) {
+        return;
+    }
+    auto& visited = ensure_object(m_save->root(), project_ids::visited_rooms);
+    const int count = visited.value(room_id, 0);
+    visited[room_id] = count + 1;
+}
+
+int GameSession::visited_room_count(const std::string& room_id) const
+{
+    if (!m_save) {
+        return 0;
+    }
+    const auto& root = m_save->root();
+    auto it = root.find(key(project_ids::visited_rooms));
+    if (it == root.end() || !it->is_object()) {
+        return 0;
+    }
+    return it->value(room_id, 0);
 }
 
 nlohmann::json GameSession::property(std::string_view property_key) const
@@ -327,6 +421,33 @@ std::optional<EntityRef> GameSession::object_location(const std::string& object_
     return EntityRef::from_json(*location_it);
 }
 
+std::optional<EntityRef> GameSession::effective_object_location(const std::string& object_id) const
+{
+    if (auto saved = object_location(object_id); saved.has_value()) {
+        return saved;
+    }
+    if (!m_project) {
+        return std::nullopt;
+    }
+    for (const auto& [room_id, room] : m_project->rooms()) {
+        for (const auto& object : room.objects) {
+            if (object.object_id == object_id) {
+                return EntityRef{EntityType::Room, room_id};
+            }
+        }
+    }
+    const auto& root = m_project->document_root();
+    auto inv_it = root.find(key(project_ids::starting_inventory));
+    if (inv_it != root.end() && inv_it->is_array()) {
+        for (const auto& item : *inv_it) {
+            if (item.is_string() && item.get<std::string>() == object_id) {
+                return EntityRef{EntityType::CustomScript, std::string(project_ids::player)};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 void GameSession::set_object_location(std::string object_id, EntityRef location)
 {
     if (!m_save) {
@@ -410,6 +531,8 @@ void GameSession::restore_runtime_state(const SaveDocument& save,
                                         std::vector<SessionDiagnostic>& diagnostics)
 {
     m_current_entity = m_startup_entrypoint;
+    m_current_room_id.reset();
+    m_current_map_id.reset();
     m_navigation_enabled = save.navigation_enabled();
     m_map_enabled = save.map_enabled();
     emit_command(SessionCommand{SessionCommandType::NavigationStateChanged, std::nullopt,
@@ -436,27 +559,51 @@ void GameSession::restore_runtime_state(const SaveDocument& save,
 
     const auto& root = save.root();
     const auto queue_it = root.find(key(project_ids::entity_queue));
-    if (queue_it == root.end()) {
-        return;
-    }
-    if (!queue_it->is_array()) {
+    if (queue_it != root.end() && !queue_it->is_array()) {
         add_warning(diagnostics, "/entityQueue", "expected array; saved entity queue ignored");
-        return;
+    } else if (queue_it != root.end()) {
+        for (std::size_t i = 0; i < queue_it->size(); ++i) {
+            const auto path = "/entityQueue/" + std::to_string(i);
+            auto ref = EntityRef::from_json((*queue_it)[i]);
+            if (!ref.has_value() || !ref->has_id()) {
+                add_warning(diagnostics, path,
+                            "expected selected-entity array [type, id]; entry ignored");
+                continue;
+            }
+            if (m_project && !model_has_entity(*m_project, *ref)) {
+                add_warning(diagnostics, path,
+                            "queued entity '" + ref->id +
+                                "' does not exist in project; entry ignored");
+                continue;
+            }
+            queue_entity(*ref);
+        }
     }
-    for (std::size_t i = 0; i < queue_it->size(); ++i) {
-        const auto path = "/entityQueue/" + std::to_string(i);
-        auto ref = EntityRef::from_json((*queue_it)[i]);
-        if (!ref.has_value() || !ref->has_id()) {
-            add_warning(diagnostics, path,
-                        "expected selected-entity array [type, id]; entry ignored");
-            continue;
+
+    const auto locations_it = root.find(key(project_ids::object_locations));
+    if (locations_it != root.end() && locations_it->is_object() && m_project) {
+        for (auto it = locations_it->begin(); it != locations_it->end(); ++it) {
+            const auto path = "/objectLocations/" + it.key();
+            if (!m_project->objects().contains(it.key())) {
+                add_warning(diagnostics, path,
+                            "saved object location for missing object '" + it.key() +
+                                "' ignored by runtime views");
+                continue;
+            }
+            auto location = EntityRef::from_json(it.value());
+            if (!location.has_value() || !location->has_id()) {
+                add_warning(diagnostics, path, "expected selected-entity array [type, id]");
+                continue;
+            }
+            if (location->type == EntityType::CustomScript && location->id == project_ids::player) {
+                continue;
+            }
+            if (!model_has_entity(*m_project, *location)) {
+                add_warning(diagnostics, path,
+                            "saved object location target '" + location->id +
+                                "' does not exist in project");
+            }
         }
-        if (m_project && !model_has_entity(*m_project, *ref)) {
-            add_warning(diagnostics, path,
-                        "queued entity '" + ref->id + "' does not exist in project; entry ignored");
-            continue;
-        }
-        queue_entity(*ref);
     }
 }
 
