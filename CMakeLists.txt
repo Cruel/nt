@@ -210,6 +210,9 @@ if(NOT TARGET RmlUi::Lua)
 endif()
 
 add_subdirectory(engine)
+if(NOT EMSCRIPTEN)
+    add_subdirectory(tools/editor_tool)
+endif()
 
 if(NOVELTEA_BUILD_SANDBOX)
     add_subdirectory(apps/sandbox)

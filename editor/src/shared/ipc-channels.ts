@@ -4,4 +4,12 @@ export const IPC_CHANNELS = {
   OPEN_EXTERNAL: 'noveltea:open-external',
   GET_ENGINE_PREVIEW_SESSION: 'noveltea:get-engine-preview-session',
   RELOAD_ENGINE_PREVIEW: 'noveltea:reload-engine-preview',
+  OPEN_PROJECT: 'noveltea:open-project',
+  IMPORT_LEGACY_GAME: 'noveltea:import-legacy-game',
+  VALIDATE_PROJECT: 'noveltea:validate-project',
+  LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',
+  RUN_PLAYBACK_TEST: 'noveltea:run-playback-test',
+  EXPORT_PACKAGE: 'noveltea:export-package',
+  SET_ENTITY_RECORD: 'noveltea:set-entity-record',
+  ERASE_ENTITY_RECORD: 'noveltea:erase-entity-record',
 } as const;

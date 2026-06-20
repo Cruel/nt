@@ -12,5 +12,36 @@ export interface NovelTeaElectronApi {
   openExternal(url: string): Promise<void>;
   getEnginePreviewSession(): Promise<EnginePreviewSession>;
   reloadEnginePreview(): Promise<EnginePreviewSession>;
+  openProject(projectPath: string): Promise<OpenProjectResponse>;
+  importLegacyGame(source: string): Promise<ProjectLoadResponse>;
+  validateProject(project: unknown): Promise<ValidationResponse>;
+  listPlaybackTests(project: unknown): Promise<TestListResponse>;
+  runPlaybackTest(project: unknown, testId: string): Promise<PlaybackReportResponse>;
+  exportPackage(
+    project: unknown,
+    outputPath: string,
+    options?: PackageExportOptions,
+  ): Promise<PackageExportResponse>;
+  setEntityRecord(
+    project: unknown,
+    collection: string,
+    entityId: string,
+    record: unknown,
+  ): Promise<EntityEditResponse>;
+  eraseEntityRecord(
+    project: unknown,
+    collection: string,
+    entityId: string,
+  ): Promise<EntityEditResponse>;
 }
 import type { EnginePreviewSession } from './preview-protocol';
+import type {
+  EntityEditResponse,
+  OpenProjectResponse,
+  PackageExportOptions,
+  PackageExportResponse,
+  PlaybackReportResponse,
+  ProjectLoadResponse,
+  TestListResponse,
+  ValidationResponse,
+} from './editor-tooling';

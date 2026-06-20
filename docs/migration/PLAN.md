@@ -579,9 +579,12 @@ Acceptance criteria:
 - Linux/Web/Android package smoke tests pass.
 - Missing target shader variants are reported clearly.
 
-## Phase 14 [pending]: Editor Integration
+## Phase 14 [done]: Editor Integration
 
 Goal: integrate the runtime/editor bridge into the Electron/TanStack/Vite editor.
+
+Status: complete for the V1 helper-CLI/editor-workspace slice. Typed editors,
+theme/UI override editing, and richer workflow fixtures remain later work.
 
 Implement:
 

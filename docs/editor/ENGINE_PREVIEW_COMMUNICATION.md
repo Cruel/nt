@@ -11,7 +11,7 @@ embed or reparent the native SDL window.
 
 There are two communication layers:
 
-- Electron IPC: used only for privileged preview setup.
+- Electron IPC: used for privileged preview setup and editor-tooling helper calls.
 - MessageChannel: used for live editor-to-engine commands and engine-to-editor
   events.
 
@@ -26,6 +26,11 @@ typed preload API:
 ```ts
 window.noveltea.getEnginePreviewSession();
 window.noveltea.reloadEnginePreview();
+window.noveltea.openProject(projectPath);
+window.noveltea.validateProject(project);
+window.noveltea.listPlaybackTests(project);
+window.noveltea.runPlaybackTest(project, testId);
+window.noveltea.exportPackage(project, outputPath, options);
 ```
 
 The main process starts a loopback-only HTTP server bound to `127.0.0.1` on an
@@ -47,6 +52,12 @@ interface EnginePreviewSession {
 
 The token is included in the iframe URL. The renderer does not receive generic
 IPC, filesystem access, or arbitrary server controls.
+
+Project load, import, validation, playback, raw entity edits, and package
+export are handled by a separate `noveltea-editor-tool` helper executable. The
+Electron main process spawns the helper with JSON on stdin and returns the
+helper's JSON response through typed preload IPC. This keeps Electron and Node
+dependencies out of `noveltea_core`.
 
 ## MessageChannel Handshake
 
@@ -129,6 +140,9 @@ Clicks outside the triangle produce no event.
   - `editor/src/shared/electron-api.ts`
   - `editor/src/shared/ipc-channels.ts`
   - `editor/src/preload.ts`
+- Editor helper service:
+  - `editor/src/main/services/editor-tool-service.ts`
+  - `tools/editor_tool/main.cpp`
 - Emscripten shell bridge:
   - `web/shell.html`
 - C++ preview event bridge:
@@ -148,6 +162,13 @@ Editor to preview:
 - `play`
 - `stop`
 - `request-state`
+- `runtime-reset`
+- `runtime-continue`
+- `runtime-dialogue-option`
+- `runtime-navigate`
+- `runtime-select-object`
+- `runtime-clear-object-selection`
+- `runtime-run-action`
 
 Preview to editor:
 
@@ -158,6 +179,9 @@ Preview to editor:
 - `runtime-error`
 
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
+The `set-demo-position` and `reset-demo` commands remain compatibility commands
+for the current sandbox preview. New editor UI should prefer runtime-named
+commands.
 
 ## Adding Editor To Engine Commands
 
@@ -285,4 +309,3 @@ app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
 These are for the local development editor preview. The engine preview still
 uses the normal Emscripten/bgfx canvas path.
-

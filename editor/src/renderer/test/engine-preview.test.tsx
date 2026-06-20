@@ -84,16 +84,29 @@ describe('EnginePreview', () => {
     });
   });
 
-  it('movement control updates Zustand and sends a command', async () => {
+  it('demo coordinate input updates Zustand and sends a compatibility command', async () => {
     const user = userEvent.setup();
     const { editorPort } = await renderConnectedPreview();
-    await user.click(screen.getByText('Right'));
-    expect(useWorkspaceStore.getState().previewPosition.x).toBeCloseTo(0.55);
+    const input = screen.getByLabelText('Demo X') as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '0.75');
+    expect(useWorkspaceStore.getState().previewPosition.x).toBeCloseTo(0.75);
     expect(editorPort.sent).toContainEqual({
       version: 1,
       type: 'set-demo-position',
       requestId: expect.any(String),
-      position: { x: 0.55, y: 0.5 },
+      position: { x: 0.75, y: 0.5 },
+    });
+  });
+
+  it('runtime controls send runtime input commands', async () => {
+    const user = userEvent.setup();
+    const { editorPort } = await renderConnectedPreview();
+    await user.click(screen.getByText('Continue'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-continue',
+      requestId: expect.any(String),
     });
   });
 

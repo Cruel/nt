@@ -24,7 +24,14 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'reset-demo'; requestId: string }
   | { version: 1; type: 'play'; requestId: string }
   | { version: 1; type: 'stop'; requestId: string }
-  | { version: 1; type: 'request-state'; requestId: string };
+  | { version: 1; type: 'request-state'; requestId: string }
+  | { version: 1; type: 'runtime-reset'; requestId: string }
+  | { version: 1; type: 'runtime-continue'; requestId: string }
+  | { version: 1; type: 'runtime-dialogue-option'; requestId: string; optionIndex: number }
+  | { version: 1; type: 'runtime-navigate'; requestId: string; direction: number }
+  | { version: 1; type: 'runtime-select-object'; requestId: string; objectId: string }
+  | { version: 1; type: 'runtime-clear-object-selection'; requestId: string }
+  | { version: 1; type: 'runtime-run-action'; requestId: string; verbId: string; objectIds: string[] };
 
 export type PreviewToEditorMessage =
   | { version: 1; type: 'ready'; capabilities: string[] }

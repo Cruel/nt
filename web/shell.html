@@ -53,11 +53,21 @@
         } else if (message.type === 'reset-demo') {
           Module._noveltea_preview_reset_demo();
           send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
+        } else if (message.type === 'runtime-reset') {
+          Module._noveltea_preview_reset_demo();
+          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'play') {
           Module._noveltea_preview_set_running(1);
           send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'stop') {
           Module._noveltea_preview_set_running(0);
+          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
+        } else if (message.type === 'runtime-continue' ||
+                   message.type === 'runtime-dialogue-option' ||
+                   message.type === 'runtime-navigate' ||
+                   message.type === 'runtime-select-object' ||
+                   message.type === 'runtime-clear-object-selection' ||
+                   message.type === 'runtime-run-action') {
           send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'request-state') {
           send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
@@ -78,7 +88,7 @@
 
     function sendReadySnapshot() {
       if (!engineReady || !port) return;
-      send({ version: 1, type: 'ready', capabilities: ['demo-position', 'demo-click', 'play-stop'] });
+      send({ version: 1, type: 'ready', capabilities: ['demo-position', 'demo-click', 'play-stop', 'runtime-input-v1'] });
       send({ version: 1, type: 'state', position: lastReadyPosition, running: lastReadyRunning });
     }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { RefreshCw, RotateCcw } from 'lucide-react';
+import { MousePointer2, Play, RefreshCw, RotateCcw, StepForward } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useEnginePreview } from '@/hooks/use-engine-preview';
@@ -52,6 +52,13 @@ export function EnginePreview() {
     session,
     loadSession,
     setPosition,
+    runtimeReset,
+    continueRuntime,
+    selectDialogueOption,
+    navigateRuntime,
+    selectRuntimeObject,
+    clearRuntimeObjectSelection,
+    runRuntimeAction,
     play: sendPlay,
     stop: sendStop,
   } = controller;
@@ -104,26 +111,46 @@ export function EnginePreview() {
     });
   };
 
+  const sendRuntimeCommand = (command: Promise<void>, label: string) => {
+    void command
+      .then(() => setStatusMessage(label))
+      .catch((error: Error) => {
+        setConnectionState('error');
+        setStatusMessage(error.message);
+      });
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
         <Button size="sm" variant="ghost" onClick={reload} aria-label="Reload engine preview">
           <RefreshCw className="h-4 w-4" />
         </Button>
-        <Button size="sm" variant="outline" onClick={() => updatePosition({ x: previewPosition.x - 0.05, y: previewPosition.y })}>Left</Button>
-        <Button size="sm" variant="outline" onClick={() => updatePosition({ x: previewPosition.x + 0.05, y: previewPosition.y })}>Right</Button>
-        <Button size="sm" variant="outline" onClick={() => updatePosition({ x: previewPosition.x, y: previewPosition.y - 0.05 })}>Up</Button>
-        <Button size="sm" variant="outline" onClick={() => updatePosition({ x: previewPosition.x, y: previewPosition.y + 0.05 })}>Down</Button>
-        <Button size="sm" variant="ghost" onClick={() => updatePosition({ x: 0.5, y: 0.5 })} aria-label="Reset demo position">
+        <Button size="sm" variant="ghost" onClick={() => sendRuntimeCommand(runtimeReset(), 'Runtime reset')} aria-label="Reset runtime">
           <RotateCcw className="h-4 w-4" />
         </Button>
+        <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(continueRuntime(), 'Continue input sent')}>
+          <StepForward className="h-4 w-4" />
+          Continue
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(navigateRuntime(0), 'Navigate 0 sent')}>Nav 0</Button>
+        <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(selectDialogueOption(0), 'Dialogue option 0 sent')}>Choice 0</Button>
+        <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(selectRuntimeObject('lamp'), 'Object selection sent')}>
+          <MousePointer2 className="h-4 w-4" />
+          Select
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(clearRuntimeObjectSelection(), 'Object selection cleared')}>Clear</Button>
+        <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(runRuntimeAction('look', []), 'Action input sent')}>
+          <Play className="h-4 w-4" />
+          Action
+        </Button>
         <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-          X
-          <Input className="h-7 w-20" type="number" min="0" max="1" step="0.01" value={previewPosition.x.toFixed(2)} onChange={(event) => updatePosition({ x: Number(event.target.value), y: previewPosition.y })} />
+          Demo X
+          <Input className="h-7 w-16" type="number" min="0" max="1" step="0.01" value={previewPosition.x.toFixed(2)} onChange={(event) => updatePosition({ x: Number(event.target.value), y: previewPosition.y })} />
         </label>
         <label className="flex items-center gap-1 text-xs text-muted-foreground">
           Y
-          <Input className="h-7 w-20" type="number" min="0" max="1" step="0.01" value={previewPosition.y.toFixed(2)} onChange={(event) => updatePosition({ x: previewPosition.x, y: Number(event.target.value) })} />
+          <Input className="h-7 w-16" type="number" min="0" max="1" step="0.01" value={previewPosition.y.toFixed(2)} onChange={(event) => updatePosition({ x: previewPosition.x, y: Number(event.target.value) })} />
         </label>
       </div>
       <div className="relative min-h-0 flex-1 bg-zinc-950">

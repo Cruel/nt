@@ -3,6 +3,17 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
+import {
+  eraseEntityRecord,
+  exportPackage,
+  importLegacyGame,
+  listPlaybackTests,
+  openProject,
+  runPlaybackTest,
+  setEntityRecord,
+  validateProject,
+} from './main/services/editor-tool-service';
+import type { PackageExportOptions } from './shared/editor-tooling';
 
 if (started) {
   app.quit();
@@ -81,6 +92,67 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, () =>
     enginePreviewServer.reload(),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.OPEN_PROJECT,
+    (_event: Electron.IpcMainInvokeEvent, projectPath: string) =>
+      openProject(projectPath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_LEGACY_GAME,
+    (_event: Electron.IpcMainInvokeEvent, source: string) =>
+      importLegacyGame(source),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.VALIDATE_PROJECT,
+    (_event: Electron.IpcMainInvokeEvent, project: unknown) =>
+      validateProject(project),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.LIST_PLAYBACK_TESTS,
+    (_event: Electron.IpcMainInvokeEvent, project: unknown) =>
+      listPlaybackTests(project),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.RUN_PLAYBACK_TEST,
+    (_event: Electron.IpcMainInvokeEvent, project: unknown, testId: string) =>
+      runPlaybackTest(project, testId),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.EXPORT_PACKAGE,
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      project: unknown,
+      outputPath: string,
+      options: unknown,
+    ) => exportPackage(project, outputPath, options as PackageExportOptions),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SET_ENTITY_RECORD,
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      project: unknown,
+      collection: string,
+      entityId: string,
+      record: unknown,
+    ) => setEntityRecord(project, collection, entityId, record),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.ERASE_ENTITY_RECORD,
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      project: unknown,
+      collection: string,
+      entityId: string,
+    ) => eraseEntityRecord(project, collection, entityId),
   );
 
   createWindow();

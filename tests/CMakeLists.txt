@@ -24,6 +24,22 @@ target_link_libraries(noveltea_core_tests PRIVATE noveltea_core Catch2::Catch2Wi
 target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)
 catch_discover_tests(noveltea_core_tests)
 
+add_test(
+    NAME noveltea_editor_tool_malformed_json
+    COMMAND /bin/sh -c "printf '{' | '$<TARGET_FILE:noveltea-editor-tool>' load-project || true"
+)
+set_tests_properties(noveltea_editor_tool_malformed_json PROPERTIES
+    PASS_REGULAR_EXPRESSION "Malformed request JSON"
+)
+
+add_test(
+    NAME noveltea_editor_tool_load_project
+    COMMAND /bin/sh -c "printf '%s' '{\"source\":\"{\\\"objects\\\":{},\\\"verbs\\\":{},\\\"actions\\\":{},\\\"rooms\\\":{},\\\"maps\\\":{},\\\"dialogues\\\":{},\\\"cutscenes\\\":{},\\\"scripts\\\":{},\\\"entrypoint\\\":[3,\\\"missing\\\"]}\"}' | '$<TARGET_FILE:noveltea-editor-tool>' load-project"
+)
+set_tests_properties(noveltea_editor_tool_load_project PROPERTIES
+    PASS_REGULAR_EXPRESSION "\"ok\""
+)
+
 # --- Text tests (text stack is mandatory) ---
 
 add_executable(noveltea_text_tests

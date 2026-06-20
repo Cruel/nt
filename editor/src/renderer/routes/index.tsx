@@ -87,10 +87,29 @@ function AppInfoCard() {
 function DashboardPage() {
   const projectPath = useWorkspaceStore((s) => s.projectPath);
   const setProjectPath = useWorkspaceStore((s) => s.setProjectPath);
+  const setProjectFilePath = useWorkspaceStore((s) => s.setProjectFilePath);
+  const setProject = useWorkspaceStore((s) => s.setProject);
+  const setDiagnostics = useWorkspaceStore((s) => s.setDiagnostics);
+  const setPlaybackTests = useWorkspaceStore((s) => s.setPlaybackTests);
+  const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
 
   async function handleOpenProject() {
     const dir = await window.noveltea.selectProjectDirectory();
-    if (dir) setProjectPath(dir);
+    if (!dir) return;
+    try {
+      const loaded = await window.noveltea.openProject(dir);
+      setProjectPath(loaded.projectPath);
+      setProjectFilePath(loaded.projectFilePath);
+      setProject(loaded.project ?? null);
+      setDiagnostics(loaded.diagnostics ?? []);
+      if (loaded.project) {
+        const tests = await window.noveltea.listPlaybackTests(loaded.project);
+        setPlaybackTests(tests.tests ?? []);
+      }
+      setStatusMessage(loaded.success ? 'Project loaded' : loaded.error ?? 'Project loaded with diagnostics');
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Project open failed');
+    }
   }
 
   return (
