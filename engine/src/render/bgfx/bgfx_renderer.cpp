@@ -8,6 +8,11 @@
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
 
+#include <bimg/bimg.h>
+
+#include <bx/file.h>
+#include <bx/error.h>
+
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -84,6 +89,25 @@ public:
             std::error_code ec;
             std::filesystem::create_directories(output.parent_path(), ec);
         }
+
+        const std::string ext = output.extension().string();
+        if (ext == ".png") {
+            bx::FileWriter writer;
+            bx::Error err;
+            if (!writer.open(bx::FilePath(file_path), false, &err)) {
+                std::fprintf(stderr, "[renderer] failed to open PNG screenshot: %s\n",
+                             file_path);
+                return;
+            }
+            bimg::imageWritePng(&writer, width, height, pitch, data,
+                                bimg::TextureFormat::BGRA8, yflip, &err);
+            if (!err.isOk()) {
+                std::fprintf(stderr, "[renderer] PNG write error: %s\n", err.getMessage().getCPtr());
+            }
+            writer.close();
+            return;
+        }
+
         std::ofstream file(output, std::ios::binary);
         if (!file) {
             std::fprintf(stderr, "[renderer] failed to write screenshot: %s\n", file_path);
