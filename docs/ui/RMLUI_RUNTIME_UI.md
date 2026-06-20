@@ -87,6 +87,9 @@ The binder:
 - Separates room objects from inventory objects into `rt_objects` and `rt_inventory` slots.
 - Feeds `RuntimeUIViewState` into the Phase 5 custom components when the document contains
   `nt-active-text`, `nt-text-log`, or `nt-map-view`.
+- RuntimeUI may bind a borrowed engine `TweenService`. When present, ActiveText body changes
+  start a deterministic `runtime-ui` / `active-text-reveal` tween and expose current progress
+  in fallback RML. Without a bound service, progress is complete and the UI remains static.
 - Logs missing optional slots once per slot per document lifetime.
 - Populates `rt_map` with a placeholder when empty.
 

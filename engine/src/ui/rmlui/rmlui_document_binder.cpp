@@ -120,8 +120,6 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
     } else if (auto* map = find_element(doc, "rt_map", m_logged_missing)) {
         map->SetInnerRML(map_view_rml(make_map_view_snapshot(state)));
     }
-
-    doc.Show();
 }
 
 void RuntimeUiDocumentBinder::clear_missing_slot_log() { m_logged_missing.clear(); }

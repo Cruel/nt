@@ -17,7 +17,7 @@ public:
 private:
     struct Options {
         uint32_t frame_limit = 0;
-        DemoMode demo_mode = DemoMode::All;
+        DemoMode demo_mode = DemoMode::None;
         std::filesystem::path system_asset_root;
         std::filesystem::path project_asset_root;
         std::filesystem::path cache_asset_root;

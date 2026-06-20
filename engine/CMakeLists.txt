@@ -72,6 +72,7 @@ add_library(engine STATIC
     src/surface.cpp
     src/text/text_engine.cpp
     src/text/text_layout.cpp
+    src/tween/tween_service.cpp
     src/ui/rmlui/rmlui_custom_components.cpp
     src/ui/rmlui/rmlui_document_binder.cpp
     src/ui/rmlui/rmlui_file_interface.cpp
@@ -91,6 +92,14 @@ target_include_directories(engine
 )
 
 target_link_libraries(engine PUBLIC noveltea_core)
+
+if(NOVELTEA_ENABLE_TWINK)
+    if(NOT TARGET twink::twink)
+        message(FATAL_ERROR "NOVELTEA_ENABLE_TWINK=ON requires twink::twink")
+    endif()
+    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_TWINK)
+    target_link_libraries(engine PRIVATE twink::twink)
+endif()
 
 if(NOVELTEA_ENABLE_RENDER2D)
     target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RENDER2D)

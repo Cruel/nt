@@ -20,6 +20,7 @@ class AssetManager;
 namespace script {
 class ScriptRuntime;
 }
+class TweenService;
 
 class RuntimeUI {
 public:
@@ -43,6 +44,7 @@ public:
     bool unload_document(const std::string& id);
     bool show_document(const std::string& id);
     bool hide_document(const std::string& id);
+    bool load_runtime_document();
     void* document(const std::string& id) const;
     void* element(const std::string& document_id, const std::string& element_id) const;
     bool reload_documents_and_styles();
@@ -50,6 +52,7 @@ public:
     void apply_controller_commands(const std::vector<core::ControllerCommand>& commands);
     const core::RuntimeUIViewState& runtime_view_state() const;
     void bind_runtime_host(core::RuntimeSessionHost* host);
+    void bind_tween_service(TweenService* tweens);
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
                                       const std::string& event, std::function<void()> callback);
     bool remove_event_listener(std::uintptr_t listener_id);

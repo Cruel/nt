@@ -1,5 +1,7 @@
 #include "ui/rmlui/rmlui_custom_components.hpp"
 
+#include <algorithm>
+#include <iomanip>
 #include <sstream>
 
 #if defined(NOVELTEA_HAS_RMLUI)
@@ -60,7 +62,8 @@ std::string paragraph_rml(std::string_view text)
 
 ActiveTextComponentSnapshot make_active_text_snapshot(const core::RuntimeUIViewState& state)
 {
-    return {state.title, state.body, state.awaiting_continue, state.page_break};
+    return {state.title, state.body, state.awaiting_continue, state.page_break,
+            state.active_text_reveal_progress};
 }
 
 MapViewComponentSnapshot make_map_view_snapshot(const core::RuntimeUIViewState& state)
@@ -90,8 +93,11 @@ TextLogComponentSnapshot make_text_log_snapshot(const core::RuntimeUIViewState& 
 std::string active_text_rml(const ActiveTextComponentSnapshot& snapshot)
 {
     std::ostringstream out;
+    const auto reveal_progress = std::clamp(snapshot.reveal_progress, 0.0f, 1.0f);
     const auto body = paragraph_rml(snapshot.body);
-    out << "<div class=\"nt-active-text__body\">" << (body.empty() ? "&nbsp;" : body) << "</div>";
+    out << "<div class=\"nt-active-text__body\" data-reveal-progress=\"" << std::fixed
+        << std::setprecision(3) << reveal_progress << "\">" << (body.empty() ? "&nbsp;" : body)
+        << "</div>";
     if (snapshot.page_break) {
         out << "<div class=\"nt-active-text__prompt\">Page break</div>";
     } else if (snapshot.awaiting_continue) {

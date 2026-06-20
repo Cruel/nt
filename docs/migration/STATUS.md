@@ -16,6 +16,7 @@ Last updated: 2026-06-20.
 - Lua runtime foundation. Lua is the only runtime scripting target.
 - Phase 4 RmlUi runtime UI baseline: project/theme/system template override policy, centralized `RuntimeUiDocumentBinder`, `RuntimeUiTemplateResolver`, system fallback RML/RCSS files, hardened document reload lifecycle with input listener reattachment, and updated runtime UI docs.
 - Phase 5 RmlUi custom component foundation: `nt-active-text`, `nt-map-view`, and `nt-text-log` register as C++-backed runtime UI elements with deterministic fallback binding from `RuntimeUIViewState`.
+- Phase 6 tween integration: `twink` is resolved as an external package or pinned FetchContent fallback, `TweenService` owns engine-side tween instances, and RuntimeUI uses it for deterministic ActiveText reveal progress.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -23,14 +24,13 @@ Last updated: 2026-06-20.
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Rich-text visual rendering parity, ActiveText effects, map rendering, and text-log rendering remain active.
-- Phase 6 tween integration through `twink` is not started.
 - Editor preview/test playback needs hardening around real workflows.
 - Packaging/export workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 
 ## Current Verification Commands
 
-Latest Phase 4 implementation — use these commands to verify:
+Latest Phase 6 implementation — use these commands to verify:
 
 ```sh
 cmake --preset linux-debug
@@ -68,4 +68,4 @@ For documentation-only cleanup, a targeted `rg` check for stale active-doc instr
 
 ## Next Implementation Task
 
-Implement Phase 6 from [`PLAN.md`](PLAN.md): tween integration through `twink`.
+Implement Phase 7 from [`PLAN.md`](PLAN.md): ActiveText rich-text layout, reveal, and effects on top of the Phase 6 `TweenService`.

@@ -282,9 +282,13 @@ Acceptance criteria:
 - Missing component data fails gracefully.
 - Component tests or sandbox smoke prove at least one component lifecycle.
 
-## Phase 6 [pending]: Tween Integration Through `twink`
+## Phase 6 [done]: Tween Integration Through `twink`
 
 Goal: make tweening a reusable engine service while keeping `twink` external and general-purpose.
+
+Status: complete for the initial engine/UI integration slice. `twink` is resolved as an
+external package or pinned FetchContent fallback, `TweenService` owns the engine tween
+manager, and ActiveText fallback presentation uses deterministic reveal progress.
 
 Dependency strategy:
 

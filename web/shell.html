@@ -212,6 +212,8 @@
       if (validDemos.has(demo)) args.push('--demo', demo);
       const frames = params.get('frames');
       if (frames) args.push('--frames', frames);
+      const rmluiDocument = params.get('rmlui-document') || params.get('rmluiDocument');
+      if (rmluiDocument) args.push('--rmlui-document', rmluiDocument);
       const noImgui = (params.get('noImgui') || '').toLowerCase();
       if (noImgui === '1' || noImgui === 'true' || noImgui === 'yes') args.push('--no-imgui');
       return args;

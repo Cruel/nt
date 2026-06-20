@@ -21,7 +21,8 @@ TEST_CASE("RmlUi custom component helpers escape fallback RML")
     CHECK(active.title == "Room <One>");
     CHECK(active.body == "Look & listen\nUse \"quotes\"");
     CHECK(active_text_rml(active) ==
-          "<div class=\"nt-active-text__body\"><p>Look &amp; listen</p><p>Use "
+          "<div class=\"nt-active-text__body\" data-reveal-progress=\"1.000\"><p>Look "
+          "&amp; listen</p><p>Use "
           "&quot;quotes&quot;</p></div>");
 
     const auto log = make_text_log_snapshot(state);
@@ -37,7 +38,8 @@ TEST_CASE("RmlUi custom component snapshots tolerate empty runtime state")
     CHECK(active.body.empty());
     CHECK_FALSE(active.awaiting_continue);
     CHECK_FALSE(active.page_break);
-    CHECK(active_text_rml(active) == "<div class=\"nt-active-text__body\">&nbsp;</div>");
+    CHECK(active_text_rml(active) ==
+          "<div class=\"nt-active-text__body\" data-reveal-progress=\"1.000\">&nbsp;</div>");
 
     const auto map = make_map_view_snapshot(state);
     CHECK(map.label == "Map unavailable");
@@ -70,4 +72,19 @@ TEST_CASE("RmlUi custom component snapshots are deterministic")
     const auto log_b = text_log_rml(make_text_log_snapshot(state));
     CHECK(log_a == log_b);
     CHECK(log_a == "<p>one</p><p>two</p>");
+}
+
+TEST_CASE("RmlUi active text fallback exposes clamped reveal progress")
+{
+    ActiveTextComponentSnapshot snapshot;
+    snapshot.body = "Body";
+    snapshot.reveal_progress = 0.5f;
+    CHECK(active_text_rml(snapshot) ==
+          "<div class=\"nt-active-text__body\" data-reveal-progress=\"0.500\"><p>Body</p></div>");
+
+    snapshot.reveal_progress = -1.0f;
+    CHECK(active_text_rml(snapshot).find("data-reveal-progress=\"0.000\"") != std::string::npos);
+
+    snapshot.reveal_progress = 2.0f;
+    CHECK(active_text_rml(snapshot).find("data-reveal-progress=\"1.000\"") != std::string::npos);
 }

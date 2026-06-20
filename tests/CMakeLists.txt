@@ -47,6 +47,12 @@ add_executable(noveltea_asset_tests
 target_link_libraries(noveltea_asset_tests PRIVATE engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_asset_tests)
 
+add_executable(noveltea_tween_tests
+    tween/tween_service_tests.cpp
+)
+target_link_libraries(noveltea_tween_tests PRIVATE engine Catch2::Catch2WithMain)
+catch_discover_tests(noveltea_tween_tests)
+
 if(NOVELTEA_HAS_LUA)
     add_executable(noveltea_script_tests
         script/script_runtime_tests.cpp

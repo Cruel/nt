@@ -2,6 +2,7 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
+#include "noveltea/tween_service.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
 #include <cstdio>
@@ -83,8 +84,11 @@ struct RuntimeUI::State {
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
     core::RuntimeSessionHost* runtime_host = nullptr;
+    TweenService* tweens = nullptr;
     std::uintptr_t next_listener_id = 1;
     std::string runtime_document_path;
+    std::string active_text_body;
+    float active_text_reveal_progress = 1.0f;
     bool rml_initialized = false;
 #endif
     core::RuntimeUIViewAdapter runtime_view;
@@ -117,7 +121,24 @@ void RuntimeUI::State::refresh_runtime_document()
     auto* doc = doc_it == documents.end() ? nullptr : doc_it->second;
     if (!doc || !document_binder)
         return;
-    document_binder->bind(*doc, runtime_view.state());
+    if (tweens) {
+        const auto& body = runtime_view.state().body;
+        if (body != active_text_body) {
+            active_text_body = body;
+            active_text_reveal_progress = body.empty() ? 1.0f : 0.0f;
+            if (!body.empty()) {
+                tweens->tween_float("runtime-ui", "active-text-reveal", active_text_reveal_progress,
+                                    0.0f, 1.0f, 0.18);
+            }
+        }
+    } else {
+        active_text_body = runtime_view.state().body;
+        active_text_reveal_progress = 1.0f;
+    }
+
+    auto state = runtime_view.state();
+    state.active_text_reveal_progress = active_text_reveal_progress;
+    document_binder->bind(*doc, state);
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
@@ -307,8 +328,6 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         }
     }
 
-    m_state->load_runtime_document();
-
     std::printf("[runtime_ui] RmlUi initialized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
                 m_surface.logical_width, m_surface.logical_height, m_surface.framebuffer_width,
                 m_surface.framebuffer_height, m_surface.scale_x, m_surface.scale_y);
@@ -364,6 +383,7 @@ void RuntimeUI::begin_frame(float delta_time)
         if (m_state->render_interface)
             m_state->render_interface->begin_frame();
 #endif
+        m_state->refresh_runtime_document();
         m_state->context->Update();
     }
 #endif
@@ -475,6 +495,23 @@ bool RuntimeUI::hide_document(const std::string& id)
     return false;
 }
 
+bool RuntimeUI::load_runtime_document()
+{
+#if defined(NOVELTEA_HAS_RMLUI)
+    if (!m_state || !m_state->context)
+        return false;
+    unload_document("runtime_game");
+    m_state->load_runtime_document();
+    if (auto* doc = static_cast<Rml::ElementDocument*>(document("runtime_game"))) {
+        doc->Show();
+        return true;
+    }
+    return false;
+#else
+    return false;
+#endif
+}
+
 void* RuntimeUI::document(const std::string& id) const
 {
 #if defined(NOVELTEA_HAS_RMLUI)
@@ -531,6 +568,7 @@ bool RuntimeUI::reload_documents_and_styles()
 
     if (had_runtime_doc) {
         m_state->load_runtime_document();
+        show_document("runtime_game");
         if (m_state->runtime_host) {
             bind_runtime_host(m_state->runtime_host);
         }
@@ -592,6 +630,20 @@ void RuntimeUI::bind_runtime_host(core::RuntimeSessionHost* host)
     }
 #else
     (void)host;
+#endif
+}
+
+void RuntimeUI::bind_tween_service(TweenService* tweens)
+{
+#if defined(NOVELTEA_HAS_RMLUI)
+    if (m_state) {
+        m_state->tweens = tweens;
+        if (!tweens) {
+            m_state->active_text_reveal_progress = 1.0f;
+        }
+    }
+#else
+    (void)tweens;
 #endif
 }
 

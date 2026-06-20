@@ -144,6 +144,7 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
 
 bool Engine::load_runtime_project(const std::string& logical_path)
 {
+    m_tweens.reset();
     auto blob = m_assets.read_binary(logical_path);
     if (!blob) {
         std::fprintf(stderr, "[engine] failed to read runtime project %s: %s\n",
@@ -289,6 +290,8 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     m_runtime_ui.resize(m_platform.surface());
+    const bool should_load_runtime_document =
+        run_config.runtime_ui_document.empty() && run_config.demo_mode == DemoMode::None;
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
 #if defined(NOVELTEA_HAS_LUA)
                                  &m_scripts
@@ -298,6 +301,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
                                  )) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else if (!run_config.runtime_ui_document.empty()) {
+        m_runtime_ui.bind_tween_service(&m_tweens);
         runtime_ui_initialized = true;
         if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document,
                                        true)) {
@@ -309,6 +313,10 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             return false;
         }
     } else {
+        if (should_load_runtime_document) {
+            m_runtime_ui.load_runtime_document();
+        }
+        m_runtime_ui.bind_tween_service(&m_tweens);
         runtime_ui_initialized = true;
     }
 
@@ -497,6 +505,7 @@ void Engine::update(float dt)
     if (!m_preview_running)
         return;
     m_elapsed_seconds += dt;
+    m_tweens.advance(dt);
     if (m_runtime_host.loaded()) {
         core::RuntimeInput input;
         input.type = core::RuntimeInputType::Tick;
@@ -526,7 +535,9 @@ void Engine::render()
     }
     m_runtime_ui.begin_frame(m_platform.delta_time());
     m_renderer.begin_frame();
-    m_renderer.draw_preview_triangle(m_demo_position);
+    if (m_demo_mode != DemoMode::None) {
+        m_renderer.draw_preview_triangle(m_demo_position);
+    }
 #if defined(NOVELTEA_HAS_RENDER2D)
     if (demo_enabled(m_demo_mode, DemoMode::Render2D)) {
         m_renderer.draw_demo_2d(m_elapsed_seconds);
@@ -562,6 +573,7 @@ void Engine::shutdown()
         m_debug_ui.shutdown();
     }
     m_runtime_ui.shutdown();
+    m_tweens.reset();
 #if defined(NOVELTEA_HAS_LUA)
     m_script_executor.shutdown();
     m_scripts.shutdown();

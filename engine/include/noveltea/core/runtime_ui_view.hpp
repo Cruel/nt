@@ -37,6 +37,7 @@ struct RuntimeUIViewState {
     std::vector<RuntimeUIObject> objects;
     std::vector<RuntimeUIAction> actions;
     std::vector<std::string> text_log;
+    float active_text_reveal_progress = 1.0f;
     bool awaiting_continue = false;
     bool page_break = false;
 };

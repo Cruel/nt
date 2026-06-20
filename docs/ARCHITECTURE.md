@@ -175,6 +175,10 @@ When `NOVELTEA_HAS_LUA` is enabled, `Engine` initializes `ScriptRuntime` after `
 
 `ScriptRuntime` exposes `bind_game_session(core::GameSession*)` and `clear_game_bindings()`. The binding implementation registers game compatibility globals and wraps the current `GameSession` pointer. Many mutation APIs are intentionally still stubs, including property mutation, save/load/autosave/quit behavior, script text input, and some save helpers.
 
+### Tween Service
+
+`twink` is an external dependency, resolved through `find_package(twink CONFIG)` or a pinned FetchContent fallback. The engine target owns `TweenService`, which wraps `twink::TweenManager`, advances from the same deterministic delta used for runtime ticks, and exposes owner/channel pause, resume, kill, reset, and debug snapshot operations. `noveltea_core` does not include or link `twink`; core may carry declarative presentation values such as ActiveText reveal progress, while runtime/UI owns active tween instances.
+
 The runtime controller does not yet execute emitted runtime scripts through `ScriptRuntime`. Script hooks and script entities are still represented as `ScriptDeferred` controller commands. `RuntimeUIViewAdapter` ignores those commands, and `Engine::update` currently forwards the command batch only to the RmlUi bridge.
 
 ## Contrast With Old NovelTea Context

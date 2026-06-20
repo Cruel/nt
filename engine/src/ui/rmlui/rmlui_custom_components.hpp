@@ -17,6 +17,7 @@ struct ActiveTextComponentSnapshot {
     std::string body;
     bool awaiting_continue = false;
     bool page_break = false;
+    float reveal_progress = 1.0f;
 };
 
 struct MapViewComponentSnapshot {

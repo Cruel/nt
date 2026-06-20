@@ -51,6 +51,7 @@ option(NOVELTEA_ENABLE_RMLUI "Enable RmlUi runtime UI integration when the packa
 option(NOVELTEA_ENABLE_LUA "Enable the NovelTea Lua scripting runtime" ON)
 option(NOVELTEA_ENABLE_RMLUI_LUA "Enable RmlUi's official Lua plugin against the NovelTea Lua state" ON)
 option(NOVELTEA_ENABLE_TEXT "Enable the engine-owned Unicode text subsystem" ON)
+option(NOVELTEA_ENABLE_TWINK "Enable twink-backed engine animation service" ON)
 option(NOVELTEA_ENABLE_TEXT_LAB "Deprecated alias for NOVELTEA_ENABLE_TEXT" ON)
 if(DEFINED NOVELTEA_ENABLE_TEXT_LAB AND NOT NOVELTEA_ENABLE_TEXT_LAB)
     set(NOVELTEA_ENABLE_TEXT OFF CACHE BOOL "Enable the engine-owned Unicode text subsystem" FORCE)
@@ -149,6 +150,25 @@ if(NOVELTEA_ENABLE_LUA)
 endif()
 if(NOVELTEA_ENABLE_TEXT)
     noveltea_provide_text_dependencies()
+endif()
+
+if(NOVELTEA_ENABLE_TWINK)
+    find_package(twink CONFIG QUIET)
+    if(NOT TARGET twink::twink)
+        include(FetchContent)
+        set(TWINK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(TWINK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(TWINK_INSTALL OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            twink
+            GIT_REPOSITORY https://github.com/Cruel/twink.git
+            GIT_TAG ea488b2d6a0c032ffefdeb0e5e064749706e29fd
+        )
+        FetchContent_MakeAvailable(twink)
+    endif()
+    if(NOT TARGET twink::twink)
+        message(FATAL_ERROR "NOVELTEA_ENABLE_TWINK=ON requires twink::twink")
+    endif()
 endif()
 
 if(NOVELTEA_ENABLE_RMLUI AND NOVELTEA_FETCH_RMLUI AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))

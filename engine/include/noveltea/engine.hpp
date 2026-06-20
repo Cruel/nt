@@ -7,6 +7,7 @@
 #include "ui_runtime.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
+#include "noveltea/tween_service.hpp"
 #if defined(NOVELTEA_HAS_LUA)
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/runtime_script_executor.hpp"
@@ -28,7 +29,7 @@ enum class DemoMode {
 
 struct EngineRunConfig {
     uint32_t frame_limit = 0;
-    DemoMode demo_mode = DemoMode::All;
+    DemoMode demo_mode = DemoMode::None;
     std::filesystem::path system_asset_root;
     std::filesystem::path project_asset_root;
     std::filesystem::path cache_asset_root;
@@ -71,6 +72,7 @@ private:
     assets::AssetManager m_assets;
     Platform m_platform;
     Renderer m_renderer;
+    TweenService m_tweens;
 #if defined(NOVELTEA_HAS_LUA)
     script::ScriptRuntime m_scripts;
     script::RuntimeScriptExecutor m_script_executor;
@@ -83,7 +85,7 @@ private:
     uint32_t m_frame_count = 0;
     uint32_t m_frame_limit = 0;
     std::string m_screenshot_path;
-    DemoMode m_demo_mode = DemoMode::All;
+    DemoMode m_demo_mode = DemoMode::None;
     float m_elapsed_seconds = 0.0f;
     preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
     bool m_preview_running = true;
