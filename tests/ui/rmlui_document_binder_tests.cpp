@@ -32,8 +32,12 @@ TEST_CASE("RuntimeUiDocumentBinder state holds populated data")
     state.notification = "New area discovered";
     state.dialogue_options = {{"Ask about the door", true}, {"Leave", false}};
     state.navigation = {"north", "east"};
-    state.objects = {{"lamp", "Lamp", true, false, true, true, ""},
-                     {"key", "Brass Key", false, true, false, true, ""}};
+    state.objects = {{.id = "lamp",
+                      .name = "Lamp",
+                      .image = "project:/textures/lamp.png",
+                      .in_room = true,
+                      .selected = true},
+                     {.id = "key", .name = "Brass Key", .in_inventory = true}};
     state.actions = {{"look", "Look at", 1, true, "", 1},
                      {"take", "Take", 1, false, "requires 1 object", 0}};
     state.text_log.push_back(
@@ -55,6 +59,7 @@ TEST_CASE("RuntimeUiDocumentBinder state holds populated data")
     CHECK(state.navigation[0] == "north");
     REQUIRE(state.objects.size() == 2);
     CHECK(state.objects[0].id == "lamp");
+    CHECK(state.objects[0].image == "project:/textures/lamp.png");
     CHECK(state.objects[0].in_room);
     CHECK(state.objects[0].selected);
     CHECK(state.objects[1].in_inventory);

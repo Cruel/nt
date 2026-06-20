@@ -29,6 +29,10 @@ All runtime game documents must provide these element IDs for the binder to upda
 | `rt_mode` | yes | Current game mode display |
 | `rt_title` | yes | Room/dialogue title |
 | `rt_notification` | no | Status notification text |
+| `rt_background_image` | no | Project/room background image slot |
+| `rt_cover_image` | no | Project cover image slot |
+| `rt_room_image` | no | Current room image slot |
+| `rt_asset_status` | no | Missing runtime visual asset warnings |
 | `rt_body` | yes | Main text body (room description, dialogue, cutscene) |
 | `rt_prompt` | no | Continue/page-break button |
 | `rt_options` | no | Dialogue option buttons |
@@ -61,6 +65,24 @@ UI actions must route through `RuntimeInput` attributes, not inline event handle
 
 Input is always submitted through `RuntimeSessionHost::apply_input()` and refreshed from the host result/commands. No UI event handler may bypass the shared `RuntimeInput` path.
 
+## Runtime Visual Assets
+
+Phase 11 v1 presents runtime visuals through RmlUi elements backed by the existing bgfx RmlUi texture loader. `RuntimeUIViewState` exposes:
+
+- `cover_image`: the legacy/package cover slot, conventionally `project:/image`.
+- `background_image`: the current room background if configured, otherwise the cover image fallback.
+- `room_image`: the current room image if configured.
+- `RuntimeUIObject::image`: object/inventory image metadata.
+
+Visual metadata is read from backend-neutral entity properties. Supported keys are intentionally small:
+
+- Rooms: `background`, `image`, `texture`
+- Objects: `image`, `texture`
+
+Values may be full logical paths such as `project:/textures/foyer.png`, relative texture paths such as `textures/foyer.png`, or texture ids/names that resolve to `project:/textures/<value>`. Unsupported shader/material properties are not interpreted by the runtime UI v1 path; rich-text shader ids remain preserved as ActiveText metadata.
+
+`RuntimeUI` validates resolved visual paths with `AssetManager::exists()` before binding and records missing paths in `RuntimeUIViewState::asset_diagnostics` for display in `rt_asset_status`. Decode/upload failures remain renderer diagnostics from the RmlUi/bgfx texture loader.
+
 ## Encoded Namespace Paths
 
 RmlUi stylesheets referenced by a runtime document can use encoded namespace paths to resolve relative to the correct asset mount:
@@ -84,6 +106,7 @@ The encoded form `namespace|/path` is recognized by `resolve_asset_path()` and i
 
 The binder:
 - Escapes all text content for RML safety.
+- Populates optional cover, background, room image, object image, and asset-warning slots.
 - Separates room objects from inventory objects into `rt_objects` and `rt_inventory` slots.
 - Feeds `RuntimeUIViewState` into the Phase 5 custom components when the document contains
   `nt-active-text`, `nt-text-log`, or `nt-map-view`.

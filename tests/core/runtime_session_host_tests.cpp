@@ -14,6 +14,15 @@ namespace {
 
 nlohmann::json props() { return nlohmann::json::object(); }
 
+nlohmann::json props(std::initializer_list<std::pair<const char*, const char*>> values)
+{
+    nlohmann::json out = nlohmann::json::object();
+    for (const auto& [key, value] : values) {
+        out[key] = value;
+    }
+    return out;
+}
+
 nlohmann::json ref(EntityType type, std::string id)
 {
     return nlohmann::json::array({to_integer(type), std::move(id)});
@@ -404,6 +413,36 @@ TEST_CASE("RuntimeSessionHost exposes room objects, inventory, and actions")
     selected_lamp = find_object(host.view_state(), "lamp");
     REQUIRE(selected_lamp != nullptr);
     CHECK_FALSE(selected_lamp->selected);
+}
+
+TEST_CASE("RuntimeSessionHost derives visual presentation from room and object metadata")
+{
+    auto project = make_action_project();
+    auto& root = project.root();
+    root[project_ids::textures] = nlohmann::json::object({
+        {"foyer-bg.png", "foyer-bg.png"},
+        {"lamp.png", "lamp.png"},
+        {"coin.png", "coin.png"},
+    });
+    root[project_ids::room]["foyer"][2] =
+        props({{"background", "foyer-bg.png"}, {"image", "textures/foyer-room.png"}});
+    root[project_ids::object]["lamp"][2] = props({{"image", "lamp.png"}});
+    root[project_ids::object]["coin"][2] = props({{"texture", "coin.png"}});
+
+    RuntimeSessionHost host;
+    REQUIRE(host.load(std::move(project)).success);
+    host.tick(0.0);
+
+    const auto& view = host.view_state();
+    CHECK(view.cover_image == "project:/image");
+    CHECK(view.background_image == "project:/textures/foyer-bg.png");
+    CHECK(view.room_image == "project:/textures/foyer-room.png");
+    const auto* lamp = find_object(view, "lamp");
+    REQUIRE(lamp != nullptr);
+    CHECK(lamp->image == "project:/textures/lamp.png");
+    const auto* coin = find_object(view, "coin");
+    REQUIRE(coin != nullptr);
+    CHECK(coin->image == "project:/textures/coin.png");
 }
 
 TEST_CASE("RuntimeSessionHost uses save-backed object locations for room and inventory")

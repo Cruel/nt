@@ -473,23 +473,38 @@ Acceptance criteria:
 - Selection state is visible and clearable.
 - Editor playback can express object selection and action execution.
 
-## Phase 11 [pending]: Runtime Renderer and Asset Presentation
+## Phase 11 [done]: Runtime Renderer and Asset Presentation
 
 Goal: make the runtime visually complete beyond text/UI controls.
+
+Status: acceptance criteria are met.
 
 Implement:
 
 - texture loading for project visuals
-- cover/background image slots
+- cover/background/image slots — v1 done via RmlUi `<img>` elements backed by
+  the existing bgfx RmlUi texture loader (bimg decode).
 - room/object image presentation where project data supports it
-- shader/material resolution policy
-- render layers and ordering
-- scissor/clip integration
-- frame timing and animation update policy
+- shader/material resolution policy — deferred (see below)
+- render layers and ordering — 4-layer view system (Background, Main, Foreground,
+  UIOverlay) via `GameLayer` enum, each mapped to its own bgfx view.
+- scissor/clip integration — push/pop scissor stack on `Renderer`, applied
+  per draw call in `submit_quad()`.
+- frame timing and animation update policy — wall-clock delta drives ActiveText
+  reveal progress. Fixed-step deferred to Phase 12.
 - fallback visuals for missing assets
 - diagnostics for missing/invalid assets
 
 Do not invent old SFML behavior blindly. Use `refs/NovelTea/` only to understand intended semantics and project fields.
+
+Deferred items:
+
+- Shader/material resolution policy (`render/shader_policy.hpp` contains a stub).
+  When implemented this must define property-key → ShaderId/MaterialId mapping,
+  a `ShaderPolicy` resolving ShaderId → bgfx ProgramHandle with platform-aware
+  variant selection, and a bind() path on QuadCommand. ActiveText effects, map
+  overlays, per-object materials, and per-room background shaders all depend on
+  this step.
 
 Acceptance criteria:
 

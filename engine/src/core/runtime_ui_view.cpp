@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <string_view>
 #include <utility>
 
 #include <noveltea/core/project_ids.hpp>
@@ -87,6 +88,53 @@ std::vector<int> reachable_path_indices(const ProjectModel& project, const std::
         }
     }
     return out;
+}
+
+bool has_texture_key(const ProjectModel& project, std::string_view key)
+{
+    const auto& root = project.document_root();
+    const auto textures = root.find(std::string(project_ids::textures));
+    return textures != root.end() && textures->is_object() &&
+           textures->find(std::string(key)) != textures->end();
+}
+
+std::string normalize_visual_asset(const ProjectModel& project, const std::string& value)
+{
+    if (value.empty()) {
+        return {};
+    }
+    if (value.find(":/") != std::string::npos) {
+        return value;
+    }
+    if (value == "image") {
+        return "project:/image";
+    }
+    constexpr std::string_view textures_prefix = "textures/";
+    if (value.rfind(std::string(textures_prefix), 0) == 0) {
+        return "project:/" + value;
+    }
+    if (has_texture_key(project, value)) {
+        return "project:/textures/" + value;
+    }
+    return "project:/textures/" + value;
+}
+
+std::string property_string(const nlohmann::json& properties, const char* key)
+{
+    const auto it = properties.find(key);
+    return it != properties.end() && it->is_string() ? it->get<std::string>() : std::string{};
+}
+
+std::string visual_property(const ProjectModel& project, const EntityMetadata& metadata,
+                            std::initializer_list<const char*> keys)
+{
+    for (const char* key : keys) {
+        const auto value = property_string(metadata.properties, key);
+        if (!value.empty()) {
+            return normalize_visual_asset(project, value);
+        }
+    }
+    return {};
 }
 } // namespace
 
@@ -196,6 +244,32 @@ void RuntimeUIViewAdapter::set_room_interactions(std::vector<RuntimeUIObject> ob
 {
     m_state.objects = std::move(objects);
     m_state.actions = std::move(actions);
+}
+
+void RuntimeUIViewAdapter::sync_visuals(const GameSession& session)
+{
+    m_state.cover_image = "project:/image";
+    m_state.room_image.clear();
+    m_state.background_image = m_state.cover_image;
+    m_state.asset_diagnostics.clear();
+
+    const auto* project = session.project();
+    const auto current_room = session.current_room_id();
+    if (!project || !current_room.has_value()) {
+        return;
+    }
+
+    const auto room_it = project->rooms().find(*current_room);
+    if (room_it == project->rooms().end()) {
+        return;
+    }
+
+    m_state.room_image = visual_property(*project, room_it->second.metadata, {"image", "texture"});
+    const auto background =
+        visual_property(*project, room_it->second.metadata, {"background", "image", "texture"});
+    if (!background.empty()) {
+        m_state.background_image = background;
+    }
 }
 
 void RuntimeUIViewAdapter::set_saved_text_log(const nlohmann::json& log)

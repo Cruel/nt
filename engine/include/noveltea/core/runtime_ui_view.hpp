@@ -21,11 +21,17 @@ struct RuntimeUIOption {
 struct RuntimeUIObject {
     std::string id;
     std::string name;
+    std::string image;
     bool in_room = false;
     bool in_inventory = false;
     bool selected = false;
     bool enabled = true;
     std::string reason;
+};
+
+struct RuntimeUIAssetDiagnostic {
+    std::string asset_path;
+    std::string message;
 };
 
 struct RuntimeUIAction {
@@ -94,11 +100,15 @@ struct RuntimeUIViewState {
     std::string title;
     std::string body;
     std::string notification;
+    std::string cover_image;
+    std::string background_image;
+    std::string room_image;
     std::vector<RuntimeUIOption> dialogue_options;
     std::vector<std::string> navigation;
     std::vector<RuntimeUIObject> objects;
     std::vector<RuntimeUIAction> actions;
     std::vector<RuntimeUITextLogEntry> text_log;
+    std::vector<RuntimeUIAssetDiagnostic> asset_diagnostics;
     RuntimeUIMapView map_view;
     RichTextDocument active_text;
     float active_text_reveal_progress = 1.0f;
@@ -114,6 +124,7 @@ public:
     void set_room_interactions(std::vector<RuntimeUIObject> objects,
                                std::vector<RuntimeUIAction> actions);
     void set_saved_text_log(const nlohmann::json& log);
+    void sync_visuals(const GameSession& session);
     void sync_map(const GameSession& session);
 
     [[nodiscard]] const RuntimeUIViewState& state() const noexcept { return m_state; }

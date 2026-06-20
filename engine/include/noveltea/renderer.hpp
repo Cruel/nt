@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace noveltea {
 
@@ -65,6 +66,10 @@ public:
     [[deprecated("Use logical_width()")]] int width() const { return logical_width(); }
     [[deprecated("Use logical_height()")]] int height() const { return logical_height(); }
 
+    // Scissor/clip stack (logical coordinates; converted to framebuffer pixels internally).
+    void push_scissor(int16_t x, int16_t y, uint16_t w, uint16_t h);
+    void pop_scissor();
+
     // Draw developer overlay text (rendered in-viewport, not stdout).
     void debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* fmt, ...);
 
@@ -79,10 +84,20 @@ private:
     void submit_quad(const QuadCommand& command);
     uint16_t load_ppm_texture(std::string_view logical_path);
 
+    struct ScissorRect {
+        int16_t x = 0, y = 0;
+        uint16_t w = 0, h = 0;
+        bool active = false;
+    };
+    ScissorRect current_scissor() const;
+
     const assets::AssetManager* m_assets = nullptr;
     bool m_initialized = false;
     bool m_vsync = true;
     SurfaceMetrics m_surface{};
+
+    // Scissor stack (logical coords, pushed at logical coords, converted on pop).
+    std::vector<ScissorRect> m_scissor_stack;
 
     // Backend resource handles (stored as uint16_t indices; UINT16_MAX = invalid).
     uint16_t m_triangle_vb = UINT16_MAX;

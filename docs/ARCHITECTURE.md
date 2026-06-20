@@ -108,6 +108,8 @@ If JSON parsing throws, the engine falls back to legacy package loading:
 
 After a successful runtime project load, `Engine` binds `RuntimeUI` to the current `RuntimeController` pointer and logs the loaded project.
 
+Runtime visual presentation uses the same logical asset paths. The backend-neutral view state exposes cover, background, room, and object image slots; the RmlUi runtime layer validates them against `AssetManager` and lets the bgfx RmlUi renderer decode/upload image bytes. Legacy package covers are mounted as `project:/image`, and package textures are mounted under `project:/textures/`.
+
 ## Main Loop
 
 `Engine::run` loops while `m_running` and calls `tick`.

@@ -5,11 +5,13 @@
 #include "noveltea/tween_service.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -43,6 +45,42 @@ namespace {
 constexpr const char* kRuntimeUiFontAsset = "project:/rmlui/LiberationSans.ttf";
 constexpr const char* kRuntimeUiSystemFontAsset = "system:/fonts/LiberationSans.ttf";
 constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
+
+void validate_visual_asset(const assets::AssetManager& assets, core::RuntimeUIViewState& state,
+                           const std::string& path, std::unordered_set<std::string>& logged)
+{
+    if (path.empty() || assets.exists(path)) {
+        return;
+    }
+    core::RuntimeUIAssetDiagnostic diagnostic;
+    diagnostic.asset_path = path;
+    diagnostic.message = "missing visual asset: " + path;
+    state.asset_diagnostics.push_back(diagnostic);
+    if (logged.insert(path).second) {
+        std::fprintf(stderr, "[runtime_ui] %s\n", diagnostic.message.c_str());
+    }
+}
+
+core::RuntimeUIViewState validated_visual_state(const assets::AssetManager& assets,
+                                                core::RuntimeUIViewState state,
+                                                std::unordered_set<std::string>& logged)
+{
+    state.asset_diagnostics.clear();
+    if (state.cover_image.empty() && assets.exists("project:/image")) {
+        state.cover_image = "project:/image";
+    }
+    if (state.background_image.empty() && !state.cover_image.empty()) {
+        state.background_image = state.cover_image;
+    }
+
+    validate_visual_asset(assets, state, state.cover_image, logged);
+    validate_visual_asset(assets, state, state.background_image, logged);
+    validate_visual_asset(assets, state, state.room_image, logged);
+    for (const auto& object : state.objects) {
+        validate_visual_asset(assets, state, object.image, logged);
+    }
+    return state;
+}
 } // namespace
 
 struct RuntimeUI::State {
@@ -79,6 +117,7 @@ struct RuntimeUI::State {
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiDocumentBinder* document_binder = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
+    const assets::AssetManager* assets = nullptr;
     std::unordered_map<std::string, Rml::ElementDocument*> documents;
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
@@ -88,6 +127,7 @@ struct RuntimeUI::State {
     std::uintptr_t next_listener_id = 1;
     std::string runtime_document_path;
     std::string active_text_body;
+    std::unordered_set<std::string> logged_missing_visual_assets;
     float active_text_reveal_progress = 1.0f;
     bool rml_initialized = false;
 #endif
@@ -121,8 +161,9 @@ void RuntimeUI::State::refresh_runtime_document()
     auto* doc = doc_it == documents.end() ? nullptr : doc_it->second;
     if (!doc || !document_binder)
         return;
+    const auto& source_state = runtime_host ? runtime_host->view_state() : runtime_view.state();
     if (tweens) {
-        const auto& body = runtime_view.state().body;
+        const auto& body = source_state.body;
         if (body != active_text_body) {
             active_text_body = body;
             active_text_reveal_progress = body.empty() ? 1.0f : 0.0f;
@@ -132,11 +173,17 @@ void RuntimeUI::State::refresh_runtime_document()
             }
         }
     } else {
-        active_text_body = runtime_view.state().body;
-        active_text_reveal_progress = 1.0f;
+        const auto& body = source_state.body;
+        if (body != active_text_body) {
+            active_text_body = body;
+            active_text_reveal_progress = body.empty() ? 1.0f : 0.0f;
+        }
     }
 
-    auto state = runtime_view.state();
+    auto state = source_state;
+    if (assets) {
+        state = validated_visual_state(*assets, std::move(state), logged_missing_visual_assets);
+    }
     state.active_text_reveal_progress = active_text_reveal_progress;
     document_binder->bind(*doc, state);
 }
@@ -258,6 +305,7 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
 
     m_state = new State;
     m_state->window = window;
+    m_state->assets = assets;
     m_state->file_interface = new ui::rmlui::AssetRmlFileInterface(*assets);
     m_state->system_interface = new ui::rmlui::SdlSystemInterface(window);
     m_state->template_resolver = new ui::rmlui::RuntimeUiTemplateResolver(*assets);
@@ -376,13 +424,18 @@ void RuntimeUI::resize(const SurfaceMetrics& surface)
 
 void RuntimeUI::begin_frame(float delta_time)
 {
-    (void)delta_time;
 #if defined(NOVELTEA_HAS_RMLUI)
     if (m_state && m_state->context) {
 #if defined(NOVELTEA_HAS_BGFX)
         if (m_state->render_interface)
             m_state->render_interface->begin_frame();
 #endif
+        // Advance ActiveText reveal even without twink.
+        if (!m_state->tweens && delta_time > 0.0f && m_state->active_text_reveal_progress < 1.0f) {
+            constexpr float kRate = 8.0f; // characters per second
+            m_state->active_text_reveal_progress =
+                std::min(1.0f, m_state->active_text_reveal_progress + delta_time * kRate);
+        }
         m_state->refresh_runtime_document();
         m_state->context->Update();
     }
@@ -606,6 +659,8 @@ void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerComm
 const core::RuntimeUIViewState& RuntimeUI::runtime_view_state() const
 {
 #if defined(NOVELTEA_HAS_RMLUI)
+    if (m_state && m_state->runtime_host)
+        return m_state->runtime_host->view_state();
     if (m_state)
         return m_state->runtime_view.state();
 #endif

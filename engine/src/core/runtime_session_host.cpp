@@ -5,6 +5,48 @@
 #include <algorithm>
 
 namespace noveltea::core {
+namespace {
+
+bool project_has_texture_key(const ProjectModel& project, const std::string& key)
+{
+    const auto& root = project.document_root();
+    const auto textures = root.find(std::string(project_ids::textures));
+    return textures != root.end() && textures->is_object() &&
+           textures->find(key) != textures->end();
+}
+
+std::string normalize_visual_asset(const ProjectModel& project, const std::string& value)
+{
+    if (value.empty()) {
+        return {};
+    }
+    if (value.find(":/") != std::string::npos) {
+        return value;
+    }
+    if (value == "image") {
+        return "project:/image";
+    }
+    if (value.rfind("textures/", 0) == 0) {
+        return "project:/" + value;
+    }
+    if (project_has_texture_key(project, value)) {
+        return "project:/textures/" + value;
+    }
+    return "project:/textures/" + value;
+}
+
+std::string object_visual_asset(const ProjectModel& project, const ObjectModel& object)
+{
+    for (const char* key : {"image", "texture"}) {
+        const auto it = object.metadata.properties.find(key);
+        if (it != object.metadata.properties.end() && it->is_string()) {
+            return normalize_visual_asset(project, it->get<std::string>());
+        }
+    }
+    return {};
+}
+
+} // namespace
 
 RuntimeSessionHost::RuntimeSessionHost() = default;
 RuntimeSessionHost::~RuntimeSessionHost() = default;
@@ -320,6 +362,7 @@ RuntimeInputResult RuntimeSessionHost::make_result(bool handled,
 {
     consume_commands(commands);
     if (m_session.loaded()) {
+        m_view.sync_visuals(m_session);
         m_view.sync_map(m_session);
     }
 
@@ -501,6 +544,7 @@ void RuntimeSessionHost::sync_room_interactions()
                 RuntimeUIObject object;
                 object.id = object_id;
                 object.name = object_model.name.empty() ? object_id : object_model.name;
+                object.image = object_visual_asset(*project, object_model);
                 object.in_room = true;
                 object.selected =
                     std::find(m_selected_object_ids.begin(), m_selected_object_ids.end(),
@@ -529,6 +573,7 @@ void RuntimeSessionHost::sync_room_interactions()
             RuntimeUIObject object;
             object.id = id;
             object.name = object_model.name.empty() ? id : object_model.name;
+            object.image = object_visual_asset(*project, object_model);
             object.in_inventory = true;
             object.selected = selected;
             objects.push_back(std::move(object));

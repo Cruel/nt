@@ -26,6 +26,17 @@ Rml::Element* find_component(Rml::ElementDocument& doc, const std::string& tag)
     return elements.empty() ? nullptr : elements.front();
 }
 
+std::string image_rml(std::string_view path, std::string_view css_class, std::string_view label)
+{
+    if (path.empty()) {
+        return {};
+    }
+    std::ostringstream out;
+    out << "<img class=\"" << css_class << "\" src=\"" << escape_rml(path) << "\" alt=\""
+        << escape_rml(label) << "\"/>";
+    return out.str();
+}
+
 } // namespace
 
 RuntimeUiDocumentBinder::RuntimeUiDocumentBinder() = default;
@@ -47,6 +58,24 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
     }
     if (auto* note = find_element(doc, "rt_notification", m_logged_missing)) {
         note->SetInnerRML(escape_rml(state.notification));
+    }
+    if (auto* cover = find_element(doc, "rt_cover_image", m_logged_missing)) {
+        cover->SetInnerRML(image_rml(state.cover_image, "visual cover", "Cover image"));
+    }
+    if (auto* background = find_element(doc, "rt_background_image", m_logged_missing)) {
+        background->SetInnerRML(
+            image_rml(state.background_image, "visual background", "Background image"));
+    }
+    if (auto* room = find_element(doc, "rt_room_image", m_logged_missing)) {
+        room->SetInnerRML(image_rml(state.room_image, "visual room", "Room image"));
+    }
+    if (auto* asset_status = find_element(doc, "rt_asset_status", m_logged_missing)) {
+        std::ostringstream out;
+        for (const auto& diagnostic : state.asset_diagnostics) {
+            out << "<div class=\"asset-warning\" data-asset=\"" << escape_rml(diagnostic.asset_path)
+                << "\">" << escape_rml(diagnostic.message) << "</div>";
+        }
+        asset_status->SetInnerRML(out.str());
     }
     if (auto* prompt = find_element(doc, "rt_prompt", m_logged_missing)) {
         if (state.page_break) {
@@ -92,7 +121,11 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
             out << "\" nt-object=\"" << escape_rml(obj.id) << "\"";
             if (!obj.enabled)
                 out << " disabled";
-            out << ">" << escape_rml(obj.name);
+            out << ">";
+            if (!obj.image.empty()) {
+                out << image_rml(obj.image, "visual object", obj.name);
+            }
+            out << "<span class=\"object-label\">" << escape_rml(obj.name) << "</span>";
             if (obj.selected)
                 out << " [selected]";
             if (!obj.reason.empty())
@@ -114,7 +147,11 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
             out << "\" nt-object=\"" << escape_rml(obj.id) << "\"";
             if (!obj.enabled)
                 out << " disabled";
-            out << ">" << escape_rml(obj.name);
+            out << ">";
+            if (!obj.image.empty()) {
+                out << image_rml(obj.image, "visual object", obj.name);
+            }
+            out << "<span class=\"object-label\">" << escape_rml(obj.name) << "</span>";
             if (obj.selected)
                 out << " [selected]";
             if (!obj.reason.empty())

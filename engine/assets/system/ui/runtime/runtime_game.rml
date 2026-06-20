@@ -5,18 +5,22 @@
 </head>
 <body>
     <div id="rt_root">
+        <div id="rt_background_image"></div>
         <div id="top_bar">
             <span id="rt_mode">idle</span>
             <span id="rt_notification"></span>
         </div>
+        <div id="rt_asset_status"></div>
         <div id="content">
             <div id="main_view">
+                <div id="rt_room_image"></div>
                 <h1 id="rt_title"></h1>
                 <nt-active-text id="rt_body"></nt-active-text>
                 <div id="rt_prompt"></div>
                 <div id="rt_options"></div>
             </div>
             <div id="side_view">
+                <div id="rt_cover_image"></div>
                 <div id="rt_navigation"></div>
                 <div id="rt_objects"></div>
                 <div id="rt_inventory"></div>

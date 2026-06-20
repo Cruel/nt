@@ -159,7 +159,8 @@ bool Renderer::initialize(const RendererConfig& config)
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x4040c0ff, 1.0f, 0);
-    bgfx::setViewRect(ViewGame2D, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
+    bgfx::setViewRect(ViewGameLayerBackground, 0, 0,
+                      static_cast<uint16_t>(m_surface.framebuffer_width),
                       static_cast<uint16_t>(m_surface.framebuffer_height));
 
     create_triangle();
@@ -175,22 +176,57 @@ bool Renderer::initialize(const RendererConfig& config)
 
 void Renderer::begin_frame()
 {
-    bgfx::setViewClear(ViewGame2D, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff, 1.0f, 0);
-    bgfx::setViewRect(ViewGame2D, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
-                      static_cast<uint16_t>(m_surface.framebuffer_height));
-    bgfx::setViewRect(ViewTextLab, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
-                      static_cast<uint16_t>(m_surface.framebuffer_height));
-    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
-                      static_cast<uint16_t>(m_surface.framebuffer_height));
+    const auto fb_w = static_cast<uint16_t>(m_surface.framebuffer_width);
+    const auto fb_h = static_cast<uint16_t>(m_surface.framebuffer_height);
+
+    // Game layer views — Background clears, successive layers composite over.
+    bgfx::setViewClear(ViewGameLayerBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
+                       1.0f, 0);
+    bgfx::setViewRect(ViewGameLayerBackground, 0, 0, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameLayerMain, 0, 0, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameLayerForeground, 0, 0, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameLayerUIOverlay, 0, 0, fb_w, fb_h);
+
+    bgfx::setViewRect(ViewTextLab, 0, 0, fb_w, fb_h);
+    bgfx::setViewRect(ViewDebugUI, 0, 0, fb_w, fb_h);
 
     float ortho[16];
     make_ortho(ortho, static_cast<float>(m_surface.logical_width),
                static_cast<float>(m_surface.logical_height));
-    bgfx::setViewTransform(ViewGame2D, nullptr, ortho);
+    bgfx::setViewTransform(ViewGameLayerBackground, nullptr, ortho);
+    bgfx::setViewTransform(ViewGameLayerMain, nullptr, ortho);
+    bgfx::setViewTransform(ViewGameLayerForeground, nullptr, ortho);
+    bgfx::setViewTransform(ViewGameLayerUIOverlay, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
+
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::dbgTextClear();
-    bgfx::touch(ViewGame2D);
+
+    // Touch every game view so bgfx processes them in order.
+    bgfx::touch(ViewGameLayerBackground);
+    bgfx::touch(ViewGameLayerMain);
+    bgfx::touch(ViewGameLayerForeground);
+    bgfx::touch(ViewGameLayerUIOverlay);
+
+    // Reset scissor stack at the start of each frame.
+    m_scissor_stack.clear();
+}
+
+void Renderer::push_scissor(int16_t x, int16_t y, uint16_t w, uint16_t h)
+{
+    m_scissor_stack.push_back({x, y, w, h, true});
+}
+
+void Renderer::pop_scissor()
+{
+    if (!m_scissor_stack.empty()) {
+        m_scissor_stack.pop_back();
+    }
+}
+
+Renderer::ScissorRect Renderer::current_scissor() const
+{
+    return m_scissor_stack.empty() ? ScissorRect{} : m_scissor_stack.back();
 }
 
 void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position)
@@ -215,7 +251,7 @@ void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position
         bgfx::setTransform(transform);
         bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{m_triangle_vb});
         bgfx::setIndexBuffer(bgfx::IndexBufferHandle{m_triangle_ib});
-        bgfx::submit(ViewGame2D, bgfx::ProgramHandle{m_triangle_program});
+        bgfx::submit(ViewGameLayerUIOverlay, bgfx::ProgramHandle{m_triangle_program});
     }
 }
 

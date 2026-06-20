@@ -22,6 +22,22 @@ struct QuadVertex {
     float r, g, b, a;
 };
 
+bgfx::ViewId game_layer_view_id(GameLayer layer)
+{
+    switch (layer) {
+    case GameLayer::Background:
+        return ViewGameLayerBackground;
+    case GameLayer::Main:
+        return ViewGameLayerMain;
+    case GameLayer::Foreground:
+        return ViewGameLayerForeground;
+    case GameLayer::UIOverlay:
+        return ViewGameLayerUIOverlay;
+    default:
+        return ViewGameLayerMain;
+    }
+}
+
 } // namespace
 
 void Renderer::draw_demo_2d(float time_seconds)
@@ -33,13 +49,15 @@ void Renderer::draw_demo_2d(float time_seconds)
 
     const float pulse = 0.5f + 0.5f * std::sin(time_seconds * 2.0f);
     QuadBatch batch;
-    batch.draw_colored_quad({72.0f, 96.0f, 220.0f, 132.0f}, {0.15f, 0.65f, 0.95f, 0.88f}, 0.1f);
+    batch.draw_colored_quad({72.0f, 96.0f, 220.0f, 132.0f}, {0.15f, 0.65f, 0.95f, 0.88f}, 0.1f,
+                            GameLayer::Background);
     const uint16_t texture =
         bgfx::isValid(bgfx::TextureHandle{m_disk_texture}) ? m_disk_texture : m_checker_texture;
     batch.draw_textured_quad({330.0f, 116.0f, 160.0f, 160.0f}, Texture{texture},
-                             {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f);
+                             {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f,
+                             GameLayer::Main);
     batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f},
-                            {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f);
+                            {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f, GameLayer::Foreground);
     draw_2d(batch);
 #else
     (void)time_seconds;
@@ -157,7 +175,22 @@ void Renderer::submit_quad(const QuadCommand& command)
     bgfx::setVertexBuffer(0, &tvb);
     bgfx::setIndexBuffer(&tib);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
-    bgfx::submit(ViewGame2D, bgfx::ProgramHandle{m_quad_program});
+
+    // Per-draw-call scissor from the current stack top.
+    const auto scissor = current_scissor();
+    if (scissor.active) {
+        // Convert logical coords to framebuffer pixels.
+        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * m_surface.scale_x));
+        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * m_surface.scale_y));
+        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * m_surface.scale_x));
+        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * m_surface.scale_y));
+        bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
+    } else {
+        bgfx::setScissor(UINT16_MAX);
+    }
+
+    const auto view = game_layer_view_id(command.layer);
+    bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
 }
 
 } // namespace noveltea
