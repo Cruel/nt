@@ -96,8 +96,6 @@ struct CompositeOp {
     FbRect destination_rect;
     int source_texture_width = 0;
     int source_texture_height = 0;
-    int destination_texture_width = 0;
-    int destination_texture_height = 0;
 
     Rml::BlendMode blend_mode = Rml::BlendMode::Blend;
     ScissorState scissor;
@@ -125,11 +123,17 @@ RmlUiPassRequest make_pass_request(RmlUiPassKind kind, int x, int y, bool clears
 CompositeOp make_composite_op(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination,
                               Rml::BlendMode blend_mode, ScissorState scissor,
                               bool apply_destination_stencil, uint8_t stencil_ref,
-                              RmlUiPassKind kind, const char* name)
+                              RmlUiPassKind kind, const char* name, FbRect source_rect = {},
+                              FbRect destination_rect = {}, int source_texture_width = 0,
+                              int source_texture_height = 0)
 {
     CompositeOp op;
     op.source = source;
     op.destination = destination;
+    op.source_rect = source_rect;
+    op.destination_rect = destination_rect;
+    op.source_texture_width = source_texture_width;
+    op.source_texture_height = source_texture_height;
     op.blend_mode = blend_mode;
     op.scissor = scissor;
     op.apply_destination_stencil = apply_destination_stencil;
@@ -936,22 +940,23 @@ struct BgfxRenderInterface::Impl {
             return false;
         }
 
-        // Determine destination dimensions: use op fields if set, fall back to full surface.
-        const int dest_w =
-            (op.destination_texture_width > 0) ? op.destination_texture_width : width;
-        const int dest_h =
-            (op.destination_texture_height > 0) ? op.destination_texture_height : height;
-        const bool is_full_frame = (dest_w >= width && dest_h >= height);
+        const FbRect destination_rect =
+            is_empty(op.destination_rect) ? FbRect{0, 0, width, height} : op.destination_rect;
+        const FbRect source_rect = op.source_rect;
+        const bool is_full_frame = (destination_rect.x == 0 && destination_rect.y == 0 &&
+                                    destination_rect.w >= width && destination_rect.h >= height);
         auto pass =
-            acquire_pass(make_pass_request(op.kind, 0, 0, false, false, dest_w, dest_h, op.name),
+            acquire_pass(make_pass_request(op.kind, destination_rect.x, destination_rect.y, false,
+                                           false, destination_rect.w, destination_rect.h, op.name),
                          op.destination);
         if (!pass)
             return false;
-        perf.add_composite(uint64_t(dest_w) * uint64_t(dest_h), is_full_frame);
+        perf.add_composite(area(destination_rect), is_full_frame);
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (op.scissor.enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(op.scissor.region, dest_w, dest_h);
+            const Rml::Rectanglei scissor =
+                clamp_scissor(op.scissor.region, destination_rect.w, destination_rect.h);
             if (scissor.Width() <= 0 || scissor.Height() <= 0)
                 return false;
             bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
@@ -959,20 +964,15 @@ struct BgfxRenderInterface::Impl {
         }
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, op.source);
-        // Use UV bounds if a sub-region of the source texture is specified.
-        const float src_w = float(std::max(op.source_texture_width, 1));
-        const float src_h = float(std::max(op.source_texture_height, 1));
-        float uv_bounds[4];
-        if (op.source_texture_width > 0 && !is_empty(op.source_rect)) {
-            uv_bounds[0] = float(op.source_rect.x) / src_w;
-            uv_bounds[1] = float(op.source_rect.y) / src_h;
-            uv_bounds[2] = float(op.source_rect.x + op.source_rect.w) / src_w;
-            uv_bounds[3] = float(op.source_rect.y + op.source_rect.h) / src_h;
+        const float* uv_bounds = nullptr;
+        std::array<float, 4> bounds{};
+        if (op.source_texture_width > 0 && op.source_texture_height > 0 && !is_empty(source_rect)) {
+            bounds = uv_rect_for_source_region(source_rect, op.source_texture_width,
+                                               op.source_texture_height);
+            uv_bounds = bounds.data();
         } else {
-            uv_bounds[0] = 0.0f;
-            uv_bounds[1] = 0.0f;
-            uv_bounds[2] = 1.0f;
-            uv_bounds[3] = 1.0f;
+            bounds = {0.0f, 0.0f, 1.0f, 1.0f};
+            uv_bounds = bounds.data();
         }
         bgfx::setUniform(texcoord_bounds_uniform, uv_bounds);
         const uint64_t state = op.blend_mode == Rml::BlendMode::Replace
@@ -1103,7 +1103,8 @@ struct BgfxRenderInterface::Impl {
         return true;
     }
 
-    bgfx::TextureHandle apply_filters(bgfx::TextureHandle source,
+    bgfx::TextureHandle apply_filters(bgfx::TextureHandle source, int source_width,
+                                      int source_height,
                                       Rml::Span<const Rml::CompiledFilterHandle> filter_handles)
     {
         if (filter_handles.empty())
@@ -1113,10 +1114,12 @@ struct BgfxRenderInterface::Impl {
         if (!primary || !secondary)
             return BGFX_INVALID_HANDLE;
 
-        // Size postprocess targets to the work-area instead of full framebuffer.
+        const FbRect source_rect{0, 0, source_width, source_height};
+        const FbRect destination_rect{0, 0, primary->width, primary->height};
         if (!composite(make_composite_op(source, primary->framebuffer, Rml::BlendMode::Replace,
                                          ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
-                                         "RmlUi.FilterCopy")))
+                                         "RmlUi.FilterCopy", source_rect, destination_rect,
+                                         source_width, source_height)))
             return BGFX_INVALID_HANDLE;
 
         bgfx::TextureHandle current = primary->color;
@@ -1259,10 +1262,13 @@ struct BgfxRenderInterface::Impl {
                 // `original` texture, so destination framebuffer must not own it.
                 destination = safe_destination(original, destination,
                                                (destination == primary) ? secondary : primary);
-                if (!composite(make_composite_op(original, destination->framebuffer,
-                                                 Rml::BlendMode::Blend, ScissorState{false, {}},
-                                                 false, 1, RmlUiPassKind::Postprocess,
-                                                 "RmlUi.FilterDropShadowComposite"))) {
+                if (!composite(make_composite_op(
+                        original, destination->framebuffer, Rml::BlendMode::Blend,
+                        ScissorState{false, {}}, false, 1, RmlUiPassKind::Postprocess,
+                        "RmlUi.FilterDropShadowComposite",
+                        FbRect{0, 0, destination->width, destination->height},
+                        FbRect{0, 0, destination->width, destination->height}, destination->width,
+                        destination->height))) {
                     return BGFX_INVALID_HANDLE;
                 }
                 ok = true;
@@ -1741,7 +1747,10 @@ void BgfxRenderInterface::end_frame()
     if (LayerRecord* base = m_impl->layer_for_handle(0)) {
         if (!m_impl->composite(make_composite_op(
                 base->color, BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}},
-                false, 1, RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite"))) {
+                false, 1, RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite",
+                FbRect{0, 0, base->texture_width, base->texture_height},
+                FbRect{0, 0, m_impl->width, m_impl->height}, base->texture_width,
+                base->texture_height))) {
             m_impl->fail_frame("end_frame final composite failed");
         }
     }
@@ -1820,6 +1829,13 @@ BgfxRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
     const Rml::CompiledGeometryHandle handle = ++m_impl->geometry_counter;
     m_impl->geometries.emplace(handle, GeometryRecord{vb, ib, uint32_t(converted_indices.size())});
     return handle;
+}
+
+FbRect rect_in_destination_layer(const LayerRecord& source, const LayerRecord& destination)
+{
+    return {source.bounds.framebuffer.x - destination.bounds.framebuffer.x,
+            source.bounds.framebuffer.y - destination.bounds.framebuffer.y,
+            source.bounds.framebuffer.w, source.bounds.framebuffer.h};
 }
 
 void BgfxRenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
@@ -2028,31 +2044,43 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         destination_layer = m_impl->layer_for_handle(destination);
         if (!source_layer || !destination_layer)
             return;
-        if (!m_impl->composite(make_composite_op(source_layer->color, scratch->framebuffer,
-                                                 Rml::BlendMode::Replace, ScissorState{false, {}},
-                                                 false, 1, RmlUiPassKind::Copy,
-                                                 "RmlUi.LayerScratchCopy"))) {
+        const FbRect scratch_bounds{0, 0, source_layer->texture_width,
+                                    source_layer->texture_height};
+        if (!m_impl->composite(make_composite_op(
+                source_layer->color, scratch->framebuffer, Rml::BlendMode::Replace,
+                ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy, "RmlUi.LayerScratchCopy",
+                scratch_bounds, scratch_bounds, source_layer->texture_width,
+                source_layer->texture_height))) {
             m_impl->fail_frame("CompositeLayers scratch copy failed");
             return;
         }
-        bgfx::TextureHandle filtered = m_impl->apply_filters(scratch->color, filters);
+        bgfx::TextureHandle filtered = m_impl->apply_filters(
+            scratch->color, source_layer->texture_width, source_layer->texture_height, filters);
         if (!bgfx::isValid(filtered))
             return;
-        if (!m_impl->composite(
-                make_composite_op(filtered, destination_layer->framebuffer, blend_mode,
-                                  scissor_state, destination_clip, destination_stencil_ref,
-                                  RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"))) {
+        const FbRect destination_bounds =
+            rect_in_destination_layer(*source_layer, *destination_layer);
+        if (!m_impl->composite(make_composite_op(
+                filtered, destination_layer->framebuffer, blend_mode, scissor_state,
+                destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
+                "RmlUi.LayerComposite", scratch_bounds, destination_bounds,
+                source_layer->texture_width, source_layer->texture_height))) {
             m_impl->fail_frame("CompositeLayers composite failed");
             return;
         }
         return;
     }
-    bgfx::TextureHandle filtered = m_impl->apply_filters(source_layer->color, filters);
+    bgfx::TextureHandle filtered = m_impl->apply_filters(
+        source_layer->color, source_layer->texture_width, source_layer->texture_height, filters);
     if (!bgfx::isValid(filtered))
         return;
+    const FbRect source_bounds{0, 0, source_layer->texture_width, source_layer->texture_height};
+    const FbRect destination_bounds = rect_in_destination_layer(*source_layer, *destination_layer);
     if (!m_impl->composite(make_composite_op(
             filtered, destination_layer->framebuffer, blend_mode, scissor_state, destination_clip,
-            destination_stencil_ref, RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"))) {
+            destination_stencil_ref, RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite",
+            source_bounds, destination_bounds, source_layer->texture_width,
+            source_layer->texture_height))) {
         m_impl->fail_frame("CompositeLayers composite failed");
     }
 }
@@ -2106,7 +2134,7 @@ Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
         return 0;
 
     const Rml::Rectanglei full_bounds =
-        Rml::Rectanglei::FromPositionSize({0, 0}, {m_impl->width, m_impl->height});
+        Rml::Rectanglei::FromPositionSize({0, 0}, {layer->texture_width, layer->texture_height});
     bgfx::TextureHandle mask_texture =
         m_impl->copy_region_to_texture(layer->color, full_bounds, layer->texture_width,
                                        layer->texture_height, "RmlUi.SaveLayerAsMaskImage");

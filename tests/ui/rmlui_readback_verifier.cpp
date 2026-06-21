@@ -117,6 +117,7 @@ TEST_CASE("RmlUi readback gallery pixels verify advanced renderer output")
     CHECK(image.pixel(396, 64)[1] > image.pixel(396, 64)[0]);
     CHECK(image.pixel(416, 90)[0] > image.pixel(416, 90)[2]);
 
+    // Tracks unfinished bounded mask-image save/apply work in the RmlUi bgfx optimization plan.
     CHECK(brightness(image.pixel(524, 64)) > brightness(bg) + 120);
     CHECK(brightness(image.pixel(479, 20)) < 120);
 

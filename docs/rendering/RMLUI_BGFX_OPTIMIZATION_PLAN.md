@@ -403,7 +403,7 @@ Acceptance criteria:
 - No steady-state allocations after warmup.
 - Tests cover child layer bound selection.
 
-## Phase 3 [pending]: Rectangle-Aware Compositing
+## Phase 3 [done]: Rectangle-Aware Compositing
 
 Goal: replace full-frame compositing with bounded compositing.
 
