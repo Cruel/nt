@@ -319,20 +319,14 @@ struct PerfCounters {
     void add_unbounded_layer_fallback() { unbounded_layer_fallbacks++; }
     void add_full_frame_pp_target() { full_frame_postprocess_targets++; }
     void add_bounded_pp_target() { bounded_postprocess_targets++; }
-    void add_layer_alloc(uint32_t w, uint32_t h)
-    {
-        layer_allocations++;
-    }
+    void add_layer_alloc(uint32_t w, uint32_t h) { layer_allocations++; }
     void update_layer_max(uint32_t w, uint32_t h)
     {
         max_layer_width = std::max(max_layer_width, w);
         max_layer_height = std::max(max_layer_height, h);
     }
     void add_layer_destroy() { layer_destroys++; }
-    void add_pp_alloc(uint32_t w, uint32_t h)
-    {
-        postprocess_allocations++;
-    }
+    void add_pp_alloc(uint32_t w, uint32_t h) { postprocess_allocations++; }
     void update_pp_max(uint32_t w, uint32_t h)
     {
         max_postprocess_width = std::max(max_postprocess_width, w);
@@ -1605,11 +1599,10 @@ void BgfxRenderInterface::end_frame()
                          p.dropshadow_passes, p.mask_passes, (unsigned long long)p.clear_pixels,
                          (unsigned long long)p.copy_pixels, (unsigned long long)p.composite_pixels,
                          (unsigned long long)p.postprocess_pixels, p.full_frame_passes,
-                         p.bounded_passes,
-                         p.postprocess_allocations, p.postprocess_destroys, p.layer_allocations,
-                         p.layer_destroys, p.max_layer_width, p.max_layer_height,
-                         p.max_postprocess_width, p.max_postprocess_height, m_impl->width,
-                         m_impl->height);
+                         p.bounded_passes, p.postprocess_allocations, p.postprocess_destroys,
+                         p.layer_allocations, p.layer_destroys, p.max_layer_width,
+                         p.max_layer_height, p.max_postprocess_width, p.max_postprocess_height,
+                         m_impl->width, m_impl->height);
             frame_count = 0;
             last_log_time = now;
         }

@@ -304,7 +304,7 @@ Acceptance criteria:
 - The log distinguishes geometry draw count from postprocess/composite pixel area.
 - The log can prove whether later phases reduce full-frame work.
 
-## Phase 1 [next]: Pure Rectangle and Bounds Planning
+## Phase 1 [done]: Pure Rectangle and Bounds Planning
 
 Goal: introduce testable rectangle, bounds, and filter-expansion helpers before changing bgfx rendering behavior.
 
@@ -345,7 +345,7 @@ Acceptance criteria:
 - Helpers support negative or offscreen source rectangles and clamp correctly.
 - No renderer behavior changes yet except optional logging of computed candidate bounds.
 
-## Phase 2 [pending]: Bounded Layer Allocation
+## Phase 2 [next]: Bounded Layer Allocation
 
 Goal: stop allocating every child layer as full framebuffer size.
 
