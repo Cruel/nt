@@ -502,6 +502,8 @@ struct BgfxRenderInterface::Impl {
             bgfx_backend::SystemShader::RmlUiGradient);
         sampler = bgfx::createUniform("s_texColor", bgfx::UniformType::Sampler);
         mask_sampler = bgfx::createUniform("s_mask", bgfx::UniformType::Sampler);
+        mask_texcoord_transform_uniform =
+            bgfx::createUniform("u_maskTexCoordTransform", bgfx::UniformType::Vec4);
         projection_uniform = bgfx::createUniform("u_projection", bgfx::UniformType::Mat4);
         transform_uniform = bgfx::createUniform("u_transform", bgfx::UniformType::Mat4);
         translate_uniform = bgfx::createUniform("u_translate", bgfx::UniformType::Vec4);
@@ -586,6 +588,8 @@ struct BgfxRenderInterface::Impl {
             bgfx::destroy(blur_weights_uniform);
         if (bgfx::isValid(texcoord_bounds_uniform))
             bgfx::destroy(texcoord_bounds_uniform);
+        if (bgfx::isValid(mask_texcoord_transform_uniform))
+            bgfx::destroy(mask_texcoord_transform_uniform);
         if (bgfx::isValid(shadow_color_uniform))
             bgfx::destroy(shadow_color_uniform);
         if (bgfx::isValid(shadow_offset_uniform))
@@ -772,14 +776,7 @@ struct BgfxRenderInterface::Impl {
         }
 
         const FbRect* scissor_ptr = nullptr;
-        FbRect scissor_rect;
-        if (scissor_enabled) {
-            scissor_rect = {scissor_region.Left(), scissor_region.Top(), scissor_region.Width(),
-                            scissor_region.Height()};
-            scissor_ptr = &scissor_rect;
-        } else {
-            const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback();
-        }
+        const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback();
 
         return noveltea::ui::rmlui::compute_child_layer_bounds(surface, parent_ptr, scissor_ptr,
                                                                transform_valid);
@@ -1248,11 +1245,15 @@ struct BgfxRenderInterface::Impl {
                 bgfx::setVertexBuffer(0, fullscreen_vb);
                 bgfx::setTexture(0, sampler, current);
                 bgfx::setTexture(1, mask_sampler, tex_it->second.handle);
-                const FbRect mask_rect{0, 0, tex_it->second.dimensions.x,
-                                       tex_it->second.dimensions.y};
-                const auto mask_bounds = uv_rect_for_source_region(
-                    mask_rect, tex_it->second.dimensions.x, tex_it->second.dimensions.y);
-                bgfx::setUniform(texcoord_bounds_uniform, mask_bounds.data());
+                const float mask_transform[4] = {
+                    float(std::max(source_bounds.framebuffer.w, 1)) /
+                        float(std::max(filter.mask_bounds[2], 1)),
+                    float(std::max(source_bounds.framebuffer.h, 1)) /
+                        float(std::max(filter.mask_bounds[3], 1)),
+                    -float(filter.mask_bounds[0]) / float(std::max(filter.mask_bounds[2], 1)),
+                    -float(filter.mask_bounds[1]) / float(std::max(filter.mask_bounds[3], 1)),
+                };
+                bgfx::setUniform(mask_texcoord_transform_uniform, mask_transform);
                 bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
                 bgfx::submit(pass->view, mask_multiply_program);
                 ok = true;
@@ -1724,6 +1725,7 @@ struct BgfxRenderInterface::Impl {
     bgfx::UniformHandle blur_params_uniform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle blur_weights_uniform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle texcoord_bounds_uniform = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle mask_texcoord_transform_uniform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_color_uniform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_offset_uniform = BGFX_INVALID_HANDLE;
     std::unordered_map<Rml::CompiledGeometryHandle, GeometryRecord> geometries;
@@ -2249,32 +2251,20 @@ Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
     if (!layer || !bgfx::isValid(layer->color))
         return 0;
 
-    const Rml::Rectanglei full_bounds = m_impl->current_save_bounds();
-    if (full_bounds.Width() <= 0 || full_bounds.Height() <= 0) {
-        std::fprintf(stderr, "[rmlui] SaveLayerAsMaskImage fallback: no bounded save region\n");
-        return 0;
-    }
-    bgfx::TextureHandle mask_texture =
-        m_impl->copy_region_to_texture(layer->color, full_bounds, layer->texture_width,
-                                       layer->texture_height, "RmlUi.SaveLayerAsMaskImage");
-    if (!bgfx::isValid(mask_texture)) {
-        m_impl->fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
-        return 0;
-    }
     const Rml::TextureHandle texture = ++m_impl->texture_counter;
     m_impl->textures.emplace(
-        texture,
-        TextureRecord{mask_texture,
-                      {full_bounds.Width(), full_bounds.Height()},
-                      RenderBounds{{float(full_bounds.Left()), float(full_bounds.Top()),
-                                    float(full_bounds.Width()), float(full_bounds.Height())},
-                                   {full_bounds.Left(), full_bounds.Top(), full_bounds.Width(),
-                                    full_bounds.Height()}},
-                      TextureOwnership::SavedLayer});
+        texture, TextureRecord{layer->color,
+                               {layer->texture_width, layer->texture_height},
+                               RenderBounds{{layer->bounds.logical.x, layer->bounds.logical.y,
+                                             layer->bounds.logical.w, layer->bounds.logical.h},
+                                            layer->bounds.framebuffer},
+                               TextureOwnership::InternalLayerAttachment});
 
     FilterRecord filter;
     filter.kind = FilterKind::MaskImage;
     filter.resource = texture;
+    filter.mask_bounds = {layer->bounds.framebuffer.x, layer->bounds.framebuffer.y,
+                          layer->bounds.framebuffer.w, layer->bounds.framebuffer.h};
     const Rml::CompiledFilterHandle handle = ++m_impl->filter_counter;
     m_impl->filters.emplace(handle, filter);
     return handle;

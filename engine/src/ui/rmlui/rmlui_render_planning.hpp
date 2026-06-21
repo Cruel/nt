@@ -110,6 +110,7 @@ struct FilterRecord {
     std::array<float, 2> offset{};
     std::array<float, 4> color{};
     std::array<float, 16> matrix{};
+    std::array<int, 4> mask_bounds{};
     uint64_t resource = 0;
 };
 
