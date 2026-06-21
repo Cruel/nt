@@ -293,6 +293,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
                                  &m_scripts)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else {
+        m_runtime_ui.set_rmlui_base_direct_compatibility(run_config.rmlui_base_direct_compat);
         if (m_render_perf_logging) {
             m_runtime_ui.enable_render_perf_logging(true);
             SDL_Log("[engine] renderer perf logging enabled");

@@ -367,6 +367,13 @@ void RuntimeUI::enable_render_perf_logging(bool enabled)
     }
 }
 
+void RuntimeUI::set_rmlui_base_direct_compatibility(bool enabled)
+{
+    if (m_state && m_state->render_interface) {
+        m_state->render_interface->set_base_direct_compatibility(enabled);
+    }
+}
+
 bool RuntimeUI::process_event(const SDL_Event& event)
 {
     m_last_event_consumed = false;

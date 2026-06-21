@@ -80,6 +80,30 @@ StencilPlan choose_stencil_plan(bool d24s8_supported, bool d0s8_supported)
     return StencilPlan::Unsupported;
 }
 
+BasePresentationPolicy choose_base_presentation_policy(bool direct_mode_requested,
+                                                       bool direct_mode_capable,
+                                                       bool root_requires_preservation,
+                                                       bool stencil_capable,
+                                                       bool webgl_feedback_sensitive)
+{
+    if (!direct_mode_requested) {
+        return {BasePresentationMode::Offscreen, "direct mode not requested"};
+    }
+    if (!direct_mode_capable) {
+        return {BasePresentationMode::Offscreen, "direct mode not capable"};
+    }
+    if (root_requires_preservation) {
+        return {BasePresentationMode::Offscreen, "root requires offscreen preservation"};
+    }
+    if (!stencil_capable) {
+        return {BasePresentationMode::Offscreen, "stencil path unavailable"};
+    }
+    if (webgl_feedback_sensitive) {
+        return {BasePresentationMode::Offscreen, "webgl feedback-loop sensitive"};
+    }
+    return {BasePresentationMode::DirectToBackbuffer, nullptr};
+}
+
 StencilClipPlan plan_stencil_clip_operation(uint8_t current_ref, ClipOperationPlan operation)
 {
     StencilClipPlan plan;
@@ -131,10 +155,7 @@ GaussianKernel gaussian_kernel(float sigma)
 
 static std::array<float, 16> identity() { return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; }
 
-bool is_identity_color_matrix(const std::array<float, 16>& matrix)
-{
-    return matrix == identity();
-}
+bool is_identity_color_matrix(const std::array<float, 16>& matrix) { return matrix == identity(); }
 
 std::array<float, 16> multiply_color_matrices(const std::array<float, 16>& lhs,
                                               const std::array<float, 16>& rhs)
@@ -192,8 +213,9 @@ std::vector<FilterRecord> simplify_filter_chain(std::span<const FilterRecord> fi
         if (is_noop_filter(filter))
             continue;
         if (filter.kind == FilterKind::ColorMatrix) {
-            pending_matrix = have_pending_matrix ? multiply_color_matrices(filter.matrix, pending_matrix)
-                                                 : filter.matrix;
+            pending_matrix = have_pending_matrix
+                                 ? multiply_color_matrices(filter.matrix, pending_matrix)
+                                 : filter.matrix;
             have_pending_matrix = true;
             continue;
         }

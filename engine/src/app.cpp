@@ -91,6 +91,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.no_imgui = true;
         } else if (std::strcmp(arg, "--render-perf") == 0) {
             options.perf_logging = true;
+        } else if (std::strcmp(arg, "--rmlui-base-direct-compat") == 0) {
+            options.rmlui_base_direct_compat = true;
         }
     }
     return true;
@@ -117,6 +119,7 @@ bool App::initialize(int argc, char* argv[])
     run_config.screenshot_path = options.screenshot_path;
     run_config.enable_debug_ui = !options.no_imgui;
     run_config.render_perf_logging = options.perf_logging;
+    run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
 
     if (!m_engine.initialize(config, run_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");

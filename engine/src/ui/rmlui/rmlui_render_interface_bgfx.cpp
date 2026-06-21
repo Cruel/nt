@@ -363,6 +363,9 @@ struct PerfCounters {
     uint32_t bounded_passes = 0;
     uint32_t full_frame_postprocess_targets = 0;
     uint32_t bounded_postprocess_targets = 0;
+    uint32_t direct_base_presentations = 0;
+    uint32_t offscreen_base_presentations = 0;
+    uint32_t direct_base_fallbacks = 0;
     uint32_t layer_allocations = 0;
     uint32_t layer_destroys = 0;
     uint32_t postprocess_allocations = 0;
@@ -444,6 +447,9 @@ struct PerfCounters {
     void add_unbounded_layer_fallback() { unbounded_layer_fallbacks++; }
     void add_full_frame_pp_target() { full_frame_postprocess_targets++; }
     void add_bounded_pp_target() { bounded_postprocess_targets++; }
+    void add_direct_base_presentation() { direct_base_presentations++; }
+    void add_offscreen_base_presentation() { offscreen_base_presentations++; }
+    void add_direct_base_fallback() { direct_base_fallbacks++; }
     void add_layer_alloc(uint32_t w, uint32_t h) { layer_allocations++; }
     void update_layer_max(uint32_t w, uint32_t h)
     {
@@ -479,6 +485,9 @@ struct PerfCounters {
     void add_unbounded_layer_fallback() {}
     void add_full_frame_pp_target() {}
     void add_bounded_pp_target() {}
+    void add_direct_base_presentation() {}
+    void add_offscreen_base_presentation() {}
+    void add_direct_base_fallback() {}
     void add_layer_alloc(uint32_t, uint32_t) {}
     void update_layer_max(uint32_t, uint32_t) {}
     void add_layer_destroy() {}
@@ -884,7 +893,12 @@ struct BgfxRenderInterface::Impl {
     {
         if (uint32_t(handle) == LayerPoolPlan::InvalidLayer)
             return nullptr;
-        if (size_t(handle) >= layers.size() || !bgfx::isValid(layers[size_t(handle)].framebuffer))
+        if (size_t(handle) >= layers.size())
+            return nullptr;
+        if (size_t(handle) == 0 && direct_base_requested) {
+            return &layers[0];
+        }
+        if (!bgfx::isValid(layers[size_t(handle)].framebuffer))
             return nullptr;
         return &layers[size_t(handle)];
     }
@@ -894,12 +908,57 @@ struct BgfxRenderInterface::Impl {
     bool begin_base_layer()
     {
         perf.reset();
+        direct_base_presented = false;
+        direct_base_fallback_reason = nullptr;
+        root_requires_preservation = false;
+        const bgfx::Caps* caps = bgfx::getCaps();
+        const bool direct_mode_capable =
+            caps != nullptr && caps->rendererType != bgfx::RendererType::Noop;
+        const bool stencil_capable = depth_stencil_format() != bgfx::TextureFormat::Unknown;
+        const bool webgl_feedback_sensitive =
+#if defined(__EMSCRIPTEN__)
+            true;
+#else
+            false;
+#endif
+        const auto policy = choose_base_presentation_policy(
+            !base_direct_compatibility_enabled, direct_mode_capable, root_requires_preservation,
+            stencil_capable, webgl_feedback_sensitive);
+        direct_base_requested = policy.mode == BasePresentationMode::DirectToBackbuffer;
+        direct_base_fallback_reason = policy.fallback_reason;
+        if (direct_base_requested) {
+            perf.add_direct_base_presentation();
+        } else {
+            perf.add_offscreen_base_presentation();
+            perf.add_direct_base_fallback();
+            if (direct_base_fallback_reason) {
+                std::fprintf(stderr, "[rmlui] base presentation fallback: %s\n",
+                             direct_base_fallback_reason);
+            }
+        }
         RenderBounds base_bounds;
         base_bounds.logical = {0.0f, 0.0f, float(logical_width), float(logical_height)};
         base_bounds.framebuffer = {0, 0, width, height};
-        if (!ensure_layer(0, base_bounds))
-            return false;
-        perf.add_full_frame_layer();
+        if (direct_base_requested) {
+            if (layers.size() < 1)
+                layers.resize(1);
+            LayerRecord& base = layers[0];
+            destroy_layer(base);
+            base.bounds = base_bounds;
+            base.texture_width = width;
+            base.texture_height = height;
+            base.clip_mask_enabled = false;
+            base.stencil_ref = 1;
+            base.clip_commands.clear();
+            bx::mtxOrtho(base.projection, base_bounds.logical.x,
+                         base_bounds.logical.x + base_bounds.logical.w,
+                         base_bounds.logical.y + base_bounds.logical.h, base_bounds.logical.y,
+                         -10000.0f, 10000.0f, 0.0f, caps ? caps->homogeneousDepth : false);
+        } else {
+            if (!ensure_layer(0, base_bounds))
+                return false;
+            perf.add_full_frame_layer();
+        }
         layer_pool.begin_frame();
         layer_stack.clear();
         layer_stack.push_back(0);
@@ -1388,7 +1447,7 @@ struct BgfxRenderInterface::Impl {
                     params[0] = 1.0f / float(std::max(destination->texture_width, 1));
                     params[1] = 0.0f;
                     if (!fullscreen_filter_pass(current, *destination, blur_program,
-                        "RmlUi.FilterDropShadowBlurH", [&]() {
+                                                "RmlUi.FilterDropShadowBlurH", [&]() {
                                                     bgfx::setUniform(blur_params_uniform, params);
                                                     bgfx::setUniform(blur_weights_uniform, weights);
                                                     bgfx::setUniform(texcoord_bounds_uniform,
@@ -1515,10 +1574,10 @@ struct BgfxRenderInterface::Impl {
         if (is_empty(clear_bounds))
             return;
         const bool is_full = is_full_frame_rect(clear_bounds, width, height);
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, false, true,
-                                                   clear_bounds.w, clear_bounds.h,
-                                                   "RmlUi.StencilClear"),
-                                 layer->framebuffer);
+        auto pass =
+            acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, false, true, clear_bounds.w,
+                                           clear_bounds.h, "RmlUi.StencilClear"),
+                         layer->framebuffer);
         if (!pass)
             return;
         perf.add_clear(uint64_t(clear_bounds.w) * uint64_t(clear_bounds.h), is_full);
@@ -1552,13 +1611,14 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return false;
-        const FbRect work_bounds = clip_work_bounds(layer, ScissorState{scissor_enabled, scissor_region});
+        const FbRect work_bounds =
+            clip_work_bounds(layer, ScissorState{scissor_enabled, scissor_region});
         if (is_empty(work_bounds))
             return true;
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false,
-                                                   work_bounds.w, work_bounds.h,
-                                                   "RmlUi.StencilNormalize"),
-                                 layer->framebuffer);
+        auto pass =
+            acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false,
+                                           work_bounds.w, work_bounds.h, "RmlUi.StencilNormalize"),
+                         layer->framebuffer);
         if (!pass)
             return false;
 
@@ -1600,8 +1660,7 @@ struct BgfxRenderInterface::Impl {
         if (is_empty(work_bounds))
             return;
         auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false,
-                                                   work_bounds.w, work_bounds.h,
-                                                   "RmlUi.ClipMask"),
+                                                   work_bounds.w, work_bounds.h, "RmlUi.ClipMask"),
                                  layer->framebuffer);
         if (!pass)
             return;
@@ -1662,10 +1721,10 @@ struct BgfxRenderInterface::Impl {
         if (LayerRecord* layer = current_layer()) {
             layer->stencil_ref = command.next_ref;
             if (record_on_layer) {
-                const FbRect command_bounds = command.scissor.enabled
-                                                  ? active_scissor_bounds(command.scissor,
-                                                                          layer->bounds.framebuffer)
-                                                  : layer->bounds.framebuffer;
+                const FbRect command_bounds =
+                    command.scissor.enabled
+                        ? active_scissor_bounds(command.scissor, layer->bounds.framebuffer)
+                        : layer->bounds.framebuffer;
                 if (!is_empty(command_bounds)) {
                     layer->clip_commands.push_back(clip_commands.size());
                     clip_commands.push_back(command);
@@ -1686,10 +1745,10 @@ struct BgfxRenderInterface::Impl {
                 const ClipCommand& command = clip_commands[index];
                 if (!layer)
                     continue;
-                const FbRect command_bounds = command.scissor.enabled
-                                                  ? active_scissor_bounds(command.scissor,
-                                                                          layer->bounds.framebuffer)
-                                                  : layer->bounds.framebuffer;
+                const FbRect command_bounds =
+                    command.scissor.enabled
+                        ? active_scissor_bounds(command.scissor, layer->bounds.framebuffer)
+                        : layer->bounds.framebuffer;
                 if (is_empty(command_bounds))
                     continue;
                 apply_clip_command(command, false);
@@ -1820,6 +1879,11 @@ struct BgfxRenderInterface::Impl {
     bool scissor_enabled = false;
     Rml::Rectanglei scissor_region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
     bool frame_failed = false;
+    bool direct_base_requested = false;
+    bool direct_base_presented = false;
+    bool root_requires_preservation = false;
+    const char* direct_base_fallback_reason = nullptr;
+    bool base_direct_compatibility_enabled = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).
     mutable bool stencil_cached = false;
@@ -1921,14 +1985,22 @@ void BgfxRenderInterface::end_frame()
         m_impl->layer_stack.resize(1);
         m_impl->active_layer = 0;
     }
-    if (LayerRecord* base = m_impl->layer_for_handle(0)) {
-        if (!m_impl->composite(make_composite_op(
-                base->color, BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}},
-                false, 1, RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite",
-                FbRect{0, 0, base->texture_width, base->texture_height},
-                FbRect{0, 0, m_impl->width, m_impl->height}, base->texture_width,
-                base->texture_height))) {
-            m_impl->fail_frame("end_frame final composite failed");
+    if (!m_impl->direct_base_requested) {
+        if (LayerRecord* base = m_impl->layer_for_handle(0)) {
+            if (!m_impl->composite(make_composite_op(
+                    base->color, BGFX_INVALID_HANDLE, Rml::BlendMode::Blend,
+                    ScissorState{false, {}}, false, 1, RmlUiPassKind::FinalComposite,
+                    "RmlUi.FinalComposite", FbRect{0, 0, base->texture_width, base->texture_height},
+                    FbRect{0, 0, m_impl->width, m_impl->height}, base->texture_width,
+                    base->texture_height))) {
+                m_impl->fail_frame("end_frame final composite failed");
+            }
+        }
+    } else {
+        m_impl->direct_base_presented = true;
+        if (m_impl->direct_base_fallback_reason) {
+            std::fprintf(stderr, "[rmlui] direct base presentation: %s\n",
+                         m_impl->direct_base_fallback_reason);
         }
     }
 
@@ -1942,25 +2014,28 @@ void BgfxRenderInterface::end_frame()
         const double now = double(now_ticks) / double(bx::getHPFrequency());
         if (m_impl->perf_logging_enabled && now - last_log_time >= 1.0) {
             const auto& p = m_impl->perf;
-            std::fprintf(
-                stderr,
-                "[perf] fps=%.0f passes=%u geom=%u clip=%u gradients=%u "
-                "layers=%u full_layers=%u bounded_layers=%u "
-                "unbounded_layer_fallbacks=%u "
-                "filters=%u blur=%u shadow=%u mask=%u "
-                "clear_px=%llu copy_px=%llu composite_px=%llu post_px=%llu "
-                "full_frame_passes=%u bounded_passes=%u "
-                "rt_alloc=%u rt_destroy=%u layer_alloc=%u layer_destroy=%u "
-                "max_layer=%ux%u max_rt=%ux%u fb=%dx%d\n",
-                double(frame_count) / (now - last_log_time), p.pass_count, p.geometry_draws,
-                p.clip_mask_draws, p.gradient_draws, p.layer_pushes, p.full_frame_layers,
-                p.bounded_layers, p.unbounded_layer_fallbacks, p.postprocess_passes, p.blur_passes,
-                p.dropshadow_passes, p.mask_passes, (unsigned long long)p.clear_pixels,
-                (unsigned long long)p.copy_pixels, (unsigned long long)p.composite_pixels,
-                (unsigned long long)p.postprocess_pixels, p.full_frame_passes, p.bounded_passes,
-                p.postprocess_allocations, p.postprocess_destroys, p.layer_allocations,
-                p.layer_destroys, p.max_layer_width, p.max_layer_height, p.max_postprocess_width,
-                p.max_postprocess_height, m_impl->width, m_impl->height);
+            std::fprintf(stderr,
+                         "[perf] fps=%.0f passes=%u geom=%u clip=%u gradients=%u "
+                         "layers=%u full_layers=%u bounded_layers=%u "
+                         "unbounded_layer_fallbacks=%u "
+                         "filters=%u blur=%u shadow=%u mask=%u "
+                         "base_direct=%u base_offscreen=%u base_fallback=%u "
+                         "clear_px=%llu copy_px=%llu composite_px=%llu post_px=%llu "
+                         "full_frame_passes=%u bounded_passes=%u "
+                         "rt_alloc=%u rt_destroy=%u layer_alloc=%u layer_destroy=%u "
+                         "max_layer=%ux%u max_rt=%ux%u fb=%dx%d\n",
+                         double(frame_count) / (now - last_log_time), p.pass_count,
+                         p.geometry_draws, p.clip_mask_draws, p.gradient_draws, p.layer_pushes,
+                         p.full_frame_layers, p.bounded_layers, p.unbounded_layer_fallbacks,
+                         p.postprocess_passes, p.blur_passes, p.dropshadow_passes, p.mask_passes,
+                         p.direct_base_presentations, p.offscreen_base_presentations,
+                         p.direct_base_fallbacks, (unsigned long long)p.clear_pixels,
+                         (unsigned long long)p.copy_pixels, (unsigned long long)p.composite_pixels,
+                         (unsigned long long)p.postprocess_pixels, p.full_frame_passes,
+                         p.bounded_passes, p.postprocess_allocations, p.postprocess_destroys,
+                         p.layer_allocations, p.layer_destroys, p.max_layer_width,
+                         p.max_layer_height, p.max_postprocess_width, p.max_postprocess_height,
+                         m_impl->width, m_impl->height);
             frame_count = 0;
             last_log_time = now;
         }
@@ -2198,6 +2273,11 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         m_impl->fail_frame("CompositeLayers received invalid layer handles");
         return;
     }
+    if (m_impl->direct_base_requested && size_t(destination) == 0 && !filters.empty()) {
+        m_impl->root_requires_preservation = true;
+        m_impl->fail_frame("CompositeLayers root filters require offscreen presentation");
+        return;
+    }
     const ScissorState scissor_state{m_impl->scissor_enabled, m_impl->scissor_region};
 
     if (scissor_state.enabled) {
@@ -2281,6 +2361,11 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
     LayerRecord* layer = m_impl->current_layer();
     if (!layer || !bgfx::isValid(layer->color))
         return 0;
+    if (m_impl->direct_base_requested && size_t(m_impl->active_layer) == 0) {
+        m_impl->root_requires_preservation = true;
+        m_impl->fail_frame("SaveLayerAsTexture requires offscreen root");
+        return 0;
+    }
 
     const Rml::Rectanglei bounds = m_impl->current_save_bounds();
     if (bounds.Width() <= 0 || bounds.Height() <= 0)
@@ -2313,6 +2398,11 @@ Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
     LayerRecord* layer = m_impl->current_layer();
     if (!layer || !bgfx::isValid(layer->color))
         return 0;
+    if (m_impl->direct_base_requested && size_t(m_impl->active_layer) == 0) {
+        m_impl->root_requires_preservation = true;
+        m_impl->fail_frame("SaveLayerAsMaskImage requires offscreen root");
+        return 0;
+    }
 
     const Rml::Rectanglei local_bounds =
         Rml::Rectanglei::FromPositionSize({0, 0}, {layer->texture_width, layer->texture_height});
@@ -2446,6 +2536,11 @@ void BgfxRenderInterface::set_perf_logging_enabled(bool enabled)
 #else
     (void)enabled;
 #endif
+}
+
+void BgfxRenderInterface::set_base_direct_compatibility(bool enabled)
+{
+    m_impl->base_direct_compatibility_enabled = enabled;
 }
 
 } // namespace noveltea::ui::rmlui

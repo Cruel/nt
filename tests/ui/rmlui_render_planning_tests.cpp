@@ -108,6 +108,25 @@ TEST_CASE("RmlUi stencil planner never treats depth-only fallback as stencil")
     CHECK(choose_stencil_plan(false, false) == StencilPlan::Unsupported);
 }
 
+TEST_CASE("RmlUi base presentation policy prefers direct backbuffer only when safe")
+{
+    const auto direct = choose_base_presentation_policy(true, true, false, true, false);
+    CHECK(direct.mode == BasePresentationMode::DirectToBackbuffer);
+    CHECK(direct.fallback_reason == nullptr);
+
+    const auto no_request = choose_base_presentation_policy(false, true, false, true, false);
+    CHECK(no_request.mode == BasePresentationMode::Offscreen);
+    REQUIRE(no_request.fallback_reason != nullptr);
+
+    const auto no_stencil = choose_base_presentation_policy(true, true, false, false, false);
+    CHECK(no_stencil.mode == BasePresentationMode::Offscreen);
+    REQUIRE(no_stencil.fallback_reason != nullptr);
+
+    const auto needs_root = choose_base_presentation_policy(true, true, true, true, false);
+    CHECK(needs_root.mode == BasePresentationMode::Offscreen);
+    REQUIRE(needs_root.fallback_reason != nullptr);
+}
+
 TEST_CASE("RmlUi clip stencil planner normalizes overflow without discarding history")
 {
     const auto set = plan_stencil_clip_operation(37, ClipOperationPlan::Set);

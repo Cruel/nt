@@ -37,6 +37,7 @@ public:
     void begin_frame(float delta_time);
     void end_frame();
     void shutdown();
+    void set_rmlui_base_direct_compatibility(bool enabled);
 
     // Returned pointers are borrowed from RmlUi. They remain valid until the
     // document is unloaded, all documents are reloaded, or RuntimeUI shuts down.

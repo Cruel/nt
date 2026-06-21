@@ -12,6 +12,15 @@ The immediate goal is to turn the renderer from a functionally complete but full
 - `[blocked]`: cannot proceed until a listed dependency is resolved.
 - `[pending]`: not started.
 
+While implementing these phases, check both:
+
+- `./scripts/run-tests.sh`
+- `./scripts/run-tests.sh --compat`
+
+The default run should exercise the refactored path. The compat run should keep the
+legacy fallback path available so regressions in either mode are visible.
+
+
 ## Current Direction
 
 RmlUi remains the primary general runtime UI layer for NovelTea. It should support normal RML/RCSS authoring, rich styled UI, filters, decorators, clipping, masks, transforms, and custom C++ elements where needed.
@@ -688,9 +697,14 @@ Acceptance criteria:
 - Visual output remains correct.
 - Tests cover each no-op filter case.
 
-## Phase 9 [pending]: Base Layer and Direct-to-Backbuffer Optimization
+## Phase 9 [done]: Base Layer and Direct-to-Backbuffer Optimization
 
 Goal: consider removing the full-frame base offscreen layer where safe.
+
+Compatibility note: `--rmlui-base-direct-compat` exists only as a temporary testing
+switch. It allows direct base presentation to be exercised without changing the default
+offscreen-root behavior. Keep it off for normal runs until the direct path can pass the
+readback gallery and related regression checks without compatibility assistance.
 
 The current renderer renders the base RmlUi layer into an offscreen framebuffer and then composites it to the backbuffer. Keeping that initially is acceptable. One full-frame base/final composite is not the main performance problem.
 
@@ -717,7 +731,7 @@ Acceptance criteria:
 - Performance improvement is measured separately from the bounded compositor work.
 - No correctness regression in readback gallery.
 
-## Phase 10 [pending]: Web Performance Smoke and Regression Gates
+## Phase 10 [next]: Web Performance Smoke and Regression Gates
 
 Goal: prevent the renderer from returning to full-frame postprocess behavior.
 

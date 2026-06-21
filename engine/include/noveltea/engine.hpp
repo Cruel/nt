@@ -36,6 +36,7 @@ struct EngineRunConfig {
     std::string screenshot_path;
     bool enable_debug_ui = true;
     bool render_perf_logging = false;
+    bool rmlui_base_direct_compat = false;
 };
 
 class Engine {

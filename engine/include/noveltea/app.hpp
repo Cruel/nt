@@ -26,6 +26,7 @@ private:
         std::string screenshot_path;
         bool no_imgui = false;
         bool perf_logging = false;
+        bool rmlui_base_direct_compat = false;
     };
 
     bool initialize(int argc, char* argv[]);

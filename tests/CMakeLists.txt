@@ -127,6 +127,7 @@ catch_discover_tests(noveltea_ui_tests)
 
 if(TARGET noveltea-sandbox)
     set(NOVELTEA_RMLUI_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery.ppm")
+    set(NOVELTEA_RMLUI_COMPAT_MARKER "${CMAKE_BINARY_DIR}/rmlui-base-direct-compat.enabled")
     add_executable(noveltea_rmlui_readback_verifier
         ui/rmlui_readback_verifier.cpp
     )
@@ -136,11 +137,8 @@ if(TARGET noveltea-sandbox)
     target_link_libraries(noveltea_rmlui_readback_verifier PRIVATE Catch2::Catch2WithMain)
     add_test(
         NAME noveltea_rmlui_readback_capture
-        COMMAND noveltea-sandbox
-            --demo none
-            --rmlui-document project:/rmlui/readback_gallery.rml
-            --frames 3
-            --screenshot "${NOVELTEA_RMLUI_READBACK_PPM}"
+        COMMAND /bin/sh -c
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 3 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}'; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 3 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}'; fi"
     )
     set_tests_properties(noveltea_rmlui_readback_capture PROPERTIES
         LABELS "rmlui;gpu"
@@ -169,11 +167,8 @@ add_test(
 if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_sandbox_runtime_legacy_package_smoke
-        COMMAND noveltea-sandbox
-            --demo none
-            --runtime-project project:/projects/runtime_phase9_package.ntpkg
-            --frames 5
-            --no-imgui
+        COMMAND /bin/sh -c
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
     )
     set_tests_properties(noveltea_sandbox_runtime_legacy_package_smoke PROPERTIES
         LABELS "runtime;assets"

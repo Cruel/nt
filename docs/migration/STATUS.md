@@ -30,6 +30,8 @@ Last updated: 2026-06-21.
 - Phase 17 RmlUi bgfx optimization Phase 4/5: postprocess scratch/filter targets allocate to explicit requested bounds instead of defaulting to full-frame size, bounded layer filters reuse exact-dimension ping-pong targets, and perf counters/logging report actual postprocess target sizes plus bounded-vs-full-frame layer allocation. The saved `mask-image` readback assertion passes with bounded child-layer selection restored, and the remaining bounded filter pipeline acceptance checks have now been rerun together.
 - Phase 18 RmlUi bgfx optimization Phase 7: clip-mask and stencil work now derives from bounded layer/scissor intersections, stencil clears and normalization no longer default to full-layer work areas, conservative clip replay skips empty bounded work, and focused bounds/planning tests cover the new clip behavior.
 - Phase 19 RmlUi bgfx optimization Phase 8: no-op filter elimination now skips neutral filter passes, `blur(<0.5)` short-circuits before postprocess allocation, and consecutive color-matrix filters are reduced before hitting the bounded filter pipeline.
+- Phase 20 RmlUi bgfx optimization Phase 9: base presentation now has a conservative direct-to-backbuffer policy for safe non-WebGL frames, retains the offscreen root fallback, records direct/offscreen/fallback perf counters, and rejects root-preserving operations when direct presentation is active.
+- Compatibility flag `--rmlui-base-direct-compat` is available for testing the direct base path, but default production runs still use the offscreen-root behavior until the direct path passes readback without compatibility help.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -130,4 +132,4 @@ cd android
 
 ## Next Implementation Task
 
-Start Phase 8 from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md) after the no-op/filter simplification slice is reviewed against the current bounded compositor behavior.
+Start Phase 10 from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md) for the web performance smoke and regression gates now that the base-layer optimization slice is complete.

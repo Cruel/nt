@@ -229,6 +229,10 @@
       if (noImgui === '1' || noImgui === 'true' || noImgui === 'yes') args.push('--no-imgui');
       const renderPerf = (params.get('renderPerf') || '').toLowerCase();
       if (renderPerf === '1' || renderPerf === 'true' || renderPerf === 'yes') args.push('--render-perf');
+      const compat = (params.get('compat') || '').toLowerCase();
+      if (compat === '1' || compat === 'true' || compat === 'yes') {
+        args.push('--rmlui-base-direct-compat');
+      }
       return args;
     })(),
     onRuntimeInitialized: function() {
