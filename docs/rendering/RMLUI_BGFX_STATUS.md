@@ -51,3 +51,42 @@ Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
 | Android packaged-shader verification | IMPLEMENTED, NOT VERIFIED | CI checks rmlui shader assets by program list; local Android assemble was not rerun in this pass. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |
 | Latest GitHub Actions status checked | VERIFIED | Latest Build run `27728367992` for SHA `dfe4557f45990a31ff6360b9fa2a9f5855d956bd` succeeded. |
+
+## Renderer Model
+
+The current RmlUi bgfx renderer is a bounded compositor, not a full-frame compositor with a few special cases.
+
+- Logical RmlUi coordinates are converted into framebuffer bounds when a layer, postprocess pass, or composite needs explicit pixel work.
+- Child layers are bounded by the best reliable rectangle available, usually active scissor, then parent bounds, with explicit full-frame fallback when the bounds are unsafe or unavailable.
+- Filter chains compute a work area first, then size temporary targets to that area instead of defaulting to the framebuffer.
+- Composites are rectangle-aware: source and destination rectangles are tracked explicitly so copies and layer merges only shade the affected area.
+- Clip/stencil operations stay inside the active bounded work area when possible.
+
+## Perf Log Guide
+
+The renderer emits a periodic `[perf]` line when render perf logging is enabled. The important fields are:
+
+- `passes`: total bgfx passes acquired.
+- `geom`, `clip`, `gradients`: draw categories, separated from postprocess and composite work.
+- `layers`, `full_layers`, `bounded_layers`, `unbounded_layer_fallbacks`: layer allocation shape and fallback behavior.
+- `filters`, `blur`, `shadow`, `mask`: filter workload counts.
+- `base_direct`, `base_offscreen`, `base_fallback`: base presentation policy and fallbacks.
+- `clear_px`, `copy_px`, `composite_px`, `post_px`: pixel work buckets for the current frame.
+- `full_frame_passes`, `bounded_passes`: whether the work was explicitly bounded or had to fall back.
+- `rt_alloc`, `rt_destroy`, `layer_alloc`, `layer_destroy`: steady-state allocation health.
+- `max_layer`, `max_rt`, `fb`: the largest layer/target sizes observed alongside the current framebuffer dimensions.
+
+The log is intended to show whether the renderer is staying in the bounded path. A rise in `full_layers`, `full_frame_passes`, or `max_rt` usually means a fallback or a regression in bound selection.
+
+Current web-smoke baseline from the readback gallery:
+
+```text
+[perf] fps=2 passes=121 geom=27 clip=15 gradients=8 layers=13 full_layers=13 bounded_layers=1 unbounded_layer_fallbacks=12 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=24901632 copy_px=9216 composite_px=23961600 post_px=13824000 full_frame_passes=66 bounded_passes=4 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_rt=1280x720 fb=1280x720
+```
+
+## Known Limitations
+
+- The base presentation path may still be offscreen depending on capability gating and compatibility mode.
+- Transform-derived bounds remain conservative, so some transformed layers still fall back to full-frame.
+- The web smoke gate currently tracks the observed structural baseline for the readback gallery; it is a regression gate, not a strict end-state performance target.
+- The docs now describe the bounded compositor model, but the implementation still relies on explicit fallback logging to explain rare full-frame work.

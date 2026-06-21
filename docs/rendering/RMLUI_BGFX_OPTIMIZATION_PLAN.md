@@ -767,18 +767,18 @@ Current implementation note:
 
 - The smoke gate is functional and passes against the current web build, but the renderer baseline still reports full-frame child-layer work for the readback gallery. The gate therefore tracks the current performance envelope rather than the stricter future target from the optimization plan.
 
-## Phase 11 [pending]: Documentation and Status Update
+## Phase 11 [done]: Documentation and Status Update
 
 Goal: make the new renderer model clear for future agents.
 
-Update:
+Updated:
 
 ```text
 docs/rendering/RMLUI_BGFX_STATUS.md
 docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md
 ```
 
-Document:
+Documented:
 
 - The bounded compositor model.
 - The difference between RmlUi logical coordinates and framebuffer coordinates.
@@ -795,6 +795,10 @@ Acceptance criteria:
 - Future agents know not to “fix” artifacts by reverting to full-frame passes.
 - Status docs distinguish functional completeness from performance completeness.
 - Web performance smoke status is clearly marked.
+
+Current implementation note:
+
+- The renderer already uses bounded child layers, bounded composites, bounded postprocess targets, bounded clip/stencil work, and a structural web smoke gate. The remaining work is documentation hygiene and future-proofing, not a renderer behavior change.
 
 ## Implementation Notes
 

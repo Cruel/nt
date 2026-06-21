@@ -32,6 +32,7 @@ Last updated: 2026-06-21.
 - Phase 19 RmlUi bgfx optimization Phase 8: no-op filter elimination now skips neutral filter passes, `blur(<0.5)` short-circuits before postprocess allocation, and consecutive color-matrix filters are reduced before hitting the bounded filter pipeline.
 - Phase 20 RmlUi bgfx optimization Phase 9: base presentation now has a conservative direct-to-backbuffer policy for safe non-WebGL frames, retains the offscreen root fallback, records direct/offscreen/fallback perf counters, and rejects root-preserving operations when direct presentation is active.
 - Phase 21 RmlUi bgfx optimization Phase 10: headless Chromium/Playwright smoke now runs the readback gallery through the web build, captures the renderer perf line, and enforces structural regression thresholds for full-frame child layers, postprocess targets, composite pixels, and feedback-loop errors.
+- Phase 22 RmlUi bgfx optimization Phase 11: renderer documentation now describes the bounded compositor model, coordinate conversions, layer-bound selection, filter expansion, target pooling, perf-log interpretation, and current web-smoke limitations.
 - Compatibility flag `--rmlui-base-direct-compat` is available for testing the direct base path, but default production runs still use the offscreen-root behavior until the direct path passes readback without compatibility help.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
@@ -46,6 +47,7 @@ Last updated: 2026-06-21.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
+- RmlUi renderer documentation is current, but transform-bound derivation and the remaining full-frame fallback cases are still conservative implementation limits rather than doc gaps.
 
 ## Current Verification Commands
 
@@ -65,6 +67,11 @@ Known current verification note:
 - `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` passes for the saved `mask-image` panel. The bounded postprocess/filter pipeline checks have been completed together.
 - `cmake --build --preset linux-debug --target noveltea_ui_tests` and `./build/linux-debug/tests/noveltea_ui_tests "*RmlUi*"` pass after the Phase 8 filter simplification update.
 - `cmake --build --preset web-debug --target engine` passes after the Phase 7 clip/stencil bounds update.
+- Latest web-smoke perf baseline from the readback gallery:
+
+  ```text
+  [perf] fps=2 passes=121 geom=27 clip=15 gradients=8 layers=13 full_layers=13 bounded_layers=1 unbounded_layer_fallbacks=12 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=24901632 copy_px=9216 composite_px=23961600 post_px=13824000 full_frame_passes=66 bounded_passes=4 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_rt=1280x720 fb=1280x720
+  ```
 
 Use the smallest relevant subset for a docs-only or narrow code change:
 
@@ -133,4 +140,4 @@ cd android
 
 ## Next Implementation Task
 
-Phase 10 from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md) is now complete for the web performance smoke and regression gates. The next active planning target is Phase 11 documentation cleanup and status refresh.
+Phase 11 from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md) is complete for the renderer documentation and status refresh. The next active planning target is the next rendering optimization phase after documentation cleanup.
