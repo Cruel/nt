@@ -116,14 +116,6 @@ struct FilterApplyResult {
     int texture_height = 0;
 };
 
-struct FilterWorkArea {
-    FbRect source_rect;
-    FbRect output_rect;
-    FbRect valid_rect;
-    int texture_width = 0;
-    int texture_height = 0;
-};
-
 RmlUiPassRequest make_pass_request(RmlUiPassKind kind, int x, int y, bool clears_color,
                                    bool clears_stencil, int width, int height, const char* name)
 {
@@ -1207,7 +1199,9 @@ struct BgfxRenderInterface::Impl {
         if (!primary || !secondary)
             return {};
 
-        const FbRect source_rect{0, 0, source_bounds.framebuffer.w, source_bounds.framebuffer.h};
+        const FbRect source_rect = intersect(source_bounds.framebuffer, clamped_work_bounds);
+        if (is_empty(source_rect))
+            return {};
         const FbRect copy_destination{std::max(0, total_expansion.left),
                                       std::max(0, total_expansion.top), source_rect.w,
                                       source_rect.h};
@@ -1368,7 +1362,7 @@ struct BgfxRenderInterface::Impl {
                     params[0] = 1.0f / float(std::max(destination->texture_width, 1));
                     params[1] = 0.0f;
                     if (!fullscreen_filter_pass(current, *destination, blur_program,
-                                                "RmlUi.FilterDropShadowBlurH", [&]() {
+                        "RmlUi.FilterDropShadowBlurH", [&]() {
                                                     bgfx::setUniform(blur_params_uniform, params);
                                                     bgfx::setUniform(blur_weights_uniform, weights);
                                                     bgfx::setUniform(texcoord_bounds_uniform,

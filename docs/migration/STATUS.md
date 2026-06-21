@@ -27,7 +27,7 @@ Last updated: 2026-06-21.
 - Phase 14 Editor Integration V1: Electron now talks to a CMake-built `noveltea-editor-tool` helper for project load/import, validation, raw entity edits, playback test listing/running, and package export. The TanStack workspace uses project-derived entity/test trees, raw JSON inspection, validation diagnostics, playback/export timeline entries, and runtime-named preview controls over the existing iframe MessageChannel.
 - Phase 15 RmlUi bgfx optimization Phase 2: child layers now use bounded framebuffer allocation driven by active scissor or explicit fallback to full-frame bounds, with per-layer orthographic projection and selection-policy tests covering bounded, parent-clamped, and fallback cases.
 - Phase 16 RmlUi bgfx optimization Phase 3: rectangle-aware compositing now carries explicit source and destination rectangles through bounded layer composites, scratch copies, saved mask copies, and the final base-layer composite.
-- Phase 17 RmlUi bgfx optimization Phase 4/5: postprocess scratch/filter targets now allocate to explicit requested bounds instead of defaulting to full-frame size, bounded layer filters reuse exact-dimension ping-pong targets, and perf counters/logging now report actual postprocess target sizes plus bounded-vs-full-frame layer allocation. The saved `mask-image` readback assertion now passes with bounded child-layer selection restored, but Phase 5 remains active until the remaining bounded filter pipeline acceptance checks are re-run together.
+- Phase 17 RmlUi bgfx optimization Phase 4/5: postprocess scratch/filter targets allocate to explicit requested bounds instead of defaulting to full-frame size, bounded layer filters reuse exact-dimension ping-pong targets, and perf counters/logging report actual postprocess target sizes plus bounded-vs-full-frame layer allocation. The saved `mask-image` readback assertion passes with bounded child-layer selection restored, and the remaining bounded filter pipeline acceptance checks have now been rerun together.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -36,7 +36,7 @@ Last updated: 2026-06-21.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
-- RmlUi saved `mask-image` now passes Linux readback with bounded child layers and owned saved-mask textures. Remaining Phase 5 work is broader bounded filter-pipeline verification and perf-log review, not the `(524, 64)` saved-mask exception.
+- RmlUi saved `mask-image` passes Linux readback with bounded child layers and owned saved-mask textures. Phase 5 bounded filter-pipeline verification is complete.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
@@ -56,7 +56,7 @@ cmake --build --preset linux-debug --target format-check
 
 Known current verification note:
 
-- `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` passes for the saved `mask-image` panel. Phase 5 is still not marked complete until the full bounded filter pipeline and perf-log acceptance checks are re-run together.
+- `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` passes for the saved `mask-image` panel. The bounded postprocess/filter pipeline checks have been completed together.
 
 Use the smallest relevant subset for a docs-only or narrow code change:
 
@@ -125,5 +125,4 @@ cd android
 
 ## Next Implementation Task
 
-Start Phase 4 bounded postprocess targets from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md).
-unless the explicitly deferred Phase 8 Lua map-visibility bridge is selected first.
+Start the next migration slice from [`docs/migration/PLAN.md`](PLAN.md).

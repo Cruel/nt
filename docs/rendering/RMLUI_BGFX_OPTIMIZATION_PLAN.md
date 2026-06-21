@@ -455,7 +455,7 @@ Acceptance criteria:
 - WebGL feedback-loop protection still works.
 - Readback gallery output remains visually correct.
 
-## Phase 4 [pending]: Bounded Postprocess Targets
+## Phase 4 [done]: Bounded Postprocess Targets
 
 Goal: make postprocess targets sized to filter work areas instead of the full framebuffer.
 
@@ -490,7 +490,7 @@ Acceptance criteria:
 - No steady-state allocation churn after warmup for stable documents.
 - Existing visual output remains correct.
 
-## Phase 5 [active]: Bounded Filter Pipeline
+## Phase 5 [done]: Bounded Filter Pipeline
 
 Goal: run filters over bounded work areas with correct padding and UV mapping.
 
@@ -568,8 +568,8 @@ Acceptance criteria:
 Current implementation note:
 
 - The saved `mask-image` readback assertion now passes with bounded child layers restored.
-- Phase 5 remains active until the rest of the bounded filter pipeline acceptance items, especially
-  perf-log review across the gallery and non-mask filter work areas, are rechecked together.
+- Phase 5 acceptance is now satisfied by the bounded postprocess/filter pipeline implementation and
+  the Linux/web verification run documented in [`docs/migration/STATUS.md`](../migration/STATUS.md).
 
 ## Phase 6 [done]: Saved Layer and Mask Image Bounds
 
