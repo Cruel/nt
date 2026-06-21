@@ -153,6 +153,16 @@ if(TARGET noveltea-sandbox)
     )
 endif()
 
+if(EMSCRIPTEN)
+    add_test(
+        NAME noveltea_web_rmlui_smoke
+        COMMAND node "${CMAKE_SOURCE_DIR}/scripts/web-smoke.mjs"
+    )
+    set_tests_properties(noveltea_web_rmlui_smoke PROPERTIES
+        LABELS "rmlui;web;smoke"
+    )
+endif()
+
 # --- No committed shader headers check ---
 
 add_test(

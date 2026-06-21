@@ -1,0 +1,11 @@
+{
+  "name": "noveltea-root",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "web:smoke": "node scripts/web-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.0"
+  }
+}

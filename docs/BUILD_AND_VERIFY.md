@@ -22,6 +22,7 @@ cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
 cmake --build --preset web-debug
+npm run web:smoke
 ```
 
 Run Android verification when platform, CMake, shader, asset packaging, JNI, or Gradle behavior changes:

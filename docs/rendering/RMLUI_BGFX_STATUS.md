@@ -47,7 +47,7 @@ Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
 | Gradient visual coverage | VERIFIED | Expanded readback asserts linear, radial, conic, repeating linear, repeating radial, repeating conic, and multi-stop gradient regions. |
 | RuntimeUI facade integration tests | NOT VERIFIED | Event-consumption polarity has tests; document/element/listener/data-model/reload/density/focus lifecycle tests are missing. |
 | Linux visual readback | VERIFIED | `noveltea_rmlui_readback_capture` and `noveltea_rmlui_readback_verify` pass for the gallery, including the saved `mask-image` pixel. |
-| Web headless-browser runtime smoke | NOT VERIFIED | Web build exists in CI, but no browser runtime smoke is implemented. |
+| Web headless-browser runtime smoke | VERIFIED | `scripts/web-smoke.mjs` runs the readback gallery in headless Chromium through Playwright, captures the renderer perf log, and fails on page/console errors. |
 | Android packaged-shader verification | IMPLEMENTED, NOT VERIFIED | CI checks rmlui shader assets by program list; local Android assemble was not rerun in this pass. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |
 | Latest GitHub Actions status checked | VERIFIED | Latest Build run `27728367992` for SHA `dfe4557f45990a31ff6360b9fa2a9f5855d956bd` succeeded. |

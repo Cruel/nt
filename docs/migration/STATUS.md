@@ -31,6 +31,7 @@ Last updated: 2026-06-21.
 - Phase 18 RmlUi bgfx optimization Phase 7: clip-mask and stencil work now derives from bounded layer/scissor intersections, stencil clears and normalization no longer default to full-layer work areas, conservative clip replay skips empty bounded work, and focused bounds/planning tests cover the new clip behavior.
 - Phase 19 RmlUi bgfx optimization Phase 8: no-op filter elimination now skips neutral filter passes, `blur(<0.5)` short-circuits before postprocess allocation, and consecutive color-matrix filters are reduced before hitting the bounded filter pipeline.
 - Phase 20 RmlUi bgfx optimization Phase 9: base presentation now has a conservative direct-to-backbuffer policy for safe non-WebGL frames, retains the offscreen root fallback, records direct/offscreen/fallback perf counters, and rejects root-preserving operations when direct presentation is active.
+- Phase 21 RmlUi bgfx optimization Phase 10: headless Chromium/Playwright smoke now runs the readback gallery through the web build, captures the renderer perf line, and enforces structural regression thresholds for full-frame child layers, postprocess targets, composite pixels, and feedback-loop errors.
 - Compatibility flag `--rmlui-base-direct-compat` is available for testing the direct base path, but default production runs still use the offscreen-root behavior until the direct path passes readback without compatibility help.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
@@ -132,4 +133,4 @@ cd android
 
 ## Next Implementation Task
 
-Start Phase 10 from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md) for the web performance smoke and regression gates now that the base-layer optimization slice is complete.
+Phase 10 from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md) is now complete for the web performance smoke and regression gates. The next active planning target is Phase 11 documentation cleanup and status refresh.

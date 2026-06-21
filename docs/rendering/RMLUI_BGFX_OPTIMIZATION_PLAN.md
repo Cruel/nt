@@ -731,7 +731,7 @@ Acceptance criteria:
 - Performance improvement is measured separately from the bounded compositor work.
 - No correctness regression in readback gallery.
 
-## Phase 10 [next]: Web Performance Smoke and Regression Gates
+## Phase 10 [done]: Web Performance Smoke and Regression Gates
 
 Goal: prevent the renderer from returning to full-frame postprocess behavior.
 
@@ -749,12 +749,23 @@ The test should verify:
 
 Avoid brittle absolute FPS gates in CI. Use structural metrics instead. FPS varies by runner, browser, virtualization, and display scheduling. Pixel/pass/target metrics are more deterministic.
 
+Implemented:
+
+- `scripts/web-smoke.mjs` runs the web sandbox in headless Chromium through Playwright.
+- The harness loads the readback gallery, captures the renderer perf log, and fails on page/console errors.
+- `scripts/web-smoke-thresholds.json` stores the current structural gate for the gallery baseline.
+- `tests/CMakeLists.txt` registers `noveltea_web_rmlui_smoke` for Emscripten builds.
+
 Acceptance criteria:
 
 - CI can catch accidental reintroduction of full-frame filter targets.
 - CI can catch full-frame saved mask copies.
 - CI can catch steady-state render-target allocation churn.
 - Browser smoke verifies the renderer can run the gallery without catastrophic logs.
+
+Current implementation note:
+
+- The smoke gate is functional and passes against the current web build, but the renderer baseline still reports full-frame child-layer work for the readback gallery. The gate therefore tracks the current performance envelope rather than the stricter future target from the optimization plan.
 
 ## Phase 11 [pending]: Documentation and Status Update
 

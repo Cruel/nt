@@ -1,0 +1,10 @@
+{
+  "readback_gallery": {
+    "max_full_frame_postprocess_targets": 0,
+    "max_full_frame_child_layers": 13,
+    "max_postprocess_pixels": 14000000,
+    "max_composite_pixels": 25000000,
+    "max_steady_state_allocations": 0,
+    "max_repeated_feedback_loop_errors": 0
+  }
+}
