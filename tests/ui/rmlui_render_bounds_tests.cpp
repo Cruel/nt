@@ -517,6 +517,25 @@ TEST_CASE("RmlUi expand_bounds applies filter expansion")
     }
 }
 
+TEST_CASE("RmlUi expand_bounds and clamp_to_surface compose for bounded work areas")
+{
+    const noveltea::SurfaceMetrics surface{1280, 720, 1280, 720};
+    const FbRect source{100, 100, 50, 40};
+    const FilterExpansion exp{20, 10, 30, 15};
+
+    const auto expanded = expand_bounds(source, exp);
+    CHECK(expanded.x == 80);
+    CHECK(expanded.y == 90);
+    CHECK(expanded.w == 100);
+    CHECK(expanded.h == 65);
+
+    const auto clamped = clamp_to_surface(expanded, surface);
+    CHECK(clamped.x == 80);
+    CHECK(clamped.y == 90);
+    CHECK(clamped.w == 100);
+    CHECK(clamped.h == 65);
+}
+
 // ---------------------------------------------------------------------------
 // Negative / offscreen source rectangles
 // ---------------------------------------------------------------------------

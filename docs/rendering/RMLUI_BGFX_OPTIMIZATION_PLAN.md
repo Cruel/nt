@@ -490,7 +490,7 @@ Acceptance criteria:
 - No steady-state allocation churn after warmup for stable documents.
 - Existing visual output remains correct.
 
-## Phase 5 [pending]: Bounded Filter Pipeline
+## Phase 5 [active]: Bounded Filter Pipeline
 
 Goal: run filters over bounded work areas with correct padding and UV mapping.
 
@@ -564,6 +564,11 @@ Acceptance criteria:
 - Filter expansion prevents clipped blur/shadow edges.
 - Visual output matches existing readback expectations.
 - Performance logs show postprocess pixels reduced by at least an order of magnitude on the readback gallery.
+
+Current implementation note:
+
+- The bounded work-area refactor is in progress, but the readback gallery still fails on the saved `mask-image` brightness assertion, so Phase 5 is not complete yet.
+- The remaining failure indicates the mask-image path still needs the final source/mask UV mapping adjustment before this phase can be marked `[done]`.
 
 ## Phase 6 [pending]: Saved Layer and Mask Image Bounds
 

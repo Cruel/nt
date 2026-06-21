@@ -43,10 +43,10 @@ Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
 | Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
 | Capability-aware MSAA and resolve | NOT VERIFIED | Current layer path is single-sample only; portable MSAA/resolve planning and runtime coverage are missing. |
 | Blit and shader-copy paths | IMPLEMENTED, NOT VERIFIED | Both code paths exist, but no test hook forces shader-copy fallback. |
-| Standard color filter visual coverage | VERIFIED | Expanded readback asserts opacity, brightness, contrast, invert, grayscale, sepia, hue-rotate, saturate, blur, drop-shadow, and saved mask output. |
+| Standard color filter visual coverage | IMPLEMENTED, NOT VERIFIED | The bounded filter pipeline refactor landed, but the readback gallery still fails on the saved `mask-image` brightness assertion, so the full filter visual gate is not yet green. |
 | Gradient visual coverage | VERIFIED | Expanded readback asserts linear, radial, conic, repeating linear, repeating radial, repeating conic, and multi-stop gradient regions. |
 | RuntimeUI facade integration tests | NOT VERIFIED | Event-consumption polarity has tests; document/element/listener/data-model/reload/density/focus lifecycle tests are missing. |
-| Linux visual readback | VERIFIED | `noveltea_rmlui_readback_capture` and `noveltea_rmlui_readback_verify` passed. |
+| Linux visual readback | IMPLEMENTED, NOT VERIFIED | `noveltea_rmlui_readback_capture` passes, but `noveltea_rmlui_readback_verify` still fails on the saved `mask-image` brightness assertion. |
 | Web headless-browser runtime smoke | NOT VERIFIED | Web build exists in CI, but no browser runtime smoke is implemented. |
 | Android packaged-shader verification | IMPLEMENTED, NOT VERIFIED | CI checks rmlui shader assets by program list; local Android assemble was not rerun in this pass. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |
