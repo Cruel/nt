@@ -89,6 +89,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.screenshot_path = argv[++i];
         } else if (std::strcmp(arg, "--no-imgui") == 0) {
             options.no_imgui = true;
+        } else if (std::strcmp(arg, "--render-perf") == 0) {
+            options.perf_logging = true;
         }
     }
     return true;
@@ -114,6 +116,7 @@ bool App::initialize(int argc, char* argv[])
     run_config.runtime_project = options.runtime_project;
     run_config.screenshot_path = options.screenshot_path;
     run_config.enable_debug_ui = !options.no_imgui;
+    run_config.render_perf_logging = options.perf_logging;
 
     if (!m_engine.initialize(config, run_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");

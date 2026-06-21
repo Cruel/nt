@@ -227,6 +227,8 @@
       if (rmluiDocument) args.push('--rmlui-document', rmluiDocument);
       const noImgui = (params.get('noImgui') || '').toLowerCase();
       if (noImgui === '1' || noImgui === 'true' || noImgui === 'yes') args.push('--no-imgui');
+      const renderPerf = (params.get('renderPerf') || '').toLowerCase();
+      if (renderPerf === '1' || renderPerf === 'true' || renderPerf === 'yes') args.push('--render-perf');
       return args;
     })(),
     onRuntimeInitialized: function() {

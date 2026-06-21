@@ -360,6 +360,13 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     return true;
 }
 
+void RuntimeUI::enable_render_perf_logging(bool enabled)
+{
+    if (m_state && m_state->render_interface) {
+        m_state->render_interface->set_perf_logging_enabled(enabled);
+    }
+}
+
 bool RuntimeUI::process_event(const SDL_Event& event)
 {
     m_last_event_consumed = false;

@@ -20,6 +20,7 @@ public:
     void resize(const SurfaceMetrics& surface);
     void begin_frame();
     void end_frame();
+    void set_perf_logging_enabled(bool enabled);
 
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                 Rml::Span<const int> indices) override;

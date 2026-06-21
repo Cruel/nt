@@ -240,7 +240,7 @@ struct FilterWorkArea {
 
 Blur and drop shadow must expand the output bounds. Color matrix and opacity normally do not. Mask images normally do not expand, but they require correct source/mask UV mapping.
 
-## Phase 0 [next]: Instrumentation and Baseline Metrics
+## Phase 0 [done]: Instrumentation and Baseline Metrics
 
 Goal: make the performance problem measurable before changing behavior.
 
@@ -304,7 +304,7 @@ Acceptance criteria:
 - The log distinguishes geometry draw count from postprocess/composite pixel area.
 - The log can prove whether later phases reduce full-frame work.
 
-## Phase 1 [pending]: Pure Rectangle and Bounds Planning
+## Phase 1 [next]: Pure Rectangle and Bounds Planning
 
 Goal: introduce testable rectangle, bounds, and filter-expansion helpers before changing bgfx rendering behavior.
 

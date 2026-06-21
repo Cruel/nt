@@ -13,6 +13,7 @@ namespace noveltea {
 namespace assets {
 class AssetManager;
 }
+class RuntimeUI;
 
 class DebugUI {
 public:
@@ -31,6 +32,8 @@ public:
     bool is_visible() const { return m_visible; }
     void toggle_visibility() { m_visible = !m_visible; }
 
+    void set_runtime_ui(RuntimeUI* ui) { m_runtime_ui = ui; }
+
     void log_printf(const char* fmt, ...);
 
 private:
@@ -42,6 +45,8 @@ private:
     int m_log_len = 0;
     void* m_bgfx_backend = nullptr;
     const assets::AssetManager* m_assets = nullptr;
+    RuntimeUI* m_runtime_ui = nullptr;
+    bool m_perf_logging_enabled = false;
 };
 
 } // namespace noveltea

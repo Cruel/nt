@@ -51,6 +51,7 @@ option(NOVELTEA_ENABLE_TWINK "Enable twink-backed engine animation service (opti
 option(NOVELTEA_FETCH_BGFX "Fetch/build bgfx via FetchContent (required for Web/Android)" ON)
 option(NOVELTEA_FETCH_RMLUI "Fetch/build RmlUi via FetchContent (required for Web/Android)" ON)
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ON)
+option(NOVELTEA_ENABLE_RENDER_PERF "Compile renderer performance counters and optional perf logging" ON)
 option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
 
 # --- SDL3: provide the SDL3::SDL3 target for all platforms ---

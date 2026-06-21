@@ -25,6 +25,7 @@ private:
         std::string runtime_project;
         std::string screenshot_path;
         bool no_imgui = false;
+        bool perf_logging = false;
     };
 
     bool initialize(int argc, char* argv[]);

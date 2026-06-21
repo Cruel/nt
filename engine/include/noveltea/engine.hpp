@@ -35,6 +35,7 @@ struct EngineRunConfig {
     std::string runtime_project;
     std::string screenshot_path;
     bool enable_debug_ui = true;
+    bool render_perf_logging = false;
 };
 
 class Engine {
@@ -86,6 +87,7 @@ private:
     preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
     bool m_preview_running = true;
     bool m_debug_ui_enabled = true;
+    bool m_render_perf_logging = false;
 };
 
 } // namespace noveltea

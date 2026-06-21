@@ -60,6 +60,8 @@ public:
     void* data_model(const std::string& name) const;
     bool remove_data_model(const std::string& name);
 
+    void enable_render_perf_logging(bool enabled = true);
+
     const char* backend_name() const;
     const char* status_text() const;
     bool is_initialized() const { return m_initialized; }

@@ -211,6 +211,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     m_demo_mode = run_config.demo_mode;
     m_screenshot_path = run_config.screenshot_path;
     m_debug_ui_enabled = run_config.enable_debug_ui;
+    m_render_perf_logging = run_config.render_perf_logging;
     bool platform_initialized = false;
     bool renderer_initialized = false;
     bool scripts_initialized = false;
@@ -291,24 +292,31 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
                                  &m_scripts)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
-    } else if (!run_config.runtime_ui_document.empty()) {
-        m_runtime_ui.bind_tween_service(&m_tweens);
-        runtime_ui_initialized = true;
-        if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document,
-                                       true)) {
-            SDL_Log("[engine] loaded RmlUi document: %s", run_config.runtime_ui_document.c_str());
-        } else {
-            std::fprintf(stderr, "[engine] failed to load RmlUi document: %s\n",
-                         run_config.runtime_ui_document.c_str());
-            rollback();
-            return false;
-        }
     } else {
-        if (should_load_runtime_document) {
-            m_runtime_ui.load_runtime_document();
+        if (m_render_perf_logging) {
+            m_runtime_ui.enable_render_perf_logging(true);
+            SDL_Log("[engine] renderer perf logging enabled");
         }
-        m_runtime_ui.bind_tween_service(&m_tweens);
-        runtime_ui_initialized = true;
+        if (!run_config.runtime_ui_document.empty()) {
+            m_runtime_ui.bind_tween_service(&m_tweens);
+            runtime_ui_initialized = true;
+            if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document,
+                                           true)) {
+                SDL_Log("[engine] loaded RmlUi document: %s",
+                        run_config.runtime_ui_document.c_str());
+            } else {
+                std::fprintf(stderr, "[engine] failed to load RmlUi document: %s\n",
+                             run_config.runtime_ui_document.c_str());
+                rollback();
+                return false;
+            }
+        } else {
+            if (should_load_runtime_document) {
+                m_runtime_ui.load_runtime_document();
+            }
+            m_runtime_ui.bind_tween_service(&m_tweens);
+            runtime_ui_initialized = true;
+        }
     }
 
     if (m_debug_ui_enabled) {
@@ -317,6 +325,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
         } else {
             debug_ui_initialized = true;
+            m_debug_ui.set_runtime_ui(&m_runtime_ui);
             SDL_Log("[engine] debug UI initialized");
         }
     }

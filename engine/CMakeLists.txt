@@ -278,6 +278,10 @@ target_link_libraries(engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
 target_link_libraries(engine PRIVATE RmlUi::Lua)
 target_compile_definitions(engine PRIVATE NOVELTEA_HAS_RMLUI_LUA)
 
+if(NOVELTEA_ENABLE_RENDER_PERF)
+    target_compile_definitions(engine PRIVATE NOVELTEA_ENABLE_RENDER_PERF=1)
+endif()
+
 # --- Text subsystem (mandatory) ---
 
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_TEXT)

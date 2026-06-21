@@ -232,26 +232,141 @@ ClipOperationPlan clip_operation_plan(Rml::ClipMaskOperation operation)
 }
 
 struct PerfCounters {
-    uint32_t geometry_submits = 0;
-    uint32_t clip_mask_submits = 0;
-    uint32_t layer_pushes = 0;
-    uint32_t layer_clears = 0;
-    uint32_t layer_composites = 0;
-    uint32_t final_composites = 0;
+#ifdef NOVELTEA_ENABLE_RENDER_PERF
+    uint32_t pass_count = 0;
+    uint32_t geometry_draws = 0;
+    uint32_t geometry_indices = 0;
+    uint32_t clip_mask_draws = 0;
+    uint32_t gradient_draws = 0;
+    uint32_t clear_passes = 0;
+    uint32_t copy_passes = 0;
+    uint32_t composite_passes = 0;
     uint32_t postprocess_passes = 0;
     uint32_t blur_passes = 0;
     uint32_t dropshadow_passes = 0;
     uint32_t mask_passes = 0;
-    uint32_t gradient_passes = 0;
-    uint32_t postprocess_allocations = 0;
+    uint32_t layer_pushes = 0;
+    uint32_t layer_clears = 0;
+    uint32_t full_frame_layers = 0;
+    uint32_t bounded_layers = 0;
+    uint32_t unbounded_layer_fallbacks = 0;
+    uint32_t full_frame_passes = 0;
+    uint32_t bounded_passes = 0;
+    uint32_t full_frame_postprocess_targets = 0;
+    uint32_t bounded_postprocess_targets = 0;
     uint32_t layer_allocations = 0;
-    uint32_t postprocess_destroys = 0;
     uint32_t layer_destroys = 0;
-    uint32_t max_rt_width = 0;
-    uint32_t max_rt_height = 0;
-    uint64_t shaded_pixels = 0;
+    uint32_t postprocess_allocations = 0;
+    uint32_t postprocess_destroys = 0;
+    uint64_t geometry_estimated_pixels = 0;
+    uint64_t clip_estimated_pixels = 0;
+    uint64_t clear_pixels = 0;
+    uint64_t copy_pixels = 0;
+    uint64_t composite_pixels = 0;
+    uint64_t postprocess_pixels = 0;
+    uint32_t max_layer_width = 0;
+    uint32_t max_layer_height = 0;
+    uint32_t max_postprocess_width = 0;
+    uint32_t max_postprocess_height = 0;
 
     void reset() { *this = PerfCounters{}; }
+
+    void add_pass() { pass_count++; }
+    void add_geometry(uint64_t px, uint32_t indices)
+    {
+        geometry_draws++;
+        geometry_indices += indices;
+        geometry_estimated_pixels += px;
+    }
+    void add_clip_mask(uint64_t px)
+    {
+        clip_mask_draws++;
+        clip_estimated_pixels += px;
+    }
+    void add_gradient() { gradient_draws++; }
+    void add_clear(uint64_t px)
+    {
+        clear_passes++;
+        clear_pixels += px;
+        full_frame_passes++;
+    }
+    void add_copy() { copy_passes++; }
+    void add_copy_pixels(uint64_t px) { copy_pixels += px; }
+    void add_composite(uint64_t px)
+    {
+        composite_passes++;
+        composite_pixels += px;
+        full_frame_passes++;
+    }
+    void add_postprocess(uint64_t px)
+    {
+        postprocess_passes++;
+        postprocess_pixels += px;
+        full_frame_passes++;
+    }
+    void add_blur() { blur_passes++; }
+    void add_dropshadow() { dropshadow_passes++; }
+    void add_mask(uint64_t px)
+    {
+        mask_passes++;
+        postprocess_pixels += px;
+        full_frame_passes++;
+    }
+    void add_layer_push() { layer_pushes++; }
+    void add_layer_clear() { layer_clears++; }
+    void add_full_frame_layer() { full_frame_layers++; }
+    void add_bounded_layer() { bounded_layers++; }
+    void add_unbounded_layer_fallback() { unbounded_layer_fallbacks++; }
+    void add_full_frame_pp_target() { full_frame_postprocess_targets++; }
+    void add_bounded_pp_target() { bounded_postprocess_targets++; }
+    void add_layer_alloc(uint32_t w, uint32_t h)
+    {
+        layer_allocations++;
+    }
+    void update_layer_max(uint32_t w, uint32_t h)
+    {
+        max_layer_width = std::max(max_layer_width, w);
+        max_layer_height = std::max(max_layer_height, h);
+    }
+    void add_layer_destroy() { layer_destroys++; }
+    void add_pp_alloc(uint32_t w, uint32_t h)
+    {
+        postprocess_allocations++;
+    }
+    void update_pp_max(uint32_t w, uint32_t h)
+    {
+        max_postprocess_width = std::max(max_postprocess_width, w);
+        max_postprocess_height = std::max(max_postprocess_height, h);
+    }
+    void add_pp_destroy() { postprocess_destroys++; }
+#else
+    void reset() {}
+    void add_pass() {}
+    void add_geometry(uint64_t, uint32_t) {}
+    void add_clip_mask(uint64_t) {}
+    void add_gradient() {}
+    void add_clear(uint64_t) {}
+    void add_copy() {}
+    void add_copy_pixels(uint64_t) {}
+    void add_composite(uint64_t) {}
+    void add_postprocess(uint64_t) {}
+    void add_blur() {}
+    void add_dropshadow() {}
+    void add_mask(uint64_t) {}
+    void add_layer_push() {}
+    void add_layer_clear() {}
+    void add_full_frame_layer() {}
+    void add_bounded_layer() {}
+    void add_unbounded_layer_fallback() {}
+    void add_full_frame_pp_target() {}
+    void add_bounded_pp_target() {}
+    void add_layer_alloc(uint32_t, uint32_t) {}
+    void update_layer_max(uint32_t, uint32_t) {}
+    void add_layer_destroy() {}
+    void add_pp_alloc(uint32_t, uint32_t) {}
+    void update_pp_max(uint32_t, uint32_t) {}
+    void add_pp_destroy() {}
+#endif
 };
 
 } // namespace
@@ -485,7 +600,7 @@ struct BgfxRenderInterface::Impl {
     {
         if (bgfx::isValid(layer.framebuffer)) {
             bgfx::destroy(layer.framebuffer);
-            perf.layer_destroys++;
+            perf.add_layer_destroy();
         }
         layer = {};
     }
@@ -494,7 +609,7 @@ struct BgfxRenderInterface::Impl {
     {
         if (bgfx::isValid(target.framebuffer)) {
             bgfx::destroy(target.framebuffer);
-            perf.postprocess_destroys++;
+            perf.add_pp_destroy();
         }
         target = {};
     }
@@ -523,6 +638,7 @@ struct BgfxRenderInterface::Impl {
         if (index >= layers.size())
             layers.resize(index + 1);
         LayerRecord& layer = layers[index];
+        perf.update_layer_max(uint32_t(width), uint32_t(height));
         if (bgfx::isValid(layer.framebuffer) && layer.width == width && layer.height == height) {
             return true;
         }
@@ -569,9 +685,8 @@ struct BgfxRenderInterface::Impl {
         layer.stencil_ref = 1;
         layer.clip_commands.clear();
         layer_pool.note_allocated(uint32_t(index));
-        perf.layer_allocations++;
-        perf.max_rt_width = std::max(perf.max_rt_width, uint32_t(width));
-        perf.max_rt_height = std::max(perf.max_rt_height, uint32_t(height));
+        perf.add_layer_alloc(uint32_t(width), uint32_t(height));
+        perf.add_full_frame_layer();
         return true;
     }
 
@@ -591,6 +706,7 @@ struct BgfxRenderInterface::Impl {
         perf.reset();
         if (!ensure_layer(0))
             return false;
+        perf.add_full_frame_layer();
         layer_pool.begin_frame();
         layer_stack.clear();
         layer_stack.push_back(0);
@@ -633,8 +749,10 @@ struct BgfxRenderInterface::Impl {
         request.bgfx_framebuffer_idx =
             bgfx::isValid(framebuffer) ? framebuffer.idx : std::numeric_limits<uint16_t>::max();
         auto pass = pass_scheduler.acquire(request);
-        if (pass)
+        if (pass) {
             configure_pass(*pass);
+            perf.add_pass();
+        }
         return pass;
     }
 
@@ -653,8 +771,7 @@ struct BgfxRenderInterface::Impl {
             layer->framebuffer);
         if (!pass)
             return;
-        perf.geometry_submits++;
-        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
+        perf.add_geometry(uint64_t(width) * uint64_t(height), geometry.index_count);
         // Bgfx invariant: once per-draw state (setUniform/setTexture/setVertexBuffer) is
         // written, the path must submit or discard before returning. Validate scissor first.
         if (scissor_enabled) {
@@ -715,11 +832,7 @@ struct BgfxRenderInterface::Impl {
             acquire_pass({op.kind, 0, 0, false, false, width, height, op.name}, op.destination);
         if (!pass)
             return false;
-        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
-        if (op.kind == RmlUiPassKind::LayerComposite)
-            perf.layer_composites++;
-        else if (op.kind == RmlUiPassKind::FinalComposite)
-            perf.final_composites++;
+        perf.add_composite(uint64_t(width) * uint64_t(height));
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (op.scissor.enabled) {
@@ -755,6 +868,8 @@ struct BgfxRenderInterface::Impl {
             destination);
         if (!pass)
             return false;
+        perf.add_copy();
+        perf.add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
         const float bounds[4] = {
             float(region.Left()) / float(std::max(width, 1)),
             float(region.Top()) / float(std::max(height, 1)),
@@ -791,6 +906,8 @@ struct BgfxRenderInterface::Impl {
                 bgfx::destroy(texture);
                 return BGFX_INVALID_HANDLE;
             }
+            perf.add_copy();
+            perf.add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
             bgfx::blit(pass->view, texture, 0, 0, source, uint16_t(region.Left()),
                        uint16_t(region.Top()), uint16_t(region.Width()), uint16_t(region.Height()));
             return texture;
@@ -833,8 +950,7 @@ struct BgfxRenderInterface::Impl {
             {RmlUiPassKind::Postprocess, 0, 0, false, false, width, height, name}, destination);
         if (!pass)
             return false;
-        perf.postprocess_passes++;
-        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
+        perf.add_postprocess(uint64_t(width) * uint64_t(height));
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, source);
         bind_uniforms();
@@ -892,8 +1008,7 @@ struct BgfxRenderInterface::Impl {
                                          destination->framebuffer);
                 if (!pass)
                     return BGFX_INVALID_HANDLE;
-                perf.mask_passes++;
-                perf.shaded_pixels += uint64_t(width) * uint64_t(height);
+                perf.add_mask(uint64_t(width) * uint64_t(height));
                 bgfx::setVertexBuffer(0, fullscreen_vb);
                 bgfx::setTexture(0, sampler, current);
                 bgfx::setTexture(1, mask_sampler, tex_it->second.handle);
@@ -919,7 +1034,7 @@ struct BgfxRenderInterface::Impl {
                                                 bgfx::setUniform(texcoord_bounds_uniform, bounds);
                                             }))
                     return BGFX_INVALID_HANDLE;
-                perf.blur_passes++;
+                perf.add_blur();
                 current = destination->color;
                 destination = (destination == primary) ? secondary : primary;
                 params[0] = 1.0f / float(std::max(width, 1));
@@ -931,7 +1046,7 @@ struct BgfxRenderInterface::Impl {
                                                 bgfx::setUniform(texcoord_bounds_uniform, bounds);
                                             }))
                     return BGFX_INVALID_HANDLE;
-                perf.blur_passes++;
+                perf.add_blur();
                 ok = true;
                 break;
             }
@@ -948,7 +1063,7 @@ struct BgfxRenderInterface::Impl {
                                             })) {
                     return BGFX_INVALID_HANDLE;
                 }
-                perf.dropshadow_passes++;
+                perf.add_dropshadow();
                 current = destination->color;
                 destination = (destination == primary) ? secondary : primary;
                 if (filter.sigma >= 0.5f) {
@@ -970,7 +1085,7 @@ struct BgfxRenderInterface::Impl {
                                                 })) {
                         return BGFX_INVALID_HANDLE;
                     }
-                    perf.blur_passes++;
+                    perf.add_blur();
                     current = destination->color;
                     destination = (destination == primary) ? secondary : primary;
                     params[0] = 1.0f / float(std::max(width, 1));
@@ -984,7 +1099,7 @@ struct BgfxRenderInterface::Impl {
                                                 })) {
                         return BGFX_INVALID_HANDLE;
                     }
-                    perf.blur_passes++;
+                    perf.add_blur();
                     current = destination->color;
                     destination = (destination == primary) ? secondary : primary;
                 }
@@ -1020,11 +1135,13 @@ struct BgfxRenderInterface::Impl {
         const int work_w = width;
         const int work_h = height;
         RenderTargetRecord& target = postprocess_targets[index];
+        perf.update_pp_max(uint32_t(work_w), uint32_t(work_h));
         if (bgfx::isValid(target.framebuffer) && target.width == work_w &&
             target.height == work_h) {
             return &target;
         }
         destroy_render_target(target);
+
         uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
         if (bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0) {
             flags |= BGFX_TEXTURE_BLIT_DST;
@@ -1043,9 +1160,8 @@ struct BgfxRenderInterface::Impl {
         }
         target = {framebuffer, color, work_w, work_h};
         postprocess_pool.mark_allocated(kind);
-        perf.postprocess_allocations++;
-        perf.max_rt_width = std::max(perf.max_rt_width, uint32_t(work_w));
-        perf.max_rt_height = std::max(perf.max_rt_height, uint32_t(work_h));
+        perf.add_pp_alloc(uint32_t(work_w), uint32_t(work_h));
+        perf.add_full_frame_pp_target();
         return &target;
     }
 
@@ -1080,13 +1196,16 @@ struct BgfxRenderInterface::Impl {
             layer->framebuffer);
         if (!pass)
             return;
+        uint64_t clear_area = uint64_t(width) * uint64_t(height);
         if (scissor.enabled) {
             const Rml::Rectanglei clipped = clamp_scissor(scissor.region, width, height);
             if (clipped.Width() <= 0 || clipped.Height() <= 0)
                 return;
+            clear_area = uint64_t(clipped.Width()) * uint64_t(clipped.Height());
             bgfx::setViewRect(pass->view, uint16_t(clipped.Left()), uint16_t(clipped.Top()),
                               uint16_t(clipped.Width()), uint16_t(clipped.Height()));
         }
+        perf.add_clear(clear_area);
         bgfx::setViewClear(pass->view, BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, value);
         bgfx::touch(pass->view);
     }
@@ -1160,8 +1279,7 @@ struct BgfxRenderInterface::Impl {
             layer->framebuffer);
         if (!pass)
             return;
-        perf.clip_mask_submits++;
-        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
+        perf.add_clip_mask(uint64_t(width) * uint64_t(height));
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (scissor.enabled) {
@@ -1254,7 +1372,7 @@ struct BgfxRenderInterface::Impl {
             layer->framebuffer);
         if (!pass)
             return;
-        perf.gradient_passes++;
+        perf.add_gradient();
 
         std::array<float, 8> gradient_params{
             gradient_kind_code(shader.gradient.kind),
@@ -1361,6 +1479,9 @@ struct BgfxRenderInterface::Impl {
     mutable bgfx::TextureFormat::Enum cached_stencil_format = bgfx::TextureFormat::Unknown;
 
     PerfCounters perf;
+#ifdef NOVELTEA_ENABLE_RENDER_PERF
+    bool perf_logging_enabled = false;
+#endif
 
     // Check whether a texture is the color attachment of a framebuffer we own.
     // WebGL forbids sampling a texture while rendering into a framebuffer whose
@@ -1432,6 +1553,7 @@ void BgfxRenderInterface::begin_frame()
         {RmlUiPassKind::Clear, 0, 0, true, true, m_impl->width, m_impl->height, "RmlUi.BaseClear"},
         base->framebuffer);
     if (pass) {
+        m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height));
         bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
         bgfx::touch(pass->view);
     }
@@ -1459,26 +1581,39 @@ void BgfxRenderInterface::end_frame()
         }
     }
 
-    // Per-frame performance logging (~1 Hz).
+    // Per-frame performance logging (~1 Hz, gated by runtime flag).
     {
+#ifdef NOVELTEA_ENABLE_RENDER_PERF
         static double last_log_time = 0.0;
         static int frame_count = 0;
         frame_count++;
         const int64_t now_ticks = bx::getHPCounter();
         const double now = double(now_ticks) / double(bx::getHPFrequency());
-        if (now - last_log_time >= 1.0) {
+        if (m_impl->perf_logging_enabled && now - last_log_time >= 1.0) {
             const auto& p = m_impl->perf;
             std::fprintf(stderr,
-                         "[perf] fps=%.0f geo=%u clip=%u layers=%u/%u filters=%u blur=%u shadow=%u "
-                         "rt_alloc=%u rt_destroy=%u layers_alloc=%u shaded_px=%llu fb=%dx%d\n",
-                         double(frame_count) / (now - last_log_time), p.geometry_submits,
-                         p.clip_mask_submits, p.layer_pushes, p.layer_composites,
-                         p.postprocess_passes, p.blur_passes, p.dropshadow_passes,
+                         "[perf] fps=%.0f passes=%u geom=%u clip=%u gradients=%u "
+                         "layers=%u full_layers=%u bounded_layers=%u "
+                         "filters=%u blur=%u shadow=%u mask=%u "
+                         "clear_px=%llu copy_px=%llu composite_px=%llu post_px=%llu "
+                         "full_frame_passes=%u bounded_passes=%u "
+                         "rt_alloc=%u rt_destroy=%u layer_alloc=%u layer_destroy=%u "
+                         "max_layer=%ux%u max_rt=%ux%u fb=%dx%d\n",
+                         double(frame_count) / (now - last_log_time), p.pass_count,
+                         p.geometry_draws, p.clip_mask_draws, p.gradient_draws, p.layer_pushes,
+                         p.full_frame_layers, p.bounded_layers, p.postprocess_passes, p.blur_passes,
+                         p.dropshadow_passes, p.mask_passes, (unsigned long long)p.clear_pixels,
+                         (unsigned long long)p.copy_pixels, (unsigned long long)p.composite_pixels,
+                         (unsigned long long)p.postprocess_pixels, p.full_frame_passes,
+                         p.bounded_passes,
                          p.postprocess_allocations, p.postprocess_destroys, p.layer_allocations,
-                         (unsigned long long)p.shaded_pixels, m_impl->width, m_impl->height);
+                         p.layer_destroys, p.max_layer_width, p.max_layer_height,
+                         p.max_postprocess_width, p.max_postprocess_height, m_impl->width,
+                         m_impl->height);
             frame_count = 0;
             last_log_time = now;
         }
+#endif
     }
 }
 
@@ -1651,13 +1786,14 @@ void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
 
 Rml::LayerHandle BgfxRenderInterface::PushLayer()
 {
-    m_impl->perf.layer_pushes++;
+    m_impl->perf.add_layer_push();
     const Rml::LayerHandle parent = m_impl->active_layer;
     const Rml::LayerHandle handle = Rml::LayerHandle(m_impl->layer_pool.push());
     if (!m_impl->ensure_layer(size_t(handle))) {
         m_impl->fail_frame("PushLayer failed while creating layer resources");
         return Rml::LayerHandle(LayerPoolPlan::InvalidLayer);
     }
+    m_impl->perf.add_full_frame_layer();
     if (size_t(parent) < m_impl->layers.size()) {
         m_impl->layers[size_t(handle)].clip_mask_enabled =
             m_impl->layers[size_t(parent)].clip_mask_enabled;
@@ -1670,12 +1806,15 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
         {RmlUiPassKind::Clear, 0, 0, true, true, m_impl->width, m_impl->height, "RmlUi.LayerClear"},
         m_impl->layers[size_t(handle)].framebuffer);
     if (pass) {
-        m_impl->perf.layer_clears++;
+        m_impl->perf.add_layer_clear();
         if (m_impl->scissor_enabled) {
             const Rml::Rectanglei scissor =
                 clamp_scissor(m_impl->scissor_region, m_impl->width, m_impl->height);
+            m_impl->perf.add_clear(uint64_t(scissor.Width()) * uint64_t(scissor.Height()));
             bgfx::setViewRect(pass->view, uint16_t(scissor.Left()), uint16_t(scissor.Top()),
                               uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        } else {
+            m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height));
         }
         bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
         bgfx::touch(pass->view);
@@ -1908,6 +2047,15 @@ void BgfxRenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
 void BgfxRenderInterface::ReleaseShader(Rml::CompiledShaderHandle shader)
 {
     m_impl->shaders.erase(shader);
+}
+
+void BgfxRenderInterface::set_perf_logging_enabled(bool enabled)
+{
+#ifdef NOVELTEA_ENABLE_RENDER_PERF
+    m_impl->perf_logging_enabled = enabled;
+#else
+    (void)enabled;
+#endif
 }
 
 } // namespace noveltea::ui::rmlui

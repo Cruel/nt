@@ -1,4 +1,5 @@
 #include "noveltea/ui_debug.hpp"
+#include "noveltea/ui_runtime.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -154,6 +155,11 @@ void DebugUI::end_frame()
         const ImGuiIO& io = ImGui::GetIO();
         ImGui::Text("FPS: %.1f", io.Framerate);
         ImGui::Text("Frame time: %.3f ms", 1000.0f / io.Framerate);
+        if (ImGui::Checkbox("Render Perf Logging", &m_perf_logging_enabled)) {
+            if (m_runtime_ui) {
+                m_runtime_ui->enable_render_perf_logging(m_perf_logging_enabled);
+            }
+        }
         ImGui::Separator();
 
         ImGui::Text("Renderer: %s", bgfx::getRendererName(bgfx::getRendererType()));
