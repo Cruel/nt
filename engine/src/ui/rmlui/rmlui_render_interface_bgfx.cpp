@@ -14,6 +14,7 @@
 #include <bimg/decode.h>
 #include <bx/allocator.h>
 #include <bx/math.h>
+#include <bx/timer.h>
 
 #include <algorithm>
 #include <array>
@@ -230,6 +231,29 @@ ClipOperationPlan clip_operation_plan(Rml::ClipMaskOperation operation)
     return ClipOperationPlan::Set;
 }
 
+struct PerfCounters {
+    uint32_t geometry_submits = 0;
+    uint32_t clip_mask_submits = 0;
+    uint32_t layer_pushes = 0;
+    uint32_t layer_clears = 0;
+    uint32_t layer_composites = 0;
+    uint32_t final_composites = 0;
+    uint32_t postprocess_passes = 0;
+    uint32_t blur_passes = 0;
+    uint32_t dropshadow_passes = 0;
+    uint32_t mask_passes = 0;
+    uint32_t gradient_passes = 0;
+    uint32_t postprocess_allocations = 0;
+    uint32_t layer_allocations = 0;
+    uint32_t postprocess_destroys = 0;
+    uint32_t layer_destroys = 0;
+    uint32_t max_rt_width = 0;
+    uint32_t max_rt_height = 0;
+    uint64_t shaded_pixels = 0;
+
+    void reset() { *this = PerfCounters{}; }
+};
+
 } // namespace
 
 struct BgfxRenderInterface::Impl {
@@ -433,33 +457,45 @@ struct BgfxRenderInterface::Impl {
 
     bgfx::TextureFormat::Enum depth_stencil_format() const
     {
-        const bool d24s8 = bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D24S8,
-                                                BGFX_TEXTURE_RT_WRITE_ONLY);
-        const bool d0s8 = bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D0S8,
-                                               BGFX_TEXTURE_RT_WRITE_ONLY);
-        switch (choose_stencil_plan(d24s8, d0s8)) {
-        case StencilPlan::D24S8:
-        case StencilPlan::StencilAttachment:
-            return bgfx::TextureFormat::D24S8;
-        case StencilPlan::D0S8:
-            return bgfx::TextureFormat::D0S8;
-        case StencilPlan::Unsupported:
-            return bgfx::TextureFormat::Unknown;
+        // Probe once and cache. WebGL's getInternalformatParameter is slow and
+        // generates console spam when called repeatedly.
+        if (!stencil_cached) {
+            stencil_cached = true;
+            const bool d24s8 = bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D24S8,
+                                                    BGFX_TEXTURE_RT_WRITE_ONLY);
+            const bool d0s8 = bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D0S8,
+                                                   BGFX_TEXTURE_RT_WRITE_ONLY);
+            switch (choose_stencil_plan(d24s8, d0s8)) {
+            case StencilPlan::D24S8:
+            case StencilPlan::StencilAttachment:
+                cached_stencil_format = bgfx::TextureFormat::D24S8;
+                break;
+            case StencilPlan::D0S8:
+                cached_stencil_format = bgfx::TextureFormat::D0S8;
+                break;
+            case StencilPlan::Unsupported:
+                cached_stencil_format = bgfx::TextureFormat::Unknown;
+                break;
+            }
         }
-        return bgfx::TextureFormat::Unknown;
+        return cached_stencil_format;
     }
 
     void destroy_layer(LayerRecord& layer)
     {
-        if (bgfx::isValid(layer.framebuffer))
+        if (bgfx::isValid(layer.framebuffer)) {
             bgfx::destroy(layer.framebuffer);
+            perf.layer_destroys++;
+        }
         layer = {};
     }
 
     void destroy_render_target(RenderTargetRecord& target)
     {
-        if (bgfx::isValid(target.framebuffer))
+        if (bgfx::isValid(target.framebuffer)) {
             bgfx::destroy(target.framebuffer);
+            perf.postprocess_destroys++;
+        }
         target = {};
     }
 
@@ -533,6 +569,9 @@ struct BgfxRenderInterface::Impl {
         layer.stencil_ref = 1;
         layer.clip_commands.clear();
         layer_pool.note_allocated(uint32_t(index));
+        perf.layer_allocations++;
+        perf.max_rt_width = std::max(perf.max_rt_width, uint32_t(width));
+        perf.max_rt_height = std::max(perf.max_rt_height, uint32_t(height));
         return true;
     }
 
@@ -549,6 +588,7 @@ struct BgfxRenderInterface::Impl {
 
     bool begin_base_layer()
     {
+        perf.reset();
         if (!ensure_layer(0))
             return false;
         layer_pool.begin_frame();
@@ -613,6 +653,18 @@ struct BgfxRenderInterface::Impl {
             layer->framebuffer);
         if (!pass)
             return;
+        perf.geometry_submits++;
+        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
+        // Bgfx invariant: once per-draw state (setUniform/setTexture/setVertexBuffer) is
+        // written, the path must submit or discard before returning. Validate scissor first.
+        if (scissor_enabled) {
+            const Rml::Rectanglei scissor = clamp_scissor(scissor_region, width, height);
+            if (scissor.Width() <= 0 || scissor.Height() <= 0) {
+                return;
+            }
+            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
+                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        }
         bgfx::setVertexBuffer(0, geometry.vb);
         bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
         bgfx::setUniform(projection_uniform, projection);
@@ -624,14 +676,6 @@ struct BgfxRenderInterface::Impl {
             bgfx_texture = it->second.handle;
         }
         bgfx::setTexture(0, sampler, bgfx_texture);
-        if (scissor_enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(scissor_region, width, height);
-            if (scissor.Width() <= 0 || scissor.Height() <= 0) {
-                return;
-            }
-            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
-                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
-        }
         bgfx::setState(kRmlBlendState);
         if (layer->clip_mask_enabled) {
             bgfx::setStencil(stencil_test_state());
@@ -651,28 +695,44 @@ struct BgfxRenderInterface::Impl {
         return bgfx::isValid(fullscreen_vb);
     }
 
-    void composite(const CompositeOp& op)
+    // Returns true on success.  Returns false if the source texture is attached to the
+    // destination framebuffer (WebGL feedback loop) or other validation fails.
+    bool composite(const CompositeOp& op)
     {
         if (frame_failed || !ensure_fullscreen_geometry() || !bgfx::isValid(composite_program) ||
             !bgfx::isValid(op.source))
-            return;
+            return false;
+
+        // WebGL forbids sampling from a texture while rendering into a framebuffer whose
+        // color attachment is that same texture (GL_INVALID_OPERATION feedback loop).
+        if (bgfx::isValid(op.destination) &&
+            texture_attached_to_framebuffer(op.source, op.destination)) {
+            fail_frame("composite feedback loop");
+            return false;
+        }
 
         auto pass =
             acquire_pass({op.kind, 0, 0, false, false, width, height, op.name}, op.destination);
         if (!pass)
-            return;
+            return false;
+        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
+        if (op.kind == RmlUiPassKind::LayerComposite)
+            perf.layer_composites++;
+        else if (op.kind == RmlUiPassKind::FinalComposite)
+            perf.final_composites++;
 
+        // Bgfx invariant: once per-draw state is written, the path must submit or discard.
+        if (op.scissor.enabled) {
+            const Rml::Rectanglei scissor = clamp_scissor(op.scissor.region, width, height);
+            if (scissor.Width() <= 0 || scissor.Height() <= 0)
+                return false;
+            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
+                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        }
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, op.source);
         const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
         bgfx::setUniform(texcoord_bounds_uniform, bounds);
-        if (op.scissor.enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(op.scissor.region, width, height);
-            if (scissor.Width() <= 0 || scissor.Height() <= 0)
-                return;
-            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
-                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
-        }
         const uint64_t state = op.blend_mode == Rml::BlendMode::Replace
                                    ? (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A)
                                    : kRmlBlendState;
@@ -681,6 +741,7 @@ struct BgfxRenderInterface::Impl {
             bgfx::setStencil(stencil_test_state_for_ref(op.stencil_ref));
         }
         bgfx::submit(pass->view, composite_program);
+        return true;
     }
 
     bool copy_region_to_framebuffer(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination,
@@ -749,18 +810,34 @@ struct BgfxRenderInterface::Impl {
         return texture;
     }
 
+    // Bgfx invariant: per-draw state must lead to submit or discard.
+    // Callers provide a callback that sets per-pass uniforms after pass acquisition
+    // succeeds but before submit, so that a failed pass acquisition cannot leave
+    // pending per-draw state.
+    template<typename F>
     bool fullscreen_filter_pass(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination,
-                                bgfx::ProgramHandle filter_program, const char* name)
+                                bgfx::ProgramHandle filter_program, const char* name,
+                                F&& bind_uniforms)
     {
         if (frame_failed || !ensure_fullscreen_geometry() || !bgfx::isValid(source) ||
             !bgfx::isValid(destination) || !bgfx::isValid(filter_program))
             return false;
+        // WebGL feedback check: the filter pipeline uses ping-pong between primary
+        // and secondary targets, so the source texture should never be the color
+        // attachment of the destination framebuffer under normal operation.
+        if (bgfx::isValid(destination) && texture_attached_to_framebuffer(source, destination)) {
+            fail_frame("fullscreen_filter_pass feedback loop");
+            return false;
+        }
         auto pass = acquire_pass(
             {RmlUiPassKind::Postprocess, 0, 0, false, false, width, height, name}, destination);
         if (!pass)
             return false;
+        perf.postprocess_passes++;
+        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, source);
+        bind_uniforms();
         bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
         bgfx::submit(pass->view, filter_program);
         return true;
@@ -776,9 +853,11 @@ struct BgfxRenderInterface::Impl {
         if (!primary || !secondary)
             return BGFX_INVALID_HANDLE;
 
-        composite(CompositeOp{source, primary->framebuffer, Rml::BlendMode::Replace,
-                              ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
-                              "RmlUi.FilterCopy"});
+        // Size postprocess targets to the work-area instead of full framebuffer.
+        if (!composite(CompositeOp{source, primary->framebuffer, Rml::BlendMode::Replace,
+                                   ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
+                                   "RmlUi.FilterCopy"}))
+            return BGFX_INVALID_HANDLE;
 
         bgfx::TextureHandle current = primary->color;
         RenderTargetRecord* destination = secondary;
@@ -791,15 +870,16 @@ struct BgfxRenderInterface::Impl {
             switch (filter.kind) {
             case FilterKind::Opacity: {
                 const float opacity[4] = {filter.scalar, 0.0f, 0.0f, 0.0f};
-                bgfx::setUniform(opacity_uniform, opacity);
                 ok = fullscreen_filter_pass(current, destination->framebuffer, opacity_program,
-                                            "RmlUi.FilterOpacity");
+                                            "RmlUi.FilterOpacity",
+                                            [&]() { bgfx::setUniform(opacity_uniform, opacity); });
                 break;
             }
             case FilterKind::ColorMatrix:
-                bgfx::setUniform(color_matrix_uniform, filter.matrix.data());
-                ok = fullscreen_filter_pass(current, destination->framebuffer, color_matrix_program,
-                                            "RmlUi.FilterColorMatrix");
+                ok = fullscreen_filter_pass(
+                    current, destination->framebuffer, color_matrix_program,
+                    "RmlUi.FilterColorMatrix",
+                    [&]() { bgfx::setUniform(color_matrix_uniform, filter.matrix.data()); });
                 break;
             case FilterKind::MaskImage: {
                 auto tex_it = textures.find(Rml::TextureHandle(filter.resource));
@@ -812,6 +892,8 @@ struct BgfxRenderInterface::Impl {
                                          destination->framebuffer);
                 if (!pass)
                     return BGFX_INVALID_HANDLE;
+                perf.mask_passes++;
+                perf.shaded_pixels += uint64_t(width) * uint64_t(height);
                 bgfx::setVertexBuffer(0, fullscreen_vb);
                 bgfx::setTexture(0, sampler, current);
                 bgfx::setTexture(1, mask_sampler, tex_it->second.handle);
@@ -830,21 +912,27 @@ struct BgfxRenderInterface::Impl {
                 const float weights[4] = {w0 / renorm, w1 / renorm, w2 / renorm, w3 / renorm};
                 const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
                 float params[4] = {0.0f, 1.0f / float(std::max(height, 1)), 0.0f, 0.0f};
-                bgfx::setUniform(blur_params_uniform, params);
-                bgfx::setUniform(blur_weights_uniform, weights);
-                bgfx::setUniform(texcoord_bounds_uniform, bounds);
                 if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
-                                            "RmlUi.FilterBlurV"))
+                                            "RmlUi.FilterBlurV", [&]() {
+                                                bgfx::setUniform(blur_params_uniform, params);
+                                                bgfx::setUniform(blur_weights_uniform, weights);
+                                                bgfx::setUniform(texcoord_bounds_uniform, bounds);
+                                            }))
                     return BGFX_INVALID_HANDLE;
+                perf.blur_passes++;
                 current = destination->color;
                 destination = (destination == primary) ? secondary : primary;
                 params[0] = 1.0f / float(std::max(width, 1));
                 params[1] = 0.0f;
-                bgfx::setUniform(blur_params_uniform, params);
-                bgfx::setUniform(blur_weights_uniform, weights);
-                bgfx::setUniform(texcoord_bounds_uniform, bounds);
-                ok = fullscreen_filter_pass(current, destination->framebuffer, blur_program,
-                                            "RmlUi.FilterBlurH");
+                if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
+                                            "RmlUi.FilterBlurH", [&]() {
+                                                bgfx::setUniform(blur_params_uniform, params);
+                                                bgfx::setUniform(blur_weights_uniform, weights);
+                                                bgfx::setUniform(texcoord_bounds_uniform, bounds);
+                                            }))
+                    return BGFX_INVALID_HANDLE;
+                perf.blur_passes++;
+                ok = true;
                 break;
             }
             case FilterKind::DropShadow: {
@@ -853,12 +941,14 @@ struct BgfxRenderInterface::Impl {
                                         filter.color[3]};
                 const float offset[4] = {filter.offset[0] / float(std::max(width, 1)),
                                          filter.offset[1] / float(std::max(height, 1)), 0.0f, 0.0f};
-                bgfx::setUniform(shadow_color_uniform, color);
-                bgfx::setUniform(shadow_offset_uniform, offset);
                 if (!fullscreen_filter_pass(current, destination->framebuffer, drop_shadow_program,
-                                            "RmlUi.FilterDropShadowExtract")) {
+                                            "RmlUi.FilterDropShadowExtract", [&]() {
+                                                bgfx::setUniform(shadow_color_uniform, color);
+                                                bgfx::setUniform(shadow_offset_uniform, offset);
+                                            })) {
                     return BGFX_INVALID_HANDLE;
                 }
+                perf.dropshadow_passes++;
                 current = destination->color;
                 destination = (destination == primary) ? secondary : primary;
                 if (filter.sigma >= 0.5f) {
@@ -871,30 +961,43 @@ struct BgfxRenderInterface::Impl {
                     const float weights[4] = {w0 / renorm, w1 / renorm, w2 / renorm, w3 / renorm};
                     const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
                     float params[4] = {0.0f, 1.0f / float(std::max(height, 1)), 0.0f, 0.0f};
-                    bgfx::setUniform(blur_params_uniform, params);
-                    bgfx::setUniform(blur_weights_uniform, weights);
-                    bgfx::setUniform(texcoord_bounds_uniform, bounds);
                     if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
-                                                "RmlUi.FilterDropShadowBlurV")) {
+                                                "RmlUi.FilterDropShadowBlurV", [&]() {
+                                                    bgfx::setUniform(blur_params_uniform, params);
+                                                    bgfx::setUniform(blur_weights_uniform, weights);
+                                                    bgfx::setUniform(texcoord_bounds_uniform,
+                                                                     bounds);
+                                                })) {
                         return BGFX_INVALID_HANDLE;
                     }
+                    perf.blur_passes++;
                     current = destination->color;
                     destination = (destination == primary) ? secondary : primary;
                     params[0] = 1.0f / float(std::max(width, 1));
                     params[1] = 0.0f;
-                    bgfx::setUniform(blur_params_uniform, params);
-                    bgfx::setUniform(blur_weights_uniform, weights);
-                    bgfx::setUniform(texcoord_bounds_uniform, bounds);
                     if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
-                                                "RmlUi.FilterDropShadowBlurH")) {
+                                                "RmlUi.FilterDropShadowBlurH", [&]() {
+                                                    bgfx::setUniform(blur_params_uniform, params);
+                                                    bgfx::setUniform(blur_weights_uniform, weights);
+                                                    bgfx::setUniform(texcoord_bounds_uniform,
+                                                                     bounds);
+                                                })) {
                         return BGFX_INVALID_HANDLE;
                     }
+                    perf.blur_passes++;
                     current = destination->color;
                     destination = (destination == primary) ? secondary : primary;
                 }
-                composite(CompositeOp{original, destination->framebuffer, Rml::BlendMode::Blend,
-                                      ScissorState{false, {}}, false, 1, RmlUiPassKind::Postprocess,
-                                      "RmlUi.FilterDropShadowComposite"});
+                // Use safe_destination to avoid WebGL feedback loop: the composite reads
+                // `original` texture, so destination framebuffer must not own it.
+                destination = safe_destination(original, destination,
+                                               (destination == primary) ? secondary : primary);
+                if (!composite(CompositeOp{original, destination->framebuffer,
+                                           Rml::BlendMode::Blend, ScissorState{false, {}}, false, 1,
+                                           RmlUiPassKind::Postprocess,
+                                           "RmlUi.FilterDropShadowComposite"})) {
+                    return BGFX_INVALID_HANDLE;
+                }
                 ok = true;
                 break;
             }
@@ -914,8 +1017,11 @@ struct BgfxRenderInterface::Impl {
         const size_t index = size_t(kind);
         if (index >= postprocess_targets.size())
             return nullptr;
+        const int work_w = width;
+        const int work_h = height;
         RenderTargetRecord& target = postprocess_targets[index];
-        if (bgfx::isValid(target.framebuffer) && target.width == width && target.height == height) {
+        if (bgfx::isValid(target.framebuffer) && target.width == work_w &&
+            target.height == work_h) {
             return &target;
         }
         destroy_render_target(target);
@@ -923,7 +1029,7 @@ struct BgfxRenderInterface::Impl {
         if (bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0) {
             flags |= BGFX_TEXTURE_BLIT_DST;
         }
-        bgfx::TextureHandle color = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false,
+        bgfx::TextureHandle color = bgfx::createTexture2D(uint16_t(work_w), uint16_t(work_h), false,
                                                           1, bgfx::TextureFormat::RGBA8, flags);
         if (!bgfx::isValid(color)) {
             std::fprintf(stderr, "[rmlui] failed to create postprocess target texture\n");
@@ -935,8 +1041,11 @@ struct BgfxRenderInterface::Impl {
             std::fprintf(stderr, "[rmlui] failed to create postprocess framebuffer\n");
             return nullptr;
         }
-        target = {framebuffer, color, width, height};
+        target = {framebuffer, color, work_w, work_h};
         postprocess_pool.mark_allocated(kind);
+        perf.postprocess_allocations++;
+        perf.max_rt_width = std::max(perf.max_rt_width, uint32_t(work_w));
+        perf.max_rt_height = std::max(perf.max_rt_height, uint32_t(work_h));
         return &target;
     }
 
@@ -1051,7 +1160,17 @@ struct BgfxRenderInterface::Impl {
             layer->framebuffer);
         if (!pass)
             return;
+        perf.clip_mask_submits++;
+        perf.shaded_pixels += uint64_t(width) * uint64_t(height);
 
+        // Bgfx invariant: once per-draw state is written, the path must submit or discard.
+        if (scissor.enabled) {
+            const Rml::Rectanglei clipped = clamp_scissor(scissor.region, width, height);
+            if (clipped.Width() <= 0 || clipped.Height() <= 0)
+                return;
+            bgfx::setScissor(uint16_t(clipped.Left()), uint16_t(clipped.Top()),
+                             uint16_t(clipped.Width()), uint16_t(clipped.Height()));
+        }
         bgfx::setVertexBuffer(0, geometry.vb);
         bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
         bgfx::setUniform(projection_uniform, projection);
@@ -1060,13 +1179,6 @@ struct BgfxRenderInterface::Impl {
         const float translate[4] = {translation.x, translation.y, 0.0f, 0.0f};
         bgfx::setUniform(translate_uniform, translate);
         bgfx::setTexture(0, sampler, white_texture);
-        if (scissor.enabled) {
-            const Rml::Rectanglei clipped = clamp_scissor(scissor.region, width, height);
-            if (clipped.Width() <= 0 || clipped.Height() <= 0)
-                return;
-            bgfx::setScissor(uint16_t(clipped.Left()), uint16_t(clipped.Top()),
-                             uint16_t(clipped.Width()), uint16_t(clipped.Height()));
-        }
         bgfx::setState(BGFX_STATE_NONE);
         bgfx::setStencil(stencil_state);
         bgfx::submit(pass->view, program);
@@ -1142,6 +1254,7 @@ struct BgfxRenderInterface::Impl {
             layer->framebuffer);
         if (!pass)
             return;
+        perf.gradient_passes++;
 
         std::array<float, 8> gradient_params{
             gradient_kind_code(shader.gradient.kind),
@@ -1160,6 +1273,14 @@ struct BgfxRenderInterface::Impl {
             stop_positions[i / 4][i % 4] = shader.gradient.stops[i].position;
         }
 
+        // Bgfx invariant: once per-draw state is written, the path must submit or discard.
+        if (scissor_enabled) {
+            const Rml::Rectanglei scissor = clamp_scissor(scissor_region, width, height);
+            if (scissor.Width() <= 0 || scissor.Height() <= 0)
+                return;
+            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
+                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        }
         bgfx::setVertexBuffer(0, geometry.vb);
         bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
         bgfx::setUniform(projection_uniform, projection);
@@ -1169,13 +1290,6 @@ struct BgfxRenderInterface::Impl {
         bgfx::setUniform(gradient_params_uniform, gradient_params.data(), 2);
         bgfx::setUniform(gradient_stops_uniform, stop_colors.data(), kGradientStopLimit);
         bgfx::setUniform(gradient_stop_meta_uniform, stop_positions.data(), 4);
-        if (scissor_enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(scissor_region, width, height);
-            if (scissor.Width() <= 0 || scissor.Height() <= 0)
-                return;
-            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
-                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
-        }
         bgfx::setState(kRmlBlendState);
         if (layer->clip_mask_enabled) {
             bgfx::setStencil(stencil_test_state());
@@ -1241,6 +1355,46 @@ struct BgfxRenderInterface::Impl {
     bool scissor_enabled = false;
     Rml::Rectanglei scissor_region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
     bool frame_failed = false;
+
+    // Cached stencil format (probed once to avoid getInternalformatParameter spam).
+    mutable bool stencil_cached = false;
+    mutable bgfx::TextureFormat::Enum cached_stencil_format = bgfx::TextureFormat::Unknown;
+
+    PerfCounters perf;
+
+    // Check whether a texture is the color attachment of a framebuffer we own.
+    // WebGL forbids sampling a texture while rendering into a framebuffer whose
+    // color attachment is that same texture (GL_INVALID_OPERATION feedback loop).
+    bool texture_attached_to_framebuffer(bgfx::TextureHandle texture,
+                                         bgfx::FrameBufferHandle framebuffer) const
+    {
+        for (const RenderTargetRecord& target : postprocess_targets) {
+            if (bgfx::isValid(target.framebuffer) && target.framebuffer.idx == framebuffer.idx &&
+                bgfx::isValid(target.color) && target.color.idx == texture.idx) {
+                return true;
+            }
+        }
+        for (const LayerRecord& layer : layers) {
+            if (bgfx::isValid(layer.framebuffer) && layer.framebuffer.idx == framebuffer.idx &&
+                bgfx::isValid(layer.color) && layer.color.idx == texture.idx) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Pick a render target whose framebuffer does not own the given source texture,
+    // avoiding WebGL feedback loops. Falls back to the other target if the current
+    // one would cause a feedback loop.
+    RenderTargetRecord* safe_destination(bgfx::TextureHandle source, RenderTargetRecord* current,
+                                         RenderTargetRecord* other) const
+    {
+        if (bgfx::isValid(source) && bgfx::isValid(current->framebuffer) &&
+            texture_attached_to_framebuffer(source, current->framebuffer)) {
+            return other;
+        }
+        return current;
+    }
 };
 
 BgfxRenderInterface::BgfxRenderInterface(const SurfaceMetrics& surface,
@@ -1298,9 +1452,33 @@ void BgfxRenderInterface::end_frame()
         m_impl->active_layer = 0;
     }
     if (LayerRecord* base = m_impl->layer_for_handle(0)) {
-        m_impl->composite(CompositeOp{base->color, BGFX_INVALID_HANDLE, Rml::BlendMode::Blend,
-                                      ScissorState{false, {}}, false, 1,
-                                      RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite"});
+        if (!m_impl->composite(CompositeOp{
+                base->color, BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}},
+                false, 1, RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite"})) {
+            m_impl->fail_frame("end_frame final composite failed");
+        }
+    }
+
+    // Per-frame performance logging (~1 Hz).
+    {
+        static double last_log_time = 0.0;
+        static int frame_count = 0;
+        frame_count++;
+        const int64_t now_ticks = bx::getHPCounter();
+        const double now = double(now_ticks) / double(bx::getHPFrequency());
+        if (now - last_log_time >= 1.0) {
+            const auto& p = m_impl->perf;
+            std::fprintf(stderr,
+                         "[perf] fps=%.0f geo=%u clip=%u layers=%u/%u filters=%u blur=%u shadow=%u "
+                         "rt_alloc=%u rt_destroy=%u layers_alloc=%u shaded_px=%llu fb=%dx%d\n",
+                         double(frame_count) / (now - last_log_time), p.geometry_submits,
+                         p.clip_mask_submits, p.layer_pushes, p.layer_composites,
+                         p.postprocess_passes, p.blur_passes, p.dropshadow_passes,
+                         p.postprocess_allocations, p.postprocess_destroys, p.layer_allocations,
+                         (unsigned long long)p.shaded_pixels, m_impl->width, m_impl->height);
+            frame_count = 0;
+            last_log_time = now;
+        }
     }
 }
 
@@ -1473,6 +1651,7 @@ void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
 
 Rml::LayerHandle BgfxRenderInterface::PushLayer()
 {
+    m_impl->perf.layer_pushes++;
     const Rml::LayerHandle parent = m_impl->active_layer;
     const Rml::LayerHandle handle = Rml::LayerHandle(m_impl->layer_pool.push());
     if (!m_impl->ensure_layer(size_t(handle))) {
@@ -1491,6 +1670,7 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
         {RmlUiPassKind::Clear, 0, 0, true, true, m_impl->width, m_impl->height, "RmlUi.LayerClear"},
         m_impl->layers[size_t(handle)].framebuffer);
     if (pass) {
+        m_impl->perf.layer_clears++;
         if (m_impl->scissor_enabled) {
             const Rml::Rectanglei scissor =
                 clamp_scissor(m_impl->scissor_region, m_impl->width, m_impl->height);
@@ -1518,6 +1698,7 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         return;
     }
     const ScissorState scissor_state{m_impl->scissor_enabled, m_impl->scissor_region};
+
     if (scissor_state.enabled) {
         const Rml::Rectanglei scissor =
             clamp_scissor(scissor_state.region, m_impl->width, m_impl->height);
@@ -1525,6 +1706,7 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
             return;
         }
     }
+
     const bool destination_clip = destination_layer->clip_mask_enabled;
     const uint8_t destination_stencil_ref = destination_layer->stencil_ref;
     if (source == destination) {
@@ -1538,23 +1720,32 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         destination_layer = m_impl->layer_for_handle(destination);
         if (!source_layer || !destination_layer)
             return;
-        m_impl->composite(CompositeOp{source_layer->color, scratch->framebuffer,
-                                      Rml::BlendMode::Replace, ScissorState{false, {}}, false, 1,
-                                      RmlUiPassKind::Copy, "RmlUi.LayerScratchCopy"});
+        if (!m_impl->composite(CompositeOp{source_layer->color, scratch->framebuffer,
+                                           Rml::BlendMode::Replace, ScissorState{false, {}}, false,
+                                           1, RmlUiPassKind::Copy, "RmlUi.LayerScratchCopy"})) {
+            m_impl->fail_frame("CompositeLayers scratch copy failed");
+            return;
+        }
         bgfx::TextureHandle filtered = m_impl->apply_filters(scratch->color, filters);
         if (!bgfx::isValid(filtered))
             return;
-        m_impl->composite(CompositeOp{filtered, destination_layer->framebuffer, blend_mode,
-                                      scissor_state, destination_clip, destination_stencil_ref,
-                                      RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"});
+        if (!m_impl->composite(CompositeOp{filtered, destination_layer->framebuffer, blend_mode,
+                                           scissor_state, destination_clip, destination_stencil_ref,
+                                           RmlUiPassKind::LayerComposite,
+                                           "RmlUi.LayerComposite"})) {
+            m_impl->fail_frame("CompositeLayers composite failed");
+            return;
+        }
         return;
     }
     bgfx::TextureHandle filtered = m_impl->apply_filters(source_layer->color, filters);
     if (!bgfx::isValid(filtered))
         return;
-    m_impl->composite(CompositeOp{filtered, destination_layer->framebuffer, blend_mode,
-                                  scissor_state, destination_clip, destination_stencil_ref,
-                                  RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"});
+    if (!m_impl->composite(CompositeOp{filtered, destination_layer->framebuffer, blend_mode,
+                                       scissor_state, destination_clip, destination_stencil_ref,
+                                       RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"})) {
+        m_impl->fail_frame("CompositeLayers composite failed");
+    }
 }
 
 void BgfxRenderInterface::PopLayer()

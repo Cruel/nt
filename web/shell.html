@@ -146,7 +146,8 @@
 
     function resizeCanvas() {
       const canvas = document.getElementById('canvas');
-      const dpr = window.devicePixelRatio || 1;
+      const maxDpr = parseFloat(params.get('maxDpr') || '0') || 0;
+      const dpr = maxDpr > 0 ? Math.min(window.devicePixelRatio || 1, maxDpr) : (window.devicePixelRatio || 1);
       const rect = canvas.getBoundingClientRect();
       const logicalWidth = Math.max(1, Math.round(rect.width));
       const logicalHeight = Math.max(1, Math.round(rect.height));
