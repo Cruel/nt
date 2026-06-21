@@ -1,6 +1,6 @@
 # Migration Status
 
-Last updated: 2026-06-20.
+Last updated: 2026-06-21.
 
 ## Completed Foundation
 
@@ -27,6 +27,7 @@ Last updated: 2026-06-20.
 - Phase 14 Editor Integration V1: Electron now talks to a CMake-built `noveltea-editor-tool` helper for project load/import, validation, raw entity edits, playback test listing/running, and package export. The TanStack workspace uses project-derived entity/test trees, raw JSON inspection, validation diagnostics, playback/export timeline entries, and runtime-named preview controls over the existing iframe MessageChannel.
 - Phase 15 RmlUi bgfx optimization Phase 2: child layers now use bounded framebuffer allocation driven by active scissor or explicit fallback to full-frame bounds, with per-layer orthographic projection and selection-policy tests covering bounded, parent-clamped, and fallback cases.
 - Phase 16 RmlUi bgfx optimization Phase 3: rectangle-aware compositing now carries explicit source and destination rectangles through bounded layer composites, scratch copies, saved mask copies, and the final base-layer composite.
+- Phase 17 RmlUi bgfx optimization Phase 4: postprocess scratch/filter targets now allocate to explicit requested bounds instead of defaulting to full-frame size, bounded layer filters reuse exact-dimension ping-pong targets, and perf counters/logging now report actual postprocess target sizes and bounded-vs-full-frame target allocation. The known saved `mask-image` readback verifier mismatch remains deferred to the later bounded filter pipeline phase because that path still depends on full-frame-era source/mask mapping semantics.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -35,13 +36,14 @@ Last updated: 2026-06-20.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
+- The RmlUi readback verifier's saved `mask-image` check remains a known exception after Phase 17. Bounded postprocess target sizing is in place, but the fully correct bounded `mask-image` path still belongs to the later bounded filter work-area / UV-mapping phase.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 
 ## Current Verification Commands
 
-Latest Phase 14 implementation — use these commands to verify:
+Latest Phase 17 implementation — use these commands to verify:
 
 ```sh
 cmake --preset linux-debug
@@ -51,6 +53,10 @@ cmake --preset web-debug
 cmake --build --preset web-debug
 cmake --build --preset linux-debug --target format-check
 ```
+
+Known Phase 17 verification note:
+
+- `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` still fails in `noveltea_rmlui_readback_verify` at the saved `mask-image` brightness assertion. This is the intentionally deferred full-frame-era mask path noted above, not a regression in the ordinary bounded scratch/filter target allocation work.
 
 Use the smallest relevant subset for a docs-only or narrow code change:
 
