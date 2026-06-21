@@ -166,6 +166,18 @@ std::array<float, 4> uv_rect_for_source_region(FbRect source_region, int texture
             float(source_region.y + source_region.h) / th};
 }
 
+std::array<float, 4> compute_mask_uv_transform(FbRect shaded_work_bounds, FbRect mask_bounds)
+{
+    const float inv_mask_w = 1.0f / float(std::max(mask_bounds.w, 1));
+    const float inv_mask_h = 1.0f / float(std::max(mask_bounds.h, 1));
+    return {
+        float(shaded_work_bounds.w) * inv_mask_w,
+        float(shaded_work_bounds.h) * inv_mask_h,
+        float(shaded_work_bounds.x - mask_bounds.x) * inv_mask_w,
+        float(shaded_work_bounds.y - mask_bounds.y) * inv_mask_h,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Filter expansion
 // ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
 | CompositeLayers | VERIFIED | Linux readback covers filtered and gradient layer composition; same-layer composition still needs targeted coverage. |
 | PopLayer | IMPLEMENTED, NOT VERIFIED | Restores active layer; exact parent-state restoration lacks a targeted test. |
 | SaveLayerAsTexture | VERIFIED | Saved-layer copies now use bounded layer/scissor intersections and preserve saved bounds metadata. |
-| SaveLayerAsMaskImage | VERIFIED | Saved-mask copies now use bounded layer/scissor intersections and preserve saved bounds metadata. |
+| SaveLayerAsMaskImage | VERIFIED | Saved-mask copies now use bounded layer attachments, preserve saved bounds metadata, and own the copied mask texture when borrowed attachment lifetime is unsafe. |
 | CompileFilter | VERIFIED | Standard filter compile paths are covered by unit and readback tests for representative filters. |
 | ReleaseFilter | VERIFIED | Mask-image filters release owned saved textures and clear the saved texture record metadata. |
 | CompileShader | VERIFIED | Linear/radial/conic and repeating gradient records compile and shader assets stage. |
@@ -43,10 +43,10 @@ Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
 | Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
 | Capability-aware MSAA and resolve | NOT VERIFIED | Current layer path is single-sample only; portable MSAA/resolve planning and runtime coverage are missing. |
 | Blit and shader-copy paths | IMPLEMENTED, NOT VERIFIED | Both code paths exist, but no test hook forces shader-copy fallback. |
-| Standard color filter visual coverage | IMPLEMENTED, NOT VERIFIED | The bounded filter pipeline refactor landed. Phase 6 saved-layer bounds are implemented; the remaining saved `mask-image` validation issue is tracked separately. |
+| Standard color filter visual coverage | IMPLEMENTED, NOT VERIFIED | The bounded filter pipeline refactor landed and the saved `mask-image` readback issue is fixed; broader perf-log review is still pending before Phase 5 is closed. |
 | Gradient visual coverage | VERIFIED | Expanded readback asserts linear, radial, conic, repeating linear, repeating radial, repeating conic, and multi-stop gradient regions. |
 | RuntimeUI facade integration tests | NOT VERIFIED | Event-consumption polarity has tests; document/element/listener/data-model/reload/density/focus lifecycle tests are missing. |
-| Linux visual readback | IMPLEMENTED, NOT VERIFIED | `noveltea_rmlui_readback_capture` passes; the remaining saved `mask-image` assertion is a separate validation issue outside the Phase 6 bounds work. |
+| Linux visual readback | VERIFIED | `noveltea_rmlui_readback_capture` and `noveltea_rmlui_readback_verify` pass for the gallery, including the saved `mask-image` pixel. |
 | Web headless-browser runtime smoke | NOT VERIFIED | Web build exists in CI, but no browser runtime smoke is implemented. |
 | Android packaged-shader verification | IMPLEMENTED, NOT VERIFIED | CI checks rmlui shader assets by program list; local Android assemble was not rerun in this pass. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |

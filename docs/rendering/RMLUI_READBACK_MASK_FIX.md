@@ -4,22 +4,21 @@ The readback test is a correctness gate for the current renderer output. The mas
 `(524, 64)` is the one that exposed the regression while the renderer was being refactored toward
 bounded layers and postprocess targets.
 
-The working temporary fix was to relax the child-layer bounds selection back to full-frame fallback
-for the affected path. In code, that meant the child layer bounds helper stopped applying the
-active scissor rectangle:
+The earlier temporary fix relaxed child-layer bounds selection back to full-frame fallback for the
+affected path. That made the readback gallery pass, but it gave up the Phase 2 bounded-child-layer
+behavior and hid the real coordinate issue.
 
-```cpp
-const FbRect* scissor_ptr = nullptr;
-const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback();
+The bounded path is now restored:
 
-return noveltea::ui::rmlui::compute_child_layer_bounds(surface, parent_ptr, scissor_ptr,
-                                                       transform_valid);
-```
+- `compute_child_layer_bounds()` passes the active framebuffer scissor rectangle into the pure
+  bounds helper when scissor is enabled.
+- `unbounded_layer_fallbacks` is recorded only when there is no usable scissor or when the active
+  transform requires a full-frame layer.
+- `mask-image` UVs are computed from the postprocess work bounds being shaded and the saved mask's
+  global bounds, then adjusted at the bgfx shader boundary for texture-origin differences.
+- `SaveLayerAsMaskImage()` copies the bounded layer into an owned saved texture. The previous
+  borrowed attachment optimization is not used for this path because RmlUi can apply the mask after
+  the source/work layer has changed, making the borrowed lifetime unsafe.
 
-That made the readback gallery pass again, because the `saved_mask` subtree no longer depended on
-the still-incomplete bounded mask-image path. The downside is that it temporarily gives up the
-Phase 2 bounded-child-layer behavior for this case, so it is a correctness fallback, not the final
-optimization state.
-
-The test comment stays in place to mark the pixel check as tracking unfinished bounded
-mask-image work in the RmlUi bgfx optimization plan.
+The readback gallery's `(524, 64)` saved-mask pixel now passes without forcing the child layer to
+full-frame bounds.

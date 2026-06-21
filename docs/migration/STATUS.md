@@ -27,7 +27,7 @@ Last updated: 2026-06-21.
 - Phase 14 Editor Integration V1: Electron now talks to a CMake-built `noveltea-editor-tool` helper for project load/import, validation, raw entity edits, playback test listing/running, and package export. The TanStack workspace uses project-derived entity/test trees, raw JSON inspection, validation diagnostics, playback/export timeline entries, and runtime-named preview controls over the existing iframe MessageChannel.
 - Phase 15 RmlUi bgfx optimization Phase 2: child layers now use bounded framebuffer allocation driven by active scissor or explicit fallback to full-frame bounds, with per-layer orthographic projection and selection-policy tests covering bounded, parent-clamped, and fallback cases.
 - Phase 16 RmlUi bgfx optimization Phase 3: rectangle-aware compositing now carries explicit source and destination rectangles through bounded layer composites, scratch copies, saved mask copies, and the final base-layer composite.
-- Phase 17 RmlUi bgfx optimization Phase 4: postprocess scratch/filter targets now allocate to explicit requested bounds instead of defaulting to full-frame size, bounded layer filters reuse exact-dimension ping-pong targets, and perf counters/logging now report actual postprocess target sizes and bounded-vs-full-frame target allocation. Phase 5's bounded filter pipeline is now partially implemented, but the readback verifier still fails on the saved `mask-image` brightness assertion, so the phase is still active rather than complete.
+- Phase 17 RmlUi bgfx optimization Phase 4/5: postprocess scratch/filter targets now allocate to explicit requested bounds instead of defaulting to full-frame size, bounded layer filters reuse exact-dimension ping-pong targets, and perf counters/logging now report actual postprocess target sizes plus bounded-vs-full-frame layer allocation. The saved `mask-image` readback assertion now passes with bounded child-layer selection restored, but Phase 5 remains active until the remaining bounded filter pipeline acceptance checks are re-run together.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -36,7 +36,7 @@ Last updated: 2026-06-21.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
-- The RmlUi readback verifier's saved `mask-image` check remains a known exception. Bounded postprocess target sizing is in place, but the fully correct bounded `mask-image` path still needs the remaining Phase 5 UV/bounds work.
+- RmlUi saved `mask-image` now passes Linux readback with bounded child layers and owned saved-mask textures. Remaining Phase 5 work is broader bounded filter-pipeline verification and perf-log review, not the `(524, 64)` saved-mask exception.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
@@ -56,7 +56,7 @@ cmake --build --preset linux-debug --target format-check
 
 Known current verification note:
 
-- `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` still fails in `noveltea_rmlui_readback_verify` at the saved `mask-image` brightness assertion. This is the remaining Phase 5 gap, not a regression in the ordinary bounded scratch/filter target allocation work.
+- `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` passes for the saved `mask-image` panel. Phase 5 is still not marked complete until the full bounded filter pipeline and perf-log acceptance checks are re-run together.
 
 Use the smallest relevant subset for a docs-only or narrow code change:
 

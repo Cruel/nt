@@ -567,8 +567,9 @@ Acceptance criteria:
 
 Current implementation note:
 
-- The bounded work-area refactor is in progress, but the readback gallery still fails on the saved `mask-image` brightness assertion, so Phase 5 is not complete yet.
-- The remaining failure indicates the mask-image path still needs the final source/mask UV mapping adjustment before this phase can be marked `[done]`.
+- The saved `mask-image` readback assertion now passes with bounded child layers restored.
+- Phase 5 remains active until the rest of the bounded filter pipeline acceptance items, especially
+  perf-log review across the gallery and non-mask filter work areas, are rechecked together.
 
 ## Phase 6 [done]: Saved Layer and Mask Image Bounds
 

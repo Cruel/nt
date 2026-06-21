@@ -621,3 +621,33 @@ TEST_CASE("RmlUi compute_child_layer_bounds selection policy")
         CHECK(result.framebuffer.h == 1000);
     }
 }
+
+TEST_CASE("RmlUi mask UV transform maps global work bounds into saved mask bounds")
+{
+    SECTION("same-rect bounded mask samples directly")
+    {
+        const auto uv = compute_mask_uv_transform({476, 16, 96, 96}, {476, 16, 96, 96});
+        CHECK(uv[0] == Catch::Approx(1.0f));
+        CHECK(uv[1] == Catch::Approx(1.0f));
+        CHECK(uv[2] == Catch::Approx(0.0f));
+        CHECK(uv[3] == Catch::Approx(0.0f));
+    }
+
+    SECTION("full-frame work sampling bounded mask keeps global offset")
+    {
+        const auto uv = compute_mask_uv_transform({0, 0, 800, 600}, {476, 16, 96, 96});
+        CHECK(uv[0] == Catch::Approx(800.0f / 96.0f));
+        CHECK(uv[1] == Catch::Approx(600.0f / 96.0f));
+        CHECK(uv[2] == Catch::Approx(-476.0f / 96.0f));
+        CHECK(uv[3] == Catch::Approx(-16.0f / 96.0f));
+    }
+
+    SECTION("expanded work area around bounded mask accounts for expansion offset")
+    {
+        const auto uv = compute_mask_uv_transform({468, 8, 112, 112}, {476, 16, 96, 96});
+        CHECK(uv[0] == Catch::Approx(112.0f / 96.0f));
+        CHECK(uv[1] == Catch::Approx(112.0f / 96.0f));
+        CHECK(uv[2] == Catch::Approx(-8.0f / 96.0f));
+        CHECK(uv[3] == Catch::Approx(-8.0f / 96.0f));
+    }
+}

@@ -54,6 +54,8 @@ struct FilterExpansion {
 
 [[nodiscard]] std::array<float, 4> uv_rect_for_source_region(FbRect source_region,
                                                              int texture_width, int texture_height);
+[[nodiscard]] std::array<float, 4> compute_mask_uv_transform(FbRect shaded_work_bounds,
+                                                             FbRect mask_bounds);
 
 [[nodiscard]] FilterExpansion blur_expansion(float sigma);
 [[nodiscard]] FilterExpansion drop_shadow_expansion(float sigma, float offset_x, float offset_y);
