@@ -29,6 +29,7 @@ Last updated: 2026-06-21.
 - Phase 16 RmlUi bgfx optimization Phase 3: rectangle-aware compositing now carries explicit source and destination rectangles through bounded layer composites, scratch copies, saved mask copies, and the final base-layer composite.
 - Phase 17 RmlUi bgfx optimization Phase 4/5: postprocess scratch/filter targets allocate to explicit requested bounds instead of defaulting to full-frame size, bounded layer filters reuse exact-dimension ping-pong targets, and perf counters/logging report actual postprocess target sizes plus bounded-vs-full-frame layer allocation. The saved `mask-image` readback assertion passes with bounded child-layer selection restored, and the remaining bounded filter pipeline acceptance checks have now been rerun together.
 - Phase 18 RmlUi bgfx optimization Phase 7: clip-mask and stencil work now derives from bounded layer/scissor intersections, stencil clears and normalization no longer default to full-layer work areas, conservative clip replay skips empty bounded work, and focused bounds/planning tests cover the new clip behavior.
+- Phase 19 RmlUi bgfx optimization Phase 8: no-op filter elimination now skips neutral filter passes, `blur(<0.5)` short-circuits before postprocess allocation, and consecutive color-matrix filters are reduced before hitting the bounded filter pipeline.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -59,7 +60,7 @@ cmake --build --preset linux-debug --target format-check
 Known current verification note:
 
 - `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` passes for the saved `mask-image` panel. The bounded postprocess/filter pipeline checks have been completed together.
-- `cmake --build --preset linux-debug --target noveltea_ui_tests` and `./build/linux-debug/tests/noveltea_ui_tests "*RmlUi*"` pass after the Phase 7 clip/stencil bounds update.
+- `cmake --build --preset linux-debug --target noveltea_ui_tests` and `./build/linux-debug/tests/noveltea_ui_tests "*RmlUi*"` pass after the Phase 8 filter simplification update.
 - `cmake --build --preset web-debug --target engine` passes after the Phase 7 clip/stencil bounds update.
 
 Use the smallest relevant subset for a docs-only or narrow code change:

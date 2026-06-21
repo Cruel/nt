@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cmath>
+#include <vector>
 
 using namespace noveltea::ui::rmlui;
 
@@ -168,6 +169,48 @@ TEST_CASE("RmlUi color filter matrices match expected scalar behavior")
     CHECK(invert.matrix[3] == 1.0f);
     CHECK(invert.matrix[7] == 1.0f);
     CHECK(invert.matrix[11] == 1.0f);
+}
+
+TEST_CASE("RmlUi filter simplifier removes no-op filters")
+{
+    CHECK(is_noop_filter(make_opacity_filter(1.0f)));
+    CHECK(is_noop_filter(FilterRecord{.kind = FilterKind::Blur, .sigma = 0.0f}));
+    CHECK(is_noop_filter(FilterRecord{.kind = FilterKind::Blur, .sigma = 0.49f}));
+    CHECK(is_noop_filter(make_brightness_filter(1.0f)));
+    CHECK(is_noop_filter(make_contrast_filter(1.0f)));
+    CHECK(is_noop_filter(make_invert_filter(0.0f)));
+    CHECK(is_noop_filter(make_grayscale_filter(0.0f)));
+    CHECK(is_noop_filter(make_sepia_filter(0.0f)));
+    CHECK(is_noop_filter(make_hue_rotate_filter(0.0f)));
+    CHECK(is_noop_filter(make_saturate_filter(1.0f)));
+}
+
+TEST_CASE("RmlUi color matrix multiplication composes sequential filters")
+{
+    const auto first = make_brightness_filter(1.25f).matrix;
+    const auto second = make_contrast_filter(0.8f).matrix;
+    const auto combined = multiply_color_matrices(second, first);
+
+    const Color premul{0.18f, 0.30f, 0.42f, 0.60f};
+    const auto sequential = apply_color_matrix(second, apply_color_matrix(first, premul));
+    const auto composed = apply_color_matrix(combined, premul);
+
+    check_color(composed, sequential);
+}
+
+TEST_CASE("RmlUi filter simplifier collapses consecutive color matrices")
+{
+    const std::vector<FilterRecord> chain{
+        make_brightness_filter(1.2f),
+        make_contrast_filter(0.75f),
+        FilterRecord{.kind = FilterKind::Opacity, .scalar = 1.0f},
+        make_invert_filter(0.2f),
+    };
+
+    const auto simplified = simplify_filter_chain(chain);
+    REQUIRE(simplified.size() == 1);
+    CHECK(simplified[0].kind == FilterKind::ColorMatrix);
+    CHECK_FALSE(is_identity_color_matrix(simplified[0].matrix));
 }
 
 TEST_CASE("RmlUi color matrix helper uses row-major RGB rows with translation")

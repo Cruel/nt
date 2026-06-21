@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <span>
 #include <vector>
 
 namespace noveltea::ui::rmlui {
@@ -113,6 +114,12 @@ struct FilterRecord {
     std::array<int, 4> mask_bounds{};
     uint64_t resource = 0;
 };
+
+[[nodiscard]] bool is_identity_color_matrix(const std::array<float, 16>& matrix);
+[[nodiscard]] std::array<float, 16> multiply_color_matrices(const std::array<float, 16>& lhs,
+                                                             const std::array<float, 16>& rhs);
+[[nodiscard]] bool is_noop_filter(const FilterRecord& filter);
+[[nodiscard]] std::vector<FilterRecord> simplify_filter_chain(std::span<const FilterRecord> filters);
 
 [[nodiscard]] FilterRecord make_opacity_filter(float value);
 [[nodiscard]] FilterRecord make_brightness_filter(float value);

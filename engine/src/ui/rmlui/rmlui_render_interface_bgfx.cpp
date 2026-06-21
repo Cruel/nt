@@ -1188,12 +1188,19 @@ struct BgfxRenderInterface::Impl {
         result.texture = source;
         if (filter_handles.empty())
             return result;
-        FilterExpansion total_expansion{};
+        std::vector<FilterRecord> filter_chain;
+        filter_chain.reserve(filter_handles.size());
         for (Rml::CompiledFilterHandle handle : filter_handles) {
             auto it = filters.find(handle);
             if (it == filters.end())
                 return {};
-            const FilterRecord& filter = it->second;
+            filter_chain.push_back(it->second);
+        }
+        filter_chain = simplify_filter_chain(filter_chain);
+        if (filter_chain.empty())
+            return result;
+        FilterExpansion total_expansion{};
+        for (const FilterRecord& filter : filter_chain) {
             switch (filter.kind) {
             case FilterKind::Blur:
                 total_expansion = add_expansions(total_expansion, blur_expansion(filter.sigma));
@@ -1237,11 +1244,7 @@ struct BgfxRenderInterface::Impl {
         bgfx::TextureHandle current = primary->color;
         RenderTargetRecord* destination = secondary;
         FbRect current_valid_rect = copy_destination;
-        for (Rml::CompiledFilterHandle handle : filter_handles) {
-            auto it = filters.find(handle);
-            if (it == filters.end())
-                return {};
-            const FilterRecord& filter = it->second;
+        for (const FilterRecord& filter : filter_chain) {
             bool ok = false;
             switch (filter.kind) {
             case FilterKind::Opacity: {
@@ -2377,6 +2380,8 @@ Rml::CompiledFilterHandle BgfxRenderInterface::CompileFilter(const Rml::String& 
         std::fprintf(stderr, "[rmlui] unsupported filter '%s'\n", name.c_str());
         return 0;
     }
+    if (is_noop_filter(filter))
+        return 0;
     const Rml::CompiledFilterHandle handle = ++m_impl->filter_counter;
     m_impl->filters.emplace(handle, filter);
     return handle;

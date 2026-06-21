@@ -646,7 +646,7 @@ Implemented:
 - Stencil normalization uses bounded layer work areas instead of the full layer texture size.
 - Helper tests cover rectangle intersection and stencil-plan assumptions used by the bounded clip path.
 
-## Phase 8 [next]: No-Op and Filter Simplification
+## Phase 8 [done]: No-Op and Filter Simplification
 
 Goal: reduce pass count after bounded rendering is correct.
 
@@ -670,7 +670,15 @@ Implement safe filter combination:
 - Opacity may be folded into final composite when there is no semantic difference.
 - Drop shadow with sigma below threshold skips blur passes.
 
-This phase should not happen before bounded postprocess is correct. Simplifying full-frame passes is useful, but bounding them is the primary win.
+Implemented:
+
+- Neutral filters are removed before the bounded postprocess pipeline.
+- `blur(<0.5)` short-circuits before postprocess allocation using the existing Gaussian-kernel cutoff.
+- Consecutive color-matrix filters are collapsed into a single matrix before rendering.
+- No-op filter compilation returns no filter handle, so skipped filters do not contribute postprocess pass or target counts.
+- The focused RmlUi UI tests and readback verification still pass after the simplification slice.
+
+This phase only removes redundant work from the already-bounded pipeline. Bounding remained the primary win and was completed in earlier phases.
 
 Acceptance criteria:
 

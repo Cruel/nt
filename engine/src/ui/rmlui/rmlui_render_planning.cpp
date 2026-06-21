@@ -131,6 +131,80 @@ GaussianKernel gaussian_kernel(float sigma)
 
 static std::array<float, 16> identity() { return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; }
 
+bool is_identity_color_matrix(const std::array<float, 16>& matrix)
+{
+    return matrix == identity();
+}
+
+std::array<float, 16> multiply_color_matrices(const std::array<float, 16>& lhs,
+                                              const std::array<float, 16>& rhs)
+{
+    std::array<float, 16> result{};
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            float value = 0.0f;
+            for (int k = 0; k < 4; ++k) {
+                value += lhs[row * 4 + k] * rhs[k * 4 + col];
+            }
+            result[row * 4 + col] = value;
+        }
+    }
+    return result;
+}
+
+bool is_noop_filter(const FilterRecord& filter)
+{
+    switch (filter.kind) {
+    case FilterKind::Opacity:
+        return filter.scalar == 1.0f;
+    case FilterKind::Blur:
+        return filter.sigma < 0.5f;
+    case FilterKind::ColorMatrix:
+        return is_identity_color_matrix(filter.matrix);
+    case FilterKind::DropShadow:
+    case FilterKind::MaskImage:
+    case FilterKind::Invalid:
+        return false;
+    }
+    return false;
+}
+
+std::vector<FilterRecord> simplify_filter_chain(std::span<const FilterRecord> filters)
+{
+    std::vector<FilterRecord> simplified;
+    simplified.reserve(filters.size());
+    std::array<float, 16> pending_matrix = identity();
+    bool have_pending_matrix = false;
+
+    auto flush_matrix = [&]() {
+        if (!have_pending_matrix)
+            return;
+        FilterRecord matrix_filter;
+        matrix_filter.kind = FilterKind::ColorMatrix;
+        matrix_filter.matrix = pending_matrix;
+        if (!is_identity_color_matrix(matrix_filter.matrix))
+            simplified.push_back(matrix_filter);
+        have_pending_matrix = false;
+        pending_matrix = identity();
+    };
+
+    for (const FilterRecord& filter : filters) {
+        if (is_noop_filter(filter))
+            continue;
+        if (filter.kind == FilterKind::ColorMatrix) {
+            pending_matrix = have_pending_matrix ? multiply_color_matrices(filter.matrix, pending_matrix)
+                                                 : filter.matrix;
+            have_pending_matrix = true;
+            continue;
+        }
+        flush_matrix();
+        simplified.push_back(filter);
+    }
+
+    flush_matrix();
+    return simplified;
+}
+
 static FilterRecord color_matrix(std::array<float, 16> matrix)
 {
     FilterRecord record;
