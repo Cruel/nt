@@ -159,6 +159,29 @@ bool is_full_frame_rect(FbRect rect, int width, int height)
     return !is_empty(rect) && rect.x == 0 && rect.y == 0 && rect.w >= width && rect.h >= height;
 }
 
+Rml::Rectanglei clamp_scissor_local(Rml::Rectanglei global_scissor, const FbRect& layer_fb_bounds);
+
+FbRect active_scissor_bounds(const ScissorState& scissor, const FbRect& layer_bounds)
+{
+    if (!scissor.enabled)
+        return {};
+    const Rml::Rectanglei local = clamp_scissor_local(scissor.region, layer_bounds);
+    return {local.Left(), local.Top(), local.Width(), local.Height()};
+}
+
+FbRect clip_work_bounds(const LayerRecord* layer, const ScissorState& scissor)
+{
+    if (!layer)
+        return {};
+    const FbRect layer_bounds = layer->bounds.framebuffer;
+    if (is_empty(layer_bounds))
+        return {};
+    const FbRect scissor_bounds = active_scissor_bounds(scissor, layer_bounds);
+    if (is_empty(scissor_bounds))
+        return layer_bounds;
+    return intersect(layer_bounds, scissor_bounds);
+}
+
 struct ClipCommand {
     Rml::ClipMaskOperation operation = Rml::ClipMaskOperation::Set;
     Rml::CompiledGeometryHandle geometry = 0;
@@ -1485,25 +1508,19 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
-        const int lw = layer->texture_width;
-        const int lh = layer->texture_height;
-        const bool is_full = (lw >= width && lh >= height);
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, false, true, lw, lh,
+        const FbRect clear_bounds = clip_work_bounds(layer, scissor);
+        if (is_empty(clear_bounds))
+            return;
+        const bool is_full = is_full_frame_rect(clear_bounds, width, height);
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, false, true,
+                                                   clear_bounds.w, clear_bounds.h,
                                                    "RmlUi.StencilClear"),
                                  layer->framebuffer);
         if (!pass)
             return;
-        uint64_t clear_area = uint64_t(lw) * uint64_t(lh);
-        if (scissor.enabled) {
-            const Rml::Rectanglei clipped =
-                clamp_scissor_local(scissor.region, layer->bounds.framebuffer);
-            if (clipped.Width() <= 0 || clipped.Height() <= 0)
-                return;
-            clear_area = uint64_t(clipped.Width()) * uint64_t(clipped.Height());
-            bgfx::setViewRect(pass->view, uint16_t(clipped.Left()), uint16_t(clipped.Top()),
-                              uint16_t(clipped.Width()), uint16_t(clipped.Height()));
-        }
-        perf.add_clear(clear_area, is_full);
+        perf.add_clear(uint64_t(clear_bounds.w) * uint64_t(clear_bounds.h), is_full);
+        bgfx::setViewRect(pass->view, uint16_t(clear_bounds.x), uint16_t(clear_bounds.y),
+                          uint16_t(clear_bounds.w), uint16_t(clear_bounds.h));
         bgfx::setViewClear(pass->view, BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, value);
         bgfx::touch(pass->view);
     }
@@ -1532,10 +1549,12 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return false;
-        const int lw = layer->texture_width;
-        const int lh = layer->texture_height;
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
-                                                   lh, "RmlUi.StencilNormalize"),
+        const FbRect work_bounds = clip_work_bounds(layer, ScissorState{scissor_enabled, scissor_region});
+        if (is_empty(work_bounds))
+            return true;
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false,
+                                                   work_bounds.w, work_bounds.h,
+                                                   "RmlUi.StencilNormalize"),
                                  layer->framebuffer);
         if (!pass)
             return false;
@@ -1574,14 +1593,16 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
-        const int lw = layer->texture_width;
-        const int lh = layer->texture_height;
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
-                                                   lh, "RmlUi.ClipMask"),
+        const FbRect work_bounds = clip_work_bounds(layer, scissor);
+        if (is_empty(work_bounds))
+            return;
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false,
+                                                   work_bounds.w, work_bounds.h,
+                                                   "RmlUi.ClipMask"),
                                  layer->framebuffer);
         if (!pass)
             return;
-        perf.add_clip_mask(uint64_t(lw) * uint64_t(lh));
+        perf.add_clip_mask(uint64_t(work_bounds.w) * uint64_t(work_bounds.h));
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (scissor.enabled) {
@@ -1638,8 +1659,14 @@ struct BgfxRenderInterface::Impl {
         if (LayerRecord* layer = current_layer()) {
             layer->stencil_ref = command.next_ref;
             if (record_on_layer) {
-                layer->clip_commands.push_back(clip_commands.size());
-                clip_commands.push_back(command);
+                const FbRect command_bounds = command.scissor.enabled
+                                                  ? active_scissor_bounds(command.scissor,
+                                                                          layer->bounds.framebuffer)
+                                                  : layer->bounds.framebuffer;
+                if (!is_empty(command_bounds)) {
+                    layer->clip_commands.push_back(clip_commands.size());
+                    clip_commands.push_back(command);
+                }
             }
         }
     }
@@ -1650,9 +1677,19 @@ struct BgfxRenderInterface::Impl {
         const bool saved_scissor_enabled = scissor_enabled;
         const Rml::Rectanglei saved_scissor_region = scissor_region;
         active_layer = layer_handle;
+        LayerRecord* layer = current_layer();
         for (size_t index : commands) {
             if (index < clip_commands.size()) {
-                apply_clip_command(clip_commands[index], false);
+                const ClipCommand& command = clip_commands[index];
+                if (!layer)
+                    continue;
+                const FbRect command_bounds = command.scissor.enabled
+                                                  ? active_scissor_bounds(command.scissor,
+                                                                          layer->bounds.framebuffer)
+                                                  : layer->bounds.framebuffer;
+                if (is_empty(command_bounds))
+                    continue;
+                apply_clip_command(command, false);
             }
         }
         active_layer = saved_active;

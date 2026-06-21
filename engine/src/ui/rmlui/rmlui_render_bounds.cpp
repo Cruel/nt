@@ -1,5 +1,7 @@
 #include "ui/rmlui/rmlui_render_bounds.hpp"
 
+#include <RmlUi/Core/Types.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -74,6 +76,13 @@ FbRect align_outward_for_render_target(FbRect r)
     if (r.w <= 0 || r.h <= 0)
         return {0, 0, 0, 0};
     return {r.x, r.y, std::max(r.w, 1), std::max(r.h, 1)};
+}
+
+bool intersects(FbRect a, FbRect b) { return !is_empty(intersect(a, b)); }
+
+bool intersects(Rml::Rectanglei a, FbRect b)
+{
+    return intersects(FbRect{a.Left(), a.Top(), a.Width(), a.Height()}, b);
 }
 
 // ---------------------------------------------------------------------------

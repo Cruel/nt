@@ -130,6 +130,18 @@ TEST_CASE("RmlUi clip stencil planner normalizes overflow without discarding his
     CHECK(overflow_intersect.normalize_before_render);
 }
 
+TEST_CASE("RmlUi clip replay assumptions stay conservative")
+{
+    const auto bounded = plan_stencil_clip_operation(2, ClipOperationPlan::Intersect);
+    CHECK(bounded.previous_ref == 2);
+    CHECK(bounded.next_ref == 3);
+    CHECK_FALSE(bounded.normalize_before_render);
+
+    const auto reset = plan_stencil_clip_operation(1, ClipOperationPlan::Set);
+    CHECK(reset.previous_ref == 1);
+    CHECK(reset.next_ref == 1);
+}
+
 TEST_CASE("RmlUi gaussian kernel is normalized")
 {
     const auto kernel = gaussian_kernel(4.0f);

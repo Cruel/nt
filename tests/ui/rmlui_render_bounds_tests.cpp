@@ -192,6 +192,16 @@ TEST_CASE("RmlUi align_outward_for_render_target")
     CHECK(align_outward_for_render_target({0, 0, -5, 100}).w == 0);
 }
 
+TEST_CASE("RmlUi rectangle intersection helpers")
+{
+    CHECK(intersects(FbRect{0, 0, 10, 10}, FbRect{5, 5, 10, 10}));
+    CHECK_FALSE(intersects(FbRect{0, 0, 10, 10}, FbRect{20, 20, 5, 5}));
+
+    const Rml::Rectanglei scissor = Rml::Rectanglei::FromPositionSize({5, 5}, {10, 10});
+    CHECK(intersects(scissor, FbRect{0, 0, 20, 20}));
+    CHECK_FALSE(intersects(scissor, FbRect{20, 20, 5, 5}));
+}
+
 // ---------------------------------------------------------------------------
 // LogicalRect helpers
 // ---------------------------------------------------------------------------

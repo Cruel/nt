@@ -2,6 +2,8 @@
 
 #include "noveltea/surface.hpp"
 
+#include <RmlUi/Core/Types.h>
+
 #include <array>
 #include <cstdint>
 #include <span>
@@ -42,6 +44,8 @@ struct FilterExpansion {
 [[nodiscard]] FbRect inflate(FbRect r, int x, int y);
 [[nodiscard]] FbRect clamp_to_surface(FbRect r, const SurfaceMetrics& surface);
 [[nodiscard]] FbRect align_outward_for_render_target(FbRect r);
+[[nodiscard]] bool intersects(FbRect a, FbRect b);
+[[nodiscard]] bool intersects(Rml::Rectanglei a, FbRect b);
 
 [[nodiscard]] float area(LogicalRect r);
 [[nodiscard]] bool is_empty(LogicalRect r);

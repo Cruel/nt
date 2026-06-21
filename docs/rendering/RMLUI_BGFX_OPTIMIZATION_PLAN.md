@@ -608,7 +608,7 @@ Current implementation note:
 - Phase 6 is implemented in the renderer. Saved-layer and saved-mask copies now use bounded layer/scissor intersections, and saved texture records carry bounds metadata for future sampling adjustments.
 - The saved-mask readback failure that blocked earlier validation was a Phase 5 issue, not a Phase 6 blocker, and remains tracked separately.
 
-## Phase 7 [pending]: Clip Mask and Stencil Bounds
+## Phase 7 [done]: Clip Mask and Stencil Bounds
 
 Goal: align clip mask rendering with bounded layers and avoid unnecessary full-frame stencil work.
 
@@ -639,7 +639,14 @@ Acceptance criteria:
 - Clip-related performance counters stop charging full-frame area when the active layer is bounded.
 - Existing readback clip tests remain correct.
 
-## Phase 8 [pending]: No-Op and Filter Simplification
+Implemented:
+
+- The renderer now derives stencil clear and clip-mask work bounds from the active layer rectangle and current scissor intersection.
+- Clip replay is conservative and skips empty/non-intersecting bounded work.
+- Stencil normalization uses bounded layer work areas instead of the full layer texture size.
+- Helper tests cover rectangle intersection and stencil-plan assumptions used by the bounded clip path.
+
+## Phase 8 [next]: No-Op and Filter Simplification
 
 Goal: reduce pass count after bounded rendering is correct.
 
