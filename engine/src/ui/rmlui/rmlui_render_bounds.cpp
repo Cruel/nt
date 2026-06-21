@@ -222,4 +222,36 @@ FbRect expand_bounds(FbRect r, const FilterExpansion& expansion)
     return {l, t, ri - l, b2 - t};
 }
 
+RenderBounds compute_child_layer_bounds(const SurfaceMetrics& surface,
+                                        const RenderBounds* parent_bounds,
+                                        const FbRect* scissor_region, bool transform_valid)
+{
+    RenderBounds bounds;
+
+    const FbRect surface_fb{0, 0, std::max(surface.framebuffer_width, 0),
+                            std::max(surface.framebuffer_height, 0)};
+    const LogicalRect surface_logical{0.0f, 0.0f, float(surface.logical_width),
+                                      float(surface.logical_height)};
+
+    if (transform_valid || !scissor_region || is_empty(*scissor_region)) {
+        bounds.framebuffer = surface_fb;
+        bounds.logical = surface_logical;
+    } else {
+        bounds.framebuffer = clamp_to_surface(*scissor_region, surface);
+        bounds.logical = framebuffer_to_logical(bounds.framebuffer, surface);
+    }
+
+    if (parent_bounds) {
+        bounds.framebuffer = intersect(bounds.framebuffer, parent_bounds->framebuffer);
+        bounds.logical = framebuffer_to_logical(bounds.framebuffer, surface);
+    }
+
+    if (bounds.framebuffer.w <= 0 || bounds.framebuffer.h <= 0) {
+        bounds.framebuffer = {0, 0, 1, 1};
+        bounds.logical = framebuffer_to_logical(bounds.framebuffer, surface);
+    }
+
+    return bounds;
+}
+
 } // namespace noveltea::ui::rmlui

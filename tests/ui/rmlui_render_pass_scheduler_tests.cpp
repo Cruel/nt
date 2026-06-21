@@ -7,7 +7,7 @@ using namespace noveltea::ui::rmlui;
 static RmlUiPassRequest request(RmlUiPassKind kind, uintptr_t framebuffer, bool clears_color,
                                 bool clears_stencil, const char* name)
 {
-    return {kind, framebuffer, 0, clears_color, clears_stencil, 800, 600, name};
+    return {kind, framebuffer, 0, clears_color, clears_stencil, 0, 0, 800, 600, name};
 }
 
 TEST_CASE("RmlUi pass scheduler reuses ordinary geometry view")

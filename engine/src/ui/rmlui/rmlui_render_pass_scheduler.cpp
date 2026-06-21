@@ -24,7 +24,8 @@ bool RmlUiRenderPassScheduler::can_reuse_current_pass(const RmlUiPassRequest& re
         return false;
     const RmlUiPassRequest& current = m_current->request;
     return current.kind == RmlUiPassKind::Geometry && current.framebuffer == request.framebuffer &&
-           !request.clears_color && !request.clears_stencil && current.width == request.width &&
+           !request.clears_color && !request.clears_stencil && current.x == request.x &&
+           current.y == request.y && current.width == request.width &&
            current.height == request.height;
 }
 

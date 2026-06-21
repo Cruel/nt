@@ -5,6 +5,7 @@
 #include "ui/rmlui/rmlui_file_interface.hpp"
 #include "ui/rmlui/rmlui_render_planning.hpp"
 #include "ui/rmlui/rmlui_render_pass_scheduler.hpp"
+#include "ui/rmlui/rmlui_render_bounds.hpp"
 
 #include <RmlUi/Core/Dictionary.h>
 #include <RmlUi/Core/DecorationTypes.h>
@@ -62,11 +63,13 @@ struct LayerRecord {
     bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle depth_stencil = BGFX_INVALID_HANDLE;
-    int width = 0;
-    int height = 0;
+    RenderBounds bounds;
+    int texture_width = 0;
+    int texture_height = 0;
     bool clip_mask_enabled = false;
     uint8_t stencil_ref = 1;
     std::vector<size_t> clip_commands;
+    float projection[16]{};
 };
 
 struct RenderTargetRecord {
@@ -88,6 +91,14 @@ struct ScissorState {
 struct CompositeOp {
     bgfx::TextureHandle source = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle destination = BGFX_INVALID_HANDLE;
+
+    FbRect source_rect;
+    FbRect destination_rect;
+    int source_texture_width = 0;
+    int source_texture_height = 0;
+    int destination_texture_width = 0;
+    int destination_texture_height = 0;
+
     Rml::BlendMode blend_mode = Rml::BlendMode::Blend;
     ScissorState scissor;
     bool apply_destination_stencil = false;
@@ -95,6 +106,38 @@ struct CompositeOp {
     RmlUiPassKind kind = RmlUiPassKind::LayerComposite;
     const char* name = "RmlUi.Composite";
 };
+
+RmlUiPassRequest make_pass_request(RmlUiPassKind kind, int x, int y, bool clears_color,
+                                   bool clears_stencil, int width, int height, const char* name)
+{
+    return RmlUiPassRequest{kind,
+                            0,
+                            std::numeric_limits<uint16_t>::max(),
+                            clears_color,
+                            clears_stencil,
+                            x,
+                            y,
+                            width,
+                            height,
+                            name};
+}
+
+CompositeOp make_composite_op(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination,
+                              Rml::BlendMode blend_mode, ScissorState scissor,
+                              bool apply_destination_stencil, uint8_t stencil_ref,
+                              RmlUiPassKind kind, const char* name)
+{
+    CompositeOp op;
+    op.source = source;
+    op.destination = destination;
+    op.blend_mode = blend_mode;
+    op.scissor = scissor;
+    op.apply_destination_stencil = apply_destination_stencil;
+    op.stencil_ref = stencil_ref;
+    op.kind = kind;
+    op.name = name;
+    return op;
+}
 
 struct ClipCommand {
     Rml::ClipMaskOperation operation = Rml::ClipMaskOperation::Set;
@@ -129,6 +172,22 @@ Rml::Rectanglei clamp_scissor(Rml::Rectanglei region, int width, int height)
     const int top = std::clamp(region.Top(), 0, std::max(height, 0));
     const int right = std::clamp(region.Right(), 0, std::max(width, 0));
     const int bottom = std::clamp(region.Bottom(), 0, std::max(height, 0));
+    if (right <= left || bottom <= top) {
+        return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+    }
+    return Rml::Rectanglei::FromPositionSize({left, top}, {right - left, bottom - top});
+}
+
+Rml::Rectanglei clamp_scissor_local(Rml::Rectanglei global_scissor, const FbRect& layer_fb_bounds)
+{
+    const int left =
+        std::clamp(global_scissor.Left() - layer_fb_bounds.x, 0, std::max(layer_fb_bounds.w, 0));
+    const int top =
+        std::clamp(global_scissor.Top() - layer_fb_bounds.y, 0, std::max(layer_fb_bounds.h, 0));
+    const int right =
+        std::clamp(global_scissor.Right() - layer_fb_bounds.x, 0, std::max(layer_fb_bounds.w, 0));
+    const int bottom =
+        std::clamp(global_scissor.Bottom() - layer_fb_bounds.y, 0, std::max(layer_fb_bounds.h, 0));
     if (right <= left || bottom <= top) {
         return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
     }
@@ -284,33 +343,49 @@ struct PerfCounters {
         clip_estimated_pixels += px;
     }
     void add_gradient() { gradient_draws++; }
-    void add_clear(uint64_t px)
+    void add_clear(uint64_t px, bool full_frame)
     {
         clear_passes++;
         clear_pixels += px;
-        full_frame_passes++;
+        if (full_frame) {
+            full_frame_passes++;
+        } else {
+            bounded_passes++;
+        }
     }
     void add_copy() { copy_passes++; }
     void add_copy_pixels(uint64_t px) { copy_pixels += px; }
-    void add_composite(uint64_t px)
+    void add_composite(uint64_t px, bool full_frame)
     {
         composite_passes++;
         composite_pixels += px;
-        full_frame_passes++;
+        if (full_frame) {
+            full_frame_passes++;
+        } else {
+            bounded_passes++;
+        }
     }
-    void add_postprocess(uint64_t px)
+    void add_postprocess(uint64_t px, bool full_frame)
     {
         postprocess_passes++;
         postprocess_pixels += px;
-        full_frame_passes++;
+        if (full_frame) {
+            full_frame_passes++;
+        } else {
+            bounded_passes++;
+        }
     }
     void add_blur() { blur_passes++; }
     void add_dropshadow() { dropshadow_passes++; }
-    void add_mask(uint64_t px)
+    void add_mask(uint64_t px, bool full_frame)
     {
         mask_passes++;
         postprocess_pixels += px;
-        full_frame_passes++;
+        if (full_frame) {
+            full_frame_passes++;
+        } else {
+            bounded_passes++;
+        }
     }
     void add_layer_push() { layer_pushes++; }
     void add_layer_clear() { layer_clears++; }
@@ -339,14 +414,14 @@ struct PerfCounters {
     void add_geometry(uint64_t, uint32_t) {}
     void add_clip_mask(uint64_t) {}
     void add_gradient() {}
-    void add_clear(uint64_t) {}
+    void add_clear(uint64_t, bool) {}
     void add_copy() {}
     void add_copy_pixels(uint64_t) {}
-    void add_composite(uint64_t) {}
-    void add_postprocess(uint64_t) {}
+    void add_composite(uint64_t, bool) {}
+    void add_postprocess(uint64_t, bool) {}
     void add_blur() {}
     void add_dropshadow() {}
-    void add_mask(uint64_t) {}
+    void add_mask(uint64_t, bool) {}
     void add_layer_push() {}
     void add_layer_clear() {}
     void add_full_frame_layer() {}
@@ -627,13 +702,39 @@ struct BgfxRenderInterface::Impl {
         postprocess_pool.reset_resources();
     }
 
-    bool ensure_layer(size_t index)
+    RenderBounds compute_child_layer_bounds(Rml::LayerHandle parent_handle) const
+    {
+        const RenderBounds* parent_ptr = nullptr;
+        if (size_t(parent_handle) < layers.size()) {
+            parent_ptr = &layers[size_t(parent_handle)].bounds;
+        }
+
+        const FbRect* scissor_ptr = nullptr;
+        FbRect scissor_rect;
+        if (scissor_enabled) {
+            scissor_rect = {scissor_region.Left(), scissor_region.Top(), scissor_region.Width(),
+                            scissor_region.Height()};
+            scissor_ptr = &scissor_rect;
+        } else {
+            const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback();
+        }
+
+        return noveltea::ui::rmlui::compute_child_layer_bounds(surface, parent_ptr, scissor_ptr,
+                                                               transform_valid);
+    }
+
+    bool ensure_layer(size_t index, const RenderBounds& bounds)
     {
         if (index >= layers.size())
             layers.resize(index + 1);
         LayerRecord& layer = layers[index];
-        perf.update_layer_max(uint32_t(width), uint32_t(height));
-        if (bgfx::isValid(layer.framebuffer) && layer.width == width && layer.height == height) {
+        perf.update_layer_max(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
+        if (bgfx::isValid(layer.framebuffer) && layer.texture_width == bounds.framebuffer.w &&
+            layer.texture_height == bounds.framebuffer.h) {
+            layer.bounds = bounds;
+            bx::mtxOrtho(layer.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
+                         bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
+                         0.0f, bgfx::getCaps()->homogeneousDepth);
             return true;
         }
         destroy_layer(layer);
@@ -647,10 +748,12 @@ struct BgfxRenderInterface::Impl {
                                  "target; D24S8 is unavailable\n");
             return false;
         }
-        bgfx::TextureHandle color = bgfx::createTexture2D(
-            uint16_t(width), uint16_t(height), false, 1, bgfx::TextureFormat::RGBA8, color_flags);
-        bgfx::TextureHandle depth = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false,
-                                                          1, stencil_format, depth_flags);
+        bgfx::TextureHandle color =
+            bgfx::createTexture2D(uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h),
+                                  false, 1, bgfx::TextureFormat::RGBA8, color_flags);
+        bgfx::TextureHandle depth =
+            bgfx::createTexture2D(uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h),
+                                  false, 1, stencil_format, depth_flags);
         if (!bgfx::isValid(color) || !bgfx::isValid(depth)) {
             if (bgfx::isValid(color))
                 bgfx::destroy(color);
@@ -673,14 +776,17 @@ struct BgfxRenderInterface::Impl {
         layer.framebuffer = framebuffer;
         layer.color = color;
         layer.depth_stencil = depth;
-        layer.width = width;
-        layer.height = height;
+        layer.bounds = bounds;
+        layer.texture_width = bounds.framebuffer.w;
+        layer.texture_height = bounds.framebuffer.h;
         layer.clip_mask_enabled = false;
         layer.stencil_ref = 1;
         layer.clip_commands.clear();
+        bx::mtxOrtho(layer.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
+                     bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
+                     0.0f, bgfx::getCaps()->homogeneousDepth);
         layer_pool.note_allocated(uint32_t(index));
-        perf.add_layer_alloc(uint32_t(width), uint32_t(height));
-        perf.add_full_frame_layer();
+        perf.add_layer_alloc(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
         return true;
     }
 
@@ -698,7 +804,10 @@ struct BgfxRenderInterface::Impl {
     bool begin_base_layer()
     {
         perf.reset();
-        if (!ensure_layer(0))
+        RenderBounds base_bounds;
+        base_bounds.logical = {0.0f, 0.0f, float(logical_width), float(logical_height)};
+        base_bounds.framebuffer = {0, 0, width, height};
+        if (!ensure_layer(0, base_bounds))
             return false;
         perf.add_full_frame_layer();
         layer_pool.begin_frame();
@@ -726,7 +835,9 @@ struct BgfxRenderInterface::Impl {
         const bgfx::ViewId view = pass.view;
         bgfx::setViewName(view, pass.request.name);
         bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-        bgfx::setViewRect(view, 0, 0, static_cast<uint16_t>(std::max(pass.request.width, 1)),
+        bgfx::setViewRect(view, static_cast<uint16_t>(std::max(pass.request.x, 0)),
+                          static_cast<uint16_t>(std::max(pass.request.y, 0)),
+                          static_cast<uint16_t>(std::max(pass.request.width, 1)),
                           static_cast<uint16_t>(std::max(pass.request.height, 1)));
         bgfx::setViewFrameBuffer(view, framebuffer_from_request(pass.request));
         bgfx::setViewClear(view, BGFX_CLEAR_NONE);
@@ -760,16 +871,19 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
-        auto pass = acquire_pass(
-            {RmlUiPassKind::Geometry, 0, 0, false, false, width, height, "RmlUi.Geometry"},
-            layer->framebuffer);
+        const int lw = layer->texture_width;
+        const int lh = layer->texture_height;
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
+                                                   lh, "RmlUi.Geometry"),
+                                 layer->framebuffer);
         if (!pass)
             return;
-        perf.add_geometry(uint64_t(width) * uint64_t(height), geometry.index_count);
+        perf.add_geometry(uint64_t(lw) * uint64_t(lh), geometry.index_count);
         // Bgfx invariant: once per-draw state (setUniform/setTexture/setVertexBuffer) is
         // written, the path must submit or discard before returning. Validate scissor first.
         if (scissor_enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(scissor_region, width, height);
+            const Rml::Rectanglei scissor =
+                clamp_scissor_local(scissor_region, layer->bounds.framebuffer);
             if (scissor.Width() <= 0 || scissor.Height() <= 0) {
                 return;
             }
@@ -778,7 +892,7 @@ struct BgfxRenderInterface::Impl {
         }
         bgfx::setVertexBuffer(0, geometry.vb);
         bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
-        bgfx::setUniform(projection_uniform, projection);
+        bgfx::setUniform(projection_uniform, layer->projection);
         bgfx::setUniform(transform_uniform, transform_valid ? transform : identity);
         const float translate[4] = {translation.x, translation.y, 0.0f, 0.0f};
         bgfx::setUniform(translate_uniform, translate);
@@ -822,15 +936,22 @@ struct BgfxRenderInterface::Impl {
             return false;
         }
 
+        // Determine destination dimensions: use op fields if set, fall back to full surface.
+        const int dest_w =
+            (op.destination_texture_width > 0) ? op.destination_texture_width : width;
+        const int dest_h =
+            (op.destination_texture_height > 0) ? op.destination_texture_height : height;
+        const bool is_full_frame = (dest_w >= width && dest_h >= height);
         auto pass =
-            acquire_pass({op.kind, 0, 0, false, false, width, height, op.name}, op.destination);
+            acquire_pass(make_pass_request(op.kind, 0, 0, false, false, dest_w, dest_h, op.name),
+                         op.destination);
         if (!pass)
             return false;
-        perf.add_composite(uint64_t(width) * uint64_t(height));
+        perf.add_composite(uint64_t(dest_w) * uint64_t(dest_h), is_full_frame);
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (op.scissor.enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(op.scissor.region, width, height);
+            const Rml::Rectanglei scissor = clamp_scissor(op.scissor.region, dest_w, dest_h);
             if (scissor.Width() <= 0 || scissor.Height() <= 0)
                 return false;
             bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
@@ -838,8 +959,22 @@ struct BgfxRenderInterface::Impl {
         }
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, op.source);
-        const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-        bgfx::setUniform(texcoord_bounds_uniform, bounds);
+        // Use UV bounds if a sub-region of the source texture is specified.
+        const float src_w = float(std::max(op.source_texture_width, 1));
+        const float src_h = float(std::max(op.source_texture_height, 1));
+        float uv_bounds[4];
+        if (op.source_texture_width > 0 && !is_empty(op.source_rect)) {
+            uv_bounds[0] = float(op.source_rect.x) / src_w;
+            uv_bounds[1] = float(op.source_rect.y) / src_h;
+            uv_bounds[2] = float(op.source_rect.x + op.source_rect.w) / src_w;
+            uv_bounds[3] = float(op.source_rect.y + op.source_rect.h) / src_h;
+        } else {
+            uv_bounds[0] = 0.0f;
+            uv_bounds[1] = 0.0f;
+            uv_bounds[2] = 1.0f;
+            uv_bounds[3] = 1.0f;
+        }
+        bgfx::setUniform(texcoord_bounds_uniform, uv_bounds);
         const uint64_t state = op.blend_mode == Rml::BlendMode::Replace
                                    ? (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A)
                                    : kRmlBlendState;
@@ -852,23 +987,24 @@ struct BgfxRenderInterface::Impl {
     }
 
     bool copy_region_to_framebuffer(bgfx::TextureHandle source, bgfx::FrameBufferHandle destination,
-                                    const Rml::Rectanglei& region, const char* name)
+                                    const Rml::Rectanglei& region, int source_width,
+                                    int source_height, const char* name)
     {
         if (!ensure_fullscreen_geometry() || !bgfx::isValid(copy_program) ||
             !bgfx::isValid(source) || !bgfx::isValid(destination))
             return false;
-        auto pass = acquire_pass(
-            {RmlUiPassKind::Copy, 0, 0, false, false, region.Width(), region.Height(), name},
-            destination);
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Copy, 0, 0, false, false,
+                                                   region.Width(), region.Height(), name),
+                                 destination);
         if (!pass)
             return false;
         perf.add_copy();
         perf.add_copy_pixels(uint64_t(region.Width()) * uint64_t(region.Height()));
         const float bounds[4] = {
-            float(region.Left()) / float(std::max(width, 1)),
-            float(region.Top()) / float(std::max(height, 1)),
-            float(region.Right()) / float(std::max(width, 1)),
-            float(region.Bottom()) / float(std::max(height, 1)),
+            float(region.Left()) / float(std::max(source_width, 1)),
+            float(region.Top()) / float(std::max(source_height, 1)),
+            float(region.Right()) / float(std::max(source_width, 1)),
+            float(region.Bottom()) / float(std::max(source_height, 1)),
         };
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, source);
@@ -879,7 +1015,8 @@ struct BgfxRenderInterface::Impl {
     }
 
     bgfx::TextureHandle copy_region_to_texture(bgfx::TextureHandle source,
-                                               const Rml::Rectanglei& region, const char* name)
+                                               const Rml::Rectanglei& region, int source_width,
+                                               int source_height, const char* name)
     {
         if (region.Width() <= 0 || region.Height() <= 0 || !bgfx::isValid(source))
             return BGFX_INVALID_HANDLE;
@@ -894,8 +1031,8 @@ struct BgfxRenderInterface::Impl {
             return BGFX_INVALID_HANDLE;
 
         if (can_blit) {
-            auto pass = acquire_pass(
-                {RmlUiPassKind::Copy, 0, 0, false, false, region.Width(), region.Height(), name});
+            auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Copy, 0, 0, false, false,
+                                                       region.Width(), region.Height(), name));
             if (!pass) {
                 bgfx::destroy(texture);
                 return BGFX_INVALID_HANDLE;
@@ -912,7 +1049,8 @@ struct BgfxRenderInterface::Impl {
             bgfx::destroy(texture);
             return BGFX_INVALID_HANDLE;
         }
-        const bool copied = copy_region_to_framebuffer(source, framebuffer, region, name);
+        const bool copied = copy_region_to_framebuffer(source, framebuffer, region, source_width,
+                                                       source_height, name);
         bgfx::destroy(framebuffer);
         if (!copied) {
             bgfx::destroy(texture);
@@ -940,11 +1078,23 @@ struct BgfxRenderInterface::Impl {
             fail_frame("fullscreen_filter_pass feedback loop");
             return false;
         }
+        // Determine pass dimensions from the destination render target.
+        int pass_w = width;
+        int pass_h = height;
+        for (const auto& target : postprocess_targets) {
+            if (bgfx::isValid(target.framebuffer) && target.framebuffer.idx == destination.idx) {
+                pass_w = target.width;
+                pass_h = target.height;
+                break;
+            }
+        }
+        const bool is_full = (pass_w >= width && pass_h >= height);
         auto pass = acquire_pass(
-            {RmlUiPassKind::Postprocess, 0, 0, false, false, width, height, name}, destination);
+            make_pass_request(RmlUiPassKind::Postprocess, 0, 0, false, false, pass_w, pass_h, name),
+            destination);
         if (!pass)
             return false;
-        perf.add_postprocess(uint64_t(width) * uint64_t(height));
+        perf.add_postprocess(uint64_t(pass_w) * uint64_t(pass_h), is_full);
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, source);
         bind_uniforms();
@@ -964,9 +1114,9 @@ struct BgfxRenderInterface::Impl {
             return BGFX_INVALID_HANDLE;
 
         // Size postprocess targets to the work-area instead of full framebuffer.
-        if (!composite(CompositeOp{source, primary->framebuffer, Rml::BlendMode::Replace,
-                                   ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
-                                   "RmlUi.FilterCopy"}))
+        if (!composite(make_composite_op(source, primary->framebuffer, Rml::BlendMode::Replace,
+                                         ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
+                                         "RmlUi.FilterCopy")))
             return BGFX_INVALID_HANDLE;
 
         bgfx::TextureHandle current = primary->color;
@@ -997,12 +1147,17 @@ struct BgfxRenderInterface::Impl {
                     return BGFX_INVALID_HANDLE;
                 if (!ensure_fullscreen_geometry() || !bgfx::isValid(mask_multiply_program))
                     return BGFX_INVALID_HANDLE;
-                auto pass = acquire_pass({RmlUiPassKind::Postprocess, 0, 0, false, false, width,
-                                          height, "RmlUi.FilterMaskImage"},
-                                         destination->framebuffer);
+                const bool is_full_mask =
+                    (destination->width >= width && destination->height >= height);
+                auto pass =
+                    acquire_pass(make_pass_request(RmlUiPassKind::Postprocess, 0, 0, false, false,
+                                                   destination->width, destination->height,
+                                                   "RmlUi.FilterMaskImage"),
+                                 destination->framebuffer);
                 if (!pass)
                     return BGFX_INVALID_HANDLE;
-                perf.add_mask(uint64_t(width) * uint64_t(height));
+                perf.add_mask(uint64_t(destination->width) * uint64_t(destination->height),
+                              is_full_mask);
                 bgfx::setVertexBuffer(0, fullscreen_vb);
                 bgfx::setTexture(0, sampler, current);
                 bgfx::setTexture(1, mask_sampler, tex_it->second.handle);
@@ -1020,7 +1175,8 @@ struct BgfxRenderInterface::Impl {
                 const float renorm = std::max(w0 + 2.0f * (w1 + w2 + w3), 0.000001f);
                 const float weights[4] = {w0 / renorm, w1 / renorm, w2 / renorm, w3 / renorm};
                 const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-                float params[4] = {0.0f, 1.0f / float(std::max(height, 1)), 0.0f, 0.0f};
+                float params[4] = {0.0f, 1.0f / float(std::max(destination->height, 1)), 0.0f,
+                                   0.0f};
                 if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
                                             "RmlUi.FilterBlurV", [&]() {
                                                 bgfx::setUniform(blur_params_uniform, params);
@@ -1031,7 +1187,7 @@ struct BgfxRenderInterface::Impl {
                 perf.add_blur();
                 current = destination->color;
                 destination = (destination == primary) ? secondary : primary;
-                params[0] = 1.0f / float(std::max(width, 1));
+                params[0] = 1.0f / float(std::max(destination->width, 1));
                 params[1] = 0.0f;
                 if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
                                             "RmlUi.FilterBlurH", [&]() {
@@ -1048,8 +1204,9 @@ struct BgfxRenderInterface::Impl {
                 const bgfx::TextureHandle original = current;
                 const float color[4] = {filter.color[0], filter.color[1], filter.color[2],
                                         filter.color[3]};
-                const float offset[4] = {filter.offset[0] / float(std::max(width, 1)),
-                                         filter.offset[1] / float(std::max(height, 1)), 0.0f, 0.0f};
+                const float offset[4] = {filter.offset[0] / float(std::max(destination->width, 1)),
+                                         filter.offset[1] / float(std::max(destination->height, 1)),
+                                         0.0f, 0.0f};
                 if (!fullscreen_filter_pass(current, destination->framebuffer, drop_shadow_program,
                                             "RmlUi.FilterDropShadowExtract", [&]() {
                                                 bgfx::setUniform(shadow_color_uniform, color);
@@ -1069,7 +1226,8 @@ struct BgfxRenderInterface::Impl {
                     const float renorm = std::max(w0 + 2.0f * (w1 + w2 + w3), 0.000001f);
                     const float weights[4] = {w0 / renorm, w1 / renorm, w2 / renorm, w3 / renorm};
                     const float bounds[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-                    float params[4] = {0.0f, 1.0f / float(std::max(height, 1)), 0.0f, 0.0f};
+                    float params[4] = {0.0f, 1.0f / float(std::max(destination->height, 1)), 0.0f,
+                                       0.0f};
                     if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
                                                 "RmlUi.FilterDropShadowBlurV", [&]() {
                                                     bgfx::setUniform(blur_params_uniform, params);
@@ -1082,7 +1240,7 @@ struct BgfxRenderInterface::Impl {
                     perf.add_blur();
                     current = destination->color;
                     destination = (destination == primary) ? secondary : primary;
-                    params[0] = 1.0f / float(std::max(width, 1));
+                    params[0] = 1.0f / float(std::max(destination->width, 1));
                     params[1] = 0.0f;
                     if (!fullscreen_filter_pass(current, destination->framebuffer, blur_program,
                                                 "RmlUi.FilterDropShadowBlurH", [&]() {
@@ -1101,10 +1259,10 @@ struct BgfxRenderInterface::Impl {
                 // `original` texture, so destination framebuffer must not own it.
                 destination = safe_destination(original, destination,
                                                (destination == primary) ? secondary : primary);
-                if (!composite(CompositeOp{original, destination->framebuffer,
-                                           Rml::BlendMode::Blend, ScissorState{false, {}}, false, 1,
-                                           RmlUiPassKind::Postprocess,
-                                           "RmlUi.FilterDropShadowComposite"})) {
+                if (!composite(make_composite_op(original, destination->framebuffer,
+                                                 Rml::BlendMode::Blend, ScissorState{false, {}},
+                                                 false, 1, RmlUiPassKind::Postprocess,
+                                                 "RmlUi.FilterDropShadowComposite"))) {
                     return BGFX_INVALID_HANDLE;
                 }
                 ok = true;
@@ -1185,21 +1343,25 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
-        auto pass = acquire_pass(
-            {RmlUiPassKind::Clear, 0, 0, false, true, width, height, "RmlUi.StencilClear"},
-            layer->framebuffer);
+        const int lw = layer->texture_width;
+        const int lh = layer->texture_height;
+        const bool is_full = (lw >= width && lh >= height);
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, false, true, lw, lh,
+                                                   "RmlUi.StencilClear"),
+                                 layer->framebuffer);
         if (!pass)
             return;
-        uint64_t clear_area = uint64_t(width) * uint64_t(height);
+        uint64_t clear_area = uint64_t(lw) * uint64_t(lh);
         if (scissor.enabled) {
-            const Rml::Rectanglei clipped = clamp_scissor(scissor.region, width, height);
+            const Rml::Rectanglei clipped =
+                clamp_scissor_local(scissor.region, layer->bounds.framebuffer);
             if (clipped.Width() <= 0 || clipped.Height() <= 0)
                 return;
             clear_area = uint64_t(clipped.Width()) * uint64_t(clipped.Height());
             bgfx::setViewRect(pass->view, uint16_t(clipped.Left()), uint16_t(clipped.Top()),
                               uint16_t(clipped.Width()), uint16_t(clipped.Height()));
         }
-        perf.add_clear(clear_area);
+        perf.add_clear(clear_area, is_full);
         bgfx::setViewClear(pass->view, BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, value);
         bgfx::touch(pass->view);
     }
@@ -1228,9 +1390,11 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return false;
-        auto pass = acquire_pass(
-            {RmlUiPassKind::Geometry, 0, 0, false, false, width, height, "RmlUi.StencilNormalize"},
-            layer->framebuffer);
+        const int lw = layer->texture_width;
+        const int lh = layer->texture_height;
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
+                                                   lh, "RmlUi.StencilNormalize"),
+                                 layer->framebuffer);
         if (!pass)
             return false;
 
@@ -1268,16 +1432,19 @@ struct BgfxRenderInterface::Impl {
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
-        auto pass = acquire_pass(
-            {RmlUiPassKind::Geometry, 0, 0, false, false, width, height, "RmlUi.ClipMask"},
-            layer->framebuffer);
+        const int lw = layer->texture_width;
+        const int lh = layer->texture_height;
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
+                                                   lh, "RmlUi.ClipMask"),
+                                 layer->framebuffer);
         if (!pass)
             return;
-        perf.add_clip_mask(uint64_t(width) * uint64_t(height));
+        perf.add_clip_mask(uint64_t(lw) * uint64_t(lh));
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (scissor.enabled) {
-            const Rml::Rectanglei clipped = clamp_scissor(scissor.region, width, height);
+            const Rml::Rectanglei clipped =
+                clamp_scissor_local(scissor.region, layer->bounds.framebuffer);
             if (clipped.Width() <= 0 || clipped.Height() <= 0)
                 return;
             bgfx::setScissor(uint16_t(clipped.Left()), uint16_t(clipped.Top()),
@@ -1285,7 +1452,7 @@ struct BgfxRenderInterface::Impl {
         }
         bgfx::setVertexBuffer(0, geometry.vb);
         bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
-        bgfx::setUniform(projection_uniform, projection);
+        bgfx::setUniform(projection_uniform, layer->projection);
         bgfx::setUniform(transform_uniform,
                          command_transform_valid ? command_transform.data() : identity);
         const float translate[4] = {translation.x, translation.y, 0.0f, 0.0f};
@@ -1361,9 +1528,11 @@ struct BgfxRenderInterface::Impl {
         if (!layer || shader.gradient.kind == GradientKind::Invalid ||
             shader.gradient.stop_count == 0)
             return;
-        auto pass = acquire_pass(
-            {RmlUiPassKind::Geometry, 0, 0, false, false, width, height, "RmlUi.Gradient"},
-            layer->framebuffer);
+        const int lw = layer->texture_width;
+        const int lh = layer->texture_height;
+        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
+                                                   lh, "RmlUi.Gradient"),
+                                 layer->framebuffer);
         if (!pass)
             return;
         perf.add_gradient();
@@ -1387,7 +1556,8 @@ struct BgfxRenderInterface::Impl {
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (scissor_enabled) {
-            const Rml::Rectanglei scissor = clamp_scissor(scissor_region, width, height);
+            const Rml::Rectanglei scissor =
+                clamp_scissor_local(scissor_region, layer->bounds.framebuffer);
             if (scissor.Width() <= 0 || scissor.Height() <= 0)
                 return;
             bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
@@ -1395,7 +1565,7 @@ struct BgfxRenderInterface::Impl {
         }
         bgfx::setVertexBuffer(0, geometry.vb);
         bgfx::setIndexBuffer(geometry.ib, 0, geometry.index_count);
-        bgfx::setUniform(projection_uniform, projection);
+        bgfx::setUniform(projection_uniform, layer->projection);
         bgfx::setUniform(transform_uniform, transform_valid ? transform : identity);
         const float translate[4] = {translation.x, translation.y, 0.0f, 0.0f};
         bgfx::setUniform(translate_uniform, translate);
@@ -1543,11 +1713,12 @@ void BgfxRenderInterface::begin_frame()
     LayerRecord* base = m_impl->current_layer();
     if (!base)
         return;
-    auto pass = m_impl->acquire_pass(
-        {RmlUiPassKind::Clear, 0, 0, true, true, m_impl->width, m_impl->height, "RmlUi.BaseClear"},
-        base->framebuffer);
+    auto pass =
+        m_impl->acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true,
+                                               m_impl->width, m_impl->height, "RmlUi.BaseClear"),
+                             base->framebuffer);
     if (pass) {
-        m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height));
+        m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height), true);
         bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
         bgfx::touch(pass->view);
     }
@@ -1568,9 +1739,9 @@ void BgfxRenderInterface::end_frame()
         m_impl->active_layer = 0;
     }
     if (LayerRecord* base = m_impl->layer_for_handle(0)) {
-        if (!m_impl->composite(CompositeOp{
+        if (!m_impl->composite(make_composite_op(
                 base->color, BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}},
-                false, 1, RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite"})) {
+                false, 1, RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite"))) {
             m_impl->fail_frame("end_frame final composite failed");
         }
     }
@@ -1782,11 +1953,20 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
     m_impl->perf.add_layer_push();
     const Rml::LayerHandle parent = m_impl->active_layer;
     const Rml::LayerHandle handle = Rml::LayerHandle(m_impl->layer_pool.push());
-    if (!m_impl->ensure_layer(size_t(handle))) {
+
+    // Compute bounded layer allocation: use scissor region if available, clamped to parent.
+    const RenderBounds child_bounds = m_impl->compute_child_layer_bounds(parent);
+    const bool is_bounded =
+        (child_bounds.framebuffer.w < m_impl->width || child_bounds.framebuffer.h < m_impl->height);
+    if (!m_impl->ensure_layer(size_t(handle), child_bounds)) {
         m_impl->fail_frame("PushLayer failed while creating layer resources");
         return Rml::LayerHandle(LayerPoolPlan::InvalidLayer);
     }
-    m_impl->perf.add_full_frame_layer();
+    if (is_bounded) {
+        m_impl->perf.add_bounded_layer();
+    } else {
+        m_impl->perf.add_full_frame_layer();
+    }
     if (size_t(parent) < m_impl->layers.size()) {
         m_impl->layers[size_t(handle)].clip_mask_enabled =
             m_impl->layers[size_t(parent)].clip_mask_enabled;
@@ -1795,20 +1975,16 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
     }
     m_impl->layer_stack.push_back(handle);
     m_impl->active_layer = handle;
+    const LayerRecord& layer_rec = m_impl->layers[size_t(handle)];
+    const int lw = layer_rec.texture_width;
+    const int lh = layer_rec.texture_height;
     auto pass = m_impl->acquire_pass(
-        {RmlUiPassKind::Clear, 0, 0, true, true, m_impl->width, m_impl->height, "RmlUi.LayerClear"},
-        m_impl->layers[size_t(handle)].framebuffer);
+        make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, lw, lh, "RmlUi.LayerClear"),
+        layer_rec.framebuffer);
     if (pass) {
         m_impl->perf.add_layer_clear();
-        if (m_impl->scissor_enabled) {
-            const Rml::Rectanglei scissor =
-                clamp_scissor(m_impl->scissor_region, m_impl->width, m_impl->height);
-            m_impl->perf.add_clear(uint64_t(scissor.Width()) * uint64_t(scissor.Height()));
-            bgfx::setViewRect(pass->view, uint16_t(scissor.Left()), uint16_t(scissor.Top()),
-                              uint16_t(scissor.Width()), uint16_t(scissor.Height()));
-        } else {
-            m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height));
-        }
+        // For a bounded layer, clear the whole bounded texture.
+        m_impl->perf.add_clear(uint64_t(lw) * uint64_t(lh), !is_bounded);
         bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
         bgfx::touch(pass->view);
     }
@@ -1852,19 +2028,20 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         destination_layer = m_impl->layer_for_handle(destination);
         if (!source_layer || !destination_layer)
             return;
-        if (!m_impl->composite(CompositeOp{source_layer->color, scratch->framebuffer,
-                                           Rml::BlendMode::Replace, ScissorState{false, {}}, false,
-                                           1, RmlUiPassKind::Copy, "RmlUi.LayerScratchCopy"})) {
+        if (!m_impl->composite(make_composite_op(source_layer->color, scratch->framebuffer,
+                                                 Rml::BlendMode::Replace, ScissorState{false, {}},
+                                                 false, 1, RmlUiPassKind::Copy,
+                                                 "RmlUi.LayerScratchCopy"))) {
             m_impl->fail_frame("CompositeLayers scratch copy failed");
             return;
         }
         bgfx::TextureHandle filtered = m_impl->apply_filters(scratch->color, filters);
         if (!bgfx::isValid(filtered))
             return;
-        if (!m_impl->composite(CompositeOp{filtered, destination_layer->framebuffer, blend_mode,
-                                           scissor_state, destination_clip, destination_stencil_ref,
-                                           RmlUiPassKind::LayerComposite,
-                                           "RmlUi.LayerComposite"})) {
+        if (!m_impl->composite(
+                make_composite_op(filtered, destination_layer->framebuffer, blend_mode,
+                                  scissor_state, destination_clip, destination_stencil_ref,
+                                  RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"))) {
             m_impl->fail_frame("CompositeLayers composite failed");
             return;
         }
@@ -1873,9 +2050,9 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
     bgfx::TextureHandle filtered = m_impl->apply_filters(source_layer->color, filters);
     if (!bgfx::isValid(filtered))
         return;
-    if (!m_impl->composite(CompositeOp{filtered, destination_layer->framebuffer, blend_mode,
-                                       scissor_state, destination_clip, destination_stencil_ref,
-                                       RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"})) {
+    if (!m_impl->composite(make_composite_op(
+            filtered, destination_layer->framebuffer, blend_mode, scissor_state, destination_clip,
+            destination_stencil_ref, RmlUiPassKind::LayerComposite, "RmlUi.LayerComposite"))) {
         m_impl->fail_frame("CompositeLayers composite failed");
     }
 }
@@ -1906,7 +2083,8 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
         return 0;
 
     bgfx::TextureHandle texture =
-        m_impl->copy_region_to_texture(layer->color, bounds, "RmlUi.SaveLayerAsTexture");
+        m_impl->copy_region_to_texture(layer->color, bounds, layer->texture_width,
+                                       layer->texture_height, "RmlUi.SaveLayerAsTexture");
     if (!bgfx::isValid(texture)) {
         m_impl->fail_frame("SaveLayerAsTexture failed to copy layer contents");
         return 0;
@@ -1930,15 +2108,16 @@ Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
     const Rml::Rectanglei full_bounds =
         Rml::Rectanglei::FromPositionSize({0, 0}, {m_impl->width, m_impl->height});
     bgfx::TextureHandle mask_texture =
-        m_impl->copy_region_to_texture(layer->color, full_bounds, "RmlUi.SaveLayerAsMaskImage");
+        m_impl->copy_region_to_texture(layer->color, full_bounds, layer->texture_width,
+                                       layer->texture_height, "RmlUi.SaveLayerAsMaskImage");
     if (!bgfx::isValid(mask_texture)) {
         m_impl->fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
         return 0;
     }
     const Rml::TextureHandle texture = ++m_impl->texture_counter;
-    m_impl->textures.emplace(
-        texture,
-        TextureRecord{mask_texture, {m_impl->width, m_impl->height}, TextureOwnership::SavedLayer});
+    m_impl->textures.emplace(texture, TextureRecord{mask_texture,
+                                                    {layer->texture_width, layer->texture_height},
+                                                    TextureOwnership::SavedLayer});
 
     FilterRecord filter;
     filter.kind = FilterKind::MaskImage;

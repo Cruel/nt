@@ -25,6 +25,7 @@ Last updated: 2026-06-20.
 - Phase 12 Editor Preview and Recorded Test Playback: `RuntimePlaybackSession` runs backend-neutral recorded specs from JSON or project `tests`, drives `RuntimeSessionHost` through shared `RuntimeInput`, supports fixed-delta deterministic steps, captures outputs/diagnostics, evaluates assertions, exports JSON reports, and exposes a Lua-free hook callback for engine-layer setup/check execution.
 - Phase 13 Package Writing and Export: `ProjectPackageWriter` exports ZIP-based `.ntpkg` runtime packages with legacy-compatible entries, additive `manifest.json` metadata, per-entry checksums, safe asset-path filtering, compiled shader variant inclusion, editor-facing export hooks, and manifest-aware sandbox smoke package staging.
 - Phase 14 Editor Integration V1: Electron now talks to a CMake-built `noveltea-editor-tool` helper for project load/import, validation, raw entity edits, playback test listing/running, and package export. The TanStack workspace uses project-derived entity/test trees, raw JSON inspection, validation diagnostics, playback/export timeline entries, and runtime-named preview controls over the existing iframe MessageChannel.
+- Phase 15 RmlUi bgfx optimization Phase 2: child layers now use bounded framebuffer allocation driven by active scissor or explicit fallback to full-frame bounds, with per-layer orthographic projection and selection-policy tests covering bounded, parent-clamped, and fallback cases.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Active Gaps
@@ -117,5 +118,5 @@ cd android
 
 ## Next Implementation Task
 
-Start Phase 15 Real Project Fixtures and Compatibility Verification from [`PLAN.md`](PLAN.md),
+Start Phase 3 rectangle-aware compositing from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md).
 unless the explicitly deferred Phase 8 Lua map-visibility bridge is selected first.

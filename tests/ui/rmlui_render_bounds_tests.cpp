@@ -540,3 +540,65 @@ TEST_CASE("RmlUi negative offscreen source clamps correctly")
         CHECK(uv[3] == Catch::Approx(0.6666667f));
     }
 }
+
+TEST_CASE("RmlUi compute_child_layer_bounds selection policy")
+{
+    const noveltea::SurfaceMetrics surface =
+        noveltea::make_surface_metrics(1000, 500, 2000, 1000); // scale = 2.0
+
+    SECTION("scissor enabled uses scissor region")
+    {
+        FbRect scissor = {100, 200, 300, 400};
+        const auto result = compute_child_layer_bounds(surface, nullptr, &scissor, false);
+        CHECK(result.framebuffer.x == 100);
+        CHECK(result.framebuffer.y == 200);
+        CHECK(result.framebuffer.w == 300);
+        CHECK(result.framebuffer.h == 400);
+        CHECK(result.logical.x == Catch::Approx(50.0f));
+        CHECK(result.logical.y == Catch::Approx(100.0f));
+        CHECK(result.logical.w == Catch::Approx(150.0f));
+        CHECK(result.logical.h == Catch::Approx(200.0f));
+    }
+
+    SECTION("no scissor falls back to surface bounds")
+    {
+        const auto result = compute_child_layer_bounds(surface, nullptr, nullptr, false);
+        CHECK(result.framebuffer.x == 0);
+        CHECK(result.framebuffer.y == 0);
+        CHECK(result.framebuffer.w == 2000);
+        CHECK(result.framebuffer.h == 1000);
+    }
+
+    SECTION("transform invalidates scissor bounds and falls back to full surface")
+    {
+        FbRect scissor = {100, 200, 300, 400};
+        const auto result = compute_child_layer_bounds(surface, nullptr, &scissor, true);
+        CHECK(result.framebuffer.x == 0);
+        CHECK(result.framebuffer.y == 0);
+        CHECK(result.framebuffer.w == 2000);
+        CHECK(result.framebuffer.h == 1000);
+    }
+
+    SECTION("clamping to parent bounds")
+    {
+        FbRect scissor = {100, 100, 800, 800};
+        RenderBounds parent;
+        parent.framebuffer = {200, 200, 400, 400};
+        parent.logical = {100.0f, 100.0f, 200.0f, 200.0f};
+
+        const auto result = compute_child_layer_bounds(surface, &parent, &scissor, false);
+        // intersection of [100, 100, 800, 800] and [200, 200, 400, 400] is [200, 200, 400, 400]
+        CHECK(result.framebuffer.x == 200);
+        CHECK(result.framebuffer.y == 200);
+        CHECK(result.framebuffer.w == 400);
+        CHECK(result.framebuffer.h == 400);
+    }
+
+    SECTION("never allocate zero-size layers")
+    {
+        FbRect scissor = {100, 100, -50, 0};
+        const auto result = compute_child_layer_bounds(surface, nullptr, &scissor, false);
+        CHECK(result.framebuffer.w == 2000);
+        CHECK(result.framebuffer.h == 1000);
+    }
+}

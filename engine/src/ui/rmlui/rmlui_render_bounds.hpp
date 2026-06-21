@@ -62,4 +62,9 @@ struct FilterExpansion {
 [[nodiscard]] FilterExpansion filter_chain_expansion(std::span<const FilterExpansion> expansions);
 [[nodiscard]] FbRect expand_bounds(FbRect r, const FilterExpansion& expansion);
 
+[[nodiscard]] RenderBounds compute_child_layer_bounds(const SurfaceMetrics& surface,
+                                                      const RenderBounds* parent_bounds,
+                                                      const FbRect* scissor_region,
+                                                      bool transform_valid);
+
 } // namespace noveltea::ui::rmlui

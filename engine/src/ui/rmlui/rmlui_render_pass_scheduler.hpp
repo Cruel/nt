@@ -26,6 +26,8 @@ struct RmlUiPassRequest {
     uint16_t bgfx_framebuffer_idx = std::numeric_limits<uint16_t>::max();
     bool clears_color = false;
     bool clears_stencil = false;
+    int x = 0;
+    int y = 0;
     int width = 1;
     int height = 1;
     const char* name = "RmlUi";

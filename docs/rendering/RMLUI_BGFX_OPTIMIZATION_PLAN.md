@@ -345,7 +345,7 @@ Acceptance criteria:
 - Helpers support negative or offscreen source rectangles and clamp correctly.
 - No renderer behavior changes yet except optional logging of computed candidate bounds.
 
-## Phase 2 [next]: Bounded Layer Allocation
+## Phase 2 [done]: Bounded Layer Allocation
 
 Goal: stop allocating every child layer as full framebuffer size.
 
