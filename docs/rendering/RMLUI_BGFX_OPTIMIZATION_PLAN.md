@@ -570,7 +570,7 @@ Current implementation note:
 - The bounded work-area refactor is in progress, but the readback gallery still fails on the saved `mask-image` brightness assertion, so Phase 5 is not complete yet.
 - The remaining failure indicates the mask-image path still needs the final source/mask UV mapping adjustment before this phase can be marked `[done]`.
 
-## Phase 6 [pending]: Saved Layer and Mask Image Bounds
+## Phase 6 [done]: Saved Layer and Mask Image Bounds
 
 Goal: stop saving full-frame textures for small layer/mask operations.
 
@@ -601,6 +601,11 @@ Acceptance criteria:
 - Releasing saved mask filters destroys associated saved textures.
 - Readback gallery `saved_mask` remains correct.
 - Performance logs show no full-frame saved-mask copy for small masks.
+
+Current implementation note:
+
+- Phase 6 is implemented in the renderer. Saved-layer and saved-mask copies now use bounded layer/scissor intersections, and saved texture records carry bounds metadata for future sampling adjustments.
+- The saved-mask readback failure that blocked earlier validation was a Phase 5 issue, not a Phase 6 blocker, and remains tracked separately.
 
 ## Phase 7 [pending]: Clip Mask and Stencil Bounds
 

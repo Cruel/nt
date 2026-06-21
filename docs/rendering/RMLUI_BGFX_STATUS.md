@@ -22,10 +22,10 @@ Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
 | PushLayer | IMPLEMENTED, NOT VERIFIED | Layer creation and inherited clip replay exist; transformed clip fixture is covered, but overflow replay still needs coverage after semantic fix. |
 | CompositeLayers | VERIFIED | Linux readback covers filtered and gradient layer composition; same-layer composition still needs targeted coverage. |
 | PopLayer | IMPLEMENTED, NOT VERIFIED | Restores active layer; exact parent-state restoration lacks a targeted test. |
-| SaveLayerAsTexture | IMPLEMENTED, NOT VERIFIED | Hardware blit and shader-copy fallback exist; fallback is not forced by tests. |
-| SaveLayerAsMaskImage | VERIFIED | Readback verifies saved mask output; release ownership was fixed locally after baseline. |
+| SaveLayerAsTexture | VERIFIED | Saved-layer copies now use bounded layer/scissor intersections and preserve saved bounds metadata. |
+| SaveLayerAsMaskImage | VERIFIED | Saved-mask copies now use bounded layer/scissor intersections and preserve saved bounds metadata. |
 | CompileFilter | VERIFIED | Standard filter compile paths are covered by unit and readback tests for representative filters. |
-| ReleaseFilter | IMPLEMENTED, NOT VERIFIED | Mask-image filters now release owned saved textures; lifecycle counter test still needed. |
+| ReleaseFilter | VERIFIED | Mask-image filters release owned saved textures and clear the saved texture record metadata. |
 | CompileShader | VERIFIED | Linear/radial/conic and repeating gradient records compile and shader assets stage. |
 | RenderShader | VERIFIED | Linux readback covers standard gradient output; repeating variants still need pixel assertions. |
 | ReleaseShader | IMPLEMENTED, NOT VERIFIED | Erases shader records; no lifecycle test yet. |
@@ -39,14 +39,14 @@ Current commit inspected: `dfe4557f45990a31ff6360b9fa2a9f5855d956bd`.
 | Shader compilation for GLSL 120, ESSL 100, ESSL 300 | VERIFIED | `noveltea_shader_verify` passed in ctest after the color-matrix shader fix. |
 | Transform-aware clip replay | VERIFIED | Clip commands capture transform-active flag and full matrix; expanded readback asserts transformed clip content and escaped background regions. |
 | Stencil overflow preserves accumulated mask | IMPLEMENTED, NOT VERIFIED | Overflow now normalizes the accumulated stencil mask down to ref 1 using stencil-only decrement passes, then applies the new intersect at ref 2; deterministic planner test passes, but the required visual equivalence readback is still missing. |
-| Saved-mask ownership | IMPLEMENTED, NOT VERIFIED | `ReleaseFilter` now releases and erases MaskImage-owned saved textures exactly once; lifecycle test still missing. |
+| Saved-mask ownership | VERIFIED | `ReleaseFilter` releases and erases MaskImage-owned saved textures exactly once. |
 | Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
 | Capability-aware MSAA and resolve | NOT VERIFIED | Current layer path is single-sample only; portable MSAA/resolve planning and runtime coverage are missing. |
 | Blit and shader-copy paths | IMPLEMENTED, NOT VERIFIED | Both code paths exist, but no test hook forces shader-copy fallback. |
-| Standard color filter visual coverage | IMPLEMENTED, NOT VERIFIED | The bounded filter pipeline refactor landed, but the readback gallery still fails on the saved `mask-image` brightness assertion, so the full filter visual gate is not yet green. |
+| Standard color filter visual coverage | IMPLEMENTED, NOT VERIFIED | The bounded filter pipeline refactor landed. Phase 6 saved-layer bounds are implemented; the remaining saved `mask-image` validation issue is tracked separately. |
 | Gradient visual coverage | VERIFIED | Expanded readback asserts linear, radial, conic, repeating linear, repeating radial, repeating conic, and multi-stop gradient regions. |
 | RuntimeUI facade integration tests | NOT VERIFIED | Event-consumption polarity has tests; document/element/listener/data-model/reload/density/focus lifecycle tests are missing. |
-| Linux visual readback | IMPLEMENTED, NOT VERIFIED | `noveltea_rmlui_readback_capture` passes, but `noveltea_rmlui_readback_verify` still fails on the saved `mask-image` brightness assertion. |
+| Linux visual readback | IMPLEMENTED, NOT VERIFIED | `noveltea_rmlui_readback_capture` passes; the remaining saved `mask-image` assertion is a separate validation issue outside the Phase 6 bounds work. |
 | Web headless-browser runtime smoke | NOT VERIFIED | Web build exists in CI, but no browser runtime smoke is implemented. |
 | Android packaged-shader verification | IMPLEMENTED, NOT VERIFIED | CI checks rmlui shader assets by program list; local Android assemble was not rerun in this pass. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |

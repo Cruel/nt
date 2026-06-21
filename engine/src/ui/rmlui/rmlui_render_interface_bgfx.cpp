@@ -56,6 +56,7 @@ struct GeometryRecord {
 struct TextureRecord {
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     Rml::Vector2i dimensions;
+    RenderBounds bounds;
     TextureOwnership ownership = TextureOwnership::External;
 };
 
@@ -649,7 +650,12 @@ struct BgfxRenderInterface::Impl {
         }
         const Rml::TextureHandle handle = ++texture_counter;
         textures.emplace(
-            handle, TextureRecord{texture, {tex_width, tex_height}, TextureOwnership::External});
+            handle,
+            TextureRecord{texture,
+                          {tex_width, tex_height},
+                          RenderBounds{{0.0f, 0.0f, float(tex_width), float(tex_height)},
+                                       {0, 0, tex_width, tex_height}},
+                          TextureOwnership::External});
         return handle;
     }
 
@@ -708,6 +714,35 @@ struct BgfxRenderInterface::Impl {
             perf.add_pp_destroy();
         }
         target = {};
+    }
+
+    Rml::Rectanglei current_save_bounds()
+    {
+        LayerRecord* layer = current_layer();
+        if (!layer || !bgfx::isValid(layer->color)) {
+            return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+        }
+
+        const Rml::Rectanglei layer_bounds = Rml::Rectanglei::FromPositionSize(
+            {layer->bounds.framebuffer.x, layer->bounds.framebuffer.y},
+            {layer->bounds.framebuffer.w, layer->bounds.framebuffer.h});
+        if (!scissor_enabled) {
+            return layer_bounds;
+        }
+
+        const Rml::Rectanglei clipped = clamp_scissor(scissor_region, width, height);
+        if (clipped.Width() <= 0 || clipped.Height() <= 0) {
+            return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+        }
+
+        const int left = std::max(clipped.Left(), layer_bounds.Left());
+        const int top = std::max(clipped.Top(), layer_bounds.Top());
+        const int right = std::min(clipped.Right(), layer_bounds.Right());
+        const int bottom = std::min(clipped.Bottom(), layer_bounds.Bottom());
+        if (right <= left || bottom <= top) {
+            return Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+        }
+        return Rml::Rectanglei::FromPositionSize({left, top}, {right - left, bottom - top});
     }
 
     void destroy_layers()
@@ -1213,9 +1248,10 @@ struct BgfxRenderInterface::Impl {
                 bgfx::setVertexBuffer(0, fullscreen_vb);
                 bgfx::setTexture(0, sampler, current);
                 bgfx::setTexture(1, mask_sampler, tex_it->second.handle);
-                const FbRect mask_rect{0, 0, tex_it->second.dimensions.x, tex_it->second.dimensions.y};
-                const auto mask_bounds = uv_rect_for_source_region(mask_rect, tex_it->second.dimensions.x,
-                                                                   tex_it->second.dimensions.y);
+                const FbRect mask_rect{0, 0, tex_it->second.dimensions.x,
+                                       tex_it->second.dimensions.y};
+                const auto mask_bounds = uv_rect_for_source_region(
+                    mask_rect, tex_it->second.dimensions.x, tex_it->second.dimensions.y);
                 bgfx::setUniform(texcoord_bounds_uniform, mask_bounds.data());
                 bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
                 bgfx::submit(pass->view, mask_multiply_program);
@@ -2180,10 +2216,7 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
     if (!layer || !bgfx::isValid(layer->color))
         return 0;
 
-    const Rml::Rectanglei bounds =
-        m_impl->scissor_enabled
-            ? clamp_scissor(m_impl->scissor_region, m_impl->width, m_impl->height)
-            : Rml::Rectanglei::FromPositionSize({0, 0}, {m_impl->width, m_impl->height});
+    const Rml::Rectanglei bounds = m_impl->current_save_bounds();
     if (bounds.Width() <= 0 || bounds.Height() <= 0)
         return 0;
 
@@ -2198,7 +2231,13 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
     const Rml::TextureHandle handle = ++m_impl->texture_counter;
     m_impl->textures.emplace(
         handle,
-        TextureRecord{texture, {bounds.Width(), bounds.Height()}, TextureOwnership::SavedLayer});
+        TextureRecord{texture,
+                      {bounds.Width(), bounds.Height()},
+                      RenderBounds{{float(bounds.Left()), float(bounds.Top()), float(bounds.Width()),
+                                    float(bounds.Height())},
+                                   {bounds.Left(), bounds.Top(), bounds.Width(),
+                                    bounds.Height()}},
+                      TextureOwnership::SavedLayer});
     return handle;
 }
 
@@ -2210,8 +2249,11 @@ Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
     if (!layer || !bgfx::isValid(layer->color))
         return 0;
 
-    const Rml::Rectanglei full_bounds =
-        Rml::Rectanglei::FromPositionSize({0, 0}, {layer->texture_width, layer->texture_height});
+    const Rml::Rectanglei full_bounds = m_impl->current_save_bounds();
+    if (full_bounds.Width() <= 0 || full_bounds.Height() <= 0) {
+        std::fprintf(stderr, "[rmlui] SaveLayerAsMaskImage fallback: no bounded save region\n");
+        return 0;
+    }
     bgfx::TextureHandle mask_texture =
         m_impl->copy_region_to_texture(layer->color, full_bounds, layer->texture_width,
                                        layer->texture_height, "RmlUi.SaveLayerAsMaskImage");
@@ -2220,9 +2262,15 @@ Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
         return 0;
     }
     const Rml::TextureHandle texture = ++m_impl->texture_counter;
-    m_impl->textures.emplace(texture, TextureRecord{mask_texture,
-                                                    {layer->texture_width, layer->texture_height},
-                                                    TextureOwnership::SavedLayer});
+    m_impl->textures.emplace(
+        texture,
+        TextureRecord{mask_texture,
+                      {full_bounds.Width(), full_bounds.Height()},
+                      RenderBounds{{float(full_bounds.Left()), float(full_bounds.Top()),
+                                    float(full_bounds.Width()), float(full_bounds.Height())},
+                                   {full_bounds.Left(), full_bounds.Top(), full_bounds.Width(),
+                                    full_bounds.Height()}},
+                      TextureOwnership::SavedLayer});
 
     FilterRecord filter;
     filter.kind = FilterKind::MaskImage;
