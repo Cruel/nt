@@ -103,6 +103,11 @@ struct LayerRecord {
     bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle depth_stencil = BGFX_INVALID_HANDLE;
     RenderBounds bounds;
+    FbRect valid_content_bounds;
+    bool has_valid_content_bounds = false;
+    ConservativeMaskBounds conservative_mask_bounds;
+    bool content_bounds_transform_fallback = false;
+    bool content_bounds_inverse_mask_fallback = false;
     int texture_width = 0;
     int texture_height = 0;
     bool clip_mask_enabled = false;
@@ -899,7 +904,8 @@ struct BgfxRenderInterface::Impl {
 
     RenderBounds compute_child_layer_bounds(Rml::LayerHandle parent_handle,
                                             const ScissorState& captured_scissor,
-                                            bool captured_transform_valid) const
+                                            bool captured_transform_valid,
+                                            bool count_fallbacks = true) const
     {
         const RenderBounds* parent_ptr = nullptr;
         if (size_t(parent_handle) < layers.size()) {
@@ -915,7 +921,7 @@ struct BgfxRenderInterface::Impl {
                 scissor_ptr = &scissor_fb;
             }
         }
-        if (!scissor_ptr || captured_transform_valid) {
+        if (count_fallbacks && (!scissor_ptr || captured_transform_valid)) {
             const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback(!scissor_ptr,
                                                                          captured_transform_valid);
         }
@@ -952,6 +958,14 @@ struct BgfxRenderInterface::Impl {
         const bool saved_push_transform_valid = layer.push_transform_valid;
         const bool saved_recording = layer.recording;
         const bool saved_clear_pending = layer.clear_pending;
+        const FbRect saved_valid_content_bounds = layer.valid_content_bounds;
+        const bool saved_has_valid_content_bounds = layer.has_valid_content_bounds;
+        const ConservativeMaskBounds saved_conservative_mask_bounds =
+            layer.conservative_mask_bounds;
+        const bool saved_content_bounds_transform_fallback =
+            layer.content_bounds_transform_fallback;
+        const bool saved_content_bounds_inverse_mask_fallback =
+            layer.content_bounds_inverse_mask_fallback;
         const bool saved_clip_mask_enabled = layer.clip_mask_enabled;
         const uint8_t saved_stencil_ref = layer.stencil_ref;
         const size_t saved_inherited_clip_command_count = layer.inherited_clip_command_count;
@@ -997,6 +1011,11 @@ struct BgfxRenderInterface::Impl {
         layer.color = color;
         layer.depth_stencil = depth;
         layer.bounds = bounds;
+        layer.valid_content_bounds = saved_valid_content_bounds;
+        layer.has_valid_content_bounds = saved_has_valid_content_bounds;
+        layer.conservative_mask_bounds = saved_conservative_mask_bounds;
+        layer.content_bounds_transform_fallback = saved_content_bounds_transform_fallback;
+        layer.content_bounds_inverse_mask_fallback = saved_content_bounds_inverse_mask_fallback;
         layer.texture_width = bounds.framebuffer.w;
         layer.texture_height = bounds.framebuffer.h;
         layer.clip_mask_enabled = saved_clip_mask_enabled;
@@ -1052,6 +1071,114 @@ struct BgfxRenderInterface::Impl {
         return layer.kind == LayerKind::VirtualChild && layer.recording && !layer.materialized;
     }
 
+    FbRect scissor_fb_bounds(const ScissorState& state) const
+    {
+        if (!state.enabled)
+            return {};
+        const Rml::Rectanglei region = clamp_scissor(state.region, width, height);
+        if (region.Width() <= 0 || region.Height() <= 0)
+            return {};
+        return {region.Left(), region.Top(), region.Width(), region.Height()};
+    }
+
+    FbRect layer_limit_bounds(const LayerRecord& layer) const
+    {
+        FbRect bounds{0, 0, width, height};
+        if (size_t(layer.parent_layer) < layers.size()) {
+            const FbRect parent_bounds = layers[size_t(layer.parent_layer)].bounds.framebuffer;
+            if (!is_empty(parent_bounds))
+                bounds = intersect(bounds, parent_bounds);
+        }
+        if (layer.push_scissor.enabled) {
+            const FbRect scissor_bounds = scissor_fb_bounds(layer.push_scissor);
+            if (!is_empty(scissor_bounds))
+                bounds = intersect(bounds, scissor_bounds);
+        }
+        if (!is_empty(layer.bounds.framebuffer))
+            bounds = intersect(bounds, layer.bounds.framebuffer);
+        return bounds;
+    }
+
+    std::optional<FbRect> command_fb_bounds(Rml::CompiledGeometryHandle geometry,
+                                            Rml::Vector2f translation, const ScissorState& state,
+                                            bool command_transform_valid,
+                                            const std::array<float, 16>& command_transform) const
+    {
+        auto it = geometries.find(geometry);
+        if (it == geometries.end())
+            return std::nullopt;
+
+        Rml::Matrix4f transform_matrix;
+        const Rml::Matrix4f* transform_ptr = nullptr;
+        if (command_transform_valid) {
+            std::memcpy(transform_matrix.data(), command_transform.data(), sizeof(float) * 16);
+            transform_ptr = &transform_matrix;
+        }
+
+        const GeometryBoundsResult geometry_bounds = compute_transformed_geometry_bounds(
+            it->second.local_bounds, translation, transform_ptr, surface);
+        if (geometry_bounds.status == GeometryBoundsStatus::EmptyGeometry)
+            return FbRect{};
+        if (geometry_bounds.status != GeometryBoundsStatus::Valid)
+            return std::nullopt;
+
+        FbRect bounds = geometry_bounds.framebuffer;
+        if (state.enabled) {
+            const FbRect state_bounds = scissor_fb_bounds(state);
+            if (is_empty(state_bounds))
+                return FbRect{};
+            bounds = intersect(bounds, state_bounds);
+        }
+        return bounds;
+    }
+
+    void add_recorded_region(LayerRecord& layer, const RecordedDrawCommand& command)
+    {
+        const auto maybe_bounds =
+            command_fb_bounds(command.geometry, command.translation, command.scissor,
+                              command.transform_valid, command.transform);
+        if (!maybe_bounds) {
+            if (command.transform_valid)
+                layer.content_bounds_transform_fallback = true;
+            return;
+        }
+        FbRect bounds = *maybe_bounds;
+        const FbRect container = layer_limit_bounds(layer);
+        if (!is_empty(container))
+            bounds = intersect(bounds, container);
+        if (command.clip_mask_enabled)
+            bounds = apply_mask_constraints(bounds, nullptr, &layer.conservative_mask_bounds);
+        if (is_empty(bounds))
+            return;
+        layer.valid_content_bounds = layer.has_valid_content_bounds
+                                         ? union_rects(layer.valid_content_bounds, bounds)
+                                         : bounds;
+        layer.has_valid_content_bounds = true;
+    }
+
+    void update_layer_mask_region(LayerRecord& layer, const ClipCommand& command)
+    {
+        const auto maybe_bounds =
+            command_fb_bounds(command.geometry, command.translation, command.scissor,
+                              command.transform_valid, command.transform);
+        if (!maybe_bounds) {
+            if (command.transform_valid)
+                layer.content_bounds_transform_fallback = true;
+            return;
+        }
+        FbRect fallback_bounds = layer_limit_bounds(layer);
+        if (command.scissor.enabled) {
+            const FbRect scissor_bounds = scissor_fb_bounds(command.scissor);
+            if (!is_empty(scissor_bounds))
+                fallback_bounds = intersect(fallback_bounds, scissor_bounds);
+        }
+        layer.conservative_mask_bounds = update_conservative_mask_bounds(
+            layer.conservative_mask_bounds, command.operation, *maybe_bounds, fallback_bounds);
+        if (command.operation == Rml::ClipMaskOperation::SetInverse &&
+            layer.conservative_mask_bounds.inverse_fallback)
+            layer.content_bounds_inverse_mask_fallback = true;
+    }
+
     void record_geometry_command(Rml::CompiledGeometryHandle geometry, Rml::Vector2f translation,
                                  Rml::TextureHandle texture)
     {
@@ -1071,6 +1198,7 @@ struct BgfxRenderInterface::Impl {
         command.clip_mask_enabled = layer->clip_mask_enabled;
         command.stencil_ref = layer->stencil_ref;
         layer->commands.push_back(command);
+        add_recorded_region(*layer, command);
     }
 
     void record_shader_command(Rml::CompiledShaderHandle shader,
@@ -1094,6 +1222,7 @@ struct BgfxRenderInterface::Impl {
         command.clip_mask_enabled = layer->clip_mask_enabled;
         command.stencil_ref = layer->stencil_ref;
         layer->commands.push_back(command);
+        add_recorded_region(*layer, command);
     }
 
     void record_clip_mask_command(const ClipCommand& clip_command)
@@ -1114,6 +1243,7 @@ struct BgfxRenderInterface::Impl {
         command.previous_ref = clip_command.previous_ref;
         command.next_ref = clip_command.next_ref;
         layer->commands.push_back(command);
+        update_layer_mask_region(*layer, clip_command);
         layer->stencil_ref = clip_command.next_ref;
         layer->clip_commands.push_back(clip_commands.size());
         clip_commands.push_back(clip_command);
@@ -1278,7 +1408,6 @@ struct BgfxRenderInterface::Impl {
         perf.reset();
         direct_base_presented = false;
         direct_base_fallback_reason = nullptr;
-        root_requires_preservation = false;
         const bgfx::Caps* caps = bgfx::getCaps();
         const bool direct_mode_capable =
             caps != nullptr && caps->rendererType != bgfx::RendererType::Noop;
@@ -1339,6 +1468,11 @@ struct BgfxRenderInterface::Impl {
         layers[0].materialized = true;
         layers[0].clear_pending = false;
         layers[0].commands.clear();
+        layers[0].valid_content_bounds = {};
+        layers[0].has_valid_content_bounds = false;
+        layers[0].conservative_mask_bounds = {};
+        layers[0].content_bounds_transform_fallback = false;
+        layers[0].content_bounds_inverse_mask_fallback = false;
         layers[0].clip_mask_enabled = false;
         layers[0].stencil_ref = 1;
         layers[0].clip_commands.clear();
@@ -2640,7 +2774,7 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
     const ScissorState push_scissor{m_impl->scissor_enabled, m_impl->scissor_region};
     const bool push_transform_valid = m_impl->transform_valid;
     const RenderBounds provisional_bounds =
-        m_impl->compute_child_layer_bounds(parent, push_scissor, push_transform_valid);
+        m_impl->compute_child_layer_bounds(parent, push_scissor, push_transform_valid, false);
 
     LayerRecord child;
     child.kind = LayerKind::VirtualChild;
@@ -2656,6 +2790,7 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
         const LayerRecord& parent_layer = m_impl->layers[size_t(parent)];
         child.clip_mask_enabled = parent_layer.clip_mask_enabled;
         child.stencil_ref = parent_layer.stencil_ref;
+        child.conservative_mask_bounds = parent_layer.conservative_mask_bounds;
         child.clip_commands = parent_layer.clip_commands;
         child.inherited_clip_command_count = child.clip_commands.size();
     }

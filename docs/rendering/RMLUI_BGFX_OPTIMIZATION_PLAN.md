@@ -486,9 +486,9 @@ Acceptance criteria:
 
 ## Current Progress
 
-As of the current checkout, Phase 0, Phase 1, and Phase 2 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input. Phase 2 added virtual child-layer recording and on-demand materialization while preserving Linux readback correctness over a longer 40-frame capture so previous-frame layer-resource leaks are caught.
+As of the current checkout, Phase 0, Phase 1, Phase 2, and Phase 3 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input. Phase 2 added virtual child-layer recording and on-demand materialization while preserving Linux readback correctness over a longer 40-frame capture so previous-frame layer-resource leaks are caught. Phase 3 added conservative recorded-layer content and mask bounds from recorded geometry/shader/clip-mask commands, and the readback-gallery perf line now reports zero unbounded child-layer fallback counters.
 
-The next implementation phase is Phase 3: layer content bounds accumulation. Phase 2 intentionally preserves the existing scissor/provisional bounds policy for materialization, so it does not yet reduce the current full-frame child-layer baseline by itself.
+The next implementation phase is Phase 4: bounded layer materialization and replay. Phase 3 intentionally does not use accumulated content bounds for allocation, so child layers and postprocess targets still materialize full-frame until Phase 4 and Phase 6 consume those bounds.
 
 ## Suggested Work Order for Codex
 
@@ -512,9 +512,9 @@ Each implementation slice must report before/after perf lines for the readback g
 Use this prompt to begin the next coding session:
 
 ```text
-We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. Phase 0, Phase 1, and Phase 2 of the restarted plan are implemented: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, and child layers now record virtual draw/gradient/clip-mask commands until a texture consumer materializes them.
+We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. Phase 0 through Phase 3 of the restarted plan are implemented: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, child layers record virtual draw/gradient/clip-mask commands until a texture consumer materializes them, and recorded layers accumulate conservative content/mask bounds with zero unbounded child-layer fallback counters in the readback-gallery perf line.
 
-Start with Phase 3: layer content bounds accumulation. Use the recorded virtual-layer commands to compute conservative `valid_content_bounds` from geometry/shader local AABBs, translations, transforms, scissor state, and clip-mask operations. Keep the existing provisional scissor/parent bounds as a fallback only. Preserve readback correctness, especially saved `mask-image`, while reducing unbounded fallback reasons. Do not start pass folding or direct-base work yet.
+Start with Phase 4: bounded layer materialization and replay. Use each virtual layer's accumulated `valid_content_bounds`, inherited mask/scissor constraints, parent/provisional bounds, and required filter expansion to choose the smallest safe child framebuffer bounds when materializing. Replay recorded geometry/shader/clip-mask commands into that bounded target with the correct projection/scissor/stencil behavior, and preserve readback correctness, especially saved texture and saved `mask-image` behavior. Do not start pass folding or direct-base optimization yet.
 
-After Phase 3, report the readback-gallery perf line and identify any remaining full-frame child-layer fallback reasons before moving to bounded materialization tightening.
+After Phase 4, report the readback-gallery perf line and identify any remaining full-frame child-layer reasons before moving to filter/content-bounds work.
 ```

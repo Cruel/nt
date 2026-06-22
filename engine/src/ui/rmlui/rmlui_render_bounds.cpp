@@ -396,6 +396,48 @@ FbRect expand_bounds(FbRect r, const FilterExpansion& expansion)
     return {l, t, ri - l, b2 - t};
 }
 
+FbRect apply_mask_constraints(FbRect draw_bounds, const FbRect* scissor_bounds,
+                              const ConservativeMaskBounds* mask_bounds)
+{
+    if (is_empty(draw_bounds))
+        return {};
+    FbRect constrained = draw_bounds;
+    if (scissor_bounds) {
+        constrained = intersect(constrained, *scissor_bounds);
+    }
+    if (mask_bounds && mask_bounds->active) {
+        constrained = intersect(constrained, mask_bounds->bounds);
+    }
+    return constrained;
+}
+
+ConservativeMaskBounds update_conservative_mask_bounds(ConservativeMaskBounds current,
+                                                       Rml::ClipMaskOperation operation,
+                                                       FbRect mask_geometry_bounds,
+                                                       FbRect inverse_fallback_bounds)
+{
+    ConservativeMaskBounds next;
+    switch (operation) {
+    case Rml::ClipMaskOperation::Set:
+        next.bounds = mask_geometry_bounds;
+        next.active = true;
+        next.inverse_fallback = false;
+        return next;
+    case Rml::ClipMaskOperation::Intersect:
+        next.bounds =
+            current.active ? intersect(current.bounds, mask_geometry_bounds) : mask_geometry_bounds;
+        next.active = true;
+        next.inverse_fallback = current.inverse_fallback;
+        return next;
+    case Rml::ClipMaskOperation::SetInverse:
+        next.bounds = inverse_fallback_bounds;
+        next.active = !is_empty(inverse_fallback_bounds);
+        next.inverse_fallback = next.active;
+        return next;
+    }
+    return current;
+}
+
 RenderBounds compute_child_layer_bounds(const SurfaceMetrics& surface,
                                         const RenderBounds* parent_bounds,
                                         const FbRect* scissor_region, bool transform_valid)

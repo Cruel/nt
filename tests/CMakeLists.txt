@@ -114,6 +114,7 @@ add_executable(noveltea_ui_tests
     ui/rmlui_event_disposition_tests.cpp
     ui/rmlui_file_interface_tests.cpp
     ui/rmlui_render_bounds_tests.cpp
+    ui/rmlui_conservative_mask_bounds_tests.cpp
     ui/rmlui_render_planning_tests.cpp
     ui/rmlui_render_pass_scheduler_tests.cpp
     ui/rmlui_template_resolver_tests.cpp

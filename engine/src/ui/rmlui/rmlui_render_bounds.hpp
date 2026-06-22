@@ -2,8 +2,9 @@
 
 #include "noveltea/surface.hpp"
 
-#include <RmlUi/Core/Types.h>
+#include <RmlUi/Core/RenderInterface.h>
 #include <RmlUi/Core/Span.h>
+#include <RmlUi/Core/Types.h>
 #include <RmlUi/Core/Vertex.h>
 
 #include <array>
@@ -55,6 +56,12 @@ struct FilterExpansion {
     int bottom = 0;
 };
 
+struct ConservativeMaskBounds {
+    FbRect bounds;
+    bool active = false;
+    bool inverse_fallback = false;
+};
+
 [[nodiscard]] uint64_t area(FbRect r);
 [[nodiscard]] bool is_empty(FbRect r);
 
@@ -93,6 +100,12 @@ compute_transformed_geometry_bounds(LogicalRect local_bounds, Rml::Vector2f tran
 [[nodiscard]] FilterExpansion add_expansions(const FilterExpansion& a, const FilterExpansion& b);
 [[nodiscard]] FilterExpansion filter_chain_expansion(std::span<const FilterExpansion> expansions);
 [[nodiscard]] FbRect expand_bounds(FbRect r, const FilterExpansion& expansion);
+
+[[nodiscard]] FbRect apply_mask_constraints(FbRect draw_bounds, const FbRect* scissor_bounds,
+                                            const ConservativeMaskBounds* mask_bounds);
+[[nodiscard]] ConservativeMaskBounds
+update_conservative_mask_bounds(ConservativeMaskBounds current, Rml::ClipMaskOperation operation,
+                                FbRect mask_geometry_bounds, FbRect inverse_fallback_bounds);
 
 [[nodiscard]] RenderBounds compute_child_layer_bounds(const SurfaceMetrics& surface,
                                                       const RenderBounds* parent_bounds,
