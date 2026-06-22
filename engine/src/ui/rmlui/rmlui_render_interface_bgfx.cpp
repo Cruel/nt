@@ -26,6 +26,7 @@
 #include <limits>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace noveltea::ui::rmlui {
@@ -61,6 +62,42 @@ struct TextureRecord {
     TextureOwnership ownership = TextureOwnership::External;
 };
 
+struct ShaderRecord {
+    GradientRecord gradient;
+};
+
+struct ScissorState {
+    bool enabled = false;
+    Rml::Rectanglei region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+};
+
+enum class LayerKind {
+    Root,
+    VirtualChild,
+};
+
+enum class RecordedCommandKind {
+    Geometry,
+    Shader,
+    ClipMask,
+};
+
+struct RecordedDrawCommand {
+    RecordedCommandKind kind = RecordedCommandKind::Geometry;
+    Rml::CompiledGeometryHandle geometry = 0;
+    Rml::TextureHandle texture = 0;
+    Rml::CompiledShaderHandle shader = 0;
+    Rml::Vector2f translation;
+    ScissorState scissor;
+    bool transform_valid = false;
+    std::array<float, 16> transform{};
+    bool clip_mask_enabled = false;
+    uint8_t stencil_ref = 1;
+    Rml::ClipMaskOperation clip_operation = Rml::ClipMaskOperation::Set;
+    uint8_t previous_ref = 1;
+    uint8_t next_ref = 1;
+};
+
 struct LayerRecord {
     bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
@@ -71,7 +108,17 @@ struct LayerRecord {
     bool clip_mask_enabled = false;
     uint8_t stencil_ref = 1;
     std::vector<size_t> clip_commands;
+    size_t inherited_clip_command_count = 0;
     float projection[16]{};
+
+    LayerKind kind = LayerKind::Root;
+    Rml::LayerHandle parent_layer = 0;
+    ScissorState push_scissor;
+    bool push_transform_valid = false;
+    bool recording = false;
+    bool materialized = false;
+    bool clear_pending = false;
+    std::vector<RecordedDrawCommand> commands;
 };
 
 struct RenderTargetRecord {
@@ -81,15 +128,6 @@ struct RenderTargetRecord {
     int texture_width = 0;
     int texture_height = 0;
     PostprocessTargetKind kind = PostprocessTargetKind::Primary;
-};
-
-struct ShaderRecord {
-    GradientRecord gradient;
-};
-
-struct ScissorState {
-    bool enabled = false;
-    Rml::Rectanglei region = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
 };
 
 struct CompositeOp {
@@ -859,7 +897,9 @@ struct BgfxRenderInterface::Impl {
         postprocess_pool.reset_resources();
     }
 
-    RenderBounds compute_child_layer_bounds(Rml::LayerHandle parent_handle) const
+    RenderBounds compute_child_layer_bounds(Rml::LayerHandle parent_handle,
+                                            const ScissorState& captured_scissor,
+                                            bool captured_transform_valid) const
     {
         const RenderBounds* parent_ptr = nullptr;
         if (size_t(parent_handle) < layers.size()) {
@@ -868,20 +908,26 @@ struct BgfxRenderInterface::Impl {
 
         const FbRect* scissor_ptr = nullptr;
         FbRect scissor_fb{};
-        if (scissor_enabled) {
-            const Rml::Rectanglei clipped = clamp_scissor(scissor_region, width, height);
+        if (captured_scissor.enabled) {
+            const Rml::Rectanglei clipped = clamp_scissor(captured_scissor.region, width, height);
             if (clipped.Width() > 0 && clipped.Height() > 0) {
                 scissor_fb = {clipped.Left(), clipped.Top(), clipped.Width(), clipped.Height()};
                 scissor_ptr = &scissor_fb;
             }
         }
-        if (!scissor_ptr || transform_valid) {
+        if (!scissor_ptr || captured_transform_valid) {
             const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback(!scissor_ptr,
-                                                                         transform_valid);
+                                                                         captured_transform_valid);
         }
 
         return noveltea::ui::rmlui::compute_child_layer_bounds(surface, parent_ptr, scissor_ptr,
-                                                               transform_valid);
+                                                               captured_transform_valid);
+    }
+
+    RenderBounds compute_child_layer_bounds(Rml::LayerHandle parent_handle) const
+    {
+        return compute_child_layer_bounds(
+            parent_handle, ScissorState{scissor_enabled, scissor_region}, transform_valid);
     }
 
     bool ensure_layer(size_t index, const RenderBounds& bounds)
@@ -893,11 +939,24 @@ struct BgfxRenderInterface::Impl {
         if (bgfx::isValid(layer.framebuffer) && layer.texture_width == bounds.framebuffer.w &&
             layer.texture_height == bounds.framebuffer.h) {
             layer.bounds = bounds;
+            layer.materialized = true;
             bx::mtxOrtho(layer.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
                          bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
                          0.0f, bgfx::getCaps()->homogeneousDepth);
             return true;
         }
+
+        const LayerKind saved_kind = layer.kind;
+        const Rml::LayerHandle saved_parent_layer = layer.parent_layer;
+        const ScissorState saved_push_scissor = layer.push_scissor;
+        const bool saved_push_transform_valid = layer.push_transform_valid;
+        const bool saved_recording = layer.recording;
+        const bool saved_clear_pending = layer.clear_pending;
+        const bool saved_clip_mask_enabled = layer.clip_mask_enabled;
+        const uint8_t saved_stencil_ref = layer.stencil_ref;
+        const size_t saved_inherited_clip_command_count = layer.inherited_clip_command_count;
+        std::vector<size_t> saved_clip_commands = std::move(layer.clip_commands);
+        std::vector<RecordedDrawCommand> saved_commands = std::move(layer.commands);
         destroy_layer(layer);
 
         constexpr uint64_t color_flags =
@@ -940,9 +999,18 @@ struct BgfxRenderInterface::Impl {
         layer.bounds = bounds;
         layer.texture_width = bounds.framebuffer.w;
         layer.texture_height = bounds.framebuffer.h;
-        layer.clip_mask_enabled = false;
-        layer.stencil_ref = 1;
-        layer.clip_commands.clear();
+        layer.clip_mask_enabled = saved_clip_mask_enabled;
+        layer.stencil_ref = saved_stencil_ref;
+        layer.clip_commands = std::move(saved_clip_commands);
+        layer.inherited_clip_command_count = saved_inherited_clip_command_count;
+        layer.kind = saved_kind;
+        layer.parent_layer = saved_parent_layer;
+        layer.push_scissor = saved_push_scissor;
+        layer.push_transform_valid = saved_push_transform_valid;
+        layer.recording = saved_recording;
+        layer.materialized = true;
+        layer.clear_pending = saved_clear_pending;
+        layer.commands = std::move(saved_commands);
         bx::mtxOrtho(layer.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
                      bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
                      0.0f, bgfx::getCaps()->homogeneousDepth);
@@ -957,15 +1025,253 @@ struct BgfxRenderInterface::Impl {
             return nullptr;
         if (size_t(handle) >= layers.size())
             return nullptr;
-        if (size_t(handle) == 0 && direct_base_requested) {
-            return &layers[0];
-        }
-        if (!bgfx::isValid(layers[size_t(handle)].framebuffer))
-            return nullptr;
         return &layers[size_t(handle)];
     }
 
+    LayerRecord* materialized_layer_for_handle(Rml::LayerHandle handle)
+    {
+        LayerRecord* layer = layer_for_handle(handle);
+        if (!layer)
+            return nullptr;
+        if (size_t(handle) == 0 && direct_base_requested)
+            return layer;
+        if (!bgfx::isValid(layer->framebuffer))
+            return nullptr;
+        return layer;
+    }
+
     LayerRecord* current_layer() { return layer_for_handle(active_layer); }
+
+    bool active_layer_is_recording() const
+    {
+        if (uint32_t(active_layer) == LayerPoolPlan::InvalidLayer ||
+            size_t(active_layer) >= layers.size()) {
+            return false;
+        }
+        const LayerRecord& layer = layers[size_t(active_layer)];
+        return layer.kind == LayerKind::VirtualChild && layer.recording && !layer.materialized;
+    }
+
+    void record_geometry_command(Rml::CompiledGeometryHandle geometry, Rml::Vector2f translation,
+                                 Rml::TextureHandle texture)
+    {
+        LayerRecord* layer = current_layer();
+        if (!layer)
+            return;
+        RecordedDrawCommand command;
+        command.kind = RecordedCommandKind::Geometry;
+        command.geometry = geometry;
+        command.texture = texture;
+        command.translation = translation;
+        command.scissor = ScissorState{scissor_enabled, scissor_region};
+        command.transform_valid = transform_valid;
+        if (command.transform_valid) {
+            std::memcpy(command.transform.data(), transform, sizeof(transform));
+        }
+        command.clip_mask_enabled = layer->clip_mask_enabled;
+        command.stencil_ref = layer->stencil_ref;
+        layer->commands.push_back(command);
+    }
+
+    void record_shader_command(Rml::CompiledShaderHandle shader,
+                               Rml::CompiledGeometryHandle geometry, Rml::Vector2f translation,
+                               Rml::TextureHandle texture)
+    {
+        LayerRecord* layer = current_layer();
+        if (!layer)
+            return;
+        RecordedDrawCommand command;
+        command.kind = RecordedCommandKind::Shader;
+        command.shader = shader;
+        command.geometry = geometry;
+        command.texture = texture;
+        command.translation = translation;
+        command.scissor = ScissorState{scissor_enabled, scissor_region};
+        command.transform_valid = transform_valid;
+        if (command.transform_valid) {
+            std::memcpy(command.transform.data(), transform, sizeof(transform));
+        }
+        command.clip_mask_enabled = layer->clip_mask_enabled;
+        command.stencil_ref = layer->stencil_ref;
+        layer->commands.push_back(command);
+    }
+
+    void record_clip_mask_command(const ClipCommand& clip_command)
+    {
+        LayerRecord* layer = current_layer();
+        if (!layer)
+            return;
+        RecordedDrawCommand command;
+        command.kind = RecordedCommandKind::ClipMask;
+        command.geometry = clip_command.geometry;
+        command.translation = clip_command.translation;
+        command.scissor = clip_command.scissor;
+        command.transform_valid = clip_command.transform_valid;
+        command.transform = clip_command.transform;
+        command.clip_mask_enabled = layer->clip_mask_enabled;
+        command.stencil_ref = clip_command.previous_ref;
+        command.clip_operation = clip_command.operation;
+        command.previous_ref = clip_command.previous_ref;
+        command.next_ref = clip_command.next_ref;
+        layer->commands.push_back(command);
+        layer->stencil_ref = clip_command.next_ref;
+        layer->clip_commands.push_back(clip_commands.size());
+        clip_commands.push_back(clip_command);
+    }
+
+    bool clear_materialized_layer(Rml::LayerHandle handle, bool is_bounded)
+    {
+        LayerRecord* layer = materialized_layer_for_handle(handle);
+        if (!layer)
+            return false;
+        const int lw = layer->texture_width;
+        const int lh = layer->texture_height;
+        auto pass = acquire_pass(
+            make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, lw, lh, "RmlUi.LayerClear"),
+            layer->framebuffer);
+        if (!pass)
+            return false;
+        perf.add_layer_clear();
+        perf.add_clear(uint64_t(lw) * uint64_t(lh), !is_bounded);
+        bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
+        bgfx::touch(pass->view);
+        return true;
+    }
+
+    bool replay_recorded_commands(Rml::LayerHandle handle)
+    {
+        LayerRecord* layer = materialized_layer_for_handle(handle);
+        if (!layer)
+            return false;
+        const std::vector<RecordedDrawCommand> commands = layer->commands;
+        const bool final_clip_mask_enabled = layer->clip_mask_enabled;
+        const uint8_t final_stencil_ref = layer->stencil_ref;
+        const Rml::LayerHandle saved_active = active_layer;
+        const bool saved_scissor_enabled = scissor_enabled;
+        const Rml::Rectanglei saved_scissor_region = scissor_region;
+        const bool saved_transform_valid = transform_valid;
+        const std::array<float, 16> saved_transform = [&] {
+            std::array<float, 16> copy{};
+            std::memcpy(copy.data(), transform, sizeof(transform));
+            return copy;
+        }();
+
+        active_layer = handle;
+        for (const RecordedDrawCommand& command : commands) {
+            LayerRecord* replay_layer = materialized_layer_for_handle(handle);
+            if (!replay_layer)
+                break;
+            scissor_enabled = command.scissor.enabled;
+            scissor_region = command.scissor.region;
+            transform_valid = command.transform_valid;
+            if (transform_valid) {
+                std::memcpy(transform, command.transform.data(), sizeof(transform));
+            }
+            replay_layer->clip_mask_enabled = command.clip_mask_enabled;
+            replay_layer->stencil_ref = command.stencil_ref;
+
+            switch (command.kind) {
+            case RecordedCommandKind::Geometry: {
+                auto geometry_it = geometries.find(command.geometry);
+                if (geometry_it != geometries.end()) {
+                    submit(geometry_it->second, command.translation, command.texture);
+                }
+                break;
+            }
+            case RecordedCommandKind::Shader: {
+                auto shader_it = shaders.find(command.shader);
+                auto geometry_it = geometries.find(command.geometry);
+                if (shader_it != shaders.end() && geometry_it != geometries.end()) {
+                    submit_gradient(shader_it->second, geometry_it->second, command.translation);
+                }
+                break;
+            }
+            case RecordedCommandKind::ClipMask: {
+                ClipCommand clip_command;
+                clip_command.operation = command.clip_operation;
+                clip_command.geometry = command.geometry;
+                clip_command.translation = command.translation;
+                clip_command.scissor = command.scissor;
+                clip_command.transform_valid = command.transform_valid;
+                clip_command.transform = command.transform;
+                clip_command.previous_ref = command.previous_ref;
+                clip_command.next_ref = command.next_ref;
+                apply_clip_command(clip_command, false);
+                break;
+            }
+            }
+        }
+
+        if (LayerRecord* final_layer = materialized_layer_for_handle(handle)) {
+            final_layer->clip_mask_enabled = final_clip_mask_enabled;
+            final_layer->stencil_ref = final_stencil_ref;
+        }
+        active_layer = saved_active;
+        scissor_enabled = saved_scissor_enabled;
+        scissor_region = saved_scissor_region;
+        transform_valid = saved_transform_valid;
+        std::memcpy(transform, saved_transform.data(), sizeof(transform));
+        return !frame_failed;
+    }
+
+    bool materialize_layer(Rml::LayerHandle handle)
+    {
+        LayerRecord* layer = layer_for_handle(handle);
+        if (!layer)
+            return false;
+        if (layer->kind == LayerKind::Root || layer->materialized)
+            return true;
+
+        const RenderBounds child_bounds =
+            !is_empty(layer->bounds.framebuffer)
+                ? layer->bounds
+                : compute_child_layer_bounds(layer->parent_layer, layer->push_scissor,
+                                             layer->push_transform_valid);
+        const bool is_bounded =
+            (child_bounds.framebuffer.w < width || child_bounds.framebuffer.h < height);
+        if (!ensure_layer(size_t(handle), child_bounds)) {
+            fail_frame("failed to materialize virtual RmlUi layer");
+            return false;
+        }
+        layer = layer_for_handle(handle);
+        if (!layer)
+            return false;
+        layer->recording = false;
+        layer->materialized = true;
+        perf.update_child_layer_max(uint32_t(layer->texture_width),
+                                    uint32_t(layer->texture_height));
+        if (is_bounded) {
+            perf.add_bounded_child_layer();
+        } else {
+            perf.add_full_frame_child_layer();
+        }
+
+        const bool final_clip_mask_enabled = layer->clip_mask_enabled;
+        const uint8_t final_stencil_ref = layer->stencil_ref;
+        if (layer->clear_pending) {
+            if (!clear_materialized_layer(handle, is_bounded)) {
+                fail_frame("failed to clear materialized RmlUi layer");
+                return false;
+            }
+            layer = layer_for_handle(handle);
+            if (!layer)
+                return false;
+            layer->clear_pending = false;
+        }
+        if (layer->inherited_clip_command_count > 0) {
+            const size_t count =
+                std::min(layer->inherited_clip_command_count, layer->clip_commands.size());
+            std::vector<size_t> inherited_commands(layer->clip_commands.begin(),
+                                                   layer->clip_commands.begin() + count);
+            replay_clip_commands(handle, inherited_commands);
+            layer = layer_for_handle(handle);
+            if (!layer)
+                return false;
+            layer->clip_mask_enabled = final_clip_mask_enabled;
+            layer->stencil_ref = final_stencil_ref;
+        }
+        return replay_recorded_commands(handle);
+    }
 
     bool begin_base_layer()
     {
@@ -993,9 +1299,11 @@ struct BgfxRenderInterface::Impl {
         } else {
             perf.add_offscreen_base_presentation();
             perf.add_direct_base_fallback();
-            if (direct_base_fallback_reason) {
+            if (direct_base_fallback_reason &&
+                logged_base_fallback_reason != direct_base_fallback_reason) {
                 std::fprintf(stderr, "[rmlui] base presentation fallback: %s\n",
                              direct_base_fallback_reason);
+                logged_base_fallback_reason = direct_base_fallback_reason;
             }
         }
         RenderBounds base_bounds;
@@ -1025,9 +1333,16 @@ struct BgfxRenderInterface::Impl {
         layer_stack.clear();
         layer_stack.push_back(0);
         active_layer = 0;
+        layers[0].kind = LayerKind::Root;
+        layers[0].parent_layer = 0;
+        layers[0].recording = false;
+        layers[0].materialized = true;
+        layers[0].clear_pending = false;
+        layers[0].commands.clear();
         layers[0].clip_mask_enabled = false;
         layers[0].stencil_ref = 1;
         layers[0].clip_commands.clear();
+        layers[0].inherited_clip_command_count = 0;
         clip_commands.clear();
         frame_failed = false;
         return true;
@@ -1946,6 +2261,7 @@ struct BgfxRenderInterface::Impl {
     bool direct_base_presented = false;
     bool root_requires_preservation = false;
     const char* direct_base_fallback_reason = nullptr;
+    const char* logged_base_fallback_reason = nullptr;
     bool base_direct_compatibility_enabled = false;
 
     // Cached stencil format (probed once to avoid getInternalformatParameter spam).
@@ -2177,9 +2493,14 @@ FbRect rect_in_destination_layer(const FbRect& source_bounds, const LayerRecord&
 void BgfxRenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
                                          Rml::Vector2f translation, Rml::TextureHandle texture)
 {
-    if (auto it = m_impl->geometries.find(geometry); it != m_impl->geometries.end()) {
-        m_impl->submit(it->second, translation, texture);
+    auto it = m_impl->geometries.find(geometry);
+    if (it == m_impl->geometries.end())
+        return;
+    if (m_impl->active_layer_is_recording()) {
+        m_impl->record_geometry_command(geometry, translation, texture);
+        return;
     }
+    m_impl->submit(it->second, translation, texture);
 }
 
 void BgfxRenderInterface::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
@@ -2297,6 +2618,10 @@ void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
         plan_stencil_clip_operation(layer->stencil_ref, clip_operation_plan(operation));
     command.previous_ref = clip_plan.previous_ref;
     command.next_ref = clip_plan.next_ref;
+    if (m_impl->active_layer_is_recording()) {
+        m_impl->record_clip_mask_command(command);
+        return;
+    }
     m_impl->apply_clip_command(command, true);
 }
 
@@ -2305,46 +2630,39 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
     m_impl->perf.add_layer_push();
     const Rml::LayerHandle parent = m_impl->active_layer;
     const Rml::LayerHandle handle = Rml::LayerHandle(m_impl->layer_pool.push());
+    if (uint32_t(handle) == LayerPoolPlan::InvalidLayer)
+        return handle;
+    if (size_t(handle) >= m_impl->layers.size())
+        m_impl->layers.resize(size_t(handle) + 1);
+    else
+        m_impl->destroy_layer(m_impl->layers[size_t(handle)]);
 
-    // Compute bounded layer allocation: use scissor region if available, clamped to parent.
-    const RenderBounds child_bounds = m_impl->compute_child_layer_bounds(parent);
-    const bool is_bounded =
-        (child_bounds.framebuffer.w < m_impl->width || child_bounds.framebuffer.h < m_impl->height);
-    if (!m_impl->ensure_layer(size_t(handle), child_bounds)) {
-        m_impl->fail_frame("PushLayer failed while creating layer resources");
-        return Rml::LayerHandle(LayerPoolPlan::InvalidLayer);
-    }
-    if (is_bounded) {
-        m_impl->perf.add_bounded_child_layer();
-    } else {
-        m_impl->perf.add_full_frame_child_layer();
-    }
+    const ScissorState push_scissor{m_impl->scissor_enabled, m_impl->scissor_region};
+    const bool push_transform_valid = m_impl->transform_valid;
+    const RenderBounds provisional_bounds =
+        m_impl->compute_child_layer_bounds(parent, push_scissor, push_transform_valid);
+
+    LayerRecord child;
+    child.kind = LayerKind::VirtualChild;
+    child.parent_layer = parent;
+    child.bounds = provisional_bounds;
+    child.push_scissor = push_scissor;
+    child.push_transform_valid = push_transform_valid;
+    child.recording = true;
+    child.materialized = false;
+    child.clear_pending = true;
+
     if (size_t(parent) < m_impl->layers.size()) {
-        m_impl->layers[size_t(handle)].clip_mask_enabled =
-            m_impl->layers[size_t(parent)].clip_mask_enabled;
-        m_impl->layers[size_t(handle)].stencil_ref = m_impl->layers[size_t(parent)].stencil_ref;
-        m_impl->layers[size_t(handle)].clip_commands = m_impl->layers[size_t(parent)].clip_commands;
+        const LayerRecord& parent_layer = m_impl->layers[size_t(parent)];
+        child.clip_mask_enabled = parent_layer.clip_mask_enabled;
+        child.stencil_ref = parent_layer.stencil_ref;
+        child.clip_commands = parent_layer.clip_commands;
+        child.inherited_clip_command_count = child.clip_commands.size();
     }
+
+    m_impl->layers[size_t(handle)] = std::move(child);
     m_impl->layer_stack.push_back(handle);
     m_impl->active_layer = handle;
-    const LayerRecord& layer_rec = m_impl->layers[size_t(handle)];
-    const int lw = layer_rec.texture_width;
-    const int lh = layer_rec.texture_height;
-    m_impl->perf.update_child_layer_max(uint32_t(lw), uint32_t(lh));
-    auto pass = m_impl->acquire_pass(
-        make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, lw, lh, "RmlUi.LayerClear"),
-        layer_rec.framebuffer);
-    if (pass) {
-        m_impl->perf.add_layer_clear();
-        // For a bounded layer, clear the whole bounded texture.
-        m_impl->perf.add_clear(uint64_t(lw) * uint64_t(lh), !is_bounded);
-        bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
-        bgfx::touch(pass->view);
-    }
-    if (size_t(parent) < m_impl->layers.size() &&
-        !m_impl->layers[size_t(handle)].clip_commands.empty()) {
-        m_impl->replay_clip_commands(handle, m_impl->layers[size_t(handle)].clip_commands);
-    }
     return handle;
 }
 
@@ -2361,6 +2679,16 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
     if (m_impl->direct_base_requested && size_t(destination) == 0 && !filters.empty()) {
         m_impl->root_requires_preservation = true;
         m_impl->fail_frame("CompositeLayers root filters require offscreen presentation");
+        return;
+    }
+    if (!m_impl->materialize_layer(source) || !m_impl->materialize_layer(destination)) {
+        m_impl->fail_frame("CompositeLayers failed to materialize layers");
+        return;
+    }
+    source_layer = m_impl->materialized_layer_for_handle(source);
+    destination_layer = m_impl->materialized_layer_for_handle(destination);
+    if (!source_layer || !destination_layer) {
+        m_impl->fail_frame("CompositeLayers received unmaterialized layer handles");
         return;
     }
     const ScissorState scissor_state{m_impl->scissor_enabled, m_impl->scissor_region};
@@ -2386,8 +2714,8 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
             m_impl->fail_frame("CompositeLayers failed to create scratch target");
             return;
         }
-        source_layer = m_impl->layer_for_handle(source);
-        destination_layer = m_impl->layer_for_handle(destination);
+        source_layer = m_impl->materialized_layer_for_handle(source);
+        destination_layer = m_impl->materialized_layer_for_handle(destination);
         if (!source_layer || !destination_layer)
             return;
         if (!m_impl->composite(make_composite_op(
@@ -2443,14 +2771,18 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
 {
     if (m_impl->frame_failed)
         return 0;
-    LayerRecord* layer = m_impl->current_layer();
-    if (!layer || !bgfx::isValid(layer->color))
-        return 0;
     if (m_impl->direct_base_requested && size_t(m_impl->active_layer) == 0) {
         m_impl->root_requires_preservation = true;
         m_impl->fail_frame("SaveLayerAsTexture requires offscreen root");
         return 0;
     }
+    if (!m_impl->materialize_layer(m_impl->active_layer)) {
+        m_impl->fail_frame("SaveLayerAsTexture failed to materialize layer");
+        return 0;
+    }
+    LayerRecord* layer = m_impl->materialized_layer_for_handle(m_impl->active_layer);
+    if (!layer || !bgfx::isValid(layer->color))
+        return 0;
 
     const Rml::Rectanglei bounds = m_impl->current_save_bounds();
     if (bounds.Width() <= 0 || bounds.Height() <= 0)
@@ -2480,14 +2812,18 @@ Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
 {
     if (m_impl->frame_failed)
         return 0;
-    LayerRecord* layer = m_impl->current_layer();
-    if (!layer || !bgfx::isValid(layer->color))
-        return 0;
     if (m_impl->direct_base_requested && size_t(m_impl->active_layer) == 0) {
         m_impl->root_requires_preservation = true;
         m_impl->fail_frame("SaveLayerAsMaskImage requires offscreen root");
         return 0;
     }
+    if (!m_impl->materialize_layer(m_impl->active_layer)) {
+        m_impl->fail_frame("SaveLayerAsMaskImage failed to materialize layer");
+        return 0;
+    }
+    LayerRecord* layer = m_impl->materialized_layer_for_handle(m_impl->active_layer);
+    if (!layer || !bgfx::isValid(layer->color))
+        return 0;
 
     const Rml::Rectanglei local_bounds =
         Rml::Rectanglei::FromPositionSize({0, 0}, {layer->texture_width, layer->texture_height});
@@ -2601,11 +2937,14 @@ void BgfxRenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
                                        Rml::CompiledGeometryHandle geometry,
                                        Rml::Vector2f translation, Rml::TextureHandle texture)
 {
-    (void)texture;
     auto shader_it = m_impl->shaders.find(shader);
     auto geometry_it = m_impl->geometries.find(geometry);
     if (shader_it == m_impl->shaders.end() || geometry_it == m_impl->geometries.end())
         return;
+    if (m_impl->active_layer_is_recording()) {
+        m_impl->record_shader_command(shader, geometry, translation, texture);
+        return;
+    }
     m_impl->submit_gradient(shader_it->second, geometry_it->second, translation);
 }
 

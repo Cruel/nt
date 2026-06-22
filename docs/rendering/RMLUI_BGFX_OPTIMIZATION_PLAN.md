@@ -230,6 +230,15 @@ Acceptance criteria:
 - Tests cover that command replay preserves geometry order around clip-mask commands.
 - No WebGL feedback-loop errors appear.
 
+Implementation note, 2026-06-21:
+
+- Child layers now start as virtual records. `PushLayer()` creates logical layer metadata, captures push-time scissor/transform state, stores provisional non-GPU bounds for nested-layer inheritance, and does not call `ensure_layer()` or clear a child framebuffer.
+- Geometry, gradient shader, and clip-mask operations record their handles plus scissor, transform, clip-mask enable, and stencil-reference state when the active layer is virtual.
+- `CompositeLayers()`, `SaveLayerAsTexture()`, and `SaveLayerAsMaskImage()` materialize virtual layers on demand, clear the materialized target once, replay inherited clip masks, then replay recorded commands in order.
+- Nested virtual layers need the provisional parent bounds. Without that, saved `mask-image` layers can collapse to the conservative 1x1 fallback before Phase 3 content bounds exist.
+- Reused virtual layer slots must destroy any previous-frame materialized framebuffer before replacing the slot with a new virtual record. Otherwise the gallery can render correctly for a few frames, then exhaust bgfx framebuffer resources and go blank.
+- This phase deliberately does not make child layer work proportional to content yet. Materialization still uses the old scissor/provisional selection policy, so the strict web-smoke structural gate is expected to keep failing until Phase 3/4 replace provisional bounds with accumulated content bounds and bounded allocation.
+
 ## Phase 3: Layer Content Bounds Accumulation
 
 Goal: compute conservative content bounds for virtual layers from their recorded commands.
@@ -477,9 +486,9 @@ Acceptance criteria:
 
 ## Current Progress
 
-As of the current checkout, Phase 0 and Phase 1 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input.
+As of the current checkout, Phase 0, Phase 1, and Phase 2 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input. Phase 2 added virtual child-layer recording and on-demand materialization while preserving Linux readback correctness over a longer 40-frame capture so previous-frame layer-resource leaks are caught.
 
-The next implementation phase is Phase 2: virtual child layer recording. Phase 1 intentionally does not change rendering behavior or reduce the current full-frame child layer baseline by itself.
+The next implementation phase is Phase 3: layer content bounds accumulation. Phase 2 intentionally preserves the existing scissor/provisional bounds policy for materialization, so it does not yet reduce the current full-frame child-layer baseline by itself.
 
 ## Suggested Work Order for Codex
 
@@ -503,9 +512,9 @@ Each implementation slice must report before/after perf lines for the readback g
 Use this prompt to begin the next coding session:
 
 ```text
-We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. The previous 11-phase plan did not actually improve performance: the readback gallery still reports full_layers=13, unbounded_layer_fallbacks=12, full_frame_passes=66, max_layer=max_rt=framebuffer, and FPS remains around 5 in a browser.
+We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. Phase 0, Phase 1, and Phase 2 of the restarted plan are implemented: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, and child layers now record virtual draw/gradient/clip-mask commands until a texture consumer materializes them.
 
-Start with Phase 0 of the new plan. Fix perf logging and scripts/web-smoke.mjs so the current bad baseline fails structurally. Do not change renderer behavior yet except instrumentation. Print and parse explicit per-frame use counters for full-frame child layers, postprocess target uses, full-frame clear/composite/postprocess passes, max child layer size, max postprocess target size, and fallback reasons. Update scripts/web-smoke-thresholds.json so the current readback gallery fails because it still does full-frame child-layer/filter work. Keep Linux readback correctness passing.
+Start with Phase 3: layer content bounds accumulation. Use the recorded virtual-layer commands to compute conservative `valid_content_bounds` from geometry/shader local AABBs, translations, transforms, scissor state, and clip-mask operations. Keep the existing provisional scissor/parent bounds as a fallback only. Preserve readback correctness, especially saved `mask-image`, while reducing unbounded fallback reasons. Do not start pass folding or direct-base work yet.
 
-After Phase 0, report the failing perf line and the exact next implementation target, which should be Phase 1 geometry/shader bounds.
+After Phase 3, report the readback-gallery perf line and identify any remaining full-frame child-layer fallback reasons before moving to bounded materialization tightening.
 ```
