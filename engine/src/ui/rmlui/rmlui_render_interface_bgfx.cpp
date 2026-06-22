@@ -3,6 +3,7 @@
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_bounds.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_draw.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_filters.hpp"
+#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_layers.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_passes.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_planning.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_target_cache.hpp"
@@ -490,8 +491,7 @@ struct RenderInterface::Impl {
     void destroy_layers()
     {
         target_cache.destroy_layers();
-        layer_stack.clear();
-        active_layer = 0;
+        layer_system.clear_stack_to_base();
     }
 
     void destroy_postprocess_targets() { target_cache.destroy_postprocess_targets(); }
@@ -539,36 +539,17 @@ struct RenderInterface::Impl {
 
     LayerRecord* layer_for_handle(Rml::LayerHandle handle)
     {
-        if (uint32_t(handle) == LayerPoolPlan::InvalidLayer)
-            return nullptr;
-        if (size_t(handle) >= layers.size())
-            return nullptr;
-        return &layers[size_t(handle)];
+        return layer_system.layer_for_handle(handle);
     }
 
     LayerRecord* materialized_layer_for_handle(Rml::LayerHandle handle)
     {
-        LayerRecord* layer = layer_for_handle(handle);
-        if (!layer)
-            return nullptr;
-        if (size_t(handle) == 0 && direct_base_requested)
-            return layer;
-        if (!bgfx::isValid(layer->framebuffer))
-            return nullptr;
-        return layer;
+        return layer_system.materialized_layer_for_handle(handle, direct_base_requested);
     }
 
-    LayerRecord* current_layer() { return layer_for_handle(active_layer); }
+    LayerRecord* current_layer() { return layer_system.current_layer(); }
 
-    bool active_layer_is_recording() const
-    {
-        if (uint32_t(active_layer) == LayerPoolPlan::InvalidLayer ||
-            size_t(active_layer) >= layers.size()) {
-            return false;
-        }
-        const LayerRecord& layer = layers[size_t(active_layer)];
-        return layer.kind == LayerKind::VirtualChild && layer.recording && !layer.materialized;
-    }
+    bool active_layer_is_recording() const { return layer_system.active_layer_is_recording(); }
 
     FbRect scissor_fb_bounds(const ScissorState& state) const
     {
@@ -1001,9 +982,7 @@ struct RenderInterface::Impl {
             perf.add_full_frame_layer();
         }
         layer_pool.begin_frame();
-        layer_stack.clear();
-        layer_stack.push_back(0);
-        active_layer = 0;
+        layer_system.begin_frame();
         layers[0].kind = LayerKind::Root;
         layers[0].parent_layer = 0;
         layers[0].recording = false;
@@ -1733,13 +1712,11 @@ struct RenderInterface::Impl {
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
     std::unordered_map<Rml::CompiledShaderHandle, ShaderRecord> shaders;
     std::vector<ClipCommand> clip_commands;
-    std::vector<Rml::LayerHandle> layer_stack;
     Rml::CompiledGeometryHandle geometry_counter = 0;
     bgfx::VertexBufferHandle fullscreen_vb = BGFX_INVALID_HANDLE;
     Rml::TextureHandle texture_counter = 0;
     Rml::CompiledFilterHandle filter_counter = 0;
     Rml::CompiledShaderHandle shader_counter = 0;
-    Rml::LayerHandle active_layer = 0;
     int width = 1;
     int height = 1;
     int logical_width = 1;
@@ -1768,10 +1745,13 @@ struct RenderInterface::Impl {
     BgfxFilterPipeline filter_pipeline;
     BgfxPassBuilder pass_builder;
     BgfxTargetCache target_cache{&perf};
+    BgfxLayerSystem layer_system{target_cache};
     std::vector<LayerRecord>& layers = target_cache.layers();
     std::deque<RenderTargetRecord>& postprocess_targets = target_cache.postprocess_targets();
     LayerPoolPlan& layer_pool = target_cache.layer_pool();
     PostprocessPoolPlan& postprocess_pool = target_cache.postprocess_pool();
+    std::vector<Rml::LayerHandle>& layer_stack = layer_system.stack();
+    Rml::LayerHandle& active_layer = layer_system.active_layer_ref();
     bool perf_logging_enabled = false;
 
     // Check whether a texture is the color attachment of a framebuffer we own.
@@ -1846,16 +1826,13 @@ void RenderInterface::begin_frame()
 void RenderInterface::end_frame()
 {
     if (m_impl->frame_failed) {
-        m_impl->layer_stack.clear();
-        m_impl->layer_stack.push_back(0);
-        m_impl->active_layer = 0;
+        m_impl->layer_system.begin_frame();
         return;
     }
     if (m_impl->layer_stack.size() != 1) {
         std::fprintf(stderr, "[rmlui] unbalanced layer stack at frame end: %zu\n",
                      m_impl->layer_stack.size());
-        m_impl->layer_stack.resize(1);
-        m_impl->active_layer = 0;
+        m_impl->layer_system.begin_frame();
     }
     if (!m_impl->direct_base_requested) {
         if (LayerRecord* base = m_impl->layer_for_handle(0)) {
@@ -2118,56 +2095,13 @@ Rml::LayerHandle RenderInterface::PushLayer()
     const Rml::LayerHandle handle = Rml::LayerHandle(m_impl->layer_pool.push());
     if (uint32_t(handle) == LayerPoolPlan::InvalidLayer)
         return handle;
-    if (size_t(handle) >= m_impl->layers.size())
-        m_impl->layers.resize(size_t(handle) + 1);
-
-    LayerRecord preserved_resources;
-    if (size_t(handle) < m_impl->layers.size()) {
-        LayerRecord& previous = m_impl->layers[size_t(handle)];
-        preserved_resources.framebuffer = previous.framebuffer;
-        preserved_resources.color = previous.color;
-        preserved_resources.depth_stencil = previous.depth_stencil;
-        preserved_resources.texture_width = previous.texture_width;
-        preserved_resources.texture_height = previous.texture_height;
-        previous.framebuffer = BGFX_INVALID_HANDLE;
-        previous.color = BGFX_INVALID_HANDLE;
-        previous.depth_stencil = BGFX_INVALID_HANDLE;
-        previous.texture_width = 0;
-        previous.texture_height = 0;
-    }
-
     const ScissorState push_scissor{m_impl->scissor_enabled, m_impl->scissor_region};
     const bool push_transform_valid = m_impl->transform_valid;
     const RenderBounds provisional_bounds =
         m_impl->compute_child_layer_bounds(parent, push_scissor, push_transform_valid, false);
-
-    LayerRecord child;
-    child.framebuffer = preserved_resources.framebuffer;
-    child.color = preserved_resources.color;
-    child.depth_stencil = preserved_resources.depth_stencil;
-    child.texture_width = preserved_resources.texture_width;
-    child.texture_height = preserved_resources.texture_height;
-    child.kind = LayerKind::VirtualChild;
-    child.parent_layer = parent;
-    child.bounds = provisional_bounds;
-    child.push_scissor = push_scissor;
-    child.push_transform_valid = push_transform_valid;
-    child.recording = true;
-    child.materialized = false;
-    child.clear_pending = true;
-
-    if (size_t(parent) < m_impl->layers.size()) {
-        const LayerRecord& parent_layer = m_impl->layers[size_t(parent)];
-        child.clip_mask_enabled = parent_layer.clip_mask_enabled;
-        child.stencil_ref = parent_layer.stencil_ref;
-        child.conservative_mask_bounds = parent_layer.conservative_mask_bounds;
-        child.clip_commands = parent_layer.clip_commands;
-        child.inherited_clip_command_count = child.clip_commands.size();
-    }
-
-    m_impl->layers[size_t(handle)] = std::move(child);
-    m_impl->layer_stack.push_back(handle);
-    m_impl->active_layer = handle;
+    m_impl->layer_system.prepare_virtual_child(handle, parent, provisional_bounds, push_scissor,
+                                               push_transform_valid);
+    m_impl->layer_system.push_layer(handle);
     return handle;
 }
 
@@ -2312,8 +2246,7 @@ void RenderInterface::PopLayer()
         std::fprintf(stderr, "[rmlui] attempted to pop the base RmlUi layer\n");
         return;
     }
-    m_impl->layer_stack.pop_back();
-    m_impl->active_layer = m_impl->layer_stack.back();
+    m_impl->layer_system.pop_layer();
 }
 
 Rml::TextureHandle RenderInterface::SaveLayerAsTexture()

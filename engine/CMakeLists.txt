@@ -272,6 +272,7 @@ add_library(rmlui_bgfx_renderer STATIC
     src/ui/rmlui/rmlui_render_pass_scheduler.cpp
     src/ui/rmlui/bgfx_renderer/rmlui_bgfx_draw.cpp
     src/ui/rmlui/bgfx_renderer/rmlui_bgfx_filters.cpp
+    src/ui/rmlui/bgfx_renderer/rmlui_bgfx_layers.cpp
     src/ui/rmlui/bgfx_renderer/rmlui_bgfx_passes.cpp
     src/ui/rmlui/bgfx_renderer/rmlui_bgfx_target_cache.cpp
     src/ui/rmlui/rmlui_render_interface_bgfx.cpp
