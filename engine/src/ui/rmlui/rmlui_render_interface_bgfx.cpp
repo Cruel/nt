@@ -2,6 +2,7 @@
 
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_bounds.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_draw.hpp"
+#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_filters.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_passes.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_planning.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_target_cache.hpp"
@@ -646,44 +647,6 @@ struct RenderInterface::Impl {
         return bounds_from_framebuffer_rect(selected);
     }
 
-    std::vector<FilterRecord>
-    resolved_filter_chain(Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const
-    {
-        std::vector<FilterRecord> filter_chain;
-        filter_chain.reserve(filter_handles.size());
-        for (Rml::CompiledFilterHandle handle : filter_handles) {
-            auto it = filters.find(handle);
-            if (it == filters.end())
-                return {};
-            filter_chain.push_back(it->second);
-        }
-        return simplify_filter_chain(filter_chain);
-    }
-
-    FilterExpansion
-    filter_expansion_for(Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const
-    {
-        FilterExpansion total_expansion{};
-        for (const FilterRecord& filter : resolved_filter_chain(filter_handles)) {
-            switch (filter.kind) {
-            case FilterKind::Blur:
-                total_expansion = add_expansions(total_expansion, blur_expansion(filter.sigma));
-                break;
-            case FilterKind::DropShadow:
-                total_expansion = add_expansions(
-                    total_expansion,
-                    drop_shadow_expansion(filter.sigma, filter.offset[0], filter.offset[1]));
-                break;
-            case FilterKind::MaskImage:
-            case FilterKind::Opacity:
-            case FilterKind::ColorMatrix:
-            case FilterKind::Invalid:
-                break;
-            }
-        }
-        return total_expansion;
-    }
-
     std::optional<FbRect> command_fb_bounds(Rml::CompiledGeometryHandle geometry,
                                             Rml::Vector2f translation, const ScissorState& state,
                                             bool command_transform_valid,
@@ -1141,6 +1104,20 @@ struct RenderInterface::Impl {
                                  kRmlBlendState};
     }
 
+    BgfxFilterPipelineContext filter_context()
+    {
+        return BgfxFilterPipelineContext{filters,
+                                         textures,
+                                         surface,
+                                         target_cache,
+                                         pass_builder,
+                                         draw_context,
+                                         draw_resources(),
+                                         perf,
+                                         [this]() { return ensure_fullscreen_geometry(); },
+                                         [this](const char* message) { fail_frame(message); }};
+    }
+
     // Returns true on success.  Returns false if the source texture is attached to the
     // destination framebuffer (WebGL feedback loop) or other validation fails.
     bool composite(const CompositeOp& op)
@@ -1232,33 +1209,11 @@ struct RenderInterface::Impl {
         return texture;
     }
 
-    template<typename F>
-    bool fullscreen_filter_pass(bgfx::TextureHandle source, const RenderTargetRecord& destination,
-                                const char* name, F&& submit_pass)
-    {
-        if (frame_failed || !ensure_fullscreen_geometry() || !bgfx::isValid(source) ||
-            !bgfx::isValid(destination.framebuffer))
-            return false;
-        // WebGL feedback check: the filter pipeline uses ping-pong between primary
-        // and secondary targets, so the source texture should never be the color
-        // attachment of the destination framebuffer under normal operation.
-        if (texture_attached_to_framebuffer(source, destination.framebuffer)) {
-            fail_frame("fullscreen_filter_pass feedback loop");
-            return false;
-        }
-        const int pass_w = destination.texture_width;
-        const int pass_h = destination.texture_height;
-        const bool is_full = is_full_frame_rect(destination.bounds, width, height);
-        auto pass = pass_builder.postprocess(destination.framebuffer, pass_w, pass_h, name);
-        if (!pass)
-            return false;
-        perf.add_postprocess(uint64_t(pass_w) * uint64_t(pass_h), is_full);
-        return submit_pass(*pass);
-    }
-
     FilterApplyResult apply_filters(TextureRegion source, const RenderBounds& source_bounds,
                                     Rml::Span<const Rml::CompiledFilterHandle> filter_handles)
     {
+        return filter_pipeline.apply(filter_context(), source, source_bounds, filter_handles);
+#if 0
         FilterApplyResult result;
         const GlobalFbRect source_valid_global_bounds =
             intersect(source.global_bounds, source_bounds.framebuffer);
@@ -1275,11 +1230,13 @@ struct RenderInterface::Impl {
         if (filter_handles.empty())
             return result;
 
-        std::vector<FilterRecord> filter_chain = resolved_filter_chain(filter_handles);
+        std::vector<FilterRecord> filter_chain =
+            filter_pipeline.resolve(filter_context(), filter_handles);
         if (filter_chain.empty())
             return result;
 
-        const FilterExpansion total_expansion = filter_expansion_for(filter_handles);
+        const FilterExpansion total_expansion =
+            filter_pipeline.expansion_for(filter_context(), filter_handles);
         const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
         const FbRect clamped_work_bounds =
             clamp_to_surface(align_outward_for_render_target(expanded), surface);
@@ -1497,6 +1454,7 @@ struct RenderInterface::Impl {
         result.output_bounds.logical = source_bounds.logical;
         result.output_bounds.framebuffer = clamped_work_bounds;
         return result;
+#endif
     }
 
     RenderTargetRecord* ensure_postprocess_target(PostprocessTargetKind kind, const FbRect& bounds)
@@ -1807,6 +1765,7 @@ struct RenderInterface::Impl {
 
     rmlui_bgfx::PerfCounters perf;
     BgfxDrawContext draw_context;
+    BgfxFilterPipeline filter_pipeline;
     BgfxPassBuilder pass_builder;
     BgfxTargetCache target_cache{&perf};
     std::vector<LayerRecord>& layers = target_cache.layers();
@@ -2237,7 +2196,8 @@ void RenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle 
     }
 
     FbRect source_required = m_impl->layer_recorded_content_bounds(*source_layer);
-    const FilterExpansion expansion = m_impl->filter_expansion_for(filters);
+    const FilterExpansion expansion =
+        m_impl->filter_pipeline.expansion_for(m_impl->filter_context(), filters);
     if (!is_empty(source_required)) {
         source_required = clamp_to_surface(
             align_outward_for_render_target(expand_bounds(source_required, expansion)),
@@ -2281,7 +2241,8 @@ void RenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle 
             m_impl->fail_frame("CompositeLayers scratch copy failed");
             return;
         }
-        const FilterApplyResult filtered = m_impl->apply_filters(
+        const FilterApplyResult filtered = m_impl->filter_pipeline.apply(
+            m_impl->filter_context(),
             texture_region(scratch->color, source_valid_global,
                            LocalFbRect{source_valid_global.x - source_layer->bounds.framebuffer.x,
                                        source_valid_global.y - source_layer->bounds.framebuffer.y,
@@ -2311,7 +2272,8 @@ void RenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle 
         return;
     }
 
-    const FilterApplyResult filtered = m_impl->apply_filters(
+    const FilterApplyResult filtered = m_impl->filter_pipeline.apply(
+        m_impl->filter_context(),
         texture_region(source_layer->color, source_valid_global,
                        local_rect_for_layer(source_valid_global, *source_layer),
                        source_layer->texture_width, source_layer->texture_height),
