@@ -358,11 +358,24 @@ struct PerfCounters {
     uint32_t layer_clears = 0;
     uint32_t full_frame_layers = 0;
     uint32_t bounded_layers = 0;
+    uint32_t full_frame_child_layers = 0;
+    uint32_t bounded_child_layers = 0;
     uint32_t unbounded_layer_fallbacks = 0;
+    uint32_t unbounded_no_scissor_fallbacks = 0;
+    uint32_t unbounded_transform_fallbacks = 0;
+    uint32_t unbounded_inverse_clip_fallbacks = 0;
     uint32_t full_frame_passes = 0;
     uint32_t bounded_passes = 0;
+    uint32_t full_frame_clear_passes = 0;
+    uint32_t bounded_clear_passes = 0;
+    uint32_t full_frame_composite_passes = 0;
+    uint32_t bounded_composite_passes = 0;
+    uint32_t full_frame_postprocess_passes = 0;
+    uint32_t bounded_postprocess_passes = 0;
     uint32_t full_frame_postprocess_targets = 0;
     uint32_t bounded_postprocess_targets = 0;
+    uint32_t full_frame_postprocess_target_uses = 0;
+    uint32_t bounded_postprocess_target_uses = 0;
     uint32_t direct_base_presentations = 0;
     uint32_t offscreen_base_presentations = 0;
     uint32_t direct_base_fallbacks = 0;
@@ -378,6 +391,8 @@ struct PerfCounters {
     uint64_t postprocess_pixels = 0;
     uint32_t max_layer_width = 0;
     uint32_t max_layer_height = 0;
+    uint32_t max_child_layer_width = 0;
+    uint32_t max_child_layer_height = 0;
     uint32_t max_postprocess_width = 0;
     uint32_t max_postprocess_height = 0;
 
@@ -402,8 +417,10 @@ struct PerfCounters {
         clear_pixels += px;
         if (full_frame) {
             full_frame_passes++;
+            full_frame_clear_passes++;
         } else {
             bounded_passes++;
+            bounded_clear_passes++;
         }
     }
     void add_copy() { copy_passes++; }
@@ -414,8 +431,10 @@ struct PerfCounters {
         composite_pixels += px;
         if (full_frame) {
             full_frame_passes++;
+            full_frame_composite_passes++;
         } else {
             bounded_passes++;
+            bounded_composite_passes++;
         }
     }
     void add_postprocess(uint64_t px, bool full_frame)
@@ -424,8 +443,10 @@ struct PerfCounters {
         postprocess_pixels += px;
         if (full_frame) {
             full_frame_passes++;
+            full_frame_postprocess_passes++;
         } else {
             bounded_passes++;
+            bounded_postprocess_passes++;
         }
     }
     void add_blur() { blur_passes++; }
@@ -436,17 +457,47 @@ struct PerfCounters {
         postprocess_pixels += px;
         if (full_frame) {
             full_frame_passes++;
+            full_frame_postprocess_passes++;
         } else {
             bounded_passes++;
+            bounded_postprocess_passes++;
         }
     }
     void add_layer_push() { layer_pushes++; }
     void add_layer_clear() { layer_clears++; }
     void add_full_frame_layer() { full_frame_layers++; }
     void add_bounded_layer() { bounded_layers++; }
-    void add_unbounded_layer_fallback() { unbounded_layer_fallbacks++; }
+    void add_full_frame_child_layer()
+    {
+        full_frame_layers++;
+        full_frame_child_layers++;
+    }
+    void add_bounded_child_layer()
+    {
+        bounded_layers++;
+        bounded_child_layers++;
+    }
+    void add_unbounded_layer_fallback(bool no_scissor, bool transform, bool inverse_clip = false)
+    {
+        unbounded_layer_fallbacks++;
+        if (no_scissor)
+            unbounded_no_scissor_fallbacks++;
+        if (transform)
+            unbounded_transform_fallbacks++;
+        if (inverse_clip)
+            unbounded_inverse_clip_fallbacks++;
+    }
     void add_full_frame_pp_target() { full_frame_postprocess_targets++; }
     void add_bounded_pp_target() { bounded_postprocess_targets++; }
+    void add_postprocess_target_use(uint32_t w, uint32_t h, bool full_frame)
+    {
+        update_pp_max(w, h);
+        if (full_frame) {
+            full_frame_postprocess_target_uses++;
+        } else {
+            bounded_postprocess_target_uses++;
+        }
+    }
     void add_direct_base_presentation() { direct_base_presentations++; }
     void add_offscreen_base_presentation() { offscreen_base_presentations++; }
     void add_direct_base_fallback() { direct_base_fallbacks++; }
@@ -455,6 +506,11 @@ struct PerfCounters {
     {
         max_layer_width = std::max(max_layer_width, w);
         max_layer_height = std::max(max_layer_height, h);
+    }
+    void update_child_layer_max(uint32_t w, uint32_t h)
+    {
+        max_child_layer_width = std::max(max_child_layer_width, w);
+        max_child_layer_height = std::max(max_child_layer_height, h);
     }
     void add_layer_destroy() { layer_destroys++; }
     void add_pp_alloc(uint32_t w, uint32_t h) { postprocess_allocations++; }
@@ -482,14 +538,18 @@ struct PerfCounters {
     void add_layer_clear() {}
     void add_full_frame_layer() {}
     void add_bounded_layer() {}
-    void add_unbounded_layer_fallback() {}
+    void add_full_frame_child_layer() {}
+    void add_bounded_child_layer() {}
+    void add_unbounded_layer_fallback(bool, bool, bool = false) {}
     void add_full_frame_pp_target() {}
     void add_bounded_pp_target() {}
+    void add_postprocess_target_use(uint32_t, uint32_t, bool) {}
     void add_direct_base_presentation() {}
     void add_offscreen_base_presentation() {}
     void add_direct_base_fallback() {}
     void add_layer_alloc(uint32_t, uint32_t) {}
     void update_layer_max(uint32_t, uint32_t) {}
+    void update_child_layer_max(uint32_t, uint32_t) {}
     void add_layer_destroy() {}
     void add_pp_alloc(uint32_t, uint32_t) {}
     void update_pp_max(uint32_t, uint32_t) {}
@@ -815,7 +875,8 @@ struct BgfxRenderInterface::Impl {
             }
         }
         if (!scissor_ptr || transform_valid) {
-            const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback();
+            const_cast<PerfCounters&>(perf).add_unbounded_layer_fallback(!scissor_ptr,
+                                                                         transform_valid);
         }
 
         return noveltea::ui::rmlui::compute_child_layer_bounds(surface, parent_ptr, scissor_ptr,
@@ -1508,7 +1569,8 @@ struct BgfxRenderInterface::Impl {
         const int work_w = clamped_bounds.w;
         const int work_h = clamped_bounds.h;
         RenderTargetRecord& target = postprocess_targets[index];
-        perf.update_pp_max(uint32_t(work_w), uint32_t(work_h));
+        const bool target_is_full_frame = is_full_frame_rect(clamped_bounds, width, height);
+        perf.add_postprocess_target_use(uint32_t(work_w), uint32_t(work_h), target_is_full_frame);
         if (bgfx::isValid(target.framebuffer) && target.texture_width == work_w &&
             target.texture_height == work_h) {
             target.bounds = clamped_bounds;
@@ -2014,28 +2076,46 @@ void BgfxRenderInterface::end_frame()
         const double now = double(now_ticks) / double(bx::getHPFrequency());
         if (m_impl->perf_logging_enabled && now - last_log_time >= 1.0) {
             const auto& p = m_impl->perf;
-            std::fprintf(stderr,
-                         "[perf] fps=%.0f passes=%u geom=%u clip=%u gradients=%u "
-                         "layers=%u full_layers=%u bounded_layers=%u "
-                         "unbounded_layer_fallbacks=%u "
-                         "filters=%u blur=%u shadow=%u mask=%u "
-                         "base_direct=%u base_offscreen=%u base_fallback=%u "
-                         "clear_px=%llu copy_px=%llu composite_px=%llu post_px=%llu "
-                         "full_frame_passes=%u bounded_passes=%u "
-                         "rt_alloc=%u rt_destroy=%u layer_alloc=%u layer_destroy=%u "
-                         "max_layer=%ux%u max_rt=%ux%u fb=%dx%d\n",
-                         double(frame_count) / (now - last_log_time), p.pass_count,
-                         p.geometry_draws, p.clip_mask_draws, p.gradient_draws, p.layer_pushes,
-                         p.full_frame_layers, p.bounded_layers, p.unbounded_layer_fallbacks,
-                         p.postprocess_passes, p.blur_passes, p.dropshadow_passes, p.mask_passes,
-                         p.direct_base_presentations, p.offscreen_base_presentations,
-                         p.direct_base_fallbacks, (unsigned long long)p.clear_pixels,
-                         (unsigned long long)p.copy_pixels, (unsigned long long)p.composite_pixels,
-                         (unsigned long long)p.postprocess_pixels, p.full_frame_passes,
-                         p.bounded_passes, p.postprocess_allocations, p.postprocess_destroys,
-                         p.layer_allocations, p.layer_destroys, p.max_layer_width,
-                         p.max_layer_height, p.max_postprocess_width, p.max_postprocess_height,
-                         m_impl->width, m_impl->height);
+            std::fprintf(
+                stderr,
+                "[perf] fps=%.0f passes=%u geom=%u clip=%u gradients=%u "
+                "layers=%u full_layers=%u bounded_layers=%u "
+                "full_frame_child_layers=%u bounded_child_layers=%u "
+                "unbounded_layer_fallbacks=%u "
+                "unbounded_no_scissor_fallbacks=%u "
+                "unbounded_transform_fallbacks=%u "
+                "unbounded_inverse_clip_fallbacks=%u "
+                "filters=%u blur=%u shadow=%u mask=%u "
+                "base_direct=%u base_offscreen=%u base_fallback=%u "
+                "clear_px=%llu copy_px=%llu composite_px=%llu post_px=%llu "
+                "full_frame_passes=%u bounded_passes=%u "
+                "full_frame_clear_passes=%u bounded_clear_passes=%u "
+                "full_frame_composite_passes=%u bounded_composite_passes=%u "
+                "full_frame_postprocess_passes=%u bounded_postprocess_passes=%u "
+                "full_frame_postprocess_target_uses=%u bounded_postprocess_target_uses=%u "
+                "full_frame_postprocess_targets=%u bounded_postprocess_targets=%u "
+                "rt_alloc=%u rt_destroy=%u layer_alloc=%u layer_destroy=%u "
+                "max_layer=%ux%u max_child_layer=%ux%u max_child_rt=%ux%u "
+                "max_rt=%ux%u fb=%dx%d\n",
+                double(frame_count) / (now - last_log_time), p.pass_count, p.geometry_draws,
+                p.clip_mask_draws, p.gradient_draws, p.layer_pushes, p.full_frame_layers,
+                p.bounded_layers, p.full_frame_child_layers, p.bounded_child_layers,
+                p.unbounded_layer_fallbacks, p.unbounded_no_scissor_fallbacks,
+                p.unbounded_transform_fallbacks, p.unbounded_inverse_clip_fallbacks,
+                p.postprocess_passes, p.blur_passes, p.dropshadow_passes, p.mask_passes,
+                p.direct_base_presentations, p.offscreen_base_presentations,
+                p.direct_base_fallbacks, (unsigned long long)p.clear_pixels,
+                (unsigned long long)p.copy_pixels, (unsigned long long)p.composite_pixels,
+                (unsigned long long)p.postprocess_pixels, p.full_frame_passes, p.bounded_passes,
+                p.full_frame_clear_passes, p.bounded_clear_passes, p.full_frame_composite_passes,
+                p.bounded_composite_passes, p.full_frame_postprocess_passes,
+                p.bounded_postprocess_passes, p.full_frame_postprocess_target_uses,
+                p.bounded_postprocess_target_uses, p.full_frame_postprocess_targets,
+                p.bounded_postprocess_targets, p.postprocess_allocations, p.postprocess_destroys,
+                p.layer_allocations, p.layer_destroys, p.max_layer_width, p.max_layer_height,
+                p.max_child_layer_width, p.max_child_layer_height, p.max_child_layer_width,
+                p.max_child_layer_height, p.max_postprocess_width, p.max_postprocess_height,
+                m_impl->width, m_impl->height);
             frame_count = 0;
             last_log_time = now;
         }
@@ -2231,9 +2311,9 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
         return Rml::LayerHandle(LayerPoolPlan::InvalidLayer);
     }
     if (is_bounded) {
-        m_impl->perf.add_bounded_layer();
+        m_impl->perf.add_bounded_child_layer();
     } else {
-        m_impl->perf.add_full_frame_layer();
+        m_impl->perf.add_full_frame_child_layer();
     }
     if (size_t(parent) < m_impl->layers.size()) {
         m_impl->layers[size_t(handle)].clip_mask_enabled =
@@ -2246,6 +2326,7 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
     const LayerRecord& layer_rec = m_impl->layers[size_t(handle)];
     const int lw = layer_rec.texture_width;
     const int lh = layer_rec.texture_height;
+    m_impl->perf.update_child_layer_max(uint32_t(lw), uint32_t(lh));
     auto pass = m_impl->acquire_pass(
         make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, lw, lh, "RmlUi.LayerClear"),
         layer_rec.framebuffer);

@@ -24,7 +24,7 @@ try {
 }
 
 async function startServer() {
-const server = http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       const reqUrl = new URL(req.url || '/', 'http://localhost');
       let rel = decodeURIComponent(reqUrl.pathname).replace(/^\/+/, '');
@@ -60,22 +60,56 @@ const server = http.createServer(async (req, res) => {
 }
 
 function parsePerf(line) {
-  const matchers = {
-    full_frame_postprocess_targets: /full_frame_postprocess_targets=(\d+)/,
-    full_frame_layers: /full_layers=(\d+)/,
-    postprocess_pixels: /post_px=(\d+)/,
-    composite_pixels: /composite_px=(\d+)/,
-    rt_alloc: /rt_alloc=(\d+)/,
-    rt_destroy: /rt_destroy=(\d+)/,
-    layer_alloc: /layer_alloc=(\d+)/,
-    layer_destroy: /layer_destroy=(\d+)/,
-  };
-  const out = {};
-  for (const [key, regex] of Object.entries(matchers)) {
-    const match = line.match(regex);
-    if (match) out[key] = Number(match[1]);
+  const values = {};
+  const tokenRegex = /([A-Za-z_]+)=([^\s]+)/g;
+  for (const match of line.matchAll(tokenRegex)) {
+    const [, key, raw] = match;
+    const size = raw.match(/^(\d+)x(\d+)$/);
+    if (size) {
+      values[`${key}_w`] = Number(size[1]);
+      values[`${key}_h`] = Number(size[2]);
+      continue;
+    }
+    if (/^\d+$/.test(raw)) {
+      values[key] = Number(raw);
+      continue;
+    }
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) {
+      values[key] = numeric;
+    }
   }
-  return out;
+  return values;
+}
+
+function requirePerfKeys(values, keys, perf) {
+  const missing = keys.filter((key) => values[key] === undefined);
+  if (missing.length > 0) {
+    fail(`perf line is missing required key(s) ${missing.join(', ')}: ${perf}`);
+  }
+}
+
+function assertMax(values, key, max, label, perf) {
+  if (max === undefined) return;
+  if (values[key] === undefined) {
+    fail(`perf line is missing required threshold key ${key}: ${perf}`);
+  }
+  if (values[key] > max) {
+    fail(`${label} exceeded threshold (${values[key]} > ${max}): ${perf}`);
+  }
+}
+
+function assertMaxPixels(values, keyPrefix, widthKey, heightKey, maxPixels, label, perf) {
+  if (maxPixels === undefined) return;
+  const width = values[widthKey];
+  const height = values[heightKey];
+  if (width === undefined || height === undefined) {
+    fail(`perf line is missing required size key(s) ${widthKey}/${heightKey}: ${perf}`);
+  }
+  const pixels = width * height;
+  if (pixels > maxPixels) {
+    fail(`${label} exceeded threshold (${keyPrefix}=${width}x${height}, ${pixels} > ${maxPixels}): ${perf}`);
+  }
 }
 
 const { server, port } = await startServer();
@@ -118,20 +152,45 @@ try {
 
   const values = parsePerf(perf);
   const scene = thresholds.readback_gallery;
-  if ((values.full_frame_postprocess_targets ?? 0) > scene.max_full_frame_postprocess_targets) {
-    fail(`full-frame postprocess targets exceeded threshold: ${perf}`);
-  }
-  if ((values.full_frame_layers ?? 0) > scene.max_full_frame_child_layers) {
-    fail(`full-frame child layers exceeded threshold: ${perf}`);
-  }
-  if ((values.postprocess_pixels ?? 0) > scene.max_postprocess_pixels) {
-    fail(`postprocess pixels exceeded threshold: ${perf}`);
-  }
-  if ((values.composite_pixels ?? 0) > scene.max_composite_pixels) {
-    fail(`composite pixels exceeded threshold: ${perf}`);
-  }
+  requirePerfKeys(values, scene.required_perf_keys ?? [], perf);
+
+  assertMax(values, 'full_frame_child_layers', scene.max_full_frame_child_layers,
+            'full-frame child layers', perf);
+  assertMax(values, 'unbounded_layer_fallbacks', scene.max_unbounded_layer_fallbacks,
+            'unbounded layer fallbacks', perf);
+  assertMax(values, 'unbounded_no_scissor_fallbacks', scene.max_unbounded_no_scissor_fallbacks,
+            'no-scissor layer fallbacks', perf);
+  assertMax(values, 'unbounded_transform_fallbacks', scene.max_unbounded_transform_fallbacks,
+            'transform layer fallbacks', perf);
+  assertMax(values, 'unbounded_inverse_clip_fallbacks', scene.max_unbounded_inverse_clip_fallbacks,
+            'inverse-clip layer fallbacks', perf);
+  assertMax(values, 'full_frame_passes', scene.max_full_frame_passes,
+            'full-frame passes', perf);
+  assertMax(values, 'full_frame_clear_passes', scene.max_full_frame_clear_passes,
+            'full-frame clear passes', perf);
+  assertMax(values, 'full_frame_composite_passes', scene.max_full_frame_composite_passes,
+            'full-frame composite passes', perf);
+  assertMax(values, 'full_frame_postprocess_passes', scene.max_full_frame_postprocess_passes,
+            'full-frame postprocess passes', perf);
+  assertMax(values, 'full_frame_postprocess_target_uses', scene.max_full_frame_postprocess_target_uses,
+            'full-frame postprocess target uses', perf);
+  assertMax(values, 'post_px', scene.max_postprocess_pixels,
+            'postprocess pixels', perf);
+  assertMax(values, 'composite_px', scene.max_composite_pixels,
+            'composite pixels', perf);
+
+  assertMaxPixels(values, 'max_rt', 'max_rt_w', 'max_rt_h', scene.max_postprocess_target_pixels,
+                  'max postprocess target', perf);
+  assertMaxPixels(values, 'max_child_layer', 'max_child_layer_w', 'max_child_layer_h',
+                  scene.max_child_layer_pixels, 'max child layer', perf);
+  assertMaxPixels(values, 'max_child_rt', 'max_child_rt_w', 'max_child_rt_h',
+                  scene.max_child_rt_pixels, 'max child render target', perf);
+
   if (((values.rt_alloc ?? 0) - (values.rt_destroy ?? 0)) > scene.max_steady_state_allocations) {
     fail(`steady-state render-target allocation churn detected: ${perf}`);
+  }
+  if (((values.layer_alloc ?? 0) - (values.layer_destroy ?? 0)) > scene.max_steady_state_layer_allocations) {
+    fail(`steady-state layer allocation churn detected: ${perf}`);
   }
 
   const repeatedErrors = consoleLines.filter((line) => line.includes('GL_INVALID_OPERATION')).length;
