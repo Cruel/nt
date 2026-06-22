@@ -270,6 +270,7 @@ add_library(rmlui_bgfx_renderer STATIC
     src/ui/rmlui/rmlui_render_bounds.cpp
     src/ui/rmlui/rmlui_render_planning.cpp
     src/ui/rmlui/rmlui_render_pass_scheduler.cpp
+    src/ui/rmlui/bgfx_renderer/rmlui_bgfx_target_cache.cpp
     src/ui/rmlui/rmlui_render_interface_bgfx.cpp
 )
 set_target_properties(rmlui_bgfx_renderer PROPERTIES POSITION_INDEPENDENT_CODE ON)

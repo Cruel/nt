@@ -3,6 +3,7 @@
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_bounds.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_pass_scheduler.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_planning.hpp"
+#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_target_cache.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_types.hpp"
 
 #include <RmlUi/Core/Dictionary.h>
@@ -497,22 +498,11 @@ struct RenderInterface::Impl {
         return cached_stencil_format;
     }
 
-    void destroy_layer(LayerRecord& layer)
-    {
-        if (bgfx::isValid(layer.framebuffer)) {
-            bgfx::destroy(layer.framebuffer);
-            perf.add_layer_destroy();
-        }
-        layer = {};
-    }
+    void destroy_layer(LayerRecord& layer) { target_cache.destroy_layer(layer); }
 
     void destroy_render_target(RenderTargetRecord& target)
     {
-        if (bgfx::isValid(target.framebuffer)) {
-            bgfx::destroy(target.framebuffer);
-            perf.add_pp_destroy();
-        }
-        target = {};
+        target_cache.destroy_render_target(target);
     }
 
     Rml::Rectanglei current_save_bounds()
@@ -546,23 +536,12 @@ struct RenderInterface::Impl {
 
     void destroy_layers()
     {
-        for (LayerRecord& layer : layers) {
-            destroy_layer(layer);
-        }
-        layers.clear();
+        target_cache.destroy_layers();
         layer_stack.clear();
         active_layer = 0;
-        layer_pool.reset_resources();
     }
 
-    void destroy_postprocess_targets()
-    {
-        for (RenderTargetRecord& target : postprocess_targets) {
-            destroy_render_target(target);
-        }
-        postprocess_targets.clear();
-        postprocess_pool.reset_resources();
-    }
+    void destroy_postprocess_targets() { target_cache.destroy_postprocess_targets(); }
 
     RenderBounds compute_child_layer_bounds(Rml::LayerHandle parent_handle,
                                             const ScissorState& captured_scissor,
@@ -600,104 +579,9 @@ struct RenderInterface::Impl {
 
     bool ensure_layer(size_t index, const RenderBounds& bounds)
     {
-        if (index >= layers.size())
-            layers.resize(index + 1);
-        LayerRecord& layer = layers[index];
-        perf.update_layer_max(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
-        if (bgfx::isValid(layer.framebuffer) && layer.texture_width == bounds.framebuffer.w &&
-            layer.texture_height == bounds.framebuffer.h) {
-            layer.bounds = bounds;
-            layer.materialized = true;
-            bx::mtxOrtho(layer.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
-                         bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
-                         0.0f, bgfx::getCaps()->homogeneousDepth);
-            return true;
-        }
-
-        const LayerKind saved_kind = layer.kind;
-        const Rml::LayerHandle saved_parent_layer = layer.parent_layer;
-        const ScissorState saved_push_scissor = layer.push_scissor;
-        const bool saved_push_transform_valid = layer.push_transform_valid;
-        const bool saved_recording = layer.recording;
-        const bool saved_clear_pending = layer.clear_pending;
-        const FbRect saved_valid_content_bounds = layer.valid_content_bounds;
-        const bool saved_has_valid_content_bounds = layer.has_valid_content_bounds;
-        const ConservativeMaskBounds saved_conservative_mask_bounds =
-            layer.conservative_mask_bounds;
-        const bool saved_content_bounds_transform_fallback =
-            layer.content_bounds_transform_fallback;
-        const bool saved_content_bounds_inverse_mask_fallback =
-            layer.content_bounds_inverse_mask_fallback;
-        const bool saved_clip_mask_enabled = layer.clip_mask_enabled;
-        const uint8_t saved_stencil_ref = layer.stencil_ref;
-        const size_t saved_inherited_clip_command_count = layer.inherited_clip_command_count;
-        std::vector<size_t> saved_clip_commands = std::move(layer.clip_commands);
-        std::vector<RecordedDrawCommand> saved_commands = std::move(layer.commands);
-        destroy_layer(layer);
-
-        constexpr uint64_t color_flags =
-            BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
-        const uint64_t depth_flags = BGFX_TEXTURE_RT_WRITE_ONLY;
-        const bgfx::TextureFormat::Enum stencil_format = depth_stencil_format();
-        if (stencil_format == bgfx::TextureFormat::Unknown) {
-            std::fprintf(stderr, "[rmlui] advanced renderer requires a stencil-capable render "
-                                 "target; D24S8 is unavailable\n");
+        if (index > uint32_t(LayerPoolPlan::InvalidLayer - 1u))
             return false;
-        }
-        bgfx::TextureHandle color =
-            bgfx::createTexture2D(uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h),
-                                  false, 1, bgfx::TextureFormat::RGBA8, color_flags);
-        bgfx::TextureHandle depth =
-            bgfx::createTexture2D(uint16_t(bounds.framebuffer.w), uint16_t(bounds.framebuffer.h),
-                                  false, 1, stencil_format, depth_flags);
-        if (!bgfx::isValid(color) || !bgfx::isValid(depth)) {
-            if (bgfx::isValid(color))
-                bgfx::destroy(color);
-            if (bgfx::isValid(depth))
-                bgfx::destroy(depth);
-            std::fprintf(stderr, "[rmlui] failed to create layer framebuffer attachments\n");
-            return false;
-        }
-
-        std::array<bgfx::TextureHandle, 2> attachments{color, depth};
-        bgfx::FrameBufferHandle framebuffer =
-            bgfx::createFrameBuffer(uint8_t(attachments.size()), attachments.data(), true);
-        if (!bgfx::isValid(framebuffer)) {
-            bgfx::destroy(color);
-            bgfx::destroy(depth);
-            std::fprintf(stderr, "[rmlui] failed to create layer framebuffer\n");
-            return false;
-        }
-
-        layer.framebuffer = framebuffer;
-        layer.color = color;
-        layer.depth_stencil = depth;
-        layer.bounds = bounds;
-        layer.valid_content_bounds = saved_valid_content_bounds;
-        layer.has_valid_content_bounds = saved_has_valid_content_bounds;
-        layer.conservative_mask_bounds = saved_conservative_mask_bounds;
-        layer.content_bounds_transform_fallback = saved_content_bounds_transform_fallback;
-        layer.content_bounds_inverse_mask_fallback = saved_content_bounds_inverse_mask_fallback;
-        layer.texture_width = bounds.framebuffer.w;
-        layer.texture_height = bounds.framebuffer.h;
-        layer.clip_mask_enabled = saved_clip_mask_enabled;
-        layer.stencil_ref = saved_stencil_ref;
-        layer.clip_commands = std::move(saved_clip_commands);
-        layer.inherited_clip_command_count = saved_inherited_clip_command_count;
-        layer.kind = saved_kind;
-        layer.parent_layer = saved_parent_layer;
-        layer.push_scissor = saved_push_scissor;
-        layer.push_transform_valid = saved_push_transform_valid;
-        layer.recording = saved_recording;
-        layer.materialized = true;
-        layer.clear_pending = saved_clear_pending;
-        layer.commands = std::move(saved_commands);
-        bx::mtxOrtho(layer.projection, bounds.logical.x, bounds.logical.x + bounds.logical.w,
-                     bounds.logical.y + bounds.logical.h, bounds.logical.y, -10000.0f, 10000.0f,
-                     0.0f, bgfx::getCaps()->homogeneousDepth);
-        layer_pool.note_allocated(uint32_t(index));
-        perf.add_layer_alloc(uint32_t(bounds.framebuffer.w), uint32_t(bounds.framebuffer.h));
-        return true;
+        return target_cache.ensure_layer_target(uint32_t(index), bounds, depth_stencil_format());
     }
 
     LayerRecord* layer_for_handle(Rml::LayerHandle handle)
@@ -1750,48 +1634,7 @@ struct RenderInterface::Impl {
 
     RenderTargetRecord* ensure_postprocess_target(PostprocessTargetKind kind, const FbRect& bounds)
     {
-        const FbRect clamped_bounds =
-            clamp_to_surface(align_outward_for_render_target(bounds), surface);
-        if (is_empty(clamped_bounds))
-            return nullptr;
-        const int work_w = clamped_bounds.w;
-        const int work_h = clamped_bounds.h;
-        const bool target_is_full_frame = is_full_frame_rect(clamped_bounds, width, height);
-        perf.add_postprocess_target_use(uint32_t(work_w), uint32_t(work_h), target_is_full_frame);
-        for (RenderTargetRecord& target : postprocess_targets) {
-            if (target.kind == kind && bgfx::isValid(target.framebuffer) &&
-                target.texture_width == work_w && target.texture_height == work_h) {
-                target.bounds = clamped_bounds;
-                return &target;
-            }
-        }
-
-        uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
-        if (bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0) {
-            flags |= BGFX_TEXTURE_BLIT_DST;
-        }
-        bgfx::TextureHandle color = bgfx::createTexture2D(uint16_t(work_w), uint16_t(work_h), false,
-                                                          1, bgfx::TextureFormat::RGBA8, flags);
-        if (!bgfx::isValid(color)) {
-            std::fprintf(stderr, "[rmlui] failed to create postprocess target texture\n");
-            return nullptr;
-        }
-        bgfx::FrameBufferHandle framebuffer = bgfx::createFrameBuffer(1, &color, true);
-        if (!bgfx::isValid(framebuffer)) {
-            bgfx::destroy(color);
-            std::fprintf(stderr, "[rmlui] failed to create postprocess framebuffer\n");
-            return nullptr;
-        }
-        postprocess_targets.push_back({framebuffer, color, clamped_bounds, work_w, work_h, kind});
-        RenderTargetRecord& target = postprocess_targets.back();
-        postprocess_pool.mark_allocated(kind);
-        perf.add_pp_alloc(uint32_t(work_w), uint32_t(work_h));
-        if (is_full_frame_rect(clamped_bounds, width, height)) {
-            perf.add_full_frame_pp_target();
-        } else {
-            perf.add_bounded_pp_target();
-        }
-        return &target;
+        return target_cache.acquire_postprocess_target(kind, bounds, surface);
     }
 
     static uint32_t stencil_test_state_for_ref(uint8_t ref)
@@ -2132,12 +1975,8 @@ struct RenderInterface::Impl {
     std::unordered_map<Rml::TextureHandle, TextureRecord> textures;
     std::unordered_map<Rml::CompiledFilterHandle, FilterRecord> filters;
     std::unordered_map<Rml::CompiledShaderHandle, ShaderRecord> shaders;
-    std::vector<LayerRecord> layers;
     std::vector<ClipCommand> clip_commands;
-    std::deque<RenderTargetRecord> postprocess_targets;
     std::vector<Rml::LayerHandle> layer_stack;
-    LayerPoolPlan layer_pool;
-    PostprocessPoolPlan postprocess_pool;
     Rml::CompiledGeometryHandle geometry_counter = 0;
     bgfx::VertexBufferHandle fullscreen_vb = BGFX_INVALID_HANDLE;
     Rml::TextureHandle texture_counter = 0;
@@ -2169,6 +2008,11 @@ struct RenderInterface::Impl {
     mutable bgfx::TextureFormat::Enum cached_stencil_format = bgfx::TextureFormat::Unknown;
 
     rmlui_bgfx::PerfCounters perf;
+    BgfxTargetCache target_cache{&perf};
+    std::vector<LayerRecord>& layers = target_cache.layers();
+    std::deque<RenderTargetRecord>& postprocess_targets = target_cache.postprocess_targets();
+    LayerPoolPlan& layer_pool = target_cache.layer_pool();
+    PostprocessPoolPlan& postprocess_pool = target_cache.postprocess_pool();
     bool perf_logging_enabled = false;
 
     // Check whether a texture is the color attachment of a framebuffer we own.
