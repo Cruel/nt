@@ -1,7 +1,7 @@
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_render_interface.hpp"
 
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_bounds.hpp"
-#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_pass_scheduler.hpp"
+#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_passes.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_planning.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_target_cache.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_types.hpp"
@@ -45,21 +45,6 @@ struct RmlVertex {
     float u;
     float v;
 };
-
-RmlUiPassRequest make_pass_request(RmlUiPassKind kind, int x, int y, bool clears_color,
-                                   bool clears_stencil, int width, int height, const char* name)
-{
-    return RmlUiPassRequest{kind,
-                            0,
-                            std::numeric_limits<uint16_t>::max(),
-                            clears_color,
-                            clears_stencil,
-                            x,
-                            y,
-                            width,
-                            height,
-                            name};
-}
 
 TextureRegion texture_region(bgfx::TextureHandle texture, GlobalFbRect global_bounds,
                              LocalFbRect local_rect, int texture_width, int texture_height)
@@ -239,7 +224,7 @@ struct RenderInterface::Impl {
     explicit Impl(const RendererConfig& config)
         : shader_provider(config.shaders), textures_provider(config.textures),
           diagnostics(config.diagnostics), perf_logger(config.perf_logger),
-          pass_scheduler(config.views.begin, config.views.end),
+          pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
     {
         layout.begin()
@@ -457,19 +442,6 @@ struct RenderInterface::Impl {
                                                {0, 0, tex_width, tex_height}},
                                   TextureOwnership::External});
         return handle;
-    }
-
-    static uintptr_t framebuffer_key(bgfx::FrameBufferHandle framebuffer)
-    {
-        return bgfx::isValid(framebuffer) ? uintptr_t(framebuffer.idx) + 1u : 0u;
-    }
-
-    static bgfx::FrameBufferHandle framebuffer_from_request(const RmlUiPassRequest& request)
-    {
-        if (request.bgfx_framebuffer_idx == std::numeric_limits<uint16_t>::max()) {
-            return BGFX_INVALID_HANDLE;
-        }
-        return bgfx::FrameBufferHandle{request.bgfx_framebuffer_idx};
     }
 
     bgfx::TextureFormat::Enum depth_stencil_format() const
@@ -889,14 +861,11 @@ struct RenderInterface::Impl {
             return false;
         const int lw = layer->texture_width;
         const int lh = layer->texture_height;
-        auto pass = acquire_pass(
-            make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, lw, lh, "RmlUi.LayerClear"),
-            layer->framebuffer);
+        auto pass = pass_builder.layer_clear(layer->framebuffer, lw, lh);
         if (!pass)
             return false;
         perf.add_layer_clear();
         perf.add_clear(uint64_t(lw) * uint64_t(lh), !is_bounded);
-        bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
         bgfx::touch(pass->view);
         return true;
     }
@@ -1120,42 +1089,11 @@ struct RenderInterface::Impl {
         frame_failed = true;
     }
 
-    void configure_pass(const RmlUiPass& pass)
-    {
-        const bgfx::ViewId view = pass.view;
-        bgfx::setViewName(view, pass.request.name);
-        bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-        bgfx::setViewRect(view, static_cast<uint16_t>(std::max(pass.request.x, 0)),
-                          static_cast<uint16_t>(std::max(pass.request.y, 0)),
-                          static_cast<uint16_t>(std::max(pass.request.width, 1)),
-                          static_cast<uint16_t>(std::max(pass.request.height, 1)));
-        bgfx::setViewFrameBuffer(view, framebuffer_from_request(pass.request));
-        bgfx::setViewClear(view, BGFX_CLEAR_NONE);
-    }
-
-    std::optional<RmlUiPass> acquire_pass(RmlUiPassRequest request,
-                                          bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE)
-    {
-        if (request.width <= 0)
-            request.width = width;
-        if (request.height <= 0)
-            request.height = height;
-        request.framebuffer = framebuffer_key(framebuffer);
-        request.bgfx_framebuffer_idx =
-            bgfx::isValid(framebuffer) ? framebuffer.idx : std::numeric_limits<uint16_t>::max();
-        auto pass = pass_scheduler.acquire(request);
-        if (pass) {
-            configure_pass(*pass);
-            perf.add_pass();
-        }
-        return pass;
-    }
-
     void submit(const GeometryRecord& geometry, Rml::Vector2f translation,
                 Rml::TextureHandle texture)
     {
         if (frame_failed || !bgfx::isValid(program) || geometry.index_count == 0 ||
-            pass_scheduler.exhausted()) {
+            pass_builder.exhausted()) {
             return;
         }
         LayerRecord* layer = current_layer();
@@ -1163,9 +1101,7 @@ struct RenderInterface::Impl {
             return;
         const int lw = layer->texture_width;
         const int lh = layer->texture_height;
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
-                                                   lh, "RmlUi.Geometry"),
-                                 layer->framebuffer);
+        auto pass = pass_builder.geometry(layer->framebuffer, lw, lh);
         if (!pass)
             return;
         perf.add_geometry(uint64_t(lw) * uint64_t(lh), geometry.index_count);
@@ -1231,10 +1167,7 @@ struct RenderInterface::Impl {
         const LocalFbRect source_rect = op.source.local_rect;
         const bool is_full_frame = (destination_rect.x == 0 && destination_rect.y == 0 &&
                                     destination_rect.w >= width && destination_rect.h >= height);
-        auto pass =
-            acquire_pass(make_pass_request(op.kind, destination_rect.x, destination_rect.y, false,
-                                           false, destination_rect.w, destination_rect.h, op.name),
-                         op.destination);
+        auto pass = pass_builder.composite(op.destination, destination_rect, op.kind, op.name);
         if (!pass)
             return false;
         perf.add_composite(area(destination_rect), is_full_frame);
@@ -1280,9 +1213,7 @@ struct RenderInterface::Impl {
         if (!ensure_fullscreen_geometry() || !bgfx::isValid(copy_program) ||
             !bgfx::isValid(source) || !bgfx::isValid(destination))
             return false;
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Copy, 0, 0, false, false,
-                                                   region.Width(), region.Height(), name),
-                                 destination);
+        auto pass = pass_builder.copy(destination, region.Width(), region.Height(), name);
         if (!pass)
             return false;
         perf.add_copy();
@@ -1318,8 +1249,8 @@ struct RenderInterface::Impl {
             return BGFX_INVALID_HANDLE;
 
         if (can_blit) {
-            auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Copy, 0, 0, false, false,
-                                                       region.Width(), region.Height(), name));
+            auto pass =
+                pass_builder.copy(BGFX_INVALID_HANDLE, region.Width(), region.Height(), name);
             if (!pass) {
                 bgfx::destroy(texture);
                 return BGFX_INVALID_HANDLE;
@@ -1368,9 +1299,7 @@ struct RenderInterface::Impl {
         const int pass_w = destination.texture_width;
         const int pass_h = destination.texture_height;
         const bool is_full = is_full_frame_rect(destination.bounds, width, height);
-        auto pass = acquire_pass(
-            make_pass_request(RmlUiPassKind::Postprocess, 0, 0, false, false, pass_w, pass_h, name),
-            destination.framebuffer);
+        auto pass = pass_builder.postprocess(destination.framebuffer, pass_w, pass_h, name);
         if (!pass)
             return false;
         perf.add_postprocess(uint64_t(pass_w) * uint64_t(pass_h), is_full);
@@ -1463,11 +1392,9 @@ struct RenderInterface::Impl {
                 if (!ensure_fullscreen_geometry() || !bgfx::isValid(mask_multiply_program))
                     return {};
                 const bool is_full_mask = is_full_frame_rect(destination->bounds, width, height);
-                auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Postprocess, 0, 0, false,
-                                                           false, destination->texture_width,
-                                                           destination->texture_height,
-                                                           "RmlUi.FilterMaskImage"),
-                                         destination->framebuffer);
+                auto pass =
+                    pass_builder.postprocess(destination->framebuffer, destination->texture_width,
+                                             destination->texture_height, "RmlUi.FilterMaskImage");
                 if (!pass)
                     return {};
                 perf.add_mask(uint64_t(destination->texture_width) *
@@ -1672,16 +1599,10 @@ struct RenderInterface::Impl {
         if (is_empty(clear_bounds))
             return;
         const bool is_full = is_full_frame_rect(clear_bounds, width, height);
-        auto pass =
-            acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, false, true, clear_bounds.w,
-                                           clear_bounds.h, "RmlUi.StencilClear"),
-                         layer->framebuffer);
+        auto pass = pass_builder.stencil_clear(layer->framebuffer, clear_bounds, value);
         if (!pass)
             return;
         perf.add_clear(uint64_t(clear_bounds.w) * uint64_t(clear_bounds.h), is_full);
-        bgfx::setViewRect(pass->view, uint16_t(clear_bounds.x), uint16_t(clear_bounds.y),
-                          uint16_t(clear_bounds.w), uint16_t(clear_bounds.h));
-        bgfx::setViewClear(pass->view, BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, value);
         bgfx::touch(pass->view);
     }
 
@@ -1713,10 +1634,8 @@ struct RenderInterface::Impl {
             clip_work_bounds(layer, ScissorState{scissor_enabled, scissor_region});
         if (is_empty(work_bounds))
             return true;
-        auto pass =
-            acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false,
-                                           work_bounds.w, work_bounds.h, "RmlUi.StencilNormalize"),
-                         layer->framebuffer);
+        auto pass = pass_builder.geometry(layer->framebuffer, work_bounds.w, work_bounds.h,
+                                          "RmlUi.StencilNormalize");
         if (!pass)
             return false;
 
@@ -1749,7 +1668,7 @@ struct RenderInterface::Impl {
                              const std::array<float, 16>& command_transform)
     {
         if (frame_failed || !bgfx::isValid(program) || geometry.index_count == 0 ||
-            pass_scheduler.exhausted())
+            pass_builder.exhausted())
             return;
         LayerRecord* layer = current_layer();
         if (!layer)
@@ -1757,9 +1676,8 @@ struct RenderInterface::Impl {
         const FbRect work_bounds = clip_work_bounds(layer, scissor);
         if (is_empty(work_bounds))
             return;
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false,
-                                                   work_bounds.w, work_bounds.h, "RmlUi.ClipMask"),
-                                 layer->framebuffer);
+        auto pass = pass_builder.geometry(layer->framebuffer, work_bounds.w, work_bounds.h,
+                                          "RmlUi.ClipMask");
         if (!pass)
             return;
         perf.add_clip_mask(uint64_t(work_bounds.w) * uint64_t(work_bounds.h));
@@ -1882,7 +1800,7 @@ struct RenderInterface::Impl {
                          Rml::Vector2f translation)
     {
         if (frame_failed || !bgfx::isValid(gradient_program) || geometry.index_count == 0 ||
-            pass_scheduler.exhausted())
+            pass_builder.exhausted())
             return;
         LayerRecord* layer = current_layer();
         if (!layer || shader.gradient.kind == GradientKind::Invalid ||
@@ -1890,9 +1808,7 @@ struct RenderInterface::Impl {
             return;
         const int lw = layer->texture_width;
         const int lh = layer->texture_height;
-        auto pass = acquire_pass(make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, lw,
-                                                   lh, "RmlUi.Gradient"),
-                                 layer->framebuffer);
+        auto pass = pass_builder.geometry(layer->framebuffer, lw, lh, "RmlUi.Gradient");
         if (!pass)
             return;
         perf.add_gradient();
@@ -1983,7 +1899,6 @@ struct RenderInterface::Impl {
     Rml::CompiledFilterHandle filter_counter = 0;
     Rml::CompiledShaderHandle shader_counter = 0;
     Rml::LayerHandle active_layer = 0;
-    RmlUiRenderPassScheduler pass_scheduler;
     int width = 1;
     int height = 1;
     int logical_width = 1;
@@ -2008,6 +1923,7 @@ struct RenderInterface::Impl {
     mutable bgfx::TextureFormat::Enum cached_stencil_format = bgfx::TextureFormat::Unknown;
 
     rmlui_bgfx::PerfCounters perf;
+    BgfxPassBuilder pass_builder;
     BgfxTargetCache target_cache{&perf};
     std::vector<LayerRecord>& layers = target_cache.layers();
     std::deque<RenderTargetRecord>& postprocess_targets = target_cache.postprocess_targets();
@@ -2067,7 +1983,7 @@ void RenderInterface::resize(const SurfaceMetrics& surface) { m_impl->resize(sur
 
 void RenderInterface::begin_frame()
 {
-    m_impl->pass_scheduler.reset();
+    m_impl->pass_builder.begin_frame(m_impl->width, m_impl->height);
     m_impl->transform_valid = false;
     m_impl->scissor_enabled = false;
     m_impl->scissor_region =
@@ -2077,13 +1993,9 @@ void RenderInterface::begin_frame()
     LayerRecord* base = m_impl->current_layer();
     if (!base)
         return;
-    auto pass =
-        m_impl->acquire_pass(make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true,
-                                               m_impl->width, m_impl->height, "RmlUi.BaseClear"),
-                             base->framebuffer);
+    auto pass = m_impl->pass_builder.base_clear(base->framebuffer, m_impl->width, m_impl->height);
     if (pass) {
         m_impl->perf.add_clear(uint64_t(m_impl->width) * uint64_t(m_impl->height), true);
-        bgfx::setViewClear(pass->view, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
         bgfx::touch(pass->view);
     }
 }
