@@ -1,4 +1,4 @@
-#include "ui/rmlui/rmlui_render_bounds.hpp"
+#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_bounds.hpp"
 
 #include <RmlUi/Core/Types.h>
 
@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <limits>
 
-namespace noveltea::ui::rmlui {
+namespace rmlui_bgfx {
 
 namespace {
 
@@ -470,4 +470,4 @@ RenderBounds compute_child_layer_bounds(const SurfaceMetrics& surface,
     return bounds;
 }
 
-} // namespace noveltea::ui::rmlui
+} // namespace rmlui_bgfx

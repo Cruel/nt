@@ -1,8 +1,8 @@
-#include "ui/rmlui/rmlui_render_pass_scheduler.hpp"
+#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_pass_scheduler.hpp"
 
 #include <cstdio>
 
-namespace noveltea::ui::rmlui {
+namespace rmlui_bgfx {
 
 RmlUiRenderPassScheduler::RmlUiRenderPassScheduler(RmlUiViewId begin, RmlUiViewId end)
     : m_begin(begin), m_end(end), m_next(begin)
@@ -51,4 +51,4 @@ std::optional<RmlUiPass> RmlUiRenderPassScheduler::acquire(const RmlUiPassReques
     return pass;
 }
 
-} // namespace noveltea::ui::rmlui
+} // namespace rmlui_bgfx

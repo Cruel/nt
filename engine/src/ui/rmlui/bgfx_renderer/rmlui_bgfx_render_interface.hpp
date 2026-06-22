@@ -1,23 +1,17 @@
 #pragma once
 
-#include "noveltea/assets/asset_manager.hpp"
-#include "noveltea/surface.hpp"
 #include "ui/rmlui/bgfx_renderer/rmlui_bgfx_config.hpp"
-#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_render_interface.hpp"
 
 #include <RmlUi/Core/RenderInterface.h>
 
 #include <memory>
 
-namespace noveltea::ui::rmlui {
+namespace rmlui_bgfx {
 
-[[nodiscard]] rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface);
-[[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range();
-
-class BgfxRenderInterface final : public Rml::RenderInterface {
+class RenderInterface final : public Rml::RenderInterface {
 public:
-    BgfxRenderInterface(const SurfaceMetrics& surface, const assets::AssetManager& assets);
-    ~BgfxRenderInterface() override;
+    explicit RenderInterface(RendererConfig config);
+    ~RenderInterface() override;
 
     explicit operator bool() const;
 
@@ -63,9 +57,8 @@ public:
     void ReleaseShader(Rml::CompiledShaderHandle shader) override;
 
 private:
-    struct Adapter;
-    std::unique_ptr<Adapter> m_adapter;
-    std::unique_ptr<rmlui_bgfx::RenderInterface> m_core;
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
-} // namespace noveltea::ui::rmlui
+} // namespace rmlui_bgfx

@@ -1,9 +1,9 @@
-#include "ui/rmlui/rmlui_render_planning.hpp"
+#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_planning.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace noveltea::ui::rmlui {
+namespace rmlui_bgfx {
 
 std::array<FullscreenVertex, 3> fullscreen_triangle(bool origin_bottom_left)
 {
@@ -387,4 +387,4 @@ std::array<float, 4> apply_color_matrix(const std::array<float, 16>& m, std::arr
 
 GradientRecord make_invalid_gradient() { return {}; }
 
-} // namespace noveltea::ui::rmlui
+} // namespace rmlui_bgfx
