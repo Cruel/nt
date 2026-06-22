@@ -138,7 +138,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_rmlui_readback_capture
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}'; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}'; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_readback_capture PROPERTIES
         LABELS "rmlui;gpu"

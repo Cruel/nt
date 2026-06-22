@@ -184,6 +184,9 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-debug
 
+      - name: Enable RmlUi base-direct compat fallback
+        run: touch build/linux-debug/rmlui-base-direct-compat.enabled
+
       - name: Unit tests
         run: xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure
 
