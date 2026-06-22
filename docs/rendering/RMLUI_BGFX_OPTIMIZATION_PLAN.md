@@ -1,865 +1,505 @@
-# RmlUi bgfx Renderer Optimization Plan
+# RmlUi bgfx Real Optimization Plan
 
-The current renderer is functionally ambitious: it supports RmlUi geometry, textures, stencil clip masks, layers, filters, gradients, saved layers, mask images, and WebGL feedback-loop protection. The current performance problem is not that RmlUi or bgfx are fundamentally the wrong abstraction. The problem is that the renderer currently treats many small UI effects as full-frame offscreen render passes.
+This document replaces the previous 11-phase optimization plan. The earlier plan added many useful pieces: counters, rectangle helpers, postprocess target sizing, rectangle-aware composite metadata, no-op filter simplification, and a web smoke harness. However, the current measured renderer is still not performant. Treat the current implementation as a functional/correctness baseline with important instrumentation, not as a completed optimization.
 
-The immediate goal is to turn the renderer from a functionally complete but full-frame compositor into a bounded compositor. Small elements should produce small render targets, small postprocess passes, small copies, and small composites. Full-frame render targets and passes should be reserved for the base layer, the final backbuffer composite, and truly unbounded fallback cases.
+The current blocker is clear: the renderer still executes most layer, clear, composite, and filter work over the full framebuffer. The code contains bounded paths, but the real readback gallery usually does not enter them because layer bounds are selected almost entirely from active scissor state. RmlUi often calls `PushLayer()` for filtered, masked, transformed, or blended content without an active scissor. The renderer then falls back to full-frame child layers, and every later bounded pipeline stage receives full-frame source bounds.
 
-## Status Legend
+The new goal is to make work proportional to affected UI content, not framebuffer area.
 
-- `[done]`: phase acceptance criteria are complete.
-- `[next]`: next phase to plan or implement.
-- `[active]`: implementation is in progress.
-- `[blocked]`: cannot proceed until a listed dependency is resolved.
-- `[pending]`: not started.
+## Current Baseline: Failed Optimization State
 
-While implementing these phases, check both:
+Current web smoke at 1280x720:
 
-- `./scripts/run-tests.sh`
-- `./scripts/run-tests.sh --compat`
-
-The default run should exercise the refactored path. The compat run should keep the
-legacy fallback path available so regressions in either mode are visible.
-
-
-## Current Direction
-
-RmlUi remains the primary general runtime UI layer for NovelTea. It should support normal RML/RCSS authoring, rich styled UI, filters, decorators, clipping, masks, transforms, and custom C++ elements where needed.
-
-bgfx remains the renderer backend. The RmlUi renderer must work across desktop, web/Emscripten/WebGL, and Android. WebGL is the strictest and most performance-sensitive target because framebuffer switches, full-frame postprocess passes, and feedback loops are especially expensive there.
-
-The renderer should behave like a real UI compositor:
-
-1. Direct geometry should render as normal geometry.
-2. Rectangular clipping should use scissor where possible.
-3. Complex clip masks should use stencil, but only inside bounded layer regions when possible.
-4. Filtered, masked, or saved subtrees should render into bounded offscreen textures.
-5. Postprocess passes should execute over the bounded work area, not the whole framebuffer.
-6. Composites should draw only the destination rectangle affected by the source.
-7. Full-frame fallback should be explicit, instrumented, and rare.
-
-The renderer should be optimized for the common NovelTea case: visual-novel-style 2D UI with text, panels, choices, images, active text effects, tweened transitions, masks, and localized filter effects. A tiny blur or drop shadow must not become a full-canvas postprocess pipeline.
-
-## Problem Summary
-
-The current renderer pays full-frame costs for small effects.
-
-The readback gallery is a compact RmlUi document with small panels and tiny filtered elements. Despite that, the web build can report very low FPS and a large per-frame pixel workload because the renderer allocates full-frame layers and full-frame postprocess targets, then runs full-frame copies, filters, composites, and mask operations.
-
-The main problem areas are:
-
-- `ensure_layer(size_t index)`
-  - Allocates every layer as `width x height`.
-  - Allocates a full-size color target and full-size depth/stencil target per layer.
-  - Records layer dimensions as the full framebuffer.
-
-- `ensure_postprocess_target(PostprocessTargetKind kind)`
-  - Claims to use a work area but currently uses `work_w = width` and `work_h = height`.
-  - Allocates full-frame primary, secondary, tertiary, scratch, and mask/blend targets.
-
-- `composite(const CompositeOp& op)`
-  - Acquires a pass with full `width x height`.
-  - Draws a fullscreen triangle.
-  - Uses source UV bounds `{0, 0, 1, 1}`.
-  - Counts full-frame pixels for each composite.
-
-- `fullscreen_filter_pass(...)`
-  - Acquires a full-frame postprocess pass.
-  - Runs opacity, color matrix, mask, blur, and shadow work over the whole framebuffer.
-
-- `apply_filters(...)`
-  - Copies the source to a full-frame postprocess target.
-  - Runs blur and drop shadow using full framebuffer dimensions for texel offsets.
-  - Composites original content and filtered content through full-frame paths.
-
-- `SaveLayerAsMaskImage()`
-  - Copies the full framebuffer-sized layer even when the mask belongs to a small element.
-
-- `submit_to_clip_mask(...)` and stencil normalization
-  - Use full-frame view dimensions even when the active scissor/layer area is small.
-  - Render actual geometry, so this is less severe than filter/composite passes, but it still needs bounded accounting and bounded layer integration.
-
-The current `shaded_pixels` counter is useful as an alarm, but it is too coarse. It overcounts ordinary geometry and clip draws by charging full-frame area for each geometry submit. It should be replaced with pass-specific counters so performance regressions are easy to diagnose.
-
-## Non-Negotiable Architecture Rules
-
-Do not remove RmlUi as the primary runtime UI layer.
-
-Do not avoid the problem by disabling filters, masks, clips, gradients, or saved layers globally. Temporary debug flags are acceptable, but production behavior must support RmlUi’s advanced render interface correctly.
-
-Do not solve the problem by capping DPR as the main fix. DPR capping may be useful for debug comparison or emergency web fallback, but the renderer must be efficient at high DPI.
-
-Do not make web behave differently unless required by WebGL capabilities. Desktop, Android, and web should share the same bounded compositor architecture.
-
-Do not introduce OpenGL/WebGL calls directly into the RmlUi renderer. All rendering must continue through bgfx.
-
-Do not treat full-frame fallback as invisible. Any fallback to full-frame child layers or full-frame postprocess must be counted and logged.
-
-Do not sacrifice correctness of clipping, transforms, masks, filter expansion, blend modes, or WebGL feedback-loop avoidance for speed. Optimize by bounding and simplifying work, not by dropping visual semantics.
-
-Keep pure math and planning logic testable without bgfx where possible.
-
-## Target Renderer Model
-
-The renderer should be structured around these concepts.
-
-### Surface
-
-The surface represents the actual framebuffer/backbuffer dimensions and the logical UI dimensions.
-
-```cpp
-struct SurfaceState {
-    int framebuffer_width = 1;
-    int framebuffer_height = 1;
-    int logical_width = 1;
-    int logical_height = 1;
-    float scale_x = 1.0f;
-    float scale_y = 1.0f;
-};
+```text
+[perf] fps=1 passes=121 geom=27 clip=15 gradients=8 layers=13 full_layers=13 bounded_layers=1 unbounded_layer_fallbacks=12 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=24901632 copy_px=9216 composite_px=23961600 post_px=13824000 full_frame_passes=66 bounded_passes=4 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_rt=1280x720 fb=1280x720
 ```
 
-The surface is global to the frame. It is not the correct size for every child layer or postprocess target.
+Observed browser run at 1423x1869:
 
-### Rectangles
-
-Use explicit logical and framebuffer rectangles.
-
-```cpp
-struct LogicalRect {
-    float x = 0.0f;
-    float y = 0.0f;
-    float w = 0.0f;
-    float h = 0.0f;
-};
-
-struct FbRect {
-    int x = 0;
-    int y = 0;
-    int w = 0;
-    int h = 0;
-};
-
-struct RenderBounds {
-    LogicalRect logical;
-    FbRect framebuffer;
-};
+```text
+[perf] fps=5 passes=121 geom=27 clip=15 gradients=8 layers=13 full_layers=13 bounded_layers=1 unbounded_layer_fallbacks=12 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=71838131 copy_px=14641 composite_px=69149262 post_px=39893805 full_frame_passes=66 bounded_passes=4 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1423x1869 max_rt=1423x1869 fb=1423x1869
 ```
 
-All helpers should make empty/intersection/inflation behavior explicit.
+These numbers reveal the problem precisely. For 1423x1869, one full framebuffer is 2,659,587 pixels. The counters are effectively:
 
-Required helpers:
+- `clear_px`: 27 full-frame equivalents.
+- `composite_px`: 26 full-frame equivalents.
+- `post_px`: 15 full-frame equivalents.
+- `full_frame_passes`: 66.
+- `full_layers`: 13.
+- `unbounded_layer_fallbacks`: 12.
+- `max_layer` and `max_rt`: equal to the framebuffer.
 
-- `area(FbRect)`
-- `is_empty(FbRect)`
-- `intersect(FbRect, FbRect)`
-- `inflate(FbRect, int x, int y)`
-- `clamp_to_surface(FbRect, SurfaceState)`
-- `logical_to_framebuffer(LogicalRect, SurfaceState)`
-- `framebuffer_to_logical(FbRect, SurfaceState)`
-- `align_outward_for_render_target(FbRect)`
-- `uv_rect_for_source_region(FbRect source_region, int texture_width, int texture_height)`
+The readback gallery is a tiny 860x300 logical document with small panels and tiny filtered elements. A small blur, opacity, color matrix, drop shadow, rounded clip, or saved mask must not produce full-screen clears and fullscreen postprocess passes. The fact that FPS did not improve after the refactor is expected from these counters: the expensive work remains full-frame.
 
-### Layers
+## Non-Negotiable Requirements
 
-A layer is not inherently full-screen. It has an origin, a logical coverage area, framebuffer coverage, texture dimensions, attachments, clip state, and inherited clip commands.
+RmlUi remains the runtime UI system. Do not solve this by disabling filters, masks, layers, clips, gradients, transforms, or RmlUi advanced rendering features globally.
+
+bgfx remains the rendering backend. Do not add direct OpenGL/WebGL calls to the RmlUi renderer.
+
+Correctness remains mandatory. Do not drop clip masks, transforms, filter expansion, premultiplied alpha behavior, mask-image sampling, or WebGL feedback-loop protection to gain speed.
+
+The renderer must be efficient at high-DPI framebuffer sizes. Do not treat DPR capping as the primary fix. DPR caps may be useful as a debug comparison or emergency option, but the compositor must stop scaling small UI effects to full-screen work.
+
+The default path must pass correctness tests without a compatibility flag. Temporary compatibility flags are allowed only for bisecting behavior. They must not be required to make normal tests pass.
+
+The web smoke gate must fail the current bad baseline. A smoke test that allows 13 full-frame child layers is only a regression-to-bad-baseline gate, not an optimization gate.
+
+## Target Performance Shape
+
+For the readback gallery, the steady-state target is structural, not a brittle absolute FPS number. On a normal desktop browser, the scene should plausibly run far above 60 FPS and should not be limited by the RmlUi renderer. A local 200+ FPS result is a reasonable expectation for this scene once full-frame effect work is removed, but CI should gate deterministic counters rather than FPS.
+
+At 1280x720, the target shape is:
+
+- `unbounded_layer_fallbacks = 0` for the readback gallery.
+- `full_layers <= 1`, where the only allowed full-frame layer is the base/root layer if direct-to-backbuffer is not active.
+- `full_frame_passes <= 2` in the normal offscreen-root path: base clear plus final base composite. If direct-to-backbuffer is correct and active, this can be lower.
+- `max_rt` must be near the largest affected filter/mask region, not 1280x720.
+- `max_child_layer` must be near the largest affected layer region, not 1280x720.
+- `post_px` should be under a small fraction of framebuffer area for this scene. A reasonable first hard gate is `< 1.0 * framebuffer_area`, then tighten after the first successful bounded implementation.
+- `composite_px` should be under a small multiple of actual document/effect area. A reasonable first hard gate is `< 3.0 * framebuffer_area`, then tighten after pass folding.
+- `rt_alloc`, `rt_destroy`, `layer_alloc`, and `layer_destroy` must remain zero after warmup.
+
+At the user's observed 1423x1869 framebuffer, these structural gates matter more than FPS. The current renderer spends roughly 68 full-frame equivalents per frame across clears, composites, and postprocess. The first real optimization milestone is to make that impossible.
+
+## Core Diagnosis
+
+### 1. Bounds discovery is insufficient
+
+Current child layer bounds are selected from active scissor, parent bounds, and a conservative transform fallback. When scissor is unavailable, the renderer falls back to the full surface. This produces `unbounded_layer_fallbacks=12` in the readback gallery.
+
+The missing data is content bounds. The renderer currently does not store CPU-side geometry bounds in `GeometryRecord`, does not accumulate layer content bounds from `RenderGeometry()`/`RenderShader()` calls, and does not derive transformed bounds. Without this, `PushLayer()` cannot know how large the layer should be.
+
+### 2. Layers are allocated too early
+
+RmlUi's advanced render API calls `PushLayer()` before the layer's contents are rendered. Since the renderer does not yet know the contents, eager framebuffer allocation at `PushLayer()` forces either scissor-only bounds or full-frame fallback.
+
+The correct architecture is a virtual child layer: record commands, accumulate conservative content bounds, then materialize a GPU framebuffer when `CompositeLayers()`, `SaveLayerAsTexture()`, `SaveLayerAsMaskImage()`, or another operation actually needs the layer texture.
+
+### 3. The bounded filter pipeline receives full-frame source bounds
+
+`apply_filters(source, source_bounds, filters)` has bounded plumbing, but `source_bounds` is often the full source layer. Therefore primary/secondary postprocess targets are allocated full-frame and all filter passes remain full-frame.
+
+### 4. The smoke gate accepts the bad state
+
+`scripts/web-smoke-thresholds.json` currently allows `max_full_frame_child_layers = 13`. Also, `scripts/web-smoke.mjs` parses `full_frame_postprocess_targets`, but the perf log does not print that key. Even if it did, allocation-only counters are insufficient because a reused full-frame target can persist with `rt_alloc=0`.
+
+### 5. Base-direct is a secondary issue
+
+The compatibility flag and direct-base path are not the source of the current 5 FPS result. Web currently uses offscreen root, and one full-frame root clear/composite is acceptable. The catastrophic cost is full-frame child layers, full-frame child clears, full-frame filter passes, and full-frame child composites.
+
+## New Implementation Strategy
+
+The renderer must become a content-bounded compositor. The key design is:
+
+1. Store geometry bounds at compile time.
+2. Record commands for child layers instead of immediately rendering them to eagerly allocated full-frame textures.
+3. Accumulate conservative content, clip, scissor, and transformed bounds while recording.
+4. Materialize a child layer to a GPU framebuffer only when its texture is needed.
+5. Allocate that framebuffer to the materialized bounds plus required filter expansion.
+6. Replay the recorded commands into the bounded framebuffer with a per-layer projection.
+7. Run filters over the materialized content bounds, not the framebuffer size unless they are equal.
+8. Composite only the affected destination rectangle.
+
+The base/root layer may remain offscreen full-frame initially. That is not the performance problem. Once child layers and filters are truly bounded, revisit direct-to-backbuffer.
+
+## Data Model to Introduce
+
+The names below are suggestions. Use names consistent with the existing codebase.
 
 ```cpp
-struct LayerRecord {
-    bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle depth_stencil = BGFX_INVALID_HANDLE;
-
-    RenderBounds bounds;
-    int texture_width = 0;
-    int texture_height = 0;
-
-    bool clip_mask_enabled = false;
-    uint8_t stencil_ref = 1;
-    std::vector<size_t> clip_commands;
+struct GeometryRecord {
+    bgfx::VertexBufferHandle vb;
+    bgfx::IndexBufferHandle ib;
+    uint32_t index_count;
+    LogicalRect local_bounds;
 };
-```
 
-The base layer may remain full-frame initially. Child layers should use bounded rectangles whenever a reliable bound exists.
-
-### Postprocess Targets
-
-Postprocess targets are temporary scratch textures sized for a specific work area.
-
-```cpp
-struct RenderTargetRecord {
-    bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
-
-    FbRect bounds;
-    int texture_width = 0;
-    int texture_height = 0;
-    PostprocessTargetKind kind = PostprocessTargetKind::Primary;
-};
-```
-
-A target is reusable only if its kind and dimensions match the requested work size. It should not be assumed that one primary target size is valid for every filtered element in the frame.
-
-### Compositing
-
-Compositing must be rectangle-aware.
-
-```cpp
-struct CompositeRectOp {
-    bgfx::TextureHandle source = BGFX_INVALID_HANDLE;
-    bgfx::FrameBufferHandle destination = BGFX_INVALID_HANDLE;
-
-    FbRect source_rect;
-    FbRect destination_rect;
-
-    int source_texture_width = 0;
-    int source_texture_height = 0;
-
-    Rml::BlendMode blend_mode = Rml::BlendMode::Blend;
+struct RecordedDrawCommand {
+    enum class Kind { Geometry, Shader, ClipMask };
+    Kind kind;
+    Rml::CompiledGeometryHandle geometry;
+    Rml::TextureHandle texture;
+    Rml::CompiledShaderHandle shader;
+    Rml::Vector2f translation;
     ScissorState scissor;
-    bool apply_destination_stencil = false;
-    uint8_t stencil_ref = 1;
+    bool transform_valid;
+    std::array<float, 16> transform;
+    Rml::ClipMaskOperation clip_operation;
+};
 
-    RmlUiPassKind kind = RmlUiPassKind::LayerComposite;
-    const char* name = "RmlUi.CompositeRect";
+struct LayerRecord {
+    bgfx::FrameBufferHandle framebuffer;
+    bgfx::TextureHandle color;
+    bgfx::TextureHandle depth_stencil;
+
+    RenderBounds allocation_bounds;
+    FbRect valid_content_bounds;
+    FbRect conservative_clip_bounds;
+
+    bool materialized;
+    bool recording;
+    bool requires_full_frame;
+    const char* full_frame_reason;
+
+    std::vector<RecordedDrawCommand> commands;
 };
 ```
 
-The composite draw should rasterize only the destination rectangle and sample only the source rectangle.
+`allocation_bounds` is the actual texture bounds. `valid_content_bounds` is the affected content region inside global framebuffer coordinates. They are not always the same. Filters expand output bounds. Clips may reduce effective content. Transforms may expand geometry AABBs.
 
-### Filter Work Areas
+## Phase 0: Make the Bad Baseline Unmistakable
 
-Filters must operate on bounded work areas with padding for visual expansion.
+Goal: ensure future agents cannot declare the renderer optimized while it still behaves like the current baseline.
 
-```cpp
-struct FilterExpansion {
-    int left = 0;
-    int top = 0;
-    int right = 0;
-    int bottom = 0;
-};
+Required changes:
 
-struct FilterWorkArea {
-    RenderBounds source_bounds;
-    RenderBounds output_bounds;
+- Update perf logging to print these additional fields:
+  - `full_frame_postprocess_target_uses`
+  - `bounded_postprocess_target_uses`
+  - `full_frame_child_layers`
+  - `max_child_layer`
+  - `max_child_rt`
+  - `unbounded_no_scissor_fallbacks`
+  - `unbounded_transform_fallbacks`
+  - `unbounded_inverse_clip_fallbacks`
+  - `full_frame_clear_passes`
+  - `full_frame_composite_passes`
+  - `full_frame_postprocess_passes`
+- Do not rely on allocation counters to detect full-frame reuse. Count target/layer/pass uses each frame.
+- Update `scripts/web-smoke.mjs` to parse every emitted field it gates.
+- Change `scripts/web-smoke-thresholds.json` so the current baseline fails.
+- Store current bad baseline values in this document or a separate archive note, not as passing thresholds.
 
-    FbRect source_rect_in_work_texture;
-    int work_width = 0;
-    int work_height = 0;
-};
-```
+Acceptance criteria:
 
-Blur and drop shadow must expand the output bounds. Color matrix and opacity normally do not. Mask images normally do not expand, but they require correct source/mask UV mapping.
+- The current readback gallery fails the structural web-smoke gate before optimization work begins.
+- The failure message identifies `full_layers`, `unbounded_layer_fallbacks`, `full_frame_passes`, `max_layer`, `max_rt`, `post_px`, and/or `composite_px` directly.
+- Linux readback correctness tests still pass.
+- The log distinguishes base/root full-frame work from child layer full-frame work.
 
-## Phase 0 [done]: Instrumentation and Baseline Metrics
+Do not proceed to implementation phases until this diagnostic gate is in place.
 
-Goal: make the performance problem measurable before changing behavior.
+## Phase 1: Geometry and Shader Bounds
 
-The current `PerfCounters` should be split into precise categories. Keep the old headline count temporarily if useful, but add enough detail to identify which pass kinds are expensive.
+Goal: give the renderer enough data to compute content bounds without relying on scissor.
 
-Implement:
+Required changes:
 
-- `pass_count`
-- `geometry_draws`
-- `geometry_indices`
-- `clip_mask_draws`
-- `gradient_draws`
-- `clear_passes`
-- `copy_passes`
-- `composite_passes`
-- `postprocess_passes`
-- `blur_passes`
-- `dropshadow_passes`
-- `mask_passes`
-- `full_frame_passes`
-- `bounded_passes`
-- `full_frame_layers`
-- `bounded_layers`
-- `unbounded_layer_fallbacks`
-- `full_frame_postprocess_targets`
-- `bounded_postprocess_targets`
-- `steady_state_allocations`
-- `geometry_estimated_pixels` if a bounds estimate exists
-- `clip_estimated_pixels` if a bounds estimate exists
-- `clear_pixels`
-- `copy_pixels`
-- `composite_pixels`
-- `postprocess_pixels`
-- `max_layer_width`
-- `max_layer_height`
-- `max_postprocess_width`
-- `max_postprocess_height`
+- Extend `GeometryRecord` to store a CPU-side local-space AABB computed from compiled vertices.
+- Add tests for geometry AABB calculation, including empty/invalid geometry rejection.
+- Add a helper to convert a geometry local AABB plus translation plus optional transform into a conservative logical/framebuffer AABB.
+- Support normal affine transforms by transforming all four rectangle corners and taking the enclosing AABB.
+- Treat non-finite coordinates, impossible transforms, or invalid output as explicit fallback reasons.
+- Account for DPR using the existing `logical_to_framebuffer()` outward rounding rules.
+- Ensure `RenderShader()` uses the same geometry bounds as `RenderGeometry()`.
 
-Update the periodic `[perf]` log to include separate pixel buckets:
+Acceptance criteria:
+
+- A 24x36 filtered element can produce a 24x36-ish framebuffer bound before filter expansion.
+- A rotated rectangle produces a conservative AABB, not full-frame fallback.
+- Tests cover identity transform, translation, scaling, rotation, negative coordinates, offscreen clipping, and non-integer DPR.
+- No rendering behavior changes are required yet, but optional debug logging can show candidate bounds.
+
+## Phase 2: Virtual Child Layer Recording
+
+Goal: stop allocating child framebuffer textures at `PushLayer()` when bounds are unknown.
+
+Required changes:
+
+- Split layers into root/base layers and child virtual layers.
+- `PushLayer()` for child layers should create a logical layer record and begin recording commands, not immediately allocate a bgfx framebuffer unless a safe bound is already known and eager materialization is explicitly selected.
+- `RenderGeometry()`, `RenderShader()`, and `RenderToClipMask()` should record commands when the active layer is virtual.
+- Each recorded command must capture the render state needed for faithful replay:
+  - geometry handle
+  - shader handle or texture handle
+  - translation
+  - active scissor
+  - active transform
+  - active clip-mask operation and stencil transition metadata
+  - blend-relevant state if needed
+- Base/root geometry may continue to render immediately to the root target for now.
+- Layer stack semantics must remain identical from RmlUi's point of view.
+
+Acceptance criteria:
+
+- The readback gallery still renders correctly after recording/replay is enabled for child layers.
+- Child `PushLayer()` no longer increments full-frame layer allocation just because no scissor exists.
+- Tests cover nested layer recording order.
+- Tests cover that command replay preserves geometry order around clip-mask commands.
+- No WebGL feedback-loop errors appear.
+
+## Phase 3: Layer Content Bounds Accumulation
+
+Goal: compute conservative content bounds for virtual layers from their recorded commands.
+
+Required changes:
+
+- Accumulate a `valid_content_bounds` rectangle for each virtual layer.
+- For geometry and shader commands, union the transformed geometry AABB with the layer content bounds.
+- Intersect draw bounds with active scissor when scissor is enabled.
+- Track clip bounds conservatively:
+  - `Set`: future content can be bounded by the clip geometry AABB.
+  - `Intersect`: future content can be intersected with the clip geometry AABB.
+  - `SetInverse`: future content is the parent/layer bounds minus geometry; represent as unbounded within parent unless a better region type is added.
+- For inverse clips, fall back only to the parent/scissor bounds, not automatically to full framebuffer when a parent/scissor/content bound exists.
+- Track distinct fallback reasons. A fallback must say why it happened.
+
+Acceptance criteria:
+
+- For the readback gallery, normal filters, gradients, saved mask content, and transformed clip content produce non-full-frame content bounds.
+- `unbounded_layer_fallbacks` drops sharply in the readback gallery. The expected target is zero.
+- Any remaining fallback has a named reason in the perf/debug log.
+- Tests cover clip `Set`, `Intersect`, and `SetInverse` bound behavior.
+
+## Phase 4: Bounded Layer Materialization and Replay
+
+Goal: allocate child layer framebuffers only after content bounds are known.
+
+Required changes:
+
+- Add `materialize_layer(layer_handle, required_bounds)`.
+- Materialization chooses allocation bounds from:
+  - accumulated content bounds,
+  - active or inherited scissor bounds,
+  - parent layer bounds,
+  - clip/mask requirements,
+  - explicit filter expansion when materializing for filtered composite.
+- Allocate the child framebuffer to the final bounded rectangle, not to the surface.
+- Use per-layer projection so recorded geometry can remain in global logical coordinates while rendering into a bounded texture.
+- Clear only the bounded layer texture.
+- Replay commands into the materialized target in original order.
+- Rebuild/replay stencil clip state inside the bounded target.
+- Preserve WebGL feedback-loop checks.
+
+Acceptance criteria:
+
+- `max_child_layer` for the readback gallery is near the largest panel/effect region, not the framebuffer.
+- `full_frame_child_layers = 0` for the readback gallery.
+- `unbounded_layer_fallbacks = 0` for the readback gallery.
+- `clear_px` is reduced by at least an order of magnitude from the current baseline, excluding the base/root clear.
+- Linux readback capture/verify passes.
+- Web smoke passes only with strict structural thresholds.
+
+## Phase 5: Transform Bounds Without Full-Frame Fallback
+
+Goal: remove transform-driven full-frame fallback for normal CSS transforms.
+
+Required changes:
+
+- Implement conservative transformed AABB for affine 2D transforms.
+- Include translation and matrix transform in the correct order matching shader behavior.
+- Clip transformed bounds to parent/surface.
+- Add debug fallback only for non-finite or unsupported transform cases.
+- Ensure transform replay uses the same captured matrix used for bounds.
+
+Acceptance criteria:
+
+- `#transform_clip` in the readback gallery no longer causes a full-frame layer.
+- Rotated, scaled, translated, and partially offscreen transformed elements produce bounded layer allocations.
+- Visual readback still verifies transformed clipped output and escaped-region rejection.
+- Tests cover rotated rectangle bounds and non-integer DPR.
+
+## Phase 6: Filter Pipeline Uses Content Bounds, Not Layer Texture Bounds
+
+Goal: make filter work proportional to filtered content.
+
+Required changes:
+
+- Change `apply_filters()` to accept a source texture plus valid source rect/content bounds distinct from allocation bounds.
+- Compute filter output bounds from valid content bounds plus total filter expansion.
+- Allocate primary/secondary postprocess targets to output bounds.
+- Copy only the valid source rect into the padded work texture.
+- Run opacity, color matrix, mask image, blur, and drop shadow over the work texture only.
+- Composite the filtered result back to the destination using the output bounds.
+- Ensure blur texel steps use work texture dimensions.
+- Ensure `u_texCoordBounds` reflects valid source area inside the work texture.
+- Ensure drop-shadow expansion accounts for offset and blur radius.
+
+Acceptance criteria:
+
+- A tiny `blur(3px)` element no longer produces a full-frame postprocess target.
+- A tiny `drop-shadow(...)` element no longer produces full-frame extract/blur/composite passes.
+- Color-only filters do not allocate full-frame targets.
+- `max_rt` for the readback gallery is not the framebuffer.
+- `post_px` drops by at least an order of magnitude from the current baseline.
+- Visual readback remains correct for blur, drop shadow, opacity, color filters, and mask image.
+
+## Phase 7: Saved Texture and Mask-Image Bounds
+
+Goal: make saved layers and mask images use the same content-bound model.
+
+Required changes:
+
+- `SaveLayerAsTexture()` must materialize the current virtual layer if needed and copy only current save/content/scissor bounds.
+- `SaveLayerAsMaskImage()` must not copy the entire layer texture by default. It should copy the current content/scissor bounds and store exact mask metadata.
+- Saved texture records must store:
+  - texture dimensions,
+  - global framebuffer bounds,
+  - logical bounds,
+  - ownership/lifetime,
+  - origin needed for later sampling.
+- Mask-image filtering must map destination work bounds to saved mask UVs correctly.
+- Releasing mask-image filters must destroy owned saved textures exactly once.
+
+Acceptance criteria:
+
+- Saved mask in the readback gallery remains visually correct.
+- Saved mask copy pixels are bounded and visible in perf logs.
+- Saved mask texture dimensions are near the mask panel size, not the framebuffer.
+- Tests cover saved texture metadata and release lifetime.
+
+## Phase 8: Real Structural Web Smoke Gates
+
+Goal: prevent regressions back to full-frame child layers and filters.
+
+Required changes:
+
+- Update `scripts/web-smoke.mjs` to parse the exact perf keys printed by the renderer.
+- Gate uses, not just allocations:
+  - `full_frame_child_layers`
+  - `unbounded_layer_fallbacks`
+  - `full_frame_postprocess_passes`
+  - `full_frame_composite_passes`
+  - `full_frame_clear_passes`
+  - `max_child_layer`
+  - `max_rt`
+  - `post_px`
+  - `composite_px`
+  - steady-state alloc/destroy churn
+- Make thresholds scale with framebuffer size where appropriate.
+- Keep FPS as informational only. Do not use FPS as the CI pass/fail gate.
+- Add a second web smoke scene for a deliberately large full-screen filter so legitimate full-frame work remains possible and explicit.
+
+Acceptance criteria:
+
+- The current bad baseline fails the new smoke gate.
+- The optimized readback gallery passes with strict thresholds.
+- A deliberately full-screen filter scene passes only because it is marked and expected as full-frame.
+- Console feedback-loop errors fail the gate.
+
+## Phase 9: Pass Count Reduction After Bounds Are Correct
+
+Goal: reduce overhead after pixel area is fixed.
+
+Do not start this phase until full-frame child layers and full-frame postprocess targets are eliminated for the readback gallery.
+
+Required changes:
+
+- Fold `opacity` into final composite when semantically safe.
+- Fold simple color matrices into final composite when no blur/mask/shadow ordering requires an intermediate texture.
+- Combine consecutive color matrices before GPU work. The current simplifier already does part of this; extend it to composition sites.
+- Bypass postprocess entirely for `BlendMode::Replace` with no filters/masks where a direct bounded composite is sufficient.
+- Avoid scratch copies for same-layer composition unless source and destination would otherwise create a WebGL feedback loop.
+- Reuse geometry passes more aggressively where framebuffer, view rect, scissor, stencil, and shader state allow it.
+
+Acceptance criteria:
+
+- Readback gallery `passes` drops materially from 121.
+- Color-only filters no longer produce one postprocess pass per element when a composite shader can apply them.
+- No correctness regressions in Linux readback or web smoke.
+
+## Phase 10: Direct Base Presentation Revisited
+
+Goal: make direct-to-backbuffer a real optimization, not a compatibility workaround.
+
+This is intentionally after child-layer optimization. One root clear/final composite is acceptable; dozens of full-frame child passes are not.
+
+Required changes:
+
+- Decide base presentation before rendering using a reliable policy.
+- Do not discover `root_requires_preservation` after direct rendering has already started and then fail the frame.
+- Either pre-scan/record root operations or keep offscreen root for documents that may require root preservation.
+- Remove the need for `--rmlui-base-direct-compat` in normal tests.
+- Keep offscreen root available for WebGL or advanced root effects when required.
+
+Acceptance criteria:
+
+- Default Linux readback passes without compat flag.
+- Default web readback passes without compat flag.
+- Direct base path is enabled only when provably safe.
+- Perf logs make base policy explicit but base policy no longer obscures child-layer optimization results.
+
+## Phase 11: Blur Quality and Large-Sigma Strategy
+
+Goal: improve blur correctness and avoid excessive work for larger blur radii.
+
+Required changes:
+
+- Current blur shader samples only seven taps even though CPU code computes wider kernels. Decide whether to implement true variable-radius blur or document the intentional approximation.
+- For large sigma, consider downsample/blur/upsample similar to RmlUi GL3's strategy, but adapted to bgfx/WebGL constraints.
+- Keep blur work bounded to the filter output region.
+- Add visual tests for blur radius behavior.
+
+Acceptance criteria:
+
+- Blur quality is intentionally defined and tested.
+- Large blur does not cause full-frame fallback unless the blurred content itself is genuinely full-screen.
+- Shader and CPU kernel behavior agree.
+
+## Phase 12: Android and WebGL Runtime Validation
+
+Goal: verify performance architecture on strict platforms.
+
+Required changes:
+
+- Run the strict web smoke in headless Chromium.
+- Add an Android emulator smoke if practical, or at least a packaged Android runtime run that captures perf logs.
+- Verify no WebGL feedback-loop errors after virtual layer materialization.
+- Verify no per-frame render-target allocation churn at steady state.
+- Verify bgfx view range is not exhausted by replay/materialization.
+
+Acceptance criteria:
+
+- Linux tests pass.
+- Web build passes strict smoke.
+- Android build still packages required RmlUi shader assets.
+- Android runtime smoke is added or the limitation is documented honestly.
+
+## Phase 13: Documentation and Status Cleanup
+
+Goal: make docs reflect real status.
+
+Required changes:
+
+- Update `docs/rendering/RMLUI_BGFX_STATUS.md` after each milestone.
+- Do not mark a phase done unless its strict acceptance criteria pass.
+- Keep the current failed baseline visible until the strict gate passes.
+- Remove wording that implies the renderer is already a successful bounded compositor while perf logs show full-frame child layers.
+- Document any remaining legitimate full-frame fallback cases.
+
+Acceptance criteria:
+
+- Future agents can distinguish implemented plumbing from measured performance success.
+- The active status file points to the next failing gate and the next implementation step.
+- The optimization plan and smoke thresholds agree.
+
+## Suggested Work Order for Codex
+
+Use this order. Do not jump to pass folding or direct base presentation before content bounds are solved.
+
+1. Phase 0: fix perf keys and make current web smoke fail structurally.
+2. Phase 1: add CPU geometry bounds and transform-bound helpers with tests.
+3. Phase 2: introduce virtual child layer recording, initially behind an internal flag if needed.
+4. Phase 3: accumulate content/clip/scissor bounds for recorded layers.
+5. Phase 4: materialize and replay bounded child layers.
+6. Phase 5: remove transform full-frame fallback.
+7. Phase 6: make filters use valid content bounds.
+8. Phase 7: fix saved texture/mask bounds.
+9. Phase 8: tighten web smoke thresholds so the optimized shape is enforced.
+10. Phase 9+: reduce pass count and revisit direct base.
+
+Each implementation slice must report before/after perf lines for the readback gallery. The expected early win is not fewer passes; it is lower `full_layers`, lower `full_frame_passes`, lower `max_layer`, lower `max_rt`, lower `clear_px`, lower `composite_px`, and lower `post_px`.
+
+## Prompt for the Next Implementation Session
+
+Use this prompt to begin the next coding session:
 
 ```text
-[perf] fps=...
-       passes=...
-       geom=... clip=... gradients=...
-       layers=... full_layers=... bounded_layers=...
-       filters=... blur=... shadow=... mask=...
-       clear_px=... copy_px=... composite_px=... post_px=...
-       full_frame_passes=... bounded_passes=...
-       rt_alloc=... rt_destroy=... layer_alloc=... layer_destroy=...
-       max_layer=... max_rt=... fb=...
+We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. The previous 11-phase plan did not actually improve performance: the readback gallery still reports full_layers=13, unbounded_layer_fallbacks=12, full_frame_passes=66, max_layer=max_rt=framebuffer, and FPS remains around 5 in a browser.
+
+Start with Phase 0 of the new plan. Fix perf logging and scripts/web-smoke.mjs so the current bad baseline fails structurally. Do not change renderer behavior yet except instrumentation. Print and parse explicit per-frame use counters for full-frame child layers, postprocess target uses, full-frame clear/composite/postprocess passes, max child layer size, max postprocess target size, and fallback reasons. Update scripts/web-smoke-thresholds.json so the current readback gallery fails because it still does full-frame child-layer/filter work. Keep Linux readback correctness passing.
+
+After Phase 0, report the failing perf line and the exact next implementation target, which should be Phase 1 geometry/shader bounds.
 ```
-
-Do not change renderer behavior in this phase.
-
-Acceptance criteria:
-
-- Existing visual output remains unchanged.
-- Existing tests pass.
-- Readback gallery still renders.
-- The performance log makes it clear how many full-frame copy/composite/postprocess passes are happening.
-- The log distinguishes geometry draw count from postprocess/composite pixel area.
-- The log can prove whether later phases reduce full-frame work.
-
-## Phase 1 [done]: Pure Rectangle and Bounds Planning
-
-Goal: introduce testable rectangle, bounds, and filter-expansion helpers before changing bgfx rendering behavior.
-
-Implement internal helpers for:
-
-- integer framebuffer rectangles
-- floating logical rectangles
-- intersection
-- union
-- inflation
-- clamping
-- area calculation
-- logical-to-framebuffer conversion
-- framebuffer-to-logical conversion
-- source UV calculation
-- blur expansion
-- drop-shadow expansion
-- filter-chain expansion
-
-These helpers should live in a small renderer-internal module, not as ad hoc local functions buried inside `rmlui_render_interface_bgfx.cpp`.
-
-Possible files:
-
-```text
-engine/src/ui/rmlui/rmlui_render_bounds.hpp
-engine/src/ui/rmlui/rmlui_render_bounds.cpp
-tests/ui/rmlui/rmlui_render_bounds_tests.cpp
-```
-
-The helpers should be independent from bgfx. They may depend on RmlUi rectangle/vector types only if that keeps call sites simple. Prefer small internal POD types if it makes tests easier.
-
-Acceptance criteria:
-
-- Unit tests cover empty rectangles, intersection, clamping, inflation, DPR conversion, and UV calculation.
-- Blur expansion is conservative enough to avoid clipped blur edges.
-- Drop-shadow expansion accounts for offset and blur radius.
-- Helpers support non-integer DPR such as 1.25.
-- Helpers support negative or offscreen source rectangles and clamp correctly.
-- No renderer behavior changes yet except optional logging of computed candidate bounds.
-
-## Phase 2 [done]: Bounded Layer Allocation
-
-Goal: stop allocating every child layer as full framebuffer size.
-
-Change layer creation from:
-
-```cpp
-ensure_layer(size_t index)
-```
-
-to a bounded form:
-
-```cpp
-ensure_layer(size_t index, const RenderBounds& bounds)
-```
-
-The base layer can remain full-frame in this phase.
-
-Child layer bounds policy:
-
-1. If there is an active scissor region, use the scissor region as the first reliable bound.
-2. If the requested layer inherits a parent layer, clamp child bounds to the parent layer bounds.
-3. If a transform or operation prevents reliable bounding, fall back to full-frame but log `unbounded_layer_fallback`.
-4. If there is no scissor and no reliable bound, fall back to full-frame but log it.
-5. Never allocate zero-size layers.
-
-Rendering into a bounded layer must account for the layer origin. There are two viable approaches:
-
-1. Per-layer projection:
-   - Build an orthographic projection matching the layer’s logical bounds.
-   - RmlUi geometry remains in document logical coordinates.
-   - The layer target covers only its local bounds.
-
-2. Global projection plus translation:
-   - Keep global projection semantics but subtract layer origin from geometry.
-   - This may be more error-prone with transforms and clip masks.
-
-Prefer per-layer projection unless it conflicts with existing shader assumptions.
-
-Update:
-
-- `LayerRecord`
-- `ensure_layer`
-- `begin_base_layer`
-- `PushLayer`
-- layer clear paths
-- inherited clip replay paths
-- performance counters
-
-Acceptance criteria:
-
-- Base layer still renders correctly.
-- Child layers with active scissor allocate to scissor size.
-- Full-frame child layer fallback is explicit and logged.
-- Existing clip/mask/filter gallery remains visually correct.
-- No steady-state allocations after warmup.
-- Tests cover child layer bound selection.
-
-## Phase 3 [done]: Rectangle-Aware Compositing
-
-Goal: replace full-frame compositing with bounded compositing.
-
-Refactor the current fullscreen `composite()` path into a rectangle-aware path. The new composite operation must know:
-
-- source texture
-- source rectangle in source texture coordinates
-- destination framebuffer
-- destination rectangle
-- source texture dimensions
-- blend mode
-- scissor
-- stencil state
-- pass kind/name
-
-Implementation options:
-
-1. Dynamic quad:
-   - Create transient vertices for the destination rectangle and UV rectangle.
-   - Submit two triangles.
-   - Simple and explicit.
-
-2. Unit quad with uniforms:
-   - Reuse a static quad.
-   - Pass destination rectangle and UV rectangle through uniforms.
-   - Less per-draw vertex data but more shader changes.
-
-Use the simplest correct implementation first. A dynamic quad is acceptable unless profiling proves it matters.
-
-Update these paths:
-
-- layer composites
-- scratch copies
-- filter copy into primary target
-- drop-shadow original composite
-- final composite if applicable
-- copy-to-framebuffer fallback
-
-Keep the existing WebGL feedback-loop checks.
-
-The final composite from the base layer to the backbuffer may remain full-frame initially. That should be one full-frame pass, not dozens.
-
-Acceptance criteria:
-
-- Layer-to-layer composites rasterize only the affected destination rectangle.
-- Scratch copies do not copy full-frame unless the source bounds are full-frame.
-- Composite pixel counters use destination rectangle area.
-- Source UVs are correct for bounded source textures.
-- WebGL feedback-loop protection still works.
-- Readback gallery output remains visually correct.
-
-## Phase 4 [done]: Bounded Postprocess Targets
-
-Goal: make postprocess targets sized to filter work areas instead of the full framebuffer.
-
-Change `ensure_postprocess_target(PostprocessTargetKind kind)` to accept requested dimensions or bounds:
-
-```cpp
-RenderTargetRecord* ensure_postprocess_target(
-    PostprocessTargetKind kind,
-    int width,
-    int height);
-```
-
-or:
-
-```cpp
-RenderTargetRecord* ensure_postprocess_target(
-    PostprocessTargetKind kind,
-    const FbRect& bounds);
-```
-
-Postprocess target reuse should be dimension-aware. A target can be reused when its dimensions are sufficient and the renderer intentionally supports over-allocation, or when dimensions match exactly. The first implementation should prefer exact dimensions for easier correctness and diagnostics.
-
-Update `RenderTargetRecord` to store dimensions and bounds.
-
-Do not use global framebuffer `width` and `height` inside postprocess target allocation except for full-frame fallback.
-
-Acceptance criteria:
-
-- Tiny filters allocate tiny postprocess targets.
-- `max_postprocess_width` and `max_postprocess_height` reflect actual work sizes.
-- Full-frame postprocess target allocation is rare and logged.
-- No steady-state allocation churn after warmup for stable documents.
-- Existing visual output remains correct.
-
-## Phase 5 [done]: Bounded Filter Pipeline
-
-Goal: run filters over bounded work areas with correct padding and UV mapping.
-
-Refactor `apply_filters(...)` so it receives enough context:
-
-```cpp
-bgfx::TextureHandle apply_filters(
-    bgfx::TextureHandle source,
-    const RenderBounds& source_bounds,
-    Rml::Span<const Rml::CompiledFilterHandle> filters,
-    FilterResult* out_result);
-```
-
-The result should include:
-
-```cpp
-struct FilterResult {
-    bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
-    RenderBounds output_bounds;
-    FbRect valid_rect_in_texture;
-    int texture_width = 0;
-    int texture_height = 0;
-};
-```
-
-Filter pipeline:
-
-1. Compute total filter expansion.
-2. Clamp output bounds to surface or parent layer as appropriate.
-3. Allocate primary and secondary targets to the work size.
-4. Clear primary target to transparent.
-5. Copy source rect into primary at the padded offset.
-6. Run each filter over the bounded target.
-7. Return the final texture and output bounds.
-8. Composite the final texture back using bounded compositing.
-
-Filter-specific requirements:
-
-- Opacity:
-  - No expansion.
-  - Can be a bounded pass initially.
-  - Later may be folded into final composite.
-
-- Color matrix filters:
-  - No expansion.
-  - Bounded pass.
-  - Later consecutive color matrices may be combined.
-
-- Mask image:
-  - No expansion.
-  - Must sample the mask with correct bounded UVs.
-  - Must not assume mask texture is full-frame.
-
-- Blur:
-  - Expansion should be conservative, for example `ceil(3 * sigma)` pixels.
-  - Vertical texel step uses `1.0 / work_height`.
-  - Horizontal texel step uses `1.0 / work_width`.
-  - Shader `u_texCoordBounds` must reflect valid source region inside the work texture if needed.
-
-- Drop shadow:
-  - Expansion includes blur radius and absolute offset.
-  - Shadow offset is normalized to work texture dimensions.
-  - Original content composite must use bounded compositing.
-  - Avoid feedback loops by ping-ponging targets or using scratch as needed.
-
-Acceptance criteria:
-
-- Blur of a tiny element no longer runs over the full framebuffer.
-- Drop shadow of a tiny element no longer runs over the full framebuffer.
-- Opacity/color matrix filters no longer allocate full-frame targets.
-- Filter expansion prevents clipped blur/shadow edges.
-- Visual output matches existing readback expectations.
-- Performance logs show postprocess pixels reduced by at least an order of magnitude on the readback gallery.
-
-Current implementation note:
-
-- The saved `mask-image` readback assertion now passes with bounded child layers restored.
-- Phase 5 acceptance is now satisfied by the bounded postprocess/filter pipeline implementation and
-  the Linux/web verification run documented in [`docs/migration/STATUS.md`](../migration/STATUS.md).
-
-## Phase 6 [done]: Saved Layer and Mask Image Bounds
-
-Goal: stop saving full-frame textures for small layer/mask operations.
-
-Update `SaveLayerAsTexture()` and `SaveLayerAsMaskImage()` so both use the current bounded layer/scissor/content area rather than defaulting to the full framebuffer.
-
-`SaveLayerAsTexture()` already uses scissor when available. Preserve that behavior, but make it layer-origin-aware.
-
-`SaveLayerAsMaskImage()` currently copies full bounds. Change it to use the active layer/scissor/bounds, and store enough metadata to sample the mask correctly later.
-
-Possible structures:
-
-```cpp
-struct SavedLayerTextureRecord {
-    bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
-    RenderBounds bounds;
-    int texture_width = 0;
-    int texture_height = 0;
-};
-```
-
-`TextureRecord` may need to grow beyond just `handle`, dimensions, and ownership.
-
-Acceptance criteria:
-
-- Mask images for small elements create small saved textures.
-- Mask sampling remains visually correct.
-- Saved layer textures store bounds metadata.
-- Releasing saved mask filters destroys associated saved textures.
-- Readback gallery `saved_mask` remains correct.
-- Performance logs show no full-frame saved-mask copy for small masks.
-
-Current implementation note:
-
-- Phase 6 is implemented in the renderer. Saved-layer and saved-mask copies now use bounded layer/scissor intersections, and saved texture records carry bounds metadata for future sampling adjustments.
-- The saved-mask readback failure that blocked earlier validation was a Phase 5 issue, not a Phase 6 blocker, and remains tracked separately.
-
-## Phase 7 [done]: Clip Mask and Stencil Bounds
-
-Goal: align clip mask rendering with bounded layers and avoid unnecessary full-frame stencil work.
-
-Clip masks are currently less severe than filters because they draw actual geometry, but clears and stencil normalization can still become full-layer operations. Once layers are bounded, these operations should naturally become bounded as well.
-
-Update:
-
-- `clear_active_stencil`
-- `submit_to_clip_mask`
-- `decrement_stencil_ref`
-- `normalize_active_stencil_to_one`
-- inherited clip replay
-- clip command storage
-
-Rules:
-
-1. Stencil clears should clear only the active layer or active scissor bounds.
-2. Clip mask geometry should render in the current bounded layer projection.
-3. Inherited clip commands should be replayed only if they intersect the child layer.
-4. Rectangular clipping should stay as scissor and avoid stencil where possible.
-5. Border-radius and complex clip masks can continue using stencil.
-
-Acceptance criteria:
-
-- Clip-mask rendering remains correct for rounded clips and transformed clips.
-- Stencil clears are bounded.
-- Inherited clip replay skips commands outside the child layer.
-- Clip-related performance counters stop charging full-frame area when the active layer is bounded.
-- Existing readback clip tests remain correct.
-
-Implemented:
-
-- The renderer now derives stencil clear and clip-mask work bounds from the active layer rectangle and current scissor intersection.
-- Clip replay is conservative and skips empty/non-intersecting bounded work.
-- Stencil normalization uses bounded layer work areas instead of the full layer texture size.
-- Helper tests cover rectangle intersection and stencil-plan assumptions used by the bounded clip path.
-
-## Phase 8 [done]: No-Op and Filter Simplification
-
-Goal: reduce pass count after bounded rendering is correct.
-
-Implement no-op filter elimination:
-
-- `opacity(1)` is no-op.
-- `blur(0)` and near-zero blur are no-op.
-- identity color matrix is no-op.
-- `brightness(1)` is no-op.
-- `contrast(1)` is no-op.
-- `invert(0)` is no-op.
-- `grayscale(0)` is no-op.
-- `sepia(0)` is no-op.
-- `hue-rotate(0)` is no-op.
-- `saturate(1)` is no-op.
-
-Implement safe filter combination:
-
-- Consecutive color-matrix filters can be multiplied into one matrix.
-- Opacity may be folded into a color matrix where appropriate.
-- Opacity may be folded into final composite when there is no semantic difference.
-- Drop shadow with sigma below threshold skips blur passes.
-
-Implemented:
-
-- Neutral filters are removed before the bounded postprocess pipeline.
-- `blur(<0.5)` short-circuits before postprocess allocation using the existing Gaussian-kernel cutoff.
-- Consecutive color-matrix filters are collapsed into a single matrix before rendering.
-- No-op filter compilation returns no filter handle, so skipped filters do not contribute postprocess pass or target counts.
-- The focused RmlUi UI tests and readback verification still pass after the simplification slice.
-
-This phase only removes redundant work from the already-bounded pipeline. Bounding remained the primary win and was completed in earlier phases.
-
-Acceptance criteria:
-
-- No-op filters do not allocate postprocess targets.
-- No-op filters do not submit postprocess passes.
-- Consecutive color-matrix filters reduce pass count.
-- Visual output remains correct.
-- Tests cover each no-op filter case.
-
-## Phase 9 [done]: Base Layer and Direct-to-Backbuffer Optimization
-
-Goal: consider removing the full-frame base offscreen layer where safe.
-
-Compatibility note: `--rmlui-base-direct-compat` exists only as a temporary testing
-switch. It allows direct base presentation to be exercised without changing the default
-offscreen-root behavior. Keep it off for normal runs until the direct path can pass the
-readback gallery and related regression checks without compatibility assistance.
-
-The current renderer renders the base RmlUi layer into an offscreen framebuffer and then composites it to the backbuffer. Keeping that initially is acceptable. One full-frame base/final composite is not the main performance problem.
-
-After bounded child layers and filters are complete, evaluate direct-to-backbuffer rendering for the base layer.
-
-Possible policy:
-
-- Render base directly to backbuffer when:
-  - no root-level filters require saving the whole root,
-  - stencil behavior is supported directly,
-  - backbuffer clear ordering is safe,
-  - final composite is not needed for premultiplied conversion or render-target origin correction.
-
-- Use offscreen base layer when:
-  - root itself needs filter/mask/save-layer behavior,
-  - backbuffer stencil is unavailable or unreliable,
-  - platform-specific origin/resolve behavior requires it.
-
-Acceptance criteria:
-
-- Direct-to-backbuffer mode is optional and capability-gated.
-- Existing offscreen base path remains available.
-- WebGL behavior remains correct.
-- Performance improvement is measured separately from the bounded compositor work.
-- No correctness regression in readback gallery.
-
-## Phase 10 [done]: Web Performance Smoke and Regression Gates
-
-Goal: prevent the renderer from returning to full-frame postprocess behavior.
-
-Add a web runtime smoke/performance test for the readback gallery or an equivalent deterministic document.
-
-The test should verify:
-
-- The web build initializes.
-- The gallery renders without WebGL feedback-loop errors.
-- Steady-state allocations drop to zero after warmup.
-- Full-frame postprocess pass count is zero or explicitly justified.
-- Full-frame child layer count is zero or explicitly justified.
-- Total postprocess/composite pixels remain below a documented threshold for the scene and framebuffer size.
-- Console logs do not contain repeated `GL_INVALID_OPERATION` feedback loop errors.
-
-Avoid brittle absolute FPS gates in CI. Use structural metrics instead. FPS varies by runner, browser, virtualization, and display scheduling. Pixel/pass/target metrics are more deterministic.
-
-Implemented:
-
-- `scripts/web-smoke.mjs` runs the web sandbox in headless Chromium through Playwright.
-- The harness loads the readback gallery, captures the renderer perf log, and fails on page/console errors.
-- `scripts/web-smoke-thresholds.json` stores the current structural gate for the gallery baseline.
-- `tests/CMakeLists.txt` registers `noveltea_web_rmlui_smoke` for Emscripten builds.
-
-Acceptance criteria:
-
-- CI can catch accidental reintroduction of full-frame filter targets.
-- CI can catch full-frame saved mask copies.
-- CI can catch steady-state render-target allocation churn.
-- Browser smoke verifies the renderer can run the gallery without catastrophic logs.
-
-Current implementation note:
-
-- The smoke gate is functional and passes against the current web build, but the renderer baseline still reports full-frame child-layer work for the readback gallery. The gate therefore tracks the current performance envelope rather than the stricter future target from the optimization plan.
-
-## Phase 11 [done]: Documentation and Status Update
-
-Goal: make the new renderer model clear for future agents.
-
-Updated:
-
-```text
-docs/rendering/RMLUI_BGFX_STATUS.md
-docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md
-```
-
-Documented:
-
-- The bounded compositor model.
-- The difference between RmlUi logical coordinates and framebuffer coordinates.
-- How layer bounds are selected.
-- How filter expansion is computed.
-- How postprocess targets are pooled.
-- Why full-frame fallback exists and when it is allowed.
-- How to read the performance log.
-- Current known limitations.
-
-Acceptance criteria:
-
-- Future agents do not assume all RmlUi layers are full-frame.
-- Future agents know not to “fix” artifacts by reverting to full-frame passes.
-- Status docs distinguish functional completeness from performance completeness.
-- Web performance smoke status is clearly marked.
-
-Current implementation note:
-
-- The renderer already uses bounded child layers, bounded composites, bounded postprocess targets, bounded clip/stencil work, and a structural web smoke gate. The remaining work is documentation hygiene and future-proofing, not a renderer behavior change.
-
-## Implementation Notes
-
-### Correctness First
-
-The first bounded implementation can be conservative. If a case is hard to bound safely, use full-frame fallback and log it. The goal is not to eliminate every full-frame pass immediately. The goal is to eliminate accidental full-frame work for common small scissored/filtered elements.
-
-### Scissor as Initial Bounds Source
-
-RmlUi commonly sets scissor around clipped, filtered, or saved content. Use active scissor as the first reliable source of child layer bounds. Later phases can derive tighter geometry/content bounds if RmlUi does not provide a scissor for some layer operations.
-
-### Transforms
-
-Transforms require caution. A transformed rectangle may need bounds computed from transformed corners. Until transform bounds are implemented, transformed layers may fall back to full-frame. Log this distinctly as `transform_unbounded_fallback` so it is not confused with normal behavior.
-
-### DPR
-
-All bounds must be converted carefully between logical coordinates and framebuffer pixels. Non-integer DPR values such as 1.25 must be supported. Rectangles should generally round outward when allocating render targets so visual content is not clipped.
-
-### Blur Padding
-
-A Gaussian blur needs padding beyond the source rectangle. A conservative radius of `ceil(3 * sigma)` is acceptable for the first implementation. If the shader only samples a fixed number of taps, use the actual maximum sampled radius.
-
-### WebGL Feedback Loops
-
-Keep all existing feedback-loop checks. Bounded render targets do not remove WebGL’s rule that a texture cannot be sampled while rendering into a framebuffer that owns the same texture.
-
-### Render Target Pooling
-
-Exact-size render-target pooling is simplest. If allocation churn appears for animated sizes, add bucketing later. Possible bucket policy:
-
-- round widths/heights up to multiples of 16 or 32,
-- reuse if target is at least requested size,
-- keep UV bounds explicit so over-allocation remains correct.
-
-Do not add bucketing until exact-size correctness is established.
-
-### Metrics Over FPS
-
-Do not rely only on FPS. Browser `requestAnimationFrame` caps visible FPS, and CI machines vary. Use these metrics as primary regression signals:
-
-- full-frame postprocess pass count
-- full-frame child layer count
-- postprocess pixels
-- composite pixels
-- render-target allocation count
-- maximum postprocess target size
-- maximum child layer size
-
-## Expected End State
-
-For the readback gallery at a high-DPI web framebuffer, the renderer should show:
-
-- one full-frame base/final path, unless direct-to-backbuffer is implemented,
-- no full-frame postprocess targets for tiny filters,
-- no full-frame saved mask textures for small masks,
-- bounded blur and shadow passes,
-- bounded layer composites,
-- zero steady-state render-target allocation churn,
-- dramatically lower postprocess/composite pixel counts,
-- no WebGL feedback-loop errors,
-- visually correct output.
-
-The practical target is that the readback gallery becomes cheap enough that the browser refresh loop, not the renderer, is the limiting factor.
