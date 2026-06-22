@@ -291,6 +291,38 @@ Acceptance criteria:
 - Linux readback capture/verify passes.
 - Web smoke passes only with strict structural thresholds.
 
+## Phase 4.5: Renderer Architecture Refactor And Reusable Boundary
+
+Goal: preserve Phase 4 bounded behavior while splitting the bgfx renderer into clear ownership boundaries and making the renderer core reusable outside NovelTea before additional optimization work.
+
+Detailed plan: see [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). Treat that document as the source of truth for Phase 4.5.
+
+Required changes, summarized:
+
+- Establish a reusable `rmlui_bgfx` core boundary before deeper subsystem extraction. Reusable-core files must not include NovelTea engine headers or directly depend on NovelTea AssetManager, SurfaceMetrics, shader loader, view IDs, SDL3, Lua, ImGui, runtime session, custom components, or editor preview code.
+- Introduce generic config/provider inputs for surface metrics, bgfx view range, shader loading, texture loading, diagnostics, and perf logging.
+- Move NovelTea-specific behavior into adapter code: surface conversion, AssetManager texture/path resolution, packaged shader lookup, runtime UI view range, and diagnostics output.
+- Extract target/resource lifetime into a target cache module. Child layer targets and postprocess targets must be reused at steady state.
+- Extract bgfx view/pass scheduling into a pass builder module. All `setViewRect`, `setViewFrameBuffer`, and view naming policy should be centralized.
+- Extract low-level draw/composite/copy/stencil submission into a draw context module.
+- Extract filter execution into a filter pipeline module using an explicit texture-region boundary.
+- Extract virtual layer recording, bounded materialization, replay, saved texture, and saved mask-image handling into a layer system module.
+- Keep the generic RmlUi `RenderInterface` adapter as the API adapter rather than the owner of every renderer policy; keep NovelTea integration as host adapter code.
+- Add resize/readback regression coverage for the native flicker class found after Phase 4.
+
+Acceptance criteria:
+
+- No intended visual or perf structural change from Phase 4.
+- No reusable-core header includes `noveltea/...`.
+- No reusable-core source includes NovelTea-only asset, surface, shader, view ID, SDL3, Lua, ImGui, runtime session, custom component, or editor preview headers.
+- Linux readback capture/verify passes.
+- Full linux-debug test suite passes before merging the complete refactor.
+- Web build and web smoke pass.
+- Interactive Linux readback gallery remains stable after resize.
+- Steady-state readback-gallery perf after warmup keeps `full_frame_child_layers=0`, `full_frame_postprocess_passes=0`, `rt_alloc=0`, `rt_destroy=0`, `layer_alloc=0`, and `layer_destroy=0`.
+
+Do not start Phase 5, Phase 6, pass folding, or physical extraction to a separate repository until the Phase 4.5 in-repo reusable boundary is complete and verified.
+
 ## Phase 5: Transform Bounds Without Full-Frame Fallback
 
 Goal: remove transform-driven full-frame fallback for normal CSS transforms.
@@ -494,7 +526,7 @@ Representative Linux Phase 4 perf at 1280x720:
 [perf] fps=96 passes=108 geom=27 clip=15 gradients=8 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=980004 copy_px=9216 composite_px=985744 post_px=38352 full_frame_passes=2 bounded_passes=55 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=25 full_frame_postprocess_passes=0 bounded_postprocess_passes=15 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=24 full_frame_postprocess_targets=0 bounded_postprocess_targets=12 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_child_layer=114x96 max_child_rt=114x96 max_rt=114x96 fb=1280x720
 ```
 
-The next implementation work is Phase 5/6: confirm normal CSS transforms remain bounded across Android and any additional Web scenes, then make filters explicitly consume valid content bounds separately from allocation bounds and reduce postprocess pixel work. Do not start Phase 9 pass folding until the bounded-filter semantics are stable.
+The next implementation work is Phase 4.5: first establish the reusable `rmlui_bgfx` core boundary, then perform the behavior-preserving renderer architecture split described in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). After Phase 4.5 is complete, resume Phase 5/6 by confirming normal CSS transforms remain bounded across Android and additional Web scenes, then making filters explicitly consume valid content bounds separately from allocation bounds and reduce postprocess pixel work. Do not start Phase 9 pass folding or a physical external repository split until the in-repo reusable boundary and subsystem split are verified.
 
 ## Suggested Work Order for Codex
 
@@ -504,12 +536,13 @@ Use this order. Do not jump to pass folding or direct base presentation before c
 2. Phase 1: add CPU geometry bounds and transform-bound helpers with tests.
 3. Phase 2: introduce virtual child layer recording, initially behind an internal flag if needed.
 4. Phase 3: accumulate content/clip/scissor bounds for recorded layers.
-5. Phase 4: materialize and replay bounded child layers. Done for Linux readback.
-6. Phase 5: remove transform full-frame fallback.
-7. Phase 6: make filters use valid content bounds.
-8. Phase 7: fix saved texture/mask bounds.
-9. Phase 8: tighten web smoke thresholds so the optimized shape is enforced.
-10. Phase 9+: reduce pass count and revisit direct base.
+5. Phase 4: materialize and replay bounded child layers. Done for Linux and Web readback.
+6. Phase 4.5: establish the reusable `rmlui_bgfx` core boundary and refactor renderer structure using [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md).
+7. Phase 5: remove transform full-frame fallback.
+8. Phase 6: make filters use valid content bounds.
+9. Phase 7: fix saved texture/mask bounds.
+10. Phase 8: tighten web smoke thresholds so the optimized shape is enforced.
+11. Phase 9+: reduce pass count and revisit direct base.
 
 Each implementation slice must report before/after perf lines for the readback gallery. The expected early win is not fewer passes; it is lower `full_layers`, lower `full_frame_passes`, lower `max_layer`, lower `max_rt`, lower `clear_px`, lower `composite_px`, and lower `post_px`.
 
@@ -518,9 +551,11 @@ Each implementation slice must report before/after perf lines for the readback g
 Use this prompt to begin the next coding session:
 
 ```text
-We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. Phase 0 through Phase 4 of the restarted plan are implemented on Linux: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, child layers record virtual draw/gradient/clip-mask commands until a texture consumer materializes them, recorded layers accumulate conservative content/mask bounds, and materialization now allocates bounded child render targets with zero full-frame child layers in the readback-gallery perf line.
+We need to implement Phase 4.5 from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, referenced by docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md. Phase 0 through Phase 4 of the restarted optimization plan are implemented: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, child layers record virtual draw/gradient/clip-mask commands until a texture consumer materializes them, recorded layers accumulate conservative content/mask bounds, and materialization now allocates bounded child/postprocess render targets with zero full-frame child layers and zero steady-state target churn in the readback-gallery perf line.
 
-Start with Phase 5/6. First verify whether any normal CSS transform path still causes full-frame fallback on Web or Android, and fix transform-specific fallback cases if found. Then make the filter pipeline explicitly consume valid content bounds separately from allocation bounds, reduce postprocess pixel work, and preserve readback correctness for blur, drop shadow, opacity/color filters, saved textures, and saved `mask-image` behavior. Do not start pass folding or direct-base optimization yet.
+Start with Phase 4.5 Stage 0 only: establish the reusable `rmlui_bgfx` core boundary. Introduce generic renderer config/provider interfaces for surface metrics, bgfx view range, shader loading, texture loading, diagnostics, and perf logging. Move or wrap current NovelTea-specific behavior behind adapter code: NovelTea SurfaceMetrics conversion, AssetManager texture/path resolution, packaged shader lookup, runtime UI view range, and diagnostics output. Reusable-core files must not include `noveltea/...` headers or depend directly on NovelTea AssetManager, SurfaceMetrics, shader loader, view IDs, SDL3, Lua, ImGui, runtime session, custom components, or editor preview code.
 
-After Phase 5/6 work, report the readback-gallery perf line and identify any remaining bounded-filter or allocation-churn reasons before moving to pass-count reduction.
+Preserve current rendering behavior exactly: child layer targets and postprocess targets must be reused at steady state, with readback-gallery perf reporting full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup, and max_child_layer/max_rt near affected effect size.
+
+After Stage 0, run linux-debug build, readback tests, a 180-frame readback_gallery perf run, web smoke if available, and a dependency-boundary search proving reusable-core files do not include NovelTea-only headers. Do not extract target caches, pass scheduling, filters, or layer replay in this first stage unless the minimal adapter boundary requires tiny mechanical moves, and do not start Phase 5/6 optimization yet.
 ```

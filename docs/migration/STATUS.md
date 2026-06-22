@@ -45,11 +45,11 @@ Last updated: 2026-06-22.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
 - RmlUi child layers are now bounded in the Linux and Web readback gallery smoke paths. Android runtime smoke coverage should still be rerun against the new Phase 4 materialization path.
-- RmlUi child and postprocess render targets are reused at steady state and filter targets are bounded in the readback gallery, but the filter pipeline still needs a cleaner valid-content-vs-allocation-bounds model and reduced postprocess pixel work.
+- RmlUi child and postprocess render targets are reused at steady state and filter targets are bounded in the readback gallery, but the renderer core still needs the Phase 4.5 reusable `rmlui_bgfx` boundary and subsystem split before Phase 5/6 optimization resumes.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
-- RmlUi renderer documentation is current, but transform-bound derivation and the remaining full-frame fallback cases are still conservative implementation limits rather than doc gaps.
+- RmlUi renderer documentation now treats the bgfx backend as a reusable renderer core consumed by NovelTea adapters; implementation still needs to remove NovelTea dependencies from reusable-core files.
 
 ## Current Verification Commands
 
@@ -143,4 +143,4 @@ cd android
 
 ## Next Implementation Task
 
-Implement Phase 3 from [`docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md`](../rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md): accumulate conservative content bounds from recorded virtual-layer geometry, shader, scissor, transform, and clip-mask commands. Do not move to pass folding or direct-base presentation until the strict web smoke counters prove that child layers and postprocess targets are no longer full-frame for the readback gallery.
+Implement Phase 4.5 Stage 0 from [`docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](../rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md): establish the reusable `rmlui_bgfx` core boundary before subsystem extraction. Add generic config/provider interfaces for surface metrics, bgfx view range, shader loading, texture loading, diagnostics, and perf logging; move NovelTea-specific AssetManager path resolution, shader lookup, view IDs, surface conversion, and diagnostics output behind adapter code; and verify reusable-core files do not include `noveltea/...` or other NovelTea-only headers. Preserve the Phase 4 readback-gallery perf shape and do not start Phase 5/6, pass folding, direct-base tuning, or physical repository extraction until Phase 4.5 is complete.

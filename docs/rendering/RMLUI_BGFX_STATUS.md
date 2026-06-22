@@ -2,7 +2,7 @@
 
 Status values: NOT STARTED, IMPLEMENTED, NOT VERIFIED, VERIFIED, FAILED BASELINE.
 
-Current status: Phases 0 through 4 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md) are implemented and verified on the Linux debug test suite. The renderer is functionally correct for the readback gallery, records virtual child-layer commands with conservative content/mask bounds, and now uses those bounds when materializing child render targets. It is still not a fully optimized compositor because Phase 6 has not yet split postprocess work between allocation bounds and valid content bounds, and later phases still need pass folding and direct-base cleanup.
+Current status: Phases 0 through 4 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md) are implemented and verified on the Linux debug test suite. The renderer is functionally correct for the readback gallery, records virtual child-layer commands with conservative content/mask bounds, and now uses those bounds when materializing child render targets. The next work is Phase 4.5: establish the reusable `rmlui_bgfx` core boundary, keep NovelTea-specific behavior in adapters, and split the monolithic renderer into focused subsystems without changing rendering behavior. It is still not a fully optimized compositor because Phase 6 has not yet split postprocess work between allocation bounds and valid content bounds, and later phases still need pass folding and direct-base cleanup.
 
 ## Current Performance Truth
 
@@ -119,4 +119,6 @@ The renderer emits a periodic `[perf]` line when render perf logging is enabled.
 
 ## Next Implementation Task
 
-Continue with Phase 5/6 from [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md). Phase 5 should remove any remaining transform-driven full-frame fallback cases for normal CSS transforms if web or Android reveal any. Phase 6 should make the filter pipeline explicitly consume valid content bounds distinct from allocation bounds and reduce postprocess pixel work further. Do not start Phase 9 pass folding until bounded-filter semantics are stable.
+Continue with Phase 4.5 from [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md) and [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). Start with Stage 0: establish the reusable `rmlui_bgfx` core boundary. Introduce generic config/provider interfaces for surface metrics, view range, shader loading, texture loading, diagnostics, and perf logging; move NovelTea-specific AssetManager, SurfaceMetrics, shader loader, view ID, and diagnostics behavior behind adapter code; and verify reusable-core files do not include `noveltea/...` or other NovelTea-only headers.
+
+After Stage 0, continue Phase 4.5 subsystem extraction in order: target cache, pass builder, draw context, filter pipeline, layer system, thin adapter cleanup, resize regression coverage, and docs/status updates. Do not start Phase 5/6, pass folding, direct-base tuning, or physical extraction to a separate repository until the in-repo reusable boundary and behavior-preserving subsystem split are verified.
