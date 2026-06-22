@@ -51,6 +51,7 @@ struct GeometryRecord {
     bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
     uint32_t index_count = 0;
+    LogicalRect local_bounds;
 };
 
 struct TextureRecord {
@@ -2132,6 +2133,11 @@ BgfxRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
         indices.size() > std::numeric_limits<uint32_t>::max()) {
         return 0;
     }
+    const GeometryBoundsResult local_bounds = compute_indexed_geometry_bounds(vertices, indices);
+    if (local_bounds.status != GeometryBoundsStatus::Valid) {
+        return 0;
+    }
+
     std::vector<RmlVertex> converted;
     converted.reserve(vertices.size());
     for (const Rml::Vertex& vertex : vertices) {
@@ -2141,9 +2147,6 @@ BgfxRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
     std::vector<uint32_t> converted_indices;
     converted_indices.reserve(indices.size());
     for (int index : indices) {
-        if (index < 0 || size_t(index) >= vertices.size()) {
-            return 0;
-        }
         converted_indices.push_back(uint32_t(index));
     }
     auto vb = bgfx::createVertexBuffer(
@@ -2160,7 +2163,8 @@ BgfxRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
         return 0;
     }
     const Rml::CompiledGeometryHandle handle = ++m_impl->geometry_counter;
-    m_impl->geometries.emplace(handle, GeometryRecord{vb, ib, uint32_t(converted_indices.size())});
+    m_impl->geometries.emplace(
+        handle, GeometryRecord{vb, ib, uint32_t(converted_indices.size()), local_bounds.logical});
     return handle;
 }
 

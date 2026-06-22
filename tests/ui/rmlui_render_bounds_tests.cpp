@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <limits>
 
 using namespace noveltea::ui::rmlui;
 
@@ -350,6 +351,202 @@ TEST_CASE("RmlUi framebuffer_to_logical round trip")
     CHECK(fb.y == 200);
     CHECK(fb.w == 300);
     CHECK(fb.h == 150);
+}
+
+// ---------------------------------------------------------------------------
+// Geometry bounds
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Rml::Vertex vertex(float x, float y)
+{
+    Rml::Vertex v;
+    v.position = {x, y};
+    return v;
+}
+
+Rml::Span<const Rml::Vertex> span_vertices(const Rml::Vector<Rml::Vertex>& vertices)
+{
+    return {vertices.data(), vertices.size()};
+}
+
+Rml::Span<const int> span_indices(const Rml::Vector<int>& indices)
+{
+    return {indices.data(), indices.size()};
+}
+
+} // namespace
+
+TEST_CASE("RmlUi indexed geometry bounds use drawn vertices")
+{
+    Rml::Vector<Rml::Vertex> vertices{vertex(100.0f, 100.0f), vertex(0.0f, 0.0f),
+                                      vertex(24.0f, 0.0f), vertex(24.0f, 36.0f),
+                                      vertex(0.0f, 36.0f)};
+    Rml::Vector<int> indices{1, 2, 3, 1, 3, 4};
+
+    const auto bounds =
+        compute_indexed_geometry_bounds(span_vertices(vertices), span_indices(indices));
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.logical.x == Catch::Approx(0.0f));
+    CHECK(bounds.logical.y == Catch::Approx(0.0f));
+    CHECK(bounds.logical.w == Catch::Approx(24.0f));
+    CHECK(bounds.logical.h == Catch::Approx(36.0f));
+}
+
+TEST_CASE("RmlUi indexed geometry bounds reject invalid input")
+{
+    Rml::Vector<Rml::Vertex> vertices{vertex(0.0f, 0.0f), vertex(10.0f, 0.0f)};
+    Rml::Vector<int> indices{0, 1};
+
+    SECTION("empty vertices")
+    {
+        Rml::Vector<Rml::Vertex> empty_vertices;
+        const auto bounds =
+            compute_indexed_geometry_bounds(span_vertices(empty_vertices), span_indices(indices));
+        CHECK(bounds.status == GeometryBoundsStatus::EmptyGeometry);
+    }
+
+    SECTION("empty indices")
+    {
+        Rml::Vector<int> empty_indices;
+        const auto bounds =
+            compute_indexed_geometry_bounds(span_vertices(vertices), span_indices(empty_indices));
+        CHECK(bounds.status == GeometryBoundsStatus::EmptyGeometry);
+    }
+
+    SECTION("bad index")
+    {
+        Rml::Vector<int> bad_indices{0, 2};
+        const auto bounds =
+            compute_indexed_geometry_bounds(span_vertices(vertices), span_indices(bad_indices));
+        CHECK(bounds.status == GeometryBoundsStatus::InvalidIndex);
+    }
+
+    SECTION("non-finite vertex")
+    {
+        Rml::Vector<Rml::Vertex> bad_vertices{vertex(0.0f, 0.0f),
+                                              vertex(std::numeric_limits<float>::infinity(), 1.0f)};
+        const auto bounds =
+            compute_indexed_geometry_bounds(span_vertices(bad_vertices), span_indices(indices));
+        CHECK(bounds.status == GeometryBoundsStatus::NonFiniteVertex);
+    }
+
+    SECTION("zero-area geometry")
+    {
+        Rml::Vector<Rml::Vertex> line_vertices{vertex(0.0f, 0.0f), vertex(10.0f, 0.0f)};
+        const auto bounds =
+            compute_indexed_geometry_bounds(span_vertices(line_vertices), span_indices(indices));
+        CHECK(bounds.status == GeometryBoundsStatus::EmptyGeometry);
+    }
+}
+
+TEST_CASE("RmlUi transformed geometry bounds handle identity and translation")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+
+    const auto bounds = compute_transformed_geometry_bounds(LogicalRect{0.0f, 0.0f, 24.0f, 36.0f},
+                                                            {10.0f, 20.0f}, nullptr, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.logical.x == Catch::Approx(10.0f));
+    CHECK(bounds.logical.y == Catch::Approx(20.0f));
+    CHECK(bounds.logical.w == Catch::Approx(24.0f));
+    CHECK(bounds.logical.h == Catch::Approx(36.0f));
+    CHECK(bounds.framebuffer.x == 10);
+    CHECK(bounds.framebuffer.y == 20);
+    CHECK(bounds.framebuffer.w == 24);
+    CHECK(bounds.framebuffer.h == 36);
+}
+
+TEST_CASE("RmlUi transformed geometry bounds use non-integer DPR outward rounding")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1600, 900);
+
+    const auto bounds = compute_transformed_geometry_bounds(LogicalRect{10.2f, 20.2f, 24.0f, 36.0f},
+                                                            {0.0f, 0.0f}, nullptr, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.framebuffer.x == 12);
+    CHECK(bounds.framebuffer.y == 25);
+    CHECK(bounds.framebuffer.w == 31);
+    CHECK(bounds.framebuffer.h == 46);
+}
+
+TEST_CASE("RmlUi transformed geometry bounds handle scaling")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+    const Rml::Matrix4f transform = Rml::Matrix4f::Scale(2.0f, 3.0f, 1.0f);
+
+    const auto bounds = compute_transformed_geometry_bounds(LogicalRect{5.0f, 10.0f, 20.0f, 10.0f},
+                                                            {0.0f, 0.0f}, &transform, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.logical.x == Catch::Approx(10.0f));
+    CHECK(bounds.logical.y == Catch::Approx(30.0f));
+    CHECK(bounds.logical.w == Catch::Approx(40.0f));
+    CHECK(bounds.logical.h == Catch::Approx(30.0f));
+    CHECK(bounds.framebuffer.x == 10);
+    CHECK(bounds.framebuffer.y == 30);
+    CHECK(bounds.framebuffer.w == 40);
+    CHECK(bounds.framebuffer.h == 30);
+}
+
+TEST_CASE("RmlUi transformed geometry bounds handle rotation conservatively")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+    constexpr float pi = 3.14159265358979323846f;
+    const Rml::Matrix4f transform =
+        Rml::Matrix4f::Translate(30.0f, 40.0f, 0.0f) * Rml::Matrix4f::RotateZ(pi * 0.5f);
+
+    const auto bounds = compute_transformed_geometry_bounds(LogicalRect{0.0f, 0.0f, 10.0f, 20.0f},
+                                                            {0.0f, 0.0f}, &transform, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.logical.x == Catch::Approx(10.0f).margin(0.0001f));
+    CHECK(bounds.logical.y == Catch::Approx(40.0f).margin(0.0001f));
+    CHECK(bounds.logical.w == Catch::Approx(20.0f).margin(0.0001f));
+    CHECK(bounds.logical.h == Catch::Approx(10.0f).margin(0.0001f));
+    CHECK(bounds.framebuffer.x == 10);
+    CHECK(bounds.framebuffer.y == 40);
+    CHECK(bounds.framebuffer.w == 20);
+    CHECK(bounds.framebuffer.h == 10);
+}
+
+TEST_CASE("RmlUi transformed geometry bounds clip partially offscreen framebuffer bounds")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+
+    const auto bounds = compute_transformed_geometry_bounds(
+        LogicalRect{-10.0f, -5.0f, 24.0f, 36.0f}, {0.0f, 0.0f}, nullptr, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.framebuffer.x == 0);
+    CHECK(bounds.framebuffer.y == 0);
+    CHECK(bounds.framebuffer.w == 14);
+    CHECK(bounds.framebuffer.h == 31);
+}
+
+TEST_CASE("RmlUi transformed geometry bounds reject invalid transforms")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+    Rml::Matrix4f non_finite_transform = Rml::Matrix4f::Identity();
+    non_finite_transform[0][0] = std::numeric_limits<float>::quiet_NaN();
+
+    const auto bad_transform = compute_transformed_geometry_bounds(
+        LogicalRect{0.0f, 0.0f, 24.0f, 36.0f}, {0.0f, 0.0f}, &non_finite_transform, surface);
+    CHECK(bad_transform.status == GeometryBoundsStatus::NonFiniteTransform);
+
+    const auto non_finite_translation = compute_transformed_geometry_bounds(
+        LogicalRect{0.0f, 0.0f, 24.0f, 36.0f}, {std::numeric_limits<float>::quiet_NaN(), 0.0f},
+        nullptr, surface);
+    CHECK(non_finite_translation.status == GeometryBoundsStatus::NonFiniteTranslation);
+
+    const auto non_finite_bounds = compute_transformed_geometry_bounds(
+        LogicalRect{0.0f, std::numeric_limits<float>::quiet_NaN(), 24.0f, 36.0f}, {0.0f, 0.0f},
+        nullptr, surface);
+    CHECK(non_finite_bounds.status == GeometryBoundsStatus::NonFiniteBounds);
 }
 
 // ---------------------------------------------------------------------------

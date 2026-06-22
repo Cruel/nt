@@ -475,6 +475,12 @@ Acceptance criteria:
 - The active status file points to the next failing gate and the next implementation step.
 - The optimization plan and smoke thresholds agree.
 
+## Current Progress
+
+As of the current checkout, Phase 0 and Phase 1 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input.
+
+The next implementation phase is Phase 2: virtual child layer recording. Phase 1 intentionally does not change rendering behavior or reduce the current full-frame child layer baseline by itself.
+
 ## Suggested Work Order for Codex
 
 Use this order. Do not jump to pass folding or direct base presentation before content bounds are solved.

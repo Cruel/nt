@@ -3,10 +3,34 @@
 #include <RmlUi/Core/Types.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace noveltea::ui::rmlui {
+
+namespace {
+
+bool finite(float value) { return std::isfinite(value); }
+
+bool finite(LogicalRect rect)
+{
+    return finite(rect.x) && finite(rect.y) && finite(rect.w) && finite(rect.h);
+}
+
+bool finite(Rml::Vector2f value) { return finite(value.x) && finite(value.y); }
+
+LogicalRect rect_from_extents(float min_x, float min_y, float max_x, float max_y)
+{
+    if (!finite(min_x) || !finite(min_y) || !finite(max_x) || !finite(max_y) || max_x <= min_x ||
+        max_y <= min_y) {
+        return {};
+    }
+    return {min_x, min_y, max_x - min_x, max_y - min_y};
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // FbRect helpers
@@ -157,6 +181,135 @@ LogicalRect framebuffer_to_logical(FbRect fb, const SurfaceMetrics& surface)
     const SurfaceMetrics s = sanitize_surface_metrics(surface);
     return {float(fb.x) / s.scale_x, float(fb.y) / s.scale_y, float(fb.w) / s.scale_x,
             float(fb.h) / s.scale_y};
+}
+
+// ---------------------------------------------------------------------------
+// Geometry bounds
+// ---------------------------------------------------------------------------
+
+GeometryBoundsResult compute_indexed_geometry_bounds(Rml::Span<const Rml::Vertex> vertices,
+                                                     Rml::Span<const int> indices)
+{
+    GeometryBoundsResult result;
+    if (vertices.empty() || indices.empty()) {
+        result.status = GeometryBoundsStatus::EmptyGeometry;
+        return result;
+    }
+
+    float min_x = std::numeric_limits<float>::infinity();
+    float min_y = std::numeric_limits<float>::infinity();
+    float max_x = -std::numeric_limits<float>::infinity();
+    float max_y = -std::numeric_limits<float>::infinity();
+
+    bool saw_vertex = false;
+    for (const int index : indices) {
+        if (index < 0 || size_t(index) >= vertices.size()) {
+            result.status = GeometryBoundsStatus::InvalidIndex;
+            return result;
+        }
+        const Rml::Vector2f position = vertices[size_t(index)].position;
+        if (!finite(position)) {
+            result.status = GeometryBoundsStatus::NonFiniteVertex;
+            return result;
+        }
+        saw_vertex = true;
+        min_x = std::min(min_x, position.x);
+        min_y = std::min(min_y, position.y);
+        max_x = std::max(max_x, position.x);
+        max_y = std::max(max_y, position.y);
+    }
+
+    if (!saw_vertex) {
+        result.status = GeometryBoundsStatus::EmptyGeometry;
+        return result;
+    }
+
+    result.logical = rect_from_extents(min_x, min_y, max_x, max_y);
+    if (is_empty(result.logical)) {
+        result.status = GeometryBoundsStatus::EmptyGeometry;
+        return result;
+    }
+
+    result.status = GeometryBoundsStatus::Valid;
+    return result;
+}
+
+GeometryBoundsResult compute_transformed_geometry_bounds(LogicalRect local_bounds,
+                                                         Rml::Vector2f translation,
+                                                         const Rml::Matrix4f* transform,
+                                                         const SurfaceMetrics& surface)
+{
+    GeometryBoundsResult result;
+    if (is_empty(local_bounds)) {
+        result.status = GeometryBoundsStatus::EmptyGeometry;
+        return result;
+    }
+    if (!finite(local_bounds)) {
+        result.status = GeometryBoundsStatus::NonFiniteBounds;
+        return result;
+    }
+    if (!finite(translation)) {
+        result.status = GeometryBoundsStatus::NonFiniteTranslation;
+        return result;
+    }
+
+    if (transform) {
+        const float* data = transform->data();
+        for (int i = 0; i < 16; ++i) {
+            if (!finite(data[i])) {
+                result.status = GeometryBoundsStatus::NonFiniteTransform;
+                return result;
+            }
+        }
+    }
+
+    const std::array<Rml::Vector4f, 4> corners{{
+        {local_bounds.x + translation.x, local_bounds.y + translation.y, 0.0f, 1.0f},
+        {local_bounds.x + local_bounds.w + translation.x, local_bounds.y + translation.y, 0.0f,
+         1.0f},
+        {local_bounds.x + translation.x, local_bounds.y + local_bounds.h + translation.y, 0.0f,
+         1.0f},
+        {local_bounds.x + local_bounds.w + translation.x,
+         local_bounds.y + local_bounds.h + translation.y, 0.0f, 1.0f},
+    }};
+
+    float min_x = std::numeric_limits<float>::infinity();
+    float min_y = std::numeric_limits<float>::infinity();
+    float max_x = -std::numeric_limits<float>::infinity();
+    float max_y = -std::numeric_limits<float>::infinity();
+
+    for (const Rml::Vector4f& corner : corners) {
+        const Rml::Vector4f transformed = transform ? ((*transform) * corner) : corner;
+        if (!finite(transformed.x) || !finite(transformed.y) || !finite(transformed.w) ||
+            transformed.w == 0.0f) {
+            result.status = GeometryBoundsStatus::NonFiniteOutput;
+            return result;
+        }
+        const float inv_w = 1.0f / transformed.w;
+        const float x = transformed.x * inv_w;
+        const float y = transformed.y * inv_w;
+        if (!finite(x) || !finite(y)) {
+            result.status = GeometryBoundsStatus::NonFiniteOutput;
+            return result;
+        }
+        min_x = std::min(min_x, x);
+        min_y = std::min(min_y, y);
+        max_x = std::max(max_x, x);
+        max_y = std::max(max_y, y);
+    }
+
+    result.logical = rect_from_extents(min_x, min_y, max_x, max_y);
+    if (is_empty(result.logical)) {
+        result.status = GeometryBoundsStatus::EmptyGeometry;
+        return result;
+    }
+    result.framebuffer = clamp_to_surface(logical_to_framebuffer(result.logical, surface), surface);
+    if (is_empty(result.framebuffer)) {
+        result.status = GeometryBoundsStatus::EmptyGeometry;
+        return result;
+    }
+    result.status = GeometryBoundsStatus::Valid;
+    return result;
 }
 
 // ---------------------------------------------------------------------------

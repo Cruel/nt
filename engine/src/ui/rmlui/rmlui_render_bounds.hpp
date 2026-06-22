@@ -3,6 +3,8 @@
 #include "noveltea/surface.hpp"
 
 #include <RmlUi/Core/Types.h>
+#include <RmlUi/Core/Span.h>
+#include <RmlUi/Core/Vertex.h>
 
 #include <array>
 #include <cstdint>
@@ -27,6 +29,23 @@ struct LogicalRect {
 struct RenderBounds {
     LogicalRect logical;
     FbRect framebuffer;
+};
+
+enum class GeometryBoundsStatus {
+    Valid,
+    EmptyGeometry,
+    InvalidIndex,
+    NonFiniteVertex,
+    NonFiniteBounds,
+    NonFiniteTranslation,
+    NonFiniteTransform,
+    NonFiniteOutput,
+};
+
+struct GeometryBoundsResult {
+    LogicalRect logical;
+    FbRect framebuffer;
+    GeometryBoundsStatus status = GeometryBoundsStatus::EmptyGeometry;
 };
 
 struct FilterExpansion {
@@ -55,6 +74,13 @@ struct FilterExpansion {
 
 [[nodiscard]] FbRect logical_to_framebuffer(LogicalRect logical, const SurfaceMetrics& surface);
 [[nodiscard]] LogicalRect framebuffer_to_logical(FbRect fb, const SurfaceMetrics& surface);
+
+[[nodiscard]] GeometryBoundsResult
+compute_indexed_geometry_bounds(Rml::Span<const Rml::Vertex> vertices,
+                                Rml::Span<const int> indices);
+[[nodiscard]] GeometryBoundsResult
+compute_transformed_geometry_bounds(LogicalRect local_bounds, Rml::Vector2f translation,
+                                    const Rml::Matrix4f* transform, const SurfaceMetrics& surface);
 
 [[nodiscard]] std::array<float, 4> uv_rect_for_source_region(FbRect source_region,
                                                              int texture_width, int texture_height);

@@ -2,7 +2,7 @@
 
 Status values: NOT STARTED, IMPLEMENTED, NOT VERIFIED, VERIFIED, FAILED BASELINE.
 
-Current status: Phase 0 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md) is implemented. The renderer now exposes enough structural counters for the web smoke gate to reject the current full-frame behavior. The renderer is still not an optimized bounded compositor.
+Current status: Phases 0 and 1 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md) are implemented and verified. Phase 0 exposes structural counters and makes the current full-frame behavior fail the web smoke gate. Phase 1 adds CPU-side geometry bounds and transform-bound helpers with unit coverage. The renderer is still not an optimized bounded compositor because child layers are not yet virtual/recorded and still materialize too early.
 
 ## Current Performance Truth
 
@@ -24,7 +24,7 @@ This is a failed optimization baseline. The important failures are:
 
 | Method | Status | Evidence |
 | --- | --- | --- |
-| CompileGeometry | VERIFIED | Exercised by Linux readback capture and unit-linked renderer paths. |
+| CompileGeometry | VERIFIED | Stores CPU-side indexed local AABB before bgfx upload; invalid/empty/non-finite geometry is rejected by `compute_indexed_geometry_bounds`; Linux readback and unit tests pass. |
 | RenderGeometry | VERIFIED | Linux readback verifies textured/color geometry orientation and clip/filter/gradient output. |
 | ReleaseGeometry | IMPLEMENTED, NOT VERIFIED | Destroys bgfx buffers; no lifecycle counter test yet. |
 | LoadTexture | VERIFIED | Uses AssetManager plus bimg decode; file interface and shader/runtime asset tests pass. |
@@ -43,8 +43,16 @@ This is a failed optimization baseline. The important failures are:
 | CompileFilter | VERIFIED | Standard filter compile paths are covered by unit and readback tests for representative filters. |
 | ReleaseFilter | VERIFIED | Mask-image filters release owned saved textures and clear the saved texture record metadata. |
 | CompileShader | VERIFIED | Linear/radial/conic and repeating gradient records compile and shader assets stage. |
-| RenderShader | VERIFIED | Linux readback covers standard gradient output; repeating variants still need pixel assertions. |
+| RenderShader | VERIFIED | Uses the same compiled `GeometryRecord`/local bounds source as `RenderGeometry`; Linux readback covers standard gradient output; repeating variants still need pixel assertions. |
 | ReleaseShader | IMPLEMENTED, NOT VERIFIED | Erases shader records; no lifecycle test yet. |
+
+## Phase Progress
+
+| Phase | Status | Evidence |
+| --- | --- | --- |
+| Phase 0: Make the Bad Baseline Unmistakable | VERIFIED | Perf logging and web smoke parse/use structural counters; current web smoke fails on the known full-frame baseline. |
+| Phase 1: Geometry and Shader Bounds | VERIFIED | `GeometryRecord` stores indexed local bounds; `compute_indexed_geometry_bounds()` and `compute_transformed_geometry_bounds()` cover identity, translation, scale, rotation, offscreen clipping, non-integer DPR, and invalid/non-finite input; `ctest --test-dir build/linux-debug --output-on-failure` passes. |
+| Phase 2: Virtual Child Layer Recording | NOT STARTED | Next implementation task. |
 
 ## Acceptance Gates
 
@@ -65,7 +73,7 @@ The failed assumption in the previous optimization work was that active scissor 
 
 The next architecture step is virtual child-layer recording:
 
-1. Store CPU-side geometry/shader bounds.
+1. Use the stored CPU-side geometry/shader bounds from Phase 1.
 2. Record child-layer draw commands instead of eagerly allocating a framebuffer at `PushLayer()`.
 3. Accumulate content, scissor, clip, and transform bounds from recorded commands.
 4. Materialize the smallest safe child framebuffer only when the layer texture is needed.
@@ -95,11 +103,11 @@ Important fields:
 ## Known Limitations
 
 - Child layer bounds are still scissor-first and fall back to full-frame when no scissor exists.
-- Transform-derived content bounds are not implemented.
+- Transform-derived geometry bounds exist as test-covered helpers, but they are not yet used to size child layers because virtual layer recording/content accumulation is not implemented.
 - Postprocess targets still receive full-frame source bounds when their source layer was allocated full-frame.
 - The web smoke gate is now intentionally strict and fails until real content bounds are implemented.
 - The base presentation path may remain offscreen on WebGL; this is acceptable until child layer/filter full-frame work is fixed.
 
 ## Next Implementation Task
 
-Implement Phase 1 from [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md): CPU-side geometry/shader bounds and transform-bound helpers with tests. Do not start pass-count reduction or direct-base work until `full_frame_child_layers`, `unbounded_layer_fallbacks`, `full_frame_postprocess_target_uses`, and `max_child_layer` are materially reduced for the readback gallery.
+Implement Phase 2 from [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md): virtual child layer recording. Child `PushLayer()` should create a logical recording layer instead of eagerly allocating a framebuffer when bounds are unknown, and `RenderGeometry()`, `RenderShader()`, and `RenderToClipMask()` should record enough state for faithful replay. Do not start pass-count reduction or direct-base work until `full_frame_child_layers`, `unbounded_layer_fallbacks`, `full_frame_postprocess_target_uses`, and `max_child_layer` are materially reduced for the readback gallery.
