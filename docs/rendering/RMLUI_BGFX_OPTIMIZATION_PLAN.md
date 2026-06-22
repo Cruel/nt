@@ -486,9 +486,15 @@ Acceptance criteria:
 
 ## Current Progress
 
-As of the current checkout, Phase 0, Phase 1, Phase 2, and Phase 3 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input. Phase 2 added virtual child-layer recording and on-demand materialization while preserving Linux readback correctness over a longer 40-frame capture so previous-frame layer-resource leaks are caught. Phase 3 added conservative recorded-layer content and mask bounds from recorded geometry/shader/clip-mask commands, and the readback-gallery perf line now reports zero unbounded child-layer fallback counters.
+As of the current checkout, Phase 0 through Phase 4 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input. Phase 2 added virtual child-layer recording and on-demand materialization while preserving Linux readback correctness over a longer 40-frame capture so previous-frame layer-resource leaks are caught. Phase 3 added conservative recorded-layer content and mask bounds from recorded geometry/shader/clip-mask commands, and the readback-gallery perf line reports zero unbounded child-layer fallback counters. Phase 4 made materialization consume recorded content bounds plus required filter/composite bounds, replay into bounded targets with local scissor/stencil/copy/composite coordinates, and preserve saved texture/mask correctness.
 
-The next implementation phase is Phase 4: bounded layer materialization and replay. Phase 3 intentionally does not use accumulated content bounds for allocation, so child layers and postprocess targets still materialize full-frame until Phase 4 and Phase 6 consume those bounds.
+Representative Linux Phase 4 perf at 1280x720:
+
+```text
+[perf] fps=96 passes=108 geom=27 clip=15 gradients=8 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=980004 copy_px=9216 composite_px=985744 post_px=38352 full_frame_passes=2 bounded_passes=55 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=25 full_frame_postprocess_passes=0 bounded_postprocess_passes=15 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=24 full_frame_postprocess_targets=0 bounded_postprocess_targets=12 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_child_layer=114x96 max_child_rt=114x96 max_rt=114x96 fb=1280x720
+```
+
+The next implementation work is Phase 5/6: confirm normal CSS transforms remain bounded across Android and any additional Web scenes, then make filters explicitly consume valid content bounds separately from allocation bounds and reduce postprocess pixel work. Do not start Phase 9 pass folding until the bounded-filter semantics are stable.
 
 ## Suggested Work Order for Codex
 
@@ -498,7 +504,7 @@ Use this order. Do not jump to pass folding or direct base presentation before c
 2. Phase 1: add CPU geometry bounds and transform-bound helpers with tests.
 3. Phase 2: introduce virtual child layer recording, initially behind an internal flag if needed.
 4. Phase 3: accumulate content/clip/scissor bounds for recorded layers.
-5. Phase 4: materialize and replay bounded child layers.
+5. Phase 4: materialize and replay bounded child layers. Done for Linux readback.
 6. Phase 5: remove transform full-frame fallback.
 7. Phase 6: make filters use valid content bounds.
 8. Phase 7: fix saved texture/mask bounds.
@@ -512,9 +518,9 @@ Each implementation slice must report before/after perf lines for the readback g
 Use this prompt to begin the next coding session:
 
 ```text
-We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. Phase 0 through Phase 3 of the restarted plan are implemented: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, child layers record virtual draw/gradient/clip-mask commands until a texture consumer materializes them, and recorded layers accumulate conservative content/mask bounds with zero unbounded child-layer fallback counters in the readback-gallery perf line.
+We need to continue RmlUi bgfx optimization using docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md as the source of truth. Phase 0 through Phase 4 of the restarted plan are implemented on Linux: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, child layers record virtual draw/gradient/clip-mask commands until a texture consumer materializes them, recorded layers accumulate conservative content/mask bounds, and materialization now allocates bounded child render targets with zero full-frame child layers in the readback-gallery perf line.
 
-Start with Phase 4: bounded layer materialization and replay. Use each virtual layer's accumulated `valid_content_bounds`, inherited mask/scissor constraints, parent/provisional bounds, and required filter expansion to choose the smallest safe child framebuffer bounds when materializing. Replay recorded geometry/shader/clip-mask commands into that bounded target with the correct projection/scissor/stencil behavior, and preserve readback correctness, especially saved texture and saved `mask-image` behavior. Do not start pass folding or direct-base optimization yet.
+Start with Phase 5/6. First verify whether any normal CSS transform path still causes full-frame fallback on Web or Android, and fix transform-specific fallback cases if found. Then make the filter pipeline explicitly consume valid content bounds separately from allocation bounds, reduce postprocess pixel work, and preserve readback correctness for blur, drop shadow, opacity/color filters, saved textures, and saved `mask-image` behavior. Do not start pass folding or direct-base optimization yet.
 
-After Phase 4, report the readback-gallery perf line and identify any remaining full-frame child-layer reasons before moving to filter/content-bounds work.
+After Phase 5/6 work, report the readback-gallery perf line and identify any remaining bounded-filter or allocation-churn reasons before moving to pass-count reduction.
 ```

@@ -2,31 +2,32 @@
 
 Status values: NOT STARTED, IMPLEMENTED, NOT VERIFIED, VERIFIED, FAILED BASELINE.
 
-Current status: Phases 0 through 3 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md) are implemented and verified on the Linux debug test suite. The renderer is functionally correct for the readback gallery and now records virtual child-layer commands with conservative content/mask bounds. It is still not an optimized bounded compositor because Phase 4 has not yet used the accumulated content bounds to allocate bounded child-layer render targets, and Phase 6 has not yet made the filter pipeline operate on valid content bounds.
+Current status: Phases 0 through 4 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md) are implemented and verified on the Linux debug test suite. The renderer is functionally correct for the readback gallery, records virtual child-layer commands with conservative content/mask bounds, and now uses those bounds when materializing child render targets. It is still not a fully optimized compositor because Phase 6 has not yet split postprocess work between allocation bounds and valid content bounds, and later phases still need pass folding and direct-base cleanup.
 
 ## Current Performance Truth
 
-The readback gallery remains functionally correct on Linux. The web path still performs too much full-frame work, but the Phase 3 fallback counters now show that child layers have conservative recorded bounds instead of immediate unbounded scissor/transform fallback.
+The readback gallery remains functionally correct on Linux. After Phase 4, child layers are no longer materialized full-frame in the representative Linux readback gallery run. The remaining heavy work is now bounded postprocess/composite work and steady-state target resizing that later phases can tighten.
 
-Representative web perf after Phase 3:
+Representative Linux perf after Phase 4 at 1280x720:
 
 ```text
-[perf] fps=5 passes=121 geom=27 clip=15 gradients=8 layers=13 full_layers=13 bounded_layers=1 full_frame_child_layers=12 bounded_child_layers=1 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=71838131 copy_px=14641 composite_px=69149262 post_px=39893805 full_frame_passes=66 bounded_passes=4 full_frame_clear_passes=27 bounded_clear_passes=2 full_frame_composite_passes=24 bounded_composite_passes=2 full_frame_postprocess_passes=15 bounded_postprocess_passes=0 full_frame_postprocess_target_uses=24 bounded_postprocess_target_uses=0 full_frame_postprocess_targets=0 bounded_postprocess_targets=0 rt_alloc=0 rt_destroy=0 layer_alloc=13 layer_destroy=13 max_layer=1423x1869 max_child_layer=1423x1869 max_child_rt=1423x1869 max_rt=1423x1869 fb=1423x1869
+[perf] fps=96 passes=108 geom=27 clip=15 gradients=8 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=980004 copy_px=9216 composite_px=985744 post_px=38352 full_frame_passes=2 bounded_passes=55 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=25 full_frame_postprocess_passes=0 bounded_postprocess_passes=15 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=24 full_frame_postprocess_targets=0 bounded_postprocess_targets=12 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_child_layer=114x96 max_child_rt=114x96 max_rt=114x96 fb=1280x720
 ```
 
-This is a partial plumbing success but still a failed optimization baseline. The important changes are:
+This is the first measured bounded-compositor success for the readback gallery. The important changes are:
 
-- `unbounded_layer_fallbacks=0`: Phase 3 removed the old immediate no-scissor/transform fallback accounting for recorded virtual child layers.
-- `unbounded_no_scissor_fallbacks=0`, `unbounded_transform_fallbacks=0`, `unbounded_inverse_clip_fallbacks=0`: there are no remaining unbounded child-layer fallback reasons in this gallery run.
+- `full_frame_child_layers=0`: child layers are now materialized from recorded content/required bounds instead of the provisional full-frame fallback.
+- `unbounded_layer_fallbacks=0`: there are still no unbounded child-layer fallback reasons in this gallery run.
+- `max_child_layer=114x96`, `max_child_rt=114x96`, and `max_rt=114x96`: the largest child layer and postprocess target are near gallery effect sizes, not the 1280x720 framebuffer.
+- `full_frame_passes=2`: the remaining full-frame work is the expected offscreen base clear and final base composite.
+- `clear_px=980004`, `composite_px=985744`, and `post_px=38352`: pixel work has dropped by more than an order of magnitude from the Phase 3 baseline.
 
-The important remaining failures are:
+The important remaining work is:
 
-- `full_frame_child_layers=12`: almost every child layer still materializes full-frame because Phase 4 has not consumed `valid_content_bounds` for allocation.
-- `full_frame_clear_passes=27` and `clear_px=71838131`: layer clears are still dominated by full-frame materialized targets.
-- `full_frame_composite_passes=24` and `composite_px=69149262`: composites are still dominated by full-frame source/destination bounds.
-- `full_frame_postprocess_passes=15`, `full_frame_postprocess_target_uses=24`, and `post_px=39893805`: filters still run over full-frame work textures because Phase 6 has not split valid content bounds from allocation bounds.
-- `max_child_layer=1423x1869`, `max_child_rt=1423x1869`, and `max_rt=1423x1869`: the largest child layer and postprocess targets are still framebuffer-sized.
-- `layer_alloc=13 layer_destroy=13`: virtual child slots currently destroy previous materialized framebuffers before replacing the slot with a new recording record. This prevents bgfx framebuffer exhaustion but should be improved after bounded allocation is stable.
+- `layer_alloc=0 layer_destroy=0`: child layer render targets are reused at steady state, avoiding native GL flicker from per-frame child framebuffer churn.
+- `rt_alloc=0 rt_destroy=0`: postprocess targets are also reused at steady state, eliminating the native GL instability caused by per-frame filter target churn.
+- Filters now run over bounded targets, but Phase 6 still needs to make the filter API explicitly distinguish allocation bounds from valid content bounds throughout the pipeline.
+- Pass count is still high (`passes=108`), which belongs to Phase 9 pass folding after bounded work is stable.
 
 ## RenderInterface 6.2 Method Coverage
 
@@ -43,8 +44,8 @@ The important remaining failures are:
 | EnableClipMask | VERIFIED | Readback covers inherited clip-mask output; conservative mask bounds are inherited by virtual child layers. |
 | RenderToClipMask | VERIFIED | Set/SetInverse/Intersect paths are recorded for virtual layers and have conservative bounds helper tests; readback covers visual clip behavior. |
 | SetTransform | VERIFIED | `compute_transformed_geometry_bounds()` is used for recorded command bounds; tests cover scale, rotation, translation, offscreen clipping, non-integer DPR, and invalid/non-finite input. |
-| PushLayer | IMPLEMENTED, FAILED BASELINE | Child layers are virtual/recorded and no longer count immediate unbounded fallbacks, but materialization still uses provisional bounds so most child render targets remain full-frame. |
-| CompositeLayers | FAILED BASELINE | Functional, but composites are frequently full-frame because source layers are still materialized full-frame. |
+| PushLayer | VERIFIED | Child layers are virtual/recorded and materialize to bounded content/required rectangles instead of immediate full-frame targets. |
+| CompositeLayers | VERIFIED | Source layers materialize from recorded content plus filter expansion, destination layers can materialize from composite output bounds, and bounded local source/destination rectangles preserve readback correctness. |
 | PopLayer | IMPLEMENTED, NOT VERIFIED | Restores active layer; exact parent-state restoration lacks a targeted test. |
 | SaveLayerAsTexture | VERIFIED | Saved-layer copies use bounded layer/scissor intersections and preserve saved bounds metadata. |
 | SaveLayerAsMaskImage | VERIFIED | Saved-mask copies preserve saved bounds metadata and own the copied mask texture when borrowed attachment lifetime is unsafe. |
@@ -62,7 +63,7 @@ The important remaining failures are:
 | Phase 1: Geometry and Shader Bounds | VERIFIED | `GeometryRecord` stores indexed local bounds; `compute_indexed_geometry_bounds()` and `compute_transformed_geometry_bounds()` cover identity, translation, scale, rotation, offscreen clipping, non-integer DPR, and invalid/non-finite input. |
 | Phase 2: Virtual Child Layer Recording | VERIFIED | Child layers now record geometry, shader, and clip-mask commands until materialized; Linux readback capture/verify passes over a 40-frame capture. |
 | Phase 3: Layer Content Bounds Accumulation | VERIFIED | Virtual layers accumulate `valid_content_bounds` from recorded geometry/shader commands using local AABB, translation, captured transform, scissor, parent/provisional containment, and conservative clip-mask bounds. Helper tests cover mask `Set`, `Intersect`, `SetInverse`, and scissor/mask bound composition. Web perf shows all unbounded child-layer fallback counters at zero. |
-| Phase 4: Bounded Layer Materialization and Replay | NOT STARTED | Next implementation task. Child layers still materialize using provisional/full-frame bounds. |
+| Phase 4: Bounded Layer Materialization and Replay | VERIFIED | Materialization now chooses child framebuffer bounds from recorded content, required filter/composite bounds, parent/provisional limits, and scissor constraints; Linux readback capture/verify passes and perf shows `full_frame_child_layers=0`, `max_child_layer=114x96`, and `full_frame_passes=2`. |
 
 ## Acceptance Gates
 
@@ -70,21 +71,22 @@ The important remaining failures are:
 | --- | --- | --- |
 | Linux build | VERIFIED | `cmake --build build/linux-debug` passes. |
 | Linux test suite | VERIFIED | `ctest --test-dir build/linux-debug` passes 316/316, including RmlUi readback capture/verify. |
-| Web sandbox rebuild | NOT VERIFIED | Not rerun after Phase 3 in this status update. |
-| Web structural smoke | FAILED BASELINE | Representative web perf still has full-frame child layers, full-frame postprocess passes, and framebuffer-sized `max_child_layer`/`max_rt`. |
+| Web sandbox rebuild | VERIFIED | `cmake --build --preset web-debug` passes after Phase 4. |
+| Web structural smoke | VERIFIED | `node scripts/web-smoke.mjs` passes with zero full-frame child layers, zero unbounded fallbacks, zero full-frame postprocess passes, and `max_child_layer=114x96`. |
 | Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |
 
 ## Renderer Model
 
-The renderer now has the first half of a content-bounded compositor:
+The renderer is now a measured content-bounded compositor for child layers in the readback gallery:
 
 1. CPU-side geometry and shader bounds exist.
 2. Child layers can record commands instead of allocating immediately.
 3. Recorded commands accumulate conservative content and clip-mask bounds.
-4. Remaining work is to consume those bounds during materialization, replay, filtering, and compositing.
+4. Materialization consumes those bounds plus required filter/composite bounds to allocate bounded child targets.
+5. Replay renders into bounded targets with local scissor, stencil, copy, and composite coordinates.
 
-The current full-frame performance is therefore no longer primarily a bounds-discovery failure. It is a bounds-consumption failure: the renderer knows more about virtual layer content than it uses when allocating child framebuffers and postprocess targets.
+The remaining optimization work is no longer discovery or child-layer materialization. It is bounded-filter semantics, allocation reuse, pass-count reduction, and the later direct-base policy cleanup.
 
 A small direct-base robustness fix is also present: root-preservation discovery is sticky across frames. If direct base presentation discovers that root filters require offscreen preservation, subsequent frames can choose offscreen presentation instead of repeatedly failing with `CompositeLayers root filters require offscreen presentation`. This is a recovery fix, not the final direct-base policy from the later optimization phases.
 
@@ -102,21 +104,19 @@ The renderer emits a periodic `[perf]` line when render perf logging is enabled.
 - `full_frame_postprocess_target_uses`: per-frame full-frame postprocess target use, including reused targets where `rt_alloc=0`.
 - `full_frame_postprocess_targets`: allocation-time full-frame target count; useful but insufficient alone.
 - `max_child_layer`: largest child layer, excluding the base/root layer.
-- `max_child_rt`: largest child-layer render target; currently equivalent to `max_child_layer` until materialization uses content bounds.
+- `max_child_rt`: largest child-layer render target; should remain near affected UI content size for bounded scenes.
 - `max_rt`: largest postprocess target used this frame.
 - `clear_px`, `copy_px`, `composite_px`, `post_px`: pixel-work buckets.
 - `rt_alloc`, `rt_destroy`, `layer_alloc`, `layer_destroy`: steady-state allocation health only; zero does not imply bounded work.
 
 ## Known Limitations
 
-- `valid_content_bounds` is accumulated but not yet used to choose child framebuffer allocation bounds.
-- Saved texture/mask copy paths still materialize the current layer before copy and rely on the current materialized layer bounds.
-- Postprocess targets still receive full-frame source bounds when their source layer was allocated full-frame.
-- Filters do not yet distinguish allocation bounds from valid content bounds.
-- Child layer allocation churn is still visible in the readback gallery.
-- The web smoke gate remains intentionally strict and fails until bounded materialization/filter work is implemented.
-- The base presentation path may remain offscreen on WebGL; this is acceptable until child layer/filter full-frame work is fixed.
+- Filters have bounded work targets in the readback gallery, but the filter API still needs a cleaner explicit split between allocation bounds and valid content bounds.
+- Postprocess targets are reused at steady state; remaining filter work is semantic cleanup and pixel-work reduction, not allocation churn.
+- Child layer render targets are reused at steady state; remaining allocation churn is in postprocess targets.
+- The web smoke gate passes after Phase 4 for the readback gallery.
+- The base presentation path may remain offscreen on WebGL; this is acceptable until bounded child/filter work is stable across platforms.
 
 ## Next Implementation Task
 
-Implement Phase 4 from [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md): bounded layer materialization and replay. Materialization should choose child framebuffer bounds from accumulated content bounds plus required scissor/parent/clip/filter constraints, then replay recorded geometry/shader/clip-mask commands into that bounded target while preserving readback correctness. Do not start pass folding or direct-base optimization until `full_frame_child_layers`, `max_child_layer`, `clear_px`, and composite work are materially reduced for the readback gallery.
+Continue with Phase 5/6 from [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md). Phase 5 should remove any remaining transform-driven full-frame fallback cases for normal CSS transforms if web or Android reveal any. Phase 6 should make the filter pipeline explicitly consume valid content bounds distinct from allocation bounds and reduce postprocess pixel work further. Do not start Phase 9 pass folding until bounded-filter semantics are stable.

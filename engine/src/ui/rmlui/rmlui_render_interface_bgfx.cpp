@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <cstring>
 #include <limits>
 #include <optional>
@@ -220,10 +221,13 @@ FbRect clip_work_bounds(const LayerRecord* layer, const ScissorState& scissor)
     const FbRect layer_bounds = layer->bounds.framebuffer;
     if (is_empty(layer_bounds))
         return {};
+    const FbRect layer_local{0, 0, layer->texture_width, layer->texture_height};
+    if (is_empty(layer_local))
+        return {};
     const FbRect scissor_bounds = active_scissor_bounds(scissor, layer_bounds);
     if (is_empty(scissor_bounds))
-        return layer_bounds;
-    return intersect(layer_bounds, scissor_bounds);
+        return layer_local;
+    return intersect(layer_local, scissor_bounds);
 }
 
 struct ClipCommand {
@@ -286,6 +290,25 @@ ScissorState scissor_local_to_layer(ScissorState scissor, const RenderBounds& la
     if (!scissor.enabled)
         return scissor;
     return ScissorState{true, clamp_scissor_local(scissor.region, layer_bounds.framebuffer)};
+}
+
+FbRect local_rect_for_layer(FbRect global_rect, const LayerRecord& layer)
+{
+    const FbRect clipped = intersect(global_rect, layer.bounds.framebuffer);
+    if (is_empty(clipped))
+        return {};
+    return {clipped.x - layer.bounds.framebuffer.x, clipped.y - layer.bounds.framebuffer.y,
+            clipped.w, clipped.h};
+}
+
+FbRect full_local_rect(const LayerRecord& layer)
+{
+    return {0, 0, layer.texture_width, layer.texture_height};
+}
+
+Rml::Rectanglei rectangle_from_fb(FbRect rect)
+{
+    return Rml::Rectanglei::FromPositionSize({rect.x, rect.y}, {rect.w, rect.h});
 }
 
 Rml::Rectanglei logical_scissor_to_framebuffer(Rml::Rectanglei region,
@@ -899,6 +922,7 @@ struct BgfxRenderInterface::Impl {
         for (RenderTargetRecord& target : postprocess_targets) {
             destroy_render_target(target);
         }
+        postprocess_targets.clear();
         postprocess_pool.reset_resources();
     }
 
@@ -1097,6 +1121,93 @@ struct BgfxRenderInterface::Impl {
         if (!is_empty(layer.bounds.framebuffer))
             bounds = intersect(bounds, layer.bounds.framebuffer);
         return bounds;
+    }
+
+    RenderBounds bounds_from_framebuffer_rect(FbRect framebuffer_bounds) const
+    {
+        RenderBounds bounds;
+        bounds.framebuffer =
+            clamp_to_surface(align_outward_for_render_target(framebuffer_bounds), surface);
+        if (is_empty(bounds.framebuffer)) {
+            bounds.framebuffer = {0, 0, 1, 1};
+        }
+        bounds.logical = framebuffer_to_logical(bounds.framebuffer, surface);
+        return bounds;
+    }
+
+    FbRect layer_recorded_content_bounds(const LayerRecord& layer) const
+    {
+        FbRect content = layer.has_valid_content_bounds ? layer.valid_content_bounds : FbRect{};
+        const FbRect limit = layer_limit_bounds(layer);
+        if (layer.content_bounds_transform_fallback || layer.content_bounds_inverse_mask_fallback) {
+            content = limit;
+        } else if (!is_empty(content) && !is_empty(limit)) {
+            content = intersect(content, limit);
+        }
+        return clamp_to_surface(align_outward_for_render_target(content), surface);
+    }
+
+    RenderBounds choose_materialized_layer_bounds(const LayerRecord& layer,
+                                                  std::optional<FbRect> required_bounds) const
+    {
+        FbRect selected = layer_recorded_content_bounds(layer);
+        if (required_bounds && !is_empty(*required_bounds)) {
+            const FbRect required =
+                clamp_to_surface(align_outward_for_render_target(*required_bounds), surface);
+            selected = is_empty(selected) ? required : union_rects(selected, required);
+        }
+
+        const FbRect limit = layer_limit_bounds(layer);
+        if (!is_empty(limit) && !is_empty(selected)) {
+            selected = intersect(selected, limit);
+        }
+        selected = clamp_to_surface(align_outward_for_render_target(selected), surface);
+        if (is_empty(selected)) {
+            FbRect fallback = !is_empty(limit) ? limit : FbRect{0, 0, width, height};
+            fallback = clamp_to_surface(fallback, surface);
+            const int x = std::clamp(fallback.x, 0, std::max(width - 1, 0));
+            const int y = std::clamp(fallback.y, 0, std::max(height - 1, 0));
+            selected = {x, y, 1, 1};
+        }
+        return bounds_from_framebuffer_rect(selected);
+    }
+
+    std::vector<FilterRecord>
+    resolved_filter_chain(Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const
+    {
+        std::vector<FilterRecord> filter_chain;
+        filter_chain.reserve(filter_handles.size());
+        for (Rml::CompiledFilterHandle handle : filter_handles) {
+            auto it = filters.find(handle);
+            if (it == filters.end())
+                return {};
+            filter_chain.push_back(it->second);
+        }
+        return simplify_filter_chain(filter_chain);
+    }
+
+    FilterExpansion
+    filter_expansion_for(Rml::Span<const Rml::CompiledFilterHandle> filter_handles) const
+    {
+        FilterExpansion total_expansion{};
+        for (const FilterRecord& filter : resolved_filter_chain(filter_handles)) {
+            switch (filter.kind) {
+            case FilterKind::Blur:
+                total_expansion = add_expansions(total_expansion, blur_expansion(filter.sigma));
+                break;
+            case FilterKind::DropShadow:
+                total_expansion = add_expansions(
+                    total_expansion,
+                    drop_shadow_expansion(filter.sigma, filter.offset[0], filter.offset[1]));
+                break;
+            case FilterKind::MaskImage:
+            case FilterKind::Opacity:
+            case FilterKind::ColorMatrix:
+            case FilterKind::Invalid:
+                break;
+            }
+        }
+        return total_expansion;
     }
 
     std::optional<FbRect> command_fb_bounds(Rml::CompiledGeometryHandle geometry,
@@ -1344,7 +1455,8 @@ struct BgfxRenderInterface::Impl {
         return !frame_failed;
     }
 
-    bool materialize_layer(Rml::LayerHandle handle)
+    bool materialize_layer(Rml::LayerHandle handle,
+                           std::optional<FbRect> required_bounds = std::nullopt)
     {
         LayerRecord* layer = layer_for_handle(handle);
         if (!layer)
@@ -1352,11 +1464,7 @@ struct BgfxRenderInterface::Impl {
         if (layer->kind == LayerKind::Root || layer->materialized)
             return true;
 
-        const RenderBounds child_bounds =
-            !is_empty(layer->bounds.framebuffer)
-                ? layer->bounds
-                : compute_child_layer_bounds(layer->parent_layer, layer->push_scissor,
-                                             layer->push_transform_valid);
+        const RenderBounds child_bounds = choose_materialized_layer_bounds(*layer, required_bounds);
         const bool is_bounded =
             (child_bounds.framebuffer.w < width || child_bounds.framebuffer.h < height);
         if (!ensure_layer(size_t(handle), child_bounds)) {
@@ -1611,12 +1719,13 @@ struct BgfxRenderInterface::Impl {
 
         // Bgfx invariant: once per-draw state is written, the path must submit or discard.
         if (op.scissor.enabled) {
-            const Rml::Rectanglei scissor =
-                clamp_scissor(op.scissor.region, destination_rect.w, destination_rect.h);
-            if (scissor.Width() <= 0 || scissor.Height() <= 0)
+            const FbRect target_scissor{op.scissor.region.Left(), op.scissor.region.Top(),
+                                        op.scissor.region.Width(), op.scissor.region.Height()};
+            const FbRect clipped_scissor = intersect(target_scissor, destination_rect);
+            if (is_empty(clipped_scissor))
                 return false;
-            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
-                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+            bgfx::setScissor(uint16_t(clipped_scissor.x), uint16_t(clipped_scissor.y),
+                             uint16_t(clipped_scissor.w), uint16_t(clipped_scissor.h));
         }
         bgfx::setVertexBuffer(0, fullscreen_vb);
         bgfx::setTexture(0, sampler, op.source);
@@ -1752,42 +1861,33 @@ struct BgfxRenderInterface::Impl {
     }
 
     FilterApplyResult apply_filters(bgfx::TextureHandle source, const RenderBounds& source_bounds,
+                                    FbRect source_valid_global_bounds, int source_texture_width,
+                                    int source_texture_height,
                                     Rml::Span<const Rml::CompiledFilterHandle> filter_handles)
     {
         FilterApplyResult result;
+        source_valid_global_bounds =
+            intersect(source_valid_global_bounds, source_bounds.framebuffer);
+        if (is_empty(source_valid_global_bounds) || !bgfx::isValid(source))
+            return {};
+
         result.texture = source;
+        result.output_bounds.framebuffer = source_valid_global_bounds;
+        result.output_bounds.logical = framebuffer_to_logical(source_valid_global_bounds, surface);
+        result.valid_rect_in_texture = {source_valid_global_bounds.x - source_bounds.framebuffer.x,
+                                        source_valid_global_bounds.y - source_bounds.framebuffer.y,
+                                        source_valid_global_bounds.w, source_valid_global_bounds.h};
+        result.texture_width = source_texture_width;
+        result.texture_height = source_texture_height;
         if (filter_handles.empty())
             return result;
-        std::vector<FilterRecord> filter_chain;
-        filter_chain.reserve(filter_handles.size());
-        for (Rml::CompiledFilterHandle handle : filter_handles) {
-            auto it = filters.find(handle);
-            if (it == filters.end())
-                return {};
-            filter_chain.push_back(it->second);
-        }
-        filter_chain = simplify_filter_chain(filter_chain);
+
+        std::vector<FilterRecord> filter_chain = resolved_filter_chain(filter_handles);
         if (filter_chain.empty())
             return result;
-        FilterExpansion total_expansion{};
-        for (const FilterRecord& filter : filter_chain) {
-            switch (filter.kind) {
-            case FilterKind::Blur:
-                total_expansion = add_expansions(total_expansion, blur_expansion(filter.sigma));
-                break;
-            case FilterKind::DropShadow:
-                total_expansion = add_expansions(
-                    total_expansion,
-                    drop_shadow_expansion(filter.sigma, filter.offset[0], filter.offset[1]));
-                break;
-            case FilterKind::MaskImage:
-            case FilterKind::Opacity:
-            case FilterKind::ColorMatrix:
-            case FilterKind::Invalid:
-                break;
-            }
-        }
-        const FbRect expanded = expand_bounds(source_bounds.framebuffer, total_expansion);
+
+        const FilterExpansion total_expansion = filter_expansion_for(filter_handles);
+        const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
         const FbRect clamped_work_bounds =
             clamp_to_surface(align_outward_for_render_target(expanded), surface);
         if (is_empty(clamped_work_bounds))
@@ -1799,16 +1899,19 @@ struct BgfxRenderInterface::Impl {
         if (!primary || !secondary)
             return {};
 
-        const FbRect source_rect = intersect(source_bounds.framebuffer, clamped_work_bounds);
-        if (is_empty(source_rect))
+        const FbRect source_copy_global = intersect(source_bounds.framebuffer, clamped_work_bounds);
+        if (is_empty(source_copy_global))
             return {};
-        const FbRect copy_destination{std::max(0, total_expansion.left),
-                                      std::max(0, total_expansion.top), source_rect.w,
-                                      source_rect.h};
+        const FbRect source_copy_local{source_copy_global.x - source_bounds.framebuffer.x,
+                                       source_copy_global.y - source_bounds.framebuffer.y,
+                                       source_copy_global.w, source_copy_global.h};
+        const FbRect copy_destination{source_copy_global.x - clamped_work_bounds.x,
+                                      source_copy_global.y - clamped_work_bounds.y,
+                                      source_copy_global.w, source_copy_global.h};
         if (!composite(make_composite_op(source, primary->framebuffer, Rml::BlendMode::Replace,
                                          ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy,
-                                         "RmlUi.FilterCopy", source_rect, copy_destination,
-                                         source_bounds.framebuffer.w, source_bounds.framebuffer.h)))
+                                         "RmlUi.FilterCopy", source_copy_local, copy_destination,
+                                         source_texture_width, source_texture_height)))
             return {};
 
         bgfx::TextureHandle current = primary->color;
@@ -2009,25 +2112,21 @@ struct BgfxRenderInterface::Impl {
 
     RenderTargetRecord* ensure_postprocess_target(PostprocessTargetKind kind, const FbRect& bounds)
     {
-        const size_t index = size_t(kind);
-        if (index >= postprocess_targets.size())
-            return nullptr;
         const FbRect clamped_bounds =
             clamp_to_surface(align_outward_for_render_target(bounds), surface);
         if (is_empty(clamped_bounds))
             return nullptr;
         const int work_w = clamped_bounds.w;
         const int work_h = clamped_bounds.h;
-        RenderTargetRecord& target = postprocess_targets[index];
         const bool target_is_full_frame = is_full_frame_rect(clamped_bounds, width, height);
         perf.add_postprocess_target_use(uint32_t(work_w), uint32_t(work_h), target_is_full_frame);
-        if (bgfx::isValid(target.framebuffer) && target.texture_width == work_w &&
-            target.texture_height == work_h) {
-            target.bounds = clamped_bounds;
-            target.kind = kind;
-            return &target;
+        for (RenderTargetRecord& target : postprocess_targets) {
+            if (target.kind == kind && bgfx::isValid(target.framebuffer) &&
+                target.texture_width == work_w && target.texture_height == work_h) {
+                target.bounds = clamped_bounds;
+                return &target;
+            }
         }
-        destroy_render_target(target);
 
         uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
         if (bgfx::getCaps() && (bgfx::getCaps()->supported & BGFX_CAPS_TEXTURE_BLIT) != 0) {
@@ -2045,7 +2144,8 @@ struct BgfxRenderInterface::Impl {
             std::fprintf(stderr, "[rmlui] failed to create postprocess framebuffer\n");
             return nullptr;
         }
-        target = {framebuffer, color, clamped_bounds, work_w, work_h, kind};
+        postprocess_targets.push_back({framebuffer, color, clamped_bounds, work_w, work_h, kind});
+        RenderTargetRecord& target = postprocess_targets.back();
         postprocess_pool.mark_allocated(kind);
         perf.add_pp_alloc(uint32_t(work_w), uint32_t(work_h));
         if (is_full_frame_rect(clamped_bounds, width, height)) {
@@ -2077,12 +2177,17 @@ struct BgfxRenderInterface::Impl {
                BGFX_STENCIL_OP_FAIL_Z_KEEP | BGFX_STENCIL_OP_PASS_Z_REPLACE;
     }
 
-    void clear_active_stencil(uint8_t value, const ScissorState& scissor)
+    void clear_active_stencil(uint8_t value, const ScissorState& scissor,
+                              std::optional<FbRect> global_clear_bounds = std::nullopt)
     {
         LayerRecord* layer = current_layer();
         if (!layer)
             return;
-        const FbRect clear_bounds = clip_work_bounds(layer, scissor);
+        FbRect clear_bounds = clip_work_bounds(layer, scissor);
+        if (global_clear_bounds) {
+            clear_bounds =
+                intersect(clear_bounds, local_rect_for_layer(*global_clear_bounds, *layer));
+        }
         if (is_empty(clear_bounds))
             return;
         const bool is_full = is_full_frame_rect(clear_bounds, width, height);
@@ -2205,9 +2310,19 @@ struct BgfxRenderInterface::Impl {
         auto it = geometries.find(command.geometry);
         if (it == geometries.end())
             return;
+        LayerRecord* active = current_layer();
+        std::optional<FbRect> command_bounds =
+            command_fb_bounds(command.geometry, command.translation, command.scissor,
+                              command.transform_valid, command.transform);
+        std::optional<FbRect> set_clear_bounds = command_bounds;
+        if (record_on_layer && active && active->conservative_mask_bounds.active &&
+            set_clear_bounds) {
+            set_clear_bounds =
+                union_rects(*set_clear_bounds, active->conservative_mask_bounds.bounds);
+        }
         switch (command.operation) {
         case Rml::ClipMaskOperation::Set:
-            clear_active_stencil(0, command.scissor);
+            clear_active_stencil(0, command.scissor, set_clear_bounds);
             submit_to_clip_mask(it->second, command.translation, stencil_replace_state(1),
                                 command.scissor, command.transform_valid, command.transform);
             break;
@@ -2233,11 +2348,22 @@ struct BgfxRenderInterface::Impl {
         if (LayerRecord* layer = current_layer()) {
             layer->stencil_ref = command.next_ref;
             if (record_on_layer) {
-                const FbRect command_bounds =
+                FbRect fallback_bounds = layer_limit_bounds(*layer);
+                if (command.scissor.enabled) {
+                    const FbRect scissor_bounds = scissor_fb_bounds(command.scissor);
+                    if (!is_empty(scissor_bounds))
+                        fallback_bounds = intersect(fallback_bounds, scissor_bounds);
+                }
+                if (command_bounds) {
+                    layer->conservative_mask_bounds = update_conservative_mask_bounds(
+                        layer->conservative_mask_bounds, command.operation, *command_bounds,
+                        fallback_bounds);
+                }
+                const FbRect recorded_bounds =
                     command.scissor.enabled
                         ? active_scissor_bounds(command.scissor, layer->bounds.framebuffer)
-                        : layer->bounds.framebuffer;
-                if (!is_empty(command_bounds)) {
+                        : full_local_rect(*layer);
+                if (!is_empty(recorded_bounds)) {
                     layer->clip_commands.push_back(clip_commands.size());
                     clip_commands.push_back(command);
                 }
@@ -2367,7 +2493,7 @@ struct BgfxRenderInterface::Impl {
     std::unordered_map<Rml::CompiledShaderHandle, ShaderRecord> shaders;
     std::vector<LayerRecord> layers;
     std::vector<ClipCommand> clip_commands;
-    std::array<RenderTargetRecord, PostprocessPoolPlan::TargetCount> postprocess_targets{};
+    std::deque<RenderTargetRecord> postprocess_targets;
     std::vector<Rml::LayerHandle> layer_stack;
     LayerPoolPlan layer_pool;
     PostprocessPoolPlan postprocess_pool;
@@ -2618,12 +2744,6 @@ BgfxRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
     return handle;
 }
 
-FbRect rect_in_destination_layer(const FbRect& source_bounds, const LayerRecord& destination)
-{
-    return {source_bounds.x - destination.bounds.framebuffer.x,
-            source_bounds.y - destination.bounds.framebuffer.y, source_bounds.w, source_bounds.h};
-}
-
 void BgfxRenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
                                          Rml::Vector2f translation, Rml::TextureHandle texture)
 {
@@ -2768,8 +2888,21 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
         return handle;
     if (size_t(handle) >= m_impl->layers.size())
         m_impl->layers.resize(size_t(handle) + 1);
-    else
-        m_impl->destroy_layer(m_impl->layers[size_t(handle)]);
+
+    LayerRecord preserved_resources;
+    if (size_t(handle) < m_impl->layers.size()) {
+        LayerRecord& previous = m_impl->layers[size_t(handle)];
+        preserved_resources.framebuffer = previous.framebuffer;
+        preserved_resources.color = previous.color;
+        preserved_resources.depth_stencil = previous.depth_stencil;
+        preserved_resources.texture_width = previous.texture_width;
+        preserved_resources.texture_height = previous.texture_height;
+        previous.framebuffer = BGFX_INVALID_HANDLE;
+        previous.color = BGFX_INVALID_HANDLE;
+        previous.depth_stencil = BGFX_INVALID_HANDLE;
+        previous.texture_width = 0;
+        previous.texture_height = 0;
+    }
 
     const ScissorState push_scissor{m_impl->scissor_enabled, m_impl->scissor_region};
     const bool push_transform_valid = m_impl->transform_valid;
@@ -2777,6 +2910,11 @@ Rml::LayerHandle BgfxRenderInterface::PushLayer()
         m_impl->compute_child_layer_bounds(parent, push_scissor, push_transform_valid, false);
 
     LayerRecord child;
+    child.framebuffer = preserved_resources.framebuffer;
+    child.color = preserved_resources.color;
+    child.depth_stencil = preserved_resources.depth_stencil;
+    child.texture_width = preserved_resources.texture_width;
+    child.texture_height = preserved_resources.texture_height;
     child.kind = LayerKind::VirtualChild;
     child.parent_layer = parent;
     child.bounds = provisional_bounds;
@@ -2816,18 +2954,7 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         m_impl->fail_frame("CompositeLayers root filters require offscreen presentation");
         return;
     }
-    if (!m_impl->materialize_layer(source) || !m_impl->materialize_layer(destination)) {
-        m_impl->fail_frame("CompositeLayers failed to materialize layers");
-        return;
-    }
-    source_layer = m_impl->materialized_layer_for_handle(source);
-    destination_layer = m_impl->materialized_layer_for_handle(destination);
-    if (!source_layer || !destination_layer) {
-        m_impl->fail_frame("CompositeLayers received unmaterialized layer handles");
-        return;
-    }
     const ScissorState scissor_state{m_impl->scissor_enabled, m_impl->scissor_region};
-
     if (scissor_state.enabled) {
         const Rml::Rectanglei scissor =
             clamp_scissor(scissor_state.region, m_impl->width, m_impl->height);
@@ -2836,15 +2963,33 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         }
     }
 
-    const bool destination_clip = destination_layer->clip_mask_enabled;
-    const uint8_t destination_stencil_ref = destination_layer->stencil_ref;
-    const ScissorState destination_scissor =
-        scissor_local_to_layer(scissor_state, destination_layer->bounds);
+    FbRect source_required = m_impl->layer_recorded_content_bounds(*source_layer);
+    const FilterExpansion expansion = m_impl->filter_expansion_for(filters);
+    if (!is_empty(source_required)) {
+        source_required = clamp_to_surface(
+            align_outward_for_render_target(expand_bounds(source_required, expansion)),
+            m_impl->surface);
+    }
+
+    if (!m_impl->materialize_layer(source, source_required)) {
+        m_impl->fail_frame("CompositeLayers failed to materialize source layer");
+        return;
+    }
+    source_layer = m_impl->materialized_layer_for_handle(source);
+    if (!source_layer) {
+        m_impl->fail_frame("CompositeLayers received unmaterialized source layer");
+        return;
+    }
+
+    const FbRect source_valid_global =
+        source_layer->has_valid_content_bounds
+            ? intersect(source_layer->valid_content_bounds, source_layer->bounds.framebuffer)
+            : source_layer->bounds.framebuffer;
+
     if (source == destination) {
-        const FbRect scratch_bounds{0, 0, source_layer->texture_width,
-                                    source_layer->texture_height};
-        RenderTargetRecord* scratch =
-            m_impl->ensure_postprocess_target(PostprocessTargetKind::Scratch, scratch_bounds);
+        const FbRect scratch_global_bounds = source_layer->bounds.framebuffer;
+        RenderTargetRecord* scratch = m_impl->ensure_postprocess_target(
+            PostprocessTargetKind::Scratch, scratch_global_bounds);
         if (!scratch) {
             m_impl->fail_frame("CompositeLayers failed to create scratch target");
             return;
@@ -2853,20 +2998,31 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         destination_layer = m_impl->materialized_layer_for_handle(destination);
         if (!source_layer || !destination_layer)
             return;
+        const FbRect scratch_local_bounds{0, 0, scratch->texture_width, scratch->texture_height};
         if (!m_impl->composite(make_composite_op(
                 source_layer->color, scratch->framebuffer, Rml::BlendMode::Replace,
                 ScissorState{false, {}}, false, 1, RmlUiPassKind::Copy, "RmlUi.LayerScratchCopy",
-                scratch_bounds, scratch_bounds, source_layer->texture_width,
+                full_local_rect(*source_layer), scratch_local_bounds, source_layer->texture_width,
                 source_layer->texture_height))) {
             m_impl->fail_frame("CompositeLayers scratch copy failed");
             return;
         }
         const FilterApplyResult filtered =
-            m_impl->apply_filters(scratch->color, source_layer->bounds, filters);
+            m_impl->apply_filters(scratch->color, source_layer->bounds, source_valid_global,
+                                  scratch->texture_width, scratch->texture_height, filters);
         if (!bgfx::isValid(filtered.texture))
             return;
+        destination_layer = m_impl->materialized_layer_for_handle(destination);
+        if (!destination_layer)
+            return;
+        const bool destination_clip = destination_layer->clip_mask_enabled;
+        const uint8_t destination_stencil_ref = destination_layer->stencil_ref;
+        const ScissorState destination_scissor =
+            scissor_local_to_layer(scissor_state, destination_layer->bounds);
         const FbRect destination_bounds =
-            rect_in_destination_layer(filtered.output_bounds.framebuffer, *destination_layer);
+            local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
+        if (is_empty(destination_bounds))
+            return;
         if (!m_impl->composite(make_composite_op(
                 filtered.texture, destination_layer->framebuffer, blend_mode, destination_scissor,
                 destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
@@ -2877,12 +3033,30 @@ void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHan
         }
         return;
     }
+
     const FilterApplyResult filtered =
-        m_impl->apply_filters(source_layer->color, source_layer->bounds, filters);
+        m_impl->apply_filters(source_layer->color, source_layer->bounds, source_valid_global,
+                              source_layer->texture_width, source_layer->texture_height, filters);
     if (!bgfx::isValid(filtered.texture))
         return;
+
+    if (!m_impl->materialize_layer(destination, filtered.output_bounds.framebuffer)) {
+        m_impl->fail_frame("CompositeLayers failed to materialize destination layer");
+        return;
+    }
+    destination_layer = m_impl->materialized_layer_for_handle(destination);
+    if (!destination_layer) {
+        m_impl->fail_frame("CompositeLayers received unmaterialized destination layer");
+        return;
+    }
+    const bool destination_clip = destination_layer->clip_mask_enabled;
+    const uint8_t destination_stencil_ref = destination_layer->stencil_ref;
+    const ScissorState destination_scissor =
+        scissor_local_to_layer(scissor_state, destination_layer->bounds);
     const FbRect destination_bounds =
-        rect_in_destination_layer(filtered.output_bounds.framebuffer, *destination_layer);
+        local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
+    if (is_empty(destination_bounds))
+        return;
     if (!m_impl->composite(make_composite_op(
             filtered.texture, destination_layer->framebuffer, blend_mode, destination_scissor,
             destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
@@ -2922,10 +3096,14 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
     const Rml::Rectanglei bounds = m_impl->current_save_bounds();
     if (bounds.Width() <= 0 || bounds.Height() <= 0)
         return 0;
+    const FbRect global_bounds{bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()};
+    const FbRect local_bounds = local_rect_for_layer(global_bounds, *layer);
+    if (is_empty(local_bounds))
+        return 0;
 
-    bgfx::TextureHandle texture =
-        m_impl->copy_region_to_texture(layer->color, bounds, layer->texture_width,
-                                       layer->texture_height, "RmlUi.SaveLayerAsTexture");
+    bgfx::TextureHandle texture = m_impl->copy_region_to_texture(
+        layer->color, rectangle_from_fb(local_bounds), layer->texture_width, layer->texture_height,
+        "RmlUi.SaveLayerAsTexture");
     if (!bgfx::isValid(texture)) {
         m_impl->fail_frame("SaveLayerAsTexture failed to copy layer contents");
         return 0;

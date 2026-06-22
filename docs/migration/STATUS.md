@@ -1,6 +1,6 @@
 # Migration Status
 
-Last updated: 2026-06-21.
+Last updated: 2026-06-22.
 
 ## Completed Foundation
 
@@ -34,6 +34,7 @@ Last updated: 2026-06-21.
 - RmlUi bgfx optimization Phase 0 restart: headless Chromium/Playwright smoke now rejects the current full-frame renderer shape instead of accepting it as a baseline. Perf logging distinguishes root vs child layers, fallback reasons, per-pass full-frame work, and postprocess target uses even when render targets are reused with `rt_alloc=0`.
 - RmlUi bgfx optimization Phase 1 restart: compiled geometry now stores CPU-side local AABBs and shared transform/DPR helpers derive conservative framebuffer bounds for geometry and shader draws.
 - RmlUi bgfx optimization Phase 2 restart: child layers are now virtual at `PushLayer()`, draw/gradient/clip-mask commands record the render state needed for replay, and layer textures are materialized only when `CompositeLayers()`, `SaveLayerAsTexture()`, or `SaveLayerAsMaskImage()` needs them. Nested virtual layers keep provisional non-GPU bounds so saved mask-image correctness survives until content-bound accumulation replaces those provisional bounds. Reused layer slots now destroy previous-frame materialized resources before becoming virtual again, preventing interactive readback-gallery runs from exhausting bgfx framebuffers after the first few frames.
+- RmlUi bgfx optimization Phase 4 restart: virtual child layers now materialize from accumulated content bounds plus required filter/composite bounds, replay into bounded targets with local scissor/stencil/copy/composite coordinates, and preserve readback correctness. The Linux readback gallery now reports `full_frame_child_layers=0`, `full_frame_passes=2`, `max_child_layer=114x96`, and `max_rt=114x96` at 1280x720.
 - Compatibility flag `--rmlui-base-direct-compat` forces the older offscreen-root compatible path. The no-compat desktop direct-base path remains unsafe for the readback gallery until root-preserving filters/masks are planned before base presentation selection.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
@@ -43,8 +44,8 @@ Last updated: 2026-06-21.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
-- RmlUi saved `mask-image` passes Linux readback, but the renderer is not yet performant: the readback gallery still has `full_frame_child_layers=12`, `unbounded_no_scissor_fallbacks=12`, `full_frame_postprocess_target_uses=24`, and `max_child_layer=1280x720` in the web smoke.
-- RmlUi child layers now record virtually, but materialization still uses provisional scissor/parent bounds rather than accumulated content bounds. Most advanced layers can still materialize full-frame until Phase 3 unions recorded geometry/shader bounds and Phase 4 allocates from those accumulated bounds.
+- RmlUi child layers are now bounded in the Linux and Web readback gallery smoke paths. Android runtime smoke coverage should still be rerun against the new Phase 4 materialization path.
+- RmlUi child and postprocess render targets are reused at steady state and filter targets are bounded in the readback gallery, but the filter pipeline still needs a cleaner valid-content-vs-allocation-bounds model and reduced postprocess pixel work.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
@@ -65,13 +66,14 @@ cmake --build --preset linux-debug --target format-check
 
 Known current verification note:
 
-- `ctest --test-dir build/linux-debug -R 'noveltea_rmlui_readback_(capture|verify)' --output-on-failure` passes after virtual child-layer recording and on-demand materialization, including the saved `mask-image` panel. The capture now runs 40 frames so previous-frame virtual-layer resource leaks are visible. The strict web-smoke structural gate is still expected to fail until recorded content bounds drive materialization sizes.
+- `ctest --test-dir build/linux-debug -R readback --output-on-failure` passes after bounded child-layer materialization and replay, including the saved `mask-image` panel. The readback gallery now reports zero full-frame child layers on Linux.
+- `cmake --build --preset web-debug` and `node scripts/web-smoke.mjs` pass after the Phase 4 restart work; web smoke reports zero full-frame child layers and `max_child_layer=114x96`.
 - `cmake --build --preset linux-debug --target noveltea_ui_tests` and `./build/linux-debug/tests/noveltea_ui_tests "*RmlUi*"` pass after the Phase 8 filter simplification update.
 - `cmake --build --preset web-debug --target engine` passes after the Phase 7 clip/stencil bounds update.
-- Latest web-smoke perf baseline from the readback gallery intentionally fails the strict structural gate. Manual browser runs can report different raw pixel totals because the canvas/framebuffer size follows the browser viewport and DPR; the important Phase 2 regression signal is that steady-state virtual-layer materialization now balances `layer_alloc=13` with `layer_destroy=13`:
+- Latest Linux and Web readback-gallery perf after bounded child-layer materialization has the strict structural shape expected from Phase 4:
 
   ```text
-  [perf] fps=1 passes=121 geom=27 clip=15 gradients=8 layers=13 full_layers=13 bounded_layers=1 full_frame_child_layers=12 bounded_child_layers=1 unbounded_layer_fallbacks=12 unbounded_no_scissor_fallbacks=12 unbounded_transform_fallbacks=1 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=24901632 copy_px=9216 composite_px=23961600 post_px=13824000 full_frame_passes=66 bounded_passes=4 full_frame_clear_passes=27 bounded_clear_passes=2 full_frame_composite_passes=24 bounded_composite_passes=2 full_frame_postprocess_passes=15 bounded_postprocess_passes=0 full_frame_postprocess_target_uses=24 bounded_postprocess_target_uses=0 full_frame_postprocess_targets=0 bounded_postprocess_targets=0 rt_alloc=0 rt_destroy=0 layer_alloc=13 layer_destroy=13 max_layer=1280x720 max_child_layer=1280x720 max_child_rt=1280x720 max_rt=1280x720 fb=1280x720
+  [perf] fps=96 passes=108 geom=27 clip=15 gradients=8 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=980004 copy_px=9216 composite_px=985744 post_px=38352 full_frame_passes=2 bounded_passes=55 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=25 full_frame_postprocess_passes=0 bounded_postprocess_passes=15 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=24 full_frame_postprocess_targets=0 bounded_postprocess_targets=12 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_child_layer=114x96 max_child_rt=114x96 max_rt=114x96 fb=1280x720
   ```
 
 Use the smallest relevant subset for a docs-only or narrow code change:
