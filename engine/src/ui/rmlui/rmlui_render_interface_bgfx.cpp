@@ -870,60 +870,85 @@ struct RenderInterface::Impl {
         return !frame_failed;
     }
 
+    BgfxLayerMaterializeContext materialize_context()
+    {
+        return BgfxLayerMaterializeContext{
+            surface,
+            [this](const LayerRecord& layer, std::optional<FbRect> required_bounds) {
+                return choose_materialized_layer_bounds(layer, required_bounds);
+            },
+            [this](size_t handle, const RenderBounds& bounds) {
+                if (!ensure_layer(handle, bounds)) {
+                    fail_frame("failed to materialize virtual RmlUi layer");
+                    return false;
+                }
+                if (LayerRecord* layer = layer_for_handle(Rml::LayerHandle(handle))) {
+                    const bool is_bounded =
+                        bounds.framebuffer.w < width || bounds.framebuffer.h < height;
+                    perf.update_child_layer_max(uint32_t(layer->texture_width),
+                                                uint32_t(layer->texture_height));
+                    if (is_bounded) {
+                        perf.add_bounded_child_layer();
+                    } else {
+                        perf.add_full_frame_child_layer();
+                    }
+                }
+                return true;
+            },
+            [this](Rml::LayerHandle handle, bool bounded) {
+                if (!clear_materialized_layer(handle, bounded)) {
+                    fail_frame("failed to clear materialized RmlUi layer");
+                    return false;
+                }
+                return true;
+            },
+            [this](Rml::LayerHandle handle, const std::vector<size_t>& commands) {
+                replay_clip_commands(handle, commands);
+            },
+            [this](Rml::LayerHandle handle) { return replay_recorded_commands(handle); }};
+    }
+
     bool materialize_layer(Rml::LayerHandle handle,
                            std::optional<FbRect> required_bounds = std::nullopt)
     {
-        LayerRecord* layer = layer_for_handle(handle);
-        if (!layer)
-            return false;
-        if (layer->kind == LayerKind::Root || layer->materialized)
-            return true;
+        return layer_system.materialize_layer(materialize_context(), handle, required_bounds);
+    }
 
-        const RenderBounds child_bounds = choose_materialized_layer_bounds(*layer, required_bounds);
-        const bool is_bounded =
-            (child_bounds.framebuffer.w < width || child_bounds.framebuffer.h < height);
-        if (!ensure_layer(size_t(handle), child_bounds)) {
-            fail_frame("failed to materialize virtual RmlUi layer");
-            return false;
-        }
-        layer = layer_for_handle(handle);
-        if (!layer)
-            return false;
-        layer->recording = false;
-        layer->materialized = true;
-        perf.update_child_layer_max(uint32_t(layer->texture_width),
-                                    uint32_t(layer->texture_height));
-        if (is_bounded) {
-            perf.add_bounded_child_layer();
-        } else {
-            perf.add_full_frame_child_layer();
-        }
+    BgfxLayerSaveTextureContext save_texture_context()
+    {
+        return BgfxLayerSaveTextureContext{
+            direct_base_requested,
+            &root_requires_preservation,
+            &textures,
+            &texture_counter,
+            [this](const char* message) { fail_frame(message); },
+            [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
+                return materialize_layer(handle, required_bounds);
+            },
+            [this]() { return current_save_bounds(); },
+            [this](bgfx::TextureHandle source, Rml::Rectanglei region, int source_width,
+                   int source_height, const char* name) {
+                return copy_region_to_texture(source, region, source_width, source_height, name);
+            }};
+    }
 
-        const bool final_clip_mask_enabled = layer->clip_mask_enabled;
-        const uint8_t final_stencil_ref = layer->stencil_ref;
-        if (layer->clear_pending) {
-            if (!clear_materialized_layer(handle, is_bounded)) {
-                fail_frame("failed to clear materialized RmlUi layer");
-                return false;
-            }
-            layer = layer_for_handle(handle);
-            if (!layer)
-                return false;
-            layer->clear_pending = false;
-        }
-        if (layer->inherited_clip_command_count > 0) {
-            const size_t count =
-                std::min(layer->inherited_clip_command_count, layer->clip_commands.size());
-            std::vector<size_t> inherited_commands(layer->clip_commands.begin(),
-                                                   layer->clip_commands.begin() + count);
-            replay_clip_commands(handle, inherited_commands);
-            layer = layer_for_handle(handle);
-            if (!layer)
-                return false;
-            layer->clip_mask_enabled = final_clip_mask_enabled;
-            layer->stencil_ref = final_stencil_ref;
-        }
-        return replay_recorded_commands(handle);
+    BgfxLayerSaveMaskContext save_mask_context()
+    {
+        return BgfxLayerSaveMaskContext{
+            direct_base_requested,
+            &root_requires_preservation,
+            &textures,
+            &filters,
+            &texture_counter,
+            &filter_counter,
+            [this](const char* message) { fail_frame(message); },
+            [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
+                return materialize_layer(handle, required_bounds);
+            },
+            [this](bgfx::TextureHandle source, Rml::Rectanglei region, int source_width,
+                   int source_height, const char* name) {
+                return copy_region_to_texture(source, region, source_width, source_height, name);
+            }};
     }
 
     bool begin_base_layer()
@@ -1095,6 +1120,26 @@ struct RenderInterface::Impl {
                                          perf,
                                          [this]() { return ensure_fullscreen_geometry(); },
                                          [this](const char* message) { fail_frame(message); }};
+    }
+
+    BgfxLayerCompositeContext composite_context(const ScissorState& scissor_state)
+    {
+        return BgfxLayerCompositeContext{
+            direct_base_requested,
+            &root_requires_preservation,
+            surface,
+            scissor_state,
+            &filter_pipeline,
+            filter_context(),
+            [this](const char* message) { fail_frame(message); },
+            [this](const LayerRecord& layer) { return layer_recorded_content_bounds(layer); },
+            [this](Rml::LayerHandle handle, std::optional<FbRect> required_bounds) {
+                return materialize_layer(handle, required_bounds);
+            },
+            [this](PostprocessTargetKind kind, const FbRect& bounds) {
+                return ensure_postprocess_target(kind, bounds);
+            },
+            [this](const CompositeOp& op) { return composite(op); }};
     }
 
     // Returns true on success.  Returns false if the source texture is attached to the
@@ -2109,135 +2154,9 @@ void RenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle 
                                       Rml::BlendMode blend_mode,
                                       Rml::Span<const Rml::CompiledFilterHandle> filters)
 {
-    LayerRecord* source_layer = m_impl->layer_for_handle(source);
-    LayerRecord* destination_layer = m_impl->layer_for_handle(destination);
-    if (!source_layer || !destination_layer) {
-        m_impl->fail_frame("CompositeLayers received invalid layer handles");
-        return;
-    }
-    if (m_impl->direct_base_requested && size_t(destination) == 0 && !filters.empty()) {
-        m_impl->root_requires_preservation = true;
-        m_impl->fail_frame("CompositeLayers root filters require offscreen presentation");
-        return;
-    }
     const ScissorState scissor_state{m_impl->scissor_enabled, m_impl->scissor_region};
-    if (scissor_state.enabled) {
-        const Rml::Rectanglei scissor =
-            clamp_scissor(scissor_state.region, m_impl->width, m_impl->height);
-        if (scissor.Width() <= 0 || scissor.Height() <= 0) {
-            return;
-        }
-    }
-
-    FbRect source_required = m_impl->layer_recorded_content_bounds(*source_layer);
-    const FilterExpansion expansion =
-        m_impl->filter_pipeline.expansion_for(m_impl->filter_context(), filters);
-    if (!is_empty(source_required)) {
-        source_required = clamp_to_surface(
-            align_outward_for_render_target(expand_bounds(source_required, expansion)),
-            m_impl->surface);
-    }
-
-    if (!m_impl->materialize_layer(source, source_required)) {
-        m_impl->fail_frame("CompositeLayers failed to materialize source layer");
-        return;
-    }
-    source_layer = m_impl->materialized_layer_for_handle(source);
-    if (!source_layer) {
-        m_impl->fail_frame("CompositeLayers received unmaterialized source layer");
-        return;
-    }
-
-    const FbRect source_valid_global =
-        source_layer->has_valid_content_bounds
-            ? intersect(source_layer->valid_content_bounds, source_layer->bounds.framebuffer)
-            : source_layer->bounds.framebuffer;
-
-    if (source == destination) {
-        const FbRect scratch_global_bounds = source_layer->bounds.framebuffer;
-        RenderTargetRecord* scratch = m_impl->ensure_postprocess_target(
-            PostprocessTargetKind::Scratch, scratch_global_bounds);
-        if (!scratch) {
-            m_impl->fail_frame("CompositeLayers failed to create scratch target");
-            return;
-        }
-        source_layer = m_impl->materialized_layer_for_handle(source);
-        destination_layer = m_impl->materialized_layer_for_handle(destination);
-        if (!source_layer || !destination_layer)
-            return;
-        const FbRect scratch_local_bounds{0, 0, scratch->texture_width, scratch->texture_height};
-        if (!m_impl->composite(make_composite_op(
-                texture_region(source_layer->color, source_layer->bounds.framebuffer,
-                               full_local_rect(*source_layer), source_layer->texture_width,
-                               source_layer->texture_height),
-                scratch->framebuffer, Rml::BlendMode::Replace, ScissorState{false, {}}, false, 1,
-                RmlUiPassKind::Copy, "RmlUi.LayerScratchCopy", scratch_local_bounds))) {
-            m_impl->fail_frame("CompositeLayers scratch copy failed");
-            return;
-        }
-        const FilterApplyResult filtered = m_impl->filter_pipeline.apply(
-            m_impl->filter_context(),
-            texture_region(scratch->color, source_valid_global,
-                           LocalFbRect{source_valid_global.x - source_layer->bounds.framebuffer.x,
-                                       source_valid_global.y - source_layer->bounds.framebuffer.y,
-                                       source_valid_global.w, source_valid_global.h},
-                           scratch->texture_width, scratch->texture_height),
-            source_layer->bounds, filters);
-        if (!bgfx::isValid(filtered.output.texture))
-            return;
-        destination_layer = m_impl->materialized_layer_for_handle(destination);
-        if (!destination_layer)
-            return;
-        const bool destination_clip = destination_layer->clip_mask_enabled;
-        const uint8_t destination_stencil_ref = destination_layer->stencil_ref;
-        const ScissorState destination_scissor =
-            scissor_local_to_layer(scissor_state, destination_layer->bounds);
-        const FbRect destination_bounds =
-            local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
-        if (is_empty(destination_bounds))
-            return;
-        if (!m_impl->composite(make_composite_op(
-                filtered.output, destination_layer->framebuffer, blend_mode, destination_scissor,
-                destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
-                "RmlUi.LayerComposite", destination_bounds))) {
-            m_impl->fail_frame("CompositeLayers composite failed");
-            return;
-        }
-        return;
-    }
-
-    const FilterApplyResult filtered = m_impl->filter_pipeline.apply(
-        m_impl->filter_context(),
-        texture_region(source_layer->color, source_valid_global,
-                       local_rect_for_layer(source_valid_global, *source_layer),
-                       source_layer->texture_width, source_layer->texture_height),
-        source_layer->bounds, filters);
-    if (!bgfx::isValid(filtered.output.texture))
-        return;
-
-    if (!m_impl->materialize_layer(destination, filtered.output_bounds.framebuffer)) {
-        m_impl->fail_frame("CompositeLayers failed to materialize destination layer");
-        return;
-    }
-    destination_layer = m_impl->materialized_layer_for_handle(destination);
-    if (!destination_layer) {
-        m_impl->fail_frame("CompositeLayers received unmaterialized destination layer");
-        return;
-    }
-    const bool destination_clip = destination_layer->clip_mask_enabled;
-    const uint8_t destination_stencil_ref = destination_layer->stencil_ref;
-    const ScissorState destination_scissor =
-        scissor_local_to_layer(scissor_state, destination_layer->bounds);
-    const FbRect destination_bounds =
-        local_rect_for_layer(filtered.output_bounds.framebuffer, *destination_layer);
-    if (is_empty(destination_bounds))
-        return;
-    if (!m_impl->composite(make_composite_op(filtered.output, destination_layer->framebuffer,
-                                             blend_mode, destination_scissor, destination_clip,
-                                             destination_stencil_ref, RmlUiPassKind::LayerComposite,
-                                             "RmlUi.LayerComposite", destination_bounds))) {
-        m_impl->fail_frame("CompositeLayers composite failed");
-    }
+    m_impl->layer_system.composite_layers(m_impl->composite_context(scissor_state), source,
+                                          destination, blend_mode, filters);
 }
 
 void RenderInterface::PopLayer()
@@ -2253,91 +2172,14 @@ Rml::TextureHandle RenderInterface::SaveLayerAsTexture()
 {
     if (m_impl->frame_failed)
         return 0;
-    if (m_impl->direct_base_requested && size_t(m_impl->active_layer) == 0) {
-        m_impl->root_requires_preservation = true;
-        m_impl->fail_frame("SaveLayerAsTexture requires offscreen root");
-        return 0;
-    }
-    if (!m_impl->materialize_layer(m_impl->active_layer)) {
-        m_impl->fail_frame("SaveLayerAsTexture failed to materialize layer");
-        return 0;
-    }
-    LayerRecord* layer = m_impl->materialized_layer_for_handle(m_impl->active_layer);
-    if (!layer || !bgfx::isValid(layer->color))
-        return 0;
-
-    const Rml::Rectanglei bounds = m_impl->current_save_bounds();
-    if (bounds.Width() <= 0 || bounds.Height() <= 0)
-        return 0;
-    const FbRect global_bounds{bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()};
-    const FbRect local_bounds = local_rect_for_layer(global_bounds, *layer);
-    if (is_empty(local_bounds))
-        return 0;
-
-    bgfx::TextureHandle texture = m_impl->copy_region_to_texture(
-        layer->color, rectangle_from_fb(local_bounds), layer->texture_width, layer->texture_height,
-        "RmlUi.SaveLayerAsTexture");
-    if (!bgfx::isValid(texture)) {
-        m_impl->fail_frame("SaveLayerAsTexture failed to copy layer contents");
-        return 0;
-    }
-
-    const Rml::TextureHandle handle = ++m_impl->texture_counter;
-    m_impl->textures.emplace(
-        handle,
-        TextureRecord{texture,
-                      {bounds.Width(), bounds.Height()},
-                      RenderBounds{{float(bounds.Left()), float(bounds.Top()),
-                                    float(bounds.Width()), float(bounds.Height())},
-                                   {bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()}},
-                      TextureOwnership::SavedLayer});
-    return handle;
+    return m_impl->layer_system.save_layer_as_texture(m_impl->save_texture_context());
 }
 
 Rml::CompiledFilterHandle RenderInterface::SaveLayerAsMaskImage()
 {
     if (m_impl->frame_failed)
         return 0;
-    if (m_impl->direct_base_requested && size_t(m_impl->active_layer) == 0) {
-        m_impl->root_requires_preservation = true;
-        m_impl->fail_frame("SaveLayerAsMaskImage requires offscreen root");
-        return 0;
-    }
-    if (!m_impl->materialize_layer(m_impl->active_layer)) {
-        m_impl->fail_frame("SaveLayerAsMaskImage failed to materialize layer");
-        return 0;
-    }
-    LayerRecord* layer = m_impl->materialized_layer_for_handle(m_impl->active_layer);
-    if (!layer || !bgfx::isValid(layer->color))
-        return 0;
-
-    const Rml::Rectanglei local_bounds =
-        Rml::Rectanglei::FromPositionSize({0, 0}, {layer->texture_width, layer->texture_height});
-    bgfx::TextureHandle mask_texture =
-        m_impl->copy_region_to_texture(layer->color, local_bounds, layer->texture_width,
-                                       layer->texture_height, "RmlUi.SaveLayerAsMaskImage");
-    if (!bgfx::isValid(mask_texture)) {
-        m_impl->fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
-        return 0;
-    }
-
-    const Rml::TextureHandle texture = ++m_impl->texture_counter;
-    m_impl->textures.emplace(
-        texture, TextureRecord{mask_texture,
-                               {layer->texture_width, layer->texture_height},
-                               RenderBounds{{layer->bounds.logical.x, layer->bounds.logical.y,
-                                             layer->bounds.logical.w, layer->bounds.logical.h},
-                                            layer->bounds.framebuffer},
-                               TextureOwnership::SavedLayer});
-
-    FilterRecord filter;
-    filter.kind = FilterKind::MaskImage;
-    filter.resource = texture;
-    filter.mask_bounds = {layer->bounds.framebuffer.x, layer->bounds.framebuffer.y,
-                          layer->bounds.framebuffer.w, layer->bounds.framebuffer.h};
-    const Rml::CompiledFilterHandle handle = ++m_impl->filter_counter;
-    m_impl->filters.emplace(handle, filter);
-    return handle;
+    return m_impl->layer_system.save_layer_as_mask_image(m_impl->save_mask_context());
 }
 
 Rml::CompiledFilterHandle RenderInterface::CompileFilter(const Rml::String& name,
