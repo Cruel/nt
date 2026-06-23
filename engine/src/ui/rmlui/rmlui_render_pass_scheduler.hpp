@@ -6,6 +6,7 @@ namespace noveltea::ui::rmlui {
 
 using rmlui_bgfx::RmlUiPass;
 using rmlui_bgfx::RmlUiPassKind;
+using rmlui_bgfx::RmlUiPassReason;
 using rmlui_bgfx::RmlUiPassRequest;
 using rmlui_bgfx::RmlUiRenderPassScheduler;
 using rmlui_bgfx::RmlUiViewId;

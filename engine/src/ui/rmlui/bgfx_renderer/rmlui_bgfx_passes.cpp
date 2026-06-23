@@ -146,7 +146,9 @@ std::optional<RmlUiPass> BgfxPassBuilder::acquire(RmlUiPassRequest request,
         bgfx::isValid(framebuffer) ? framebuffer.idx : std::numeric_limits<uint16_t>::max();
     auto pass = m_scheduler.acquire(request);
     if (pass) {
-        configure_pass(*pass);
+        if (!pass->reused) {
+            configure_pass(*pass);
+        }
         if (m_perf) {
             m_perf->add_pass(pass->reused, request.reason);
         }

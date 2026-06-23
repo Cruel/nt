@@ -5,9 +5,10 @@
 using namespace noveltea::ui::rmlui;
 
 static RmlUiPassRequest request(RmlUiPassKind kind, uintptr_t framebuffer, bool clears_color,
-                                bool clears_stencil, const char* name)
+                                bool clears_stencil, const char* name,
+                                RmlUiPassReason reason = RmlUiPassReason::Other)
 {
-    return {kind, framebuffer, 0, clears_color, clears_stencil, 0, 0, 800, 600, name};
+    return {kind, framebuffer, 0, clears_color, clears_stencil, 0, 0, 800, 600, name, reason};
 }
 
 TEST_CASE("RmlUi pass scheduler reuses ordinary geometry view")
@@ -37,26 +38,43 @@ TEST_CASE("RmlUi pass scheduler reuses adjacent non-clear views with matching st
     CHECK(scheduler.passes().size() == 1);
 }
 
-TEST_CASE("RmlUi pass scheduler keeps clears as dependency boundaries")
+TEST_CASE("RmlUi pass scheduler merges geometry-like draw into preceding clear view")
 {
     RmlUiRenderPassScheduler scheduler(32, 36);
     const auto composite =
         scheduler.acquire(request(RmlUiPassKind::LayerComposite, 7, false, false, "comp"));
-    const auto clear = scheduler.acquire(request(RmlUiPassKind::Clear, 7, true, true, "clear"));
-    const auto after_clear =
-        scheduler.acquire(request(RmlUiPassKind::LayerComposite, 7, false, false, "comp"));
-    const auto geometry =
-        scheduler.acquire(request(RmlUiPassKind::Geometry, 7, false, false, "geo"));
+    const auto clear = scheduler.acquire(
+        request(RmlUiPassKind::Clear, 7, true, true, "clear", RmlUiPassReason::LayerClear));
+    const auto after_clear = scheduler.acquire(request(RmlUiPassKind::Geometry, 7, false, false,
+                                                       "geo", RmlUiPassReason::OrdinaryGeometry));
+    const auto gradient = scheduler.acquire(
+        request(RmlUiPassKind::Geometry, 7, false, false, "grad", RmlUiPassReason::Gradient));
 
     REQUIRE(composite);
     REQUIRE(clear);
     REQUIRE(after_clear);
-    REQUIRE(geometry);
+    REQUIRE(gradient);
     CHECK(composite->view == 32);
     CHECK(clear->view == 33);
-    CHECK(after_clear->view == 34);
-    CHECK(geometry->view == after_clear->view);
-    CHECK(geometry->reused);
+    CHECK(after_clear->view == clear->view);
+    CHECK(after_clear->reused);
+    CHECK(gradient->view == clear->view);
+    CHECK(gradient->reused);
+}
+
+TEST_CASE("RmlUi pass scheduler does not merge fullscreen composite into preceding clear view")
+{
+    RmlUiRenderPassScheduler scheduler(32, 36);
+    const auto clear = scheduler.acquire(
+        request(RmlUiPassKind::Clear, 7, true, true, "clear", RmlUiPassReason::LayerClear));
+    const auto composite = scheduler.acquire(request(RmlUiPassKind::LayerComposite, 7, false, false,
+                                                     "comp", RmlUiPassReason::LayerComposite));
+
+    REQUIRE(clear);
+    REQUIRE(composite);
+    CHECK(clear->view == 32);
+    CHECK(composite->view == 33);
+    CHECK_FALSE(composite->reused);
 }
 
 TEST_CASE("RmlUi pass scheduler creates passes for framebuffer boundaries")
@@ -76,6 +94,7 @@ TEST_CASE("RmlUi pass scheduler creates passes for framebuffer boundaries")
     REQUIRE(postprocess);
     CHECK(geometry->view == 32);
     CHECK(clear->view == 33);
+    CHECK(clear->reused == false);
     CHECK(other_framebuffer->view == 34);
     CHECK(postprocess->view == other_framebuffer->view);
     CHECK(postprocess->reused);
