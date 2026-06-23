@@ -113,7 +113,9 @@ public:
 
     bool submit_mask_image(const RmlUiPass& pass, const BgfxDrawResources& resources,
                            bgfx::TextureHandle source, bgfx::TextureHandle mask,
-                           const std::array<float, 4>& mask_transform) const;
+                           const std::array<float, 4>& mask_transform,
+                           const std::array<float, 4>& source_bounds = {0.0f, 0.0f, 1.0f,
+                                                                        1.0f}) const;
 
     bool submit_stencil_decrement(const RmlUiPass& pass, const BgfxDrawResources& resources,
                                   uint32_t stencil_state) const;

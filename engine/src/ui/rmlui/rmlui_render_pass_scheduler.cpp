@@ -20,11 +20,12 @@ void RmlUiRenderPassScheduler::reset()
 
 bool RmlUiRenderPassScheduler::can_reuse_current_pass(const RmlUiPassRequest& request) const
 {
-    if (!m_current || request.kind != RmlUiPassKind::Geometry)
+    if (!m_current || request.clears_color || request.clears_stencil)
         return false;
     const RmlUiPassRequest& current = m_current->request;
-    return current.kind == RmlUiPassKind::Geometry && current.framebuffer == request.framebuffer &&
-           !request.clears_color && !request.clears_stencil && current.x == request.x &&
+    if (current.clears_color || current.clears_stencil)
+        return false;
+    return current.framebuffer == request.framebuffer && current.x == request.x &&
            current.y == request.y && current.width == request.width &&
            current.height == request.height;
 }

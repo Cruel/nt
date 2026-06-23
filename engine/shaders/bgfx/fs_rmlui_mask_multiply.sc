@@ -9,7 +9,8 @@ uniform vec4 u_maskTexCoordTransform;
 
 void main()
 {
-    vec4 texel = texture2D(s_texColor, v_texcoord0);
+    vec2 source_uv = mix(u_texCoordBounds.xy, u_texCoordBounds.zw, v_texcoord0);
+    vec4 texel = texture2D(s_texColor, source_uv);
     vec2 mask_uv = v_texcoord0 * u_maskTexCoordTransform.xy + u_maskTexCoordTransform.zw;
     vec2 mask_min = step(vec2_splat(0.0), mask_uv);
     vec2 mask_max = step(mask_uv, vec2_splat(1.0));

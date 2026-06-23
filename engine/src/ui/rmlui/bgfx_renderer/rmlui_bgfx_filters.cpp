@@ -241,6 +241,59 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
         return {};
     }
 
+    if (filter_chain.size() == 1 && filter_chain[0].kind == FilterKind::MaskImage) {
+        auto tex_it = ctx.textures.find(Rml::TextureHandle(filter_chain[0].resource));
+        if (tex_it == ctx.textures.end()) {
+            return {};
+        }
+        RenderTargetRecord* destination = safe_destination(ctx, source.texture, primary, secondary);
+        if (!destination || !bgfx::isValid(destination->framebuffer)) {
+            return {};
+        }
+        const bool is_full_mask = is_full_frame_surface(destination->bounds, ctx.surface);
+        auto pass = ctx.pass_builder.postprocess(
+            destination->framebuffer, destination->texture_width, destination->texture_height,
+            "RmlUi.FilterMaskImage", RmlUiPassReason::FilterMaskImage);
+        if (!pass) {
+            return {};
+        }
+        ctx.perf.add_mask(uint64_t(destination->texture_width) *
+                              uint64_t(destination->texture_height),
+                          is_full_mask);
+        if (texture_attached_to_framebuffer(ctx, tex_it->second.handle, destination->framebuffer)) {
+            return {};
+        }
+        const FbRect mask_bounds{filter_chain[0].mask_bounds[0], filter_chain[0].mask_bounds[1],
+                                 filter_chain[0].mask_bounds[2], filter_chain[0].mask_bounds[3]};
+        auto mask_transform = compute_mask_uv_transform(destination->bounds, mask_bounds);
+        if (bgfx::getCaps() && bgfx::getCaps()->originBottomLeft) {
+            mask_transform[1] = -mask_transform[1];
+            mask_transform[3] += float(destination->bounds.h) / float(std::max(mask_bounds.h, 1));
+        }
+        const FbRect source_sample_local{
+            source.local_rect.x + destination->bounds.x - source.global_bounds.x,
+            source.local_rect.y + destination->bounds.y - source.global_bounds.y,
+            destination->bounds.w,
+            destination->bounds.h,
+        };
+        const auto source_uv = uv_rect_for_source_region(source_sample_local, source.texture_width,
+                                                         source.texture_height);
+        if (!ctx.draw_context.submit_mask_image(*pass, ctx.resources, source.texture,
+                                                tex_it->second.handle, mask_transform, source_uv)) {
+            return {};
+        }
+        result.output = texture_region(
+            destination->color, destination->bounds,
+            LocalFbRect{0, 0, destination->texture_width, destination->texture_height},
+            destination->texture_width, destination->texture_height);
+        result.output_bounds = render_bounds_from_framebuffer(destination->bounds, ctx.surface);
+        result.valid_output_bounds = render_bounds_from_framebuffer(
+            advance_valid_filter_bounds(source_valid_global_bounds, filter_chain[0],
+                                        destination->bounds),
+            ctx.surface);
+        return result;
+    }
+
     const FbRect source_copy_global = intersect(source_bounds.framebuffer, clamped_work_bounds);
     if (is_empty(source_copy_global)) {
         return {};

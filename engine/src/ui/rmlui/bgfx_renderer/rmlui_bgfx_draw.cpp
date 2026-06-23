@@ -259,7 +259,8 @@ bool BgfxDrawContext::submit_drop_shadow(const RmlUiPass& pass, const BgfxDrawRe
 
 bool BgfxDrawContext::submit_mask_image(const RmlUiPass& pass, const BgfxDrawResources& resources,
                                         bgfx::TextureHandle source, bgfx::TextureHandle mask,
-                                        const std::array<float, 4>& mask_transform) const
+                                        const std::array<float, 4>& mask_transform,
+                                        const std::array<float, 4>& source_bounds) const
 {
     if (!bgfx::isValid(resources.fullscreen_vb) ||
         !bgfx::isValid(resources.mask_multiply_program) || !bgfx::isValid(source) ||
@@ -269,6 +270,7 @@ bool BgfxDrawContext::submit_mask_image(const RmlUiPass& pass, const BgfxDrawRes
     bgfx::setVertexBuffer(0, resources.fullscreen_vb);
     bgfx::setTexture(0, resources.sampler, source);
     bgfx::setTexture(1, resources.mask_sampler, mask);
+    bgfx::setUniform(resources.texcoord_bounds_uniform, source_bounds.data());
     bgfx::setUniform(resources.mask_texcoord_transform_uniform, mask_transform.data());
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::submit(pass.view, resources.mask_multiply_program);
