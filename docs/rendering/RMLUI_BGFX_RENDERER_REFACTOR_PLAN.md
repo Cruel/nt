@@ -32,7 +32,7 @@ The old 5-7 FPS Web readings were debug/WebGL validation artifacts unless reprod
 The next renderer work is therefore not more speculative pass-count reduction. The next work is:
 
 1. Harden release/profile smoke coverage so this confusion does not happen again.
-2. Build the NovelTea shader/material asset pipeline.
+2. Build the NovelTea project-schema shader/material pipeline and compiled shader-binary asset path.
 3. Bridge RmlUi `shader(<string>)` to NovelTea materials.
 4. Add missing RmlUi feature fixtures.
 5. Defer additional RmlUi bgfx optimization until a concrete fixture or profile proves the need.
@@ -45,7 +45,7 @@ Keep these lessons. They still matter for future renderer/material work.
 
 The reusable `rmlui_bgfx` core must not depend on NovelTea engine headers, NovelTea `AssetManager`, NovelTea `SurfaceMetrics`, NovelTea shader-loader enums, NovelTea view IDs, SDL3, Lua, ImGui, runtime session objects, editor preview code, or NovelTea custom components.
 
-NovelTea adapts to the renderer through providers. The renderer core should expose seams for texture loading, shader/program loading, diagnostics, perf logging, and future material shader submission. NovelTea owns project asset paths, `.ntmat` parsing, material registry lookup, shader variant selection, editor/package compilation policy, and runtime session integration.
+NovelTea adapts to the renderer through providers. The renderer core should expose seams for texture loading, shader/program loading, diagnostics, perf logging, and future material shader submission. NovelTea owns project/game schema shader and material records, material registry lookup, inferred shader variant selection, editor/package compilation policy, shader-binary assets, and runtime session integration.
 
 ### Bounded Compositor Invariants
 
@@ -156,33 +156,40 @@ Acceptance:
 - FPS is displayed/logged but does not decide pass/fail.
 - The smoke documents which build preset/profile it uses.
 
-### Action 2: Implement Material Plan Phase 0/1 `[implemented]`
+### Action 2: Realign Material Plan Phase 0/1 To Project Schema
 
-Goal: establish the backend-neutral material data model before any bgfx program loading or RmlUi integration.
+Goal: establish the backend-neutral shader/material data model before any bgfx program loading or RmlUi integration.
 
-Implemented path:
+Current correction:
 
-- Audited and replaced the deferred `render/material.hpp` and `render/shader.hpp` stubs with backend-neutral material/shader-source-reference types.
-- Added `MaterialId` normalization for project aliases and explicit `project:/` / `system:/` `.ntmat` asset paths.
-- Added `MaterialType` for `engine-2d`, `rmlui-decorator`, and deferred `rmlui-filter` / `postprocess` types.
-- Added material asset data for shader refs, uniforms, texture slots, engine/RmlUi input bindings, blend policy, structured diagnostics, and fallback records.
-- Added `.ntmat` JSON parser/validator for schema `noveltea.material.v1`.
-- Added diagnostics for invalid material ids, invalid JSON/schema, missing fields, unknown/deferred types, invalid shader refs, invalid uniforms/defaults, invalid texture slot names/sources/samplers, unknown input bindings, and unsupported blend policies.
-- Added `tests/render/material_asset_tests.cpp` for valid and invalid material assets, id normalization, and fallback records.
+- The previous Action 2 implementation created useful backend-neutral material types, diagnostics, fallback records, and parser tests, but it assumed standalone `.ntmat` material files.
+- That storage model is now superseded. NovelTea materials are project-schema records, not standalone files. Shader definitions are also project-schema records. Compiled shader binaries remain separate runtime assets.
+- Shader records declare stages, uniform/sampler interfaces, compiled-binary refs/metadata, and supported render contracts.
+- Material records reference shaders, select a render contract, and provide concrete uniform values and texture assignments.
+- `MaterialId` should be a stable project material id/alias, not a material asset path.
+- Render-contract compatibility must be validated so a material can use a shader only under a declared or explicitly adapted contract.
+
+Implement next:
+
+- Adapt or replace the current material parser/model with project-schema `ShaderDefinition` and `MaterialDefinition` records.
+- Move uniform/sampler declarations to shader records.
+- Keep material records as value/texture/render-policy assignments.
+- Add diagnostics for invalid shader ids, invalid material ids, unknown shader refs, invalid uniform values, undeclared uniforms/samplers, unsupported render contracts, and incompatible shader/material contracts.
+- Update tests to cover project-schema shader/material records instead of standalone material files.
 
 Still intentionally not implemented:
 
-- `shaderc` invocation.
+- `shaderc` invocation outside the existing system-shader build path.
 - Runtime shader source compilation.
-- bgfx program creation.
+- bgfx program creation for user/project shaders.
 - RmlUi `shader(<string>)` bridge.
 - Editor UI.
 
 Acceptance:
 
-- Valid `.ntmat` parses into a stable runtime model.
-- Invalid `.ntmat` reports actionable diagnostics.
-- Tests cover material id normalization and schema validation.
+- Valid project-schema shader/material records parse into a stable runtime model.
+- Invalid shader/material records report actionable diagnostics.
+- Tests cover material id normalization as project ids, shader interface declarations, material value validation, and render-contract compatibility.
 - Docs/status are updated.
 
 ### Action 3: Add Shader Manifest And Runtime Program Loading
@@ -191,22 +198,24 @@ Goal: teach runtime how to load precompiled bgfx shader variants for both high-l
 
 Important distinction:
 
-- `MaterialId` / `.ntmat` is the validated, editor-friendly material path used by rich-text material tags, engine 2D materials, and later RmlUi `shader(<string>)` decorator materials.
-- ActiveText's low-level shader BBCode is already preserved by `RichTextStyle::fragment_shader_id` and `RichTextStyle::vertex_shader_id`. Do not force this path to become a `.ntmat` material.
-- Both paths still use precompiled bgfx shader binaries at runtime. Neither path compiles shader source at runtime.
+- `MaterialId` is the validated project material id used by rich-text material tags, engine 2D materials, and later RmlUi `shader(<string>)` decorator materials.
+- Shader ids are validated project shader ids. Shader records declare stages, uniforms, samplers, compiled-binary refs, and supported render contracts.
+- ActiveText's low-level shader BBCode is already preserved by `RichTextStyle::fragment_shader_id` and `RichTextStyle::vertex_shader_id`. Do not force this path to become a material record.
+- Both material-backed and direct shader-pair paths still use precompiled bgfx shader binaries at runtime. Neither path compiles shader source at runtime.
 
 Implement:
 
 - Backend-neutral shader identifiers for direct shader refs, probably `ShaderId`, `ShaderStage`, and `ShaderProgramId` / `ShaderPairRef`, without reintroducing the old misleading mutable `Shader` stub.
-- Shader manifest format that can resolve material-owned shader refs from a `MaterialId` plus active platform/profile/variant.
-- Shader manifest format that can also resolve direct ActiveText shader pairs from preserved vertex/fragment shader ids plus active platform/profile/variant.
+- Runtime shader metadata or manifest format that resolves material-owned shader refs from a `MaterialId`, selected render contract, and active compiled shader variant.
+- Runtime shader metadata or manifest format that also resolves direct ActiveText shader pairs from preserved vertex/fragment shader ids plus the active compiled shader variant.
+- The active compiled shader variant is inferred by engine policy from the current build/runtime renderer/export target, using the existing convention such as `glsl-120`, `essl-100`, or `essl-300`. It is not authored in material records and should not be manually selected by individual material/shader-pair configs.
 - Runtime `ShaderProgramCache` loading compiled binaries through `AssetManager`.
 - bgfx shader/program handle creation for precompiled shader binaries.
-- Program cache keys that distinguish material programs from direct shader-pair programs while still including shader hash, active backend/profile, and variant.
-- Uniform/sampler reflection or declared-bind metadata sufficient for later material binding and direct ActiveText shader binding.
+- Program cache keys that distinguish material programs from direct shader-pair programs while still including shader hash, active backend, and inferred compiled variant.
+- Uniform/sampler binding metadata sourced from shader declarations and sufficient for later material binding and direct ActiveText shader binding.
 - Missing variant diagnostics for both callers:
-  - material diagnostics name the material id, active profile, and expected compiled binary path;
-  - direct shader-pair diagnostics name the vertex/fragment shader ids, active profile, and expected compiled binary paths.
+  - material diagnostics name the material id, inferred active variant, and expected compiled binary path;
+  - direct shader-pair diagnostics name the vertex/fragment shader ids, inferred active variant, and expected compiled binary paths.
 - Visible fallback behavior:
   - missing material programs use material fallback records;
   - missing direct ActiveText shader pairs fall back to the default text/ActiveText shader path while preserving an actionable diagnostic.
@@ -217,7 +226,7 @@ Acceptance:
 
 - Runtime can load a precompiled sample material program for the active backend.
 - Runtime can load a precompiled direct shader-pair program for the ActiveText low-level shader BBCode contract.
-- Missing profile or missing binary diagnostics name the correct caller context: material id for material programs, vertex/fragment shader ids for direct shader pairs.
+- Missing inferred variant or missing binary diagnostics name the correct caller context: material id for material programs, vertex/fragment shader ids for direct shader pairs.
 - Existing non-material sprites/quads still render through the fast default path.
 - Existing ActiveText without low-level shader metadata still renders through the normal/default text path.
 
@@ -228,15 +237,15 @@ Goal: compile authoring shader source into runtime bgfx binaries during host/edi
 Implement:
 
 - Host-side `ShaderCompilerService` wrapper around `shaderc`.
-- Compile active development profile first.
-- Compile configured export profiles later.
-- Cache outputs by shader source, includes, material schema, compiler version, target profile, and relevant flags.
+- Compile the variant implied by the active development build first.
+- Compile variants implied by configured export targets later.
+- Cache outputs by shader source, includes, shader/material schema record metadata, compiler version, inferred target variant, and relevant flags.
 - Capture diagnostics for editor display.
 - Keep previous valid program alive after failed hot reload.
 
 Acceptance:
 
-- A sample `.ntmat` compiles for Linux GL and Web ESSL profiles.
+- A sample project-schema shader/material compiles for the Linux and Web variants implied by the build/export targets.
 - Failed shader compilation reports readable diagnostics.
 - Re-running without source changes hits cache.
 - Runtime packages do not require `shaderc`.
@@ -283,7 +292,7 @@ Do not put NovelTea material headers in reusable `rmlui_bgfx` files.
 Acceptance:
 
 - Built-in gradients still render as before.
-- Generic RmlUi `shader(<string>)` resolves to a NovelTea material id/path.
+- Generic RmlUi `shader(<string>)` resolves to a NovelTea project material id.
 - The sample material respects scissor, transforms, clip masks, layers, and premultiplied-alpha output.
 - Linux readback, resize-readback, and Web release/profile smoke pass.
 - `RMLUI_RENDER_INTERFACE_AUDIT.md` moves generic `shader(<string>)` from planned/unsupported to implemented or verified as appropriate.
@@ -374,5 +383,5 @@ Start from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, which is now the
 
 Action 1 is implemented: use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
 
-Begin Action 2 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 0-1: audit existing render/material.hpp and render/shader.hpp stubs, add the backend-neutral .ntmat material data model, MaterialId normalization, parser/validator, diagnostics, and tests. Do not add runtime shader source compilation, do not invoke shaderc yet, do not create bgfx programs yet, and do not wire RmlUi shader(<string>) yet.
+Begin Action 2 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 0-1 realignment: adapt or replace the earlier standalone material-file parser/model with backend-neutral project-schema ShaderDefinition and MaterialDefinition records. Shader records declare stages, uniforms, samplers, compiled-binary refs, and supported render contracts. Material records reference shaders, select one contract, and provide uniform/texture values. Do not add runtime shader source compilation, do not invoke shaderc beyond existing system-shader build paths, do not create bgfx programs for project shaders yet, and do not wire RmlUi shader(<string>) yet.
 ```

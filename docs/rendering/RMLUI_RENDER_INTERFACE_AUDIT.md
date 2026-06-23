@@ -20,7 +20,7 @@ Feature-wise, the renderer is broadly complete for the advanced RmlUi effects cu
 
 The largest unsupported or under-verified areas are:
 
-1. Generic `shader(<string>)` decorators are not supported yet. `CompileShader()` only accepts the built-in gradient shader names. The intended path is now defined in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): resolve the string as a NovelTea material reference, not as runtime shader source.
+1. Generic `shader(<string>)` decorators are not supported yet. `CompileShader()` only accepts the built-in gradient shader names. The intended path is now defined in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): resolve the string as a NovelTea project material id, not as runtime shader source.
 2. Custom application/plugin filter names are not supported. `CompileFilter()` returns zero for unknown names. Custom filter materials are deferred until after the base material system and RmlUi decorator-material bridge are stable.
 3. `backdrop-filter` is not covered by a focused fixture. It may work if RmlUi lowers it through the same layer/filter calls, but we should not mark it verified without a fixture.
 4. CSS `box-shadow` is not covered by a focused fixture. The building blocks exist through layers, filters, render textures, and drop-shadow code, but the property itself should be tested.
@@ -50,7 +50,7 @@ The largest unsupported or under-verified areas are:
 | `SaveLayerAsMaskImage()` | Implemented | Verified | Copies valid content bounds when tighter than layer bounds, stores mask metadata, and returns a mask-image filter handle. |
 | `CompileFilter()` | Implemented for built-ins | Verified for representative built-ins | Supports opacity, blur, drop-shadow, brightness, contrast, invert, grayscale, sepia, hue-rotate, saturate, and saved mask-image filters. Unsupported custom filter names return zero. |
 | `ReleaseFilter()` | Implemented | Verified for saved mask ownership | Erases filter records and destroys owned saved-mask textures exactly once. Add broader filter lifecycle coverage if custom filters are introduced. |
-| `CompileShader()` | Implemented for gradients only | Verified for gradients | Supports linear, radial, conic, and repeating variants. Generic `shader(<string>)` custom decorators are planned as NovelTea material references in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md). |
+| `CompileShader()` | Implemented for gradients only | Verified for gradients | Supports linear, radial, conic, and repeating variants. Generic `shader(<string>)` custom decorators are planned as NovelTea project material id references in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md). |
 | `RenderShader()` | Implemented for gradients only | Verified for gradient fixtures | Records/renders gradient shader geometry using the same geometry bounds as ordinary geometry. Texture parameter is currently irrelevant for gradient shaders. Future material shader handles should route through the material provider described in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md). |
 | `ReleaseShader()` | Implemented | Needs lifecycle test | Erases shader records. Add targeted release/stale-handle test. |
 
@@ -66,7 +66,7 @@ The largest unsupported or under-verified areas are:
 | Render textures | `box-shadow` | Implemented through `SaveLayerAsTexture()` | Add direct CSS `box-shadow` fixture. |
 | Mask images | `mask-image` | Implemented and verified | Add image-file mask fixture in addition to gradient-generated mask if needed. |
 | Filters | `filter`, `backdrop-filter`, blurred `box-shadow` | Built-in filter set implemented; color-only folding and bounded blur/drop-shadow paths exist | Add `backdrop-filter` fixture; define blur-quality expectations. |
-| Shaders | `shader`, linear/radial/conic gradients and repeating variants | Built-in gradients implemented; generic `shader(<string>)` unsupported but planned | Implement the material-provider bridge from [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), resolving `shader(<string>)` as a NovelTea material id/path. |
+| Shaders | `shader`, linear/radial/conic gradients and repeating variants | Built-in gradients implemented; generic `shader(<string>)` unsupported but planned | Implement the material-provider bridge from [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), resolving `shader(<string>)` as a NovelTea project material id. |
 
 ## Rendering Convention Audit
 

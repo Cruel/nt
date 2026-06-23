@@ -18,9 +18,9 @@ This document defines the current compatibility boundary for the migrated `nt` r
 ## Runtime Package Export
 
 - Runtime export writes ZIP-based `.ntpkg` packages with legacy-compatible entries plus additive `manifest.json` metadata.
-- Exported runtime packages contain `game`, optional `image`, safe `fonts/*`, `textures/*`, auxiliary resources, and compiled shader binaries under `shaders/bgfx/<variant>/*.bin`.
+- Exported runtime packages contain `game`, optional `image`, safe `fonts/*`, `textures/*`, auxiliary resources, runtime shader/material metadata, and compiled shader binaries under `shaders/bgfx/<variant>/*.bin`. Runtime packages should strip shader source and editor-only shader/material data unless explicitly exporting an editable/dev package.
 - Public export APIs expose options, results, checksums, and diagnostics; ZIP/miniz types remain private implementation details.
-- `manifest.json` uses format `noveltea.runtime-package` with `format_version` 1. It records project metadata, package kind, shader variants, entries, and per-entry checksums where enabled.
+- `manifest.json` uses format `noveltea.runtime-package` with `format_version` 1. It records project metadata, package kind, shader variants, runtime shader metadata set when present, entries, and per-entry checksums where enabled.
 
 ## Save JSON Preservation
 

@@ -113,7 +113,7 @@ struct RendererConfig {
 
 Exact names can change during implementation, but the dependency direction cannot: NovelTea adapts to the renderer, not the renderer to NovelTea. NovelTea should provide a `ShaderProvider`, a `TextureLoader`, a surface conversion helper, a view range, and diagnostics/perf-log hooks.
 
-The standalone library may include optional convenience integrations later, such as a filesystem texture loader or CMake shader compilation helpers, but the core renderer must remain usable by other engines with their own asset systems, material systems, and bgfx view layouts. If generic RmlUi `shader(<string>)` support is added, the reusable core should expose a provider seam for decorator-material submission while NovelTea owns `.ntmat` parsing, material registry lookup, shader variant selection, and editor/package compilation policy.
+The standalone library may include optional convenience integrations later, such as a filesystem texture loader or CMake shader compilation helpers, but the core renderer must remain usable by other engines with their own asset systems, material systems, and bgfx view layouts. If generic RmlUi `shader(<string>)` support is added, the reusable core should expose a provider seam for decorator-material submission while NovelTea owns project/game schema shader and material records, material registry lookup, inferred shader variant selection, shader-binary assets, and editor/package compilation policy.
 
 ## Non-Negotiable Renderer Contract
 

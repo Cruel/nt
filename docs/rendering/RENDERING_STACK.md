@@ -47,18 +47,19 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
 - Minimal `BgfxSystemInterface` with SDL3 high-resolution timer.
 - SDL3 event translation (mouse, keyboard, text input, window resize) into RmlUi context calls.
 - Font loading and demo document/stylesheet loading from `apps/sandbox/assets/rmlui/`.
-- RmlUi bgfx shader pair (`vs_rmlui.sc` / `fs_rmlui.sc`) compiled for glsl/essl/web profiles.
+- RmlUi bgfx shader pair (`vs_rmlui.sc` / `fs_rmlui.sc`) compiled into the variants implied by each build target.
 - Backend-neutral `AssetManager` with `system:/`, `project:/`, and `cache:/`
   mounts, currently backed by directories and ready for future `.ntzip` sources.
 - bgfx shader source remains in `engine/shaders/bgfx`, while compiled shader
   binaries are build/runtime assets loaded from
-  `assets/shaders/bgfx/{linux-glsl,android-essl,web-essl100}`. Runtime code does
+  `assets/shaders/bgfx/{glsl-120,essl-100,essl-300}`. Runtime code does
   not include generated shader headers or compile shader source.
 - User-provided project shaders/materials follow
-  [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): `.ntmat`
-  material assets now parse into a backend-neutral runtime model, shader source remains an
-  authoring asset, `shaderc` will produce platform/profile variants during editor/import/export
-  workflows, and shipped runtimes will load compiled bgfx binaries rather than compiling source.
+  [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): shader and material
+  definitions are project/game schema records, shader records declare uniforms/samplers and
+  supported render contracts, material records assign values/textures for one contract, `shaderc`
+  produces the variants implied by active build/export targets during editor/import/export workflows,
+  and shipped runtimes load compiled bgfx binaries rather than compiling source.
 
 ## Deferred (Next Slice)
 

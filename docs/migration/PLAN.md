@@ -499,15 +499,15 @@ Do not invent old SFML behavior blindly. Use `refs/NovelTea/` only to understand
 
 Deferred items:
 
-- Material/shader resolution (`render/material.hpp` and `render/shader.hpp`
-  contain deferred stubs). [`docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`](../rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md)
+- Material/shader resolution. [`docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`](../rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md)
   is now the source of truth for this work. When implemented this must define
-  `.ntmat` material assets, MaterialId normalization, a material registry,
-  platform/profile shader variant selection, shaderc-based editor/import/export
-  compilation, runtime bgfx ProgramHandle loading from compiled binaries, and a
-  bind path on `QuadCommand`. ActiveText effects, map overlays, per-object
-  materials, per-room background materials, and RmlUi `shader(<string>)`
-  decorator materials all depend on this step.
+  project-schema shader records, project-schema material records, MaterialId and
+  ShaderId normalization, render-contract compatibility validation, a shader/material
+  registry, inferred shader variant selection from build/export/runtime targets,
+  shaderc-based editor/import/export compilation, runtime bgfx ProgramHandle loading
+  from compiled binaries, and a bind path on `QuadCommand`. ActiveText effects,
+  map overlays, per-object materials, per-room background materials, and RmlUi
+  `shader(<string>)` decorator materials all depend on this step.
 
 Acceptance criteria:
 
@@ -571,7 +571,8 @@ Implement:
 
 Policy:
 
-- Runtime packages should contain compiled shader variants for supported targets.
+- Runtime packages should contain runtime shader/material metadata plus compiled shader variants for supported targets.
+- Runtime packages should strip shader source and editor-only shader/material data.
 - Editable project packages may contain source/editor assets.
 - Keep old package import available for compatibility.
 - Do not expose ZIP/miniz types through public engine APIs.
