@@ -2,6 +2,8 @@
 
 This is Phase 4.5 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_BGFX_OPTIMIZATION_PLAN.md). It is a behavior-preserving architecture refactor inserted after bounded layer materialization and before additional optimization phases.
 
+Status note, 2026-06-23: Phase 4.5 is complete in the current checkout. Keep this document as the historical refactor plan and architectural rationale. For current performance truth and feature-coverage gaps, see [`RMLUI_BGFX_STATUS.md`](RMLUI_BGFX_STATUS.md) and [`RMLUI_RENDER_INTERFACE_AUDIT.md`](RMLUI_RENDER_INTERFACE_AUDIT.md).
+
 Phase 4 proved the important performance direction: child layers and postprocess work can be bounded to affected UI content instead of framebuffer size. It also exposed that the current implementation is too concentrated in `engine/src/ui/rmlui/rmlui_render_interface_bgfx.cpp`. Resource lifetime, pass scheduling, layer recording, materialization, clip/stencil replay, filter execution, copy/composite submission, perf accounting, and RmlUi API adaptation are all interleaved in one file. That made native-only bugs easy to introduce: first child layer framebuffer churn, then postprocess framebuffer churn, and then pointer invalidation in the target cache.
 
 This phase also establishes the renderer as a reusable RmlUi/bgfx backend that NovelTea consumes through adapters. The renderer core should be extractable into a standalone `rmlui-bgfx` project after this refactor. NovelTea-specific surface metrics, asset paths, shader loading, view IDs, SDL input/system glue, Lua integration, custom components, and editor/runtime concepts must stay outside the reusable renderer core.

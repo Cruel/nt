@@ -485,7 +485,7 @@ Implement:
 - cover/background/image slots — v1 done via RmlUi `<img>` elements backed by
   the existing bgfx RmlUi texture loader (bimg decode).
 - room/object image presentation where project data supports it
-- shader/material resolution policy — deferred (see below)
+- shader/material resolution policy — deferred to [`docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`](../rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md)
 - render layers and ordering — 4-layer view system (Background, Main, Foreground,
   UIOverlay) via `GameLayer` enum, each mapped to its own bgfx view.
 - scissor/clip integration — push/pop scissor stack on `Renderer`, applied
@@ -500,11 +500,14 @@ Do not invent old SFML behavior blindly. Use `refs/NovelTea/` only to understand
 Deferred items:
 
 - Material/shader resolution (`render/material.hpp` and `render/shader.hpp`
-  contain deferred stubs). When implemented this must define property-key →
-  MaterialId mapping, a material registry resolving MaterialId → bgfx
-  ProgramHandle with platform-aware variant selection, and a bind() path on
-  QuadCommand. ActiveText effects, map overlays, per-object materials, and
-  per-room background materials all depend on this step.
+  contain deferred stubs). [`docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`](../rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md)
+  is now the source of truth for this work. When implemented this must define
+  `.ntmat` material assets, MaterialId normalization, a material registry,
+  platform/profile shader variant selection, shaderc-based editor/import/export
+  compilation, runtime bgfx ProgramHandle loading from compiled binaries, and a
+  bind path on `QuadCommand`. ActiveText effects, map overlays, per-object
+  materials, per-room background materials, and RmlUi `shader(<string>)`
+  decorator materials all depend on this step.
 
 Acceptance criteria:
 

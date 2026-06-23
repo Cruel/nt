@@ -6,12 +6,18 @@ Current status: Phases 0 through 8 of [`RMLUI_BGFX_OPTIMIZATION_PLAN.md`](RMLUI_
 
 ## Current Performance Truth
 
-The readback gallery remains functionally correct on Linux. After Phase 4, child layers are no longer materialized full-frame in the representative Linux readback gallery run. Phase 7 folds color-only opacity/color-matrix filter chains into the final layer composite shader, avoids one mask-image-only source-copy pass, and reduces bgfx view churn by reusing compatible same-target views while preserving conservative fallback paths for blur and drop-shadow filters.
+The readback gallery remains functionally correct on Linux, and the corrected Web release/profile run is performance-healthy. After Phase 4, child layers are no longer materialized full-frame in the representative gallery run. Phase 7 folds color-only opacity/color-matrix filter chains into the final layer composite shader, avoids one mask-image-only source-copy pass, and reduces bgfx view churn by reusing compatible same-target views while preserving conservative fallback paths for blur and drop-shadow filters. The earlier 5-7 FPS Web readings were debug/WebGL validation artifacts and should not be used as the current performance baseline.
 
 Representative steady-state Linux perf after completed Phase 7 work at 1280x720:
 
 ```text
 [perf] fps=125 passes=89 views=43 view_reuses=46 geom=27 clip=15 gradients=8 pass_geom=27 pass_gradient=8 pass_clip=15 pass_stencil_norm=0 pass_base_clear=1 pass_layer_clear=13 pass_stencil_clear=2 pass_filter_copy=2 pass_filter_opacity=0 pass_filter_color=0 pass_filter_mask=1 pass_filter_blur=4 pass_filter_shadow=1 pass_filter_shadow_comp=1 color_filter_folds=9 pass_layer_scratch=0 pass_layer_comp=12 pass_final_comp=1 pass_save_texture=0 pass_save_mask=1 pass_other_copy=0 pass_other=0 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=5 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=980004 copy_px=9216 composite_px=959952 post_px=21776 full_frame_passes=2 bounded_passes=36 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=15 full_frame_postprocess_passes=0 bounded_postprocess_passes=6 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=6 full_frame_postprocess_targets=0 bounded_postprocess_targets=0 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_child_layer=114x96 max_child_rt=114x96 max_rt=96x96 fb=1280x720
+```
+
+Representative Web release/profile perf after release-profiling script fixes at 1508x1869:
+
+```text
+[perf] fps=120 passes=89 views=43 view_reuses=46 geom=27 clip=15 gradients=8 pass_geom=27 pass_gradient=8 pass_clip=15 pass_stencil_norm=0 pass_base_clear=1 pass_layer_clear=13 pass_stencil_clear=2 pass_filter_copy=2 pass_filter_opacity=0 pass_filter_color=0 pass_filter_mask=1 pass_filter_blur=4 pass_filter_shadow=1 pass_filter_shadow_comp=1 color_filter_folds=9 pass_layer_scratch=0 pass_layer_comp=12 pass_final_comp=1 pass_save_texture=0 pass_save_mask=0 pass_other_copy=1 pass_other=0 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=5 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=2909754 copy_px=14641 composite_px=2876667 post_px=31813 full_frame_passes=2 bounded_passes=36 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=15 full_frame_postprocess_passes=0 bounded_postprocess_passes=6 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=6 full_frame_postprocess_targets=0 bounded_postprocess_targets=0 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1508x1869 max_child_layer=143x121 max_child_rt=143x121 max_rt=121x121 fb=1508x1869
 ```
 
 This is the measured bounded-compositor success state for the readback gallery. The important changes are:
@@ -89,7 +95,11 @@ Residual work deferred out of Phase 7:
 | Linux test suite | VERIFIED | RmlUi readback capture/verify and resize-readback capture/verify pass under `ctest --test-dir build/linux-debug -R noveltea_rmlui`. |
 | Web sandbox rebuild | VERIFIED | `cmake --build --preset web-debug` passes after Phase 7. |
 | Web structural smoke | VERIFIED | `node scripts/web-smoke.mjs` passes with zero full-frame child layers, zero unbounded fallbacks, zero full-frame postprocess passes, `max_child_layer=114x96`, `passes=89`, and `views=43`. |
+| RmlUi render-interface audit | VERIFIED | `docs/rendering/RMLUI_RENDER_INTERFACE_AUDIT.md` records implemented, under-verified, and unsupported render-interface features. |
 | Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
+| Generic `shader(<string>)` decorator | PLANNED | Built-in gradients are supported. Custom shader decorators are planned as NovelTea material references through [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), not runtime shader-source compilation. |
+| Backdrop-filter / CSS box-shadow fixtures | NOT VERIFIED | Building blocks exist through layers/filters/render textures, but focused property fixtures are not present. |
+| Perspective/3D transform fixture | NOT VERIFIED | Matrix path exists and affine transform coverage is good, but visual perspective/3D coverage is missing. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |
 
 ## Renderer Model
@@ -132,12 +142,12 @@ The renderer emits a periodic `[perf]` line when render perf logging is enabled.
 
 - Filters have bounded work targets in the readback gallery, color-only filter chains now bypass postprocess, and mask-image-only filters avoid the preliminary source copy. Blur and drop-shadow still use the conservative bounded postprocess path.
 - Postprocess targets are reused at steady state; remaining filter work is semantic cleanup and pixel-work reduction, not allocation churn.
-- Child layer render targets are reused at steady state; remaining allocation churn is in postprocess targets.
-- The web smoke gate passes after Phase 4 for the readback gallery.
+- Child layer and postprocess render targets are reused at steady state; remaining filter work is conservative copy/shader semantics, not allocation churn.
+- The web smoke gate passes after Phase 4 for the readback gallery; add a release/profile web smoke path so debug WebGL validation cannot be mistaken for release performance again.
 - The base presentation path may remain offscreen on WebGL; this is acceptable until bounded child/filter work is stable across platforms.
 
 ## Next Implementation Task
 
-Start Phase 9 by turning the current structural web smoke expectations into explicit gates for the stabilized bounded renderer shape.
+The old emergency performance path is no longer the next priority. Start by hardening release/profile web smoke coverage and closing the feature gaps from [`RMLUI_RENDER_INTERFACE_AUDIT.md`](RMLUI_RENDER_INTERFACE_AUDIT.md). For custom/user shaders, follow [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): first build the engine material/shader asset pipeline, then bridge RmlUi `shader(<string>)` to a NovelTea material reference. Other coverage gaps remain `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, custom filter policy, `BlendMode::Replace` if reachable, nested `PopLayer()` state restoration, and release lifecycle tests.
 
-Do not start physical extraction to a separate repository until Phase 7 correctness/perf semantics are tightened.
+Do not start physical extraction to a separate repository until feature coverage and public extension policy are clearer.

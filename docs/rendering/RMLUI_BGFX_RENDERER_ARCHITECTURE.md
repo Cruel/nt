@@ -2,7 +2,7 @@
 
 This document describes the intended end-state architecture of the reusable RmlUi bgfx renderer used by NovelTea. It is written as an architecture overview for future developers and as the reference target during the Phase 4.5 renderer refactor.
 
-This is not a status report. If the implementation is still mid-refactor, use this document as the desired shape. If the final implementation intentionally differs from this document, update the document in the same change that changes the architecture.
+This is not a status report. If the implementation is still mid-refactor, use this document as the desired shape. If the final implementation intentionally differs from this document, update the document in the same change that changes the architecture. For method-by-method RmlUi render-interface coverage, see [`RMLUI_RENDER_INTERFACE_AUDIT.md`](RMLUI_RENDER_INTERFACE_AUDIT.md). For user-provided shaders/materials and the RmlUi `shader(<string>)` material bridge, see [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
 
 The desired end state is a renderer that can live in a separate `rmlui-bgfx` project. NovelTea should consume it through a small integration adapter. The renderer core should not require NovelTea engine headers, NovelTea asset namespaces, SDL3, Lua, ImGui, custom NovelTea UI components, or NovelTea runtime concepts.
 
@@ -113,7 +113,7 @@ struct RendererConfig {
 
 Exact names can change during implementation, but the dependency direction cannot: NovelTea adapts to the renderer, not the renderer to NovelTea. NovelTea should provide a `ShaderProvider`, a `TextureLoader`, a surface conversion helper, a view range, and diagnostics/perf-log hooks.
 
-The standalone library may include optional convenience integrations later, such as a filesystem texture loader or CMake shader compilation helpers, but the core renderer must remain usable by other engines with their own asset systems and bgfx view layouts.
+The standalone library may include optional convenience integrations later, such as a filesystem texture loader or CMake shader compilation helpers, but the core renderer must remain usable by other engines with their own asset systems, material systems, and bgfx view layouts. If generic RmlUi `shader(<string>)` support is added, the reusable core should expose a provider seam for decorator-material submission while NovelTea owns `.ntmat` parsing, material registry lookup, shader variant selection, and editor/package compilation policy.
 
 ## Non-Negotiable Renderer Contract
 

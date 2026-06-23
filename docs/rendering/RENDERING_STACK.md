@@ -18,7 +18,7 @@
 - Use RmlUi for runtime UI, layout, forms, and ordinary UI text.
 - Use Dear ImGui only for developer/debug UI.
 - Use bgfx/bx/bimg utilities where practical, without vendoring broad external trees.
-- Maintain a small `nt` 2D draw layer for sprites, materials, quads, render targets, clipping, and layer/depth ordering.
+- Maintain a small `nt` 2D draw layer for sprites, materials, quads, render targets, clipping, and layer/depth ordering. The shader/material asset pipeline is planned in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
 - Build future rich text spans/effects on top of the engine-owned `Text` layout data. RmlUi text remains independent and is not a replacement for per-glyph animation/effect metadata.
 
 ## View IDs
@@ -54,6 +54,10 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
   binaries are build/runtime assets loaded from
   `assets/shaders/bgfx/{linux-glsl,android-essl,web-essl100}`. Runtime code does
   not include generated shader headers or compile shader source.
+- User-provided project shaders/materials should follow
+  [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): source is
+  an authoring asset, `shaderc` produces platform/profile variants during editor/import/export
+  workflows, and shipped runtimes load compiled bgfx binaries rather than compiling source.
 
 ## Deferred (Next Slice)
 
