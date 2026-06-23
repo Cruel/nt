@@ -143,6 +143,14 @@ void DebugUI::begin_frame(const SurfaceMetrics& surface)
     ImGui::NewFrame();
 }
 
+void DebugUI::set_perf_logging_enabled(bool enabled)
+{
+    m_perf_logging_enabled = enabled;
+    if (m_runtime_ui) {
+        m_runtime_ui->enable_render_perf_logging(enabled);
+    }
+}
+
 void DebugUI::end_frame()
 {
     if (!m_initialized)
@@ -156,9 +164,7 @@ void DebugUI::end_frame()
         ImGui::Text("FPS: %.1f", io.Framerate);
         ImGui::Text("Frame time: %.3f ms", 1000.0f / io.Framerate);
         if (ImGui::Checkbox("Render Perf Logging", &m_perf_logging_enabled)) {
-            if (m_runtime_ui) {
-                m_runtime_ui->enable_render_perf_logging(m_perf_logging_enabled);
-            }
+            set_perf_logging_enabled(m_perf_logging_enabled);
         }
         ImGui::Separator();
 

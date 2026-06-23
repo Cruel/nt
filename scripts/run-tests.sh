@@ -4,19 +4,33 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PRESET="${PRESET:-linux-debug}"
-BUILD_DIR="${BUILD_DIR:-build/$PRESET}"
+RELEASE=0
 COMPAT=0
 CTEST_ARGS=()
-COMPAT_MARKER="$PROJECT_ROOT/$BUILD_DIR/rmlui-base-direct-compat.enabled"
 
 for arg in "$@"; do
-    if [ "$arg" = "--compat" ]; then
-        COMPAT=1
-    else
-        CTEST_ARGS+=("$arg")
-    fi
+    case "$arg" in
+        --release)
+            RELEASE=1
+            ;;
+        --compat)
+            COMPAT=1
+            ;;
+        *)
+            CTEST_ARGS+=("$arg")
+            ;;
+    esac
 done
+
+if [ -n "${PRESET:-}" ]; then
+    PRESET="$PRESET"
+elif [ "$RELEASE" = "1" ]; then
+    PRESET="linux-release"
+else
+    PRESET="linux-debug"
+fi
+BUILD_DIR="${BUILD_DIR:-build/$PRESET}"
+COMPAT_MARKER="$PROJECT_ROOT/$BUILD_DIR/rmlui-base-direct-compat.enabled"
 
 cd "$PROJECT_ROOT"
 

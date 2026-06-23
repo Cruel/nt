@@ -334,6 +334,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         } else {
             debug_ui_initialized = true;
             m_debug_ui.set_runtime_ui(&m_runtime_ui);
+            m_debug_ui.set_perf_logging_enabled(m_render_perf_logging);
             SDL_Log("[engine] debug UI initialized");
         }
     }

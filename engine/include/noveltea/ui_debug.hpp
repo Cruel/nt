@@ -33,6 +33,7 @@ public:
     void toggle_visibility() { m_visible = !m_visible; }
 
     void set_runtime_ui(RuntimeUI* ui) { m_runtime_ui = ui; }
+    void set_perf_logging_enabled(bool enabled);
 
     void log_printf(const char* fmt, ...);
 
