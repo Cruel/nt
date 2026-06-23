@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <array>
 #include <cstdio>
 #include <cstdint>
 #include <memory>
@@ -71,9 +72,45 @@ ShaderMaterialProject make_demo_shader_materials()
         .filtering = MaterialTextureSampler::ClampLinear,
     });
 
+    ShaderStageDefinition rmlui_vertex;
+    rmlui_vertex.stage = ShaderStage::Vertex;
+    rmlui_vertex.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin"},
+    };
+
+    ShaderStageDefinition noise_fragment;
+    noise_fragment.stage = ShaderStage::Fragment;
+    noise_fragment.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin"},
+    };
+
+    ShaderDefinition rmlui_noise_shader;
+    rmlui_noise_shader.id = ShaderId("ui/noise_panel");
+    rmlui_noise_shader.display_name = "RmlUi Noise Panel";
+    rmlui_noise_shader.roles = {ShaderRole::RmlUiDecorator};
+    rmlui_noise_shader.stages = {std::move(rmlui_vertex), std::move(noise_fragment)};
+    ShaderUniformDeclaration dimensions;
+    dimensions.name = "u_dimensions";
+    dimensions.type = ShaderUniformType::Vec2;
+    dimensions.default_value = std::array<float, 2>{1.0f, 1.0f};
+    dimensions.binding = ShaderInputSemantic::RmlUiPaintDimensions;
+    rmlui_noise_shader.uniforms.push_back(std::move(dimensions));
+
+    MaterialDefinition rmlui_material;
+    rmlui_material.id = MaterialId("ui/noise_panel");
+    rmlui_material.role = ShaderRole::RmlUiDecorator;
+    rmlui_material.shader = ShaderId("ui/noise_panel");
+    rmlui_material.display_name = "RmlUi Noise Panel";
+
     ShaderMaterialProject project;
     project.shaders.push_back(std::move(shader));
+    project.shaders.push_back(std::move(rmlui_noise_shader));
     project.materials.push_back(std::move(material));
+    project.materials.push_back(std::move(rmlui_material));
     return project;
 }
 
@@ -346,7 +383,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     const bool should_load_runtime_document =
         run_config.runtime_ui_document.empty() && run_config.demo_mode == DemoMode::None;
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
-                                 &m_scripts)) {
+                                 &m_scripts, &m_demo_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else {
         m_runtime_ui.set_rmlui_base_direct_compatibility(run_config.rmlui_base_direct_compat);

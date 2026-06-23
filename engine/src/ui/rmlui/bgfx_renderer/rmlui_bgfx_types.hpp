@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace rmlui_bgfx {
@@ -33,8 +34,18 @@ struct TextureRecord {
     TextureOwnership ownership = TextureOwnership::External;
 };
 
+enum class ShaderRecordKind {
+    Invalid,
+    Gradient,
+    Material,
+};
+
 struct ShaderRecord {
+    ShaderRecordKind kind = ShaderRecordKind::Invalid;
     GradientRecord gradient;
+    RmlUiMaterialShaderHandle material;
+    Rml::Vector2f paint_dimensions;
+    std::string value;
 };
 
 struct ScissorState {

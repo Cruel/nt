@@ -80,9 +80,9 @@ private:
     TweenService m_tweens;
     script::ScriptRuntime m_scripts;
     script::RuntimeScriptExecutor m_script_executor;
+    ShaderMaterialProject m_demo_shader_materials;
     RuntimeUI m_runtime_ui;
     core::RuntimeSessionHost m_runtime_host;
-    ShaderMaterialProject m_demo_shader_materials;
     DebugUI m_debug_ui;
     bool m_initialized = false;
     bool m_running = false;

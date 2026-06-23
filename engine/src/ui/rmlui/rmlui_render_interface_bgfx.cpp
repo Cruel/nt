@@ -218,7 +218,8 @@ ClipOperationPlan clip_operation_plan(Rml::ClipMaskOperation operation)
 struct RenderInterface::Impl {
     explicit Impl(const RendererConfig& config)
         : shader_provider(config.shaders), textures_provider(config.textures),
-          diagnostics(config.diagnostics), perf_logger(config.perf_logger),
+          diagnostics(config.diagnostics), material_shader_provider(config.material_shaders),
+          perf_logger(config.perf_logger),
           pass_builder(config.views.begin, config.views.end, &perf),
           perf_logging_enabled(config.enable_perf_logging)
     {
@@ -274,6 +275,10 @@ struct RenderInterface::Impl {
         for (auto& [_, geometry] : geometries) {
             destroy_geometry(geometry);
         }
+        for (auto& [_, shader] : shaders) {
+            release_shader_record(shader);
+        }
+        shaders.clear();
         for (auto& [_, texture] : textures) {
             if (texture_ownership_releases_handle(texture.ownership) &&
                 bgfx::isValid(texture.handle)) {
@@ -346,6 +351,15 @@ struct RenderInterface::Impl {
             return BGFX_INVALID_HANDLE;
         }
         return shader_provider->load_program(requested_program);
+    }
+
+    void release_shader_record(ShaderRecord& shader)
+    {
+        if (shader.kind == ShaderRecordKind::Material && shader.material.valid() &&
+            material_shader_provider) {
+            material_shader_provider->release_decorator_shader(shader.material);
+        }
+        shader = {};
     }
 
     void log_warning(std::string_view message) const
@@ -853,7 +867,8 @@ struct RenderInterface::Impl {
                 auto shader_it = shaders.find(command.shader);
                 auto geometry_it = geometries.find(command.geometry);
                 if (shader_it != shaders.end() && geometry_it != geometries.end()) {
-                    submit_gradient(shader_it->second, geometry_it->second, command.translation);
+                    submit_shader(shader_it->second, geometry_it->second, command.translation,
+                                  command.texture);
                 }
                 break;
             }
@@ -1475,8 +1490,8 @@ struct RenderInterface::Impl {
             pass_builder.exhausted())
             return;
         LayerRecord* layer = current_layer();
-        if (!layer || shader.gradient.kind == GradientKind::Invalid ||
-            shader.gradient.stop_count == 0)
+        if (!layer || shader.kind != ShaderRecordKind::Gradient ||
+            shader.gradient.kind == GradientKind::Invalid || shader.gradient.stop_count == 0)
             return;
         const int lw = layer->texture_width;
         const int lh = layer->texture_height;
@@ -1493,9 +1508,87 @@ struct RenderInterface::Impl {
                                   stencil_test_state()});
     }
 
+    void submit_material_shader(const ShaderRecord& shader, const GeometryRecord& geometry,
+                                Rml::Vector2f translation, Rml::TextureHandle texture)
+    {
+        if (frame_failed || !material_shader_provider ||
+            shader.kind != ShaderRecordKind::Material || !shader.material.valid() ||
+            geometry.index_count == 0 || pass_builder.exhausted())
+            return;
+        LayerRecord* layer = current_layer();
+        if (!layer)
+            return;
+        const int lw = layer->texture_width;
+        const int lh = layer->texture_height;
+        auto pass = pass_builder.geometry(layer->framebuffer, lw, lh, "RmlUi.MaterialShader",
+                                          RmlUiPassReason::OrdinaryGeometry);
+        if (!pass)
+            return;
+
+        bgfx::TextureHandle bgfx_texture = white_texture;
+        int texture_width = 1;
+        int texture_height = 1;
+        if (auto it = textures.find(texture);
+            it != textures.end() && bgfx::isValid(it->second.handle)) {
+            bgfx_texture = it->second.handle;
+            texture_width = it->second.dimensions.x;
+            texture_height = it->second.dimensions.y;
+        }
+
+        Rml::Rectanglei local_scissor = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+        if (scissor_enabled) {
+            local_scissor = clamp_scissor_local(scissor_region, layer->bounds.framebuffer);
+            if (local_scissor.Width() <= 0 || local_scissor.Height() <= 0)
+                return;
+        }
+
+        RmlUiMaterialShaderDrawContext context;
+        context.view = pass->view;
+        context.vertex_buffer = geometry.vb;
+        context.index_buffer = geometry.ib;
+        context.index_count = geometry.index_count;
+        context.projection = layer->projection;
+        context.transform = transform_valid ? transform : identity;
+        context.translation = translation;
+        context.scissor_enabled = scissor_enabled;
+        context.local_scissor = local_scissor;
+        context.clip_mask_enabled = layer->clip_mask_enabled;
+        context.stencil_state = stencil_test_state();
+        context.texture = bgfx_texture;
+        context.texture_width = texture_width;
+        context.texture_height = texture_height;
+        context.paint_dimensions = shader.paint_dimensions;
+        context.dpi_scale = surface.scale_x;
+        context.projection_uniform = projection_uniform;
+        context.transform_uniform = transform_uniform;
+        context.translate_uniform = translate_uniform;
+        context.white_texture = white_texture;
+        context.premultiplied_blend_state = kRmlBlendState;
+
+        if (material_shader_provider->submit_decorator_shader(shader.material, context)) {
+            perf.add_geometry(uint64_t(lw) * uint64_t(lh), geometry.index_count);
+        }
+    }
+
+    void submit_shader(const ShaderRecord& shader, const GeometryRecord& geometry,
+                       Rml::Vector2f translation, Rml::TextureHandle texture)
+    {
+        switch (shader.kind) {
+        case ShaderRecordKind::Gradient:
+            submit_gradient(shader, geometry, translation);
+            break;
+        case ShaderRecordKind::Material:
+            submit_material_shader(shader, geometry, translation, texture);
+            break;
+        case ShaderRecordKind::Invalid:
+            break;
+        }
+    }
+
     ShaderProvider* shader_provider = nullptr;
     TextureLoader* textures_provider = nullptr;
     Diagnostics* diagnostics = nullptr;
+    MaterialShaderProvider* material_shader_provider = nullptr;
     PerfLogger* perf_logger = nullptr;
     bgfx::VertexLayout layout;
     bgfx::VertexLayout fullscreen_layout;
@@ -2029,15 +2122,46 @@ Rml::CompiledShaderHandle RenderInterface::CompileShader(const Rml::String& name
                                                          const Rml::Dictionary& parameters)
 {
     GradientRecord gradient = make_invalid_gradient();
-    if (!populate_gradient(gradient, name, parameters)) {
-        std::fprintf(stderr, "[rmlui] shader '%s' is not supported by the bgfx renderer\n",
-                     name.c_str());
-        return 0;
+    if (populate_gradient(gradient, name, parameters)) {
+        const Rml::CompiledShaderHandle handle = ++m_impl->shader_counter;
+        ShaderRecord record;
+        record.kind = ShaderRecordKind::Gradient;
+        record.gradient = gradient;
+        m_impl->shaders.emplace(handle, std::move(record));
+        return handle;
     }
 
-    const Rml::CompiledShaderHandle handle = ++m_impl->shader_counter;
-    m_impl->shaders.emplace(handle, ShaderRecord{gradient});
-    return handle;
+    if (name == "shader") {
+        const Rml::String value = Rml::Get(parameters, "value", Rml::String());
+        const Rml::Vector2f dimensions = Rml::Get(parameters, "dimensions", Rml::Vector2f(0.0f));
+        if (value.empty()) {
+            m_impl->log_warning("shader() decorator is missing a material id value");
+            return 0;
+        }
+        if (!m_impl->material_shader_provider) {
+            m_impl->log_warning(
+                "shader() decorator requested but no material shader provider is configured");
+            return 0;
+        }
+        const RmlUiMaterialShaderHandle material =
+            m_impl->material_shader_provider->compile_decorator_shader(
+                RmlUiMaterialShaderRequest{value, dimensions});
+        if (!material.valid())
+            return 0;
+
+        const Rml::CompiledShaderHandle handle = ++m_impl->shader_counter;
+        ShaderRecord record;
+        record.kind = ShaderRecordKind::Material;
+        record.material = material;
+        record.paint_dimensions = dimensions;
+        record.value = value;
+        m_impl->shaders.emplace(handle, std::move(record));
+        return handle;
+    }
+
+    std::fprintf(stderr, "[rmlui] shader '%s' is not supported by the bgfx renderer\n",
+                 name.c_str());
+    return 0;
 }
 
 void RenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
@@ -2052,12 +2176,16 @@ void RenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
         m_impl->record_shader_command(shader, geometry, translation, texture);
         return;
     }
-    m_impl->submit_gradient(shader_it->second, geometry_it->second, translation);
+    m_impl->submit_shader(shader_it->second, geometry_it->second, translation, texture);
 }
 
 void RenderInterface::ReleaseShader(Rml::CompiledShaderHandle shader)
 {
-    m_impl->shaders.erase(shader);
+    auto shader_it = m_impl->shaders.find(shader);
+    if (shader_it == m_impl->shaders.end())
+        return;
+    m_impl->release_shader_record(shader_it->second);
+    m_impl->shaders.erase(shader_it);
 }
 
 void RenderInterface::set_perf_logging_enabled(bool enabled)

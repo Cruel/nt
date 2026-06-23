@@ -278,35 +278,34 @@ Acceptance:
 - The material-backed Render2D sandbox smoke runs on Linux/Xvfb without material diagnostics.
 - Missing material/program/texture paths fall back to the default quad path and log diagnostics.
 
-### Action 6: Bridge RmlUi `shader(<string>)` To NovelTea Materials
+### Action 6: Bridge RmlUi `shader(<string>)` To NovelTea Materials `[implemented]`
 
 Goal: close the generic RmlUi shader gap using the material system.
 
-Implement:
+Implemented path:
 
-- A provider seam in reusable `rmlui_bgfx` core for material decorator shaders.
-- NovelTea adapter/provider that resolves `shader(<string>)` through `MaterialRegistry`.
-- Shader records that distinguish built-in gradients from provider-backed material shader handles.
-- Material shader submission with explicit RmlUi state:
-  - geometry
-  - translation
-  - current transform
-  - layer projection
-  - scissor
-  - clip/stencil state
-  - optional texture
-  - paint dimensions
-- RML/RCSS fixture using `decorator: shader("ui/noise_panel")`.
+- Added `MaterialShaderProvider` to reusable `rmlui_bgfx` configuration without NovelTea dependencies.
+- Extended reusable shader records so built-in gradients remain distinct from provider-backed material shader handles.
+- `CompileShader("shader", ...)` now reads RmlUi's `value` and `dimensions` parameters and asks the provider to compile a decorator material handle.
+- `RenderShader()` now dispatches gradients through the existing gradient path and provider material handles through explicit RmlUi draw state.
+- The NovelTea adapter implements the provider by resolving the string as a `MaterialId` in the current `ShaderMaterialProject`, requiring `ShaderRole::RmlUiDecorator`, resolving/loading precompiled bgfx shader binaries through `BgfxShaderProgramCache`, and binding material uniforms/samplers.
+- RmlUi decorator material submission receives explicit geometry, translation, transform, projection, scissor, clip/stencil state, optional draw texture, paint dimensions, DPI scale, and premultiplied-alpha blend state.
+- Added the `ui/noise_panel` demo material and `project:/rmlui/material_shader.rml` fixture using `decorator: shader("ui/noise_panel")`.
 
-Do not put NovelTea material headers in reusable `rmlui_bgfx` files.
+Still intentionally not implemented:
+
+- Runtime shader source compilation.
+- RCSS/query-string material uniform overrides.
+- Custom RmlUi filter materials.
+- Custom material-controlled layer/pass/framebuffer ownership.
 
 Acceptance:
 
 - Built-in gradients still render as before.
 - Generic RmlUi `shader(<string>)` resolves to a NovelTea project material id.
-- The sample material respects scissor, transforms, clip masks, layers, and premultiplied-alpha output.
-- Linux readback, resize-readback, and Web release/profile smoke pass.
-- `RMLUI_RENDER_INTERFACE_AUDIT.md` moves generic `shader(<string>)` from planned/unsupported to implemented or verified as appropriate.
+- The material shader path respects scissor, transforms, clip masks, layers, and premultiplied-alpha output through the same RmlUi draw state used by ordinary shader geometry.
+- Linux material-shader fixture smoke, readback, and resize-readback pass.
+- Web release/profile smoke remains part of the final gate for this renderer action.
 
 ### Action 7: Add Missing RmlUi Feature Fixtures
 
@@ -394,5 +393,5 @@ Start from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, which is now the
 
 Action 1 is implemented: use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
 
-Begin Action 6 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 5: build on the implemented project-schema ShaderDefinition/MaterialDefinition records, runtime shader-program resolver/cache, host shader compiler service, and engine 2D material binder. Bridge RmlUi shader(<string>) decorator usage to NovelTea material ids through a provider seam in reusable rmlui_bgfx and a NovelTea adapter. Keep built-in gradients unchanged, and do not add runtime shader source compilation.
+Begin Action 7: add missing RmlUi feature fixtures, starting with `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, `BlendMode::Replace` if reachable through markup/property behavior, nested `PopLayer()` state restoration, and resource lifecycle tests. Preserve the implemented Action 6 material bridge: RmlUi shader(<string>) resolves to NovelTea material ids through the reusable rmlui_bgfx provider seam, built-in gradients stay unchanged, and runtime shader source compilation remains out of scope.
 ```

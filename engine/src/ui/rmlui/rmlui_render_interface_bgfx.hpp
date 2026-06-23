@@ -9,6 +9,10 @@
 
 #include <memory>
 
+namespace noveltea {
+struct ShaderMaterialProject;
+}
+
 namespace noveltea::ui::rmlui {
 
 [[nodiscard]] rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface);
@@ -16,7 +20,8 @@ namespace noveltea::ui::rmlui {
 
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
-    BgfxRenderInterface(const SurfaceMetrics& surface, const assets::AssetManager& assets);
+    BgfxRenderInterface(const SurfaceMetrics& surface, const assets::AssetManager& assets,
+                        const ShaderMaterialProject* shader_materials = nullptr);
     ~BgfxRenderInterface() override;
 
     explicit operator bool() const;

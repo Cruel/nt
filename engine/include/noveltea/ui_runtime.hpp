@@ -20,6 +20,7 @@ class AssetManager;
 namespace script {
 class ScriptRuntime;
 }
+struct ShaderMaterialProject;
 class TweenService;
 
 class RuntimeUI {
@@ -31,7 +32,8 @@ public:
     RuntimeUI& operator=(const RuntimeUI&) = delete;
 
     bool initialize(const assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr,
-                    bool load_demo_document = true, script::ScriptRuntime* scripts = nullptr);
+                    bool load_demo_document = true, script::ScriptRuntime* scripts = nullptr,
+                    const ShaderMaterialProject* shader_materials = nullptr);
     bool process_event(const SDL_Event& event);
     void resize(const SurfaceMetrics& surface);
     void begin_frame(float delta_time);

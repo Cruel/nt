@@ -20,7 +20,7 @@ Feature-wise, the renderer is broadly complete for the advanced RmlUi effects cu
 
 The largest unsupported or under-verified areas are:
 
-1. Generic `shader(<string>)` decorators are not supported yet. `CompileShader()` only accepts the built-in gradient shader names. The intended path is now defined in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): resolve the string as a NovelTea project material id, not as runtime shader source.
+1. Generic `shader(<string>)` decorators are implemented through the NovelTea material bridge. The string resolves as a NovelTea project material id with `ShaderRole::RmlUiDecorator`; it is not runtime shader source. A focused `material_shader.rml` fixture exists, while broader readback-gallery coverage can still be expanded.
 2. Custom application/plugin filter names are not supported. `CompileFilter()` returns zero for unknown names. Custom filter materials are deferred until after the base material system and RmlUi decorator-material bridge are stable.
 3. `backdrop-filter` is not covered by a focused fixture. It may work if RmlUi lowers it through the same layer/filter calls, but we should not mark it verified without a fixture.
 4. CSS `box-shadow` is not covered by a focused fixture. The building blocks exist through layers, filters, render textures, and drop-shadow code, but the property itself should be tested.
@@ -50,8 +50,8 @@ The largest unsupported or under-verified areas are:
 | `SaveLayerAsMaskImage()` | Implemented | Verified | Copies valid content bounds when tighter than layer bounds, stores mask metadata, and returns a mask-image filter handle. |
 | `CompileFilter()` | Implemented for built-ins | Verified for representative built-ins | Supports opacity, blur, drop-shadow, brightness, contrast, invert, grayscale, sepia, hue-rotate, saturate, and saved mask-image filters. Unsupported custom filter names return zero. |
 | `ReleaseFilter()` | Implemented | Verified for saved mask ownership | Erases filter records and destroys owned saved-mask textures exactly once. Add broader filter lifecycle coverage if custom filters are introduced. |
-| `CompileShader()` | Implemented for gradients only | Verified for gradients | Supports linear, radial, conic, and repeating variants. Generic `shader(<string>)` custom decorators are planned as NovelTea project material id references in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md). |
-| `RenderShader()` | Implemented for gradients only | Verified for gradient fixtures | Records/renders gradient shader geometry using the same geometry bounds as ordinary geometry. Texture parameter is currently irrelevant for gradient shaders. Future material shader handles should route through the material provider described in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md). |
+| `CompileShader()` | Implemented for gradients and material decorators | Verified for gradients; material path smoke-tested | Supports linear, radial, conic, and repeating variants. Generic `shader(<string>)` decorators resolve the string as a NovelTea `ShaderRole::RmlUiDecorator` material id through the provider bridge in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md). |
+| `RenderShader()` | Implemented for gradients and material decorators | Verified for gradients; material path smoke-tested | Records/renders shader geometry using the same geometry bounds as ordinary geometry. Gradient handles use the built-in gradient path; material handles submit through explicit provider draw state including transform, scissor, clip/stencil, optional texture, and paint dimensions. |
 | `ReleaseShader()` | Implemented | Needs lifecycle test | Erases shader records. Add targeted release/stale-handle test. |
 
 ## Feature Coverage By RmlUi Documentation Category
@@ -66,7 +66,7 @@ The largest unsupported or under-verified areas are:
 | Render textures | `box-shadow` | Implemented through `SaveLayerAsTexture()` | Add direct CSS `box-shadow` fixture. |
 | Mask images | `mask-image` | Implemented and verified | Add image-file mask fixture in addition to gradient-generated mask if needed. |
 | Filters | `filter`, `backdrop-filter`, blurred `box-shadow` | Built-in filter set implemented; color-only folding and bounded blur/drop-shadow paths exist | Add `backdrop-filter` fixture; define blur-quality expectations. |
-| Shaders | `shader`, linear/radial/conic gradients and repeating variants | Built-in gradients implemented; generic `shader(<string>)` unsupported but planned | Implement the material-provider bridge from [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), resolving `shader(<string>)` as a NovelTea project material id. |
+| Shaders | `shader`, linear/radial/conic gradients and repeating variants | Built-in gradients implemented; generic `shader(<string>)` material bridge implemented | Continue expanding fixture/readback coverage for project-authored RmlUi decorator materials. |
 
 ## Rendering Convention Audit
 
@@ -86,7 +86,6 @@ Current renderer alignment:
 
 ### Unsupported
 
-- Generic `shader(<string>)` decorator. Current `CompileShader()` rejects `name == "shader"` and any non-gradient shader name. The planned fix is the RmlUi decorator-material bridge in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
 - Custom filter names from application/plugin filters. Current `CompileFilter()` only recognizes RmlUi built-ins and saved mask-image filters. Custom filter materials are a later phase of [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
 
 ### Implemented But Not Fully Verified
@@ -110,5 +109,5 @@ Current renderer alignment:
 2. Keep the `web-profile` / `pnpm run web:smoke:profile` path healthy so debug WebGL validation cannot again be mistaken for renderer runtime cost.
 3. Add focused RML fixtures for `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, generic `shader(<string>)` through the material bridge, and a `BlendMode::Replace` case if RmlUi exposes it through a property fixture.
 4. Add lifecycle tests for `ReleaseGeometry()`, `ReleaseTexture()`, `ReleaseShader()`, and nested `PopLayer()` restoration.
-5. Implement [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md) before treating generic RmlUi shader support as complete. Custom filters/custom shader decorators should use provider hooks in the reusable renderer core rather than baking NovelTea-specific behavior into `rmlui_bgfx::RenderInterface`.
+5. Expand RmlUi material-shader fixture coverage as custom UI materials become real project content. Custom filters should still use provider hooks in the reusable renderer core rather than baking NovelTea-specific behavior into `rmlui_bgfx::RenderInterface`.
 6. Defer blur quality/downsample work until the UI feature surface is locked and fixtures can detect visual regressions.

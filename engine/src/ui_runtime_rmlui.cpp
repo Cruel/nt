@@ -273,7 +273,8 @@ void RuntimeUI::cleanup_state()
 }
 
 bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window,
-                           bool load_demo_document, script::ScriptRuntime* scripts)
+                           bool load_demo_document, script::ScriptRuntime* scripts,
+                           const ShaderMaterialProject* shader_materials)
 {
     if (m_initialized)
         return true;
@@ -316,7 +317,8 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     script::install_host_print(script::detail::ScriptRuntimeAccess::state(*scripts));
 
     m_surface = sanitize_surface_metrics(m_surface);
-    m_state->render_interface = new ui::rmlui::BgfxRenderInterface(m_surface, *assets);
+    m_state->render_interface =
+        new ui::rmlui::BgfxRenderInterface(m_surface, *assets, shader_materials);
     if (!*m_state->render_interface) {
         std::fprintf(stderr, "[runtime_ui] bgfx RmlUi renderer failed to initialize\n");
         cleanup_state();

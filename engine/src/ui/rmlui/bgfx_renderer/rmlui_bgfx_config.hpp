@@ -1,5 +1,6 @@
 #pragma once
 
+#include <RmlUi/Core/Types.h>
 #include <bgfx/bgfx.h>
 
 #include <algorithm>
@@ -115,6 +116,61 @@ public:
     virtual void log_perf_line(std::string_view message) = 0;
 };
 
+struct RmlUiMaterialShaderRequest {
+    std::string_view value;
+    Rml::Vector2f paint_dimensions;
+};
+
+struct RmlUiMaterialShaderHandle {
+    uint64_t id = 0;
+
+    [[nodiscard]] bool valid() const noexcept { return id != 0; }
+    friend bool operator==(const RmlUiMaterialShaderHandle&,
+                           const RmlUiMaterialShaderHandle&) = default;
+};
+
+struct RmlUiMaterialShaderDrawContext {
+    bgfx::ViewId view = 0;
+    bgfx::VertexBufferHandle vertex_buffer = BGFX_INVALID_HANDLE;
+    bgfx::IndexBufferHandle index_buffer = BGFX_INVALID_HANDLE;
+    uint32_t index_count = 0;
+
+    const float* projection = nullptr;
+    const float* transform = nullptr;
+    Rml::Vector2f translation;
+
+    bool scissor_enabled = false;
+    Rml::Rectanglei local_scissor = Rml::Rectanglei::FromPositionSize({0, 0}, {0, 0});
+
+    bool clip_mask_enabled = false;
+    uint32_t stencil_state = 0;
+
+    bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+    int texture_width = 0;
+    int texture_height = 0;
+
+    Rml::Vector2f paint_dimensions;
+    float dpi_scale = 1.0f;
+
+    bgfx::UniformHandle projection_uniform = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle transform_uniform = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle translate_uniform = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle white_texture = BGFX_INVALID_HANDLE;
+    uint64_t premultiplied_blend_state = 0;
+};
+
+class MaterialShaderProvider {
+public:
+    virtual ~MaterialShaderProvider() = default;
+
+    [[nodiscard]] virtual RmlUiMaterialShaderHandle
+    compile_decorator_shader(const RmlUiMaterialShaderRequest& request) = 0;
+    virtual void release_decorator_shader(RmlUiMaterialShaderHandle shader) = 0;
+    [[nodiscard]] virtual bool
+    submit_decorator_shader(RmlUiMaterialShaderHandle shader,
+                            const RmlUiMaterialShaderDrawContext& context) = 0;
+};
+
 struct RendererConfig {
     SurfaceMetrics surface{};
     ViewRange views{};
@@ -122,6 +178,7 @@ struct RendererConfig {
     TextureLoader* textures = nullptr;
     Diagnostics* diagnostics = nullptr;
     PerfLogger* perf_logger = nullptr;
+    MaterialShaderProvider* material_shaders = nullptr;
     bool enable_perf_logging = false;
 };
 

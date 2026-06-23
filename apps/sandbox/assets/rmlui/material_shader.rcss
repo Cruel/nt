@@ -1,0 +1,54 @@
+body {
+    margin: 0;
+    background-color: #18202d;
+    font-family: Liberation Sans;
+    color: #ffffff;
+}
+
+#fixture {
+    position: absolute;
+    left: 64px;
+    top: 56px;
+    width: 520px;
+    height: 420px;
+}
+
+.panel {
+    decorator: shader("ui/noise_panel");
+    color: #ffffffcc;
+    padding: 18px;
+    width: 260px;
+    height: 82px;
+    border-radius: 14px;
+}
+
+.base {
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.clip-box {
+    position: absolute;
+    left: 0;
+    top: 140px;
+    width: 168px;
+    height: 72px;
+    overflow: hidden;
+    border: 2px #f6c453ff;
+}
+
+.clipped {
+    position: absolute;
+    left: -34px;
+    top: -20px;
+    width: 260px;
+    height: 112px;
+}
+
+.transformed {
+    position: absolute;
+    left: 230px;
+    top: 230px;
+    transform: rotate(-9deg);
+}

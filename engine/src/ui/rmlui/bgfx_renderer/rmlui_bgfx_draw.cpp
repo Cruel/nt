@@ -79,6 +79,7 @@ bool BgfxDrawContext::submit_gradient(const RmlUiPass& pass, const BgfxDrawResou
 {
     if (!bgfx::isValid(resources.gradient_program) || !bgfx::isValid(geometry.vb) ||
         !bgfx::isValid(geometry.ib) || geometry.index_count == 0 ||
+        shader.kind != ShaderRecordKind::Gradient ||
         shader.gradient.kind == GradientKind::Invalid || shader.gradient.stop_count == 0) {
         return false;
     }

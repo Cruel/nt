@@ -1,0 +1,15 @@
+<rml>
+<head>
+    <title>RmlUi material shader fixture</title>
+    <link type="text/rcss" href="material_shader.rcss"/>
+</head>
+<body>
+    <div id="fixture">
+        <div class="panel base">shader("ui/noise_panel")</div>
+        <div class="clip-box">
+            <div class="panel clipped">scissor / overflow clip</div>
+        </div>
+        <div class="panel transformed">transformed material shader</div>
+    </div>
+</body>
+</rml>

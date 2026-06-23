@@ -18,6 +18,22 @@ std::string read_text(const std::filesystem::path& path)
 
 } // namespace
 
+TEST_CASE("RmlUi material shader fixture covers generic shader decorator")
+{
+    const std::filesystem::path root = NOVELTEA_SOURCE_DIR;
+    const std::filesystem::path fixture = root / "apps/sandbox/assets/rmlui/material_shader.rml";
+    const std::filesystem::path stylesheet =
+        root / "apps/sandbox/assets/rmlui/material_shader.rcss";
+
+    const std::string rml = read_text(fixture);
+    const std::string rcss = read_text(stylesheet);
+
+    CHECK(rml.find("material shader fixture") != std::string::npos);
+    CHECK(rcss.find("shader(\"ui/noise_panel\")") != std::string::npos);
+    CHECK(rcss.find("overflow: hidden") != std::string::npos);
+    CHECK(rcss.find("transform: rotate") != std::string::npos);
+}
+
 TEST_CASE("RmlUi advanced gallery covers renderer acceptance features")
 {
     const std::filesystem::path root = NOVELTEA_SOURCE_DIR;

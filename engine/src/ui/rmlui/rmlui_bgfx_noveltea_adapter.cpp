@@ -1,18 +1,35 @@
 #include "ui/rmlui/rmlui_render_interface_bgfx.hpp"
 
+#include "noveltea/render/material.hpp"
+#include "noveltea/render/shader_manifest.hpp"
+#include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
+#include "render/bgfx/bgfx_shader_program_cache.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
 
+#include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/SystemInterface.h>
 #include <bimg/decode.h>
 #include <bx/allocator.h>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdio>
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace noveltea::ui::rmlui {
 
 namespace {
+
+constexpr std::string_view kDrawTextureSource = "$draw.texture";
 
 [[nodiscard]] bgfx_backend::SystemShader to_noveltea_shader(rmlui_bgfx::SystemProgram program)
 {
@@ -41,13 +58,84 @@ namespace {
     return bgfx_backend::SystemShader::RmlUi;
 }
 
+[[nodiscard]] const MaterialUniformAssignment*
+find_uniform_assignment(const MaterialDefinition& material, std::string_view name)
+{
+    const auto found = std::find_if(
+        material.uniforms.begin(), material.uniforms.end(),
+        [name](const MaterialUniformAssignment& assignment) { return assignment.name == name; });
+    return found == material.uniforms.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] const MaterialTextureAssignment*
+find_texture_assignment(const MaterialDefinition& material, std::string_view name)
+{
+    const auto found = std::find_if(
+        material.textures.begin(), material.textures.end(),
+        [name](const MaterialTextureAssignment& assignment) { return assignment.sampler == name; });
+    return found == material.textures.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] bool starts_with(std::string_view value, std::string_view prefix) noexcept
+{
+    return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+}
+
+void premultiply_rgba(std::vector<std::uint8_t>& rgba)
+{
+    for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) {
+        const std::uint32_t alpha = rgba[i + 3];
+        rgba[i + 0] = static_cast<std::uint8_t>((std::uint32_t(rgba[i + 0]) * alpha + 127u) / 255u);
+        rgba[i + 1] = static_cast<std::uint8_t>((std::uint32_t(rgba[i + 1]) * alpha + 127u) / 255u);
+        rgba[i + 2] = static_cast<std::uint8_t>((std::uint32_t(rgba[i + 2]) * alpha + 127u) / 255u);
+    }
+}
+
+void log_program_diagnostic(std::string_view prefix, const ShaderProgramDiagnostic& diagnostic)
+{
+    std::fprintf(stderr, "[rmlui] %.*s: %s: %s\n", int(prefix.size()), prefix.data(),
+                 diagnostic.context.c_str(), diagnostic.message.c_str());
+}
+
+[[nodiscard]] std::array<float, 4>
+bound_uniform_value(const ShaderUniformDeclaration& uniform,
+                    const MaterialUniformAssignment* assignment,
+                    const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context)
+{
+    if (uniform.binding) {
+        switch (*uniform.binding) {
+        case ShaderInputSemantic::EngineTime: {
+            Rml::SystemInterface* system = Rml::GetSystemInterface();
+            return {system ? static_cast<float>(system->GetElapsedTime()) : 0.0f, 0.0f, 0.0f, 0.0f};
+        }
+        case ShaderInputSemantic::RmlUiPaintDimensions:
+            return {context.paint_dimensions.x, context.paint_dimensions.y, 0.0f, 0.0f};
+        case ShaderInputSemantic::RmlUiDpiScale:
+            return {context.dpi_scale, 0.0f, 0.0f, 0.0f};
+        }
+    }
+
+    const ShaderUniformValue* value =
+        assignment != nullptr ? &assignment->value : &uniform.default_value;
+    const auto packed = bgfx_backend::pack_material_uniform(*value);
+    return packed.supported ? packed.value : std::array<float, 4>{};
+}
+
 } // namespace
 
 struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                                             rmlui_bgfx::TextureLoader,
                                             rmlui_bgfx::Diagnostics,
-                                            rmlui_bgfx::PerfLogger {
-    explicit Adapter(const assets::AssetManager& asset_manager) : assets(asset_manager) {}
+                                            rmlui_bgfx::PerfLogger,
+                                            rmlui_bgfx::MaterialShaderProvider {
+    explicit Adapter(const assets::AssetManager& asset_manager,
+                     const ShaderMaterialProject* shader_material_project)
+        : assets(asset_manager), shader_materials(shader_material_project),
+          program_cache(asset_manager)
+    {
+    }
+
+    ~Adapter() override { clear_material_resources(); }
 
     bgfx::ProgramHandle load_program(rmlui_bgfx::SystemProgram program) override
     {
@@ -111,7 +199,221 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         std::fprintf(stderr, "%.*s\n", int(message.size()), message.data());
     }
 
+    rmlui_bgfx::RmlUiMaterialShaderHandle
+    compile_decorator_shader(const rmlui_bgfx::RmlUiMaterialShaderRequest& request) override
+    {
+        if (!shader_materials) {
+            warning(
+                "shader() decorator requested but no NovelTea shader/material project is bound");
+            return {};
+        }
+
+        const auto parsed_id = parse_material_id(request.value);
+        if (!parsed_id.id) {
+            for (const MaterialDiagnostic& diagnostic : parsed_id.diagnostics) {
+                std::fprintf(stderr, "[rmlui] invalid shader() material id '%.*s': %s\n",
+                             int(request.value.size()), request.value.data(),
+                             diagnostic.message.c_str());
+            }
+            return {};
+        }
+
+        const MaterialDefinition* material = find_material(*shader_materials, *parsed_id.id);
+        if (!material) {
+            std::fprintf(stderr, "[rmlui] unknown shader() material id '%s'\n",
+                         parsed_id.id->value().c_str());
+            return {};
+        }
+        if (material->role != ShaderRole::RmlUiDecorator) {
+            std::fprintf(
+                stderr,
+                "[rmlui] shader() material '%s' has role '%.*s', expected 'rmlui-decorator'\n",
+                parsed_id.id->value().c_str(), int(to_string(material->role).size()),
+                to_string(material->role).data());
+            return {};
+        }
+
+        const auto resolved = resolve_material_shader_program(*shader_materials, *parsed_id.id,
+                                                              program_cache.active_variant());
+        if (!resolved.program) {
+            for (const auto& diagnostic : resolved.diagnostics)
+                log_program_diagnostic("shader() material resolution failed", diagnostic);
+            return {};
+        }
+
+        const std::uint64_t id = ++next_material_shader_id;
+        material_shader_records.emplace(
+            id, MaterialShaderRecord{*parsed_id.id, request.paint_dimensions});
+        return rmlui_bgfx::RmlUiMaterialShaderHandle{id};
+    }
+
+    void release_decorator_shader(rmlui_bgfx::RmlUiMaterialShaderHandle shader) override
+    {
+        material_shader_records.erase(shader.id);
+    }
+
+    bool submit_decorator_shader(rmlui_bgfx::RmlUiMaterialShaderHandle shader,
+                                 const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context) override
+    {
+        const auto record_it = material_shader_records.find(shader.id);
+        if (record_it == material_shader_records.end() || !shader_materials)
+            return false;
+
+        const MaterialDefinition* material =
+            find_material(*shader_materials, record_it->second.material_id);
+        if (!material || material->role != ShaderRole::RmlUiDecorator)
+            return false;
+
+        const auto resolved = resolve_material_shader_program(
+            *shader_materials, record_it->second.material_id, program_cache.active_variant());
+        if (!resolved.program) {
+            for (const auto& diagnostic : resolved.diagnostics)
+                log_program_diagnostic("shader() material resolution failed", diagnostic);
+            return false;
+        }
+
+        std::vector<ShaderProgramDiagnostic> diagnostics;
+        const bgfx::ProgramHandle program =
+            program_cache.load_program(*resolved.program, &diagnostics);
+        for (const auto& diagnostic : diagnostics)
+            log_program_diagnostic("shader() material program load failed", diagnostic);
+        if (!bgfx::isValid(program))
+            return false;
+
+        if (context.scissor_enabled) {
+            const Rml::Rectanglei scissor = context.local_scissor;
+            if (scissor.Width() <= 0 || scissor.Height() <= 0)
+                return false;
+            bgfx::setScissor(uint16_t(scissor.Left()), uint16_t(scissor.Top()),
+                             uint16_t(scissor.Width()), uint16_t(scissor.Height()));
+        }
+
+        bgfx::setVertexBuffer(0, context.vertex_buffer);
+        bgfx::setIndexBuffer(context.index_buffer, 0, context.index_count);
+        bgfx::setUniform(context.projection_uniform, context.projection);
+        bgfx::setUniform(context.transform_uniform, context.transform);
+        const float translate[4] = {context.translation.x, context.translation.y, 0.0f, 0.0f};
+        bgfx::setUniform(context.translate_uniform, translate);
+
+        for (const auto& uniform : resolved.program->uniforms) {
+            const MaterialUniformAssignment* assignment =
+                find_uniform_assignment(*material, uniform.name);
+            const std::array<float, 4> value = bound_uniform_value(uniform, assignment, context);
+            bgfx::setUniform(uniform_handle(uniform.name), value.data());
+        }
+
+        uint8_t stage = 0;
+        for (const auto& sampler : resolved.program->samplers) {
+            const MaterialTextureAssignment* assignment =
+                find_texture_assignment(*material, sampler.name);
+            if (!assignment)
+                continue;
+            const bgfx::TextureHandle texture = texture_for_assignment(*assignment, context);
+            if (!bgfx::isValid(texture))
+                continue;
+            bgfx::setTexture(stage++, sampler_handle(sampler.name), texture,
+                             bgfx_backend::bgfx_sampler_flags(assignment->filtering));
+        }
+
+        bgfx::setState(context.premultiplied_blend_state);
+        if (context.clip_mask_enabled)
+            bgfx::setStencil(context.stencil_state);
+        bgfx::submit(context.view, program);
+        return true;
+    }
+
+    bgfx::UniformHandle uniform_handle(std::string_view name)
+    {
+        const std::string key(name);
+        if (const auto found = uniforms.find(key); found != uniforms.end())
+            return found->second;
+        const bgfx::UniformHandle handle =
+            bgfx::createUniform(key.c_str(), bgfx::UniformType::Vec4);
+        uniforms.emplace(key, handle);
+        return handle;
+    }
+
+    bgfx::UniformHandle sampler_handle(std::string_view name)
+    {
+        const std::string key(name);
+        if (const auto found = samplers.find(key); found != samplers.end())
+            return found->second;
+        const bgfx::UniformHandle handle =
+            bgfx::createUniform(key.c_str(), bgfx::UniformType::Sampler);
+        samplers.emplace(key, handle);
+        return handle;
+    }
+
+    bgfx::TextureHandle
+    texture_for_assignment(const MaterialTextureAssignment& assignment,
+                           const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context)
+    {
+        if (assignment.source == kDrawTextureSource) {
+            return bgfx::isValid(context.texture) ? context.texture : context.white_texture;
+        }
+        if (!starts_with(assignment.source, "project:/") &&
+            !starts_with(assignment.source, "system:/")) {
+            std::fprintf(stderr, "[rmlui] unsupported material texture source '%s'\n",
+                         assignment.source.c_str());
+            return context.white_texture;
+        }
+
+        const std::string key =
+            assignment.source + "|" + std::string(to_string(assignment.filtering));
+        if (const auto found = textures.find(key); found != textures.end())
+            return found->second;
+
+        rmlui_bgfx::LoadedTexture loaded;
+        std::string error_message;
+        if (!load_rgba8(assignment.source.c_str(), loaded, &error_message)) {
+            std::fprintf(stderr, "[rmlui] material texture load failed: %s\n",
+                         error_message.c_str());
+            return context.white_texture;
+        }
+        premultiply_rgba(loaded.rgba8);
+        const bgfx::TextureHandle texture = bgfx::createTexture2D(
+            uint16_t(loaded.width), uint16_t(loaded.height), false, 1, bgfx::TextureFormat::RGBA8,
+            bgfx_backend::bgfx_sampler_flags(assignment.filtering),
+            bgfx::copy(loaded.rgba8.data(), uint32_t(loaded.rgba8.size())));
+        if (!bgfx::isValid(texture))
+            return context.white_texture;
+        textures.emplace(key, texture);
+        return texture;
+    }
+
+    void clear_material_resources()
+    {
+        for (auto& [_, texture] : textures) {
+            if (bgfx::isValid(texture))
+                bgfx::destroy(texture);
+        }
+        textures.clear();
+        for (auto& [_, sampler] : samplers) {
+            if (bgfx::isValid(sampler))
+                bgfx::destroy(sampler);
+        }
+        samplers.clear();
+        for (auto& [_, uniform] : uniforms) {
+            if (bgfx::isValid(uniform))
+                bgfx::destroy(uniform);
+        }
+        uniforms.clear();
+        material_shader_records.clear();
+    }
+
+    struct MaterialShaderRecord {
+        MaterialId material_id;
+        Rml::Vector2f paint_dimensions;
+    };
+
     const assets::AssetManager& assets;
+    const ShaderMaterialProject* shader_materials = nullptr;
+    bgfx_backend::BgfxShaderProgramCache program_cache;
+    std::uint64_t next_material_shader_id = 0;
+    std::unordered_map<std::uint64_t, MaterialShaderRecord> material_shader_records;
+    std::unordered_map<std::string, bgfx::UniformHandle> uniforms;
+    std::unordered_map<std::string, bgfx::UniformHandle> samplers;
+    std::unordered_map<std::string, bgfx::TextureHandle> textures;
 };
 
 rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface)
@@ -127,8 +429,9 @@ rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range()
 }
 
 BgfxRenderInterface::BgfxRenderInterface(const SurfaceMetrics& surface,
-                                         const assets::AssetManager& assets)
-    : m_adapter(std::make_unique<Adapter>(assets))
+                                         const assets::AssetManager& assets,
+                                         const ShaderMaterialProject* shader_materials)
+    : m_adapter(std::make_unique<Adapter>(assets, shader_materials))
 {
     rmlui_bgfx::RendererConfig config;
     config.surface = to_rmlui_bgfx_surface(surface);
@@ -137,6 +440,7 @@ BgfxRenderInterface::BgfxRenderInterface(const SurfaceMetrics& surface,
     config.textures = m_adapter.get();
     config.diagnostics = m_adapter.get();
     config.perf_logger = m_adapter.get();
+    config.material_shaders = m_adapter.get();
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
 }
 

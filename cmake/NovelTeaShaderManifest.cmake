@@ -13,6 +13,7 @@ set(NOVELTEA_SHADER_PROGRAMS
     rmlui_blur vs_rmlui_blur.sc fs_rmlui_blur.sc
     rmlui_drop_shadow vs_rmlui_composite.sc fs_rmlui_drop_shadow.sc
     rmlui_gradient vs_rmlui.sc fs_rmlui_gradient.sc
+    rmlui_noise_panel vs_rmlui.sc fs_rmlui_noise_panel.sc
 )
 
 set(NOVELTEA_SHADER_VARIANT_DATA
