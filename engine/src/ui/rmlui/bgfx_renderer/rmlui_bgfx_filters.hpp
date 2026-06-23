@@ -52,10 +52,10 @@ private:
     [[nodiscard]] bool composite(const BgfxFilterPipelineContext& ctx, const CompositeOp& op) const;
 
     template<typename F>
-    [[nodiscard]] bool fullscreen_filter_pass(const BgfxFilterPipelineContext& ctx,
-                                              bgfx::TextureHandle source,
-                                              const RenderTargetRecord& destination,
-                                              const char* name, F&& submit_pass) const
+    [[nodiscard]] bool
+    fullscreen_filter_pass(const BgfxFilterPipelineContext& ctx, bgfx::TextureHandle source,
+                           const RenderTargetRecord& destination, const char* name, F&& submit_pass,
+                           RmlUiPassReason reason) const
     {
         if (!ctx.ensure_fullscreen_geometry || !ctx.ensure_fullscreen_geometry() ||
             !bgfx::isValid(source) || !bgfx::isValid(destination.framebuffer)) {
@@ -73,7 +73,8 @@ private:
                              destination.bounds.y == 0 &&
                              destination.bounds.w >= ctx.surface.framebuffer_width &&
                              destination.bounds.h >= ctx.surface.framebuffer_height;
-        auto pass = ctx.pass_builder.postprocess(destination.framebuffer, pass_w, pass_h, name);
+        auto pass =
+            ctx.pass_builder.postprocess(destination.framebuffer, pass_w, pass_h, name, reason);
         if (!pass) {
             return false;
         }

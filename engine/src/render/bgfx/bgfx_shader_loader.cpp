@@ -22,6 +22,8 @@ const char* system_shader_name(SystemShader shader)
         return "rmlui";
     case SystemShader::RmlUiComposite:
         return "rmlui_composite";
+    case SystemShader::RmlUiCompositeFilter:
+        return "rmlui_composite_filter";
     case SystemShader::RmlUiCopy:
         return "rmlui_copy";
     case SystemShader::RmlUiOpacity:

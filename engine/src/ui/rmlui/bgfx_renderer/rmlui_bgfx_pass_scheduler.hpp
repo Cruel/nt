@@ -20,6 +20,30 @@ enum class RmlUiPassKind {
     FinalComposite,
 };
 
+enum class RmlUiPassReason {
+    OrdinaryGeometry,
+    Gradient,
+    ClipMask,
+    StencilNormalize,
+    BaseClear,
+    LayerClear,
+    StencilClear,
+    FilterCopy,
+    FilterOpacity,
+    FilterColorMatrix,
+    FilterMaskImage,
+    FilterBlur,
+    FilterDropShadow,
+    FilterDropShadowComposite,
+    LayerScratchCopy,
+    LayerComposite,
+    FinalComposite,
+    SaveTextureCopy,
+    SaveMaskCopy,
+    OtherCopy,
+    Other,
+};
+
 struct RmlUiPassRequest {
     RmlUiPassKind kind = RmlUiPassKind::Geometry;
     uintptr_t framebuffer = 0;
@@ -31,11 +55,13 @@ struct RmlUiPassRequest {
     int width = 1;
     int height = 1;
     const char* name = "RmlUi";
+    RmlUiPassReason reason = RmlUiPassReason::Other;
 };
 
 struct RmlUiPass {
     RmlUiViewId view = 0;
     RmlUiPassRequest request;
+    bool reused = false;
 };
 
 class RmlUiRenderPassScheduler {

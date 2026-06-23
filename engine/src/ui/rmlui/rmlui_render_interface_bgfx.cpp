@@ -58,8 +58,8 @@ TextureRegion texture_region(bgfx::TextureHandle texture, GlobalFbRect global_bo
 CompositeOp make_composite_op(TextureRegion source, bgfx::FrameBufferHandle destination,
                               Rml::BlendMode blend_mode, ScissorState scissor,
                               bool apply_destination_stencil, uint8_t stencil_ref,
-                              RmlUiPassKind kind, const char* name,
-                              LocalFbRect destination_rect = {})
+                              RmlUiPassKind kind, RmlUiPassReason reason, const char* name,
+                              LocalFbRect destination_rect = {}, CompositeFilterState filter = {})
 {
     CompositeOp op;
     op.source = source;
@@ -70,13 +70,26 @@ CompositeOp make_composite_op(TextureRegion source, bgfx::FrameBufferHandle dest
     op.apply_destination_stencil = apply_destination_stencil;
     op.stencil_ref = stencil_ref;
     op.kind = kind;
+    op.reason = reason;
     op.name = name;
+    op.filter = filter;
     return op;
 }
 
 bool is_full_frame_rect(FbRect rect, int width, int height)
 {
     return !is_empty(rect) && rect.x == 0 && rect.y == 0 && rect.w >= width && rect.h >= height;
+}
+
+RmlUiPassReason copy_pass_reason_from_name(const char* name)
+{
+    if (name && std::strcmp(name, "RmlUi.SaveLayerAsTexture") == 0) {
+        return RmlUiPassReason::SaveTextureCopy;
+    }
+    if (name && std::strcmp(name, "RmlUi.SaveLayerAsMaskImage") == 0) {
+        return RmlUiPassReason::SaveMaskCopy;
+    }
+    return RmlUiPassReason::OtherCopy;
 }
 
 FbRect active_scissor_bounds(const ScissorState& scissor, const FbRect& layer_bounds)
@@ -221,6 +234,7 @@ struct RenderInterface::Impl {
 
         program = load_system_program(SystemProgram::RmlUi);
         composite_program = load_system_program(SystemProgram::Composite);
+        composite_filter_program = load_system_program(SystemProgram::CompositeFilter);
         copy_program = load_system_program(SystemProgram::Copy);
         opacity_program = load_system_program(SystemProgram::Opacity);
         color_matrix_program = load_system_program(SystemProgram::ColorMatrix);
@@ -276,6 +290,8 @@ struct RenderInterface::Impl {
             bgfx::destroy(program);
         if (bgfx::isValid(composite_program))
             bgfx::destroy(composite_program);
+        if (bgfx::isValid(composite_filter_program))
+            bgfx::destroy(composite_filter_program);
         if (bgfx::isValid(copy_program))
             bgfx::destroy(copy_program);
         if (bgfx::isValid(opacity_program))
@@ -1097,6 +1113,7 @@ struct RenderInterface::Impl {
                                  shadow_offset_uniform,
                                  program,
                                  composite_program,
+                                 composite_filter_program,
                                  copy_program,
                                  gradient_program,
                                  mask_multiply_program,
@@ -1163,7 +1180,8 @@ struct RenderInterface::Impl {
         const LocalFbRect source_rect = op.source.local_rect;
         const bool is_full_frame = (destination_rect.x == 0 && destination_rect.y == 0 &&
                                     destination_rect.w >= width && destination_rect.h >= height);
-        auto pass = pass_builder.composite(op.destination, destination_rect, op.kind, op.name);
+        auto pass =
+            pass_builder.composite(op.destination, destination_rect, op.kind, op.name, op.reason);
         if (!pass)
             return false;
         perf.add_composite(area(destination_rect), is_full_frame);
@@ -1180,7 +1198,8 @@ struct RenderInterface::Impl {
         if (!ensure_fullscreen_geometry() || !bgfx::isValid(copy_program) ||
             !bgfx::isValid(source) || !bgfx::isValid(destination))
             return false;
-        auto pass = pass_builder.copy(destination, region.Width(), region.Height(), name);
+        auto pass = pass_builder.copy(destination, region.Width(), region.Height(), name,
+                                      RmlUiPassReason::OtherCopy);
         if (!pass)
             return false;
         perf.add_copy();
@@ -1206,8 +1225,8 @@ struct RenderInterface::Impl {
             return BGFX_INVALID_HANDLE;
 
         if (can_blit) {
-            auto pass =
-                pass_builder.copy(BGFX_INVALID_HANDLE, region.Width(), region.Height(), name);
+            auto pass = pass_builder.copy(BGFX_INVALID_HANDLE, region.Width(), region.Height(),
+                                          name, copy_pass_reason_from_name(name));
             if (!pass) {
                 bgfx::destroy(texture);
                 return BGFX_INVALID_HANDLE;
@@ -1308,8 +1327,9 @@ struct RenderInterface::Impl {
             clip_work_bounds(layer, ScissorState{scissor_enabled, scissor_region});
         if (is_empty(work_bounds))
             return true;
-        auto pass = pass_builder.geometry(layer->framebuffer, work_bounds.w, work_bounds.h,
-                                          "RmlUi.StencilNormalize");
+        auto pass =
+            pass_builder.geometry(layer->framebuffer, work_bounds.w, work_bounds.h,
+                                  "RmlUi.StencilNormalize", RmlUiPassReason::StencilNormalize);
         if (!pass)
             return false;
 
@@ -1345,7 +1365,7 @@ struct RenderInterface::Impl {
         if (is_empty(work_bounds))
             return;
         auto pass = pass_builder.geometry(layer->framebuffer, work_bounds.w, work_bounds.h,
-                                          "RmlUi.ClipMask");
+                                          "RmlUi.ClipMask", RmlUiPassReason::ClipMask);
         if (!pass)
             return;
         perf.add_clip_mask(uint64_t(work_bounds.w) * uint64_t(work_bounds.h));
@@ -1460,7 +1480,8 @@ struct RenderInterface::Impl {
             return;
         const int lw = layer->texture_width;
         const int lh = layer->texture_height;
-        auto pass = pass_builder.geometry(layer->framebuffer, lw, lh, "RmlUi.Gradient");
+        auto pass = pass_builder.geometry(layer->framebuffer, lw, lh, "RmlUi.Gradient",
+                                          RmlUiPassReason::Gradient);
         if (!pass)
             return;
         perf.add_gradient();
@@ -1480,6 +1501,7 @@ struct RenderInterface::Impl {
     bgfx::VertexLayout fullscreen_layout;
     bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle composite_program = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle composite_filter_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle copy_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle opacity_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle color_matrix_program = BGFX_INVALID_HANDLE;
@@ -1580,8 +1602,8 @@ RenderInterface::~RenderInterface() = default;
 RenderInterface::operator bool() const
 {
     return m_impl && bgfx::isValid(m_impl->program) && bgfx::isValid(m_impl->composite_program) &&
-           bgfx::isValid(m_impl->copy_program) && bgfx::isValid(m_impl->opacity_program) &&
-           bgfx::isValid(m_impl->color_matrix_program) &&
+           bgfx::isValid(m_impl->composite_filter_program) && bgfx::isValid(m_impl->copy_program) &&
+           bgfx::isValid(m_impl->opacity_program) && bgfx::isValid(m_impl->color_matrix_program) &&
            bgfx::isValid(m_impl->mask_multiply_program) && bgfx::isValid(m_impl->blur_program) &&
            bgfx::isValid(m_impl->drop_shadow_program) && bgfx::isValid(m_impl->gradient_program);
 }
@@ -1624,8 +1646,8 @@ void RenderInterface::end_frame()
                     texture_region(base->color, base->bounds.framebuffer, full_local_rect(*base),
                                    base->texture_width, base->texture_height),
                     BGFX_INVALID_HANDLE, Rml::BlendMode::Blend, ScissorState{false, {}}, false, 1,
-                    RmlUiPassKind::FinalComposite, "RmlUi.FinalComposite",
-                    LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
+                    RmlUiPassKind::FinalComposite, RmlUiPassReason::FinalComposite,
+                    "RmlUi.FinalComposite", LocalFbRect{0, 0, m_impl->width, m_impl->height}))) {
                 m_impl->fail_frame("end_frame final composite failed");
             }
         }
@@ -1647,10 +1669,17 @@ void RenderInterface::end_frame()
         const double now = double(now_ticks) / double(bx::getHPFrequency());
         if (m_impl->perf_logging_enabled && now - last_log_time >= 1.0) {
             const auto& p = m_impl->perf;
-            char line[2048];
+            char line[4096];
             std::snprintf(
                 line, sizeof(line),
-                "[perf] fps=%.0f passes=%u geom=%u clip=%u gradients=%u "
+                "[perf] fps=%.0f passes=%u views=%u view_reuses=%u geom=%u clip=%u "
+                "gradients=%u pass_geom=%u pass_gradient=%u pass_clip=%u "
+                "pass_stencil_norm=%u pass_base_clear=%u pass_layer_clear=%u "
+                "pass_stencil_clear=%u pass_filter_copy=%u pass_filter_opacity=%u "
+                "pass_filter_color=%u pass_filter_mask=%u pass_filter_blur=%u "
+                "pass_filter_shadow=%u pass_filter_shadow_comp=%u color_filter_folds=%u "
+                "pass_layer_scratch=%u pass_layer_comp=%u pass_final_comp=%u "
+                "pass_save_texture=%u pass_save_mask=%u pass_other_copy=%u pass_other=%u "
                 "layers=%u full_layers=%u bounded_layers=%u "
                 "full_frame_child_layers=%u bounded_child_layers=%u "
                 "unbounded_layer_fallbacks=%u "
@@ -1669,25 +1698,33 @@ void RenderInterface::end_frame()
                 "rt_alloc=%u rt_destroy=%u layer_alloc=%u layer_destroy=%u "
                 "max_layer=%ux%u max_child_layer=%ux%u max_child_rt=%ux%u "
                 "max_rt=%ux%u fb=%dx%d",
-                double(frame_count) / (now - last_log_time), p.pass_count, p.geometry_draws,
-                p.clip_mask_draws, p.gradient_draws, p.layer_pushes, p.full_frame_layers,
-                p.bounded_layers, p.full_frame_child_layers, p.bounded_child_layers,
-                p.unbounded_layer_fallbacks, p.unbounded_no_scissor_fallbacks,
-                p.unbounded_transform_fallbacks, p.unbounded_inverse_clip_fallbacks,
-                p.postprocess_passes, p.blur_passes, p.dropshadow_passes, p.mask_passes,
-                p.direct_base_presentations, p.offscreen_base_presentations,
-                p.direct_base_fallbacks, (unsigned long long)p.clear_pixels,
-                (unsigned long long)p.copy_pixels, (unsigned long long)p.composite_pixels,
-                (unsigned long long)p.postprocess_pixels, p.full_frame_passes, p.bounded_passes,
-                p.full_frame_clear_passes, p.bounded_clear_passes, p.full_frame_composite_passes,
-                p.bounded_composite_passes, p.full_frame_postprocess_passes,
-                p.bounded_postprocess_passes, p.full_frame_postprocess_target_uses,
-                p.bounded_postprocess_target_uses, p.full_frame_postprocess_targets,
-                p.bounded_postprocess_targets, p.postprocess_allocations, p.postprocess_destroys,
-                p.layer_allocations, p.layer_destroys, p.max_layer_width, p.max_layer_height,
-                p.max_child_layer_width, p.max_child_layer_height, p.max_child_layer_width,
-                p.max_child_layer_height, p.max_postprocess_width, p.max_postprocess_height,
-                m_impl->width, m_impl->height);
+                double(frame_count) / (now - last_log_time), p.pass_count, p.view_count,
+                p.view_reuses, p.geometry_draws, p.clip_mask_draws, p.gradient_draws,
+                p.ordinary_geometry_passes, p.gradient_passes, p.clip_mask_passes,
+                p.stencil_normalize_passes, p.base_clear_passes, p.layer_clear_passes,
+                p.stencil_clear_passes, p.filter_copy_passes, p.filter_opacity_passes,
+                p.filter_color_matrix_passes, p.filter_mask_image_passes, p.filter_blur_passes,
+                p.filter_drop_shadow_passes, p.filter_drop_shadow_composite_passes,
+                p.color_filter_composite_folds, p.layer_scratch_copy_passes,
+                p.layer_composite_reason_passes, p.final_composite_passes,
+                p.save_texture_copy_passes, p.save_mask_copy_passes, p.other_copy_passes,
+                p.other_passes, p.layer_pushes, p.full_frame_layers, p.bounded_layers,
+                p.full_frame_child_layers, p.bounded_child_layers, p.unbounded_layer_fallbacks,
+                p.unbounded_no_scissor_fallbacks, p.unbounded_transform_fallbacks,
+                p.unbounded_inverse_clip_fallbacks, p.postprocess_passes, p.blur_passes,
+                p.dropshadow_passes, p.mask_passes, p.direct_base_presentations,
+                p.offscreen_base_presentations, p.direct_base_fallbacks,
+                (unsigned long long)p.clear_pixels, (unsigned long long)p.copy_pixels,
+                (unsigned long long)p.composite_pixels, (unsigned long long)p.postprocess_pixels,
+                p.full_frame_passes, p.bounded_passes, p.full_frame_clear_passes,
+                p.bounded_clear_passes, p.full_frame_composite_passes, p.bounded_composite_passes,
+                p.full_frame_postprocess_passes, p.bounded_postprocess_passes,
+                p.full_frame_postprocess_target_uses, p.bounded_postprocess_target_uses,
+                p.full_frame_postprocess_targets, p.bounded_postprocess_targets,
+                p.postprocess_allocations, p.postprocess_destroys, p.layer_allocations,
+                p.layer_destroys, p.max_layer_width, p.max_layer_height, p.max_child_layer_width,
+                p.max_child_layer_height, p.max_child_layer_width, p.max_child_layer_height,
+                p.max_postprocess_width, p.max_postprocess_height, m_impl->width, m_impl->height);
             m_impl->log_perf_line(line);
             frame_count = 0;
             last_log_time = now;

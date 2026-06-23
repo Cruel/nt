@@ -21,6 +21,8 @@ namespace {
         return bgfx_backend::SystemShader::RmlUi;
     case rmlui_bgfx::SystemProgram::Composite:
         return bgfx_backend::SystemShader::RmlUiComposite;
+    case rmlui_bgfx::SystemProgram::CompositeFilter:
+        return bgfx_backend::SystemShader::RmlUiCompositeFilter;
     case rmlui_bgfx::SystemProgram::Copy:
         return bgfx_backend::SystemShader::RmlUiCopy;
     case rmlui_bgfx::SystemProgram::Opacity:

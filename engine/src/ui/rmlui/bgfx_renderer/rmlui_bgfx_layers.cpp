@@ -17,7 +17,8 @@ namespace {
 make_layer_composite_op(TextureRegion source, bgfx::FrameBufferHandle destination,
                         Rml::BlendMode blend_mode, ScissorState scissor,
                         bool apply_destination_stencil, uint8_t stencil_ref, RmlUiPassKind kind,
-                        const char* name, LocalFbRect destination_rect = {})
+                        RmlUiPassReason reason, const char* name, LocalFbRect destination_rect = {},
+                        CompositeFilterState filter = {})
 {
     CompositeOp op;
     op.source = source;
@@ -28,7 +29,9 @@ make_layer_composite_op(TextureRegion source, bgfx::FrameBufferHandle destinatio
     op.apply_destination_stencil = apply_destination_stencil;
     op.stencil_ref = stencil_ref;
     op.kind = kind;
+    op.reason = reason;
     op.name = name;
+    op.filter = filter;
     return op;
 }
 
@@ -334,7 +337,8 @@ void BgfxLayerSystem::composite_layers(const BgfxLayerCompositeContext& ctx,
                                     full_local_rect(*source_layer), source_layer->texture_width,
                                     source_layer->texture_height),
                 scratch->framebuffer, Rml::BlendMode::Replace, ScissorState{false, {}}, false, 1,
-                RmlUiPassKind::Copy, "RmlUi.LayerScratchCopy", scratch_local_bounds))) {
+                RmlUiPassKind::Copy, RmlUiPassReason::LayerScratchCopy, "RmlUi.LayerScratchCopy",
+                scratch_local_bounds))) {
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers scratch copy failed");
             }
@@ -368,7 +372,8 @@ void BgfxLayerSystem::composite_layers(const BgfxLayerCompositeContext& ctx,
         if (!ctx.composite(make_layer_composite_op(
                 filtered.output, destination_layer->framebuffer, blend_mode, destination_scissor,
                 destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
-                "RmlUi.LayerComposite", destination_bounds))) {
+                RmlUiPassReason::LayerComposite, "RmlUi.LayerComposite", destination_bounds,
+                filtered.composite_filter))) {
             if (ctx.fail_frame) {
                 ctx.fail_frame("CompositeLayers composite failed");
             }
@@ -412,7 +417,8 @@ void BgfxLayerSystem::composite_layers(const BgfxLayerCompositeContext& ctx,
     if (!ctx.composite(make_layer_composite_op(
             filtered.output, destination_layer->framebuffer, blend_mode, destination_scissor,
             destination_clip, destination_stencil_ref, RmlUiPassKind::LayerComposite,
-            "RmlUi.LayerComposite", destination_bounds))) {
+            RmlUiPassReason::LayerComposite, "RmlUi.LayerComposite", destination_bounds,
+            filtered.composite_filter))) {
         if (ctx.fail_frame) {
             ctx.fail_frame("CompositeLayers composite failed");
         }

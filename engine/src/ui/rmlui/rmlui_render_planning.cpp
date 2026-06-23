@@ -153,9 +153,17 @@ GaussianKernel gaussian_kernel(float sigma)
     return kernel;
 }
 
-static std::array<float, 16> identity() { return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; }
+static std::array<float, 16> identity() { return identity_color_matrix(); }
 
-bool is_identity_color_matrix(const std::array<float, 16>& matrix) { return matrix == identity(); }
+std::array<float, 16> identity_color_matrix()
+{
+    return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+}
+
+bool is_identity_color_matrix(const std::array<float, 16>& matrix)
+{
+    return matrix == identity_color_matrix();
+}
 
 std::array<float, 16> multiply_color_matrices(const std::array<float, 16>& lhs,
                                               const std::array<float, 16>& rhs)
@@ -225,6 +233,41 @@ std::vector<FilterRecord> simplify_filter_chain(std::span<const FilterRecord> fi
 
     flush_matrix();
     return simplified;
+}
+
+ColorOnlyFilterPlan plan_color_only_filter_chain(std::span<const FilterRecord> filters)
+{
+    ColorOnlyFilterPlan plan;
+    plan.eligible = true;
+    plan.opacity = 1.0f;
+    plan.matrix = identity_color_matrix();
+
+    for (const FilterRecord& filter : filters) {
+        if (is_noop_filter(filter)) {
+            continue;
+        }
+        switch (filter.kind) {
+        case FilterKind::Opacity:
+            plan.opacity *= filter.scalar;
+            plan.has_effect = true;
+            break;
+        case FilterKind::ColorMatrix:
+            plan.matrix = multiply_color_matrices(filter.matrix, plan.matrix);
+            plan.has_effect = true;
+            break;
+        case FilterKind::Blur:
+        case FilterKind::DropShadow:
+        case FilterKind::MaskImage:
+        case FilterKind::Invalid:
+            plan.eligible = false;
+            return plan;
+        }
+    }
+
+    if (!plan.has_effect) {
+        plan.eligible = false;
+    }
+    return plan;
 }
 
 static FilterRecord color_matrix(std::array<float, 16> matrix)

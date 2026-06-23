@@ -35,6 +35,7 @@ struct BgfxDrawResources {
 
     bgfx::ProgramHandle rmlui_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle composite_program = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle composite_filter_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle copy_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle gradient_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle mask_multiply_program = BGFX_INVALID_HANDLE;

@@ -130,7 +130,9 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
                                        const CompositeOp& op, LocalFbRect source_rect,
                                        LocalFbRect destination_rect, uint32_t stencil_state) const
 {
-    if (!bgfx::isValid(resources.composite_program) || !bgfx::isValid(resources.fullscreen_vb) ||
+    const bgfx::ProgramHandle program =
+        op.filter.enabled ? resources.composite_filter_program : resources.composite_program;
+    if (!bgfx::isValid(program) || !bgfx::isValid(resources.fullscreen_vb) ||
         !bgfx::isValid(op.source.texture)) {
         return false;
     }
@@ -156,6 +158,11 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
         bounds = {0.0f, 0.0f, 1.0f, 1.0f};
     }
     bgfx::setUniform(resources.texcoord_bounds_uniform, bounds.data());
+    if (op.filter.enabled) {
+        const float opacity[4] = {op.filter.opacity, 0.0f, 0.0f, 0.0f};
+        bgfx::setUniform(resources.opacity_uniform, opacity);
+        bgfx::setUniform(resources.color_matrix_uniform, op.filter.color_matrix.data());
+    }
     const uint64_t state = op.blend_mode == Rml::BlendMode::Replace
                                ? (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A)
                                : resources.blend_state;
@@ -163,7 +170,7 @@ bool BgfxDrawContext::submit_composite(const RmlUiPass& pass, const BgfxDrawReso
     if (op.apply_destination_stencil) {
         bgfx::setStencil(stencil_state);
     }
-    bgfx::submit(pass.view, resources.composite_program);
+    bgfx::submit(pass.view, program);
     return true;
 }
 

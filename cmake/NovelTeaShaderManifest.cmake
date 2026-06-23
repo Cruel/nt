@@ -5,6 +5,7 @@ set(NOVELTEA_SHADER_PROGRAMS
     imgui    vs_imgui.sc    fs_imgui.sc
     rmlui    vs_rmlui.sc    fs_rmlui.sc
     rmlui_composite vs_rmlui_composite.sc fs_rmlui_composite.sc
+    rmlui_composite_filter vs_rmlui_composite.sc fs_rmlui_composite_filter.sc
     rmlui_copy vs_rmlui_composite.sc fs_rmlui_composite.sc
     rmlui_opacity vs_rmlui_composite.sc fs_rmlui_opacity.sc
     rmlui_color_matrix vs_rmlui_composite.sc fs_rmlui_color_matrix.sc

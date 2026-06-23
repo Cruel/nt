@@ -17,8 +17,8 @@ namespace {
                                             bgfx::FrameBufferHandle destination,
                                             Rml::BlendMode blend_mode, ScissorState scissor,
                                             bool apply_destination_stencil, uint8_t stencil_ref,
-                                            RmlUiPassKind kind, const char* name,
-                                            LocalFbRect destination_rect = {})
+                                            RmlUiPassKind kind, RmlUiPassReason reason,
+                                            const char* name, LocalFbRect destination_rect = {})
 {
     CompositeOp op;
     op.source = source;
@@ -29,6 +29,7 @@ namespace {
     op.apply_destination_stencil = apply_destination_stencil;
     op.stencil_ref = stencil_ref;
     op.kind = kind;
+    op.reason = reason;
     op.name = name;
     return op;
 }
@@ -177,7 +178,8 @@ bool BgfxFilterPipeline::composite(const BgfxFilterPipelineContext& ctx,
             : op.destination_rect;
     const LocalFbRect source_rect = op.source.local_rect;
     const bool is_full_frame = is_full_frame_surface(destination_rect, ctx.surface);
-    auto pass = ctx.pass_builder.composite(op.destination, destination_rect, op.kind, op.name);
+    auto pass =
+        ctx.pass_builder.composite(op.destination, destination_rect, op.kind, op.name, op.reason);
     if (!pass) {
         return false;
     }
@@ -215,6 +217,15 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
         return result;
     }
 
+    const ColorOnlyFilterPlan color_only_plan = plan_color_only_filter_chain(filter_chain);
+    if (color_only_plan.eligible) {
+        result.composite_filter.enabled = true;
+        result.composite_filter.opacity = color_only_plan.opacity;
+        result.composite_filter.color_matrix = color_only_plan.matrix;
+        ctx.perf.add_color_filter_composite_fold();
+        return result;
+    }
+
     const FilterExpansion total_expansion = expansion_for(ctx, filter_handles);
     const FbRect expanded = expand_bounds(source_valid_global_bounds, total_expansion);
     const FbRect clamped_work_bounds =
@@ -244,7 +255,8 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
                             texture_region(source.texture, source_copy_global, source_copy_local,
                                            source.texture_width, source.texture_height),
                             primary->framebuffer, Rml::BlendMode::Replace, ScissorState{false, {}},
-                            false, 1, RmlUiPassKind::Copy, "RmlUi.FilterCopy", copy_destination))) {
+                            false, 1, RmlUiPassKind::Copy, RmlUiPassReason::FilterCopy,
+                            "RmlUi.FilterCopy", copy_destination))) {
         return {};
     }
 
@@ -258,18 +270,22 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
         case FilterKind::Opacity: {
             const float opacity[4] = {filter.scalar, 0.0f, 0.0f, 0.0f};
             ok = fullscreen_filter_pass(
-                ctx, current, *destination, "RmlUi.FilterOpacity", [&](const RmlUiPass& pass) {
+                ctx, current, *destination, "RmlUi.FilterOpacity",
+                [&](const RmlUiPass& pass) {
                     return ctx.draw_context.submit_opacity(pass, ctx.resources, current, opacity);
-                });
+                },
+                RmlUiPassReason::FilterOpacity);
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
             break;
         }
         case FilterKind::ColorMatrix:
-            ok = fullscreen_filter_pass(ctx, current, *destination, "RmlUi.FilterColorMatrix",
-                                        [&](const RmlUiPass& pass) {
-                                            return ctx.draw_context.submit_color_matrix(
-                                                pass, ctx.resources, current, filter.matrix.data());
-                                        });
+            ok = fullscreen_filter_pass(
+                ctx, current, *destination, "RmlUi.FilterColorMatrix",
+                [&](const RmlUiPass& pass) {
+                    return ctx.draw_context.submit_color_matrix(pass, ctx.resources, current,
+                                                                filter.matrix.data());
+                },
+                RmlUiPassReason::FilterColorMatrix);
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
             break;
         case FilterKind::MaskImage: {
@@ -282,9 +298,9 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
                 return {};
             }
             const bool is_full_mask = is_full_frame_surface(destination->bounds, ctx.surface);
-            auto pass =
-                ctx.pass_builder.postprocess(destination->framebuffer, destination->texture_width,
-                                             destination->texture_height, "RmlUi.FilterMaskImage");
+            auto pass = ctx.pass_builder.postprocess(
+                destination->framebuffer, destination->texture_width, destination->texture_height,
+                "RmlUi.FilterMaskImage", RmlUiPassReason::FilterMaskImage);
             if (!pass) {
                 return {};
             }
@@ -324,10 +340,12 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
             float params[4] = {0.0f, 1.0f / float(std::max(destination->texture_height, 1)), 0.0f,
                                0.0f};
             if (!fullscreen_filter_pass(
-                    ctx, current, *destination, "RmlUi.FilterBlurV", [&](const RmlUiPass& pass) {
+                    ctx, current, *destination, "RmlUi.FilterBlurV",
+                    [&](const RmlUiPass& pass) {
                         return ctx.draw_context.submit_blur(pass, ctx.resources, current, params,
                                                             weights, bounds.data());
-                    })) {
+                    },
+                    RmlUiPassReason::FilterBlur)) {
                 return {};
             }
             ctx.perf.add_blur();
@@ -336,10 +354,12 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
             params[0] = 1.0f / float(std::max(destination->texture_width, 1));
             params[1] = 0.0f;
             if (!fullscreen_filter_pass(
-                    ctx, current, *destination, "RmlUi.FilterBlurH", [&](const RmlUiPass& pass) {
+                    ctx, current, *destination, "RmlUi.FilterBlurH",
+                    [&](const RmlUiPass& pass) {
                         return ctx.draw_context.submit_blur(pass, ctx.resources, current, params,
                                                             weights, bounds.data());
-                    })) {
+                    },
+                    RmlUiPassReason::FilterBlur)) {
                 return {};
             }
             ctx.perf.add_blur();
@@ -354,11 +374,13 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
             const float offset[4] = {
                 filter.offset[0] / float(std::max(destination->texture_width, 1)),
                 filter.offset[1] / float(std::max(destination->texture_height, 1)), 0.0f, 0.0f};
-            if (!fullscreen_filter_pass(ctx, current, *destination, "RmlUi.FilterDropShadowExtract",
-                                        [&](const RmlUiPass& pass) {
-                                            return ctx.draw_context.submit_drop_shadow(
-                                                pass, ctx.resources, current, color, offset);
-                                        })) {
+            if (!fullscreen_filter_pass(
+                    ctx, current, *destination, "RmlUi.FilterDropShadowExtract",
+                    [&](const RmlUiPass& pass) {
+                        return ctx.draw_context.submit_drop_shadow(pass, ctx.resources, current,
+                                                                   color, offset);
+                    },
+                    RmlUiPassReason::FilterDropShadow)) {
                 return {};
             }
             ctx.perf.add_dropshadow();
@@ -381,7 +403,8 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
                         [&](const RmlUiPass& pass) {
                             return ctx.draw_context.submit_blur(pass, ctx.resources, current,
                                                                 params, weights, bounds.data());
-                        })) {
+                        },
+                        RmlUiPassReason::FilterBlur)) {
                     return {};
                 }
                 ctx.perf.add_blur();
@@ -394,7 +417,8 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
                         [&](const RmlUiPass& pass) {
                             return ctx.draw_context.submit_blur(pass, ctx.resources, current,
                                                                 params, weights, bounds.data());
-                        })) {
+                        },
+                        RmlUiPassReason::FilterBlur)) {
                     return {};
                 }
                 ctx.perf.add_blur();
@@ -404,17 +428,18 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
             current_valid_rect = {0, 0, destination->texture_width, destination->texture_height};
             destination = safe_destination(ctx, original, destination,
                                            (destination == primary) ? secondary : primary);
-            if (!composite(
-                    ctx,
-                    make_composite_op(
-                        texture_region(original, destination->bounds,
-                                       LocalFbRect{0, 0, destination->texture_width,
-                                                   destination->texture_height},
-                                       destination->texture_width, destination->texture_height),
-                        destination->framebuffer, Rml::BlendMode::Blend, ScissorState{false, {}},
-                        false, 1, RmlUiPassKind::Postprocess, "RmlUi.FilterDropShadowComposite",
-                        LocalFbRect{0, 0, destination->texture_width,
-                                    destination->texture_height}))) {
+            if (!composite(ctx, make_composite_op(
+                                    texture_region(original, destination->bounds,
+                                                   LocalFbRect{0, 0, destination->texture_width,
+                                                               destination->texture_height},
+                                                   destination->texture_width,
+                                                   destination->texture_height),
+                                    destination->framebuffer, Rml::BlendMode::Blend,
+                                    ScissorState{false, {}}, false, 1, RmlUiPassKind::Postprocess,
+                                    RmlUiPassReason::FilterDropShadowComposite,
+                                    "RmlUi.FilterDropShadowComposite",
+                                    LocalFbRect{0, 0, destination->texture_width,
+                                                destination->texture_height}))) {
                 return {};
             }
             ok = true;

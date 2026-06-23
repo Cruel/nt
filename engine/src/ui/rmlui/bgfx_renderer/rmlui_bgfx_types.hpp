@@ -168,6 +168,12 @@ struct TextureRegion {
     int texture_height = 0;
 };
 
+struct CompositeFilterState {
+    bool enabled = false;
+    float opacity = 1.0f;
+    std::array<float, 16> color_matrix{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+};
+
 struct CompositeOp {
     TextureRegion source;
     bgfx::FrameBufferHandle destination = BGFX_INVALID_HANDLE;
@@ -178,11 +184,14 @@ struct CompositeOp {
     bool apply_destination_stencil = false;
     uint8_t stencil_ref = 1;
     RmlUiPassKind kind = RmlUiPassKind::LayerComposite;
+    RmlUiPassReason reason = RmlUiPassReason::LayerComposite;
     const char* name = "RmlUi.Composite";
+    CompositeFilterState filter;
 };
 
 struct FilterApplyResult {
     TextureRegion output;
+    CompositeFilterState composite_filter;
     // Conservative output bounds used for the externally composited filter result. These may
     // include transparent initialized padding required by blur/drop-shadow sampling.
     RenderBounds output_bounds;
@@ -206,6 +215,30 @@ struct ClipCommand {
 struct PerfCounters {
 #ifdef RMLUI_BGFX_ENABLE_RENDER_PERF
     uint32_t pass_count = 0;
+    uint32_t view_count = 0;
+    uint32_t view_reuses = 0;
+    uint32_t base_clear_passes = 0;
+    uint32_t layer_clear_passes = 0;
+    uint32_t stencil_clear_passes = 0;
+    uint32_t ordinary_geometry_passes = 0;
+    uint32_t gradient_passes = 0;
+    uint32_t clip_mask_passes = 0;
+    uint32_t stencil_normalize_passes = 0;
+    uint32_t filter_copy_passes = 0;
+    uint32_t filter_opacity_passes = 0;
+    uint32_t filter_color_matrix_passes = 0;
+    uint32_t filter_mask_image_passes = 0;
+    uint32_t filter_blur_passes = 0;
+    uint32_t filter_drop_shadow_passes = 0;
+    uint32_t filter_drop_shadow_composite_passes = 0;
+    uint32_t color_filter_composite_folds = 0;
+    uint32_t layer_scratch_copy_passes = 0;
+    uint32_t layer_composite_reason_passes = 0;
+    uint32_t final_composite_passes = 0;
+    uint32_t save_texture_copy_passes = 0;
+    uint32_t save_mask_copy_passes = 0;
+    uint32_t other_copy_passes = 0;
+    uint32_t other_passes = 0;
     uint32_t geometry_draws = 0;
     uint32_t geometry_indices = 0;
     uint32_t clip_mask_draws = 0;
@@ -261,7 +294,81 @@ struct PerfCounters {
 
     void reset() { *this = PerfCounters{}; }
 
-    void add_pass() { pass_count++; }
+    void add_pass(bool reused, RmlUiPassReason reason)
+    {
+        pass_count++;
+        if (reused) {
+            view_reuses++;
+        } else {
+            view_count++;
+        }
+        switch (reason) {
+        case RmlUiPassReason::OrdinaryGeometry:
+            ordinary_geometry_passes++;
+            break;
+        case RmlUiPassReason::Gradient:
+            gradient_passes++;
+            break;
+        case RmlUiPassReason::ClipMask:
+            clip_mask_passes++;
+            break;
+        case RmlUiPassReason::StencilNormalize:
+            stencil_normalize_passes++;
+            break;
+        case RmlUiPassReason::BaseClear:
+            base_clear_passes++;
+            break;
+        case RmlUiPassReason::LayerClear:
+            layer_clear_passes++;
+            break;
+        case RmlUiPassReason::StencilClear:
+            stencil_clear_passes++;
+            break;
+        case RmlUiPassReason::FilterCopy:
+            filter_copy_passes++;
+            break;
+        case RmlUiPassReason::FilterOpacity:
+            filter_opacity_passes++;
+            break;
+        case RmlUiPassReason::FilterColorMatrix:
+            filter_color_matrix_passes++;
+            break;
+        case RmlUiPassReason::FilterMaskImage:
+            filter_mask_image_passes++;
+            break;
+        case RmlUiPassReason::FilterBlur:
+            filter_blur_passes++;
+            break;
+        case RmlUiPassReason::FilterDropShadow:
+            filter_drop_shadow_passes++;
+            break;
+        case RmlUiPassReason::FilterDropShadowComposite:
+            filter_drop_shadow_composite_passes++;
+            break;
+        case RmlUiPassReason::LayerScratchCopy:
+            layer_scratch_copy_passes++;
+            break;
+        case RmlUiPassReason::LayerComposite:
+            layer_composite_reason_passes++;
+            break;
+        case RmlUiPassReason::FinalComposite:
+            final_composite_passes++;
+            break;
+        case RmlUiPassReason::SaveTextureCopy:
+            save_texture_copy_passes++;
+            break;
+        case RmlUiPassReason::SaveMaskCopy:
+            save_mask_copy_passes++;
+            break;
+        case RmlUiPassReason::OtherCopy:
+            other_copy_passes++;
+            break;
+        case RmlUiPassReason::Other:
+            other_passes++;
+            break;
+        }
+    }
+    void add_color_filter_composite_fold() { color_filter_composite_folds++; }
     void add_geometry(uint64_t px, uint32_t indices)
     {
         geometry_draws++;
@@ -385,7 +492,8 @@ struct PerfCounters {
     void add_pp_destroy() { postprocess_destroys++; }
 #else
     void reset() {}
-    void add_pass() {}
+    void add_pass(bool, RmlUiPassReason) {}
+    void add_color_filter_composite_fold() {}
     void add_geometry(uint64_t, uint32_t) {}
     void add_clip_mask(uint64_t) {}
     void add_gradient() {}

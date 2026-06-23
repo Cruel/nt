@@ -22,7 +22,8 @@ namespace {
 
 [[nodiscard]] RmlUiPassRequest make_pass_request(RmlUiPassKind kind, int x, int y,
                                                  bool clears_color, bool clears_stencil, int width,
-                                                 int height, const char* name)
+                                                 int height, const char* name,
+                                                 RmlUiPassReason reason)
 {
     return RmlUiPassRequest{kind,
                             0,
@@ -33,7 +34,8 @@ namespace {
                             y,
                             width,
                             height,
-                            name};
+                            name,
+                            reason};
 }
 
 } // namespace
@@ -53,19 +55,20 @@ void BgfxPassBuilder::begin_frame(int framebuffer_width, int framebuffer_height)
 }
 
 std::optional<RmlUiPass> BgfxPassBuilder::geometry(bgfx::FrameBufferHandle target, int width,
-                                                   int height, const char* name)
+                                                   int height, const char* name,
+                                                   RmlUiPassReason reason)
 {
     return acquire(
-        make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, width, height, name),
+        make_pass_request(RmlUiPassKind::Geometry, 0, 0, false, false, width, height, name, reason),
         target);
 }
 
 std::optional<RmlUiPass> BgfxPassBuilder::base_clear(bgfx::FrameBufferHandle target, int width,
                                                      int height)
 {
-    auto pass = acquire(
-        make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, width, height, "RmlUi.BaseClear"),
-        target);
+    auto pass = acquire(make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, width, height,
+                                          "RmlUi.BaseClear", RmlUiPassReason::BaseClear),
+                        target);
     if (pass) {
         configure_clear(*pass, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
     }
@@ -76,7 +79,7 @@ std::optional<RmlUiPass> BgfxPassBuilder::layer_clear(bgfx::FrameBufferHandle ta
                                                       int height)
 {
     auto pass = acquire(make_pass_request(RmlUiPassKind::Clear, 0, 0, true, true, width, height,
-                                          "RmlUi.LayerClear"),
+                                          "RmlUi.LayerClear", RmlUiPassReason::LayerClear),
                         target);
     if (pass) {
         configure_clear(*pass, BGFX_CLEAR_COLOR | BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, 0);
@@ -89,7 +92,8 @@ std::optional<RmlUiPass> BgfxPassBuilder::stencil_clear(bgfx::FrameBufferHandle 
                                                         uint8_t stencil_value)
 {
     auto pass = acquire(make_pass_request(RmlUiPassKind::Clear, local_rect.x, local_rect.y, false,
-                                          true, local_rect.w, local_rect.h, "RmlUi.StencilClear"),
+                                          true, local_rect.w, local_rect.h, "RmlUi.StencilClear",
+                                          RmlUiPassReason::StencilClear),
                         target);
     if (pass) {
         configure_clear(*pass, BGFX_CLEAR_STENCIL, 0x00000000u, 1.0f, stencil_value);
@@ -99,26 +103,29 @@ std::optional<RmlUiPass> BgfxPassBuilder::stencil_clear(bgfx::FrameBufferHandle 
 
 std::optional<RmlUiPass> BgfxPassBuilder::composite(bgfx::FrameBufferHandle target,
                                                     LocalFbRect destination_rect,
-                                                    RmlUiPassKind kind, const char* name)
+                                                    RmlUiPassKind kind, const char* name,
+                                                    RmlUiPassReason reason)
 {
     return acquire(make_pass_request(kind, destination_rect.x, destination_rect.y, false, false,
-                                     destination_rect.w, destination_rect.h, name),
+                                     destination_rect.w, destination_rect.h, name, reason),
                    target);
 }
 
 std::optional<RmlUiPass> BgfxPassBuilder::copy(bgfx::FrameBufferHandle target, int width,
-                                               int height, const char* name)
+                                               int height, const char* name, RmlUiPassReason reason)
 {
-    return acquire(make_pass_request(RmlUiPassKind::Copy, 0, 0, false, false, width, height, name),
-                   target);
+    return acquire(
+        make_pass_request(RmlUiPassKind::Copy, 0, 0, false, false, width, height, name, reason),
+        target);
 }
 
 std::optional<RmlUiPass> BgfxPassBuilder::postprocess(bgfx::FrameBufferHandle target, int width,
-                                                      int height, const char* name)
+                                                      int height, const char* name,
+                                                      RmlUiPassReason reason)
 {
-    return acquire(
-        make_pass_request(RmlUiPassKind::Postprocess, 0, 0, false, false, width, height, name),
-        target);
+    return acquire(make_pass_request(RmlUiPassKind::Postprocess, 0, 0, false, false, width, height,
+                                     name, reason),
+                   target);
 }
 
 bool BgfxPassBuilder::exhausted() const { return m_scheduler.exhausted(); }
@@ -141,7 +148,7 @@ std::optional<RmlUiPass> BgfxPassBuilder::acquire(RmlUiPassRequest request,
     if (pass) {
         configure_pass(*pass);
         if (m_perf) {
-            m_perf->add_pass();
+            m_perf->add_pass(pass->reused, request.reason);
         }
     }
     return pass;

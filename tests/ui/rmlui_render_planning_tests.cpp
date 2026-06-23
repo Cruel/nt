@@ -232,6 +232,46 @@ TEST_CASE("RmlUi filter simplifier collapses consecutive color matrices")
     CHECK_FALSE(is_identity_color_matrix(simplified[0].matrix));
 }
 
+TEST_CASE("RmlUi color-only filter chains can fold into final composite")
+{
+    const std::vector<FilterRecord> chain{
+        make_brightness_filter(1.2f),
+        make_opacity_filter(0.5f),
+        make_contrast_filter(0.75f),
+        make_opacity_filter(0.25f),
+    };
+
+    const auto simplified = simplify_filter_chain(chain);
+    const ColorOnlyFilterPlan plan = plan_color_only_filter_chain(simplified);
+
+    REQUIRE(plan.eligible);
+    REQUIRE(plan.has_effect);
+    CHECK(plan.opacity == Catch::Approx(0.125f));
+
+    const Color premul{0.18f, 0.30f, 0.42f, 0.60f};
+    Color sequential = premul;
+    for (const FilterRecord& filter : simplified) {
+        if (filter.kind == FilterKind::ColorMatrix) {
+            sequential = apply_color_matrix(filter.matrix, sequential);
+        }
+    }
+    const auto folded = apply_color_matrix(plan.matrix, premul);
+    check_color(folded, sequential);
+}
+
+TEST_CASE("RmlUi color-only filter folding rejects texture-dependent filters")
+{
+    std::vector<FilterRecord> chain{make_brightness_filter(1.1f)};
+    FilterRecord blur;
+    blur.kind = FilterKind::Blur;
+    blur.sigma = 2.0f;
+    chain.push_back(blur);
+
+    const ColorOnlyFilterPlan plan = plan_color_only_filter_chain(simplify_filter_chain(chain));
+
+    CHECK_FALSE(plan.eligible);
+}
+
 TEST_CASE("RmlUi color matrix helper uses row-major RGB rows with translation")
 {
     const auto identity = make_brightness_filter(1.0f);

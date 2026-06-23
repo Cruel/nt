@@ -32,7 +32,9 @@ bool RmlUiRenderPassScheduler::can_reuse_current_pass(const RmlUiPassRequest& re
 std::optional<RmlUiPass> RmlUiRenderPassScheduler::acquire(const RmlUiPassRequest& request)
 {
     if (can_reuse_current_pass(request)) {
-        return m_current;
+        RmlUiPass reused = *m_current;
+        reused.reused = true;
+        return reused;
     }
 
     if (m_next > m_end) {
@@ -45,7 +47,7 @@ std::optional<RmlUiPass> RmlUiRenderPassScheduler::acquire(const RmlUiPassReques
         return std::nullopt;
     }
 
-    RmlUiPass pass{m_next++, request};
+    RmlUiPass pass{m_next++, request, false};
     m_passes.push_back(pass);
     m_current = pass;
     return pass;

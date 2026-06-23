@@ -46,6 +46,7 @@ struct ViewRange {
 enum class SystemProgram {
     RmlUi,
     Composite,
+    CompositeFilter,
     Copy,
     Opacity,
     ColorMatrix,
@@ -62,6 +63,8 @@ enum class SystemProgram {
         return "RmlUi";
     case SystemProgram::Composite:
         return "Composite";
+    case SystemProgram::CompositeFilter:
+        return "CompositeFilter";
     case SystemProgram::Copy:
         return "Copy";
     case SystemProgram::Opacity:

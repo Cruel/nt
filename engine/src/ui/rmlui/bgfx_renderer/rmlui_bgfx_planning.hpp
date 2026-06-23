@@ -130,12 +130,22 @@ struct FilterRecord {
     uint64_t resource = 0;
 };
 
+struct ColorOnlyFilterPlan {
+    bool eligible = false;
+    bool has_effect = false;
+    float opacity = 1.0f;
+    std::array<float, 16> matrix{};
+};
+
 [[nodiscard]] bool is_identity_color_matrix(const std::array<float, 16>& matrix);
+[[nodiscard]] std::array<float, 16> identity_color_matrix();
 [[nodiscard]] std::array<float, 16> multiply_color_matrices(const std::array<float, 16>& lhs,
                                                             const std::array<float, 16>& rhs);
 [[nodiscard]] bool is_noop_filter(const FilterRecord& filter);
 [[nodiscard]] std::vector<FilterRecord>
 simplify_filter_chain(std::span<const FilterRecord> filters);
+[[nodiscard]] ColorOnlyFilterPlan
+plan_color_only_filter_chain(std::span<const FilterRecord> filters);
 
 [[nodiscard]] FilterRecord make_opacity_filter(float value);
 [[nodiscard]] FilterRecord make_brightness_filter(float value);
