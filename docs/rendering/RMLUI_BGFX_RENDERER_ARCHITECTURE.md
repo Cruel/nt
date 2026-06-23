@@ -828,7 +828,7 @@ Narrow checks after renderer changes inside `Cruel/nt`:
 cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug -R readback
 ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 180 --no-imgui --render-perf
-node scripts/web-smoke.mjs
+pnpm run web:smoke:debug
 ```
 
 Reusable-boundary checks during Phase 4.5:
@@ -847,7 +847,10 @@ clang-format --dry-run --Werror engine/src/ui/rmlui/*.cpp engine/src/ui/rmlui/*.
 cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug
 cmake --build --preset web-debug
-node scripts/web-smoke.mjs
+pnpm run web:smoke:debug
+cmake --preset web-profile
+cmake --build --preset web-profile
+pnpm run web:smoke:profile
 ```
 
 Resize regression coverage should exercise at least:

@@ -22,8 +22,13 @@ cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
 cmake --build --preset web-debug
-npm run web:smoke
+pnpm run web:smoke:debug
+cmake --preset web-profile
+cmake --build --preset web-profile
+pnpm run web:smoke:profile
 ```
+
+The default `pnpm run web:smoke` command remains an alias for the debug structural Web smoke. Use `web-profile` plus `pnpm run web:smoke:profile` for optimized RmlUi/bgfx perf-counter measurement; that path compiles render perf counters in, enables them at runtime with `renderPerf=1`, disables ImGui with `noImgui=1`, and treats FPS as informational only.
 
 Run Android verification when platform, CMake, shader, asset packaging, JNI, or Gradle behavior changes:
 

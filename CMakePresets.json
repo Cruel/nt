@@ -80,6 +80,18 @@
                 "BUILD_TESTING": "OFF",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF"
             }
+        },
+        {
+            "name": "web-profile",
+            "displayName": "Web Profile (Emscripten)",
+            "description": "Optimized Web build with RmlUi/bgfx render performance counters enabled",
+            "binaryDir": "${sourceDir}/build/web-profile",
+            "toolchainFile": "${sourceDir}/cmake/toolchains/emscripten.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "MinSizeRel",
+                "BUILD_TESTING": "OFF",
+                "NOVELTEA_ENABLE_RENDER_PERF": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -106,6 +118,10 @@
         {
             "name": "web-release",
             "configurePreset": "web-release"
+        },
+        {
+            "name": "web-profile",
+            "configurePreset": "web-profile"
         }
     ]
 }

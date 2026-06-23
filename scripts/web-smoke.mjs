@@ -7,7 +7,6 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const appDir = path.join(root, 'build', 'web-debug', 'apps', 'sandbox');
 const thresholdsPath = path.join(root, 'scripts', 'web-smoke-thresholds.json');
 const thresholds = JSON.parse(await fs.readFile(thresholdsPath, 'utf8'));
 
@@ -16,6 +15,64 @@ function fail(message) {
   process.exit(1);
 }
 
+function parseArgs(argv) {
+  const options = {
+    buildDir: 'build/web-debug',
+    threshold: 'readback_gallery_debug',
+    frames: 6,
+    minPerfLines: 1,
+    label: 'web-debug',
+  };
+
+  for (let i = 0; i < argv.length; ++i) {
+    const arg = argv[i];
+    const readValue = (name) => {
+      if (i + 1 >= argv.length) {
+        fail(`${name} requires a value`);
+      }
+      return argv[++i];
+    };
+
+    if (arg === '--build-dir') {
+      options.buildDir = readValue(arg);
+    } else if (arg === '--threshold') {
+      options.threshold = readValue(arg);
+    } else if (arg === '--frames') {
+      options.frames = Number(readValue(arg));
+    } else if (arg === '--min-perf-lines') {
+      options.minPerfLines = Number(readValue(arg));
+    } else if (arg === '--label') {
+      options.label = readValue(arg);
+    } else if (arg === '--help' || arg === '-h') {
+      console.log(`usage: node scripts/web-smoke.mjs [options]\n\n` +
+        `Options:\n` +
+        `  --build-dir <path>       Web sandbox build directory (default: build/web-debug)\n` +
+        `  --threshold <name>       Threshold set from scripts/web-smoke-thresholds.json\n` +
+        `  --frames <count>         Runtime frame count URL flag (default: 6)\n` +
+        `  --min-perf-lines <count> Required captured [perf] lines (default: 1)\n` +
+        `  --label <text>           Label printed in smoke output\n`);
+      process.exit(0);
+    } else {
+      fail(`unknown argument: ${arg}`);
+    }
+  }
+
+  if (!Number.isInteger(options.frames) || options.frames <= 0) {
+    fail(`--frames must be a positive integer, got ${options.frames}`);
+  }
+  if (!Number.isInteger(options.minPerfLines) || options.minPerfLines <= 0) {
+    fail(`--min-perf-lines must be a positive integer, got ${options.minPerfLines}`);
+  }
+  if (!thresholds[options.threshold]) {
+    fail(`unknown threshold set '${options.threshold}' in ${thresholdsPath}`);
+  }
+
+  options.appDir = path.resolve(root, options.buildDir, 'apps', 'sandbox');
+  return options;
+}
+
+const options = parseArgs(process.argv.slice(2));
+
 let chromium;
 try {
   ({ chromium } = await import('playwright'));
@@ -23,7 +80,22 @@ try {
   fail(`playwright is not installed: ${error instanceof Error ? error.message : String(error)}`);
 }
 
-async function startServer() {
+async function requireBuiltApp(appDir) {
+  const requiredFiles = ['index.html', 'index.js', 'index.wasm', 'index.data'];
+  const missing = [];
+  for (const file of requiredFiles) {
+    try {
+      await fs.access(path.join(appDir, file));
+    } catch {
+      missing.push(file);
+    }
+  }
+  if (missing.length > 0) {
+    fail(`missing web build files in ${appDir}: ${missing.join(', ')}. Build the matching preset before running this smoke.`);
+  }
+}
+
+async function startServer(appDir) {
   const server = http.createServer(async (req, res) => {
     try {
       const reqUrl = new URL(req.url || '/', 'http://localhost');
@@ -99,6 +171,16 @@ function assertMax(values, key, max, label, perf) {
   }
 }
 
+function assertEquals(values, key, expected, label, perf) {
+  if (expected === undefined) return;
+  if (values[key] === undefined) {
+    fail(`perf line is missing required equality key ${key}: ${perf}`);
+  }
+  if (values[key] !== expected) {
+    fail(`${label} did not match expected value (${values[key]} != ${expected}): ${perf}`);
+  }
+}
+
 function assertMaxPixels(values, keyPrefix, widthKey, heightKey, maxPixels, label, perf) {
   if (maxPixels === undefined) return;
   const width = values[widthKey];
@@ -112,7 +194,35 @@ function assertMaxPixels(values, keyPrefix, widthKey, heightKey, maxPixels, labe
   }
 }
 
-const { server, port } = await startServer();
+function dynamicLimit(scene, values, fixedKey, ratioKey, framebufferKey, fallbackMax) {
+  const fixed = scene[fixedKey];
+  const ratio = scene[ratioKey];
+  const framebuffer = values[framebufferKey];
+  const candidates = [];
+  if (fixed !== undefined) candidates.push(fixed);
+  if (ratio !== undefined && framebuffer !== undefined) candidates.push(Math.ceil(framebuffer * ratio));
+  if (candidates.length === 0) return undefined;
+  return Math.max(...candidates, fallbackMax ?? 0);
+}
+
+function assertMaxDimension(values, key, scene, thresholdPrefix, label, perf) {
+  const axis = key.endsWith('_w') ? 'width' : 'height';
+  const fixedKey = `${thresholdPrefix}_${axis}`;
+  const ratioKey = `${thresholdPrefix}_${axis}_ratio`;
+  const framebufferKey = axis === 'width' ? 'fb_w' : 'fb_h';
+  const max = dynamicLimit(scene, values, fixedKey, ratioKey, framebufferKey, 0);
+  if (max === undefined) return;
+  if (values[key] === undefined) {
+    fail(`perf line is missing required size key ${key}: ${perf}`);
+  }
+  if (values[key] > max) {
+    fail(`${label} ${axis} exceeded threshold (${values[key]} > ${max}): ${perf}`);
+  }
+}
+
+await requireBuiltApp(options.appDir);
+
+const { server, port } = await startServer(options.appDir);
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({
   viewport: { width: 1280, height: 720 },
@@ -134,14 +244,18 @@ try {
   const url = new URL(`http://127.0.0.1:${port}/index.html`);
   url.searchParams.set('demo', 'none');
   url.searchParams.set('rmlui-document', 'project:/rmlui/readback_gallery.rml');
-  url.searchParams.set('frames', '6');
+  url.searchParams.set('frames', String(options.frames));
   url.searchParams.set('renderPerf', '1');
   url.searchParams.set('noImgui', '1');
+
+  console.log(`[web-smoke] running ${options.label}: ${url.toString()}`);
+  console.log(`[web-smoke] build dir: ${options.appDir}`);
+  console.log(`[web-smoke] threshold: ${options.threshold}`);
 
   await page.goto(url.toString(), { waitUntil: 'load' });
 
   const deadline = Date.now() + 120000;
-  while (perfLines.length === 0 && Date.now() < deadline) {
+  while (perfLines.length < options.minPerfLines && Date.now() < deadline) {
     await page.waitForTimeout(250);
   }
 
@@ -149,9 +263,12 @@ try {
   if (!perf) {
     fail('no [perf] line captured from web run');
   }
+  if (perfLines.length < options.minPerfLines) {
+    fail(`captured ${perfLines.length} [perf] line(s), expected at least ${options.minPerfLines}: ${perf}`);
+  }
 
   const values = parsePerf(perf);
-  const scene = thresholds.readback_gallery;
+  const scene = thresholds[options.threshold];
   requirePerfKeys(values, scene.required_perf_keys ?? [], perf);
 
   assertMax(values, 'full_frame_child_layers', scene.max_full_frame_child_layers,
@@ -179,6 +296,11 @@ try {
   assertMax(values, 'composite_px', scene.max_composite_pixels,
             'composite pixels', perf);
 
+  assertEquals(values, 'rt_alloc', scene.expected_rt_alloc, 'render-target allocations', perf);
+  assertEquals(values, 'rt_destroy', scene.expected_rt_destroy, 'render-target destroys', perf);
+  assertEquals(values, 'layer_alloc', scene.expected_layer_alloc, 'layer allocations', perf);
+  assertEquals(values, 'layer_destroy', scene.expected_layer_destroy, 'layer destroys', perf);
+
   assertMaxPixels(values, 'max_rt', 'max_rt_w', 'max_rt_h', scene.max_postprocess_target_pixels,
                   'max postprocess target', perf);
   assertMaxPixels(values, 'max_child_layer', 'max_child_layer_w', 'max_child_layer_h',
@@ -186,10 +308,19 @@ try {
   assertMaxPixels(values, 'max_child_rt', 'max_child_rt_w', 'max_child_rt_h',
                   scene.max_child_rt_pixels, 'max child render target', perf);
 
-  if (((values.rt_alloc ?? 0) - (values.rt_destroy ?? 0)) > scene.max_steady_state_allocations) {
+  assertMaxDimension(values, 'max_child_layer_w', scene, 'max_child_layer', 'max child layer', perf);
+  assertMaxDimension(values, 'max_child_layer_h', scene, 'max_child_layer', 'max child layer', perf);
+  assertMaxDimension(values, 'max_child_rt_w', scene, 'max_child_rt', 'max child render target', perf);
+  assertMaxDimension(values, 'max_child_rt_h', scene, 'max_child_rt', 'max child render target', perf);
+  assertMaxDimension(values, 'max_rt_w', scene, 'max_postprocess_target', 'max postprocess target', perf);
+  assertMaxDimension(values, 'max_rt_h', scene, 'max_postprocess_target', 'max postprocess target', perf);
+
+  if (scene.max_steady_state_allocations !== undefined &&
+      ((values.rt_alloc ?? 0) - (values.rt_destroy ?? 0)) > scene.max_steady_state_allocations) {
     fail(`steady-state render-target allocation churn detected: ${perf}`);
   }
-  if (((values.layer_alloc ?? 0) - (values.layer_destroy ?? 0)) > scene.max_steady_state_layer_allocations) {
+  if (scene.max_steady_state_layer_allocations !== undefined &&
+      ((values.layer_alloc ?? 0) - (values.layer_destroy ?? 0)) > scene.max_steady_state_layer_allocations) {
     fail(`steady-state layer allocation churn detected: ${perf}`);
   }
 
@@ -201,7 +332,9 @@ try {
     fail(`page errors captured: ${pageErrors.join(' | ')}`);
   }
 
-  console.log(`[web-smoke] ok: ${perf}`);
+  const fps = values.fps === undefined ? 'unknown' : String(values.fps);
+  console.log(`[web-smoke] fps informational only: ${fps}`);
+  console.log(`[web-smoke] ok (${options.label}): ${perf}`);
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

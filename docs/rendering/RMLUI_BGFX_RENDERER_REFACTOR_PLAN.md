@@ -120,17 +120,18 @@ Acceptance:
 - Working tree is clean before material implementation begins.
 - The commits preserve the distinction between runtime perf support being compiled in and runtime perf logging being explicitly enabled.
 
-### Action 1: Add Release/Profile Web Smoke
+### Action 1: Add Release/Profile Web Smoke `[implemented]`
 
 Goal: make release/profile Web measurement repeatable and prevent debug WebGL validation overhead from being mistaken for renderer cost.
 
-Implement:
+Implemented path:
 
-- A Web release/profile smoke command or script path.
-- `NOVELTEA_ENABLE_RENDER_PERF=ON` for the profile used by the smoke.
-- Runtime URL flags: `renderPerf=1`, `noImgui=1`, representative readback gallery document.
-- Structural threshold checks matching the current bounded shape.
-- FPS captured as informational only.
+- `web-profile` CMake preset builds an optimized Web profile into `build/web-profile` with `NOVELTEA_ENABLE_RENDER_PERF=ON`.
+- `pnpm run web:smoke:profile` runs `scripts/web-smoke.mjs` against `build/web-profile` with the `readback_gallery_profile` thresholds.
+- `pnpm run web:smoke:debug` remains the debug structural smoke against `build/web-debug`; `pnpm run web:smoke` is the debug alias.
+- Runtime URL flags are explicit: `renderPerf=1`, `noImgui=1`, `demo=none`, and `rmlui-document=project:/rmlui/readback_gallery.rml`.
+- Structural threshold checks match the current bounded shape, including exact zero allocation/destroy counters on the warmed profile perf line.
+- FPS is captured and displayed as informational only.
 
 Gate these counters:
 
@@ -348,8 +349,9 @@ Use renderer checks when touching RmlUi/bgfx rendering behavior:
 cmake --build --preset linux-debug --target noveltea-sandbox --parallel
 ctest --test-dir build/linux-debug -R noveltea_rmlui --output-on-failure
 ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 180 --no-imgui --render-perf
-cmake --build --preset web-release --parallel
-node scripts/web-smoke.mjs
+cmake --preset web-profile
+cmake --build --preset web-profile --parallel
+pnpm run web:smoke:profile
 ```
 
 Use package/export checks when touching material compilation or shader variants:
@@ -366,7 +368,7 @@ Adjust exact target names if the build graph changes, but keep the intent: schem
 ```text
 Start from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, which is now the current NovelTea rendering action plan rather than the old completed Phase 4.5 checklist.
 
-First, add the release/profile Web smoke path from Action 1 so debug WebGL validation overhead cannot be confused with real renderer performance again. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should be informational only.
+Action 1 is implemented: use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
 
-Then begin Action 2 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 0-1: audit existing render/material.hpp and render/shader.hpp stubs, add the backend-neutral .ntmat material data model, MaterialId normalization, parser/validator, diagnostics, and tests. Do not add runtime shader source compilation, do not invoke shaderc yet, do not create bgfx programs yet, and do not wire RmlUi shader(<string>) yet.
+Begin Action 2 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 0-1: audit existing render/material.hpp and render/shader.hpp stubs, add the backend-neutral .ntmat material data model, MaterialId normalization, parser/validator, diagnostics, and tests. Do not add runtime shader source compilation, do not invoke shaderc yet, do not create bgfx programs yet, and do not wire RmlUi shader(<string>) yet.
 ```

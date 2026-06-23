@@ -107,7 +107,7 @@ Current renderer alignment:
 ## Recommended Follow-Up Work
 
 1. Keep the optimization plan focused on regression gates and feature coverage, not emergency Web performance rescue.
-2. Add a Web release/profile smoke path so debug WebGL validation cannot again be mistaken for renderer runtime cost.
+2. Keep the `web-profile` / `pnpm run web:smoke:profile` path healthy so debug WebGL validation cannot again be mistaken for renderer runtime cost.
 3. Add focused RML fixtures for `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, generic `shader(<string>)` through the material bridge, and a `BlendMode::Replace` case if RmlUi exposes it through a property fixture.
 4. Add lifecycle tests for `ReleaseGeometry()`, `ReleaseTexture()`, `ReleaseShader()`, and nested `PopLayer()` restoration.
 5. Implement [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md) before treating generic RmlUi shader support as complete. Custom filters/custom shader decorators should use provider hooks in the reusable renderer core rather than baking NovelTea-specific behavior into `rmlui_bgfx::RenderInterface`.

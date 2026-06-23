@@ -65,13 +65,17 @@ cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
 cmake --build --preset web-debug
+pnpm run web:smoke:debug
+cmake --preset web-profile
+cmake --build --preset web-profile
+pnpm run web:smoke:profile
 cmake --build --preset linux-debug --target format-check
 ```
 
 Known current verification note:
 
 - `ctest --test-dir build/linux-debug -R noveltea_rmlui` passes standard readback and resize-readback capture/verify, including the saved `mask-image` panel. The readback gallery now reports zero full-frame child layers on Linux.
-- `cmake --build --preset web-debug` and `node scripts/web-smoke.mjs` pass after completed Phase 7 work; web smoke reports zero full-frame child layers, `max_child_layer=114x96`, `passes=89`, and `views=43`.
+- `cmake --build --preset web-debug` plus `pnpm run web:smoke:debug` remains the debug structural Web smoke. `cmake --build --preset web-profile` plus `pnpm run web:smoke:profile` is the optimized release/profile measurement gate with render perf counters compiled in; FPS is informational only.
 - `cmake --build --preset linux-debug`, `cmake --build --preset linux-debug --target format-check`, and the full Linux `ctest --test-dir build/linux-debug --output-on-failure` pass after completed Phase 7 work.
 - Latest Linux and Web readback-gallery perf after completed Phase 7 work has the strict bounded structural shape and lower pass/postprocess counts:
 

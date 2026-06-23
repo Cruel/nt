@@ -86,7 +86,8 @@ Residual work deferred out of Phase 7:
 | Linux build | VERIFIED | `cmake --build build/linux-debug` passes. |
 | Linux test suite | VERIFIED | RmlUi readback capture/verify and resize-readback capture/verify pass under `ctest --test-dir build/linux-debug -R noveltea_rmlui`. |
 | Web sandbox rebuild | VERIFIED | `cmake --build --preset web-debug` passes after Phase 7. |
-| Web structural smoke | VERIFIED | `node scripts/web-smoke.mjs` passes with zero full-frame child layers, zero unbounded fallbacks, zero full-frame postprocess passes, `max_child_layer=114x96`, `passes=89`, and `views=43`. |
+| Web debug structural smoke | VERIFIED | `pnpm run web:smoke:debug` runs the readback gallery against `build/web-debug` with structural bounded-compositor thresholds. |
+| Web release/profile smoke | VERIFIED | `web-profile` builds optimized Web output with `NOVELTEA_ENABLE_RENDER_PERF=ON`; `pnpm run web:smoke:profile` gates the warmed readback-gallery perf line with zero full-frame child layers, zero unbounded fallbacks, zero full-frame postprocess passes/target uses, and zero steady-state target/layer allocations and destroys. FPS is informational only. |
 | RmlUi render-interface audit | VERIFIED | `docs/rendering/RMLUI_RENDER_INTERFACE_AUDIT.md` records implemented, under-verified, and unsupported render-interface features. |
 | Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
 | Generic `shader(<string>)` decorator | PLANNED | Built-in gradients are supported. Custom shader decorators are planned as NovelTea material references through [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), not runtime shader-source compilation. |
@@ -135,11 +136,11 @@ The renderer emits a periodic `[perf]` line when render perf logging is enabled.
 - Filters have bounded work targets in the readback gallery, color-only filter chains now bypass postprocess, and mask-image-only filters avoid the preliminary source copy. Blur and drop-shadow still use the conservative bounded postprocess path.
 - Postprocess targets are reused at steady state; remaining filter work is semantic cleanup and pixel-work reduction, not allocation churn.
 - Child layer and postprocess render targets are reused at steady state; remaining filter work is conservative copy/shader semantics, not allocation churn.
-- The web smoke gate passes after Phase 4 for the readback gallery; add a release/profile web smoke path so debug WebGL validation cannot be mistaken for release performance again.
+- The debug web smoke gate passes for the readback gallery, and `web-profile` plus `pnpm run web:smoke:profile` now provides the optimized release/profile measurement path so debug WebGL validation cannot be mistaken for release performance again.
 - The base presentation path may remain offscreen on WebGL; this is acceptable until bounded child/filter work is stable across platforms.
 
 ## Next Implementation Task
 
-Follow the current action plan in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). The old emergency performance path is no longer the next priority. Start with release/profile web smoke coverage, then build the engine material/shader asset pipeline from [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), and only then bridge RmlUi `shader(<string>)` to a NovelTea material reference. Other coverage gaps remain `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, custom filter policy, `BlendMode::Replace` if reachable, nested `PopLayer()` state restoration, and release lifecycle tests.
+Follow the current action plan in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). The old emergency performance path is no longer the next priority. Release/profile web smoke coverage is in place; next build the engine material/shader asset pipeline from [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), and only then bridge RmlUi `shader(<string>)` to a NovelTea material reference. Other coverage gaps remain `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, custom filter policy, `BlendMode::Replace` if reachable, nested `PopLayer()` state restoration, and release lifecycle tests.
 
 Do not start physical extraction to a separate repository until feature coverage and public extension policy are clearer.

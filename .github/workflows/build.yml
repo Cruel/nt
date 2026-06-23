@@ -211,6 +211,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install root pnpm dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -273,6 +290,15 @@ jobs:
           test -f build/web-release/apps/sandbox/index.wasm
           grep -q '/assets/project/rmlui/lua_demo.rml' build/web-release/apps/sandbox/index.js
           grep -q '/assets/project/rmlui/lua_demo.lua' build/web-release/apps/sandbox/index.js
+
+      - name: Web profile smoke
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          emcmake cmake --preset web-profile -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-profile --target noveltea-sandbox
+          pnpm run web:smoke:profile
 
       - name: Upload web release preview
         uses: actions/upload-artifact@v7

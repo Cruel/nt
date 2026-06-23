@@ -1,27 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RELEASE=0
+MODE="debug"
 
 for arg in "$@"; do
   case "$arg" in
     --release)
-      RELEASE=1
+      MODE="release"
+      ;;
+    --profile)
+      MODE="profile"
       ;;
     *)
       echo "[run] unknown argument: $arg" >&2
-      echo "usage: $0 [--release]" >&2
+      echo "usage: $0 [--release|--profile]" >&2
       exit 2
       ;;
   esac
 done
 
-CMAKE_CONFIGURE_ARGS=(-DNOVELTEA_ENABLE_RENDER_PERF=ON)
-if [ "$RELEASE" = "1" ]; then
-  PRESET="web-release"
-else
-  PRESET="web-debug"
-fi
+CMAKE_CONFIGURE_ARGS=()
+case "$MODE" in
+  debug)
+    PRESET="web-debug"
+    ;;
+  release)
+    PRESET="web-release"
+    ;;
+  profile)
+    PRESET="web-profile"
+    ;;
+  *)
+    echo "[run] internal error: unknown mode $MODE" >&2
+    exit 2
+    ;;
+esac
+
 BUILD_DIR="build/$PRESET"
 PORT="${PORT:-8080}"
 
@@ -38,6 +52,10 @@ echo "[run] building ($PRESET)..."
 cmake --build --preset "$PRESET" --parallel
 
 echo "[run] starting web server at http://localhost:$PORT"
-echo "[run] perf URL: http://localhost:$PORT/?demo=none&noImgui=1&renderPerf=1&rmlui-document=project:/rmlui/readback_gallery.rml"
+if [ "$MODE" = "profile" ]; then
+  echo "[run] perf URL: http://localhost:$PORT/?demo=none&noImgui=1&renderPerf=1&rmlui-document=project:/rmlui/readback_gallery.rml"
+else
+  echo "[run] URL: http://localhost:$PORT/?demo=none&noImgui=1&rmlui-document=project:/rmlui/readback_gallery.rml"
+fi
 cd "$BUILD_DIR/apps/sandbox/"
 python3 -m http.server "$PORT"
