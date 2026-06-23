@@ -22,10 +22,12 @@ ACTIVITY="${ACTIVITY:-com.example.noveltea.MainActivity}"
 
 if [ "$RELEASE" = "1" ]; then
   GRADLE_TASK="assembleRelease"
+  GRADLE_ARGS=("$GRADLE_TASK" "-PnovelteaUseDebugSigningForRelease=true")
   DEFAULT_APK="app/build/outputs/apk/release/app-release.apk"
-  FALLBACK_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+  FALLBACK_APK=""
 else
   GRADLE_TASK="assembleDebug"
+  GRADLE_ARGS=("$GRADLE_TASK")
   DEFAULT_APK="app/build/outputs/apk/debug/app-debug.apk"
   FALLBACK_APK=""
 fi
@@ -38,7 +40,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT/android"
 
 echo "[run] building android app ($GRADLE_TASK)..."
-./gradlew "$GRADLE_TASK"
+./gradlew "${GRADLE_ARGS[@]}"
 
 if [ ! -f "$APK" ] && [ -n "$FALLBACK_APK" ] && [ -f "$FALLBACK_APK" ]; then
   APK="$FALLBACK_APK"
@@ -50,7 +52,9 @@ if [ ! -f "$APK" ]; then
 fi
 
 if [[ "$APK" == *-unsigned.apk ]]; then
-  echo "[run] warning: release APK is unsigned; adb install may fail without release signing configured" >&2
+  echo "[run] unsigned APKs cannot be installed by adb; Android requires an APK signing certificate" >&2
+  echo "[run] configure release signing, or use a signed APK path through APK=/path/to/app-release.apk" >&2
+  exit 1
 fi
 
 if ! adb devices | grep -qE 'emulator-[0-9]+[[:space:]]+device'; then

@@ -37,6 +37,14 @@ cd android
 ./gradlew :app:assembleDebug
 ```
 
+For local device/emulator release-smoke testing, use the helper script:
+
+```sh
+./scripts/run-android.sh --release
+```
+
+That helper asks Gradle to sign the release build with the debug keystore only for local installation. Publishing/release packaging should use real release signing properties (`novelteaReleaseStoreFile`, `novelteaReleaseStorePassword`, `novelteaReleaseKeyAlias`, and `novelteaReleaseKeyPassword`) or leave the artifact unsigned for later signing.
+
 ## Optional Components
 
 - twink (`NOVELTEA_ENABLE_TWINK`): when `OFF`, tweens resolve as immediate value changes. Default `ON`.

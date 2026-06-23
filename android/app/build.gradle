@@ -17,6 +17,8 @@ android {
             releaseKeyAlias != null &&
             releaseKeyPassword != null &&
             file(releaseStoreFile).exists()
+    def useDebugSigningForRelease = providers.gradleProperty("novelteaUseDebugSigningForRelease")
+            .orElse("false").get().toBoolean()
 
     buildFeatures {
         prefab true
@@ -64,6 +66,8 @@ android {
             minifyEnabled false
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
+            } else if (useDebugSigningForRelease) {
+                signingConfig signingConfigs.debug
             }
         }
     }
