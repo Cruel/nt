@@ -584,11 +584,9 @@ Each step must be independently buildable and should preserve the current perf s
 ## Prompt for the Next Coding Session
 
 ```text
-We need to implement Phase 4.5 from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md. The goal is a behavior-preserving architecture split of the RmlUi bgfx renderer after Phase 4 bounded materialization, plus making the renderer core reusable outside NovelTea. Do not start Phase 5/6 optimization yet.
+Phase 4.5 from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md is complete. The renderer has a reusable rmlui_bgfx core boundary, NovelTea adapter services, extracted target cache, pass builder, draw context, filter pipeline, layer system, thin adapter cleanup, and resize/readback regression coverage.
 
-Start with Stage 0 only: establish the reusable-core boundary. Introduce generic rmlui_bgfx config/provider types for surface metrics, bgfx view range, shader loading, texture loading, and diagnostics/perf logging. Move or wrap current NovelTea-specific behavior behind adapter code: NovelTea SurfaceMetrics conversion, AssetManager texture loading/path resolution, packaged shader lookup, runtime UI view range, and diagnostics output. Reusable-core files must not include noveltea/... headers or depend directly on NovelTea AssetManager, SurfaceMetrics, shader loader, view IDs, SDL3, Lua, ImGui, runtime session, custom components, or editor preview code.
+Resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md at Phase 5/6. First verify whether transform-driven full-frame fallback is still a real issue in the current gallery and narrow or skip Phase 5 if the current implementation already satisfies its acceptance criteria. Then implement Phase 6's explicit split between allocation bounds and valid content bounds in the filter pipeline.
 
-Preserve rendering behavior exactly. The readback-gallery perf shape should remain at the Phase 4 baseline: full_frame_child_layers=0, full_frame_postprocess_passes=0, max_child_layer/max_rt near affected effect size, and rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup.
-
-After Stage 0, run linux-debug build, readback tests, a 180-frame readback_gallery perf run, web smoke if available, and a dependency-boundary search proving reusable-core files do not include NovelTea-only headers. Do not extract target caches, pass scheduling, filters, or layer replay in this first stage unless the minimal adapter boundary requires tiny mechanical moves.
+Preserve the Phase 4.5 contracts: reusable-core files must not include NovelTea-only dependencies, readback and resize-readback must pass, web smoke must pass, and steady-state perf must keep full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup.
 ```

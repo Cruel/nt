@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -13,7 +14,53 @@ namespace noveltea {
 
 namespace {
 Engine* g_preview_engine = nullptr;
+
+bool parse_surface_size(const std::string& token, SurfaceMetrics& surface)
+{
+    const size_t separator = token.find('x');
+    if (separator == std::string::npos || separator == 0 || separator + 1 >= token.size()) {
+        return false;
+    }
+    char* end = nullptr;
+    const long width = std::strtol(token.c_str(), &end, 10);
+    if (!end || *end != 'x') {
+        return false;
+    }
+    const long height = std::strtol(end + 1, &end, 10);
+    if (!end || *end != '\0' || width <= 0 || height <= 0) {
+        return false;
+    }
+    surface.logical_width = int(width);
+    surface.logical_height = int(height);
+    surface.framebuffer_width = int(width);
+    surface.framebuffer_height = int(height);
+    surface.scale_x = 1.0f;
+    surface.scale_y = 1.0f;
+    return true;
 }
+
+bool parse_resize_sequence(const char* value, std::vector<SurfaceMetrics>& sequence)
+{
+    sequence.clear();
+    std::string text = value ? value : "";
+    size_t begin = 0;
+    while (begin <= text.size()) {
+        const size_t comma = text.find(',', begin);
+        const size_t end = comma == std::string::npos ? text.size() : comma;
+        const std::string token = text.substr(begin, end - begin);
+        SurfaceMetrics surface;
+        if (!parse_surface_size(token, surface)) {
+            return false;
+        }
+        sequence.push_back(surface);
+        if (comma == std::string::npos) {
+            break;
+        }
+        begin = comma + 1;
+    }
+    return !sequence.empty();
+}
+} // namespace
 
 App::~App() { m_engine.shutdown(); }
 
@@ -87,6 +134,23 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.screenshot_path = argv[++i];
+        } else if (std::strcmp(arg, "--resize-sequence") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr,
+                             "[app] --resize-sequence requires WIDTHxHEIGHT[,WIDTHxHEIGHT...]\n");
+                return false;
+            }
+            if (!parse_resize_sequence(argv[++i], options.resize_sequence)) {
+                std::fprintf(stderr, "[app] invalid --resize-sequence value\n");
+                return false;
+            }
+        } else if (std::strcmp(arg, "--readback-after-resize-frames") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --readback-after-resize-frames requires a number\n");
+                return false;
+            }
+            options.readback_after_resize_frames =
+                static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (std::strcmp(arg, "--no-imgui") == 0) {
             options.no_imgui = true;
         } else if (std::strcmp(arg, "--render-perf") == 0) {
@@ -117,6 +181,8 @@ bool App::initialize(int argc, char* argv[])
     run_config.runtime_ui_document = options.runtime_ui_document;
     run_config.runtime_project = options.runtime_project;
     run_config.screenshot_path = options.screenshot_path;
+    run_config.resize_sequence = options.resize_sequence;
+    run_config.readback_after_resize_frames = options.readback_after_resize_frames;
     run_config.enable_debug_ui = !options.no_imgui;
     run_config.render_perf_logging = options.perf_logging;
     run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;

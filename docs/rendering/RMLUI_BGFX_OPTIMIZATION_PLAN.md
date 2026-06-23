@@ -526,7 +526,7 @@ Representative Linux Phase 4 perf at 1280x720:
 [perf] fps=96 passes=108 geom=27 clip=15 gradients=8 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=980004 copy_px=9216 composite_px=985744 post_px=38352 full_frame_passes=2 bounded_passes=55 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=25 full_frame_postprocess_passes=0 bounded_postprocess_passes=15 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=24 full_frame_postprocess_targets=0 bounded_postprocess_targets=12 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_child_layer=114x96 max_child_rt=114x96 max_rt=114x96 fb=1280x720
 ```
 
-The next implementation work is Phase 4.5: first establish the reusable `rmlui_bgfx` core boundary, then perform the behavior-preserving renderer architecture split described in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). After Phase 4.5 is complete, resume Phase 5/6 by confirming normal CSS transforms remain bounded across Android and additional Web scenes, then making filters explicitly consume valid content bounds separately from allocation bounds and reduce postprocess pixel work. Do not start Phase 9 pass folding or a physical external repository split until the in-repo reusable boundary and subsystem split are verified.
+Phase 4.5 is complete: the renderer now has a reusable `rmlui_bgfx` core boundary, NovelTea adapter services, extracted target cache, pass builder, draw context, filter pipeline, layer system, thin adapter cleanup, and resize/readback regression coverage. Resume Phase 5/6 by confirming normal CSS transforms remain bounded across Android and additional Web scenes, then making filters explicitly consume valid content bounds separately from allocation bounds and reduce postprocess pixel work. Do not start Phase 9 pass folding or a physical external repository split until Phase 5/6 semantics are tightened.
 
 ## Suggested Work Order for Codex
 
@@ -537,7 +537,7 @@ Use this order. Do not jump to pass folding or direct base presentation before c
 3. Phase 2: introduce virtual child layer recording, initially behind an internal flag if needed.
 4. Phase 3: accumulate content/clip/scissor bounds for recorded layers.
 5. Phase 4: materialize and replay bounded child layers. Done for Linux and Web readback.
-6. Phase 4.5: establish the reusable `rmlui_bgfx` core boundary and refactor renderer structure using [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md).
+6. Phase 4.5: establish the reusable `rmlui_bgfx` core boundary and refactor renderer structure using [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). Done for Linux/Web readback, including resize-readback coverage.
 7. Phase 5: remove transform full-frame fallback.
 8. Phase 6: make filters use valid content bounds.
 9. Phase 7: fix saved texture/mask bounds.
@@ -551,11 +551,11 @@ Each implementation slice must report before/after perf lines for the readback g
 Use this prompt to begin the next coding session:
 
 ```text
-We need to implement Phase 4.5 from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, referenced by docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md. Phase 0 through Phase 4 of the restarted optimization plan are implemented: perf smoke gates reject the bad structural baseline, compiled geometry has CPU-side bounds, child layers record virtual draw/gradient/clip-mask commands until a texture consumer materializes them, recorded layers accumulate conservative content/mask bounds, and materialization now allocates bounded child/postprocess render targets with zero full-frame child layers and zero steady-state target churn in the readback-gallery perf line.
+We need to resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md after completed Phase 4.5. Phase 0 through Phase 4 of the restarted optimization plan are implemented, and Phase 4.5 has completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage.
 
-Start with Phase 4.5 Stage 0 only: establish the reusable `rmlui_bgfx` core boundary. Introduce generic renderer config/provider interfaces for surface metrics, bgfx view range, shader loading, texture loading, diagnostics, and perf logging. Move or wrap current NovelTea-specific behavior behind adapter code: NovelTea SurfaceMetrics conversion, AssetManager texture/path resolution, packaged shader lookup, runtime UI view range, and diagnostics output. Reusable-core files must not include `noveltea/...` headers or depend directly on NovelTea AssetManager, SurfaceMetrics, shader loader, view IDs, SDL3, Lua, ImGui, runtime session, custom components, or editor preview code.
+Start with Phase 5/6 planning. First verify whether transform-driven fallback is still a real issue in the current readback gallery and whether Phase 5 should be skipped, narrowed, or implemented. Then make the filter pipeline explicitly consume valid content bounds separately from allocation bounds so postprocess pixel work can drop further without changing visual output.
 
-Preserve current rendering behavior exactly: child layer targets and postprocess targets must be reused at steady state, with readback-gallery perf reporting full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup, and max_child_layer/max_rt near affected effect size.
+Preserve the Phase 4.5 structure: reusable-core files must remain free of NovelTea-only dependencies, child layer targets and postprocess targets must be reused at steady state, and readback-gallery perf must continue reporting full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup.
 
-After Stage 0, run linux-debug build, readback tests, a 180-frame readback_gallery perf run, web smoke if available, and a dependency-boundary search proving reusable-core files do not include NovelTea-only headers. Do not extract target caches, pass scheduling, filters, or layer replay in this first stage unless the minimal adapter boundary requires tiny mechanical moves, and do not start Phase 5/6 optimization yet.
+Run linux-debug build, RmlUi readback and resize-readback tests, a 180-frame readback_gallery perf run, web build/smoke, and the reusable-boundary dependency search after each phase slice.
 ```

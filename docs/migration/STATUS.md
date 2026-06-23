@@ -35,6 +35,7 @@ Last updated: 2026-06-22.
 - RmlUi bgfx optimization Phase 1 restart: compiled geometry now stores CPU-side local AABBs and shared transform/DPR helpers derive conservative framebuffer bounds for geometry and shader draws.
 - RmlUi bgfx optimization Phase 2 restart: child layers are now virtual at `PushLayer()`, draw/gradient/clip-mask commands record the render state needed for replay, and layer textures are materialized only when `CompositeLayers()`, `SaveLayerAsTexture()`, or `SaveLayerAsMaskImage()` needs them. Nested virtual layers keep provisional non-GPU bounds so saved mask-image correctness survives until content-bound accumulation replaces those provisional bounds. Reused layer slots now destroy previous-frame materialized resources before becoming virtual again, preventing interactive readback-gallery runs from exhausting bgfx framebuffers after the first few frames.
 - RmlUi bgfx optimization Phase 4 restart: virtual child layers now materialize from accumulated content bounds plus required filter/composite bounds, replay into bounded targets with local scissor/stencil/copy/composite coordinates, and preserve readback correctness. The Linux readback gallery now reports `full_frame_child_layers=0`, `full_frame_passes=2`, `max_child_layer=114x96`, and `max_rt=114x96` at 1280x720.
+- RmlUi bgfx optimization Phase 4.5: reusable `rmlui_bgfx` core boundary, NovelTea adapter services, extracted target cache, pass builder, draw context, filter pipeline, layer system, adapter cleanup, and resize/readback regression coverage are implemented.
 - Compatibility flag `--rmlui-base-direct-compat` forces the older offscreen-root compatible path. The no-compat desktop direct-base path remains unsafe for the readback gallery until root-preserving filters/masks are planned before base presentation selection.
 - Current runtime ownership and data flow are documented in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
 
@@ -45,11 +46,11 @@ Last updated: 2026-06-22.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
 - RmlUi child layers are now bounded in the Linux and Web readback gallery smoke paths. Android runtime smoke coverage should still be rerun against the new Phase 4 materialization path.
-- RmlUi child and postprocess render targets are reused at steady state and filter targets are bounded in the readback gallery, but the renderer core still needs the Phase 4.5 reusable `rmlui_bgfx` boundary and subsystem split before Phase 5/6 optimization resumes.
+- RmlUi Phase 5/6 optimization still needs follow-up: verify whether transform fallback remains a real issue, then split filter allocation bounds from valid content bounds to reduce postprocess pixel work further.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
-- RmlUi renderer documentation now treats the bgfx backend as a reusable renderer core consumed by NovelTea adapters; implementation still needs to remove NovelTea dependencies from reusable-core files.
+- RmlUi renderer documentation now treats the bgfx backend as a reusable renderer core consumed by NovelTea adapters; physical extraction to a separate repository is intentionally deferred.
 
 ## Current Verification Commands
 
@@ -66,7 +67,7 @@ cmake --build --preset linux-debug --target format-check
 
 Known current verification note:
 
-- `ctest --test-dir build/linux-debug -R readback --output-on-failure` passes after bounded child-layer materialization and replay, including the saved `mask-image` panel. The readback gallery now reports zero full-frame child layers on Linux.
+- `ctest --test-dir build/linux-debug -R noveltea_rmlui` passes standard readback and resize-readback capture/verify, including the saved `mask-image` panel. The readback gallery now reports zero full-frame child layers on Linux.
 - `cmake --build --preset web-debug` and `node scripts/web-smoke.mjs` pass after the Phase 4 restart work; web smoke reports zero full-frame child layers and `max_child_layer=114x96`.
 - `cmake --build --preset linux-debug --target noveltea_ui_tests` and `./build/linux-debug/tests/noveltea_ui_tests "*RmlUi*"` pass after the Phase 8 filter simplification update.
 - `cmake --build --preset web-debug --target engine` passes after the Phase 7 clip/stencil bounds update.
@@ -143,4 +144,4 @@ cd android
 
 ## Next Implementation Task
 
-Implement Phase 4.5 Stage 0 from [`docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](../rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md): establish the reusable `rmlui_bgfx` core boundary before subsystem extraction. Add generic config/provider interfaces for surface metrics, bgfx view range, shader loading, texture loading, diagnostics, and perf logging; move NovelTea-specific AssetManager path resolution, shader lookup, view IDs, surface conversion, and diagnostics output behind adapter code; and verify reusable-core files do not include `noveltea/...` or other NovelTea-only headers. Preserve the Phase 4 readback-gallery perf shape and do not start Phase 5/6, pass folding, direct-base tuning, or physical repository extraction until Phase 4.5 is complete.
+Resume the RmlUi bgfx optimization plan at Phase 5/6. First verify whether transform-driven full-frame fallback is still a real issue in the current renderer; narrow or skip Phase 5 if current behavior already satisfies it. Then implement Phase 6's explicit split between filter allocation bounds and valid content bounds to reduce postprocess pixel work. Do not start pass folding, direct-base tuning, or physical repository extraction until those semantics are tightened.

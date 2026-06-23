@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace noveltea {
 
@@ -24,6 +25,8 @@ private:
         std::string runtime_ui_document;
         std::string runtime_project;
         std::string screenshot_path;
+        std::vector<SurfaceMetrics> resize_sequence;
+        uint32_t readback_after_resize_frames = 0;
         bool no_imgui = false;
         bool perf_logging = false;
         bool rmlui_base_direct_compat = false;

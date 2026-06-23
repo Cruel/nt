@@ -128,6 +128,7 @@ catch_discover_tests(noveltea_ui_tests)
 
 if(TARGET noveltea-sandbox)
     set(NOVELTEA_RMLUI_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery.ppm")
+    set(NOVELTEA_RMLUI_RESIZE_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery-after-resize.ppm")
     set(NOVELTEA_RMLUI_COMPAT_MARKER "${CMAKE_BINARY_DIR}/rmlui-base-direct-compat.enabled")
     add_executable(noveltea_rmlui_readback_verifier
         ui/rmlui_readback_verifier.cpp
@@ -136,6 +137,13 @@ if(TARGET noveltea-sandbox)
         NOVELTEA_RMLUI_READBACK_PPM="${NOVELTEA_RMLUI_READBACK_PPM}"
     )
     target_link_libraries(noveltea_rmlui_readback_verifier PRIVATE Catch2::Catch2WithMain)
+    add_executable(noveltea_rmlui_resize_readback_verifier
+        ui/rmlui_readback_verifier.cpp
+    )
+    target_compile_definitions(noveltea_rmlui_resize_readback_verifier PRIVATE
+        NOVELTEA_RMLUI_READBACK_PPM="${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}"
+    )
+    target_link_libraries(noveltea_rmlui_resize_readback_verifier PRIVATE Catch2::Catch2WithMain)
     add_test(
         NAME noveltea_rmlui_readback_capture
         COMMAND /bin/sh -c
@@ -150,6 +158,22 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_rmlui_readback_verify PROPERTIES
         DEPENDS noveltea_rmlui_readback_capture
+        LABELS "rmlui;gpu"
+    )
+    add_test(
+        NAME noveltea_rmlui_resize_readback_capture
+        COMMAND /bin/sh -c
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1280x720,1423x1869,1280x720 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1280x720,1423x1869,1280x720 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; fi"
+    )
+    set_tests_properties(noveltea_rmlui_resize_readback_capture PROPERTIES
+        LABELS "rmlui;gpu"
+    )
+    add_test(
+        NAME noveltea_rmlui_resize_readback_verify
+        COMMAND noveltea_rmlui_resize_readback_verifier
+    )
+    set_tests_properties(noveltea_rmlui_resize_readback_verify PROPERTIES
+        DEPENDS noveltea_rmlui_resize_readback_capture
         LABELS "rmlui;gpu"
     )
 endif()
