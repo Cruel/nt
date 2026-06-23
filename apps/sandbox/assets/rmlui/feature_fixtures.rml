@@ -1,0 +1,36 @@
+<rml>
+<head>
+    <title>RmlUi Feature Fixtures</title>
+    <link type="text/rcss" href="feature_fixtures.rcss"/>
+</head>
+<body>
+    <div id="feature_root">
+        <div id="backdrop_filter" class="sample">
+            <div class="backdrop-bar red"></div>
+            <div class="backdrop-bar green"></div>
+            <div class="backdrop-bar blue"></div>
+            <div class="backdrop-bar yellow"></div>
+            <div class="backdrop-panel"></div>
+        </div>
+
+        <div id="box_shadow" class="sample">
+            <div class="shadow-card"></div>
+            <div class="shadow-inset"></div>
+        </div>
+
+        <div id="perspective_transform" class="sample">
+            <div class="perspective-stage">
+                <div class="perspective-card"></div>
+                <div class="perspective-marker"></div>
+            </div>
+        </div>
+
+        <div id="nested_pop_layer" class="sample">
+            <div class="nested-shell">
+                <div class="nested-filtered"></div>
+                <div class="nested-sibling"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <unordered_map>
+#include <vector>
 
 using namespace rmlui_bgfx;
 
@@ -81,4 +82,64 @@ TEST_CASE("RmlUi saved mask image uses valid content bounds")
     CHECK(record.mask_bounds[3] == 15);
 
     layer.framebuffer = BGFX_INVALID_HANDLE;
+}
+
+TEST_CASE("RmlUi nested layer pop restores exact parent handles")
+{
+    BgfxTargetCache target_cache;
+    BgfxLayerSystem layer_system(target_cache);
+    layer_system.begin_frame();
+    [[maybe_unused]] LayerRecord& reserved_child_slot = target_cache.prepare_virtual_layer_slot(2);
+
+    LayerRecord& root = *layer_system.current_layer();
+    root.clip_mask_enabled = true;
+    root.stencil_ref = 3;
+    root.conservative_mask_bounds = ConservativeMaskBounds{{10, 20, 80, 60}, true, false};
+    root.clip_commands = {4, 8};
+
+    const RenderBounds parent_bounds{{10.0f, 20.0f, 140.0f, 90.0f}, {10, 20, 140, 90}};
+    const ScissorState parent_scissor{true, Rml::Rectanglei::FromPositionSize({12, 22}, {120, 70})};
+    LayerRecord& parent =
+        layer_system.prepare_virtual_child(1, 0, parent_bounds, parent_scissor, true);
+    layer_system.push_layer(1);
+
+    CHECK(layer_system.active_layer() == 1);
+    CHECK(parent.parent_layer == 0);
+    CHECK(parent.push_scissor.enabled);
+    CHECK(parent.push_scissor.region.Left() == 12);
+    CHECK(parent.push_transform_valid);
+    CHECK(parent.clip_mask_enabled);
+    CHECK(parent.stencil_ref == 3);
+    CHECK(parent.inherited_clip_command_count == 2);
+
+    const RenderBounds child_bounds{{18.0f, 28.0f, 60.0f, 40.0f}, {18, 28, 60, 40}};
+    const ScissorState child_scissor{true, Rml::Rectanglei::FromPositionSize({18, 28}, {60, 40})};
+    LayerRecord& child =
+        layer_system.prepare_virtual_child(2, 1, child_bounds, child_scissor, false);
+    layer_system.push_layer(2);
+
+    CHECK(layer_system.active_layer() == 2);
+    CHECK(child.parent_layer == 1);
+    CHECK(child.push_scissor.enabled);
+    CHECK(!child.push_transform_valid);
+    CHECK(child.clip_mask_enabled);
+    CHECK(child.stencil_ref == 3);
+    CHECK(child.inherited_clip_command_count == 2);
+
+    REQUIRE(layer_system.pop_layer());
+    CHECK(layer_system.active_layer() == 1);
+    CHECK(layer_system.current_layer() == &parent);
+    CHECK(layer_system.current_layer()->push_scissor.enabled);
+    CHECK(layer_system.current_layer()->push_transform_valid);
+    CHECK(layer_system.current_layer()->clip_mask_enabled);
+    CHECK(layer_system.current_layer()->stencil_ref == 3);
+
+    REQUIRE(layer_system.pop_layer());
+    CHECK(layer_system.active_layer() == 0);
+    CHECK(layer_system.current_layer() == &root);
+    CHECK(layer_system.current_layer()->clip_mask_enabled);
+    CHECK(layer_system.current_layer()->stencil_ref == 3);
+
+    CHECK(!layer_system.pop_layer());
+    CHECK(layer_system.active_layer() == 0);
 }

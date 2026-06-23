@@ -676,5 +676,5 @@ Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md and docs/rendering/RM
 
 Action 6 / Phase 5 is implemented: RmlUi `shader(<string>)` decorator usage resolves to NovelTea material ids through a provider seam in reusable `rmlui_bgfx` and a NovelTea adapter for `ShaderRole::RmlUiDecorator` materials. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
 
-Next continue with renderer Action 7 feature fixtures. Do not add runtime shader source compilation, and keep built-in gradients unchanged.
+Next continue with renderer Action 8 Android and package verification for material-backed content. Do not add runtime shader source compilation, and keep built-in gradients unchanged.
 ```

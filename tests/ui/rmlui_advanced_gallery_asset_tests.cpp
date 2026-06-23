@@ -62,3 +62,29 @@ TEST_CASE("RmlUi advanced gallery covers renderer acceptance features")
     CHECK(rcss.find("repeating-radial-gradient") != std::string::npos);
     CHECK(rcss.find("repeating-conic-gradient") != std::string::npos);
 }
+
+TEST_CASE("RmlUi feature fixture covers under-verified renderer features")
+{
+    const std::filesystem::path root = NOVELTEA_SOURCE_DIR;
+    const std::filesystem::path fixture = root / "apps/sandbox/assets/rmlui/feature_fixtures.rml";
+    const std::filesystem::path stylesheet =
+        root / "apps/sandbox/assets/rmlui/feature_fixtures.rcss";
+
+    const std::string rml = read_text(fixture);
+    const std::string rcss = read_text(stylesheet);
+
+    CHECK(rml.find("id=\"backdrop_filter\"") != std::string::npos);
+    CHECK(rml.find("id=\"box_shadow\"") != std::string::npos);
+    CHECK(rml.find("id=\"perspective_transform\"") != std::string::npos);
+    CHECK(rml.find("id=\"nested_pop_layer\"") != std::string::npos);
+
+    CHECK(rcss.find("backdrop-filter: invert") != std::string::npos);
+    CHECK(rcss.find("box-shadow:") != std::string::npos);
+    CHECK(rcss.find("inset") != std::string::npos);
+    CHECK(rcss.find("perspective:") != std::string::npos);
+    CHECK(rcss.find("perspective-origin") != std::string::npos);
+    CHECK(rcss.find("rotateY") != std::string::npos);
+    CHECK(rcss.find("overflow: hidden") != std::string::npos);
+    CHECK(rcss.find("filter: opacity") != std::string::npos);
+    CHECK(rcss.find("border-radius") != std::string::npos);
+}

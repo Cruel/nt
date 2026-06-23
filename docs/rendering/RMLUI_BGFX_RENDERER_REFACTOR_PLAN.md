@@ -307,24 +307,31 @@ Acceptance:
 - Linux material-shader fixture smoke, readback, and resize-readback pass.
 - Web release/profile smoke remains part of the final gate for this renderer action.
 
-### Action 7: Add Missing RmlUi Feature Fixtures
+### Action 7: Add Missing RmlUi Feature Fixtures `[implemented]`
 
 Goal: turn under-verified render-interface features into concrete regression coverage.
 
-Priority order:
+Implemented path:
 
-1. `backdrop-filter` fixture.
-2. CSS `box-shadow` fixture.
-3. Perspective/3D transform fixture.
-4. `BlendMode::Replace` fixture if reachable through RmlUi markup/property behavior.
-5. Nested `PopLayer()` state restoration test with scissor, transform, and clip mask.
-6. Lifecycle tests for `ReleaseGeometry()`, `ReleaseTexture()`, `ReleaseFilter()`, and `ReleaseShader()`.
+- Added `project:/rmlui/feature_fixtures.rml` and `feature_fixtures.rcss` for focused feature coverage outside the existing readback-gallery perf gate.
+- Added CTest capture/verify coverage through `noveltea_rmlui_feature_fixtures_capture` and `noveltea_rmlui_feature_fixtures_verify`.
+- Added pixel readback coverage for `backdrop-filter: invert(...)` over deterministic color bars.
+- Added pixel readback coverage for RmlUi-supported perspective/3D transform syntax using `rotateY(...) translateZ(...)`.
+- Added visual fixture coverage for nested layer restoration after an inner filtered layer, with later sibling drawing constrained by the parent clip/transform.
+- Added a layer-system unit test for exact nested `PopLayer()` parent-handle restoration with inherited scissor, transform, and clip-mask state.
+- Added bgfx Noop lifecycle coverage for stale/double release of `ReleaseGeometry()`, `ReleaseTexture()`, `ReleaseFilter()`, and material-backed `ReleaseShader()`.
+- Added asset-level fixture coverage so the focused RML/RCSS cannot accidentally lose `backdrop-filter`, CSS `box-shadow`, perspective, 3D transform, filter, overflow, and rounded-clip syntax.
+
+Still intentionally not resolved:
+
+- CSS `box-shadow` shadow pixels are not marked visually verified. The fixture exists and renders the base elements, but colored outer/inset shadow output remains tracked in the audit/status docs.
+- A `BlendMode::Replace` markup fixture was not added because the local RmlUi 6.2 property paths inspected so far call `CompositeLayers(..., BlendMode::Blend, ...)`; keep `Replace` covered internally unless a reachable property path is found.
 
 Acceptance:
 
-- Each fixture either verifies support or records a precise unsupported limitation.
-- The audit/status docs are updated after each fixture.
-- No feature fixture is allowed to weaken existing bounded-compositor gates.
+- Focused Linux feature-fixture capture/verify passes without weakening existing readback-gallery bounded-compositor gates.
+- The audit/status docs distinguish verified `backdrop-filter`, perspective/3D, nested `PopLayer()`, and lifecycle coverage from the still-unverified CSS `box-shadow` shadow output.
+- No runtime shader source compilation, custom filter materials, or material-controlled layer/pass ownership was added.
 
 ### Action 8: Android And Package Verification
 
@@ -391,7 +398,7 @@ Adjust exact target names if the build graph changes, but keep the intent: schem
 ```text
 Start from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, which is now the current NovelTea rendering action plan rather than the old completed Phase 4.5 checklist.
 
-Action 1 is implemented: use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
+Actions 1 through 7 are implemented. Use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
 
-Begin Action 7: add missing RmlUi feature fixtures, starting with `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, `BlendMode::Replace` if reachable through markup/property behavior, nested `PopLayer()` state restoration, and resource lifecycle tests. Preserve the implemented Action 6 material bridge: RmlUi shader(<string>) resolves to NovelTea material ids through the reusable rmlui_bgfx provider seam, built-in gradients stay unchanged, and runtime shader source compilation remains out of scope.
+Begin Action 8: Android and package verification for material-backed renderer content. Check that compiled material shader binaries and runtime material metadata are included in Web/Android packages, add package/export smoke for material-backed project content, and make missing material variants fail before or during export rather than falling back silently in release packages. Preserve the implemented Action 6 material bridge and Action 7 feature fixtures. Do not add runtime shader source compilation, custom RmlUi filter materials, or material-controlled layer/pass ownership.
 ```

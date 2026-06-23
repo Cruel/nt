@@ -44,25 +44,25 @@ Residual work deferred out of Phase 7:
 | --- | --- | --- |
 | CompileGeometry | VERIFIED | Stores CPU-side indexed local AABB before bgfx upload; invalid/empty/non-finite geometry is rejected by `compute_indexed_geometry_bounds`; Linux readback and unit tests pass. |
 | RenderGeometry | VERIFIED | Direct rendering and virtual-layer recording both use compiled geometry bounds; Linux readback verifies textured/color geometry orientation and clip/filter/gradient output. |
-| ReleaseGeometry | IMPLEMENTED, NOT VERIFIED | Destroys bgfx buffers; no lifecycle counter test yet. |
+| ReleaseGeometry | VERIFIED | Destroys bgfx buffers; bgfx Noop lifecycle test covers stale/double release and stale render no-op behavior. |
 | LoadTexture | VERIFIED | Uses AssetManager plus bimg decode; file interface and shader/runtime asset tests pass. |
 | GenerateTexture | VERIFIED | RmlUi font texture path is exercised by sandbox/readback capture. |
-| ReleaseTexture | IMPLEMENTED, NOT VERIFIED | Releases external and saved-layer textures; no double-release lifecycle test yet. |
+| ReleaseTexture | VERIFIED | Releases external and saved-layer textures; bgfx Noop lifecycle test covers generated texture stale/double release. |
 | EnableScissorRegion | VERIFIED | Save/copy and readback gallery exercise scissored output. |
 | SetScissorRegion | VERIFIED | Clamp behavior is covered by readback/copy paths and bounds tests. |
 | EnableClipMask | VERIFIED | Readback covers inherited clip-mask output; conservative mask bounds are inherited by virtual child layers. |
 | RenderToClipMask | VERIFIED | Set/SetInverse/Intersect paths are recorded for virtual layers and have conservative bounds helper tests; readback covers visual clip behavior. |
-| SetTransform | VERIFIED | `compute_transformed_geometry_bounds()` is used for recorded command bounds; tests cover shader-order translation-before-transform, scale, negative scale, rotation, rotation with non-integer DPR, offscreen clipping, and invalid/non-finite/zero-W input. |
+| SetTransform | VERIFIED | `compute_transformed_geometry_bounds()` is used for recorded command bounds; tests cover shader-order translation-before-transform, scale, negative scale, rotation, rotation with non-integer DPR, offscreen clipping, invalid/non-finite/zero-W input, and focused perspective/3D fixture readback. |
 | PushLayer | VERIFIED | Child layers are virtual/recorded and materialize to bounded content/required rectangles instead of immediate full-frame targets. |
 | CompositeLayers | VERIFIED | Source layers materialize from recorded content plus filter expansion, destination layers can materialize from composite output bounds, and bounded local source/destination rectangles preserve readback correctness. |
-| PopLayer | IMPLEMENTED, NOT VERIFIED | Restores active layer; exact parent-state restoration lacks a targeted test. |
+| PopLayer | VERIFIED | Restores active layer; nested parent-handle restoration is covered by a targeted layer-system test, and `feature_fixtures.rml` covers later sibling drawing under parent clip/transform state. |
 | SaveLayerAsTexture | VERIFIED | Saved-layer copies use bounded layer/scissor intersections and preserve saved bounds metadata. |
 | SaveLayerAsMaskImage | VERIFIED | Saved-mask copies preserve saved bounds metadata and own the copied mask texture when borrowed attachment lifetime is unsafe. |
 | CompileFilter | VERIFIED | Standard filter compile paths are covered by unit and readback tests for representative filters. |
-| ReleaseFilter | VERIFIED | Mask-image filters release owned saved textures and clear the saved texture record metadata. |
+| ReleaseFilter | VERIFIED | Mask-image filters release owned saved textures and clear the saved texture record metadata; built-in filter stale/double release is covered by the bgfx Noop lifecycle test. |
 | CompileShader | VERIFIED | Linear/radial/conic and repeating gradient records compile and shader assets stage. |
 | RenderShader | VERIFIED | Virtual-layer shader commands accumulate conservative geometry bounds from the same compiled geometry records as `RenderGeometry`; Linux readback covers gradient output. |
-| ReleaseShader | IMPLEMENTED, NOT VERIFIED | Erases shader records; no lifecycle test yet. |
+| ReleaseShader | VERIFIED | Erases shader records; material-backed shader release is covered by a counting provider test that proves double release only releases the provider handle once. |
 
 ## Phase Progress
 
@@ -91,8 +91,8 @@ Residual work deferred out of Phase 7:
 | RmlUi render-interface audit | VERIFIED | `docs/rendering/RMLUI_RENDER_INTERFACE_AUDIT.md` records implemented, under-verified, and unsupported render-interface features. |
 | Full GL3-quality blur | NOT VERIFIED | Current GPU blur still stores four weights and seven taps; downsample/upsample large-sigma path is not implemented. |
 | Generic `shader(<string>)` decorator | IMPLEMENTED, NOT FULLY VERIFIED | Built-in gradients are supported. Generic shader decorators now resolve the string as a NovelTea `ShaderRole::RmlUiDecorator` material id through the provider bridge and precompiled bgfx binaries. A focused `material_shader.rml` fixture smoke passes; broader visual/readback coverage can still be expanded. |
-| Backdrop-filter / CSS box-shadow fixtures | NOT VERIFIED | Building blocks exist through layers/filters/render textures, but focused property fixtures are not present. |
-| Perspective/3D transform fixture | NOT VERIFIED | Matrix path exists and affine transform coverage is good, but visual perspective/3D coverage is missing. |
+| Backdrop-filter / CSS box-shadow fixtures | PARTIAL | `feature_fixtures.rml` and a Linux readback gate now cover `backdrop-filter: invert(...)`. CSS `box-shadow` fixture markup exists, but colored outer/inset shadow pixels remain not visually verified. |
+| Perspective/3D transform fixture | VERIFIED | `feature_fixtures.rml` uses RmlUi-supported `rotateY(...) translateZ(...)` syntax and Linux readback verifies projected 3D geometry. |
 | Android emulator runtime smoke | NOT VERIFIED | No emulator smoke is implemented or run. |
 
 ## Renderer Model
@@ -141,6 +141,6 @@ The renderer emits a periodic `[perf]` line when render perf logging is enabled.
 
 ## Next Implementation Task
 
-Follow the current action plan in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). The old emergency performance path is no longer the next priority. Release/profile web smoke coverage is in place. The project-schema shader/material data model, runtime program-resolution layer, host shader compilation service, engine 2D material binding path, and RmlUi `shader(<string>)` material bridge are now implemented: shader records declare stages/uniforms/samplers/roles, material records select a shader role and assign values/textures, material and direct ActiveText shader-pair requests resolve to inferred compiled variants, `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`, `ShaderCompilerService`/`noveltea-editor-tool compile-shaders` can produce those runtime binaries from project shader source, `BgfxMaterialBinder` can bind `ShaderRole::Engine2D` material programs/uniforms/textures for material-backed quads, and RmlUi decorator shaders resolve to `ShaderRole::RmlUiDecorator` materials through the reusable provider seam. Next add the missing RmlUi feature fixtures. Coverage gaps remain `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, custom filter policy, `BlendMode::Replace` if reachable, nested `PopLayer()` state restoration, and release lifecycle tests.
+Follow the current action plan in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). The old emergency performance path is no longer the next priority. Release/profile web smoke coverage is in place. The project-schema shader/material data model, runtime program-resolution layer, host shader compilation service, engine 2D material binding path, RmlUi `shader(<string>)` material bridge, and Action 7 feature-fixture coverage are now implemented. `feature_fixtures.rml` adds focused Linux readback coverage for `backdrop-filter`, perspective/3D transforms, and nested layer parent-state restoration; bgfx Noop lifecycle tests cover stale/double release for geometry, generated textures, built-in filters, and material-backed shaders. Remaining coverage gaps are CSS `box-shadow` shadow pixels, custom filter policy, and `BlendMode::Replace` if a reachable RmlUi property path is identified.
 
 Do not start physical extraction to a separate repository until feature coverage and public extension policy are clearer.

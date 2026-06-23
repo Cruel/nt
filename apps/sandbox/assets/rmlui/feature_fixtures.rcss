@@ -1,0 +1,167 @@
+body
+{
+    display: block;
+    width: 760px;
+    height: 320px;
+    margin: 0px;
+    background: #101820;
+}
+
+#feature_root
+{
+    position: absolute;
+    display: block;
+    left: 0px;
+    top: 0px;
+    width: 760px;
+    height: 320px;
+}
+
+.sample
+{
+    position: absolute;
+    display: block;
+    width: 220px;
+    height: 124px;
+    box-sizing: border-box;
+    border-width: 1px;
+    border-color: #ffffff33;
+    background: #202a35;
+}
+
+#backdrop_filter { left: 16px; top: 16px; }
+#box_shadow { left: 260px; top: 16px; }
+#perspective_transform { left: 16px; top: 164px; }
+#nested_pop_layer { left: 260px; top: 164px; }
+
+.backdrop-bar
+{
+    position: absolute;
+    display: block;
+    top: 24px;
+    width: 42px;
+    height: 76px;
+}
+
+.backdrop-bar.red { left: 24px; background: #ff0000; }
+.backdrop-bar.green { left: 66px; background: #00ff00; }
+.backdrop-bar.blue { left: 108px; background: #0000ff; }
+.backdrop-bar.yellow { left: 150px; background: #ffff00; }
+
+.backdrop-panel
+{
+    position: absolute;
+    display: block;
+    left: 40px;
+    top: 34px;
+    width: 144px;
+    height: 56px;
+    border-width: 1px;
+    border-color: #ffffff66;
+    background: #ffffff22;
+    backdrop-filter: invert(100%);
+}
+
+.shadow-card
+{
+    position: absolute;
+    display: block;
+    left: 52px;
+    top: 34px;
+    width: 80px;
+    height: 50px;
+    background: #ffffff;
+    box-shadow: #ff0000ff 20px 16px 4px 0px, #0000ffff -20px -16px 4px 0px;
+    filter: opacity(1);
+}
+
+.shadow-inset
+{
+    position: absolute;
+    display: block;
+    left: 142px;
+    top: 36px;
+    width: 42px;
+    height: 42px;
+    background: #ffd60a;
+    box-shadow: #00000088 0px 0px 10px 6px inset;
+    filter: opacity(1);
+}
+
+.perspective-stage
+{
+    position: absolute;
+    display: block;
+    left: 20px;
+    top: 18px;
+    width: 178px;
+    height: 88px;
+    perspective: 220px;
+    perspective-origin: center center;
+    background: #1b2633;
+}
+
+.perspective-card
+{
+    position: absolute;
+    display: block;
+    left: 42px;
+    top: 18px;
+    width: 94px;
+    height: 52px;
+    background: #30d158;
+    transform-origin: center center;
+    transform: rotateY(46deg) translateZ(18dp);
+}
+
+.perspective-marker
+{
+    position: absolute;
+    display: block;
+    left: 82px;
+    top: 36px;
+    width: 16px;
+    height: 16px;
+    background: #ff2d55;
+    transform-origin: center center;
+    transform: rotateY(46deg) translateZ(28dp);
+}
+
+.nested-shell
+{
+    position: absolute;
+    display: block;
+    left: 32px;
+    top: 22px;
+    width: 142px;
+    height: 78px;
+    overflow: hidden;
+    border-radius: 30px 8px;
+    background: #ffd34f;
+    transform: rotate(7deg);
+}
+
+.nested-filtered
+{
+    position: absolute;
+    display: block;
+    left: -22px;
+    top: 18px;
+    width: 96px;
+    height: 46px;
+    border-radius: 23px;
+    background: #ff2d55;
+    filter: opacity(0.82);
+}
+
+.nested-sibling
+{
+    position: absolute;
+    display: block;
+    left: 84px;
+    top: 16px;
+    width: 86px;
+    height: 50px;
+    border-radius: 25px;
+    background: #0a84ff;
+}

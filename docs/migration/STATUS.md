@@ -150,4 +150,4 @@ cd android
 
 ## Next Implementation Task
 
-Continue the current rendering action plan at Action 7: add missing RmlUi feature fixtures for `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, `BlendMode::Replace` if reachable, nested `PopLayer()` state restoration, and resource-release lifecycle coverage. Keep the Action 6 RmlUi `shader(<string>)` material bridge focused on material ids and precompiled bgfx binaries; do not add runtime shader source compilation.
+Continue the current rendering action plan at Action 8: Android and package verification for material-backed renderer content. Action 7 added focused `feature_fixtures.rml` coverage for `backdrop-filter`, perspective/3D transforms, nested `PopLayer()` restoration, and resource-release lifecycle behavior. CSS `box-shadow` fixture markup exists, but colored shadow output remains not visually verified. Keep the Action 6 RmlUi `shader(<string>)` material bridge focused on material ids and precompiled bgfx binaries; do not add runtime shader source compilation.
