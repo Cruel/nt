@@ -49,6 +49,7 @@ struct BgfxLayerSaveTextureContext {
 };
 
 struct BgfxLayerSaveMaskContext {
+    SurfaceMetrics surface{};
     bool direct_base_requested = false;
     bool* root_requires_preservation = nullptr;
     std::unordered_map<Rml::TextureHandle, TextureRecord>* textures = nullptr;

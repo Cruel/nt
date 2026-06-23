@@ -951,6 +951,7 @@ struct RenderInterface::Impl {
     BgfxLayerSaveMaskContext save_mask_context()
     {
         return BgfxLayerSaveMaskContext{
+            surface,
             direct_base_requested,
             &root_requires_preservation,
             &textures,

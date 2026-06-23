@@ -598,11 +598,11 @@ Each implementation slice must report before/after perf lines for the readback g
 Use this prompt to begin the next coding session:
 
 ```text
-We need to resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md at Phase 8. Phase 0 through Phase 7 are implemented for the current acceptance gates, and Phase 4.5 completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage.
+We need to resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md in Phase 8. Phase 0 through Phase 7 are implemented for the current acceptance gates, and Phase 4.5 completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage.
 
 Start Phase 8: saved texture and mask-image bounds. Treat saved texture/mask-image behavior as a correctness-first optimization area; preserve all RmlUi features and correctness: filters, masks, saved textures, transforms, clips, gradients, blend modes, root preservation, and WebGL feedback-loop protection must continue to work through optimized or conservative fallback paths.
 
-Current Phase 7 work is complete for the current gates: opacity/color-matrix-only chains report color_filter_folds=9, pass_filter_opacity=0, pass_filter_color=0, bounded_postprocess_passes=6, and post_px=21776 in the readback gallery; mask-image-only filters avoid one preliminary filter copy; and same-target/same-rect non-clear draws plus geometry-like draws after clears can reuse bgfx views. Phase 8 should audit saved texture/mask-image copy bounds, ownership, feedback-loop protection, and perf counters, then add targeted fixtures only where current behavior is either wasteful or under-tested.
+Current Phase 7 work is complete for the current gates: opacity/color-matrix-only chains report color_filter_folds=9, pass_filter_opacity=0, pass_filter_color=0, bounded_postprocess_passes=6, and post_px=21776 in the readback gallery; mask-image-only filters avoid one preliminary filter copy; and same-target/same-rect non-clear draws plus geometry-like draws after clears can reuse bgfx views. Phase 8 should continue by auditing saved texture/mask-image ownership, release lifetime, feedback-loop protection, and perf counters. Add targeted fixtures where current behavior is under-tested, especially owned saved mask release; the saved-mask valid-content copy-bounds path already has unit coverage.
 
 Preserve the Phase 4.5 structure: reusable-core files must remain free of NovelTea-only dependencies, child layer targets and postprocess targets must be reused at steady state, and readback-gallery perf must continue reporting full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup.
 

@@ -504,11 +504,21 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
         return 0;
     }
 
-    const Rml::Rectanglei local_bounds =
-        Rml::Rectanglei::FromPositionSize({0, 0}, {layer->texture_width, layer->texture_height});
-    bgfx::TextureHandle mask_texture =
-        ctx.copy_region_to_texture(layer->color, local_bounds, layer->texture_width,
-                                   layer->texture_height, "RmlUi.SaveLayerAsMaskImage");
+    FbRect mask_global_bounds = layer->bounds.framebuffer;
+    if (layer->has_valid_content_bounds) {
+        const FbRect valid = intersect(layer->valid_content_bounds, layer->bounds.framebuffer);
+        if (!is_empty(valid)) {
+            mask_global_bounds = valid;
+        }
+    }
+    const FbRect mask_local_bounds = local_rect_for_layer(mask_global_bounds, *layer);
+    if (is_empty(mask_local_bounds)) {
+        return 0;
+    }
+
+    bgfx::TextureHandle mask_texture = ctx.copy_region_to_texture(
+        layer->color, rectangle_from_fb(mask_local_bounds), layer->texture_width,
+        layer->texture_height, "RmlUi.SaveLayerAsMaskImage");
     if (!bgfx::isValid(mask_texture)) {
         if (ctx.fail_frame) {
             ctx.fail_frame("SaveLayerAsMaskImage failed to copy layer contents");
@@ -519,17 +529,16 @@ BgfxLayerSystem::save_layer_as_mask_image(const BgfxLayerSaveMaskContext& ctx)
     const Rml::TextureHandle texture = ++(*ctx.texture_counter);
     ctx.textures->emplace(
         texture, TextureRecord{mask_texture,
-                               {layer->texture_width, layer->texture_height},
-                               RenderBounds{{layer->bounds.logical.x, layer->bounds.logical.y,
-                                             layer->bounds.logical.w, layer->bounds.logical.h},
-                                            layer->bounds.framebuffer},
+                               {mask_local_bounds.w, mask_local_bounds.h},
+                               RenderBounds{framebuffer_to_logical(mask_global_bounds, ctx.surface),
+                                            mask_global_bounds},
                                TextureOwnership::SavedLayer});
 
     FilterRecord filter;
     filter.kind = FilterKind::MaskImage;
     filter.resource = texture;
-    filter.mask_bounds = {layer->bounds.framebuffer.x, layer->bounds.framebuffer.y,
-                          layer->bounds.framebuffer.w, layer->bounds.framebuffer.h};
+    filter.mask_bounds = {mask_global_bounds.x, mask_global_bounds.y, mask_global_bounds.w,
+                          mask_global_bounds.h};
     const Rml::CompiledFilterHandle handle = ++(*ctx.filter_counter);
     ctx.filters->emplace(handle, filter);
     return handle;

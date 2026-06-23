@@ -146,4 +146,4 @@ cd android
 
 ## Next Implementation Task
 
-Resume the RmlUi bgfx optimization plan at Phase 8. Audit saved texture/mask-image bounds, ownership, copy behavior, and feedback-loop protection while preserving all RmlUi feature semantics. Do not start direct-base tuning or physical repository extraction until saved texture/mask-image behavior is documented and verified.
+Resume the RmlUi bgfx optimization plan in Phase 8. The first Phase 8 slice makes saved mask images copy valid content bounds when those are tighter than the materialized layer. Continue by auditing saved texture/mask-image ownership, release lifetime, and feedback-loop protection while preserving all RmlUi feature semantics. Do not start direct-base tuning or physical repository extraction until saved texture/mask-image behavior is documented and verified.
