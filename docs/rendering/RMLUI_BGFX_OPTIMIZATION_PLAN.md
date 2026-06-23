@@ -587,22 +587,22 @@ Use this order. The historical full-frame bounds problem is solved for the readb
 7. Phase 5: remove transform full-frame fallback.
 8. Phase 6a: add conservative output bounds plus separate valid filter-output bounds. Done as a behavior-preserving prerequisite.
 9. Phase 7: reduce pass count, render-target switches, redundant clears, avoidable copies, and color-only filter postprocess passes. Done for the current acceptance gates: color-only filter postprocess passes are folded into composite, mask-image-only filter copies are bypassed, adjacent same-target non-clear views and geometry-like draws after clears are reused, and pass-reason diagnostics are in place.
-10. Phase 8: fix saved texture/mask bounds where profiling or correctness tests show remaining waste.
+10. Phase 8: fix saved texture/mask bounds where profiling or correctness tests show remaining waste. Done for the current gates: saved mask images copy valid content bounds when tighter than layer bounds, saved texture and mask metadata match the copied region, and ownership/release policy has targeted tests.
 11. Phase 9: tighten web smoke thresholds so the optimized shape is enforced, including pass-count thresholds once stable.
 12. Phase 10+: revisit direct base, blur quality/large-sigma strategy, Android/WebGL runtime validation, and documentation cleanup.
 
-Each implementation slice must report before/after perf lines for the readback gallery. Early completed work targeted lower `full_layers`, `full_frame_passes`, `max_layer`, `max_rt`, `clear_px`, `composite_px`, and `post_px`. The next speed target is Phase 8 saved texture/mask-image bounds where profiling or correctness fixtures show remaining waste. Do not reopen Phase 7 unless a concrete fixture demonstrates safe redundant-clear or copy-removal opportunities.
+Each implementation slice must report before/after perf lines for the readback gallery. Early completed work targeted lower `full_layers`, `full_frame_passes`, `max_layer`, `max_rt`, `clear_px`, `composite_px`, and `post_px`. The next speed target is Phase 9 structural web smoke gates. Do not reopen Phase 7 or Phase 8 unless a concrete fixture demonstrates safe redundant-clear, copy-removal, or saved-mask metadata opportunities.
 
 ## Prompt for the Next Implementation Session
 
 Use this prompt to begin the next coding session:
 
 ```text
-We need to resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md in Phase 8. Phase 0 through Phase 7 are implemented for the current acceptance gates, and Phase 4.5 completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage.
+We need to resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md at Phase 9. Phase 0 through Phase 8 are implemented for the current acceptance gates, and Phase 4.5 completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage.
 
-Start Phase 8: saved texture and mask-image bounds. Treat saved texture/mask-image behavior as a correctness-first optimization area; preserve all RmlUi features and correctness: filters, masks, saved textures, transforms, clips, gradients, blend modes, root preservation, and WebGL feedback-loop protection must continue to work through optimized or conservative fallback paths.
+Start Phase 9: real structural web smoke gates. Treat the current bounded renderer shape as the regression baseline and preserve all RmlUi feature correctness: filters, masks, saved textures, transforms, clips, gradients, blend modes, root preservation, and WebGL feedback-loop protection must continue to work through optimized or conservative fallback paths.
 
-Current Phase 7 work is complete for the current gates: opacity/color-matrix-only chains report color_filter_folds=9, pass_filter_opacity=0, pass_filter_color=0, bounded_postprocess_passes=6, and post_px=21776 in the readback gallery; mask-image-only filters avoid one preliminary filter copy; and same-target/same-rect non-clear draws plus geometry-like draws after clears can reuse bgfx views. Phase 8 should continue by auditing saved texture/mask-image ownership, release lifetime, feedback-loop protection, and perf counters. Add targeted fixtures where current behavior is under-tested, especially owned saved mask release; the saved-mask valid-content copy-bounds path already has unit coverage.
+Current Phase 8 work is complete for the current gates: saved mask images copy valid content bounds when tighter than layer bounds, saved texture dimensions and mask metadata match the copied region, owned saved-mask release policy has targeted tests, and the readback gallery remains correct. Phase 9 should harden `scripts/web-smoke.mjs` around the current structural counters, including zero full-frame child layers, zero unbounded fallbacks, zero full-frame postprocess passes, bounded max child/postprocess target sizes, and the stabilized pass/view envelope.
 
 Preserve the Phase 4.5 structure: reusable-core files must remain free of NovelTea-only dependencies, child layer targets and postprocess targets must be reused at steady state, and readback-gallery perf must continue reporting full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup.
 

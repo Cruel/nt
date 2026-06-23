@@ -190,6 +190,19 @@ TEST_CASE("RmlUi color filter matrices match expected scalar behavior")
     CHECK(invert.matrix[11] == 1.0f);
 }
 
+TEST_CASE("RmlUi texture ownership release policy only destroys owned texture handles")
+{
+    CHECK(texture_ownership_releases_handle(TextureOwnership::External));
+    CHECK(texture_ownership_releases_handle(TextureOwnership::SavedLayer));
+    CHECK_FALSE(texture_ownership_releases_handle(TextureOwnership::InternalLayerAttachment));
+    CHECK_FALSE(texture_ownership_releases_handle(TextureOwnership::Postprocess));
+
+    CHECK(mask_filter_owns_saved_texture(TextureOwnership::SavedLayer));
+    CHECK_FALSE(mask_filter_owns_saved_texture(TextureOwnership::External));
+    CHECK_FALSE(mask_filter_owns_saved_texture(TextureOwnership::InternalLayerAttachment));
+    CHECK_FALSE(mask_filter_owns_saved_texture(TextureOwnership::Postprocess));
+}
+
 TEST_CASE("RmlUi filter simplifier removes no-op filters")
 {
     CHECK(is_noop_filter(make_opacity_filter(1.0f)));

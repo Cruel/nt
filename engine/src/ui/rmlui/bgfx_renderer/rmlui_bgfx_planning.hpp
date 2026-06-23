@@ -65,6 +65,16 @@ enum class TextureOwnership {
     Postprocess,
 };
 
+[[nodiscard]] constexpr bool texture_ownership_releases_handle(TextureOwnership ownership)
+{
+    return ownership == TextureOwnership::External || ownership == TextureOwnership::SavedLayer;
+}
+
+[[nodiscard]] constexpr bool mask_filter_owns_saved_texture(TextureOwnership ownership)
+{
+    return ownership == TextureOwnership::SavedLayer;
+}
+
 enum class StencilPlan {
     D24S8,
     D0S8,

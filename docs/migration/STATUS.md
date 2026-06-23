@@ -49,7 +49,7 @@ Last updated: 2026-06-22.
 - Phase 8 Lua-evaluated map visibility is explicitly deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
 - Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, and optional map transition animation remain active. Shader/material resolution policy (stubbed) is deferred to a future phase.
 - RmlUi child layers are now bounded in the Linux and Web readback gallery smoke paths. Android runtime smoke coverage should still be rerun against the new Phase 4 materialization path.
-- RmlUi Phase 7 pass-count and render-target-switch reduction is complete for the current acceptance gates. The next speed target is Phase 8 saved texture/mask-image bounds where profiling or correctness fixtures show remaining waste; redundant layer-clear removal is deferred because child-layer clears are required for transparent blended replay.
+- RmlUi Phase 7 pass-count and render-target-switch reduction is complete for the current acceptance gates. RmlUi Phase 8 saved texture/mask-image bounds is also complete for the current gates: saved mask images copy valid content bounds when tighter than layer bounds, saved texture/mask metadata match the copied region, and ownership/release policy has targeted tests. The next speed target is Phase 9 structural web smoke gates.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
@@ -146,4 +146,4 @@ cd android
 
 ## Next Implementation Task
 
-Resume the RmlUi bgfx optimization plan in Phase 8. The first Phase 8 slice makes saved mask images copy valid content bounds when those are tighter than the materialized layer. Continue by auditing saved texture/mask-image ownership, release lifetime, and feedback-loop protection while preserving all RmlUi feature semantics. Do not start direct-base tuning or physical repository extraction until saved texture/mask-image behavior is documented and verified.
+Resume the RmlUi bgfx optimization plan at Phase 9. Harden structural web smoke gates around the stabilized bounded renderer shape: zero full-frame child layers, zero unbounded fallbacks, zero full-frame postprocess passes, bounded max child/postprocess target sizes, and the current pass/view envelope. Do not start direct-base tuning or physical repository extraction until structural smoke gates are updated.

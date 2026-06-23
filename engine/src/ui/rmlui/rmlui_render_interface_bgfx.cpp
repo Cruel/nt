@@ -275,8 +275,7 @@ struct RenderInterface::Impl {
             destroy_geometry(geometry);
         }
         for (auto& [_, texture] : textures) {
-            if ((texture.ownership == TextureOwnership::External ||
-                 texture.ownership == TextureOwnership::SavedLayer) &&
+            if (texture_ownership_releases_handle(texture.ownership) &&
                 bgfx::isValid(texture.handle)) {
                 bgfx::destroy(texture.handle);
             }
@@ -1847,8 +1846,7 @@ Rml::TextureHandle RenderInterface::GenerateTexture(Rml::Span<const Rml::byte> s
 void RenderInterface::ReleaseTexture(Rml::TextureHandle texture)
 {
     if (auto it = m_impl->textures.find(texture); it != m_impl->textures.end()) {
-        if ((it->second.ownership == TextureOwnership::External ||
-             it->second.ownership == TextureOwnership::SavedLayer) &&
+        if (texture_ownership_releases_handle(it->second.ownership) &&
             bgfx::isValid(it->second.handle)) {
             bgfx::destroy(it->second.handle);
         }
@@ -2014,8 +2012,9 @@ void RenderInterface::ReleaseFilter(Rml::CompiledFilterHandle filter)
     if (filter_it->second.kind == FilterKind::MaskImage && filter_it->second.resource != 0) {
         const Rml::TextureHandle texture = Rml::TextureHandle(filter_it->second.resource);
         auto texture_it = m_impl->textures.find(texture);
-        if (texture_it != m_impl->textures.end()) {
-            if (texture_it->second.ownership == TextureOwnership::SavedLayer &&
+        if (texture_it != m_impl->textures.end() &&
+            mask_filter_owns_saved_texture(texture_it->second.ownership)) {
+            if (texture_ownership_releases_handle(texture_it->second.ownership) &&
                 bgfx::isValid(texture_it->second.handle)) {
                 bgfx::destroy(texture_it->second.handle);
             }
