@@ -57,9 +57,11 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
 - User-provided project shaders/materials follow
   [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): shader and material
   definitions are project/game schema records, shader records declare uniforms/samplers and
-  supported shader roles, material records assign values/textures for one role, `shaderc`
-  produces the variants implied by active build/export targets during editor/import/export workflows,
-  and shipped runtimes load compiled bgfx binaries rather than compiling source.
+  supported shader roles, material records assign values/textures for one role, runtime metadata
+  resolution maps material ids or direct ActiveText shader pairs to the inferred compiled bgfx
+  variant, `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`, `shaderc`
+  remains editor/import/export-only, and shipped runtimes load compiled bgfx binaries rather than
+  compiling source.
 
 ## Deferred (Next Slice)
 

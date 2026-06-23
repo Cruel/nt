@@ -37,6 +37,7 @@ public:
 
     [[nodiscard]] bgfx::ShaderHandle load_shader_binary(std::string_view name,
                                                         ShaderStage stage) const;
+    [[nodiscard]] bgfx::ShaderHandle load_shader_binary_path(std::string_view path) const;
     [[nodiscard]] bgfx::ProgramHandle load_resolved_program(std::string_view logical_base) const;
     [[nodiscard]] bgfx::ProgramHandle load_system_program(SystemShader shader) const;
     [[nodiscard]] bgfx::ProgramHandle load_project_program(std::string_view shader_id) const;

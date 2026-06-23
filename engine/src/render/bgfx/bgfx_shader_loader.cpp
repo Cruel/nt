@@ -81,7 +81,11 @@ std::string BgfxShaderLoader::shader_path(std::string_view logical_base, ShaderS
 bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary(std::string_view name,
                                                         ShaderStage stage) const
 {
-    const std::string path = shader_path(name, stage);
+    return load_shader_binary_path(shader_path(name, stage));
+}
+
+bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary_path(std::string_view path) const
+{
     if (shader_variant()[0] == '\0') {
         std::fprintf(stderr, "[shader] unsupported bgfx renderer for packaged shaders: %s\n",
                      bgfx::getRendererName(bgfx::getRendererType()));
@@ -89,9 +93,9 @@ bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary(std::string_view name,
     }
     auto read = m_assets.read_binary(path);
     if (!read || read.value->bytes.empty() || read.value->bytes.size() > UINT32_MAX) {
-        std::fprintf(stderr, "[shader] failed to read %s variant:%s renderer:%s error:%s\n",
-                     path.c_str(), shader_variant(), bgfx::getRendererName(bgfx::getRendererType()),
-                     read.error.c_str());
+        std::fprintf(stderr, "[shader] failed to read %.*s variant:%s renderer:%s error:%s\n",
+                     static_cast<int>(path.size()), path.data(), shader_variant(),
+                     bgfx::getRendererName(bgfx::getRendererType()), read.error.c_str());
         return BGFX_INVALID_HANDLE;
     }
 
@@ -99,7 +103,8 @@ bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary(std::string_view name,
         bgfx::copy(read.value->bytes.data(), static_cast<uint32_t>(read.value->bytes.size()));
     bgfx::ShaderHandle shader = bgfx::createShader(memory);
     if (!bgfx::isValid(shader)) {
-        std::fprintf(stderr, "[shader] bgfx failed to create shader from %s\n", path.c_str());
+        std::fprintf(stderr, "[shader] bgfx failed to create shader from %.*s\n",
+                     static_cast<int>(path.size()), path.data());
     }
     return shader;
 }

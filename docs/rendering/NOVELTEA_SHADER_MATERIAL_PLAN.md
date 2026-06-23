@@ -515,23 +515,32 @@ Acceptance:
 - Tests cover shader declarations, material values, and shader-role compatibility.
 - `noveltea_render_tests`, CTest `material`, and CTest `shader` checks pass.
 
-### Phase 2: Shader Metadata and Runtime Program Loading
+### Phase 2: Shader Metadata and Runtime Program Loading `[implemented]`
 
-- Add backend-neutral shader identifiers for direct shader refs, likely `ShaderId`, `ShaderStage`, and `ShaderProgramId` / `ShaderPairRef`.
-- Add generated runtime metadata or a shader manifest mapping shader id + shader role + inferred compiled variant to compiled shader binaries.
-- Extend metadata so it can also resolve direct ActiveText shader pairs from preserved vertex/fragment shader ids.
-- Add runtime `ShaderProgramCache` that loads compiled binaries through AssetManager and creates bgfx programs.
-- Add program-cache keys that distinguish material-owned programs from direct shader-pair programs.
-- Add uniform/sampler binding metadata for later material binding and direct ActiveText shader binding.
-- Add clear fallback behavior for missing compiled variants:
-  - missing material programs use material fallback records;
-  - missing direct ActiveText shader pairs fall back to the default text/ActiveText shader path.
-- Add tests for metadata selection and missing inferred-variant diagnostics for both material programs and direct shader-pair programs.
+Implemented model:
+
+- `engine/include/noveltea/render/shader_manifest.hpp` defines backend-neutral runtime shader-program resolution records, diagnostics, direct shader-pair support, and stable cache keys.
+- `ShaderDefinition::stages[].compiled` is the first runtime metadata source for compiled binary paths. A future generated manifest can feed the same resolver without changing renderer-facing call sites.
+- `resolve_material_shader_program()` maps material id + selected shader role + inferred compiled variant to resolved vertex/fragment shader binary refs.
+- `resolve_direct_shader_pair_program()` maps ActiveText's preserved vertex/fragment shader ids + inferred compiled variant to resolved binary refs without requiring a material record.
+- Role-specific stage bindings are required when the material shader record does not itself contain both vertex and fragment stages.
+- Resolved programs carry uniform and sampler declarations forward for later material binding and direct ActiveText shader binding.
+- `BgfxShaderProgramCache` loads resolved compiled binaries through `AssetManager`, creates bgfx programs, caches them by material-vs-direct context plus variant and binary paths, and owns program lifetimes.
+- Tests cover material metadata selection, direct ActiveText shader-pair selection, missing inferred-variant diagnostics, role-binding requirements, shared fragment shaders across roles, and cache-key separation.
+
+Still intentionally not implemented:
+
+- Runtime shader source compilation.
+- Editor/import/export `shaderc` service.
+- Binding material uniform/texture assignments into actual draw calls.
+- Engine 2D material-backed quad rendering.
+- RmlUi `shader(<string>)` material bridge.
 
 Acceptance:
 
-- Runtime can load a precompiled material program for the active backend.
-- Runtime can load a precompiled direct shader-pair program for ActiveText low-level shader metadata.
+- Runtime metadata resolution can select a precompiled material program for the active backend.
+- Runtime metadata resolution can select a precompiled direct shader-pair program for ActiveText low-level shader metadata.
+- `BgfxShaderProgramCache` can load/create/cache bgfx programs from resolved compiled binary refs when called inside an initialized bgfx runtime.
 - Missing material program diagnostics name the material id, selected shader role, inferred active variant, and expected path.
 - Missing direct shader-pair diagnostics name the vertex/fragment shader ids, inferred active variant, and expected paths.
 
@@ -628,7 +637,7 @@ Acceptance:
 ```text
 Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md and docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md.
 
-Action 2 / Phase 1 is implemented. Next implement Phase 2: add generated runtime shader metadata or a manifest that maps shader ids, selected shader roles, inferred compiled variants, and direct ActiveText shader pairs to compiled binary paths and binding metadata. Build this on the project-schema `ShaderDefinition` / `MaterialDefinition` model. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
+Action 3 / Phase 2 is implemented: runtime shader-program resolution maps material ids and direct ActiveText shader pairs to inferred compiled bgfx variants, and `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`. Next implement Action 4 / Phase 3: add a host/editor/import/export shader compilation service around `shaderc` so project-authored shader source can produce those runtime binaries. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
 
-Do not add runtime shader source compilation. Do not invoke shaderc yet except in existing system shader build paths. Do not wire RmlUi shader(<string>) yet. Add runtime metadata parsing/selection and bgfx program loading only.
+Do not add runtime shader source compilation. Do not wire RmlUi shader(<string>) yet. Do not bind materials into engine 2D draw calls in this slice.
 ```

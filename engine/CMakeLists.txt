@@ -19,6 +19,7 @@ add_library(noveltea_core STATIC
     src/core/runtime_ui_view.cpp
     src/core/save_document.cpp
     src/render/material.cpp
+    src/render/shader_manifest.cpp
 )
 
 target_compile_features(noveltea_core PUBLIC cxx_std_20)
@@ -175,6 +176,7 @@ target_sources(engine PRIVATE
     src/render/bgfx/bgfx_resources.cpp
     src/render/bgfx/bgfx_quad_batch.cpp
     src/render/bgfx/bgfx_shader_loader.cpp
+    src/render/bgfx/bgfx_shader_program_cache.cpp
     src/render/bgfx/text/bgfx_text_renderer.cpp
     src/render/bgfx/bgfx_texture.cpp
 )

@@ -186,41 +186,37 @@ Acceptance:
 - Tests cover material id normalization as project ids, shader interface declarations, material value validation, and shader-role compatibility.
 - `noveltea_render_tests`, CTest `material`, and CTest `shader` checks pass.
 
-### Action 3: Add Shader Manifest And Runtime Program Loading
+### Action 3: Add Shader Manifest And Runtime Program Loading `[implemented]`
 
-Goal: teach runtime how to load precompiled bgfx shader variants for both high-level materials and NovelTea's lower-level ActiveText shader BBCode contract.
+Goal: teach runtime how to resolve and load precompiled bgfx shader variants for both high-level materials and NovelTea's lower-level ActiveText shader BBCode contract.
 
-Important distinction:
+Implemented path:
 
-- `MaterialId` is the validated project material id used by rich-text material tags, engine 2D materials, and later RmlUi `shader(<string>)` decorator materials.
-- Shader ids are validated project shader ids. Shader records declare stages, uniforms, samplers, compiled-binary refs, and supported shader roles.
-- ActiveText's low-level shader BBCode is already preserved by `RichTextStyle::fragment_shader_id` and `RichTextStyle::vertex_shader_id`. Do not force this path to become a material record.
-- Both material-backed and direct shader-pair paths still use precompiled bgfx shader binaries at runtime. Neither path compiles shader source at runtime.
+- Added backend-neutral runtime shader-resolution types in `noveltea/render/shader_manifest.hpp` without introducing a mutable renderer-owned `Shader` object.
+- Added `resolve_material_shader_program()` for `MaterialId` + selected `ShaderRole` + inferred active variant.
+- Added `resolve_direct_shader_pair_program()` for ActiveText's preserved `vertex_shader_id` / `fragment_shader_id` path without forcing that path through material records.
+- Reused `ShaderDefinition::stages[].compiled` as the first runtime manifest source. A future generated manifest can feed the same resolver model.
+- Role-specific stage bindings are honored first. If a material shader record has only a fragment stage, it must declare a role binding to an appropriate vertex shader instead of guessing.
+- Added uniform/sampler metadata propagation from resolved shader definitions for later material binding and direct ActiveText shader binding.
+- Added material-vs-direct cache keys that include request kind, ids, role, inferred variant, and resolved binary paths.
+- Added `BgfxShaderProgramCache`, which consumes resolved program metadata, loads compiled binaries through `AssetManager`, creates bgfx programs, owns program lifetimes, and preserves the existing system-shader fast paths.
+- Added focused tests in `tests/render/shader_manifest_tests.cpp` covering material role bindings, shared fragment shaders across roles, direct ActiveText shader-pair resolution, missing variant diagnostics, missing role-binding diagnostics, and cache-key separation.
 
-Implement:
+Still intentionally not implemented:
 
-- Backend-neutral shader identifiers for direct shader refs, probably `ShaderId`, `ShaderStage`, and `ShaderProgramId` / `ShaderPairRef`, without reintroducing the old misleading mutable `Shader` stub.
-- Runtime shader metadata or manifest format that resolves material-owned shader refs from a `MaterialId`, selected shader role, and active compiled shader variant.
-- Runtime shader metadata or manifest format that also resolves direct ActiveText shader pairs from preserved vertex/fragment shader ids plus the active compiled shader variant.
-- The active compiled shader variant is inferred by engine policy from the current build/runtime renderer/export target, using the existing convention such as `glsl-120`, `essl-100`, or `essl-300`. It is not authored in material records and should not be manually selected by individual material/shader-pair configs.
-- Runtime `ShaderProgramCache` loading compiled binaries through `AssetManager`.
-- bgfx shader/program handle creation for precompiled shader binaries.
-- Program cache keys that distinguish material programs from direct shader-pair programs while still including shader hash, active backend, and inferred compiled variant.
-- Uniform/sampler binding metadata sourced from shader declarations and sufficient for later material binding and direct ActiveText shader binding.
-- Missing variant diagnostics for both callers:
-  - material diagnostics name the material id, inferred active variant, and expected compiled binary path;
-  - direct shader-pair diagnostics name the vertex/fragment shader ids, inferred active variant, and expected compiled binary paths.
-- Visible fallback behavior:
-  - missing material programs use material fallback records;
-  - missing direct ActiveText shader pairs fall back to the default text/ActiveText shader path while preserving an actionable diagnostic.
-
-Do not invoke `shaderc` at runtime.
+- Runtime shader source compilation.
+- Editor/import/export `shaderc` service.
+- Uniform/texture binding into draw calls.
+- Engine 2D material-backed quad rendering.
+- RmlUi `shader(<string>)` bridge.
+- Replacing existing default sprite/quad/text/RmlUi system shader paths with material paths.
 
 Acceptance:
 
-- Runtime can load a precompiled sample material program for the active backend.
-- Runtime can load a precompiled direct shader-pair program for the ActiveText low-level shader BBCode contract.
-- Missing inferred variant or missing binary diagnostics name the correct caller context: material id for material programs, vertex/fragment shader ids for direct shader pairs.
+- Runtime metadata resolution can select a precompiled material program for the active backend variant.
+- Runtime metadata resolution can select a precompiled direct shader-pair program for ActiveText low-level shader metadata.
+- The bgfx program cache can load the resolved compiled binaries through `AssetManager` and create/cache bgfx programs when called from an initialized bgfx runtime.
+- Missing inferred variant diagnostics name the correct caller context: material id for material programs, vertex/fragment shader ids for direct shader pairs.
 - Existing non-material sprites/quads still render through the fast default path.
 - Existing ActiveText without low-level shader metadata still renders through the normal/default text path.
 
@@ -346,7 +342,7 @@ Use narrow checks during small doc or schema-only changes:
 
 ```sh
 git diff --check
-cmake --build --preset linux-debug --target noveltea_tests --parallel
+cmake --build --preset linux-debug --target noveltea_render_tests --parallel
 ctest --test-dir build/linux-debug -R "material|shader|rmlui|RmlUi" --output-on-failure
 ```
 
@@ -377,5 +373,5 @@ Start from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, which is now the
 
 Action 1 is implemented: use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
 
-Begin Action 3 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 2: build on the implemented project-schema ShaderDefinition and MaterialDefinition records. Add runtime shader metadata or a manifest that maps material ids, selected shader roles, inferred compiled variants, and direct ActiveText shader pairs to compiled shader binary paths and binding metadata. Add runtime bgfx program loading through AssetManager and ShaderProgramCache. Do not add runtime shader source compilation, do not invoke shaderc beyond existing system-shader build paths, and do not wire RmlUi shader(<string>) yet.
+Begin Action 4 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 3: build on the implemented project-schema ShaderDefinition/MaterialDefinition records and runtime shader-program resolver/cache. Add the host/editor/import/export shader compilation service around shaderc so project-authored shader source can produce the compiled bgfx binaries consumed by runtime resolution. Do not add runtime shader source compilation, do not wire RmlUi shader(<string>) yet, and do not bind materials into engine 2D draw calls in this slice.
 ```

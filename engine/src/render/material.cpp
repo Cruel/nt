@@ -704,7 +704,7 @@ void parse_shader_roles(const nlohmann::json& shader_json, ShaderDefinition& sha
 
     std::unordered_set<std::string> seen;
     auto add_role = [&](std::string_view role_value,
-                         std::string path) -> std::optional<ShaderRole> {
+                        std::string path) -> std::optional<ShaderRole> {
         const auto role = parse_shader_role(role_value);
         if (!role) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRole, path,
