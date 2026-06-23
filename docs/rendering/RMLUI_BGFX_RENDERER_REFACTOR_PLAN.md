@@ -220,25 +220,36 @@ Acceptance:
 - Existing non-material sprites/quads still render through the fast default path.
 - Existing ActiveText without low-level shader metadata still renders through the normal/default text path.
 
-### Action 4: Add Editor/Import/Export Shader Compilation
+### Action 4: Add Editor/Import/Export Shader Compilation `[implemented]`
 
 Goal: compile authoring shader source into runtime bgfx binaries during host/editor workflows.
 
-Implement:
+Implemented path:
 
-- Host-side `ShaderCompilerService` wrapper around `shaderc`.
-- Compile the variant implied by the active development build first.
-- Compile variants implied by configured export targets later.
-- Cache outputs by shader source, includes, shader/material schema record metadata, compiler version, inferred target variant, and relevant flags.
-- Capture diagnostics for editor display.
-- Keep previous valid program alive after failed hot reload.
+- Added host-side `ShaderCompilerService` in `noveltea/render/shader_compiler.hpp`.
+- Added current compile-variant mapping for `glsl-120`, `essl-100`, and `essl-300` using the existing bgfx shaderc platform/profile conventions.
+- Compiles project `ShaderDefinition::stages` from either `source` refs or `source_text` temporary source files.
+- Emits runtime binary paths matching the existing package/runtime layout: `shaders/bgfx/<variant>/<shader-id>.<vs|fs>.bin`.
+- Updates returned shader metadata with compiled refs for successful outputs without mutating project files implicitly.
+- Adds cache metadata under `<cacheRoot>/shader-cache/manifest.json`; unchanged source/interface/variant combinations report cache hits and skip compilation.
+- Captures command line, output path, source path, exit code, and compiler stdout/stderr in diagnostics.
+- Adds `noveltea-editor-tool compile-shaders` so editor/import/export workflows can invoke the service through JSON.
+- Adds fake-compiler tests for source refs, `source_text`, cache hits, missing source/tool diagnostics, failed compiler diagnostics, and variant mapping.
+
+Still intentionally not implemented:
+
+- Runtime shader source compilation.
+- Automatic package-export compilation.
+- Hot-reload program swapping.
+- Engine 2D material binding.
+- RmlUi `shader(<string>)` material bridge.
 
 Acceptance:
 
-- A sample project-schema shader/material compiles for the Linux and Web variants implied by the build/export targets.
-- Failed shader compilation reports readable diagnostics.
+- Project-schema shader stages can compile for the Linux/Web/Android variant names known to the build.
+- Failed shader compilation reports readable diagnostics with command context and compiler output.
 - Re-running without source changes hits cache.
-- Runtime packages do not require `shaderc`.
+- Runtime packages still do not require `shaderc`.
 
 ### Action 5: Bind Materials To Engine 2D Rendering
 
@@ -373,5 +384,5 @@ Start from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, which is now the
 
 Action 1 is implemented: use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
 
-Begin Action 4 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 3: build on the implemented project-schema ShaderDefinition/MaterialDefinition records and runtime shader-program resolver/cache. Add the host/editor/import/export shader compilation service around shaderc so project-authored shader source can produce the compiled bgfx binaries consumed by runtime resolution. Do not add runtime shader source compilation, do not wire RmlUi shader(<string>) yet, and do not bind materials into engine 2D draw calls in this slice.
+Begin Action 5 / docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md Phase 4: build on the implemented project-schema ShaderDefinition/MaterialDefinition records, runtime shader-program resolver/cache, and host shader compiler service. Bind optional material ids into engine 2D rendering first, while keeping the default colored/textured quad path unchanged. Do not wire RmlUi shader(<string>) yet, and do not add runtime shader source compilation.
 ```

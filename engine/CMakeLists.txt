@@ -19,6 +19,7 @@ add_library(noveltea_core STATIC
     src/core/runtime_ui_view.cpp
     src/core/save_document.cpp
     src/render/material.cpp
+    src/render/shader_compiler.cpp
     src/render/shader_manifest.cpp
 )
 

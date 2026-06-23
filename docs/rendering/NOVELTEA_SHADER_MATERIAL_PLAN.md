@@ -544,17 +544,31 @@ Acceptance:
 - Missing material program diagnostics name the material id, selected shader role, inferred active variant, and expected path.
 - Missing direct shader-pair diagnostics name the vertex/fragment shader ids, inferred active variant, and expected paths.
 
-### Phase 3: Editor/Import Shader Compilation
+### Phase 3: Editor/Import Shader Compilation `[implemented]`
 
-- Add a host-side `ShaderCompilerService` wrapper around `shaderc`.
-- Compile source for the active development target variant first, then variants implied by configured export targets.
-- Cache outputs by content hash.
-- Capture diagnostics for editor display.
-- Add a small command-line or CMake-invoked tool path for CI/package builds.
+Implemented model:
+
+- `ShaderCompilerService` wraps host-side `shaderc` invocation for project-authored shader stages.
+- Current compile variants are mapped to existing bgfx shaderc conventions: `glsl-120`, `essl-100`, and `essl-300`.
+- Stage source can come from `source` refs resolved under the project root or from `source_text` written to a generated cache source file.
+- Compiled outputs are written to runtime-compatible paths under `shaders/bgfx/<variant>/<shader-id>.<vs|fs>.bin`.
+- The returned shader project metadata is updated with compiled refs for successful stage outputs; project files are not mutated implicitly.
+- A simple content/interface/variant cache manifest under `<cacheRoot>/shader-cache/manifest.json` skips unchanged compiles.
+- Diagnostics capture shader id, stage, variant, source path, output path, command line, exit code, and compiler output.
+- `noveltea-editor-tool compile-shaders` exposes the compiler service for editor/import/export workflows.
+- Tests cover variant mapping, source refs, `source_text`, cache hits, missing source/tool errors, and compiler failure diagnostics.
+
+Still intentionally not implemented:
+
+- Runtime shader source compilation.
+- Automatic package-export compilation.
+- Hot-reload program swapping.
+- Material binding into draw calls.
+- RmlUi `shader(<string>)` material bridge.
 
 Acceptance:
 
-- A sample project-schema shader/material compiles for Linux and Web variants, currently `glsl-120` and `essl-100`.
+- Project-schema shader stages can compile for Linux/Web/Android variant names, currently `glsl-120`, `essl-100`, and `essl-300`.
 - Failed shader compilation produces readable diagnostics.
 - Re-running without source changes hits the cache.
 
@@ -637,7 +651,7 @@ Acceptance:
 ```text
 Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md and docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md.
 
-Action 3 / Phase 2 is implemented: runtime shader-program resolution maps material ids and direct ActiveText shader pairs to inferred compiled bgfx variants, and `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`. Next implement Action 4 / Phase 3: add a host/editor/import/export shader compilation service around `shaderc` so project-authored shader source can produce those runtime binaries. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
+Action 4 / Phase 3 is implemented: host/editor/import shader compilation can produce runtime bgfx binaries from project shader sources through `ShaderCompilerService` and `noveltea-editor-tool compile-shaders`. Next implement Action 5 / Phase 4: bind optional NovelTea materials into the engine 2D draw path using the existing material schema, runtime resolver/cache, and compiled binary outputs. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
 
-Do not add runtime shader source compilation. Do not wire RmlUi shader(<string>) yet. Do not bind materials into engine 2D draw calls in this slice.
+Do not add runtime shader source compilation. Do not wire RmlUi shader(<string>) yet. Keep the default colored/textured quad path unchanged when no material id is present.
 ```

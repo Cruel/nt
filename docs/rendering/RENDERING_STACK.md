@@ -59,8 +59,9 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
   definitions are project/game schema records, shader records declare uniforms/samplers and
   supported shader roles, material records assign values/textures for one role, runtime metadata
   resolution maps material ids or direct ActiveText shader pairs to the inferred compiled bgfx
-  variant, `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`, `shaderc`
-  remains editor/import/export-only, and shipped runtimes load compiled bgfx binaries rather than
+  variant, `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`,
+  `ShaderCompilerService`/`noveltea-editor-tool compile-shaders` invoke `shaderc` for
+  host/editor/import/export workflows, and shipped runtimes load compiled bgfx binaries rather than
   compiling source.
 
 ## Deferred (Next Slice)

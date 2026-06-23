@@ -1,5 +1,6 @@
 #include <noveltea/core/editor_api.hpp>
 #include <noveltea/core/project_ids.hpp>
+#include <noveltea/render/shader_compiler.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -82,6 +83,54 @@ nlohmann::json export_diagnostics_to_json(const std::vector<PackageExportDiagnos
     return result;
 }
 
+nlohmann::json material_diagnostics_to_json(const std::vector<noveltea::MaterialDiagnostic>& diagnostics)
+{
+    auto result = nlohmann::json::array();
+    for (const auto& diagnostic : diagnostics) {
+        result.push_back({{"severity", std::string(noveltea::to_string(diagnostic.severity))},
+                          {"code", std::string(noveltea::to_string(diagnostic.code))},
+                          {"path", diagnostic.path},
+                          {"message", diagnostic.message}});
+    }
+    return result;
+}
+
+nlohmann::json shader_compile_diagnostics_to_json(
+    const std::vector<noveltea::ShaderCompileDiagnostic>& diagnostics)
+{
+    auto result = nlohmann::json::array();
+    for (const auto& diagnostic : diagnostics) {
+        result.push_back({{"severity", std::string(noveltea::to_string(diagnostic.severity))},
+                          {"code", std::string(noveltea::to_string(diagnostic.code))},
+                          {"shader", diagnostic.shader.value()},
+                          {"stage", std::string(noveltea::to_string(diagnostic.stage))},
+                          {"variant", diagnostic.variant},
+                          {"sourcePath", diagnostic.source_path.generic_string()},
+                          {"outputPath", diagnostic.output_path.generic_string()},
+                          {"commandLine", diagnostic.command_line},
+                          {"exitCode", diagnostic.exit_code},
+                          {"message", diagnostic.message}});
+    }
+    return result;
+}
+
+nlohmann::json shader_compile_outputs_to_json(
+    const std::vector<noveltea::ShaderCompileOutput>& outputs)
+{
+    auto result = nlohmann::json::array();
+    for (const auto& output : outputs) {
+        result.push_back({{"shader", output.shader.value()},
+                          {"stage", std::string(noveltea::to_string(output.stage))},
+                          {"variant", output.variant},
+                          {"sourcePath", output.source_path.generic_string()},
+                          {"outputPath", output.output_path.generic_string()},
+                          {"runtimePath", output.runtime_path},
+                          {"cacheKey", output.cache_key},
+                          {"cacheHit", output.cache_hit}});
+    }
+    return result;
+}
+
 nlohmann::json ok(nlohmann::json payload = nlohmann::json::object())
 {
     payload["ok"] = true;
@@ -131,6 +180,60 @@ nlohmann::json project_payload(ProjectLoadResult& loaded)
     if (loaded.project)
         response["project"] = loaded.project->root();
     return response;
+}
+
+noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::json& json,
+                                                                  nlohmann::json& diagnostics)
+{
+    noveltea::ShaderCompileOptions options;
+    if (!json.is_object())
+        return options;
+
+    options.shaderc = json.value("shaderc", std::string{});
+    options.bgfx_shader_include_dir = json.value("bgfxShaderIncludeDir", std::string{});
+    options.project_root = json.value("projectRoot", std::string{});
+    options.output_root = json.value("outputRoot", std::string{});
+    options.cache_root = json.value("cacheRoot", std::string{});
+    options.force_rebuild = json.value("forceRebuild", false);
+
+    std::vector<std::string> variant_names;
+    if (auto variants = json.find("shaderVariants");
+        variants != json.end() && variants->is_array()) {
+        for (const auto& variant : *variants) {
+            if (variant.is_string())
+                variant_names.push_back(variant.get<std::string>());
+        }
+    }
+
+    std::vector<noveltea::ShaderCompileDiagnostic> variant_diagnostics;
+    options.variants =
+        noveltea::shader_compile_variants_from_names(variant_names, &variant_diagnostics);
+    diagnostics = shader_compile_diagnostics_to_json(variant_diagnostics);
+    return options;
+}
+
+std::optional<noveltea::ShaderMaterialProject> shader_project_from_request(
+    const nlohmann::json& request, nlohmann::json& error_response)
+{
+    auto shader_project_json = request.find("shaderProject");
+    if (shader_project_json == request.end()) {
+        error_response = fail("Request requires shaderProject.");
+        return std::nullopt;
+    }
+
+    noveltea::ShaderMaterialProjectParseResult parsed;
+    if (shader_project_json->is_string()) {
+        parsed = noveltea::parse_shader_material_project_json(shader_project_json->get<std::string>());
+    } else {
+        parsed = noveltea::parse_shader_material_project_json_value(*shader_project_json);
+    }
+
+    if (!parsed.project) {
+        error_response = fail("Shader project parse failed.",
+                              material_diagnostics_to_json(parsed.diagnostics));
+        return std::nullopt;
+    }
+    return std::move(*parsed.project);
 }
 
 PackageExportOptions export_options_from_json(const nlohmann::json& json)
@@ -232,6 +335,25 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         auto report = playback.run(std::move(*project), *spec);
         return ok(
             {{"report", report.to_json()}, {"diagnostics", diagnostics_to_json(diagnostics)}});
+    }
+
+    if (command == "compile-shaders") {
+        nlohmann::json error_response;
+        auto shader_project = shader_project_from_request(request, error_response);
+        if (!shader_project)
+            return error_response;
+
+        nlohmann::json variant_diagnostics = nlohmann::json::array();
+        auto options = shader_compile_options_from_json(
+            request.value("options", nlohmann::json::object()), variant_diagnostics);
+        noveltea::ShaderCompilerService compiler;
+        auto result = compiler.compile_shader_project(*shader_project, options);
+        auto diagnostics = shader_compile_diagnostics_to_json(result.diagnostics);
+        for (const auto& diagnostic : variant_diagnostics)
+            diagnostics.push_back(diagnostic);
+        return ok({{"success", result.success()},
+                   {"outputs", shader_compile_outputs_to_json(result.outputs)},
+                   {"diagnostics", std::move(diagnostics)}});
     }
 
     if (command == "export-package") {
