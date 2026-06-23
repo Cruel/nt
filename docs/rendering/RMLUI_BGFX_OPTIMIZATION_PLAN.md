@@ -4,9 +4,17 @@ This document replaces the previous 11-phase optimization plan. The earlier plan
 
 The current blocker is clear: the renderer still executes most layer, clear, composite, and filter work over the full framebuffer. The code contains bounded paths, but the real readback gallery usually does not enter them because layer bounds are selected almost entirely from active scissor state. RmlUi often calls `PushLayer()` for filtered, masked, transformed, or blended content without an active scissor. The renderer then falls back to full-frame child layers, and every later bounded pipeline stage receives full-frame source bounds.
 
-The new goal is to make work proportional to affected UI content, not framebuffer area.
+The new goal is to make work proportional to affected UI content, not framebuffer area, while keeping the full RmlUi feature set accurate. Optimizations must preserve filters, masks, clips, transforms, gradients, layers, blend modes, saved textures, and WebGL feedback-loop safety. The renderer should be fast because it does less unnecessary GPU work, not because it silently drops advanced RmlUi behavior.
 
-## Current Baseline: Failed Optimization State
+## Optimization Priority Update
+
+The original restarted plan correctly attacked the catastrophic full-frame child-layer problem first. That work is now successful in the readback gallery: current steady-state runs report `full_frame_child_layers=0`, `full_frame_postprocess_passes=0`, `max_child_layer=114x96`, `max_child_rt=114x96`, `max_rt=114x96`, and `post_px=38352` at 1280x720.
+
+That changes the speed priority. The renderer is no longer dominated by full-frame filter pixel area in the representative gallery. It is now much more likely dominated by `passes=108`, bgfx view changes, framebuffer switches, clears, copies, and small offscreen compositing passes. Further shrinking already-small filter rectangles is lower priority than reducing the number of GPU submissions and render-target transitions.
+
+The plan below keeps the historical failed-baseline diagnosis because it explains why Phases 0 through 4 existed. For future work, the next high-value optimization is pass/FBO-switch reduction after the behavior-preserving Phase 6a filter-bounds data model, not more aggressive filter rectangle narrowing. Any optimization that changes pixels must be treated as either a regression or an explicitly approved visual-correctness change against an upstream/approved reference.
+
+## Historical Baseline: Failed Optimization State
 
 Current web smoke at 1280x720:
 
@@ -38,7 +46,7 @@ RmlUi remains the runtime UI system. Do not solve this by disabling filters, mas
 
 bgfx remains the rendering backend. Do not add direct OpenGL/WebGL calls to the RmlUi renderer.
 
-Correctness remains mandatory. Do not drop clip masks, transforms, filter expansion, premultiplied alpha behavior, mask-image sampling, or WebGL feedback-loop protection to gain speed.
+Correctness remains mandatory. Do not drop clip masks, transforms, filter expansion, premultiplied alpha behavior, mask-image sampling, layer/save semantics, blending semantics, or WebGL feedback-loop protection to gain speed. Use upstream RmlUi behavior, especially the GL3 backend, as the conceptual reference when deciding whether a visual difference is a regression or an intentional correction.
 
 The renderer must be efficient at high-DPI framebuffer sizes. Do not treat DPR capping as the primary fix. DPR caps may be useful as a debug comparison or emergency option, but the compositor must stop scaling small UI effects to full-screen work.
 
@@ -348,32 +356,85 @@ Implementation note, 2026-06-22:
 - `PushLayer()` still computes provisional bounds for virtual-layer containment, inherited clips, saved masks, and empty-layer fallback, but final child target materialization uses recorded content bounds from captured per-command transforms.
 - The readback gallery's rotated `#transform_clip` fixture keeps `unbounded_transform_fallbacks=0`, `full_frame_child_layers=0`, and `max_child_layer=114x96`; Phase 5 is therefore verified and no longer a blocking optimization phase.
 
-## Phase 6: Filter Pipeline Uses Content Bounds, Not Layer Texture Bounds
+## Phase 6a: Filter Bounds Data Model, Not Pixel Tightening
 
-Goal: make filter work proportional to filtered content.
+Goal: make filter-region semantics explicit without changing pixels.
+
+This phase is a prerequisite for later optimization. It must not narrow copies, shader sampling, or final composites yet. The renderer needs three concepts, not two:
+
+- `allocation_bounds`: the texture/render-target allocation and view rect.
+- `output_bounds`: conservative initialized bounds that are safe to composite externally and may include transparent padding needed by filters.
+- `valid_output_bounds`: tighter semantic bounds of content that can contribute non-transparent pixels.
 
 Required changes:
 
-- Change `apply_filters()` to accept a source texture plus valid source rect/content bounds distinct from allocation bounds.
-- Compute filter output bounds from valid content bounds plus total filter expansion.
-- Allocate primary/secondary postprocess targets to output bounds.
-- Copy only the valid source rect into the padded work texture.
-- Run opacity, color matrix, mask image, blur, and drop shadow over the work texture only.
-- Composite the filtered result back to the destination using the output bounds.
-- Ensure blur texel steps use work texture dimensions.
-- Ensure `u_texCoordBounds` reflects valid source area inside the work texture.
-- Ensure drop-shadow expansion accounts for offset and blur radius.
+- Keep `TextureRegion`/`FilterApplyResult::output_bounds` as the conservative externally composited filter output.
+- Add `FilterApplyResult::valid_output_bounds` for semantic content bounds.
+- Advance valid bounds through no-op/opacity/color/mask-image without expansion.
+- Expand valid bounds through blur and drop-shadow using the same expansion helpers used for allocation planning.
+- Do not change shader sampling, work-target allocation, copy rectangles, or final composite rectangles in this phase.
 
 Acceptance criteria:
 
-- A tiny `blur(3px)` element no longer produces a full-frame postprocess target.
-- A tiny `drop-shadow(...)` element no longer produces full-frame extract/blur/composite passes.
-- Color-only filters do not allocate full-frame targets.
-- `max_rt` for the readback gallery is not the framebuffer.
-- `post_px` drops by at least an order of magnitude from the current baseline.
-- Visual readback remains correct for blur, drop shadow, opacity, color filters, and mask image.
+- Visual output is unchanged for the readback gallery.
+- Linux tests and readback verification pass.
+- Web build and smoke pass with the same structural shape as Phase 5.
+- `valid_output_bounds` is available for later optimization decisions.
 
-## Phase 7: Saved Texture and Mask-Image Bounds
+Implementation note, 2026-06-22:
+
+- The first aggressive Phase 6 attempt changed the gallery image by narrowing filter copy/output regions too early. That proved the old plan was missing an explicit padding/initialization policy for blur and drop-shadow sampling.
+- The safe implementation keeps conservative externally composited filter output bounds and adds separate `valid_output_bounds` metadata to `FilterApplyResult`.
+- `BgfxFilterPipeline::apply()` advances valid semantic bounds through opacity, color-matrix, mask-image, blur, and drop-shadow without changing shader sampling, work-target allocation, or final composite rectangles.
+
+## Phase 6b: Defined Filter Padding Policy
+
+Goal: decide how optimized filters initialize and sample pixels around valid content.
+
+This phase is optional unless profiling shows filter pixel work is again dominant. It should not block pass-count optimization, because the current readback gallery already has small bounded postprocess targets and `post_px=38352` at 1280x720.
+
+Choose one policy per filter path:
+
+- Conservative copy policy: copy/initialize the whole conservative output/work bounds, then use `valid_output_bounds` only for metadata and later scheduling decisions.
+- Explicit transparent clear policy: clear the full work target, copy only valid content, then filter. This can save copy pixels but may add clear work.
+- Shader zero-sampling policy: pass valid UV bounds and make shaders treat out-of-valid samples as transparent. This can be fastest but carries the highest visual-risk and must be compared against an approved reference.
+
+Acceptance criteria:
+
+- Blur and drop-shadow remain visually correct against the approved reference.
+- No reused-target stale pixels can contribute to filter output.
+- Any intentional visual change is reviewed and documented as a correctness correction, not an incidental optimization artifact.
+- Perf counters prove a net win before keeping the change.
+
+## Phase 7: Pass Count and Render-Target Switch Reduction
+
+Goal: make the now-bounded renderer fast by reducing `passes=108`, bgfx view changes, framebuffer switches, clears, copies, and small offscreen composite passes.
+
+This is the next high-priority speed phase. The readback gallery no longer spends most of its time on full-frame filter pixels, so reducing pass overhead should come before further filter rectangle tightening or direct-base policy work.
+
+Required changes:
+
+- Classify current passes by reason: base clear/composite, child clear, child replay, filter copy, filter pass, filter final composite, saved texture/mask copy, clip-mask pass, and ordinary geometry.
+- Add perf counters for pass categories that currently hide inside the total `passes=108`.
+- Fold opacity into final composite when filter order makes it semantically safe.
+- Fold simple color matrices into final composite when no blur/mask/shadow ordering requires an intermediate texture.
+- Bypass postprocess entirely for color-only filter chains that can be represented in the composite shader.
+- Combine consecutive color matrices before GPU work and apply the combined matrix at the composition site when possible.
+- Avoid scratch copies for same-layer composition unless source and destination would otherwise create a WebGL feedback loop.
+- Skip redundant clears when a bounded target is fully overwritten by a replace/copy pass.
+- Reuse bgfx views/passes more aggressively where framebuffer, view rect, scissor, stencil, and shader state allow it.
+- Keep all RmlUi feature semantics intact; unsupported folding cases must fall back to the current conservative path.
+
+Acceptance criteria:
+
+- Readback gallery `passes` drops materially from 108 while preserving visual output.
+- Color-only filters no longer produce one postprocess pass per element when a composite shader can apply them correctly.
+- Full RmlUi filter/mask/layer behavior remains available through fallback paths.
+- Linux readback and resize-readback pass.
+- Web build and smoke pass.
+- Perf logs explain remaining high-pass contributors.
+
+## Phase 8: Saved Texture and Mask-Image Bounds
 
 Goal: make saved layers and mask images use the same content-bound model.
 
@@ -397,7 +458,7 @@ Acceptance criteria:
 - Saved mask texture dimensions are near the mask panel size, not the framebuffer.
 - Tests cover saved texture metadata and release lifetime.
 
-## Phase 8: Real Structural Web Smoke Gates
+## Phase 9: Real Structural Web Smoke Gates
 
 Goal: prevent regressions back to full-frame child layers and filters.
 
@@ -425,27 +486,6 @@ Acceptance criteria:
 - The optimized readback gallery passes with strict thresholds.
 - A deliberately full-screen filter scene passes only because it is marked and expected as full-frame.
 - Console feedback-loop errors fail the gate.
-
-## Phase 9: Pass Count Reduction After Bounds Are Correct
-
-Goal: reduce overhead after pixel area is fixed.
-
-Do not start this phase until full-frame child layers and full-frame postprocess targets are eliminated for the readback gallery.
-
-Required changes:
-
-- Fold `opacity` into final composite when semantically safe.
-- Fold simple color matrices into final composite when no blur/mask/shadow ordering requires an intermediate texture.
-- Combine consecutive color matrices before GPU work. The current simplifier already does part of this; extend it to composition sites.
-- Bypass postprocess entirely for `BlendMode::Replace` with no filters/masks where a direct bounded composite is sufficient.
-- Avoid scratch copies for same-layer composition unless source and destination would otherwise create a WebGL feedback loop.
-- Reuse geometry passes more aggressively where framebuffer, view rect, scissor, stencil, and shader state allow it.
-
-Acceptance criteria:
-
-- Readback gallery `passes` drops materially from 121.
-- Color-only filters no longer produce one postprocess pass per element when a composite shader can apply them.
-- No correctness regressions in Linux readback or web smoke.
 
 ## Phase 10: Direct Base Presentation Revisited
 
@@ -524,7 +564,7 @@ Acceptance criteria:
 
 ## Current Progress
 
-As of the current checkout, Phase 0 through Phase 4 are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input. Phase 2 added virtual child-layer recording and on-demand materialization while preserving Linux readback correctness over a longer 40-frame capture so previous-frame layer-resource leaks are caught. Phase 3 added conservative recorded-layer content and mask bounds from recorded geometry/shader/clip-mask commands, and the readback-gallery perf line reports zero unbounded child-layer fallback counters. Phase 4 made materialization consume recorded content bounds plus required filter/composite bounds, replay into bounded targets with local scissor/stencil/copy/composite coordinates, and preserve saved texture/mask correctness.
+As of the current checkout, Phase 0 through Phase 6a are complete and verified on the Linux debug test suite. Phase 1 added CPU-side indexed geometry bounds, transform-bound helpers, DPR-aware framebuffer conversion, and tests for identity, translation, scaling, rotation, negative/offscreen coordinates, non-integer DPR, and invalid/non-finite input. Phase 2 added virtual child-layer recording and on-demand materialization while preserving Linux readback correctness over a longer 40-frame capture so previous-frame layer-resource leaks are caught. Phase 3 added conservative recorded-layer content and mask bounds from recorded geometry/shader/clip-mask commands, and the readback-gallery perf line reports zero unbounded child-layer fallback counters. Phase 4 made materialization consume recorded content bounds plus required filter/composite bounds, replay into bounded targets with local scissor/stencil/copy/composite coordinates, and preserve saved texture/mask correctness. Phase 5 verified that normal transformed content remains bounded. Phase 6a added separate valid filter-output bounds metadata without changing the visual output.
 
 Representative Linux Phase 4 perf at 1280x720:
 
@@ -532,11 +572,11 @@ Representative Linux Phase 4 perf at 1280x720:
 [perf] fps=96 passes=108 geom=27 clip=15 gradients=8 layers=13 full_layers=1 bounded_layers=13 full_frame_child_layers=0 bounded_child_layers=13 unbounded_layer_fallbacks=0 unbounded_no_scissor_fallbacks=0 unbounded_transform_fallbacks=0 unbounded_inverse_clip_fallbacks=0 filters=14 blur=4 shadow=1 mask=1 base_direct=0 base_offscreen=1 base_fallback=1 clear_px=980004 copy_px=9216 composite_px=985744 post_px=38352 full_frame_passes=2 bounded_passes=55 full_frame_clear_passes=1 bounded_clear_passes=15 full_frame_composite_passes=1 bounded_composite_passes=25 full_frame_postprocess_passes=0 bounded_postprocess_passes=15 full_frame_postprocess_target_uses=0 bounded_postprocess_target_uses=24 full_frame_postprocess_targets=0 bounded_postprocess_targets=12 rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 max_layer=1280x720 max_child_layer=114x96 max_child_rt=114x96 max_rt=114x96 fb=1280x720
 ```
 
-Phase 4.5 is complete: the renderer now has a reusable `rmlui_bgfx` core boundary, NovelTea adapter services, extracted target cache, pass builder, draw context, filter pipeline, layer system, thin adapter cleanup, and resize/readback regression coverage. Resume Phase 5/6 by confirming normal CSS transforms remain bounded across Android and additional Web scenes, then making filters explicitly consume valid content bounds separately from allocation bounds and reduce postprocess pixel work. Do not start Phase 9 pass folding or a physical external repository split until Phase 5/6 semantics are tightened.
+Phase 4.5 is complete: the renderer now has a reusable `rmlui_bgfx` core boundary, NovelTea adapter services, extracted target cache, pass builder, draw context, filter pipeline, layer system, thin adapter cleanup, and resize/readback regression coverage. The next speed-oriented phase is Phase 7 pass-count and render-target-switch reduction. Phase 6b filter padding/pixel-tightening remains available if profiling later shows filter pixel area is dominant again, but it should not block the pass-count work because the current representative gallery already has bounded postprocess targets and low `post_px`.
 
 ## Suggested Work Order for Codex
 
-Use this order. Do not jump to pass folding or direct base presentation before content bounds are solved.
+Use this order. The historical full-frame bounds problem is solved for the readback gallery, so the next speed win should target pass count and render-target switches before further filter rectangle tightening or direct base presentation.
 
 1. Phase 0: fix perf keys and make current web smoke fail structurally.
 2. Phase 1: add CPU geometry bounds and transform-bound helpers with tests.
@@ -545,23 +585,26 @@ Use this order. Do not jump to pass folding or direct base presentation before c
 5. Phase 4: materialize and replay bounded child layers. Done for Linux and Web readback.
 6. Phase 4.5: establish the reusable `rmlui_bgfx` core boundary and refactor renderer structure using [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). Done for Linux/Web readback, including resize-readback coverage.
 7. Phase 5: remove transform full-frame fallback.
-8. Phase 6: make filters use valid content bounds.
-9. Phase 7: fix saved texture/mask bounds.
-10. Phase 8: tighten web smoke thresholds so the optimized shape is enforced.
-11. Phase 9+: reduce pass count and revisit direct base.
+8. Phase 6a: add conservative output bounds plus separate valid filter-output bounds. Done as a behavior-preserving prerequisite.
+9. Phase 7: reduce pass count, render-target switches, redundant clears, avoidable copies, and color-only filter postprocess passes.
+10. Phase 8: fix saved texture/mask bounds where profiling or correctness tests show remaining waste.
+11. Phase 9: tighten web smoke thresholds so the optimized shape is enforced, including pass-count thresholds once stable.
+12. Phase 10+: revisit direct base, blur quality/large-sigma strategy, Android/WebGL runtime validation, and documentation cleanup.
 
-Each implementation slice must report before/after perf lines for the readback gallery. The expected early win is not fewer passes; it is lower `full_layers`, lower `full_frame_passes`, lower `max_layer`, lower `max_rt`, lower `clear_px`, lower `composite_px`, and lower `post_px`.
+Each implementation slice must report before/after perf lines for the readback gallery. Early completed work targeted lower `full_layers`, `full_frame_passes`, `max_layer`, `max_rt`, `clear_px`, `composite_px`, and `post_px`. The next speed target is materially lower `passes` and fewer avoidable offscreen transitions without losing RmlUi feature accuracy.
 
 ## Prompt for the Next Implementation Session
 
 Use this prompt to begin the next coding session:
 
 ```text
-We need to resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md after completed Phase 4.5. Phase 0 through Phase 4 of the restarted optimization plan are implemented, and Phase 4.5 has completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage.
+We need to resume docs/rendering/RMLUI_BGFX_OPTIMIZATION_PLAN.md after completed Phase 6a. Phase 0 through Phase 5 are implemented, Phase 4.5 completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage, and Phase 6a added separate valid filter-output bounds metadata without changing visual output.
 
-Start with Phase 5/6 planning. First verify whether transform-driven fallback is still a real issue in the current readback gallery and whether Phase 5 should be skipped, narrowed, or implemented. Then make the filter pipeline explicitly consume valid content bounds separately from allocation bounds so postprocess pixel work can drop further without changing visual output.
+Start Phase 7: pass-count and render-target-switch reduction. Treat the current representative bottleneck as passes=108 plus bgfx view/FBO changes, not filter pixel area. Preserve all RmlUi features and correctness: filters, masks, saved textures, transforms, clips, gradients, blend modes, root preservation, and WebGL feedback-loop protection must continue to work through optimized or conservative fallback paths.
+
+First classify the current 108 passes by reason, then implement the safest folding/bypass opportunities: color-only filter composition, opacity folding, redundant clear avoidance, avoidable copy removal, and same-target feedback-loop-safe composite simplification. Do not pursue per-valid-rect filter shader changes unless profiling shows postprocess pixels are again dominant and the visual regression gate is strong enough.
 
 Preserve the Phase 4.5 structure: reusable-core files must remain free of NovelTea-only dependencies, child layer targets and postprocess targets must be reused at steady state, and readback-gallery perf must continue reporting full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup.
 
-Run linux-debug build, RmlUi readback and resize-readback tests, a 180-frame readback_gallery perf run, web build/smoke, and the reusable-boundary dependency search after each phase slice.
+Run linux-debug build, RmlUi readback and resize-readback tests, full or focused RmlUi tests, a 180-frame readback_gallery perf run, web build/smoke, and visual review whenever a rendering-output-affecting optimization is introduced.
 ```

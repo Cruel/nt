@@ -183,7 +183,13 @@ struct CompositeOp {
 
 struct FilterApplyResult {
     TextureRegion output;
+    // Conservative output bounds used for the externally composited filter result. These may
+    // include transparent initialized padding required by blur/drop-shadow sampling.
     RenderBounds output_bounds;
+    // Tighter semantic bounds of content that can contribute non-transparent pixels. This is
+    // tracked separately so later passes can reason about valid content without changing the
+    // conservative composited output region.
+    RenderBounds valid_output_bounds;
 };
 
 struct ClipCommand {

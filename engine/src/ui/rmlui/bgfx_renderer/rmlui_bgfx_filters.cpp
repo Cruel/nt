@@ -39,6 +39,38 @@ namespace {
            rect.h >= surface.framebuffer_height;
 }
 
+[[nodiscard]] FbRect clamp_valid_filter_bounds(FbRect bounds, FbRect allocation_bounds)
+{
+    return intersect(bounds, allocation_bounds);
+}
+
+[[nodiscard]] FbRect advance_valid_filter_bounds(FbRect current, const FilterRecord& filter,
+                                                 FbRect allocation_bounds)
+{
+    switch (filter.kind) {
+    case FilterKind::Blur:
+        return clamp_valid_filter_bounds(expand_bounds(current, blur_expansion(filter.sigma)),
+                                         allocation_bounds);
+    case FilterKind::DropShadow:
+        return clamp_valid_filter_bounds(
+            expand_bounds(current,
+                          drop_shadow_expansion(filter.sigma, filter.offset[0], filter.offset[1])),
+            allocation_bounds);
+    case FilterKind::Opacity:
+    case FilterKind::ColorMatrix:
+    case FilterKind::MaskImage:
+    case FilterKind::Invalid:
+        return clamp_valid_filter_bounds(current, allocation_bounds);
+    }
+    return clamp_valid_filter_bounds(current, allocation_bounds);
+}
+
+[[nodiscard]] RenderBounds render_bounds_from_framebuffer(FbRect bounds,
+                                                          const SurfaceMetrics& surface)
+{
+    return {framebuffer_to_logical(bounds, surface), bounds};
+}
+
 [[nodiscard]] uint32_t stencil_test_state_for_ref(uint8_t ref)
 {
     return BGFX_STENCIL_TEST_EQUAL | BGFX_STENCIL_FUNC_REF(uint32_t(ref)) |
@@ -172,8 +204,8 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
                          source_valid_global_bounds.y - source_bounds.framebuffer.y,
                          source_valid_global_bounds.w, source_valid_global_bounds.h};
     result.output = source;
-    result.output_bounds.framebuffer = source_valid_global_bounds;
-    result.output_bounds.logical = framebuffer_to_logical(source_valid_global_bounds, ctx.surface);
+    result.output_bounds = render_bounds_from_framebuffer(source_valid_global_bounds, ctx.surface);
+    result.valid_output_bounds = result.output_bounds;
     if (filter_handles.empty()) {
         return result;
     }
@@ -219,6 +251,7 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
     bgfx::TextureHandle current = primary->color;
     RenderTargetRecord* destination = secondary;
     FbRect current_valid_rect = copy_destination;
+    FbRect current_valid_global = source_valid_global_bounds;
     for (const FilterRecord& filter : filter_chain) {
         bool ok = false;
         switch (filter.kind) {
@@ -394,6 +427,8 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
         if (!ok) {
             return {};
         }
+        current_valid_global =
+            advance_valid_filter_bounds(current_valid_global, filter, clamped_work_bounds);
         current = destination->color;
         destination = (destination == primary) ? secondary : primary;
     }
@@ -401,8 +436,8 @@ BgfxFilterPipeline::apply(const BgfxFilterPipelineContext& ctx, TextureRegion so
     result.output = texture_region(current, clamped_work_bounds,
                                    LocalFbRect{0, 0, clamped_work_bounds.w, clamped_work_bounds.h},
                                    clamped_work_bounds.w, clamped_work_bounds.h);
-    result.output_bounds.framebuffer = clamped_work_bounds;
-    result.output_bounds.logical = framebuffer_to_logical(clamped_work_bounds, ctx.surface);
+    result.output_bounds = render_bounds_from_framebuffer(clamped_work_bounds, ctx.surface);
+    result.valid_output_bounds = render_bounds_from_framebuffer(current_valid_global, ctx.surface);
     return result;
 }
 
