@@ -61,8 +61,9 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
   resolution maps material ids or direct ActiveText shader pairs to the inferred compiled bgfx
   variant, `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`,
   `ShaderCompilerService`/`noveltea-editor-tool compile-shaders` invoke `shaderc` for
-  host/editor/import/export workflows, and shipped runtimes load compiled bgfx binaries rather than
-  compiling source.
+  host/editor/import/export workflows, engine-owned 2D quads can bind `ShaderRole::Engine2D`
+  materials through `BgfxMaterialBinder`, and shipped runtimes load compiled bgfx binaries rather
+  than compiling source.
 
 ## Deferred (Next Slice)
 

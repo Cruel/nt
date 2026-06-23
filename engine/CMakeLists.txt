@@ -175,6 +175,7 @@ set(NOVELTEA_ACTIVE_SHADER_VARIANTS "${NOVELTEA_SHADER_VARIANTS_ARG}" CACHE INTE
 target_sources(engine PRIVATE
     src/render/bgfx/bgfx_renderer.cpp
     src/render/bgfx/bgfx_resources.cpp
+    src/render/bgfx/bgfx_material_binder.cpp
     src/render/bgfx/bgfx_quad_batch.cpp
     src/render/bgfx/bgfx_shader_loader.cpp
     src/render/bgfx/bgfx_shader_program_cache.cpp

@@ -6,6 +6,7 @@
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/render/material.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
@@ -81,6 +82,7 @@ private:
     script::RuntimeScriptExecutor m_script_executor;
     RuntimeUI m_runtime_ui;
     core::RuntimeSessionHost m_runtime_host;
+    ShaderMaterialProject m_demo_shader_materials;
     DebugUI m_debug_ui;
     bool m_initialized = false;
     bool m_running = false;

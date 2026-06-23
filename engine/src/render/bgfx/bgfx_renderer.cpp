@@ -1,7 +1,9 @@
 #include "noveltea/renderer.hpp"
 
 #include "bgfx_renderer_internal.hpp"
+#include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
+#include "render/bgfx/bgfx_shader_program_cache.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -143,6 +145,11 @@ RendererCallback s_renderer_callback;
 
 Renderer::Renderer() = default;
 Renderer::~Renderer() { shutdown(); }
+
+void Renderer::set_shader_material_project(const ShaderMaterialProject* project)
+{
+    m_shader_materials = project;
+}
 
 bool Renderer::initialize(const RendererConfig& config)
 {

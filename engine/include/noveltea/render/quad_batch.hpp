@@ -1,8 +1,10 @@
 #pragma once
 
 #include "noveltea/math/geometry.hpp"
+#include "noveltea/render/material.hpp"
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace noveltea {
@@ -26,6 +28,7 @@ struct QuadCommand {
     Rect uv{0.0f, 0.0f, 1.0f, 1.0f};
     Color color{};
     Texture texture{};
+    MaterialId material{};
     float depth = 0.0f;
     GameLayer layer = GameLayer::Main;
 };
@@ -37,13 +40,54 @@ public:
     void draw_colored_quad(Rect rect, Color color, float depth = 0.0f,
                            GameLayer layer = GameLayer::Main)
     {
-        m_commands.push_back(QuadCommand{rect, {0.0f, 0.0f, 1.0f, 1.0f}, color, {}, depth, layer});
+        QuadCommand command;
+        command.rect = rect;
+        command.uv = {0.0f, 0.0f, 1.0f, 1.0f};
+        command.color = color;
+        command.depth = depth;
+        command.layer = layer;
+        m_commands.push_back(command);
     }
 
     void draw_textured_quad(Rect rect, Texture texture, Rect uv, Color color, float depth = 0.0f,
                             GameLayer layer = GameLayer::Main)
     {
-        m_commands.push_back(QuadCommand{rect, uv, color, texture, depth, layer});
+        QuadCommand command;
+        command.rect = rect;
+        command.uv = uv;
+        command.color = color;
+        command.texture = texture;
+        command.depth = depth;
+        command.layer = layer;
+        m_commands.push_back(command);
+    }
+
+    void draw_material_quad(Rect rect, MaterialId material, Color color, float depth = 0.0f,
+                            GameLayer layer = GameLayer::Main)
+    {
+        QuadCommand command;
+        command.rect = rect;
+        command.uv = {0.0f, 0.0f, 1.0f, 1.0f};
+        command.color = color;
+        command.material = std::move(material);
+        command.depth = depth;
+        command.layer = layer;
+        m_commands.push_back(std::move(command));
+    }
+
+    void draw_material_textured_quad(Rect rect, MaterialId material, Texture texture, Rect uv,
+                                     Color color, float depth = 0.0f,
+                                     GameLayer layer = GameLayer::Main)
+    {
+        QuadCommand command;
+        command.rect = rect;
+        command.uv = uv;
+        command.color = color;
+        command.texture = texture;
+        command.material = std::move(material);
+        command.depth = depth;
+        command.layer = layer;
+        m_commands.push_back(std::move(command));
     }
 
     [[nodiscard]] const std::vector<QuadCommand>& commands() const { return m_commands; }

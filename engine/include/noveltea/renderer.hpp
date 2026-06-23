@@ -11,11 +11,19 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace noveltea {
+
+struct ShaderMaterialProject;
+
+namespace bgfx_backend {
+class BgfxMaterialBinder;
+class BgfxShaderProgramCache;
+} // namespace bgfx_backend
 
 struct RendererConfig {
     void* native_display = nullptr;
@@ -45,6 +53,7 @@ public:
     void draw_demo_text(float time_seconds);
     void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
+    void set_shader_material_project(const ShaderMaterialProject* project);
     FontHandle load_font(const FontDesc& desc);
     TextLayout layout_text(const Text& text) const;
     TextMetrics measure_text(const Text& text) const;
@@ -82,6 +91,8 @@ private:
     void destroy_text();
     void resize_text();
     void submit_quad(const QuadCommand& command);
+    void submit_default_quad(const QuadCommand& command);
+    [[nodiscard]] bool submit_material_quad(const QuadCommand& command);
     uint16_t load_ppm_texture(std::string_view logical_path);
 
     struct ScissorRect {
@@ -92,6 +103,7 @@ private:
     ScissorRect current_scissor() const;
 
     const assets::AssetManager* m_assets = nullptr;
+    const ShaderMaterialProject* m_shader_materials = nullptr;
     bool m_initialized = false;
     bool m_vsync = true;
     SurfaceMetrics m_surface{};
@@ -110,6 +122,8 @@ private:
     uint16_t m_use_texture_uniform = UINT16_MAX;
     uint32_t m_default_text_font = 0;
     void* m_text_renderer = nullptr;
+    std::unique_ptr<bgfx_backend::BgfxShaderProgramCache> m_shader_program_cache;
+    std::unique_ptr<bgfx_backend::BgfxMaterialBinder> m_material_binder;
     std::string m_texture_status = "procedural checker";
     std::string m_pending_screenshot;
 };

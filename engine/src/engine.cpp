@@ -30,6 +30,53 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
     return selected == DemoMode::All || selected == queried;
 }
 
+ShaderMaterialProject make_demo_shader_materials()
+{
+    ShaderStageDefinition vertex;
+    vertex.stage = ShaderStage::Vertex;
+    vertex.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/quad.vs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/quad.vs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/quad.vs.bin"},
+    };
+
+    ShaderStageDefinition fragment;
+    fragment.stage = ShaderStage::Fragment;
+    fragment.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/quad.fs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/quad.fs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/quad.fs.bin"},
+    };
+
+    ShaderDefinition shader;
+    shader.id = ShaderId("quad");
+    shader.display_name = "Demo Engine 2D Quad";
+    shader.roles = {ShaderRole::Engine2D};
+    shader.stages = {std::move(vertex), std::move(fragment)};
+    ShaderUniformDeclaration use_texture;
+    use_texture.name = "u_useTexture";
+    use_texture.type = ShaderUniformType::Float;
+    use_texture.default_value = 1.0f;
+    shader.uniforms.push_back(std::move(use_texture));
+    shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_texColor"});
+
+    MaterialDefinition material;
+    material.id = MaterialId("demo/engine_2d_quad");
+    material.role = ShaderRole::Engine2D;
+    material.shader = ShaderId("quad");
+    material.display_name = "Demo Engine 2D Material Quad";
+    material.textures.push_back(MaterialTextureAssignment{
+        .sampler = "s_texColor",
+        .source = "$draw.texture",
+        .filtering = MaterialTextureSampler::ClampLinear,
+    });
+
+    ShaderMaterialProject project;
+    project.shaders.push_back(std::move(shader));
+    project.materials.push_back(std::move(material));
+    return project;
+}
+
 std::filesystem::path default_system_asset_root()
 {
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
@@ -280,6 +327,8 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         return false;
     }
     renderer_initialized = true;
+    m_demo_shader_materials = make_demo_shader_materials();
+    m_renderer.set_shader_material_project(&m_demo_shader_materials);
 
     {
         auto script_init = m_scripts.initialize({&m_assets});

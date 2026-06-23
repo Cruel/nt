@@ -572,18 +572,30 @@ Acceptance:
 - Failed shader compilation produces readable diagnostics.
 - Re-running without source changes hits the cache.
 
-### Phase 4: Engine 2D Material Binding
+### Phase 4: Engine 2D Material Binding `[implemented]`
 
-- Extend `QuadCommand` or the 2D render path with optional `MaterialId` / `MaterialInstanceId`.
-- Bind material program, uniforms, textures, and blend state for engine-owned 2D primitives.
-- Keep default textured/colored quad path fast and unchanged for ordinary sprites.
-- Add a sample material-backed quad in sandbox.
+Implemented model:
+
+- `QuadCommand` has an optional `MaterialId`; existing colored/textured quad helpers still produce commands without materials.
+- New `QuadBatch` helpers submit material-backed colored and textured quads.
+- `Renderer::set_shader_material_project()` supplies parsed shader/material records without making the renderer own project schema loading.
+- `BgfxMaterialBinder` resolves `ShaderRole::Engine2D` material ids, obtains programs from `BgfxShaderProgramCache`, packs schema uniform values into bgfx vec4 uniforms, binds material texture assignments, maps material sampler policy to bgfx sampler flags, and reports diagnostics.
+- The existing default quad path remains the fallback when a material id is absent or material binding fails.
+- The Render2D sandbox demo includes a material-backed textured quad that uses the existing compiled `quad` shader through material metadata.
+- Tests cover default material-free commands, material command metadata, sampler flag mapping, and uniform packing.
+
+Still intentionally not implemented:
+
+- RmlUi `shader(<string>)` material bridge.
+- ActiveText custom shader rendering.
+- Full PNG/JPEG material texture decoding; material texture assets currently use the same limited PPM path as the existing 2D demo loader.
+- Runtime shader source compilation.
 
 Acceptance:
 
-- Existing sprite/quad demos render unchanged without custom materials.
-- A sample custom material renders in Linux and Web release/profile.
-- Missing material falls back visibly and logs diagnostics.
+- Existing sprite/quad commands remain unchanged when no material id is present.
+- A material-backed Render2D demo path runs on Linux/Xvfb.
+- Missing material/program/texture paths fall back to the existing quad path and log diagnostics.
 
 ### Phase 5: RmlUi `shader(<string>)` Material Bridge
 
@@ -651,7 +663,7 @@ Acceptance:
 ```text
 Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md and docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md.
 
-Action 4 / Phase 3 is implemented: host/editor/import shader compilation can produce runtime bgfx binaries from project shader sources through `ShaderCompilerService` and `noveltea-editor-tool compile-shaders`. Next implement Action 5 / Phase 4: bind optional NovelTea materials into the engine 2D draw path using the existing material schema, runtime resolver/cache, and compiled binary outputs. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
+Action 5 / Phase 4 is implemented: engine-owned 2D quads can bind optional NovelTea material ids through `BgfxMaterialBinder` while preserving the default material-free quad path. Next implement Action 6 / Phase 5: bridge RmlUi `shader(<string>)` decorator usage to NovelTea material ids through a provider seam in reusable `rmlui_bgfx` and a NovelTea adapter for `ShaderRole::RmlUiDecorator` materials. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
 
-Do not add runtime shader source compilation. Do not wire RmlUi shader(<string>) yet. Keep the default colored/textured quad path unchanged when no material id is present.
+Do not add runtime shader source compilation. Keep built-in gradients unchanged.
 ```

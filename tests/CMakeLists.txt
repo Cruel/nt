@@ -90,6 +90,7 @@ catch_discover_tests(noveltea_script_tests)
 
 add_executable(noveltea_render_tests
     render/material_asset_tests.cpp
+    render/material_binder_tests.cpp
     render/shader_compiler_tests.cpp
     render/shader_manifest_tests.cpp
     render/shader_variant_tests.cpp

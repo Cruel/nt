@@ -1,7 +1,9 @@
 #include "noveltea/renderer.hpp"
 
 #include "bgfx_renderer_internal.hpp"
+#include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
+#include "render/bgfx/bgfx_shader_program_cache.hpp"
 
 #include <SDL3/SDL_log.h>
 #include <bgfx/bgfx.h>
@@ -9,6 +11,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <vector>
 
 namespace noveltea {
 
@@ -38,6 +42,45 @@ bgfx::ViewId game_layer_view_id(GameLayer layer)
     }
 }
 
+bool set_quad_buffers(const QuadCommand& command)
+{
+    constexpr uint16_t indices[] = {0, 1, 2, 0, 2, 3};
+    const float x = command.rect.x;
+    const float y = command.rect.y;
+    const float w = command.rect.width;
+    const float h = command.rect.height;
+    const float u0 = command.uv.x;
+    const float v0 = command.uv.y;
+    const float u1 = command.uv.x + command.uv.width;
+    const float v1 = command.uv.y + command.uv.height;
+    const Color color = command.color;
+    QuadVertex vertices[] = {
+        {x, y, u0, v0, color.r, color.g, color.b, color.a},
+        {x + w, y, u1, v0, color.r, color.g, color.b, color.a},
+        {x + w, y + h, u1, v1, color.r, color.g, color.b, color.a},
+        {x, y + h, u0, v1, color.r, color.g, color.b, color.a},
+    };
+
+    bgfx::VertexLayout layout;
+    layout.begin()
+        .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
+        .end();
+
+    bgfx::TransientVertexBuffer tvb;
+    bgfx::TransientIndexBuffer tib;
+    if (!bgfx::allocTransientBuffers(&tvb, layout, 4, &tib, 6)) {
+        return false;
+    }
+    std::memcpy(tvb.data, vertices, sizeof(vertices));
+    std::memcpy(tib.data, indices, sizeof(indices));
+
+    bgfx::setVertexBuffer(0, &tvb);
+    bgfx::setIndexBuffer(&tib);
+    return true;
+}
+
 } // namespace
 
 void Renderer::draw_demo_2d(float time_seconds)
@@ -52,9 +95,9 @@ void Renderer::draw_demo_2d(float time_seconds)
                             GameLayer::Background);
     const uint16_t texture =
         bgfx::isValid(bgfx::TextureHandle{m_disk_texture}) ? m_disk_texture : m_checker_texture;
-    batch.draw_textured_quad({330.0f, 116.0f, 160.0f, 160.0f}, Texture{texture},
-                             {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f,
-                             GameLayer::Main);
+    batch.draw_material_textured_quad(
+        {330.0f, 116.0f, 160.0f, 160.0f}, MaterialId("demo/engine_2d_quad"), Texture{texture},
+        {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f, GameLayer::Main);
     batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f},
                             {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f, GameLayer::Foreground);
     draw_2d(batch);
@@ -101,10 +144,16 @@ void Renderer::create_2d()
     } else {
         m_texture_status = "fallback procedural checker";
     }
+
+    m_shader_program_cache = std::make_unique<BgfxShaderProgramCache>(*m_assets);
+    m_material_binder = std::make_unique<BgfxMaterialBinder>(
+        *m_assets, *m_shader_program_cache, bgfx::TextureHandle{m_checker_texture});
 }
 
 void Renderer::destroy_2d()
 {
+    m_material_binder.reset();
+    m_shader_program_cache.reset();
     if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture}))
         bgfx::destroy(bgfx::TextureHandle{m_disk_texture});
     if (bgfx::isValid(bgfx::TextureHandle{m_checker_texture}))
@@ -124,38 +173,54 @@ void Renderer::destroy_2d()
 
 void Renderer::submit_quad(const QuadCommand& command)
 {
-    constexpr uint16_t indices[] = {0, 1, 2, 0, 2, 3};
-    const float x = command.rect.x;
-    const float y = command.rect.y;
-    const float w = command.rect.width;
-    const float h = command.rect.height;
-    const float u0 = command.uv.x;
-    const float v0 = command.uv.y;
-    const float u1 = command.uv.x + command.uv.width;
-    const float v1 = command.uv.y + command.uv.height;
-    const Color color = command.color;
-    QuadVertex vertices[] = {
-        {x, y, u0, v0, color.r, color.g, color.b, color.a},
-        {x + w, y, u1, v0, color.r, color.g, color.b, color.a},
-        {x + w, y + h, u1, v1, color.r, color.g, color.b, color.a},
-        {x, y + h, u0, v1, color.r, color.g, color.b, color.a},
-    };
-    (void)command.depth;
-
-    bgfx::VertexLayout layout;
-    layout.begin()
-        .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
-        .end();
-
-    bgfx::TransientVertexBuffer tvb;
-    bgfx::TransientIndexBuffer tib;
-    if (!bgfx::allocTransientBuffers(&tvb, layout, 4, &tib, 6)) {
+    if (command.material.valid() && submit_material_quad(command)) {
         return;
     }
-    std::memcpy(tvb.data, vertices, sizeof(vertices));
-    std::memcpy(tib.data, indices, sizeof(indices));
+    submit_default_quad(command);
+}
+
+bool Renderer::submit_material_quad(const QuadCommand& command)
+{
+    if (!m_shader_materials || !m_material_binder)
+        return false;
+
+    std::vector<ShaderProgramDiagnostic> diagnostics;
+    const auto bound = m_material_binder->bind_engine_2d_material(
+        *m_shader_materials, command.material, command, &diagnostics);
+    for (const auto& diagnostic : diagnostics) {
+        SDL_Log("[renderer] material diagnostic: %s: %s", diagnostic.context.c_str(),
+                diagnostic.message.c_str());
+    }
+    if (!bound.ok || !bgfx::isValid(bound.program))
+        return false;
+
+    (void)command.depth;
+    if (!set_quad_buffers(command))
+        return false;
+
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
+
+    const auto scissor = current_scissor();
+    if (scissor.active) {
+        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * m_surface.scale_x));
+        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * m_surface.scale_y));
+        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * m_surface.scale_x));
+        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * m_surface.scale_y));
+        bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
+    } else {
+        bgfx::setScissor(UINT16_MAX);
+    }
+
+    const auto view = game_layer_view_id(command.layer);
+    bgfx::submit(view, bound.program);
+    return true;
+}
+
+void Renderer::submit_default_quad(const QuadCommand& command)
+{
+    (void)command.depth;
+    if (!set_quad_buffers(command))
+        return;
 
     const uint16_t texture = command.texture.handle;
     const bool use_texture = texture != UINT16_MAX && bgfx::isValid(bgfx::TextureHandle{texture});
@@ -164,8 +229,6 @@ void Renderer::submit_quad(const QuadCommand& command)
     if (use_texture) {
         bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{texture});
     }
-    bgfx::setVertexBuffer(0, &tvb);
-    bgfx::setIndexBuffer(&tib);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
 
     // Per-draw-call scissor from the current stack top.

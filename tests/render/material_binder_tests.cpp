@@ -1,0 +1,89 @@
+#include <catch2/catch_test_macros.hpp>
+
+#include "noveltea/render/quad_batch.hpp"
+#include "render/bgfx/bgfx_material_binder.hpp"
+
+namespace {
+
+const noveltea::QuadCommand& only_command(const noveltea::QuadBatch& batch)
+{
+    REQUIRE(batch.commands().size() == 1);
+    return batch.commands().front();
+}
+
+} // namespace
+
+TEST_CASE("quad batch default commands do not carry material ids")
+{
+    noveltea::QuadBatch batch;
+    batch.draw_colored_quad({1.0f, 2.0f, 3.0f, 4.0f}, {0.1f, 0.2f, 0.3f, 0.4f});
+    CHECK_FALSE(only_command(batch).material.valid());
+
+    batch.clear();
+    batch.draw_textured_quad({1.0f, 2.0f, 3.0f, 4.0f}, noveltea::Texture{7},
+                             {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
+    CHECK_FALSE(only_command(batch).material.valid());
+}
+
+TEST_CASE("quad batch material commands preserve material ids and draw texture metadata")
+{
+    noveltea::QuadBatch batch;
+    batch.draw_material_quad({10.0f, 20.0f, 30.0f, 40.0f}, noveltea::MaterialId("world/water"),
+                             {0.2f, 0.4f, 0.6f, 1.0f});
+    CHECK(only_command(batch).material.value() == "world/water");
+    CHECK_FALSE(only_command(batch).texture.valid());
+
+    batch.clear();
+    batch.draw_material_textured_quad({10.0f, 20.0f, 30.0f, 40.0f},
+                                      noveltea::MaterialId("world/water"), noveltea::Texture{42},
+                                      {0.0f, 0.0f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f, 1.0f});
+    CHECK(only_command(batch).material.value() == "world/water");
+    CHECK(only_command(batch).texture.handle == 42);
+    CHECK(only_command(batch).uv.width == 0.5f);
+}
+
+TEST_CASE("material binder maps sampler policy to bgfx flags")
+{
+    using noveltea::MaterialTextureSampler;
+    using noveltea::bgfx_backend::bgfx_sampler_flags;
+
+    CHECK((bgfx_sampler_flags(MaterialTextureSampler::ClampNearest) & BGFX_SAMPLER_U_CLAMP) != 0);
+    CHECK((bgfx_sampler_flags(MaterialTextureSampler::ClampNearest) & BGFX_SAMPLER_MIN_POINT) != 0);
+    CHECK((bgfx_sampler_flags(MaterialTextureSampler::ClampLinear) & BGFX_SAMPLER_U_CLAMP) != 0);
+    CHECK((bgfx_sampler_flags(MaterialTextureSampler::ClampLinear) & BGFX_SAMPLER_MIN_POINT) == 0);
+    CHECK((bgfx_sampler_flags(MaterialTextureSampler::RepeatNearest) & BGFX_SAMPLER_U_CLAMP) == 0);
+    CHECK((bgfx_sampler_flags(MaterialTextureSampler::RepeatNearest) & BGFX_SAMPLER_MIN_POINT) !=
+          0);
+    CHECK(bgfx_sampler_flags(MaterialTextureSampler::RepeatLinear) == 0);
+}
+
+TEST_CASE("material binder packs schema uniform values into vec4 bgfx uniforms")
+{
+    using noveltea::ShaderColor;
+    using noveltea::ShaderUniformValue;
+    using noveltea::bgfx_backend::pack_material_uniform;
+
+    auto scalar = pack_material_uniform(ShaderUniformValue{0.75f});
+    REQUIRE(scalar.supported);
+    CHECK(scalar.value[0] == 0.75f);
+    CHECK(scalar.value[1] == 0.0f);
+
+    auto vec3 = pack_material_uniform(ShaderUniformValue{std::array<float, 3>{1.0f, 2.0f, 3.0f}});
+    REQUIRE(vec3.supported);
+    CHECK(vec3.value[0] == 1.0f);
+    CHECK(vec3.value[1] == 2.0f);
+    CHECK(vec3.value[2] == 3.0f);
+    CHECK(vec3.value[3] == 0.0f);
+
+    auto color = pack_material_uniform(ShaderUniformValue{ShaderColor{0.1f, 0.2f, 0.3f, 0.4f}});
+    REQUIRE(color.supported);
+    CHECK(color.value[0] == 0.1f);
+    CHECK(color.value[3] == 0.4f);
+
+    auto boolean = pack_material_uniform(ShaderUniformValue{true});
+    REQUIRE(boolean.supported);
+    CHECK(boolean.value[0] == 1.0f);
+
+    auto empty = pack_material_uniform(ShaderUniformValue{});
+    CHECK_FALSE(empty.supported);
+}
