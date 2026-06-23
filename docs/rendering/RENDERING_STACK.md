@@ -54,10 +54,11 @@ These IDs are documented early so RmlUi, text, and debug overlays do not compete
   binaries are build/runtime assets loaded from
   `assets/shaders/bgfx/{linux-glsl,android-essl,web-essl100}`. Runtime code does
   not include generated shader headers or compile shader source.
-- User-provided project shaders/materials should follow
-  [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): source is
-  an authoring asset, `shaderc` produces platform/profile variants during editor/import/export
-  workflows, and shipped runtimes load compiled bgfx binaries rather than compiling source.
+- User-provided project shaders/materials follow
+  [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): `.ntmat`
+  material assets now parse into a backend-neutral runtime model, shader source remains an
+  authoring asset, `shaderc` will produce platform/profile variants during editor/import/export
+  workflows, and shipped runtimes will load compiled bgfx binaries rather than compiling source.
 
 ## Deferred (Next Slice)
 

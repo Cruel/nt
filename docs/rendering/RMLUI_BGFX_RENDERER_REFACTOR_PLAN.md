@@ -156,32 +156,21 @@ Acceptance:
 - FPS is displayed/logged but does not decide pass/fail.
 - The smoke documents which build preset/profile it uses.
 
-### Action 2: Implement Material Plan Phase 0/1
+### Action 2: Implement Material Plan Phase 0/1 `[implemented]`
 
 Goal: establish the backend-neutral material data model before any bgfx program loading or RmlUi integration.
 
-Source of truth: [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md), Phase 0 and Phase 1.
+Implemented path:
 
-Implement:
+- Audited and replaced the deferred `render/material.hpp` and `render/shader.hpp` stubs with backend-neutral material/shader-source-reference types.
+- Added `MaterialId` normalization for project aliases and explicit `project:/` / `system:/` `.ntmat` asset paths.
+- Added `MaterialType` for `engine-2d`, `rmlui-decorator`, and deferred `rmlui-filter` / `postprocess` types.
+- Added material asset data for shader refs, uniforms, texture slots, engine/RmlUi input bindings, blend policy, structured diagnostics, and fallback records.
+- Added `.ntmat` JSON parser/validator for schema `noveltea.material.v1`.
+- Added diagnostics for invalid material ids, invalid JSON/schema, missing fields, unknown/deferred types, invalid shader refs, invalid uniforms/defaults, invalid texture slot names/sources/samplers, unknown input bindings, and unsupported blend policies.
+- Added `tests/render/material_asset_tests.cpp` for valid and invalid material assets, id normalization, and fallback records.
 
-- Audit existing `render/material.hpp` and `render/shader.hpp` stubs.
-- Define `MaterialId` normalization.
-- Define `MaterialType`:
-  - `engine-2d`
-  - `rmlui-decorator`
-  - `rmlui-filter` deferred
-  - `postprocess` deferred
-- Define material asset data:
-  - shader refs
-  - uniforms
-  - texture slots
-  - engine/RmlUi input bindings
-  - blend policy
-- Add `.ntmat` parser and validator.
-- Add diagnostics for invalid schema, missing fields, unknown types, invalid uniform values, invalid texture slot names, and unsupported blend policy.
-- Add tests for valid and invalid material assets.
-
-Do not implement yet:
+Still intentionally not implemented:
 
 - `shaderc` invocation.
 - Runtime shader source compilation.
@@ -194,28 +183,43 @@ Acceptance:
 - Valid `.ntmat` parses into a stable runtime model.
 - Invalid `.ntmat` reports actionable diagnostics.
 - Tests cover material id normalization and schema validation.
-- Docs/status are updated when complete.
+- Docs/status are updated.
 
 ### Action 3: Add Shader Manifest And Runtime Program Loading
 
-Goal: teach runtime how to load precompiled bgfx shader variants for a material.
+Goal: teach runtime how to load precompiled bgfx shader variants for both high-level materials and NovelTea's lower-level ActiveText shader BBCode contract.
+
+Important distinction:
+
+- `MaterialId` / `.ntmat` is the validated, editor-friendly material path used by rich-text material tags, engine 2D materials, and later RmlUi `shader(<string>)` decorator materials.
+- ActiveText's low-level shader BBCode is already preserved by `RichTextStyle::fragment_shader_id` and `RichTextStyle::vertex_shader_id`. Do not force this path to become a `.ntmat` material.
+- Both paths still use precompiled bgfx shader binaries at runtime. Neither path compiles shader source at runtime.
 
 Implement:
 
-- Shader manifest format mapping material id + platform/profile + variant to compiled shader binaries.
+- Backend-neutral shader identifiers for direct shader refs, probably `ShaderId`, `ShaderStage`, and `ShaderProgramId` / `ShaderPairRef`, without reintroducing the old misleading mutable `Shader` stub.
+- Shader manifest format that can resolve material-owned shader refs from a `MaterialId` plus active platform/profile/variant.
+- Shader manifest format that can also resolve direct ActiveText shader pairs from preserved vertex/fragment shader ids plus active platform/profile/variant.
 - Runtime `ShaderProgramCache` loading compiled binaries through `AssetManager`.
-- bgfx shader/program handle creation.
-- Program cache keys based on material id, shader hash, active backend/profile, and variant.
-- Missing variant diagnostics.
-- Visible fallback material behavior.
+- bgfx shader/program handle creation for precompiled shader binaries.
+- Program cache keys that distinguish material programs from direct shader-pair programs while still including shader hash, active backend/profile, and variant.
+- Uniform/sampler reflection or declared-bind metadata sufficient for later material binding and direct ActiveText shader binding.
+- Missing variant diagnostics for both callers:
+  - material diagnostics name the material id, active profile, and expected compiled binary path;
+  - direct shader-pair diagnostics name the vertex/fragment shader ids, active profile, and expected compiled binary paths.
+- Visible fallback behavior:
+  - missing material programs use material fallback records;
+  - missing direct ActiveText shader pairs fall back to the default text/ActiveText shader path while preserving an actionable diagnostic.
 
 Do not invoke `shaderc` at runtime.
 
 Acceptance:
 
 - Runtime can load a precompiled sample material program for the active backend.
-- Missing profile or missing binary diagnostics name the material id, active profile, and expected path.
+- Runtime can load a precompiled direct shader-pair program for the ActiveText low-level shader BBCode contract.
+- Missing profile or missing binary diagnostics name the correct caller context: material id for material programs, vertex/fragment shader ids for direct shader pairs.
 - Existing non-material sprites/quads still render through the fast default path.
+- Existing ActiveText without low-level shader metadata still renders through the normal/default text path.
 
 ### Action 4: Add Editor/Import/Export Shader Compilation
 

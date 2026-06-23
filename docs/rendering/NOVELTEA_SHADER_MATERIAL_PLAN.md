@@ -54,6 +54,8 @@ The exact platform-profile names should match the existing shader asset conventi
 
 NovelTea should distinguish material classes by render contract. They can share schema infrastructure, compiler infrastructure, and uniform binding code, but they should not pretend to be interchangeable.
 
+NovelTea should also distinguish high-level materials from lower-level shader program references. Rich-text material tags resolve to `MaterialId` / `.ntmat`. ActiveText's low-level shader BBCode already preserves separate `fragment_shader_id` and `vertex_shader_id` fields on `RichTextStyle`; that path should resolve through the shader manifest/program cache directly, not by inventing an implicit material asset.
+
 ### Engine 2D Material
 
 Used by the engine's own 2D draw path, `QuadCommand`, map overlays, ActiveText effects, room backgrounds, object sprites, and future non-RmlUi primitives.
@@ -413,7 +415,7 @@ Portability rules:
 
 ## Implementation Phases
 
-### Phase 0: Policy and Inventory
+### Phase 0: Policy and Inventory `[implemented]`
 
 - Confirm target platform/profile names and shader asset layout.
 - Audit existing `render/material.hpp` and `render/shader.hpp` stubs.
@@ -427,7 +429,7 @@ Acceptance:
 - RmlUi `shader(<string>)` is defined as a material reference.
 - Deferred material/shader stubs point at this plan.
 
-### Phase 1: Runtime Material Data Model
+### Phase 1: Runtime Material Data Model `[implemented]`
 
 - Add `MaterialId`, `MaterialType`, `MaterialAsset`, `MaterialUniform`, `MaterialTextureSlot`, `MaterialInputBinding`, and `MaterialBlendMode` types.
 - Parse `.ntmat` into the runtime model.
@@ -441,17 +443,33 @@ Acceptance:
 - Invalid material JSON reports specific errors.
 - Material ids normalize consistently across project paths and aliases.
 
+Implemented model:
+
+- `engine/include/noveltea/render/material.hpp` now defines the backend-neutral `.ntmat` runtime model, including `MaterialId`, `MaterialType`, shader source refs, uniforms, texture slots, input bindings, blend policy, structured diagnostics, and fallback material records.
+- `engine/src/render/material.cpp` parses `.ntmat` JSON using schema `noveltea.material.v1` and validates supported material types, shader refs, uniform declarations/defaults, texture slot names/sources/samplers, input bindings, and blend policy.
+- Material id aliases such as `ui/noise_panel` normalize to `project:/materials/ui/noise_panel.ntmat`; explicit project/system material asset paths are preserved when they already target `materials/*.ntmat`.
+- `rmlui-filter` and `postprocess` are recognized but rejected as deferred material types until the later custom filter/postprocess phases.
+- Tests live in `tests/render/material_asset_tests.cpp` and cover valid engine 2D/RmlUi decorator materials, invalid schema cases, material id normalization, diagnostics, and fallback records.
+
 ### Phase 2: Shader Manifest and Runtime Program Loading
 
+- Add backend-neutral shader identifiers for direct shader refs, likely `ShaderId`, `ShaderStage`, and `ShaderProgramId` / `ShaderPairRef`.
 - Add a shader manifest format mapping material id/profile/variant to compiled shader binaries.
+- Extend the shader manifest format so it can also resolve direct ActiveText shader pairs from preserved vertex/fragment shader ids.
 - Add runtime `ShaderProgramCache` that loads compiled binaries through AssetManager and creates bgfx programs.
-- Add clear fallback behavior for missing compiled variants.
-- Add tests for manifest selection and missing variant diagnostics.
+- Add program-cache keys that distinguish material-owned programs from direct shader-pair programs.
+- Add uniform/sampler reflection or declared-bind metadata for later material binding and direct ActiveText shader binding.
+- Add clear fallback behavior for missing compiled variants:
+  - missing material programs use material fallback records;
+  - missing direct ActiveText shader pairs fall back to the default text/ActiveText shader path.
+- Add tests for manifest selection and missing variant diagnostics for both material programs and direct shader-pair programs.
 
 Acceptance:
 
 - Runtime can load a precompiled material program for the active backend.
-- Missing profile or missing binary errors name the expected profile/path.
+- Runtime can load a precompiled direct shader-pair program for ActiveText low-level shader metadata.
+- Missing material program diagnostics name the material id, active profile, and expected profile/path.
+- Missing direct shader-pair diagnostics name the vertex/fragment shader ids, active profile, and expected profile/paths.
 
 ### Phase 3: Editor/Import Shader Compilation
 

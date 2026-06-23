@@ -89,6 +89,7 @@ catch_discover_tests(noveltea_script_tests)
 # --- Render tests (bgfx is mandatory) ---
 
 add_executable(noveltea_render_tests
+    render/material_asset_tests.cpp
     render/shader_variant_tests.cpp
 )
 target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")

@@ -18,6 +18,7 @@ add_library(noveltea_core STATIC
     src/core/runtime_session_host.cpp
     src/core/runtime_ui_view.cpp
     src/core/save_document.cpp
+    src/render/material.cpp
 )
 
 target_compile_features(noveltea_core PUBLIC cxx_std_20)
