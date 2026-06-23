@@ -4,17 +4,15 @@
 
 #include <nlohmann/json_fwd.hpp>
 
-#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace noveltea {
 
-inline constexpr std::string_view material_schema_v1 = "noveltea.material.v1";
+inline constexpr std::string_view shader_material_schema_v1 = "noveltea.shader-materials.v1";
 
 class MaterialId {
 public:
@@ -36,21 +34,28 @@ enum class MaterialDiagnosticSeverity {
 };
 
 enum class MaterialDiagnosticCode {
+    InvalidShaderId,
     InvalidMaterialId,
     InvalidJson,
     InvalidSchema,
     MissingRequiredField,
     InvalidFieldType,
-    UnknownMaterialType,
-    DeferredMaterialType,
-    InvalidShaderRef,
+    UnknownShaderRole,
+    DeferredShaderRole,
+    InvalidShaderSourceRef,
+    InvalidCompiledBinaryRef,
     InvalidUniformDeclaration,
-    InvalidUniformDefault,
+    InvalidUniformValue,
+    InvalidSamplerDeclaration,
     InvalidTextureSlotName,
     InvalidTextureSource,
     UnsupportedSampler,
     UnknownInputBinding,
     UnsupportedBlendPolicy,
+    UnknownShaderRef,
+    UndeclaredUniform,
+    UndeclaredSampler,
+    IncompatibleShaderRole,
 };
 
 struct MaterialDiagnostic {
@@ -60,47 +65,18 @@ struct MaterialDiagnostic {
     std::string message;
 };
 
-struct MaterialIdParseResult {
-    std::optional<MaterialId> id;
+struct ShaderIdParseResult {
+    std::optional<ShaderId> id;
     std::vector<MaterialDiagnostic> diagnostics;
 
     [[nodiscard]] bool ok() const noexcept { return id.has_value() && diagnostics.empty(); }
 };
 
-enum class MaterialType {
-    Engine2D,
-    RmlUiDecorator,
-    RmlUiFilter,
-    Postprocess,
-};
+struct MaterialIdParseResult {
+    std::optional<MaterialId> id;
+    std::vector<MaterialDiagnostic> diagnostics;
 
-enum class MaterialUniformType {
-    Float,
-    Vec2,
-    Vec3,
-    Vec4,
-    Color,
-    Int,
-    Bool,
-};
-
-struct MaterialColor {
-    float r = 1.0f;
-    float g = 1.0f;
-    float b = 1.0f;
-    float a = 1.0f;
-};
-
-using MaterialUniformValue =
-    std::variant<std::monostate, float, std::array<float, 2>, std::array<float, 3>,
-                 std::array<float, 4>, MaterialColor, int, bool>;
-
-struct MaterialUniform {
-    std::string name;
-    MaterialUniformType type = MaterialUniformType::Float;
-    MaterialUniformValue default_value;
-    std::optional<std::array<float, 2>> range;
-    std::string editor_label;
+    [[nodiscard]] bool ok() const noexcept { return id.has_value() && diagnostics.empty(); }
 };
 
 enum class MaterialTextureSampler {
@@ -110,68 +86,66 @@ enum class MaterialTextureSampler {
     RepeatLinear,
 };
 
-struct MaterialTextureSlot {
-    std::string name;
-    std::string source;
-    MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
-};
-
-enum class MaterialInputSemantic {
-    EngineTime,
-    RmlUiPaintDimensions,
-    RmlUiDpiScale,
-};
-
-struct MaterialInputBinding {
-    std::string uniform;
-    MaterialInputSemantic semantic = MaterialInputSemantic::EngineTime;
-};
-
 enum class MaterialBlendMode {
     PremultipliedAlpha,
 };
 
-struct MaterialShaderRefs {
-    ShaderSourceRef vertex;
-    ShaderSourceRef fragment;
+struct MaterialUniformAssignment {
+    std::string name;
+    ShaderUniformValue value;
 };
 
-struct MaterialAsset {
+struct MaterialTextureAssignment {
+    std::string sampler;
+    std::string source;
+    MaterialTextureSampler filtering = MaterialTextureSampler::ClampLinear;
+};
+
+struct MaterialDefinition {
     MaterialId id;
-    MaterialType type = MaterialType::Engine2D;
+    ShaderRole role = ShaderRole::Engine2D;
+    ShaderId shader;
     std::string display_name;
-    MaterialShaderRefs shader;
-    std::vector<MaterialUniform> uniforms;
-    std::vector<MaterialTextureSlot> textures;
-    std::vector<MaterialInputBinding> inputs;
+    std::vector<MaterialUniformAssignment> uniforms;
+    std::vector<MaterialTextureAssignment> textures;
     MaterialBlendMode blend = MaterialBlendMode::PremultipliedAlpha;
     bool fallback = false;
 };
 
-struct MaterialParseResult {
-    std::optional<MaterialAsset> material;
+struct ShaderMaterialProject {
+    std::vector<ShaderDefinition> shaders;
+    std::vector<MaterialDefinition> materials;
+};
+
+struct ShaderMaterialProjectParseResult {
+    std::optional<ShaderMaterialProject> project;
     std::vector<MaterialDiagnostic> diagnostics;
 
-    [[nodiscard]] bool ok() const noexcept { return material.has_value() && diagnostics.empty(); }
+    [[nodiscard]] bool ok() const noexcept { return project.has_value() && diagnostics.empty(); }
     [[nodiscard]] bool has_errors() const noexcept;
 };
 
+using MaterialParseResult = ShaderMaterialProjectParseResult;
+
+[[nodiscard]] ShaderIdParseResult parse_shader_id(std::string_view reference);
 [[nodiscard]] MaterialIdParseResult parse_material_id(std::string_view reference);
 
-[[nodiscard]] MaterialParseResult parse_material_json(std::string_view source,
-                                                      std::string_view material_reference = {});
-[[nodiscard]] MaterialParseResult
-parse_material_json_value(const nlohmann::json& value, std::string_view material_reference = {});
+[[nodiscard]] ShaderMaterialProjectParseResult
+parse_shader_material_project_json(std::string_view source);
+[[nodiscard]] ShaderMaterialProjectParseResult
+parse_shader_material_project_json_value(const nlohmann::json& value);
 
-[[nodiscard]] MaterialAsset make_engine_2d_fallback_material();
-[[nodiscard]] MaterialAsset make_rmlui_decorator_fallback_material();
+[[nodiscard]] const ShaderDefinition* find_shader(const ShaderMaterialProject& project,
+                                                  const ShaderId& id) noexcept;
+[[nodiscard]] const MaterialDefinition* find_material(const ShaderMaterialProject& project,
+                                                      const MaterialId& id) noexcept;
+
+[[nodiscard]] MaterialDefinition make_engine_2d_fallback_material();
+[[nodiscard]] MaterialDefinition make_rmlui_decorator_fallback_material();
 
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticCode code) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticSeverity severity) noexcept;
-[[nodiscard]] std::string_view to_string(MaterialType type) noexcept;
-[[nodiscard]] std::string_view to_string(MaterialUniformType type) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialTextureSampler sampler) noexcept;
-[[nodiscard]] std::string_view to_string(MaterialInputSemantic semantic) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialBlendMode mode) noexcept;
 
 } // namespace noveltea

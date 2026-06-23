@@ -502,7 +502,7 @@ Deferred items:
 - Material/shader resolution. [`docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`](../rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md)
   is now the source of truth for this work. When implemented this must define
   project-schema shader records, project-schema material records, MaterialId and
-  ShaderId normalization, render-contract compatibility validation, a shader/material
+  ShaderId normalization, shader-role compatibility validation, a shader/material
   registry, inferred shader variant selection from build/export/runtime targets,
   shaderc-based editor/import/export compilation, runtime bgfx ProgramHandle loading
   from compiled binaries, and a bind path on `QuadCommand`. ActiveText effects,

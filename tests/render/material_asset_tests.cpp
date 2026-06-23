@@ -2,72 +2,14 @@
 
 #include "noveltea/render/material.hpp"
 
-#include <array>
-#include <string>
 #include <string_view>
 #include <variant>
 
 namespace {
-
 using noveltea::MaterialDiagnosticCode;
-using noveltea::MaterialParseResult;
+using noveltea::ShaderMaterialProjectParseResult;
 
-[[nodiscard]] std::string valid_engine_material_json(std::string_view type = "engine-2d")
-{
-    return std::string(R"json({
-  "schema": "noveltea.material.v1",
-  "type": ")json") +
-           std::string(type) + R"json(",
-  "display_name": "Water Sprite",
-  "shader": {
-    "vertex": "system:/shaders/materials/engine_2d.vs.sc",
-    "fragment": "project:/shaders/world/water.fs.sc"
-  },
-  "uniforms": {
-    "u_wave_strength": { "type": "float", "default": 0.15, "range": [0.0, 1.0] },
-    "u_offset": { "type": "vec2", "default": [1.0, 2.0] },
-    "u_tint": { "type": "color", "default": "#66ccffff", "editor": { "label": "Tint" } },
-    "u_enabled": { "type": "bool", "default": true },
-    "u_mode": { "type": "int", "default": 2 }
-  },
-  "textures": {
-    "s_albedo": { "source": "$draw.texture", "sampler": "clamp-linear" },
-    "s_noise": { "source": "project:/textures/water_noise.png", "sampler": "repeat-linear" }
-  },
-  "inputs": {
-    "u_time": "engine.time"
-  },
-  "blend": "premultiplied-alpha"
-})json";
-}
-
-[[nodiscard]] std::string valid_rmlui_material_json()
-{
-    return R"json({
-  "schema": "noveltea.material.v1",
-  "type": "rmlui-decorator",
-  "display_name": "Noise Panel",
-  "shader": {
-    "vertex": "system:/shaders/materials/rmlui_decorator.vs.sc",
-    "fragment": "project:/shaders/ui/noise_panel.fs.sc"
-  },
-  "uniforms": {
-    "u_amount": { "type": "float", "default": 0.25 },
-    "u_dimensions_scale": { "type": "vec4", "default": [1.0, 2.0, 3.0, 4.0] }
-  },
-  "textures": {
-    "s_noise": { "source": "project:/textures/noise.png", "sampler": "clamp-linear" }
-  },
-  "inputs": {
-    "u_time": "engine.time",
-    "u_dimensions": "rmlui.paint_dimensions",
-    "u_dpi_scale": "rmlui.dpi_scale"
-  },
-  "blend": "premultiplied-alpha"
-})json";
-}
-
-[[nodiscard]] bool has_code(const MaterialParseResult& result, MaterialDiagnosticCode code)
+bool has_code(const ShaderMaterialProjectParseResult& result, MaterialDiagnosticCode code)
 {
     for (const auto& diagnostic : result.diagnostics) {
         if (diagnostic.code == code)
@@ -76,8 +18,7 @@ using noveltea::MaterialParseResult;
     return false;
 }
 
-[[nodiscard]] bool has_id_code(const noveltea::MaterialIdParseResult& result,
-                               MaterialDiagnosticCode code)
+bool has_code(const noveltea::MaterialIdParseResult& result, MaterialDiagnosticCode code)
 {
     for (const auto& diagnostic : result.diagnostics) {
         if (diagnostic.code == code)
@@ -86,8 +27,27 @@ using noveltea::MaterialParseResult;
     return false;
 }
 
-[[nodiscard]] const noveltea::MaterialUniform* find_uniform(const noveltea::MaterialAsset& material,
-                                                            std::string_view name)
+bool has_code(const noveltea::ShaderIdParseResult& result, MaterialDiagnosticCode code)
+{
+    for (const auto& diagnostic : result.diagnostics) {
+        if (diagnostic.code == code)
+            return true;
+    }
+    return false;
+}
+
+const noveltea::ShaderUniformDeclaration* find_uniform(const noveltea::ShaderDefinition& shader,
+                                                       std::string_view name)
+{
+    for (const auto& uniform : shader.uniforms) {
+        if (uniform.name == name)
+            return &uniform;
+    }
+    return nullptr;
+}
+
+const noveltea::MaterialUniformAssignment*
+find_assignment(const noveltea::MaterialDefinition& material, std::string_view name)
 {
     for (const auto& uniform : material.uniforms) {
         if (uniform.name == name)
@@ -95,239 +55,273 @@ using noveltea::MaterialParseResult;
     }
     return nullptr;
 }
-
-[[nodiscard]] const noveltea::MaterialInputBinding*
-find_input(const noveltea::MaterialAsset& material, std::string_view name)
-{
-    for (const auto& input : material.inputs) {
-        if (input.uniform == name)
-            return &input;
-    }
-    return nullptr;
-}
-
 } // namespace
 
-TEST_CASE("material ids normalize aliases and project paths")
+TEST_CASE("shader and material ids are schema ids")
 {
-    CHECK(noveltea::parse_material_id("ui/noise_panel").id->value() ==
-          "project:/materials/ui/noise_panel.ntmat");
-    CHECK(noveltea::parse_material_id("ui/noise_panel.ntmat").id->value() ==
-          "project:/materials/ui/noise_panel.ntmat");
-    CHECK(noveltea::parse_material_id("materials/ui/noise_panel.ntmat").id->value() ==
-          "project:/materials/ui/noise_panel.ntmat");
-    CHECK(noveltea::parse_material_id("project:/materials/ui/noise_panel.ntmat").id->value() ==
-          "project:/materials/ui/noise_panel.ntmat");
-    CHECK(
-        noveltea::parse_material_id("system:/materials/rmlui/default_checker.ntmat").id->value() ==
-        "system:/materials/rmlui/default_checker.ntmat");
-}
+    CHECK(noveltea::parse_shader_id("soft_noise").id->value() == "soft_noise");
+    CHECK(noveltea::parse_shader_id("text/default").id->value() == "text/default");
+    CHECK(noveltea::parse_material_id("ui/noise_panel").id->value() == "ui/noise_panel");
 
-TEST_CASE("material ids reject unsafe or ambiguous references")
-{
     for (const std::string_view id :
-         {"", "/materials/foo.ntmat", "../foo", "ui/../foo", "ui//foo", "C:/foo", "ui/foo.json",
-          "project:/textures/foo.png", "project:/materials/foo.json"}) {
-        const auto result = noveltea::parse_material_id(id);
-        CHECK_FALSE(result.ok());
-        CHECK(has_id_code(result, MaterialDiagnosticCode::InvalidMaterialId));
+         {"", "/foo", "ui//foo", "project:/materials/foo", "ui/noise_panel.ntmat"}) {
+        const auto material_id = noveltea::parse_material_id(id);
+        CHECK_FALSE(material_id.ok());
+        CHECK(has_code(material_id, MaterialDiagnosticCode::InvalidMaterialId));
+
+        const auto shader_id = noveltea::parse_shader_id(id);
+        CHECK_FALSE(shader_id.ok());
+        CHECK(has_code(shader_id, MaterialDiagnosticCode::InvalidShaderId));
     }
 }
 
-TEST_CASE("valid engine 2d material parses into runtime model")
+TEST_CASE("project shader and material records parse")
 {
-    const auto result = noveltea::parse_material_json(valid_engine_material_json(), "world/water");
+    const auto result = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "display_name":"Soft Noise",
+          "stages":{
+            "fragment":{
+              "source":"project:/shaders/ui/soft_noise.fs.sc",
+              "compiled":{
+                "glsl-120":"shaders/bgfx/glsl-120/soft_noise.fs.bin",
+                "essl-100":"shaders/bgfx/essl-100/soft_noise.fs.bin"
+              }
+            }
+          },
+          "uniforms":{
+            "u_amount":{"type":"float","default":0.25,"range":[0.0,1.0]},
+            "u_tint":{"type":"color","default":"#66ccffff"},
+            "u_time":{"type":"float","binding":"engine.time"}
+          },
+          "samplers":{"s_noise":{"type":"texture2d"}},
+          "roles":["rmlui-decorator","engine-2d"]
+        }
+      },
+      "materials":{
+        "ui/noise_panel":{
+          "display_name":"Noise Panel",
+          "role":"rmlui-decorator",
+          "shader":"soft_noise",
+          "uniforms":{"u_amount":0.5,"u_tint":"#ffffffff"},
+          "textures":{"s_noise":{"source":"project:/textures/noise.png","sampler":"clamp-linear"}},
+          "blend":"premultiplied-alpha"
+        },
+        "world/water":{
+          "role":"engine-2d",
+          "shader":"soft_noise",
+          "textures":{"s_noise":"$draw.texture"}
+        }
+      }
+    })json");
+
     REQUIRE(result.ok());
-    REQUIRE(result.material);
+    REQUIRE(result.project);
 
-    const auto& material = *result.material;
-    CHECK(material.id.value() == "project:/materials/world/water.ntmat");
-    CHECK(material.type == noveltea::MaterialType::Engine2D);
-    CHECK(material.display_name == "Water Sprite");
-    CHECK(material.shader.vertex.path == "system:/shaders/materials/engine_2d.vs.sc");
-    CHECK(material.shader.fragment.path == "project:/shaders/world/water.fs.sc");
-    CHECK(material.uniforms.size() == 5);
-    CHECK(material.textures.size() == 2);
-    CHECK(material.inputs.size() == 1);
-    CHECK(material.blend == noveltea::MaterialBlendMode::PremultipliedAlpha);
+    const auto* shader =
+        noveltea::find_shader(*result.project, *noveltea::parse_shader_id("soft_noise").id);
+    REQUIRE(shader != nullptr);
+    CHECK(shader->display_name == "Soft Noise");
+    REQUIRE(shader->stages.size() == 1);
+    CHECK(shader->stages[0].stage == noveltea::ShaderStage::Fragment);
+    CHECK(shader->stages[0].compiled.size() == 2);
+    CHECK(shader->roles.size() == 2);
+    REQUIRE(find_uniform(*shader, "u_time") != nullptr);
+    REQUIRE(find_uniform(*shader, "u_time")->binding);
+    CHECK(*find_uniform(*shader, "u_time")->binding == noveltea::ShaderInputSemantic::EngineTime);
 
-    const auto* tint = find_uniform(material, "u_tint");
-    REQUIRE(tint != nullptr);
-    REQUIRE(std::holds_alternative<noveltea::MaterialColor>(tint->default_value));
-    const auto color = std::get<noveltea::MaterialColor>(tint->default_value);
-    CHECK(color.r > 0.39f);
-    CHECK(color.g > 0.79f);
-    CHECK(color.b == 1.0f);
-    CHECK(color.a == 1.0f);
+    const auto* material =
+        noveltea::find_material(*result.project, *noveltea::parse_material_id("ui/noise_panel").id);
+    REQUIRE(material != nullptr);
+    CHECK(material->role == noveltea::ShaderRole::RmlUiDecorator);
+    CHECK(material->shader.value() == "soft_noise");
+    REQUIRE(find_assignment(*material, "u_amount") != nullptr);
+    CHECK(std::holds_alternative<float>(find_assignment(*material, "u_amount")->value));
+
+    const auto* world_material =
+        noveltea::find_material(*result.project, *noveltea::parse_material_id("world/water").id);
+    REQUIRE(world_material != nullptr);
+    REQUIRE(world_material->textures.size() == 1);
+    CHECK(world_material->textures[0].source == "$draw.texture");
 }
 
-TEST_CASE("valid rmlui decorator material parses into runtime model")
+TEST_CASE("role bindings parse")
 {
-    const auto result =
-        noveltea::parse_material_json(valid_rmlui_material_json(), "ui/noise_panel");
+    const auto result = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"source":"project:/shaders/ui/soft_noise.fs.sc"}},
+          "roles":{
+            "rmlui-decorator":{"vertex":"rmlui_decorator_default","fragment":"soft_noise"},
+            "engine-2d":{"vertex":"engine_2d_default","fragment":"soft_noise"}
+          }
+        }
+      },
+      "materials":{"ui/noise_panel":{"role":"rmlui-decorator","shader":"soft_noise"}}
+    })json");
+
     REQUIRE(result.ok());
-    REQUIRE(result.material);
-
-    const auto& material = *result.material;
-    CHECK(material.type == noveltea::MaterialType::RmlUiDecorator);
-    CHECK(material.id.value() == "project:/materials/ui/noise_panel.ntmat");
-    CHECK(material.inputs.size() == 3);
-    const auto* dimensions = find_input(material, "u_dimensions");
-    const auto* dpi_scale = find_input(material, "u_dpi_scale");
-    REQUIRE(dimensions != nullptr);
-    REQUIRE(dpi_scale != nullptr);
-    CHECK(dimensions->semantic == noveltea::MaterialInputSemantic::RmlUiPaintDimensions);
-    CHECK(dpi_scale->semantic == noveltea::MaterialInputSemantic::RmlUiDpiScale);
+    REQUIRE(result.project);
+    const auto* shader =
+        noveltea::find_shader(*result.project, *noveltea::parse_shader_id("soft_noise").id);
+    REQUIRE(shader != nullptr);
+    CHECK(shader->roles.size() == 2);
+    REQUIRE(shader->role_bindings.size() == 2);
+    CHECK(shader->role_bindings[0].fragment_shader->value() == "soft_noise");
 }
 
-TEST_CASE("deferred material types are recognized but rejected for action 2")
+TEST_CASE("parser reports schema and shader diagnostics")
 {
-    for (const std::string_view type : {"rmlui-filter", "postprocess"}) {
-        const auto result =
-            noveltea::parse_material_json(valid_engine_material_json(type), "fx/deferred");
-        CHECK_FALSE(result.ok());
-        CHECK(has_code(result, MaterialDiagnosticCode::DeferredMaterialType));
-    }
-}
-
-TEST_CASE("material parser reports representative schema diagnostics")
-{
-    CHECK(has_code(noveltea::parse_material_json("{}", "bad/schema"),
+    CHECK(has_code(noveltea::parse_shader_material_project_json("{}"),
                    MaterialDiagnosticCode::MissingRequiredField));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({"schema":"wrong"})json", "bad/schema"),
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({"schema":"wrong"})json"),
                    MaterialDiagnosticCode::InvalidSchema));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({)json", "bad/json"),
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({)json"),
                    MaterialDiagnosticCode::InvalidJson));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"mystery",
-        "shader":{"vertex":"system:/a.vs.sc","fragment":"system:/a.fs.sc"},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/type"),
-                   MaterialDiagnosticCode::UnknownMaterialType));
-}
-
-TEST_CASE("material parser reports invalid shader and blend diagnostics")
-{
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/missing-shader"),
-                   MaterialDiagnosticCode::MissingRequiredField));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"../bad.vs.sc","fragment":"system:/ok.fs.sc"},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/shader"),
-                   MaterialDiagnosticCode::InvalidShaderRef));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "blend":"additive"
-    })json",
-                                                 "bad/blend"),
-                   MaterialDiagnosticCode::UnsupportedBlendPolicy));
-}
-
-TEST_CASE("material parser reports uniform diagnostics")
-{
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "uniforms":{"amount":{"type":"float","default":0.5}},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/uniform-name"),
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "bad.shader":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"]}
+      }
+    })json"),
+                   MaterialDiagnosticCode::InvalidShaderId));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{"stages":{"fragment":{"source":"project://bad.fs.sc"}},"roles":["engine-2d"]}
+      }
+    })json"),
+                   MaterialDiagnosticCode::InvalidShaderSourceRef));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/soft_noise.vs.bin"}}},
+          "roles":["engine-2d"]
+        }
+      }
+    })json"),
+                   MaterialDiagnosticCode::InvalidCompiledBinaryRef));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "uniforms":{"amount":{"type":"float"}},
+          "roles":["engine-2d"]
+        }
+      }
+    })json"),
                    MaterialDiagnosticCode::InvalidUniformDeclaration));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "uniforms":{"u_amount":{"type":"float","default":"not a float"}},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/uniform-default"),
-                   MaterialDiagnosticCode::InvalidUniformDefault));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "uniforms":{"u_tint":{"type":"color","default":"#zzzzzz"}},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/color"),
-                   MaterialDiagnosticCode::InvalidUniformDefault));
-}
-
-TEST_CASE("material parser reports texture and input diagnostics")
-{
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "textures":{"albedo":{"source":"project:/textures/a.png","sampler":"clamp-linear"}},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/texture-name"),
-                   MaterialDiagnosticCode::InvalidTextureSlotName));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "textures":{"s_albedo":{"source":"../a.png","sampler":"clamp-linear"}},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/texture-source"),
-                   MaterialDiagnosticCode::InvalidTextureSource));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "textures":{"s_albedo":{"source":"project:/textures/a.png","sampler":"mirror-linear"}},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/sampler"),
-                   MaterialDiagnosticCode::UnsupportedSampler));
-
-    CHECK(has_code(noveltea::parse_material_json(R"json({
-        "schema":"noveltea.material.v1",
-        "type":"engine-2d",
-        "shader":{"vertex":"system:/ok.vs.sc","fragment":"system:/ok.fs.sc"},
-        "inputs":{"u_time":"runtime.state.clock"},
-        "blend":"premultiplied-alpha"
-    })json",
-                                                 "bad/input"),
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "uniforms":{"u_time":{"type":"float","binding":"runtime.clock"}},
+          "roles":["engine-2d"]
+        }
+      }
+    })json"),
                    MaterialDiagnosticCode::UnknownInputBinding));
 }
 
-TEST_CASE("fallback material records are valid backend-neutral assets")
+TEST_CASE("material validation reports refs values and roles")
 {
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"]}},
+      "materials":{"bad":{"role":"engine-2d","shader":"missing"}}
+    })json"),
+                   MaterialDiagnosticCode::UnknownShaderRef));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"]}},
+      "materials":{"bad":{"role":"rmlui-decorator","shader":"soft_noise"}}
+    })json"),
+                   MaterialDiagnosticCode::IncompatibleShaderRole));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "uniforms":{"u_amount":{"type":"float"}},
+          "roles":["engine-2d"]
+        }
+      },
+      "materials":{
+        "bad":{"role":"engine-2d","shader":"soft_noise","uniforms":{"u_amount":"bad"}}
+      }
+    })json"),
+                   MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "uniforms":{"u_amount":{"type":"float"}},
+          "roles":["engine-2d"]
+        }
+      },
+      "materials":{
+        "bad":{"role":"engine-2d","shader":"soft_noise","uniforms":{"u_missing":1.0}}
+      }
+    })json"),
+                   MaterialDiagnosticCode::UndeclaredUniform));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "samplers":{"s_noise":{"type":"texture2d"}},
+          "roles":["engine-2d"]
+        }
+      },
+      "materials":{
+        "bad":{"role":"engine-2d","shader":"soft_noise","textures":{"s_noise":"project://bad.png"}}
+      }
+    })json"),
+                   MaterialDiagnosticCode::InvalidTextureSource));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "soft_noise":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "samplers":{"s_noise":{"type":"texture2d"}},
+          "roles":["engine-2d"]
+        }
+      },
+      "materials":{
+        "bad":{
+          "role":"engine-2d",
+          "shader":"soft_noise",
+          "textures":{"s_missing":"project:/textures/noise.png"}
+        }
+      }
+    })json"),
+                   MaterialDiagnosticCode::UndeclaredSampler));
+}
+
+TEST_CASE("deferred roles and fallback records are explicit")
+{
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["postprocess"]}
+      }
+    })json"),
+                   MaterialDiagnosticCode::DeferredShaderRole));
+
     const auto engine_fallback = noveltea::make_engine_2d_fallback_material();
     CHECK(engine_fallback.fallback);
-    CHECK(engine_fallback.id.value() == "system:/materials/fallback/engine_2d_error.ntmat");
-    CHECK(engine_fallback.type == noveltea::MaterialType::Engine2D);
-    CHECK_FALSE(engine_fallback.shader.vertex.empty());
-    CHECK_FALSE(engine_fallback.shader.fragment.empty());
+    CHECK(engine_fallback.id.value() == "system/fallback/engine_2d_error");
+    CHECK(engine_fallback.role == noveltea::ShaderRole::Engine2D);
 
     const auto rmlui_fallback = noveltea::make_rmlui_decorator_fallback_material();
     CHECK(rmlui_fallback.fallback);
-    CHECK(rmlui_fallback.id.value() == "system:/materials/fallback/rmlui_decorator_error.ntmat");
-    CHECK(rmlui_fallback.type == noveltea::MaterialType::RmlUiDecorator);
-    CHECK_FALSE(rmlui_fallback.inputs.empty());
+    CHECK(rmlui_fallback.id.value() == "system/fallback/rmlui_decorator_error");
+    CHECK(rmlui_fallback.role == noveltea::ShaderRole::RmlUiDecorator);
 }

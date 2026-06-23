@@ -3,13 +3,13 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 
 namespace noveltea {
 namespace {
@@ -95,6 +95,46 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return parse_logical_asset_ref(logical, ignored);
 }
 
+[[nodiscard]] bool valid_draw_texture_ref(std::string_view value)
+{
+    return value == "$draw.texture";
+}
+
+[[nodiscard]] bool valid_schema_segment(std::string_view segment)
+{
+    if (segment.empty() || segment == "." || segment == "..")
+        return false;
+    const auto first = static_cast<unsigned char>(segment.front());
+    if (!(std::isalnum(first) || segment.front() == '_'))
+        return false;
+    return std::all_of(segment.begin() + 1, segment.end(), [](char c) {
+        const auto ch = static_cast<unsigned char>(c);
+        return std::isalnum(ch) || c == '_' || c == '-';
+    });
+}
+
+[[nodiscard]] bool valid_schema_id(std::string_view value)
+{
+    if (value.empty() || value.front() == '/' || value.find('\\') != std::string_view::npos ||
+        value.find(':') != std::string_view::npos || value.find("//") != std::string_view::npos ||
+        value.find('.') != std::string_view::npos) {
+        return false;
+    }
+
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const std::size_t slash = value.find('/', start);
+        const std::string_view part =
+            value.substr(start, slash == std::string_view::npos ? slash : slash - start);
+        if (!valid_schema_segment(part))
+            return false;
+        if (slash == std::string_view::npos)
+            break;
+        start = slash + 1;
+    }
+    return true;
+}
+
 [[nodiscard]] bool valid_identifier(std::string_view value)
 {
     if (value.empty())
@@ -113,45 +153,66 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return has_prefix(value, "u_") && valid_identifier(value);
 }
 
-[[nodiscard]] bool valid_texture_slot_name(std::string_view value)
+[[nodiscard]] bool valid_sampler_name(std::string_view value)
 {
     return has_prefix(value, "s_") && valid_identifier(value);
 }
 
-[[nodiscard]] std::optional<MaterialType> parse_material_type(std::string_view type)
+[[nodiscard]] bool valid_variant(std::string_view value)
 {
-    if (type == "engine-2d")
-        return MaterialType::Engine2D;
-    if (type == "rmlui-decorator")
-        return MaterialType::RmlUiDecorator;
-    if (type == "rmlui-filter")
-        return MaterialType::RmlUiFilter;
-    if (type == "postprocess")
-        return MaterialType::Postprocess;
+    if (value.empty())
+        return false;
+    return std::all_of(value.begin(), value.end(), [](char c) {
+        const auto ch = static_cast<unsigned char>(c);
+        return std::islower(ch) || std::isdigit(ch) || c == '-' || c == '_';
+    });
+}
+
+[[nodiscard]] std::optional<ShaderStage> parse_shader_stage(std::string_view stage)
+{
+    if (stage == "vertex")
+        return ShaderStage::Vertex;
+    if (stage == "fragment")
+        return ShaderStage::Fragment;
     return std::nullopt;
 }
 
-[[nodiscard]] bool deferred_material_type(MaterialType type)
+[[nodiscard]] std::optional<ShaderRole> parse_shader_role(std::string_view role)
 {
-    return type == MaterialType::RmlUiFilter || type == MaterialType::Postprocess;
+    if (role == "engine-2d")
+        return ShaderRole::Engine2D;
+    if (role == "active-text")
+        return ShaderRole::ActiveText;
+    if (role == "rmlui-decorator")
+        return ShaderRole::RmlUiDecorator;
+    if (role == "rmlui-filter")
+        return ShaderRole::RmlUiFilter;
+    if (role == "postprocess")
+        return ShaderRole::Postprocess;
+    return std::nullopt;
 }
 
-[[nodiscard]] std::optional<MaterialUniformType> parse_uniform_type(std::string_view type)
+[[nodiscard]] bool deferred_shader_role(ShaderRole role)
+{
+    return role == ShaderRole::RmlUiFilter || role == ShaderRole::Postprocess;
+}
+
+[[nodiscard]] std::optional<ShaderUniformType> parse_uniform_type(std::string_view type)
 {
     if (type == "float")
-        return MaterialUniformType::Float;
+        return ShaderUniformType::Float;
     if (type == "vec2")
-        return MaterialUniformType::Vec2;
+        return ShaderUniformType::Vec2;
     if (type == "vec3")
-        return MaterialUniformType::Vec3;
+        return ShaderUniformType::Vec3;
     if (type == "vec4")
-        return MaterialUniformType::Vec4;
+        return ShaderUniformType::Vec4;
     if (type == "color")
-        return MaterialUniformType::Color;
+        return ShaderUniformType::Color;
     if (type == "int")
-        return MaterialUniformType::Int;
+        return ShaderUniformType::Int;
     if (type == "bool")
-        return MaterialUniformType::Bool;
+        return ShaderUniformType::Bool;
     return std::nullopt;
 }
 
@@ -168,14 +229,21 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return std::nullopt;
 }
 
-[[nodiscard]] std::optional<MaterialInputSemantic> parse_input_semantic(std::string_view semantic)
+[[nodiscard]] std::optional<ShaderSamplerType> parse_sampler_type(std::string_view type)
+{
+    if (type == "texture2d")
+        return ShaderSamplerType::Texture2D;
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ShaderInputSemantic> parse_input_semantic(std::string_view semantic)
 {
     if (semantic == "engine.time")
-        return MaterialInputSemantic::EngineTime;
+        return ShaderInputSemantic::EngineTime;
     if (semantic == "rmlui.paint_dimensions")
-        return MaterialInputSemantic::RmlUiPaintDimensions;
+        return ShaderInputSemantic::RmlUiPaintDimensions;
     if (semantic == "rmlui.dpi_scale")
-        return MaterialInputSemantic::RmlUiDpiScale;
+        return ShaderInputSemantic::RmlUiDpiScale;
     return std::nullopt;
 }
 
@@ -254,7 +322,7 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return (*hi << 4) | *lo;
 }
 
-[[nodiscard]] std::optional<MaterialColor> parse_color(std::string_view value)
+[[nodiscard]] std::optional<ShaderColor> parse_color(std::string_view value)
 {
     if (!(value.size() == 7 || value.size() == 9) || value.front() != '#')
         return std::nullopt;
@@ -265,43 +333,43 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     if (!r || !g || !b || !a)
         return std::nullopt;
     constexpr float inv = 1.0f / 255.0f;
-    return MaterialColor{static_cast<float>(*r) * inv, static_cast<float>(*g) * inv,
-                         static_cast<float>(*b) * inv, static_cast<float>(*a) * inv};
+    return ShaderColor{static_cast<float>(*r) * inv, static_cast<float>(*g) * inv,
+                       static_cast<float>(*b) * inv, static_cast<float>(*a) * inv};
 }
 
-[[nodiscard]] bool parse_uniform_default(const nlohmann::json& value, MaterialUniformType type,
-                                         MaterialUniformValue& out)
+[[nodiscard]] bool parse_uniform_value(const nlohmann::json& value, ShaderUniformType type,
+                                       ShaderUniformValue& out)
 {
     switch (type) {
-    case MaterialUniformType::Float: {
+    case ShaderUniformType::Float: {
         const auto parsed = json_float(value);
         if (!parsed)
             return false;
         out = *parsed;
         return true;
     }
-    case MaterialUniformType::Vec2: {
+    case ShaderUniformType::Vec2: {
         const auto parsed = parse_vec2(value);
         if (!parsed)
             return false;
         out = *parsed;
         return true;
     }
-    case MaterialUniformType::Vec3: {
+    case ShaderUniformType::Vec3: {
         const auto parsed = parse_vec3(value);
         if (!parsed)
             return false;
         out = *parsed;
         return true;
     }
-    case MaterialUniformType::Vec4: {
+    case ShaderUniformType::Vec4: {
         const auto parsed = parse_vec4(value);
         if (!parsed)
             return false;
         out = *parsed;
         return true;
     }
-    case MaterialUniformType::Color:
+    case ShaderUniformType::Color:
         if (!value.is_string())
             return false;
         if (const auto parsed = parse_color(value.get<std::string_view>())) {
@@ -309,18 +377,28 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
             return true;
         }
         return false;
-    case MaterialUniformType::Int:
+    case ShaderUniformType::Int:
         if (!value.is_number_integer())
             return false;
         out = value.get<int>();
         return true;
-    case MaterialUniformType::Bool:
+    case ShaderUniformType::Bool:
         if (!value.is_boolean())
             return false;
         out = value.get<bool>();
         return true;
     }
     return false;
+}
+
+[[nodiscard]] const nlohmann::json& unwrap_material_value(const nlohmann::json& json)
+{
+    if (json.is_object()) {
+        const auto value_it = json.find("value");
+        if (value_it != json.end())
+            return *value_it;
+    }
+    return json;
 }
 
 [[nodiscard]] std::string field_path(std::string_view parent, std::string_view field)
@@ -331,502 +409,843 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return path;
 }
 
-void parse_shader_refs(const nlohmann::json& root, MaterialAsset& material,
-                       std::vector<MaterialDiagnostic>& diagnostics)
+[[nodiscard]] bool contains_role(const ShaderDefinition& shader, ShaderRole role)
 {
-    const auto shader_it = root.find("shader");
-    if (shader_it == root.end()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, "/shader",
-                       "material is missing required shader object");
-        return;
-    }
-    if (!shader_it->is_object()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, "/shader",
-                       "material shader field must be an object");
-        return;
-    }
-
-    for (const std::string_view stage :
-         {std::string_view("vertex"), std::string_view("fragment")}) {
-        const auto stage_it = shader_it->find(stage);
-        const std::string path = field_path("/shader", stage);
-        if (stage_it == shader_it->end()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, path,
-                           "material shader is missing required " + std::string(stage) +
-                               " source reference");
-            continue;
-        }
-        if (!stage_it->is_string()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
-                           "material shader " + std::string(stage) +
-                               " source reference must be a string");
-            continue;
-        }
-        const std::string source = stage_it->get<std::string>();
-        if (!valid_asset_ref(source)) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidShaderRef, path,
-                           "invalid material shader " + std::string(stage) +
-                               " source reference: " + source);
-            continue;
-        }
-        if (stage == "vertex")
-            material.shader.vertex.path = source;
-        else
-            material.shader.fragment.path = source;
-    }
+    return std::find(shader.roles.begin(), shader.roles.end(), role) != shader.roles.end();
 }
 
-void parse_uniforms(const nlohmann::json& root, MaterialAsset& material,
-                    std::vector<MaterialDiagnostic>& diagnostics)
+[[nodiscard]] const ShaderUniformDeclaration* find_uniform_decl(const ShaderDefinition& shader,
+                                                                std::string_view name)
 {
-    const auto uniforms_it = root.find("uniforms");
-    if (uniforms_it == root.end())
+    for (const auto& uniform : shader.uniforms) {
+        if (uniform.name == name)
+            return &uniform;
+    }
+    return nullptr;
+}
+
+[[nodiscard]] const ShaderSamplerDeclaration* find_sampler_decl(const ShaderDefinition& shader,
+                                                                std::string_view name)
+{
+    for (const auto& sampler : shader.samplers) {
+        if (sampler.name == name)
+            return &sampler;
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bool valid_binary_suffix(ShaderStage stage, std::string_view path)
+{
+    switch (stage) {
+    case ShaderStage::Vertex:
+        return has_suffix(path, ".vs.bin");
+    case ShaderStage::Fragment:
+        return has_suffix(path, ".fs.bin");
+    }
+    return false;
+}
+
+void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::json& stage_json,
+                                   ShaderDefinition& shader,
+                                   std::vector<MaterialDiagnostic>& diagnostics)
+{
+    const auto stage = parse_shader_stage(stage_name);
+    const std::string base_path =
+        "/shaders/" + shader.id.value() + "/stages/" + std::string(stage_name);
+    if (!stage) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "unsupported shader stage: " + std::string(stage_name));
         return;
-    if (!uniforms_it->is_object()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, "/uniforms",
-                       "material uniforms field must be an object");
+    }
+    if (!stage_json.is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "shader stage must be an object");
         return;
     }
 
+    ShaderStageDefinition stage_definition;
+    stage_definition.stage = *stage;
+
+    const auto source_it = stage_json.find("source");
+    if (source_it != stage_json.end()) {
+        if (!source_it->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(base_path, "source"), "shader stage source must be a string");
+        } else {
+            const std::string source = source_it->get<std::string>();
+            if (!valid_asset_ref(source)) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidShaderSourceRef,
+                               field_path(base_path, "source"),
+                               "invalid shader source reference: " + source);
+            } else {
+                stage_definition.source.path = source;
+            }
+        }
+    }
+
+    const auto source_text_it = stage_json.find("source_text");
+    if (source_text_it != stage_json.end()) {
+        if (!source_text_it->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(base_path, "source_text"),
+                           "shader stage source_text must be a string");
+        } else {
+            stage_definition.source_text = source_text_it->get<std::string>();
+        }
+    }
+
+    const auto compiled_it = stage_json.find("compiled");
+    if (compiled_it != stage_json.end()) {
+        if (!compiled_it->is_object()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(base_path, "compiled"),
+                           "shader stage compiled field must be an object");
+        } else {
+            for (const auto& [variant, binary_json] : compiled_it->items()) {
+                const std::string path = field_path(field_path(base_path, "compiled"), variant);
+                if (!valid_variant(variant)) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
+                                   path, "invalid compiled shader variant: " + variant);
+                    continue;
+                }
+                if (!binary_json.is_string()) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
+                                   path, "compiled shader binary path must be a string");
+                    continue;
+                }
+                const std::string binary = binary_json.get<std::string>();
+                if (!valid_asset_ref(binary) || !valid_binary_suffix(*stage, binary)) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
+                                   path, "invalid compiled shader binary path: " + binary);
+                    continue;
+                }
+                stage_definition.compiled.push_back(ShaderCompiledBinaryRef{variant, binary});
+            }
+        }
+    }
+
+    if (stage_definition.source.empty() && stage_definition.source_text.empty() &&
+        stage_definition.compiled.empty()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, base_path,
+                       "shader stage must provide source, source_text, or compiled binaries");
+    }
+
+    shader.stages.push_back(std::move(stage_definition));
+}
+
+void parse_shader_uniforms(const nlohmann::json& shader_json, ShaderDefinition& shader,
+                           std::vector<MaterialDiagnostic>& diagnostics)
+{
+    const auto uniforms_it = shader_json.find("uniforms");
+    if (uniforms_it == shader_json.end())
+        return;
+    const std::string base_path = "/shaders/" + shader.id.value() + "/uniforms";
+    if (!uniforms_it->is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "shader uniforms field must be an object");
+        return;
+    }
+
+    std::unordered_set<std::string> seen;
     for (const auto& [name, uniform_json] : uniforms_it->items()) {
-        const std::string path = "/uniforms/" + name;
+        const std::string path = base_path + "/" + name;
         if (!valid_uniform_name(name)) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration, path,
-                           "invalid material uniform name: " + name);
+                           "invalid shader uniform name: " + name);
+            continue;
+        }
+        if (!seen.insert(name).second) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration, path,
+                           "duplicate shader uniform name: " + name);
             continue;
         }
         if (!uniform_json.is_object()) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration, path,
-                           "material uniform declaration must be an object");
+                           "shader uniform declaration must be an object");
             continue;
         }
+
         const auto type_it = uniform_json.find("type");
         if (type_it == uniform_json.end()) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
                            field_path(path, "type"),
-                           "material uniform is missing required type field");
+                           "shader uniform is missing required type field");
             continue;
         }
         if (!type_it->is_string()) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration,
-                           field_path(path, "type"), "material uniform type must be a string");
+                           field_path(path, "type"), "shader uniform type must be a string");
             continue;
         }
         const auto uniform_type = parse_uniform_type(type_it->get<std::string_view>());
         if (!uniform_type) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration,
                            field_path(path, "type"),
-                           "unsupported material uniform type: " + type_it->get<std::string>());
+                           "unsupported shader uniform type: " + type_it->get<std::string>());
             continue;
         }
 
-        MaterialUniform uniform;
+        ShaderUniformDeclaration uniform;
         uniform.name = name;
         uniform.type = *uniform_type;
 
         const auto default_it = uniform_json.find("default");
-        if (default_it == uniform_json.end()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+        if (default_it != uniform_json.end() &&
+            !parse_uniform_value(*default_it, *uniform_type, uniform.default_value)) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformValue,
                            field_path(path, "default"),
-                           "material uniform is missing required default value");
-            continue;
-        }
-        if (!parse_uniform_default(*default_it, *uniform_type, uniform.default_value)) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDefault,
-                           field_path(path, "default"),
-                           "material uniform default does not match type " +
-                               std::string(to_string(*uniform_type)));
-            continue;
+                           "shader uniform default does not match declared type");
         }
 
         const auto range_it = uniform_json.find("range");
         if (range_it != uniform_json.end()) {
             const auto range = parse_vec2(*range_it);
-            if (!range || (*range)[0] > (*range)[1]) {
+            if (!range) {
                 add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration,
                                field_path(path, "range"),
-                               "material uniform range must be [min, max] numbers with min <= max");
-                continue;
+                               "shader uniform range must be a finite two-number array");
+            } else {
+                uniform.range = *range;
             }
-            uniform.range = *range;
+        }
+
+        const auto binding_it = uniform_json.find("binding");
+        if (binding_it != uniform_json.end()) {
+            if (!binding_it->is_string()) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration,
+                               field_path(path, "binding"),
+                               "shader uniform binding must be a string");
+            } else if (const auto binding =
+                           parse_input_semantic(binding_it->get<std::string_view>())) {
+                uniform.binding = *binding;
+            } else {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownInputBinding,
+                               field_path(path, "binding"),
+                               "unsupported shader uniform binding: " +
+                                   binding_it->get<std::string>());
+            }
         }
 
         const auto editor_it = uniform_json.find("editor");
-        if (editor_it != uniform_json.end()) {
-            if (!editor_it->is_object()) {
-                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration,
-                               field_path(path, "editor"),
-                               "material uniform editor field must be an object");
-                continue;
-            }
+        if (editor_it != uniform_json.end() && editor_it->is_object()) {
             const auto label_it = editor_it->find("label");
-            if (label_it != editor_it->end()) {
-                if (!label_it->is_string()) {
-                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration,
-                                   field_path(field_path(path, "editor"), "label"),
-                                   "material uniform editor label must be a string");
-                    continue;
-                }
+            if (label_it != editor_it->end() && label_it->is_string())
                 uniform.editor_label = label_it->get<std::string>();
-            }
         }
 
-        material.uniforms.push_back(std::move(uniform));
+        shader.uniforms.push_back(std::move(uniform));
     }
 }
 
-void parse_textures(const nlohmann::json& root, MaterialAsset& material,
-                    std::vector<MaterialDiagnostic>& diagnostics)
+void parse_shader_samplers(const nlohmann::json& shader_json, ShaderDefinition& shader,
+                           std::vector<MaterialDiagnostic>& diagnostics)
 {
-    const auto textures_it = root.find("textures");
-    if (textures_it == root.end())
+    const auto samplers_it = shader_json.find("samplers");
+    if (samplers_it == shader_json.end())
         return;
+    const std::string base_path = "/shaders/" + shader.id.value() + "/samplers";
+    if (!samplers_it->is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "shader samplers field must be an object");
+        return;
+    }
+
+    std::unordered_set<std::string> seen;
+    for (const auto& [name, sampler_json] : samplers_it->items()) {
+        const std::string path = base_path + "/" + name;
+        if (!valid_sampler_name(name)) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSamplerDeclaration, path,
+                           "invalid shader sampler name: " + name);
+            continue;
+        }
+        if (!seen.insert(name).second) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSamplerDeclaration, path,
+                           "duplicate shader sampler name: " + name);
+            continue;
+        }
+        if (!sampler_json.is_object()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSamplerDeclaration, path,
+                           "shader sampler declaration must be an object");
+            continue;
+        }
+
+        ShaderSamplerDeclaration sampler;
+        sampler.name = name;
+        const auto type_it = sampler_json.find("type");
+        if (type_it != sampler_json.end()) {
+            if (!type_it->is_string()) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSamplerDeclaration,
+                               field_path(path, "type"), "shader sampler type must be a string");
+                continue;
+            }
+            const auto type = parse_sampler_type(type_it->get<std::string_view>());
+            if (!type) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler,
+                               field_path(path, "type"),
+                               "unsupported shader sampler type: " + type_it->get<std::string>());
+                continue;
+            }
+            sampler.type = *type;
+        }
+        shader.samplers.push_back(std::move(sampler));
+    }
+}
+
+void parse_shader_roles(const nlohmann::json& shader_json, ShaderDefinition& shader,
+                        std::vector<MaterialDiagnostic>& diagnostics)
+{
+    const auto roles_it = shader_json.find("roles");
+    const std::string base_path = "/shaders/" + shader.id.value() + "/roles";
+    if (roles_it == shader_json.end()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, base_path,
+                       "shader is missing required roles field");
+        return;
+    }
+
+    std::unordered_set<std::string> seen;
+    auto add_role = [&](std::string_view role_value,
+                         std::string path) -> std::optional<ShaderRole> {
+        const auto role = parse_shader_role(role_value);
+        if (!role) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRole, path,
+                           "unsupported shader role: " + std::string(role_value));
+            return std::nullopt;
+        }
+        if (deferred_shader_role(*role)) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::DeferredShaderRole, path,
+                           "shader role is recognized but deferred: " + std::string(role_value));
+            return std::nullopt;
+        }
+        const std::string normalized(to_string(*role));
+        if (!seen.insert(normalized).second)
+            return *role;
+        shader.roles.push_back(*role);
+        return *role;
+    };
+
+    if (roles_it->is_array()) {
+        for (std::size_t index = 0; index < roles_it->size(); ++index) {
+            const auto& role_json = (*roles_it)[index];
+            const std::string path = base_path + "/" + std::to_string(index);
+            if (!role_json.is_string()) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
+                               "shader role entry must be a string");
+                continue;
+            }
+            add_role(role_json.get<std::string_view>(), path);
+        }
+        return;
+    }
+
+    if (!roles_it->is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "shader roles field must be an array or object");
+        return;
+    }
+
+    for (const auto& [role_name, binding_json] : roles_it->items()) {
+        const std::string path = base_path + "/" + role_name;
+        const auto role = add_role(role_name, path);
+        if (!role)
+            continue;
+        if (!binding_json.is_object()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
+                           "role binding must be an object");
+            continue;
+        }
+        ShaderRoleBinding binding;
+        binding.role = *role;
+        for (const std::string_view stage_name :
+             {std::string_view("vertex"), std::string_view("fragment")}) {
+            const auto stage_it = binding_json.find(stage_name);
+            if (stage_it == binding_json.end())
+                continue;
+            const std::string stage_path = field_path(path, stage_name);
+            if (!stage_it->is_string()) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, stage_path,
+                               "role shader id must be a string");
+                continue;
+            }
+            const auto parsed_id = parse_shader_id(stage_it->get<std::string_view>());
+            if (!parsed_id.ok()) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidShaderId, stage_path,
+                               "invalid role shader id: " + stage_it->get<std::string>());
+                continue;
+            }
+            if (stage_name == "vertex")
+                binding.vertex_shader = *parsed_id.id;
+            else
+                binding.fragment_shader = *parsed_id.id;
+        }
+        shader.role_bindings.push_back(std::move(binding));
+    }
+}
+
+void parse_shader_definition(std::string_view id, const nlohmann::json& shader_json,
+                             ShaderMaterialProject& project,
+                             std::vector<MaterialDiagnostic>& diagnostics)
+{
+    const auto parsed_id = parse_shader_id(id);
+    if (!parsed_id.ok()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidShaderId,
+                       "/shaders/" + std::string(id), "invalid shader id: " + std::string(id));
+        return;
+    }
+    if (!shader_json.is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                       "/shaders/" + std::string(id), "shader definition must be an object");
+        return;
+    }
+
+    ShaderDefinition shader;
+    shader.id = *parsed_id.id;
+
+    const auto display_it = shader_json.find("display_name");
+    if (display_it != shader_json.end()) {
+        if (display_it->is_string())
+            shader.display_name = display_it->get<std::string>();
+        else
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           "/shaders/" + shader.id.value() + "/display_name",
+                           "shader display_name must be a string");
+    }
+
+    const auto stages_it = shader_json.find("stages");
+    if (stages_it == shader_json.end()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                       "/shaders/" + shader.id.value() + "/stages",
+                       "shader is missing required stages field");
+    } else if (!stages_it->is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                       "/shaders/" + shader.id.value() + "/stages",
+                       "shader stages field must be an object");
+    } else {
+        for (const auto& [stage_name, stage_json] : stages_it->items())
+            parse_shader_stage_definition(stage_name, stage_json, shader, diagnostics);
+    }
+
+    parse_shader_uniforms(shader_json, shader, diagnostics);
+    parse_shader_samplers(shader_json, shader, diagnostics);
+    parse_shader_roles(shader_json, shader, diagnostics);
+
+    project.shaders.push_back(std::move(shader));
+}
+
+void parse_material_uniforms(const nlohmann::json& material_json, const ShaderDefinition* shader,
+                             MaterialDefinition& material,
+                             std::vector<MaterialDiagnostic>& diagnostics)
+{
+    const auto uniforms_it = material_json.find("uniforms");
+    if (uniforms_it == material_json.end())
+        return;
+    const std::string base_path = "/materials/" + material.id.value() + "/uniforms";
+    if (!uniforms_it->is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "material uniforms field must be an object");
+        return;
+    }
+
+    for (const auto& [name, assignment_json] : uniforms_it->items()) {
+        const std::string path = base_path + "/" + name;
+        if (!valid_uniform_name(name)) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration, path,
+                           "invalid material uniform name: " + name);
+            continue;
+        }
+        if (shader == nullptr) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRef, path,
+                           "cannot validate material uniform without a known shader");
+            continue;
+        }
+        const auto* declaration = find_uniform_decl(*shader, name);
+        if (declaration == nullptr) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UndeclaredUniform, path,
+                           "material assigns undeclared shader uniform: " + name);
+            continue;
+        }
+
+        MaterialUniformAssignment assignment;
+        assignment.name = name;
+        if (!parse_uniform_value(unwrap_material_value(assignment_json), declaration->type,
+                                 assignment.value)) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformValue, path,
+                           "material uniform value does not match shader declaration: " + name);
+            continue;
+        }
+        material.uniforms.push_back(std::move(assignment));
+    }
+}
+
+void parse_material_textures(const nlohmann::json& material_json, const ShaderDefinition* shader,
+                             MaterialDefinition& material,
+                             std::vector<MaterialDiagnostic>& diagnostics)
+{
+    const auto textures_it = material_json.find("textures");
+    if (textures_it == material_json.end())
+        return;
+    const std::string base_path = "/materials/" + material.id.value() + "/textures";
     if (!textures_it->is_object()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, "/textures",
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
                        "material textures field must be an object");
         return;
     }
 
     for (const auto& [name, texture_json] : textures_it->items()) {
-        const std::string path = "/textures/" + name;
-        if (!valid_texture_slot_name(name)) {
+        const std::string path = base_path + "/" + name;
+        if (!valid_sampler_name(name)) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSlotName, path,
-                           "invalid material texture slot name: " + name);
+                           "invalid material sampler name: " + name);
             continue;
         }
-        if (!texture_json.is_object()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
-                           "material texture slot declaration must be an object");
+        if (shader == nullptr) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRef, path,
+                           "cannot validate material texture without a known shader");
             continue;
         }
-
-        MaterialTextureSlot slot;
-        slot.name = name;
-
-        const auto source_it = texture_json.find("source");
-        if (source_it == texture_json.end()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
-                           field_path(path, "source"),
-                           "material texture slot is missing required source field");
-            continue;
-        }
-        if (!source_it->is_string()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource,
-                           field_path(path, "source"),
-                           "material texture slot source must be a string");
-            continue;
-        }
-        slot.source = source_it->get<std::string>();
-        if (slot.source != "$draw.texture" && !valid_asset_ref(slot.source)) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource,
-                           field_path(path, "source"),
-                           "invalid material texture source: " + slot.source);
+        if (find_sampler_decl(*shader, name) == nullptr) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UndeclaredSampler, path,
+                           "material assigns undeclared shader sampler: " + name);
             continue;
         }
 
-        const auto sampler_it = texture_json.find("sampler");
-        if (sampler_it == texture_json.end()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
-                           field_path(path, "sampler"),
-                           "material texture slot is missing required sampler field");
+        MaterialTextureAssignment assignment;
+        assignment.sampler = name;
+        const nlohmann::json* source_json = &texture_json;
+        if (texture_json.is_object()) {
+            const auto source_it = texture_json.find("source");
+            if (source_it == texture_json.end()) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                               field_path(path, "source"),
+                               "material texture assignment is missing source");
+                continue;
+            }
+            source_json = &*source_it;
+            const auto sampler_it = texture_json.find("sampler");
+            if (sampler_it != texture_json.end()) {
+                if (!sampler_it->is_string()) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                                   field_path(path, "sampler"),
+                                   "material texture sampler must be a string");
+                    continue;
+                }
+                const auto sampler = parse_texture_sampler(sampler_it->get<std::string_view>());
+                if (!sampler) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler,
+                                   field_path(path, "sampler"),
+                                   "unsupported material texture sampler: " +
+                                       sampler_it->get<std::string>());
+                    continue;
+                }
+                assignment.filtering = *sampler;
+            }
+        }
+        if (!source_json->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
+                           "material texture source must be a string");
             continue;
         }
-        if (!sampler_it->is_string()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler,
-                           field_path(path, "sampler"),
-                           "material texture sampler must be a string");
+        assignment.source = source_json->get<std::string>();
+        if (!valid_draw_texture_ref(assignment.source) && !valid_asset_ref(assignment.source)) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
+                           "invalid material texture source: " + assignment.source);
             continue;
         }
-        const auto sampler = parse_texture_sampler(sampler_it->get<std::string_view>());
-        if (!sampler) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler,
-                           field_path(path, "sampler"),
-                           "unsupported material texture sampler: " +
-                               sampler_it->get<std::string>());
-            continue;
-        }
-        slot.sampler = *sampler;
-        material.textures.push_back(std::move(slot));
+        material.textures.push_back(std::move(assignment));
     }
 }
 
-void parse_inputs(const nlohmann::json& root, MaterialAsset& material,
-                  std::vector<MaterialDiagnostic>& diagnostics)
+void parse_material_definition(std::string_view id, const nlohmann::json& material_json,
+                               ShaderMaterialProject& project,
+                               std::vector<MaterialDiagnostic>& diagnostics)
 {
-    const auto inputs_it = root.find("inputs");
-    if (inputs_it == root.end())
+    const auto parsed_id = parse_material_id(id);
+    if (!parsed_id.ok()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidMaterialId,
+                       "/materials/" + std::string(id), "invalid material id: " + std::string(id));
         return;
-    if (!inputs_it->is_object()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, "/inputs",
-                       "material inputs field must be an object");
+    }
+    if (!material_json.is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                       "/materials/" + std::string(id), "material definition must be an object");
         return;
     }
 
-    for (const auto& [name, semantic_json] : inputs_it->items()) {
-        const std::string path = "/inputs/" + name;
-        if (!valid_uniform_name(name)) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidUniformDeclaration, path,
-                           "material input binding key must be a uniform name: " + name);
-            continue;
-        }
-        if (!semantic_json.is_string()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownInputBinding, path,
-                           "material input binding value must be a string");
-            continue;
-        }
-        const auto semantic = parse_input_semantic(semantic_json.get<std::string_view>());
-        if (!semantic) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownInputBinding, path,
-                           "unknown material input binding: " + semantic_json.get<std::string>());
-            continue;
-        }
-        material.inputs.push_back(MaterialInputBinding{name, *semantic});
-    }
-}
+    MaterialDefinition material;
+    material.id = *parsed_id.id;
+    const std::string base_path = "/materials/" + material.id.value();
 
-void parse_blend(const nlohmann::json& root, MaterialAsset& material,
-                 std::vector<MaterialDiagnostic>& diagnostics)
-{
-    const auto blend_it = root.find("blend");
-    if (blend_it == root.end()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, "/blend",
-                       "material is missing required blend policy");
-        return;
+    const auto display_it = material_json.find("display_name");
+    if (display_it != material_json.end()) {
+        if (display_it->is_string())
+            material.display_name = display_it->get<std::string>();
+        else
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(base_path, "display_name"),
+                           "material display_name must be a string");
     }
-    if (!blend_it->is_string()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedBlendPolicy, "/blend",
-                       "material blend policy must be a string");
-        return;
+
+    const auto role_it = material_json.find("role");
+    if (role_it == material_json.end()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                       field_path(base_path, "role"), "material is missing required role field");
+    } else if (!role_it->is_string()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                       field_path(base_path, "role"), "material role must be a string");
+    } else if (const auto role = parse_shader_role(role_it->get<std::string_view>())) {
+        material.role = *role;
+        if (deferred_shader_role(*role)) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::DeferredShaderRole,
+                           field_path(base_path, "role"),
+                           "shader role is recognized but deferred: " +
+                               role_it->get<std::string>());
+        }
+    } else {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRole,
+                       field_path(base_path, "role"),
+                       "unsupported material shader role: " + role_it->get<std::string>());
     }
-    const auto blend = parse_blend_mode(blend_it->get<std::string_view>());
-    if (!blend) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedBlendPolicy, "/blend",
-                       "unsupported material blend policy: " + blend_it->get<std::string>());
-        return;
+
+    const auto shader_it = material_json.find("shader");
+    const ShaderDefinition* shader = nullptr;
+    if (shader_it == material_json.end()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                       field_path(base_path, "shader"), "material is missing required shader id");
+    } else if (!shader_it->is_string()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                       field_path(base_path, "shader"), "material shader must be a string id");
+    } else {
+        const auto parsed_shader_id = parse_shader_id(shader_it->get<std::string_view>());
+        if (!parsed_shader_id.ok()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidShaderId,
+                           field_path(base_path, "shader"),
+                           "invalid material shader id: " + shader_it->get<std::string>());
+        } else {
+            material.shader = *parsed_shader_id.id;
+            shader = find_shader(project, material.shader);
+            if (shader == nullptr) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRef,
+                               field_path(base_path, "shader"),
+                               "material references unknown shader id: " + material.shader.value());
+            } else if (!contains_role(*shader, material.role)) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::IncompatibleShaderRole,
+                               field_path(base_path, "role"),
+                               "material role " + std::string(to_string(material.role)) +
+                                   " is not supported by shader " + shader->id.value());
+            }
+        }
     }
-    material.blend = *blend;
+
+    const auto blend_it = material_json.find("blend");
+    if (blend_it != material_json.end()) {
+        if (!blend_it->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(base_path, "blend"), "material blend must be a string");
+        } else if (const auto blend = parse_blend_mode(blend_it->get<std::string_view>())) {
+            material.blend = *blend;
+        } else {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedBlendPolicy,
+                           field_path(base_path, "blend"),
+                           "unsupported material blend policy: " + blend_it->get<std::string>());
+        }
+    }
+
+    parse_material_uniforms(material_json, shader, material, diagnostics);
+    parse_material_textures(material_json, shader, material, diagnostics);
+
+    project.materials.push_back(std::move(material));
 }
 
 } // namespace
 
-bool MaterialParseResult::has_errors() const noexcept
+bool ShaderMaterialProjectParseResult::has_errors() const noexcept
 {
-    return std::any_of(diagnostics.begin(), diagnostics.end(),
-                       [](const MaterialDiagnostic& diagnostic) {
-                           return diagnostic.severity == MaterialDiagnosticSeverity::Error;
-                       });
+    return std::any_of(diagnostics.begin(), diagnostics.end(), [](const MaterialDiagnostic& item) {
+        return item.severity == MaterialDiagnosticSeverity::Error;
+    });
+}
+
+ShaderIdParseResult parse_shader_id(std::string_view reference)
+{
+    ShaderIdParseResult result;
+    if (!valid_schema_id(reference)) {
+        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidShaderId, "",
+                       "shader id must be a safe project schema id, not a file path: " +
+                           std::string(reference));
+        return result;
+    }
+    result.id = ShaderId(std::string(reference));
+    return result;
 }
 
 MaterialIdParseResult parse_material_id(std::string_view reference)
 {
     MaterialIdParseResult result;
-    if (reference.empty()) {
+    if (!valid_schema_id(reference)) {
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidMaterialId, "",
-                       "material id is empty");
+                       "material id must be a safe project schema id, not a file path: " +
+                           std::string(reference));
         return result;
     }
-
-    LogicalAssetRef parsed;
-    if (!parse_logical_asset_ref(reference, parsed)) {
-        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidMaterialId, "",
-                       "invalid material id: " + std::string(reference));
-        return result;
-    }
-
-    std::string ns = parsed.namespace_name.empty() ? "project" : parsed.namespace_name;
-    std::string relative = std::move(parsed.relative_path);
-
-    if (parsed.namespace_name.empty()) {
-        if (!has_prefix(relative, "materials/"))
-            relative = "materials/" + relative;
-        if (!has_suffix(relative, ".ntmat")) {
-            const std::size_t slash = relative.rfind('/');
-            const std::string_view filename = slash == std::string::npos
-                                                  ? std::string_view(relative)
-                                                  : std::string_view(relative).substr(slash + 1);
-            if (filename.find('.') != std::string_view::npos) {
-                add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidMaterialId, "",
-                               "material id must use .ntmat extension: " + std::string(reference));
-                return result;
-            }
-            relative += ".ntmat";
-        }
-    }
-
-    if (!has_prefix(relative, "materials/")) {
-        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidMaterialId, "",
-                       "explicit material id must reference materials/: " + std::string(reference));
-        return result;
-    }
-    if (!has_suffix(relative, ".ntmat")) {
-        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidMaterialId, "",
-                       "material id must use .ntmat extension: " + std::string(reference));
-        return result;
-    }
-
-    LogicalAssetRef normalized_ref;
-    const std::string normalized = ns + ":/" + relative;
-    if (!parse_logical_asset_ref(normalized, normalized_ref)) {
-        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidMaterialId, "",
-                       "invalid normalized material id: " + normalized);
-        return result;
-    }
-
-    result.id = MaterialId(normalized);
+    result.id = MaterialId(std::string(reference));
     return result;
 }
 
-MaterialParseResult parse_material_json(std::string_view source,
-                                        std::string_view material_reference)
+ShaderMaterialProjectParseResult parse_shader_material_project_json(std::string_view source)
 {
     try {
-        const nlohmann::json value = nlohmann::json::parse(source.begin(), source.end());
-        return parse_material_json_value(value, material_reference);
+        const auto value = nlohmann::json::parse(source);
+        return parse_shader_material_project_json_value(value);
     } catch (const nlohmann::json::parse_error& error) {
-        MaterialParseResult result;
+        ShaderMaterialProjectParseResult result;
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidJson, "",
-                       std::string("invalid material JSON: ") + error.what());
+                       std::string("invalid shader/material JSON: ") + error.what());
         return result;
     }
 }
 
-MaterialParseResult parse_material_json_value(const nlohmann::json& value,
-                                              std::string_view material_reference)
+ShaderMaterialProjectParseResult
+parse_shader_material_project_json_value(const nlohmann::json& value)
 {
-    MaterialParseResult result;
-    MaterialAsset material;
-
-    if (!material_reference.empty()) {
-        MaterialIdParseResult id_result = parse_material_id(material_reference);
-        result.diagnostics.insert(result.diagnostics.end(), id_result.diagnostics.begin(),
-                                  id_result.diagnostics.end());
-        if (id_result.id)
-            material.id = std::move(*id_result.id);
-    }
+    ShaderMaterialProjectParseResult result;
+    ShaderMaterialProject project;
 
     if (!value.is_object()) {
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidFieldType, "",
-                       "material JSON root must be an object");
+                       "shader/material schema root must be an object");
         return result;
     }
 
     const auto schema_it = value.find("schema");
     if (schema_it == value.end()) {
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::MissingRequiredField, "/schema",
-                       "material is missing required schema field");
+                       "shader/material schema is missing required schema field");
     } else if (!schema_it->is_string() ||
-               schema_it->get<std::string_view>() != material_schema_v1) {
+               schema_it->get<std::string_view>() != shader_material_schema_v1) {
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidSchema, "/schema",
-                       "material schema must be noveltea.material.v1");
+                       "shader/material schema must be noveltea.shader-materials.v1");
     }
 
-    const auto type_it = value.find("type");
-    if (type_it == value.end()) {
-        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::MissingRequiredField, "/type",
-                       "material is missing required type field");
-    } else if (!type_it->is_string()) {
-        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidFieldType, "/type",
-                       "material type field must be a string");
-    } else if (const auto type = parse_material_type(type_it->get<std::string_view>())) {
-        material.type = *type;
-        if (deferred_material_type(*type)) {
-            add_diagnostic(
-                result.diagnostics, MaterialDiagnosticCode::DeferredMaterialType, "/type",
-                "material type is recognized but deferred: " + type_it->get<std::string>());
-        }
+    const auto shaders_it = value.find("shaders");
+    if (shaders_it == value.end()) {
+        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::MissingRequiredField, "/shaders",
+                       "shader/material schema is missing required shaders object");
+    } else if (!shaders_it->is_object()) {
+        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidFieldType, "/shaders",
+                       "shaders field must be an object");
     } else {
-        add_diagnostic(result.diagnostics, MaterialDiagnosticCode::UnknownMaterialType, "/type",
-                       "unknown material type: " + type_it->get<std::string>());
+        for (const auto& [id, shader_json] : shaders_it->items())
+            parse_shader_definition(id, shader_json, project, result.diagnostics);
     }
 
-    const auto display_name_it = value.find("display_name");
-    if (display_name_it != value.end()) {
-        if (!display_name_it->is_string()) {
+    const auto materials_it = value.find("materials");
+    if (materials_it != value.end()) {
+        if (!materials_it->is_object()) {
             add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidFieldType,
-                           "/display_name", "material display_name must be a string");
+                           "/materials", "materials field must be an object");
         } else {
-            material.display_name = display_name_it->get<std::string>();
+            for (const auto& [id, material_json] : materials_it->items())
+                parse_material_definition(id, material_json, project, result.diagnostics);
         }
     }
-
-    parse_shader_refs(value, material, result.diagnostics);
-    parse_uniforms(value, material, result.diagnostics);
-    parse_textures(value, material, result.diagnostics);
-    parse_inputs(value, material, result.diagnostics);
-    parse_blend(value, material, result.diagnostics);
 
     if (!result.has_errors())
-        result.material = std::move(material);
+        result.project = std::move(project);
     return result;
 }
 
-MaterialAsset make_engine_2d_fallback_material()
+const ShaderDefinition* find_shader(const ShaderMaterialProject& project,
+                                    const ShaderId& id) noexcept
 {
-    MaterialAsset material;
-    material.id = MaterialId("system:/materials/fallback/engine_2d_error.ntmat");
-    material.type = MaterialType::Engine2D;
-    material.display_name = "Engine 2D Fallback";
-    material.shader.vertex.path = "system:/shaders/materials/engine_2d.vs.sc";
-    material.shader.fragment.path = "system:/shaders/materials/fallback_checker.fs.sc";
-    material.blend = MaterialBlendMode::PremultipliedAlpha;
+    for (const auto& shader : project.shaders) {
+        if (shader.id == id)
+            return &shader;
+    }
+    return nullptr;
+}
+
+const MaterialDefinition* find_material(const ShaderMaterialProject& project,
+                                        const MaterialId& id) noexcept
+{
+    for (const auto& material : project.materials) {
+        if (material.id == id)
+            return &material;
+    }
+    return nullptr;
+}
+
+MaterialDefinition make_engine_2d_fallback_material()
+{
+    MaterialDefinition material;
+    material.id = MaterialId("system/fallback/engine_2d_error");
+    material.role = ShaderRole::Engine2D;
+    material.shader = ShaderId("system/fallback/engine_2d_error");
+    material.display_name = "Engine 2D Error Material";
     material.fallback = true;
-    material.uniforms.push_back(MaterialUniform{"u_tint", MaterialUniformType::Color,
-                                                MaterialColor{1.0f, 0.0f, 1.0f, 1.0f}, std::nullopt,
-                                                "Tint"});
+    material.uniforms.push_back(
+        MaterialUniformAssignment{"u_tint", ShaderColor{1.0f, 0.0f, 1.0f, 1.0f}});
     return material;
 }
 
-MaterialAsset make_rmlui_decorator_fallback_material()
+MaterialDefinition make_rmlui_decorator_fallback_material()
 {
-    MaterialAsset material;
-    material.id = MaterialId("system:/materials/fallback/rmlui_decorator_error.ntmat");
-    material.type = MaterialType::RmlUiDecorator;
-    material.display_name = "RmlUi Decorator Fallback";
-    material.shader.vertex.path = "system:/shaders/materials/rmlui_decorator.vs.sc";
-    material.shader.fragment.path = "system:/shaders/materials/fallback_checker.fs.sc";
-    material.blend = MaterialBlendMode::PremultipliedAlpha;
+    MaterialDefinition material;
+    material.id = MaterialId("system/fallback/rmlui_decorator_error");
+    material.role = ShaderRole::RmlUiDecorator;
+    material.shader = ShaderId("system/fallback/rmlui_decorator_error");
+    material.display_name = "RmlUi Decorator Error Material";
     material.fallback = true;
-    material.inputs.push_back(
-        MaterialInputBinding{"u_dimensions", MaterialInputSemantic::RmlUiPaintDimensions});
-    material.uniforms.push_back(MaterialUniform{"u_tint", MaterialUniformType::Color,
-                                                MaterialColor{1.0f, 0.0f, 1.0f, 1.0f}, std::nullopt,
-                                                "Tint"});
+    material.uniforms.push_back(
+        MaterialUniformAssignment{"u_tint", ShaderColor{1.0f, 0.0f, 1.0f, 1.0f}});
     return material;
 }
 
 std::string_view to_string(MaterialDiagnosticCode code) noexcept
 {
     switch (code) {
+    case MaterialDiagnosticCode::InvalidShaderId:
+        return "invalid_shader_id";
     case MaterialDiagnosticCode::InvalidMaterialId:
-        return "invalid-material-id";
+        return "invalid_material_id";
     case MaterialDiagnosticCode::InvalidJson:
-        return "invalid-json";
+        return "invalid_json";
     case MaterialDiagnosticCode::InvalidSchema:
-        return "invalid-schema";
+        return "invalid_schema";
     case MaterialDiagnosticCode::MissingRequiredField:
-        return "missing-required-field";
+        return "missing_required_field";
     case MaterialDiagnosticCode::InvalidFieldType:
-        return "invalid-field-type";
-    case MaterialDiagnosticCode::UnknownMaterialType:
-        return "unknown-material-type";
-    case MaterialDiagnosticCode::DeferredMaterialType:
-        return "deferred-material-type";
-    case MaterialDiagnosticCode::InvalidShaderRef:
-        return "invalid-shader-ref";
+        return "invalid_field_type";
+    case MaterialDiagnosticCode::UnknownShaderRole:
+        return "unknown_shader_role";
+    case MaterialDiagnosticCode::DeferredShaderRole:
+        return "deferred_shader_role";
+    case MaterialDiagnosticCode::InvalidShaderSourceRef:
+        return "invalid_shader_source_ref";
+    case MaterialDiagnosticCode::InvalidCompiledBinaryRef:
+        return "invalid_compiled_binary_ref";
     case MaterialDiagnosticCode::InvalidUniformDeclaration:
-        return "invalid-uniform-declaration";
-    case MaterialDiagnosticCode::InvalidUniformDefault:
-        return "invalid-uniform-default";
+        return "invalid_uniform_declaration";
+    case MaterialDiagnosticCode::InvalidUniformValue:
+        return "invalid_uniform_value";
+    case MaterialDiagnosticCode::InvalidSamplerDeclaration:
+        return "invalid_sampler_declaration";
     case MaterialDiagnosticCode::InvalidTextureSlotName:
-        return "invalid-texture-slot-name";
+        return "invalid_texture_slot_name";
     case MaterialDiagnosticCode::InvalidTextureSource:
-        return "invalid-texture-source";
+        return "invalid_texture_source";
     case MaterialDiagnosticCode::UnsupportedSampler:
-        return "unsupported-sampler";
+        return "unsupported_sampler";
     case MaterialDiagnosticCode::UnknownInputBinding:
-        return "unknown-input-binding";
+        return "unknown_input_binding";
     case MaterialDiagnosticCode::UnsupportedBlendPolicy:
-        return "unsupported-blend-policy";
+        return "unsupported_blend_policy";
+    case MaterialDiagnosticCode::UnknownShaderRef:
+        return "unknown_shader_ref";
+    case MaterialDiagnosticCode::UndeclaredUniform:
+        return "undeclared_uniform";
+    case MaterialDiagnosticCode::UndeclaredSampler:
+        return "undeclared_sampler";
+    case MaterialDiagnosticCode::IncompatibleShaderRole:
+        return "incompatible_shader_role";
     }
     return "unknown";
 }
@@ -842,37 +1261,50 @@ std::string_view to_string(MaterialDiagnosticSeverity severity) noexcept
     return "unknown";
 }
 
-std::string_view to_string(MaterialType type) noexcept
+std::string_view to_string(ShaderRole role) noexcept
 {
-    switch (type) {
-    case MaterialType::Engine2D:
+    switch (role) {
+    case ShaderRole::Engine2D:
         return "engine-2d";
-    case MaterialType::RmlUiDecorator:
+    case ShaderRole::ActiveText:
+        return "active-text";
+    case ShaderRole::RmlUiDecorator:
         return "rmlui-decorator";
-    case MaterialType::RmlUiFilter:
+    case ShaderRole::RmlUiFilter:
         return "rmlui-filter";
-    case MaterialType::Postprocess:
+    case ShaderRole::Postprocess:
         return "postprocess";
     }
     return "unknown";
 }
 
-std::string_view to_string(MaterialUniformType type) noexcept
+std::string_view to_string(ShaderStage stage) noexcept
+{
+    switch (stage) {
+    case ShaderStage::Vertex:
+        return "vertex";
+    case ShaderStage::Fragment:
+        return "fragment";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(ShaderUniformType type) noexcept
 {
     switch (type) {
-    case MaterialUniformType::Float:
+    case ShaderUniformType::Float:
         return "float";
-    case MaterialUniformType::Vec2:
+    case ShaderUniformType::Vec2:
         return "vec2";
-    case MaterialUniformType::Vec3:
+    case ShaderUniformType::Vec3:
         return "vec3";
-    case MaterialUniformType::Vec4:
+    case ShaderUniformType::Vec4:
         return "vec4";
-    case MaterialUniformType::Color:
+    case ShaderUniformType::Color:
         return "color";
-    case MaterialUniformType::Int:
+    case ShaderUniformType::Int:
         return "int";
-    case MaterialUniformType::Bool:
+    case ShaderUniformType::Bool:
         return "bool";
     }
     return "unknown";
@@ -893,14 +1325,23 @@ std::string_view to_string(MaterialTextureSampler sampler) noexcept
     return "unknown";
 }
 
-std::string_view to_string(MaterialInputSemantic semantic) noexcept
+std::string_view to_string(ShaderSamplerType type) noexcept
+{
+    switch (type) {
+    case ShaderSamplerType::Texture2D:
+        return "texture2d";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(ShaderInputSemantic semantic) noexcept
 {
     switch (semantic) {
-    case MaterialInputSemantic::EngineTime:
+    case ShaderInputSemantic::EngineTime:
         return "engine.time";
-    case MaterialInputSemantic::RmlUiPaintDimensions:
+    case ShaderInputSemantic::RmlUiPaintDimensions:
         return "rmlui.paint_dimensions";
-    case MaterialInputSemantic::RmlUiDpiScale:
+    case ShaderInputSemantic::RmlUiDpiScale:
         return "rmlui.dpi_scale";
     }
     return "unknown";

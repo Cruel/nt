@@ -81,7 +81,7 @@ A shader record defines authoring and interface metadata. It should include:
 - Compiled binary references or manifest entries for generated runtime outputs.
 - Uniform declarations: name, type, default, editor range/label where appropriate, and optional engine binding.
 - Sampler declarations: name, type, default source policy where appropriate.
-- Supported render contracts or contract-specific stage pairings.
+- Supported shader roles or role-specific stage pairings.
 
 Shader records declare the interface. They do not hold per-object/per-style material values except broad defaults that the editor can use when creating a material.
 
@@ -109,7 +109,7 @@ Example shape:
       "samplers": {
         "s_noise": { "type": "texture2d" }
       },
-      "contracts": ["rmlui-decorator", "engine-2d"]
+      "roles": ["rmlui-decorator", "engine-2d"]
     }
   }
 }
@@ -117,14 +117,14 @@ Example shape:
 
 ### Material records
 
-A material record references one or more shader records, selects a render contract, and provides concrete values for the shader interface. It should include:
+A material record references one or more shader records, selects a shader role, and provides concrete values for the shader interface. It should include:
 
 - Stable material id.
-- Material type/render contract.
-- Referenced shader id or contract-specific shader stage ids.
+- Selected shader role.
+- Referenced shader id or role-specific shader stage ids.
 - Uniform values overriding shader defaults.
 - Texture assignments for sampler declarations.
-- Blend policy and limited render-state choices that are safe for the selected contract.
+- Blend policy and limited render-state choices that are safe for the selected role.
 - Optional material-instance/editor metadata.
 
 Material records assign values. They should not be the source of truth for shader uniform declarations.
@@ -135,7 +135,7 @@ Example shape:
 {
   "materials": {
     "ui_noise_panel": {
-      "contract": "rmlui-decorator",
+      "role": "rmlui-decorator",
       "shader": "soft_noise",
       "uniforms": {
         "u_amount": 0.5
@@ -149,9 +149,9 @@ Example shape:
 }
 ```
 
-### Render contracts
+### Shader roles
 
-A render contract is the agreement between a renderer draw path and a shader program. It covers:
+A shader role is the renderer path that a shader definition is valid for. It covers:
 
 - Vertex layout and available varyings.
 - Coordinate space and texture-coordinate semantics.
@@ -160,7 +160,7 @@ A render contract is the agreement between a renderer draw path and a shader pro
 - Whether the shader draws ordinary geometry, glyphs, RmlUi decorator geometry, or render-target/postprocess content.
 - Restrictions on framebuffer, layer, pass, and render-target ownership.
 
-Initial contracts:
+Initial shader roles:
 
 - `engine-2d`: engine sprites/quads/map overlays/room and object visuals.
 - `active-text`: text glyph rendering and ActiveText effects.
@@ -168,7 +168,7 @@ Initial contracts:
 - `rmlui-filter`: future custom RmlUi filters over bounded layer textures.
 - `postprocess`: future fullscreen or bounded render-target effects.
 
-A shader can support more than one contract. The preferred flexible model is to allow contract-specific stage pairings. For example, the same fragment shader can be used with the engine's default 2D vertex shader and the RmlUi decorator default vertex shader if it declares compatible inputs for both paths.
+A shader can support more than one role. The preferred flexible model is to allow role-specific stage pairings. For example, the same fragment shader can be used with the engine's default 2D vertex shader and the RmlUi decorator default vertex shader if it declares compatible inputs for both paths.
 
 Example shape:
 
@@ -176,7 +176,7 @@ Example shape:
 {
   "shaders": {
     "soft_noise": {
-      "contracts": {
+      "roles": {
         "rmlui-decorator": {
           "vertex": "rmlui_decorator_default",
           "fragment": "soft_noise"
@@ -191,7 +191,7 @@ Example shape:
 }
 ```
 
-Validation rule: a material may use a shader under a render contract only when the shader declares support for that contract, or when the engine has an explicit adapter/default-stage policy that makes the stage combination valid.
+Validation rule: a material may use a shader under a shader role only when the shader declares support for that role, or when the engine has an explicit adapter/default-stage policy that makes the stage combination valid.
 
 ## Material Types
 
@@ -199,7 +199,7 @@ Validation rule: a material may use a shader under a render contract only when t
 
 Used by the engine's own 2D draw path, `QuadCommand`, map overlays, room backgrounds, object sprites, and future non-RmlUi primitives.
 
-Contract:
+Role behavior:
 
 - Engine-defined vertex format.
 - Engine-defined view/layer ordering.
@@ -222,7 +222,7 @@ The direct shader-pair path still uses precompiled bgfx binaries at runtime and 
 
 Used by RmlUi's generic `shader(<string>)` decorator.
 
-Contract:
+Role behavior:
 
 - Renders RmlUi-provided geometry.
 - Uses RmlUi paint-area UVs normalized to `[0, 1]`.
@@ -235,7 +235,7 @@ Contract:
 
 Future extension for custom RmlUi filters.
 
-Contract:
+Role behavior:
 
 - Consumes a source layer texture or texture region.
 - Executes over a bounded work rectangle.
@@ -246,7 +246,7 @@ Contract:
 
 Future extension for fullscreen or bounded postprocess effects outside RmlUi.
 
-Contract:
+Role behavior:
 
 - Operates on render targets, not ordinary sprite/RmlUi geometry.
 - Explicitly declares required inputs, output size policy, and feedback-loop constraints.
@@ -286,19 +286,19 @@ Prefer explicit material instances or a NovelTea-specific property system before
 
 ```text
 ShaderDefinition
-  project/game schema record: stage source references, compiled binary refs, uniforms, samplers, contracts
+  project/game schema record: stage source references, compiled binary refs, uniforms, samplers, shader roles
 
 MaterialDefinition
-  project/game schema record: material id, selected contract, shader reference, uniform values, textures, blend policy
+  project/game schema record: material id, selected shader role, shader reference, uniform values, textures, blend policy
 
 ShaderRegistry
   resolves shader ids and direct ActiveText shader pairs
   selects compiled binary refs for the inferred active variant
-  exposes uniform/sampler/contract metadata
+  exposes uniform/sampler/role metadata
 
 MaterialRegistry
   resolves material ids to material definitions
-  validates material values against shader declarations and selected render contract
+  validates material values against shader declarations and selected shader role
   provides fallback materials/instances
 
 ShaderCompilerService
@@ -380,7 +380,7 @@ User-authored shader source should use bgfx shaderc language conventions.
 
 Initial constraints:
 
-- Provide system/default vertex shaders for common contracts:
+- Provide system/default vertex shaders for common shader roles:
   - `rmlui_decorator_default`
   - `engine_2d_default`
   - `active_text_default`
@@ -409,18 +409,18 @@ Do not promise arbitrary uniform names unless the shader definition/manifest has
 ### Editor/import path
 
 1. Read shader and material records from the project schema.
-2. Validate shader source refs, stage declarations, uniform declarations, sampler declarations, render contracts, material shader refs, material uniform values, texture assignments, and blend policy.
+2. Validate shader source refs, stage declarations, uniform declarations, sampler declarations, shader roles, material shader refs, material uniform values, texture assignments, and blend policy.
 3. Compute a stable hash from shader source, includes, shader definition metadata, compiler version, inferred target variant, and relevant flags.
 4. Invoke `shaderc` for each variant implied by the active build/export targets.
 5. Store compiled shader binaries under a cache/output path keyed by hash and inferred target variant.
 6. Store diagnostics in a form the editor can display inline.
-7. Write/update generated runtime metadata that maps shader ids, contracts, and inferred variants to compiled binary paths and binding metadata.
+7. Write/update generated runtime metadata that maps shader ids, shader roles, and inferred variants to compiled binary paths and binding metadata.
 
 ### Runtime path
 
 1. Load game/project schema shader and material records plus generated runtime shader metadata.
 2. Infer the active compiled shader variant from the runtime renderer/platform policy.
-3. Validate material records against shader declarations and selected render contracts.
+3. Validate material records against shader declarations and selected shader roles.
 4. Load the compiled vertex/fragment shader binaries through AssetManager.
 5. Create bgfx shader handles and program handles.
 6. Bind uniforms and textures for each draw.
@@ -451,7 +451,7 @@ Every material or shader resolution/compilation failure must report the relevant
 
 - Material id, if a material was requested.
 - Shader id or direct ActiveText vertex/fragment shader ids, if a direct shader pair was requested.
-- Selected render contract.
+- Selected shader role.
 - Referencing asset, RmlUi document, rich-text run, or project object if known.
 - Inferred compiled shader variant.
 - Missing shader source or compiled binary path.
@@ -475,7 +475,7 @@ Portability rules:
 
 - Prefer bgfx shaderc source conventions over raw GLSL/MSL/HLSL.
 - Avoid target-specific preprocessor branches in user materials unless the editor validates all variants implied by the build/export targets.
-- Keep the first material contracts small so WebGL/GLES2 limitations are respected.
+- Keep the first shader roles small so WebGL/GLES2 limitations are respected.
 - Avoid dynamic sampler arrays, unsupported texture formats, and platform-specific precision assumptions in initial templates.
 
 ## Implementation Phases
@@ -494,32 +494,31 @@ Acceptance:
 - RmlUi `shader(<string>)` is defined as a material id reference.
 - Shader/material storage is defined around project/game schema records.
 
-### Phase 1: Project Shader/Material Runtime Data Model `[partially implemented, needs realignment]`
+### Phase 1: Project Shader/Material Runtime Data Model `[implemented]`
 
-The existing `render/material.hpp` and `render/material.cpp` implementation introduced useful backend-neutral material data, diagnostics, fallback records, and tests, but it was built around standalone `.ntmat` material files. That storage model is now superseded by project-schema material and shader records.
+Implemented model:
 
-Next implementation should adapt or replace the current parser/model so it supports:
-
-- Project-schema `ShaderDefinition` records.
-- Project-schema `MaterialDefinition` records.
-- `MaterialId` as a stable schema id/alias, not a material asset path.
-- Shader-declared uniforms and samplers.
-- Material-provided uniform values and texture assignments.
-- Render-contract validation.
-- Fallback material records.
-- Tests for valid/invalid schema records and compatibility validation.
+- `engine/include/noveltea/render/material.hpp` now defines backend-neutral `ShaderDefinition` and `MaterialDefinition` records.
+- `ShaderId` and `MaterialId` normalize as stable project schema ids/aliases, not file paths.
+- Shader records declare stages, authoring source refs/source text placeholders, compiled binary refs, uniforms, samplers, supported shader roles, and role-specific stage-pair bindings.
+- Material records reference a shader, select one shader role, assign uniform values, assign texture sources/samplers, define blend policy, and carry fallback flags.
+- Uniform/sampler declarations live on shader records; material records validate values/textures against the referenced shader.
+- Shader-role validation rejects material/shader combinations unless the shader declares support for the selected role.
+- Fallback material records now use schema ids such as `system/fallback/engine_2d_error`, not material asset paths.
+- `tests/render/material_asset_tests.cpp` now covers valid project-schema records, schema id validation, shared fragment shader role bindings, representative diagnostics, deferred roles, and fallback records.
 
 Acceptance:
 
 - Valid shader/material schema records parse into stable runtime models.
 - Invalid schema records report specific errors.
 - Material ids normalize consistently as project ids/aliases, not file paths.
-- Tests cover shader declarations, material values, and render-contract compatibility.
+- Tests cover shader declarations, material values, and shader-role compatibility.
+- `noveltea_render_tests`, CTest `material`, and CTest `shader` checks pass.
 
 ### Phase 2: Shader Metadata and Runtime Program Loading
 
 - Add backend-neutral shader identifiers for direct shader refs, likely `ShaderId`, `ShaderStage`, and `ShaderProgramId` / `ShaderPairRef`.
-- Add generated runtime metadata or a shader manifest mapping shader id + contract + inferred compiled variant to compiled shader binaries.
+- Add generated runtime metadata or a shader manifest mapping shader id + shader role + inferred compiled variant to compiled shader binaries.
 - Extend metadata so it can also resolve direct ActiveText shader pairs from preserved vertex/fragment shader ids.
 - Add runtime `ShaderProgramCache` that loads compiled binaries through AssetManager and creates bgfx programs.
 - Add program-cache keys that distinguish material-owned programs from direct shader-pair programs.
@@ -533,7 +532,7 @@ Acceptance:
 
 - Runtime can load a precompiled material program for the active backend.
 - Runtime can load a precompiled direct shader-pair program for ActiveText low-level shader metadata.
-- Missing material program diagnostics name the material id, selected contract, inferred active variant, and expected path.
+- Missing material program diagnostics name the material id, selected shader role, inferred active variant, and expected path.
 - Missing direct shader-pair diagnostics name the vertex/fragment shader ids, inferred active variant, and expected paths.
 
 ### Phase 3: Editor/Import Shader Compilation
@@ -629,7 +628,7 @@ Acceptance:
 ```text
 Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md and docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md.
 
-The previous standalone .ntmat-oriented material parser/data model is no longer the desired NovelTea storage model. Realign it to project-schema shader and material records: shader records declare stages, uniforms, samplers, compiled binary refs, and supported render contracts; material records reference shaders, select one contract, and provide uniform/texture values. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
+Action 2 / Phase 1 is implemented. Next implement Phase 2: add generated runtime shader metadata or a manifest that maps shader ids, selected shader roles, inferred compiled variants, and direct ActiveText shader pairs to compiled binary paths and binding metadata. Build this on the project-schema `ShaderDefinition` / `MaterialDefinition` model. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
 
-Do not add runtime shader source compilation. Do not invoke shaderc yet except in existing system shader build paths. Do not wire RmlUi shader(<string>) yet. First update the backend-neutral runtime model/parser/tests so project-schema shader/material records are the source of truth.
+Do not add runtime shader source compilation. Do not invoke shaderc yet except in existing system shader build paths. Do not wire RmlUi shader(<string>) yet. Add runtime metadata parsing/selection and bgfx program loading only.
 ```
