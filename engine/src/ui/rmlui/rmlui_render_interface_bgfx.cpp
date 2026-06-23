@@ -1881,6 +1881,9 @@ Rml::LayerHandle RenderInterface::PushLayer()
         return handle;
     const ScissorState push_scissor{m_impl->scissor_enabled, m_impl->scissor_region};
     const bool push_transform_valid = m_impl->transform_valid;
+    // Child layers are virtual at push time, so this is only a conservative containment fallback
+    // for inherited clips, saved masks, and empty-layer materialization. Final child target bounds
+    // come from recorded content using the captured per-command transforms.
     const RenderBounds provisional_bounds =
         m_impl->compute_child_layer_bounds(parent, push_scissor, push_transform_valid, false);
     m_impl->layer_system.prepare_virtual_child(handle, parent, provisional_bounds, push_scissor,

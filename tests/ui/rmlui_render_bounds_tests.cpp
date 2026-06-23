@@ -474,6 +474,25 @@ TEST_CASE("RmlUi transformed geometry bounds use non-integer DPR outward roundin
     CHECK(bounds.framebuffer.h == 46);
 }
 
+TEST_CASE("RmlUi transformed geometry bounds apply translation before transform")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+    const Rml::Matrix4f transform = Rml::Matrix4f::Scale(2.0f, 2.0f, 1.0f);
+
+    const auto bounds = compute_transformed_geometry_bounds(LogicalRect{0.0f, 0.0f, 10.0f, 10.0f},
+                                                            {5.0f, 7.0f}, &transform, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.logical.x == Catch::Approx(10.0f));
+    CHECK(bounds.logical.y == Catch::Approx(14.0f));
+    CHECK(bounds.logical.w == Catch::Approx(20.0f));
+    CHECK(bounds.logical.h == Catch::Approx(20.0f));
+    CHECK(bounds.framebuffer.x == 10);
+    CHECK(bounds.framebuffer.y == 14);
+    CHECK(bounds.framebuffer.w == 20);
+    CHECK(bounds.framebuffer.h == 20);
+}
+
 TEST_CASE("RmlUi transformed geometry bounds handle scaling")
 {
     const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
@@ -514,6 +533,43 @@ TEST_CASE("RmlUi transformed geometry bounds handle rotation conservatively")
     CHECK(bounds.framebuffer.h == 10);
 }
 
+TEST_CASE("RmlUi transformed geometry bounds handle rotation with non-integer DPR")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1600, 900);
+    constexpr float pi = 3.14159265358979323846f;
+    const Rml::Matrix4f transform =
+        Rml::Matrix4f::Translate(30.0f, 40.0f, 0.0f) * Rml::Matrix4f::RotateZ(pi * 0.5f);
+
+    const auto bounds = compute_transformed_geometry_bounds(LogicalRect{0.0f, 0.0f, 10.0f, 20.0f},
+                                                            {0.0f, 0.0f}, &transform, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.framebuffer.x == 12);
+    CHECK(bounds.framebuffer.y == 50);
+    CHECK(bounds.framebuffer.w == 26);
+    CHECK(bounds.framebuffer.h == 13);
+}
+
+TEST_CASE("RmlUi transformed geometry bounds handle negative scale conservatively")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+    const Rml::Matrix4f transform =
+        Rml::Matrix4f::Translate(100.0f, 0.0f, 0.0f) * Rml::Matrix4f::Scale(-1.0f, 1.0f, 1.0f);
+
+    const auto bounds = compute_transformed_geometry_bounds(LogicalRect{10.0f, 20.0f, 20.0f, 10.0f},
+                                                            {0.0f, 0.0f}, &transform, surface);
+
+    REQUIRE(bounds.status == GeometryBoundsStatus::Valid);
+    CHECK(bounds.logical.x == Catch::Approx(70.0f));
+    CHECK(bounds.logical.y == Catch::Approx(20.0f));
+    CHECK(bounds.logical.w == Catch::Approx(20.0f));
+    CHECK(bounds.logical.h == Catch::Approx(10.0f));
+    CHECK(bounds.framebuffer.x == 70);
+    CHECK(bounds.framebuffer.y == 20);
+    CHECK(bounds.framebuffer.w == 20);
+    CHECK(bounds.framebuffer.h == 10);
+}
+
 TEST_CASE("RmlUi transformed geometry bounds clip partially offscreen framebuffer bounds")
 {
     const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
@@ -547,6 +603,18 @@ TEST_CASE("RmlUi transformed geometry bounds reject invalid transforms")
         LogicalRect{0.0f, std::numeric_limits<float>::quiet_NaN(), 24.0f, 36.0f}, {0.0f, 0.0f},
         nullptr, surface);
     CHECK(non_finite_bounds.status == GeometryBoundsStatus::NonFiniteBounds);
+}
+
+TEST_CASE("RmlUi transformed geometry bounds reject zero homogeneous output")
+{
+    const noveltea::SurfaceMetrics surface = noveltea::make_surface_metrics(1280, 720, 1280, 720);
+    Rml::Matrix4f zero_w_transform = Rml::Matrix4f::Identity();
+    zero_w_transform[3][3] = 0.0f;
+
+    const auto bounds = compute_transformed_geometry_bounds(
+        LogicalRect{0.0f, 0.0f, 24.0f, 36.0f}, {0.0f, 0.0f}, &zero_w_transform, surface);
+
+    CHECK(bounds.status == GeometryBoundsStatus::NonFiniteOutput);
 }
 
 // ---------------------------------------------------------------------------

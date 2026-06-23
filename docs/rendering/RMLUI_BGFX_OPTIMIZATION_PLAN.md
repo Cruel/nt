@@ -342,6 +342,12 @@ Acceptance criteria:
 - Visual readback still verifies transformed clipped output and escaped-region rejection.
 - Tests cover rotated rectangle bounds and non-integer DPR.
 
+Implementation note, 2026-06-22:
+
+- The normal transform-bound path was already present after Phases 1 through 4.5. Phase 5 hardening added focused tests for shader-order translation-before-transform, negative scale, rotation with non-integer DPR, and zero homogeneous output.
+- `PushLayer()` still computes provisional bounds for virtual-layer containment, inherited clips, saved masks, and empty-layer fallback, but final child target materialization uses recorded content bounds from captured per-command transforms.
+- The readback gallery's rotated `#transform_clip` fixture keeps `unbounded_transform_fallbacks=0`, `full_frame_child_layers=0`, and `max_child_layer=114x96`; Phase 5 is therefore verified and no longer a blocking optimization phase.
+
 ## Phase 6: Filter Pipeline Uses Content Bounds, Not Layer Texture Bounds
 
 Goal: make filter work proportional to filtered content.
