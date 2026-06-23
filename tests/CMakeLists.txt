@@ -92,6 +92,7 @@ add_executable(noveltea_render_tests
     render/material_asset_tests.cpp
     render/material_binder_tests.cpp
     render/shader_compiler_tests.cpp
+    render/shader_package_export_tests.cpp
     render/shader_manifest_tests.cpp
     render/shader_variant_tests.cpp
 )
@@ -237,5 +238,13 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_sandbox_runtime_legacy_package_smoke PROPERTIES
         LABELS "runtime;assets"
+    )
+    add_test(
+        NAME noveltea_sandbox_runtime_material_package_smoke
+        COMMAND /bin/sh -c
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
+    )
+    set_tests_properties(noveltea_sandbox_runtime_material_package_smoke PROPERTIES
+        LABELS "runtime;assets;material"
     )
 endif()

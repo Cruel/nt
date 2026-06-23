@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <vector>
@@ -46,6 +47,9 @@ struct PackageExportOptions {
     std::vector<PackageExportAssetRoot> asset_roots;
     std::filesystem::path shader_asset_root;
     std::vector<std::string> shader_variants;
+    std::optional<nlohmann::json> shader_material_metadata;
+    std::set<std::string> required_shader_binary_paths;
+    bool strip_shader_sources = true;
     bool include_checksums = true;
 };
 

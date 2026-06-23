@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iterator>
+#include <set>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -21,6 +22,7 @@ namespace noveltea::core {
 namespace {
 
 constexpr std::string_view manifest_entry = "manifest.json";
+constexpr std::string_view shader_materials_entry = "shader-materials.json";
 constexpr std::array auxiliary_prefixes = {
     std::string_view{"audio/"},     std::string_view{"data/"},    std::string_view{"music/"},
     std::string_view{"resources/"}, std::string_view{"scripts/"}, std::string_view{"shaders/"},
@@ -39,7 +41,8 @@ bool starts_with(std::string_view value, std::string_view prefix)
 
 bool has_allowed_package_prefix(std::string_view path)
 {
-    if (path == "game" || path == "image" || path == manifest_entry) {
+    if (path == "game" || path == "image" || path == manifest_entry ||
+        path == shader_materials_entry) {
         return true;
     }
     if (starts_with(path, "fonts/") || starts_with(path, "textures/")) {
@@ -85,6 +88,33 @@ std::vector<std::byte> string_bytes(std::string_view value)
 {
     const auto* first = reinterpret_cast<const std::byte*>(value.data());
     return std::vector<std::byte>(first, first + value.size());
+}
+
+void strip_shader_stage_sources(nlohmann::json& metadata)
+{
+    auto shaders = metadata.find("shaders");
+    if (shaders == metadata.end() || !shaders->is_object()) {
+        return;
+    }
+
+    for (auto& [_shader_id, shader] : shaders->items()) {
+        if (!shader.is_object()) {
+            continue;
+        }
+        auto stages = shader.find("stages");
+        if (stages == shader.end() || !stages->is_object()) {
+            continue;
+        }
+        for (auto& [_stage_name, stage] : stages->items()) {
+            if (!stage.is_object()) {
+                continue;
+            }
+            stage.erase("source");
+            stage.erase("source_text");
+            stage.erase("editor_preview");
+            stage.erase("compile_cache");
+        }
+    }
 }
 
 std::optional<std::vector<std::byte>> read_file_bytes(const std::filesystem::path& path,
@@ -205,7 +235,7 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
         }
 
         std::vector<std::filesystem::path> files;
-        for (const auto& item : std::filesystem::directory_iterator(source_dir)) {
+        for (const auto& item : std::filesystem::recursive_directory_iterator(source_dir)) {
             if (item.is_regular_file() && item.path().extension() == ".bin") {
                 files.push_back(item.path());
             }
@@ -227,6 +257,54 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
     }
 }
 
+void collect_shader_material_metadata(const PackageExportOptions& options,
+                                      std::vector<PendingEntry>& entries,
+                                      PackageExportResult& result)
+{
+    if (!options.shader_material_metadata) {
+        return;
+    }
+
+    nlohmann::json metadata = *options.shader_material_metadata;
+    if (!metadata.is_object()) {
+        add_diagnostic(result, PackageExportSeverity::Error, "shader",
+                       std::string(shader_materials_entry),
+                       "Shader/material metadata root must be an object.");
+        return;
+    }
+    if (options.strip_shader_sources) {
+        strip_shader_stage_sources(metadata);
+    }
+    add_entry(entries, result, std::string(shader_materials_entry), string_bytes(metadata.dump(2)),
+              options.include_checksums);
+}
+
+void verify_required_shader_binaries(const PackageExportOptions& options,
+                                     const std::vector<PendingEntry>& entries,
+                                     PackageExportResult& result)
+{
+    if (options.required_shader_binary_paths.empty()) {
+        return;
+    }
+
+    std::set<std::string> available;
+    for (const auto& entry : entries) {
+        available.insert(entry.path);
+    }
+    for (const auto& required : options.required_shader_binary_paths) {
+        if (!ProjectPackageWriter::is_safe_package_path(required) ||
+            !starts_with(required, "shaders/bgfx/")) {
+            add_diagnostic(result, PackageExportSeverity::Error, "shader", required,
+                           "Required shader package path is not safe.");
+            continue;
+        }
+        if (!available.contains(required)) {
+            add_diagnostic(result, PackageExportSeverity::Error, "shader", required,
+                           "Required material shader package entry is missing.");
+        }
+    }
+}
+
 nlohmann::json build_manifest(const PackageExportOptions& options,
                               const std::vector<PendingEntry>& entries,
                               const PackageExportResult& result)
@@ -241,6 +319,13 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
         {"version", options.project_version},
     });
     manifest["shader_variants"] = options.shader_variants;
+    if (options.shader_material_metadata) {
+        manifest["shader_materials"] = nlohmann::json::object({
+            {"entry", shader_materials_entry},
+            {"schema", "noveltea.shader-materials.v1"},
+            {"sources_stripped", options.strip_shader_sources},
+        });
+    }
     manifest["entries"] = nlohmann::json::array();
     for (const auto& entry : entries) {
         if (entry.path == manifest_entry) {
@@ -279,6 +364,7 @@ PackageExportResult write_zip(const ProjectDocument& project, const PackageExpor
         collect_asset_root(root, entries, result, options.include_checksums);
     }
     collect_shaders(options, entries, result);
+    collect_shader_material_metadata(options, entries, result);
 
     std::stable_sort(
         entries.begin(), entries.end(),
@@ -294,6 +380,7 @@ PackageExportResult write_zip(const ProjectDocument& project, const PackageExpor
                                   return false;
                               }),
                   entries.end());
+    verify_required_shader_binaries(options, entries, result);
     if (options.include_checksums) {
         result.checksums.clear();
         for (const auto& entry : entries) {

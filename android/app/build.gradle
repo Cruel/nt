@@ -125,12 +125,20 @@ def findBgfxShaderInclude = {
     return null
 }
 
+def requiredNovelTeaMaterialShaderBins = [
+    "shaders/bgfx/essl-300/quad.vs.bin",
+    "shaders/bgfx/essl-300/quad.fs.bin",
+    "shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin",
+    "shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin",
+]
+
 tasks.register("compileNovelTeaShaderAssets") {
     def outputRoot = file("$buildDir/generated/noveltea/shaders")
     outputs.dir(outputRoot)
     outputs.upToDateWhen {
         file("${outputRoot}/shaders/bgfx/essl-300/triangle.vs.bin").exists() &&
-        file("${outputRoot}/shaders/bgfx/essl-300/rmlui.fs.bin").exists()
+        file("${outputRoot}/shaders/bgfx/essl-300/rmlui.fs.bin").exists() &&
+        requiredNovelTeaMaterialShaderBins.every { file("${outputRoot}/${it}").exists() }
     }
     inputs.file file("../../cmake/NovelTeaShaderManifest.cmake")
     inputs.file file("../../cmake/NovelTeaShaders.cmake")
@@ -192,6 +200,12 @@ tasks.register("stageNovelTeaRuntimeAssets", Sync) {
                  "-DNOVELTEA_SHADER_OUTPUT_ROOT=${prebuiltRoot.absolutePath}",
                  "-DNOVELTEA_SHADER_VARIANTS=essl-300",
                  "-P", file("../../cmake/CompileNovelTeaShaders.cmake").absolutePath
+        }
+        requiredNovelTeaMaterialShaderBins.each { path ->
+            def staged = file("$buildDir/generated/runtime-assets/noveltea/system/${path}")
+            if (!staged.exists()) {
+                throw new GradleException("Missing NovelTea Android shader asset: ${path}")
+            }
         }
     }
 }

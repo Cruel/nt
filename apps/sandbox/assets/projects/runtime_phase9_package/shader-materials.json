@@ -1,0 +1,67 @@
+{
+  "schema": "noveltea.shader-materials.v1",
+  "shaders": {
+    "quad": {
+      "display_name": "Packaged Engine 2D Quad",
+      "roles": ["engine-2d"],
+      "stages": {
+        "vertex": {
+          "compiled": {
+            "glsl-120": "project:/shaders/bgfx/glsl-120/quad.vs.bin",
+            "essl-100": "project:/shaders/bgfx/essl-100/quad.vs.bin",
+            "essl-300": "project:/shaders/bgfx/essl-300/quad.vs.bin"
+          }
+        },
+        "fragment": {
+          "compiled": {
+            "glsl-120": "project:/shaders/bgfx/glsl-120/quad.fs.bin",
+            "essl-100": "project:/shaders/bgfx/essl-100/quad.fs.bin",
+            "essl-300": "project:/shaders/bgfx/essl-300/quad.fs.bin"
+          }
+        }
+      },
+      "uniforms": {
+        "u_useTexture": {"type": "float", "default": 1.0}
+      },
+      "samplers": {
+        "s_texColor": {"type": "texture2d"}
+      }
+    },
+    "ui/noise_panel": {
+      "display_name": "Packaged RmlUi Noise Panel",
+      "roles": ["rmlui-decorator"],
+      "stages": {
+        "vertex": {
+          "compiled": {
+            "glsl-120": "project:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin",
+            "essl-100": "project:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin",
+            "essl-300": "project:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin"
+          }
+        },
+        "fragment": {
+          "compiled": {
+            "glsl-120": "project:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin",
+            "essl-100": "project:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin",
+            "essl-300": "project:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin"
+          }
+        }
+      },
+      "uniforms": {
+        "u_dimensions": {"type": "vec2", "binding": "rmlui.paint_dimensions", "default": [1.0, 1.0]}
+      }
+    }
+  },
+  "materials": {
+    "demo/engine_2d_quad": {
+      "role": "engine-2d",
+      "shader": "quad",
+      "textures": {
+        "s_texColor": {"source": "$draw.texture", "sampler": "clamp-linear"}
+      }
+    },
+    "ui/noise_panel": {
+      "role": "rmlui-decorator",
+      "shader": "ui/noise_panel"
+    }
+  }
+}

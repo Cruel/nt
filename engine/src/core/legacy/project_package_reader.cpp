@@ -19,6 +19,7 @@ namespace {
 
 constexpr std::string_view fonts_prefix = "fonts/";
 constexpr std::string_view textures_prefix = "textures/";
+constexpr std::string_view shader_materials_entry = "shader-materials.json";
 constexpr std::string_view auxiliary_prefixes[] = {
     "audio/", "data/", "music/", "resources/", "scripts/", "shaders/", "sounds/", "text/", "texts/",
 };
@@ -69,6 +70,9 @@ bool is_safe_relative_asset_path(std::string_view value)
 
 bool is_auxiliary_asset_path(std::string_view name)
 {
+    if (name == shader_materials_entry) {
+        return true;
+    }
     return std::any_of(std::begin(auxiliary_prefixes), std::end(auxiliary_prefixes),
                        [&](std::string_view prefix) { return starts_with(name, prefix); });
 }

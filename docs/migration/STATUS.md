@@ -150,4 +150,4 @@ cd android
 
 ## Next Implementation Task
 
-Continue the current rendering action plan at Action 8: Android and package verification for material-backed renderer content. Action 7 added focused `feature_fixtures.rml` coverage for `backdrop-filter`, perspective/3D transforms, nested `PopLayer()` restoration, and resource-release lifecycle behavior. CSS `box-shadow` fixture markup exists, but colored shadow output remains not visually verified. Keep the Action 6 RmlUi `shader(<string>)` material bridge focused on material ids and precompiled bgfx binaries; do not add runtime shader source compilation.
+Actions 1 through 8 of the current rendering action plan are implemented. Material-backed runtime packages now carry `shader-materials.json`, validate required compiled shader variants during export, load package-provided shader/material metadata at runtime, and verify Android staged material shader binaries. CSS `box-shadow` fixture markup exists, but colored shadow output remains not visually verified. Future rendering work should start from a new focused plan; do not add runtime shader source compilation without a separate design.

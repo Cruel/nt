@@ -2,6 +2,7 @@
 
 #include "noveltea/core/legacy/project_package_reader.hpp"
 #include "noveltea/math/geometry.hpp"
+#include "noveltea/render/material.hpp"
 #include "noveltea/preview_bridge.hpp"
 #include "platform/sdl/sdl_platform.hpp"
 
@@ -195,6 +196,35 @@ void mount_default_source(assets::AssetManager& assets, const char* ns,
 
 } // namespace
 
+bool Engine::load_project_shader_materials()
+{
+    if (!m_assets.exists("project:/shader-materials.json")) {
+        return true;
+    }
+
+    auto metadata = m_assets.read_text("project:/shader-materials.json");
+    if (!metadata) {
+        std::fprintf(stderr, "[engine] failed to read project shader-materials.json: %s\n",
+                     metadata.error.c_str());
+        return false;
+    }
+
+    auto parsed = parse_shader_material_project_json(*metadata.value);
+    for (const auto& diagnostic : parsed.diagnostics) {
+        std::fprintf(stderr, "[engine] shader material diagnostic: %s: %s\n",
+                     diagnostic.path.c_str(), diagnostic.message.c_str());
+    }
+    if (!parsed.project || parsed.has_errors()) {
+        std::fprintf(stderr, "[engine] project shader-materials.json failed validation\n");
+        return false;
+    }
+
+    m_shader_materials = std::move(*parsed.project);
+    m_renderer.set_shader_material_project(&m_shader_materials);
+    SDL_Log("[engine] loaded project shader-materials.json");
+    return true;
+}
+
 void Engine::configure_assets(const EngineRunConfig& run_config)
 {
     const auto system_root = run_config.system_asset_root.empty() ? default_system_asset_root()
@@ -277,6 +307,9 @@ bool Engine::load_runtime_project(const std::string& logical_path)
             return false;
         }
         m_assets.mount_legacy_package("project", *package);
+        if (!load_project_shader_materials()) {
+            return false;
+        }
         if (!load_document(std::move(package->imported_project.document))) {
             return false;
         }
@@ -364,8 +397,12 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         return false;
     }
     renderer_initialized = true;
-    m_demo_shader_materials = make_demo_shader_materials();
-    m_renderer.set_shader_material_project(&m_demo_shader_materials);
+    m_shader_materials = make_demo_shader_materials();
+    m_renderer.set_shader_material_project(&m_shader_materials);
+    if (!load_project_shader_materials()) {
+        rollback();
+        return false;
+    }
 
     {
         auto script_init = m_scripts.initialize({&m_assets});
@@ -383,7 +420,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     const bool should_load_runtime_document =
         run_config.runtime_ui_document.empty() && run_config.demo_mode == DemoMode::None;
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
-                                 &m_scripts, &m_demo_shader_materials)) {
+                                 &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else {
         m_runtime_ui.set_rmlui_base_direct_compatibility(run_config.rmlui_base_direct_compat);

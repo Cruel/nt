@@ -72,6 +72,7 @@ private:
     void update(float dt);
     void render();
     void configure_assets(const EngineRunConfig& run_config);
+    bool load_project_shader_materials();
     bool load_runtime_project(const std::string& logical_path);
 
     assets::AssetManager m_assets;
@@ -80,7 +81,7 @@ private:
     TweenService m_tweens;
     script::ScriptRuntime m_scripts;
     script::RuntimeScriptExecutor m_script_executor;
-    ShaderMaterialProject m_demo_shader_materials;
+    ShaderMaterialProject m_shader_materials;
     RuntimeUI m_runtime_ui;
     core::RuntimeSessionHost m_runtime_host;
     DebugUI m_debug_ui;

@@ -333,22 +333,26 @@ Acceptance:
 - The audit/status docs distinguish verified `backdrop-filter`, perspective/3D, nested `PopLayer()`, and lifecycle coverage from the still-unverified CSS `box-shadow` shadow output.
 - No runtime shader source compilation, custom filter materials, or material-controlled layer/pass ownership was added.
 
-### Action 8: Android And Package Verification
+### Action 8: Android And Package Verification `[implemented]`
 
 Goal: prove material and renderer behavior outside Linux/Web desktop development loops.
 
-Implement:
+Implemented path:
 
-- Android packaging check for compiled material shader binaries.
-- Android runtime smoke if practical.
-- Package/export smoke for material-backed project content.
-- Diagnostics for missing material variants in packages.
+- Runtime package export can now include `shader-materials.json` metadata and records it in `manifest.json` under `shader_materials`.
+- Runtime package export strips shader stage `source`, `source_text`, editor preview, and compile-cache fields from runtime shader/material metadata.
+- Package export accepts required material shader package paths and fails the export if any required compiled binary is absent.
+- Shader collection recurses inside `shaders/bgfx/<variant>/`, so material shader ids with slash-separated schema ids can package nested binary paths.
+- Runtime package reading preserves `shader-materials.json` as a project asset, and `Engine` loads `project:/shader-materials.json` into the active shader/material project after package mount.
+- The editor tool `export-package` command accepts `shaderMaterialMetadata`, `requiredShaderBinaryPaths`, and `stripShaderSources` options.
+- Android Gradle staging verifies the required `essl-300` material shader binaries for the demo engine material and RmlUi decorator material.
+- `runtime_phase9_package.ntpkg` generation now includes package shader/material metadata, and a material package smoke test runs the sandbox against that package.
 
 Acceptance:
 
-- Web package includes required compiled material variants.
-- Android package includes required compiled material variants.
-- Missing variant failure is caught before or during export, not after a silent runtime fallback in release packages.
+- Linux package/export/material tests verify runtime metadata export, source stripping, recursive shader binary inclusion, and missing required variant failure.
+- Sandbox runtime material package smoke passes.
+- Android assemble is expected to fail early if required material shader binaries are missing from staged assets.
 
 ## Explicitly Deferred Work
 
@@ -398,7 +402,7 @@ Adjust exact target names if the build graph changes, but keep the intent: schem
 ```text
 Start from docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md, which is now the current NovelTea rendering action plan rather than the old completed Phase 4.5 checklist.
 
-Actions 1 through 7 are implemented. Use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
+Actions 1 through 8 are implemented. Use `cmake --preset web-profile`, `cmake --build --preset web-profile --parallel`, and `pnpm run web:smoke:profile` for optimized Web measurement. Preserve the current bounded readback-gallery invariants: full_frame_child_layers=0, unbounded_layer_fallbacks=0, full_frame_postprocess_passes=0, full_frame_postprocess_target_uses=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup. FPS should remain informational only.
 
-Begin Action 8: Android and package verification for material-backed renderer content. Check that compiled material shader binaries and runtime material metadata are included in Web/Android packages, add package/export smoke for material-backed project content, and make missing material variants fail before or during export rather than falling back silently in release packages. Preserve the implemented Action 6 material bridge and Action 7 feature fixtures. Do not add runtime shader source compilation, custom RmlUi filter materials, or material-controlled layer/pass ownership.
+Next work should start from a new focused plan rather than extending this action list. Known remaining renderer-adjacent gaps are CSS `box-shadow` visual correctness, custom RmlUi filter policy, and any future physical extraction of `rmlui_bgfx`. Do not add runtime shader source compilation, custom RmlUi filter materials, postprocess materials, or material-controlled layer/pass ownership without a new explicit design.
 ```
