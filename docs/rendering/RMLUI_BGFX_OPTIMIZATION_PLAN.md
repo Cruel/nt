@@ -303,35 +303,22 @@ Acceptance criteria:
 
 ## Phase 4.5: Renderer Architecture Refactor And Reusable Boundary
 
-Goal: preserve Phase 4 bounded behavior while splitting the bgfx renderer into clear ownership boundaries and making the renderer core reusable outside NovelTea before additional optimization work.
+Status: complete.
 
-Detailed plan: see [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). Treat that document as the source of truth for Phase 4.5.
+Phase 4.5 preserved the Phase 4 bounded behavior while splitting the bgfx renderer into reusable ownership boundaries. The old stage-by-stage checklist has been removed from [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md) because the work is done and the checklist had become noise. That file is now the current NovelTea rendering action plan.
 
-Required changes, summarized:
+Retained outcomes that still matter:
 
-- Establish a reusable `rmlui_bgfx` core boundary before deeper subsystem extraction. Reusable-core files must not include NovelTea engine headers or directly depend on NovelTea AssetManager, SurfaceMetrics, shader loader, view IDs, SDL3, Lua, ImGui, runtime session, custom components, or editor preview code.
-- Introduce generic config/provider inputs for surface metrics, bgfx view range, shader loading, texture loading, diagnostics, and perf logging.
-- Move NovelTea-specific behavior into adapter code: surface conversion, AssetManager texture/path resolution, packaged shader lookup, runtime UI view range, and diagnostics output.
-- Extract target/resource lifetime into a target cache module. Child layer targets and postprocess targets must be reused at steady state.
-- Extract bgfx view/pass scheduling into a pass builder module. All `setViewRect`, `setViewFrameBuffer`, and view naming policy should be centralized.
-- Extract low-level draw/composite/copy/stencil submission into a draw context module.
-- Extract filter execution into a filter pipeline module using an explicit texture-region boundary.
-- Extract virtual layer recording, bounded materialization, replay, saved texture, and saved mask-image handling into a layer system module.
-- Keep the generic RmlUi `RenderInterface` adapter as the API adapter rather than the owner of every renderer policy; keep NovelTea integration as host adapter code.
-- Add resize/readback regression coverage for the native flicker class found after Phase 4.
+- Reusable `rmlui_bgfx` core files must remain free of NovelTea-only dependencies.
+- NovelTea-specific asset, shader, surface, view-range, diagnostics, runtime, and editor behavior stays in adapter/provider code.
+- Target/resource lifetime is centralized in the target cache, with steady-state child-layer and postprocess target reuse.
+- bgfx view/pass setup is centralized in the pass builder.
+- Low-level draw/composite/copy/stencil submission is centralized in the draw context.
+- Filter execution uses explicit `TextureRegion` boundaries.
+- Virtual layer recording, bounded materialization, replay, saved textures, and saved mask images live in the layer system.
+- Resize/readback regression coverage exists for the native flicker class found after Phase 4.
 
-Acceptance criteria:
-
-- No intended visual or perf structural change from Phase 4.
-- No reusable-core header includes `noveltea/...`.
-- No reusable-core source includes NovelTea-only asset, surface, shader, view ID, SDL3, Lua, ImGui, runtime session, custom component, or editor preview headers.
-- Linux readback capture/verify passes.
-- Full linux-debug test suite passes before merging the complete refactor.
-- Web build and web smoke pass.
-- Interactive Linux readback gallery remains stable after resize.
-- Steady-state readback-gallery perf after warmup keeps `full_frame_child_layers=0`, `full_frame_postprocess_passes=0`, `rt_alloc=0`, `rt_destroy=0`, `layer_alloc=0`, and `layer_destroy=0`.
-
-Do not start Phase 5, Phase 6, pass folding, or physical extraction to a separate repository until the Phase 4.5 in-repo reusable boundary is complete and verified.
+Current action plan: [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md).
 
 ## Phase 5: Transform Bounds Without Full-Frame Fallback
 
@@ -600,20 +587,8 @@ Use this order for historical context, but do not keep pushing performance work 
 12. Feature coverage: implement fixtures and tests from [`RMLUI_RENDER_INTERFACE_AUDIT.md`](RMLUI_RENDER_INTERFACE_AUDIT.md), especially `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, `BlendMode::Replace`, nested `PopLayer()` state restoration, and lifecycle tests for release methods. For generic `shader(<string>)` and custom shader/material policy, implement [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
 13. Phase 10+: revisit direct base, blur quality/large-sigma strategy, Android/WebGL runtime validation, and documentation cleanup.
 
-Each implementation slice must report before/after perf lines for the readback gallery. Early completed work targeted lower `full_layers`, `full_frame_passes`, `max_layer`, `max_rt`, `clear_px`, `composite_px`, and `post_px`. The next speed target is Phase 9 structural web smoke gates. Do not reopen Phase 7 or Phase 8 unless a concrete fixture demonstrates safe redundant-clear, copy-removal, or saved-mask metadata opportunities.
+Each rendering-output implementation slice must report before/after perf lines for the readback gallery. Early completed work targeted lower `full_layers`, `full_frame_passes`, `max_layer`, `max_rt`, `clear_px`, `composite_px`, and `post_px`. The next target is not more renderer speed work; it is the current action plan in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md): release/profile smoke, material/shader asset infrastructure, and missing feature fixtures. Do not reopen Phase 7 or Phase 8 unless a concrete fixture demonstrates safe redundant-clear, copy-removal, or saved-mask metadata opportunities.
 
 ## Prompt for the Next Implementation Session
 
-Use this prompt to begin the next coding session:
-
-```text
-We need to resume the RmlUi bgfx work after the release/profile correction. Phase 0 through Phase 8 are implemented for the current acceptance gates, Phase 4.5 completed the reusable rmlui_bgfx boundary/subsystem split plus resize-readback regression coverage, and Web release/profile now reaches the browser frame cap at 120 FPS for the readback gallery. Do not treat the old 5-7 FPS debug-WebGL numbers as the active performance problem.
-
-Start by hardening profiling and feature coverage, not by doing speculative renderer optimization. Keep `scripts/run-desktop.sh` and `scripts/run-web.sh` compiling `NOVELTEA_ENABLE_RENDER_PERF=ON` for release convenience builds, but runtime logging must remain controlled by `--render-perf`, `renderPerf=1`, or the ImGui checkbox. Add or adjust a release/profile web smoke path so debug WebGL validation cannot be confused with release performance again.
-
-Then work through docs/rendering/RMLUI_RENDER_INTERFACE_AUDIT.md and docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md. Add focused fixtures/tests for the under-verified RmlUi render-interface features: `backdrop-filter`, CSS `box-shadow`, perspective/3D transforms, `BlendMode::Replace` if reachable through an RmlUi fixture, nested `PopLayer()` state restoration, and release lifecycle tests for geometry, textures, filters, and shaders. For generic `shader(<string>)`, first implement the NovelTea material/shader asset pipeline and then bridge RmlUi to material references through provider hooks in the reusable renderer core.
-
-Preserve the Phase 4.5 structure: reusable-core files must remain free of NovelTea-only dependencies, child layer targets and postprocess targets must be reused at steady state, and readback-gallery perf must continue reporting full_frame_child_layers=0, full_frame_postprocess_passes=0, rt_alloc=0 rt_destroy=0 layer_alloc=0 layer_destroy=0 after warmup.
-
-Run linux-debug build, RmlUi readback and resize-readback tests, focused RmlUi renderer tests, web release/profile smoke, and visual review whenever a rendering-output-affecting change is introduced.
-```
+Use the prompt in [`RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`](RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md). That file is now the current NovelTea rendering action plan and should drive the next implementation session.
