@@ -118,12 +118,6 @@ add_executable(noveltea_ui_tests
     ui/rmlui_document_binder_tests.cpp
     ui/rmlui_event_disposition_tests.cpp
     ui/rmlui_file_interface_tests.cpp
-    ui/rmlui_layer_system_tests.cpp
-    ui/rmlui_render_bounds_tests.cpp
-    ui/rmlui_render_interface_lifecycle_tests.cpp
-    ui/rmlui_conservative_mask_bounds_tests.cpp
-    ui/rmlui_render_planning_tests.cpp
-    ui/rmlui_render_pass_scheduler_tests.cpp
     ui/rmlui_template_resolver_tests.cpp
 )
 target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")

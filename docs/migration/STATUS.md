@@ -35,7 +35,7 @@ Last updated: 2026-06-23.
 - RmlUi bgfx optimization Phase 1 restart: compiled geometry now stores CPU-side local AABBs and shared transform/DPR helpers derive conservative framebuffer bounds for geometry and shader draws.
 - RmlUi bgfx optimization Phase 2 restart: child layers are now virtual at `PushLayer()`, draw/gradient/clip-mask commands record the render state needed for replay, and layer textures are materialized only when `CompositeLayers()`, `SaveLayerAsTexture()`, or `SaveLayerAsMaskImage()` needs them. Nested virtual layers keep provisional non-GPU bounds so saved mask-image correctness survives until content-bound accumulation replaces those provisional bounds. Reused layer slots now destroy previous-frame materialized resources before becoming virtual again, preventing interactive readback-gallery runs from exhausting bgfx framebuffers after the first few frames.
 - RmlUi bgfx optimization Phase 4 restart: virtual child layers now materialize from accumulated content bounds plus required filter/composite bounds, replay into bounded targets with local scissor/stencil/copy/composite coordinates, and preserve readback correctness. The Linux readback gallery now reports `full_frame_child_layers=0`, `full_frame_passes=2`, `max_child_layer=114x96`, and `max_rt=114x96` at 1280x720.
-- RmlUi bgfx optimization Phase 4.5: reusable `rmlui_bgfx` core boundary, NovelTea adapter services, extracted target cache, pass builder, draw context, filter pipeline, layer system, adapter cleanup, and resize/readback regression coverage are implemented.
+- RmlUi bgfx optimization Phase 4.5: reusable `rmlui_bgfx` core boundary, NovelTea adapter services, extracted target cache, pass builder, draw context, filter pipeline, layer system, adapter cleanup, resize/readback regression coverage, and physical extraction into `https://github.com/Cruel/rmlui-bgfx` are implemented. NovelTea now consumes the renderer through `rmlui_bgfx::rmlui_bgfx` via package/FetchContent instead of an internal renderer target.
 - RmlUi bgfx optimization Phase 5 restart: transform-driven full-frame fallback is verified closed for normal transformed gallery content. Focused bounds tests lock shader-order translation-before-transform, negative scale, rotation with non-integer DPR, and zero homogeneous output; the readback gallery keeps `unbounded_transform_fallbacks=0`, `full_frame_child_layers=0`, and `max_child_layer=114x96`.
 - RmlUi bgfx optimization Phase 6 restart: filtered output now carries conservative composited bounds separately from tighter semantic valid-output bounds. This is intentionally behavior-preserving; per-valid-rect filter compositing is deferred until visual regression coverage is stronger.
 - RmlUi bgfx optimization Phase 7 complete: perf logging now classifies pass reasons and reports pass-builder operations vs reused bgfx views. Opacity/color-matrix-only filter chains fold into a composite-filter shader instead of allocating bounded postprocess targets and running copy/ping-pong passes. Same-target non-clear draws and geometry-like draws after clears reuse bgfx views more broadly, and mask-image-only filters bypass one preliminary source copy. Readback-gallery steady state now reports `passes=89`, `views=43`, `color_filter_folds=9`, `pass_filter_copy=2`, `bounded_postprocess_passes=6`, `post_px=21776`, and the established bounded-layer invariants.
@@ -53,14 +53,14 @@ Last updated: 2026-06-23.
 - Editor preview/test playback is wired into the Electron workspace through the helper CLI; richer typed editors, branch/story traversal tooling, and real workflow fixtures remain incomplete.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
-- RmlUi renderer documentation now treats the bgfx backend as a reusable renderer core consumed by NovelTea adapters; physical extraction to a separate repository is intentionally deferred.
+- RmlUi renderer documentation now treats the bgfx backend as a reusable renderer package consumed by NovelTea adapters. During active tandem development, NovelTea intentionally tracks the `master` branch of `https://github.com/Cruel/rmlui-bgfx.git` so both projects stay in sync. Once the renderer API stabilizes, switch `NOVELTEA_RMLUI_BGFX_GIT_TAG` to a pushed commit or release tag.
 
 ## Current Verification Commands
 
-Latest RmlUi bgfx implementation — use these commands to verify:
+Latest RmlUi bgfx implementation — use these commands to verify. Until `rmlui-bgfx` is pushed and NovelTea is pinned to a remote commit/tag, local extraction verification should use CMake's standard FetchContent source override rather than a repository-relative path in CMake files:
 
 ```sh
-cmake --preset linux-debug
+cmake --preset linux-debug -DFETCHCONTENT_SOURCE_DIR_RMLUI_BGFX=/path/to/rmlui-bgfx
 cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug

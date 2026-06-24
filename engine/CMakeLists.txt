@@ -271,34 +271,6 @@ elseif(TARGET RmlUi::Core)
     set(NOVELTEA_RMLUI_TARGET RmlUi::Core)
 endif()
 
-add_library(rmlui_bgfx_renderer STATIC
-    src/ui/rmlui/rmlui_render_bounds.cpp
-    src/ui/rmlui/rmlui_render_planning.cpp
-    src/ui/rmlui/rmlui_render_pass_scheduler.cpp
-    src/ui/rmlui/bgfx_renderer/rmlui_bgfx_draw.cpp
-    src/ui/rmlui/bgfx_renderer/rmlui_bgfx_filters.cpp
-    src/ui/rmlui/bgfx_renderer/rmlui_bgfx_layers.cpp
-    src/ui/rmlui/bgfx_renderer/rmlui_bgfx_passes.cpp
-    src/ui/rmlui/bgfx_renderer/rmlui_bgfx_target_cache.cpp
-    src/ui/rmlui/rmlui_render_interface_bgfx.cpp
-)
-set_target_properties(rmlui_bgfx_renderer PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_compile_features(rmlui_bgfx_renderer PUBLIC cxx_std_20)
-target_include_directories(rmlui_bgfx_renderer PUBLIC src)
-target_link_libraries(rmlui_bgfx_renderer PUBLIC bgfx::bgfx ${NOVELTEA_RMLUI_TARGET})
-if(TARGET bx::bx)
-    target_link_libraries(rmlui_bgfx_renderer PUBLIC bx::bx)
-endif()
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(rmlui_bgfx_renderer PRIVATE
-        -Wall -Wextra -Wpedantic -Wno-unused-parameter
-    )
-endif()
-
-if(NOVELTEA_ENABLE_RENDER_PERF)
-    target_compile_definitions(rmlui_bgfx_renderer PRIVATE RMLUI_BGFX_ENABLE_RENDER_PERF=1)
-endif()
-
 target_sources(engine PRIVATE
     src/ui/rmlui/rmlui_input_sdl3.cpp
     src/ui/rmlui/rmlui_bgfx_noveltea_adapter.cpp
@@ -306,7 +278,7 @@ target_sources(engine PRIVATE
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RMLUI)
 target_link_libraries(engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
-target_link_libraries(engine PRIVATE rmlui_bgfx_renderer RmlUi::Lua)
+target_link_libraries(engine PRIVATE rmlui_bgfx::rmlui_bgfx RmlUi::Lua)
 target_compile_definitions(engine PRIVATE NOVELTEA_HAS_RMLUI_LUA)
 
 # --- Text subsystem (mandatory) ---

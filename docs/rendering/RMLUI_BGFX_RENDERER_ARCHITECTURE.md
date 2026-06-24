@@ -1,10 +1,10 @@
 # RmlUi bgfx Renderer Architecture
 
-This document describes the intended end-state architecture of the reusable RmlUi bgfx renderer used by NovelTea. It is written as an architecture overview for future developers and as the reference target during the Phase 4.5 renderer refactor.
+This document describes the architecture of the reusable RmlUi bgfx renderer used by NovelTea. It is written as an architecture overview for future developers and as a reference for preserving the renderer/package boundary.
 
-This is not a status report. If the implementation is still mid-refactor, use this document as the desired shape. If the final implementation intentionally differs from this document, update the document in the same change that changes the architecture. For method-by-method RmlUi render-interface coverage, see [`RMLUI_RENDER_INTERFACE_AUDIT.md`](RMLUI_RENDER_INTERFACE_AUDIT.md). For user-provided shaders/materials and the RmlUi `shader(<string>)` material bridge, see [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
+This is not a status report. For method-by-method RmlUi render-interface coverage, see [`RMLUI_RENDER_INTERFACE_AUDIT.md`](RMLUI_RENDER_INTERFACE_AUDIT.md). For user-provided shaders/materials and the RmlUi `shader(<string>)` material bridge, see [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md). For current implementation status and verification notes, see [`RMLUI_BGFX_STATUS.md`](RMLUI_BGFX_STATUS.md).
 
-The desired end state is a renderer that can live in a separate `rmlui-bgfx` project. NovelTea should consume it through a small integration adapter. The renderer core should not require NovelTea engine headers, NovelTea asset namespaces, SDL3, Lua, ImGui, custom NovelTea UI components, or NovelTea runtime concepts.
+The renderer core now lives in the separate `rmlui-bgfx` project and NovelTea consumes it through a small integration adapter. The renderer core must not require NovelTea engine headers, NovelTea asset namespaces, SDL3, Lua, ImGui, custom NovelTea UI components, or NovelTea runtime concepts.
 
 ## Purpose
 
@@ -16,7 +16,7 @@ The upstream RmlUi GL3 and DX12 backends are semantic references for expected re
 
 ## Reusable Library Boundary
 
-The renderer core is intended to be extractable into a standalone `rmlui-bgfx` library. During Phase 4.5, the first architecture step is to make this boundary explicit inside the current repository before moving files to a separate repository.
+The renderer core is extracted into the standalone `rmlui-bgfx` library. NovelTea links the external `rmlui_bgfx::rmlui_bgfx` target and provides only application policy through renderer provider interfaces.
 
 The reusable core may depend on:
 
@@ -812,8 +812,8 @@ New framebuffer reuse rule            BgfxTargetCache
 New bgfx view/pass shape              BgfxPassBuilder
 New low-level draw operation          BgfxDrawContext
 New filter type or filter ordering    BgfxFilterRegistry / BgfxFilterPipeline
-New bounds math                       rmlui_render_bounds
-New pure policy helper                rmlui_render_planning
+New bounds math                       rmlui-bgfx bounds module
+New pure policy helper                rmlui-bgfx planning module
 ```
 
 Do not add new behavior by reaching across subsystem boundaries into another object's private state. If a module needs to reach back into `BgfxRenderInterface::Impl` internals to do its job, the boundary is wrong.

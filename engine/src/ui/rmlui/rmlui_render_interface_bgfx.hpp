@@ -2,8 +2,8 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/surface.hpp"
-#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_config.hpp"
-#include "ui/rmlui/bgfx_renderer/rmlui_bgfx_render_interface.hpp"
+#include <rmlui_bgfx/config.hpp>
+#include <rmlui_bgfx/render_interface.hpp>
 
 #include <RmlUi/Core/RenderInterface.h>
 

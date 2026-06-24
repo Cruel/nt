@@ -50,9 +50,12 @@ option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_ENABLE_TWINK "Enable twink-backed engine animation service (optional)" ON)
 option(NOVELTEA_FETCH_BGFX "Fetch/build bgfx via FetchContent (required for Web/Android)" ON)
 option(NOVELTEA_FETCH_RMLUI "Fetch/build RmlUi via FetchContent (required for Web/Android)" ON)
+option(NOVELTEA_FETCH_RMLUI_BGFX "Fetch rmlui-bgfx via FetchContent when it is not installed" ON)
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ON)
 option(NOVELTEA_ENABLE_RENDER_PERF "Compile renderer performance counters and optional perf logging" ON)
 option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
+set(NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY "https://github.com/Cruel/rmlui-bgfx.git" CACHE STRING "rmlui-bgfx Git repository used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
+set(NOVELTEA_RMLUI_BGFX_GIT_TAG "master" CACHE STRING "rmlui-bgfx Git ref used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
 
 # --- SDL3: provide the SDL3::SDL3 target for all platforms ---
 
@@ -208,6 +211,29 @@ if(NOT TARGET RmlUi::Lua)
     message(FATAL_ERROR "RmlUi::Lua is required for the NovelTea engine. "
         "Ensure the 'lua' feature is enabled for rmlui in your package manager "
         "(vcpkg: \"rmlui\": {\"features\": [\"freetype\", \"lua\"]}).")
+endif()
+
+# --- RmlUi bgfx renderer package ---
+
+find_package(rmlui_bgfx CONFIG QUIET)
+if(NOT TARGET rmlui_bgfx::rmlui_bgfx AND NOVELTEA_FETCH_RMLUI_BGFX)
+    include(FetchContent)
+    set(RMLUI_BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(RMLUI_BGFX_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(RMLUI_BGFX_INSTALL OFF CACHE BOOL "" FORCE)
+    set(RMLUI_BGFX_ENABLE_RENDER_PERF ${NOVELTEA_ENABLE_RENDER_PERF} CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        rmlui_bgfx
+        GIT_REPOSITORY ${NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY}
+        GIT_TAG ${NOVELTEA_RMLUI_BGFX_GIT_TAG}
+    )
+    FetchContent_MakeAvailable(rmlui_bgfx)
+endif()
+if(NOT TARGET rmlui_bgfx::rmlui_bgfx)
+    message(FATAL_ERROR "rmlui_bgfx::rmlui_bgfx is required for the NovelTea engine. "
+        "Install rmlui-bgfx or enable NOVELTEA_FETCH_RMLUI_BGFX. For local development, "
+        "prefer CMake's standard FETCHCONTENT_SOURCE_DIR_RMLUI_BGFX override rather than "
+        "adding a repository-relative path.")
 endif()
 
 add_subdirectory(engine)
