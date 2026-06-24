@@ -1,75 +1,65 @@
 # Rendering Stack
 
-## Local References Compared
+## Purpose
 
-| Reference | Useful parts | Bootstrap decision |
-| --- | --- | --- |
-| `refs/RmlUi/Backends` | Clean separation of platform input/system and renderer interfaces; SDL event translation patterns; renderer examples for GL/VK/DX/SDL. | Use as API reference. Do not copy a backend wholesale. |
-| `refs/rmlui-bgfx` | Compact bgfx RmlUi renderer concept and shader pair. | Adapt ideas later, but avoid its broad app/window wrapper API and xmake setup. |
-| `refs/bgfx/examples/common/font` | Historical bgfx SDF font manager, text buffers, metrics, shader variants. | Reference only; NovelTea now uses FreeType grayscale glyph coverage for engine text. |
-| `refs/bgfx/examples/common/imgui` | Proven bgfx ImGui debug overlay direction. | Keep Dear ImGui dev/debug only. |
-| `refs/bgfx/examples/common/nanovg` | Canvas/vector drawing over bgfx. | Deferred unless future editor/runtime UI needs justify it. |
-| `bgfx_utils` / bimg texture loading | Shader/program/texture helper patterns and `bimg::imageParse` texture creation flow. | Use next for real PNG/JPEG/etc. loading. Current pass only adds a tiny PPM disk proof to avoid copying the helper tree. |
-| Small `nt` QuadBatch/SpriteBatch | Explicit ownership and simple game/world 2D draw path. | Implemented first as engine-owned `QuadBatch` / `QuadCommand` substrate. |
-| Skia/heavier canvas | Rich 2D API but large integration surface. | Rejected/deferred for bootstrap. |
+This document records NovelTea's rendering ownership boundaries. Detailed RmlUi renderer implementation notes live in the standalone `rmlui-bgfx` repository, not in this repository.
 
-## Recommendation
+## Runtime Layers
 
-- Use RmlUi for runtime UI, layout, forms, and ordinary UI text.
-- Use Dear ImGui only for developer/debug UI.
-- Use bgfx/bx/bimg utilities where practical, without vendoring broad external trees.
-- Maintain a small `nt` 2D draw layer for sprites, materials, quads, render targets, clipping, and layer/depth ordering. The shader/material asset pipeline is planned in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
-- Build future rich text spans/effects on top of the engine-owned `Text` layout data. RmlUi text remains independent and is not a replacement for per-glyph animation/effect metadata.
+- `Renderer` owns bgfx initialization, frame lifecycle, view setup, engine 2D draws, screenshots, resize handling, and shader/material resource caches.
+- `RuntimeUI` owns RmlUi documents, input forwarding, runtime UI binding, and the NovelTea adapter around the external `rmlui-bgfx` renderer package.
+- `DebugUI` owns Dear ImGui developer/debug overlay only.
+- Engine-owned text rendering remains independent from RmlUi text. It exists for NovelTea rich text, per-glyph reveal/effect state, and future ActiveText-specific rendering.
 
-## View IDs
+## External Renderer Package
 
-- `0`: game/world 2D.
-- `1`: runtime UI.
-- `2`: engine text.
-- `250`: debug UI.
+NovelTea consumes `rmlui-bgfx` as an external package through `rmlui_bgfx::rmlui_bgfx`. The NovelTea side should only document and maintain the integration boundary:
 
-These IDs are documented early so RmlUi, text, and debug overlays do not compete for implicit renderer state.
+- shader-program loading from NovelTea's staged bgfx shader assets;
+- texture loading through NovelTea's asset system;
+- diagnostics/perf forwarding into NovelTea logging;
+- material shader provider integration for NovelTea project materials used by RmlUi decorators;
+- runtime view-range assignment.
 
-## Implemented In Bootstrap
+RmlUi renderer internals, effects probes, renderer refactor plans, and optimization notes belong in the `rmlui-bgfx` repository.
 
-- Orthographic game/world 2D view.
-- Alpha-blended colored quads through `QuadBatch`.
-- Textured quads with UV rects, per-quad color/alpha, and layer/depth metadata.
-- Disk texture proof using `apps/sandbox/assets/checker.ppm`, with procedural checker fallback.
-- Engine-owned boxed text demo with Unicode shaping and grayscale glyph rendering.
-- Deterministic sandbox smoke commands:
-  - `./build/linux-debug/apps/sandbox/noveltea-sandbox --frames 180`
-  - `./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180`
+## Engine 2D Rendering
 
-## Implemented In This Slice
+NovelTea keeps a small engine-owned 2D draw layer for sprites, quads, room/object presentation, render layers, clipping, and material-backed engine geometry. The shader/material asset pipeline is documented in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
 
-- RmlUi bgfx `RenderInterface` (`BgfxRenderInterface`) with vertex/index buffer compilation, texture generate/release, scissor support, and orthographic projection via custom shader pair.
-- Minimal `BgfxSystemInterface` with SDL3 high-resolution timer.
-- SDL3 event translation (mouse, keyboard, text input, window resize) into RmlUi context calls.
-- Font loading and demo document/stylesheet loading from `apps/sandbox/assets/rmlui/`.
-- RmlUi bgfx shader pair (`vs_rmlui.sc` / `fs_rmlui.sc`) compiled into the variants implied by each build target.
-- Backend-neutral `AssetManager` with `system:/`, `project:/`, and `cache:/`
-  mounts, currently backed by directories and ready for future `.ntzip` sources.
-- bgfx shader source remains in `engine/shaders/bgfx`, while compiled shader
-  binaries are build/runtime assets loaded from
-  `assets/shaders/bgfx/{glsl-120,essl-100,essl-300}`. Runtime code does
-  not include generated shader headers or compile shader source.
-- User-provided project shaders/materials follow
-  [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md): shader and material
-  definitions are project/game schema records, shader records declare uniforms/samplers and
-  supported shader roles, material records assign values/textures for one role, runtime metadata
-  resolution maps material ids or direct ActiveText shader pairs to the inferred compiled bgfx
-  variant, `BgfxShaderProgramCache` loads resolved binaries through `AssetManager`,
-  `ShaderCompilerService`/`noveltea-editor-tool compile-shaders` invoke `shaderc` for
-  host/editor/import/export workflows, engine-owned 2D quads can bind `ShaderRole::Engine2D`
-  materials through `BgfxMaterialBinder`, RmlUi `shader(<string>)` decorators resolve to
-  `ShaderRole::RmlUiDecorator` material ids through the reusable `rmlui_bgfx` provider seam, and
-  shipped runtimes load compiled bgfx binaries rather than compiling source.
+Current view ownership:
 
-## Deferred (Next Slice)
+- `Background`: room/background presentation.
+- `Main`: primary scene/object presentation.
+- `Foreground`: foreground overlays.
+- `UIOverlay`: runtime UI and UI-adjacent presentation.
+- debug UI uses its own high-numbered bgfx views.
 
-- bimg-backed PNG/JPEG/etc. texture loading for `BgfxRenderInterface::LoadTexture`.
-- Clip mask, layer stack, filter/shader compilation (advanced RmlUi features).
-- RmlUi Debugger integration.
-- Rich text spans, BBCode semantics, per-glyph animation/effects, and font-family fallback.
-- Web/Android RmlUi linkage (currently scaffold-only).
+## Shader and Material Runtime Policy
+
+Runtime code loads compiled bgfx shader binaries from staged assets. It does not compile shader source. User-authored shader/material metadata is project/game schema data; exported packages include the compiled variants needed by the runtime.
+
+Material-backed engine 2D quads use `ShaderRole::Engine2D`. RmlUi decorator materials use `ShaderRole::RmlUiDecorator` through the NovelTea adapter for `rmlui-bgfx`.
+
+## Runtime UI Usage
+
+RmlUi is NovelTea's general runtime UI layer. Runtime visual slots such as cover, background, room, object, inventory, and action UI are exposed through backend-neutral view state and bound by `RuntimeUI`. Complex widgets such as ActiveText, MapView, and TextLog may be C++-backed RmlUi elements when ordinary RML/RCSS is insufficient.
+
+## Verification
+
+For renderer or UI integration changes, use the relevant subset of:
+
+```sh
+cmake --build --preset linux-debug
+ctest --test-dir build/linux-debug --output-on-failure
+cmake --build --preset web-debug
+pnpm run web:smoke:debug
+```
+
+Use the sandbox for manual behavior checks:
+
+```sh
+./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
+```
+
+For detailed RmlUi renderer visual parity or effects debugging, work in the standalone `rmlui-bgfx` repository and compare against upstream RmlUi samples there.

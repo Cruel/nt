@@ -146,35 +146,13 @@ The backend-neutral runtime path is centered on `GameSession`, `RuntimeControlle
 
 `RuntimeUIViewAdapter` converts controller commands into a simple backend-neutral `RuntimeUIViewState`: mode, title, body, notification, dialogue options, navigation labels, room objects, actions, text log, continue/page-break flags. It deliberately ignores `ScriptDeferred` commands today; script execution is not yet wired through this adapter.
 
-## RmlUi Bridge
+## Runtime UI Bridge
 
-`RuntimeUI` is the current bridge from backend-neutral runtime state to RmlUi. With RmlUi and bgfx enabled it:
+`RuntimeUI` is the bridge from backend-neutral runtime state to the RmlUi document layer. It owns document loading/reload, runtime input routing, custom runtime components, and binding `RuntimeUIViewState` into project/theme/system UI templates.
 
-- Installs an asset-backed RmlUi file interface and SDL3-backed system interface.
-- Initializes RmlUi, optionally initializes the RmlUi Lua plugin against the engine Lua state, and installs host `print`.
-- Creates a bgfx RmlUi render interface and a single RmlUi context named `main`.
-- Loads `project:/rmlui/LiberationSans.ttf`.
-- Optionally loads the demo document `project:/rmlui/demo.rml`.
-- Always attempts to load `project:/rmlui/runtime_game.rml` as document ID `runtime_game`, initially hidden.
+NovelTea consumes the external `rmlui-bgfx` renderer package through a narrow adapter. The `nt` repository should document only that integration boundary: asset-backed texture loading, shader-program loading, diagnostics/perf forwarding, material-provider integration, and runtime view allocation. RmlUi renderer internals, parity probes, effects behavior, and optimization notes belong in the standalone `rmlui-bgfx` repository.
 
-The current runtime-game update path is direct and fixed-ID based. `RuntimeUI::apply_controller_commands` applies commands to an internal `RuntimeUIViewAdapter`, finds document `runtime_game`, then calls `SetInnerRML` on known element IDs:
-
-- `rt_mode`
-- `rt_title`
-- `rt_body`
-- `rt_notification`
-- `rt_prompt`
-- `rt_options`
-- `rt_navigation`
-- `rt_objects`
-- `rt_actions`
-- `rt_log`
-
-Text content is escaped before insertion, and body/log text is wrapped as simple paragraph RML. Buttons are generated with attributes such as `nt-option`, `nt-nav`, `nt-continue`, `nt-object`, and `nt-action`.
-
-`RuntimeUI::bind_runtime_controller` stores a borrowed raw `core::RuntimeController*` in `RuntimeUI::State`. It adds one click listener to the `runtime_game` document. That listener directly calls controller methods for dialogue option selection, navigation, continue/cutscene clicks, object selection, and action processing.
-
-This is the current bridge, not the final component model. There is no production RmlUi data model for runtime-game state yet, and complex widgets are not yet custom RmlUi elements.
+Runtime UI state still flows from backend-neutral runtime objects into `RuntimeUI`; RmlUi must not own game state. Input is routed back through the shared runtime input path rather than directly mutating controllers from document-specific code.
 
 ## Lua Runtime Status
 

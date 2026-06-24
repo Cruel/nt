@@ -323,56 +323,15 @@ MaterialInstance
 
 The runtime side should not invoke `shaderc`. It should infer the active compiled variant from the renderer/platform policy, load compiled shader binaries, or fail with a diagnostic that names the material id or shader ids, inferred variant, and expected compiled binary path.
 
-## RmlUi Bridge Architecture
+## RmlUi Material Bridge
 
-The reusable `rmlui_bgfx` core must not include NovelTea project-schema or material headers. Add a provider seam to the reusable renderer core and implement that provider in the NovelTea adapter.
+NovelTea may reference a project material from RmlUi decorator syntax. The NovelTea-side contract is intentionally small:
 
-Conceptual reusable-core interface:
-
-```cpp
-namespace rmlui_bgfx {
-
-struct RmlUiMaterialShaderRequest {
-    std::string_view value;          // parameters["value"] from shader(<string>)
-    Rml::Vector2f dimensions;        // parameters["dimensions"]
-};
-
-struct RmlUiMaterialShaderHandle {
-    uint64_t id = 0;
-};
-
-class MaterialShaderProvider {
-public:
-    virtual ~MaterialShaderProvider() = default;
-
-    virtual RmlUiMaterialShaderHandle compile_decorator_shader(
-        const RmlUiMaterialShaderRequest& request) = 0;
-
-    virtual void release_decorator_shader(RmlUiMaterialShaderHandle shader) = 0;
-
-    virtual bool submit_decorator_shader(
-        const RmlUiMaterialShaderHandle& shader,
-        const RmlUiDrawContextForMaterial& draw_context) = 0;
-};
-
-}
-```
-
-First implementation behavior in `CompileShader()`:
-
-- If `name` is `linear-gradient`, `radial-gradient`, or `conic-gradient`, keep the existing built-in gradient path.
-- If `name` is `shader`, read `parameters["value"]` and `parameters["dimensions"]`.
-- Ask the material shader provider to resolve the value as a NovelTea material id.
-- Return a RmlUi compiled shader handle that records the provider-owned material shader handle.
-- If no provider is configured or resolution fails, log a clear diagnostic and return zero.
-- Unknown names remain unsupported until a specific extension policy exists.
-
-First implementation behavior in `RenderShader()`:
-
-- Built-in gradient handles continue using the current gradient shader path.
-- Material shader handles call the provider submission path.
-- The submission path receives current texture, geometry, translation, scissor, transform, clip/stencil state, layer projection, and paint dimensions as explicit state.
-- The material provider binds the bgfx program, uniforms, textures, and declared render state, but it must not mutate layer stack or pass scheduling directly.
+- Treat the decorator value as a NovelTea material id.
+- Require the material to support `ShaderRole::RmlUiDecorator`.
+- Resolve and load compiled bgfx shader binaries through the same runtime shader cache used by other materials.
+- Bind uniforms/textures through the NovelTea adapter for the external `rmlui-bgfx` package.
+- Keep all RmlUi renderer implementation details in the `rmlui-bgfx` repository.
 
 ## Shader Source Conventions
 
@@ -380,29 +339,12 @@ User-authored shader source should use bgfx shaderc language conventions.
 
 Initial constraints:
 
-- Provide system/default vertex shaders for common shader roles:
-  - `rmlui_decorator_default`
-  - `engine_2d_default`
-  - `active_text_default`
-  - later `postprocess_fullscreen`
-- User-authored RmlUi decorator materials usually provide only a fragment shader and use an engine-provided RmlUi decorator vertex/interface shader.
-- User-authored engine 2D materials may initially provide a fragment shader and use an engine-provided 2D vertex/interface shader.
+- Provide system/default vertex shaders for common shader roles, including engine 2D, ActiveText, RmlUi decorator materials, and later postprocess materials.
+- User-authored materials may initially provide only a fragment shader and use an engine-provided vertex/interface shader for the selected role.
 - All shader source must use declared uniform and sampler names from the shader definition.
-- RmlUi decorator shaders must output premultiplied-alpha color.
+- Material outputs must match the blend/alpha contract of their selected shader role.
 - Shader includes should resolve only through explicit system/project shader include roots.
-
-Initial built-in RmlUi decorator fragment inputs should include:
-
-```text
-v_texcoord0        normalized paint-area UV from RmlUi
-v_color0           RmlUi vertex color, already normalized by bgfx
-s_texColor         optional RmlUi texture if the geometry has one
-u_time             optional engine time input when declared
-u_dimensions       paint dimensions when declared
-u_dpiScale         dpi scale when declared
-```
-
-Do not promise arbitrary uniform names unless the shader definition/manifest has a reliable way to preserve and bind them on every target.
+- Do not promise arbitrary uniform names unless the shader definition/manifest has a reliable way to preserve and bind them on every target.
 
 ## Compiler and Cache Pipeline
 
@@ -586,7 +528,6 @@ Implemented model:
 
 Still intentionally not implemented:
 
-- RmlUi `shader(<string>)` material bridge.
 - ActiveText custom shader rendering.
 - Full PNG/JPEG material texture decoding; material texture assets currently use the same limited PPM path as the existing 2D demo loader.
 - Runtime shader source compilation.
@@ -601,11 +542,10 @@ Acceptance:
 
 Implemented model:
 
-- `rmlui_bgfx::MaterialShaderProvider` is the reusable-core extension seam. It compiles/releases provider-owned decorator shader handles and submits material shader draws from explicit RmlUi state.
-- Reusable `ShaderRecord` values distinguish built-in gradients from provider-backed material handles, so gradients stay on the existing built-in path.
-- `CompileShader("shader", ...)` resolves the RmlUi decorator `value` as a NovelTea `MaterialId`; the NovelTea adapter currently uses the bound `ShaderMaterialProject` as the material registry source.
-- The NovelTea provider requires `ShaderRole::RmlUiDecorator`, resolves the active compiled shader variant through `resolve_material_shader_program()`, loads programs through `BgfxShaderProgramCache`, and binds material uniforms/samplers.
-- RmlUi material submission receives explicit geometry buffers, projection, translation, transform, layer-local scissor, clip/stencil state, optional draw texture, paint dimensions, DPI scale, and premultiplied-alpha blend state.
+- `shader(<string>)` decorator values resolve to NovelTea material ids.
+- The selected material must support `ShaderRole::RmlUiDecorator`.
+- The NovelTea adapter resolves the active compiled shader variant through `resolve_material_shader_program()`, loads programs through `BgfxShaderProgramCache`, and binds material uniforms/samplers through the external `rmlui-bgfx` package.
+- Built-in gradients remain on the default renderer path.
 - Demo shader/material records now include `ui/noise_panel`, backed by compiled `rmlui_noise_panel` bgfx shader variants.
 - Added `project:/rmlui/material_shader.rml` and `material_shader.rcss` using `decorator: shader("ui/noise_panel")`.
 
@@ -620,8 +560,8 @@ Acceptance:
 
 - Built-in gradients still render exactly as before.
 - Generic RmlUi `shader(<string>)` resolves to a NovelTea material id with role `rmlui-decorator`.
-- The sample material respects scissor, transform, clip mask, layers, and premultiplied-alpha output through the existing RmlUi draw state.
-- Linux fixture smoke, readback, and resize-readback pass; Web smoke remains the final cross-platform gate.
+- The sample material renders through the same NovelTea adapter path as other RmlUi decorator materials.
+- Linux fixture smoke passes; Web smoke remains the final cross-platform gate.
 
 ### Phase 6: Editor Material UI and Instances
 
@@ -658,23 +598,19 @@ Acceptance:
 - Custom RmlUi filter materials.
 - Postprocess materials.
 - Runtime raw GL/GLES/WebGL/Metal shader source compilation.
-- Physical extraction of `rmlui_bgfx` to a separate repository.
 
 ## Docs To Keep In Sync
 
-- `docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md`: current action order and acceptance gates.
-- `docs/rendering/RMLUI_BGFX_STATUS.md`: next implementation task and support status.
-- `docs/rendering/RMLUI_RENDER_INTERFACE_AUDIT.md`: track material shader fixture/readback coverage and any remaining under-verified RmlUi shader behavior.
-- `docs/rendering/RENDERING_STACK.md`: shader/material pipeline summary.
+- `docs/rendering/RENDERING_STACK.md`: rendering ownership and shader/material pipeline summary.
 - `docs/runtime/PACKAGE_EXPORT.md`: runtime package contents and source stripping policy.
 - `docs/migration/STATUS.md` and `docs/migration/PLAN.md`: durable migration state.
 
 ## Prompt For The Next Implementation Session
 
 ```text
-Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md and docs/rendering/RMLUI_BGFX_RENDERER_REFACTOR_PLAN.md.
+Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md.
 
-Action 6 / Phase 5 is implemented: RmlUi `shader(<string>)` decorator usage resolves to NovelTea material ids through a provider seam in reusable `rmlui_bgfx` and a NovelTea adapter for `ShaderRole::RmlUiDecorator` materials. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
+RmlUi `shader(<string>)` decorator usage resolves to NovelTea material ids through a provider seam in the external `rmlui-bgfx` package and a NovelTea adapter for `ShaderRole::RmlUiDecorator` materials. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
 
-Renderer Action 8 is implemented: runtime package export includes `shader-materials.json`, strips runtime package shader sources, validates required compiled shader variants, and loads package-provided material metadata at runtime. Do not add runtime shader source compilation, and keep built-in gradients unchanged.
+Runtime package export includes `shader-materials.json`, strips runtime package shader sources, validates required compiled shader variants, and loads package-provided material metadata at runtime. Do not add runtime shader source compilation, and keep built-in gradients unchanged.
 ```
