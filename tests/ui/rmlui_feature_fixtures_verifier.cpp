@@ -37,7 +37,7 @@ TEST_CASE("RmlUi focused feature fixtures verify backdrop shadow perspective and
         CHECK(green_dominant(image.pixel(100, 48)));
 
         CHECK(cyan_like(image.pixel(62, 56)));
-        CHECK(magenta_like(image.pixel(68, 56)));
+        CHECK(magenta_like(image.pixel(84, 56)));
     }
 
     SECTION("box-shadow fixture renders base elements while shadow output remains tracked by docs")
