@@ -9,7 +9,7 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 - `Renderer` owns bgfx initialization, frame lifecycle, view setup, engine 2D draws, screenshots, resize handling, and shader/material resource caches.
 - `RuntimeUI` owns RmlUi documents, input forwarding, runtime UI binding, and the NovelTea adapter around the external `rmlui-bgfx` renderer package.
 - `DebugUI` owns Dear ImGui developer/debug overlay only.
-- Engine-owned text rendering remains independent from RmlUi text. It exists for NovelTea rich text, per-glyph reveal/effect state, and future ActiveText-specific rendering.
+- Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
 ## External Renderer Package
 
@@ -39,11 +39,17 @@ Current view ownership:
 
 Runtime code loads compiled bgfx shader binaries from staged assets. It does not compile shader source. User-authored shader/material metadata is project/game schema data; exported packages include the compiled variants needed by the runtime.
 
-Material-backed engine 2D quads use `ShaderRole::Engine2D`. RmlUi decorator materials use `ShaderRole::RmlUiDecorator` through the NovelTea adapter for `rmlui-bgfx`.
+Material-backed engine 2D quads use `ShaderRole::Engine2D`. RmlUi decorator materials use `ShaderRole::RmlUiDecorator` through the NovelTea adapter for `rmlui-bgfx`. ActiveText rich-text material tags attempt `ShaderRole::ActiveText` material resolution, and low-level vertex/fragment shader metadata attempts direct shader-pair resolution; both paths fall back to default text rendering with deduped diagnostics when unavailable.
 
 ## Runtime UI Usage
 
 RmlUi is NovelTea's general runtime UI layer. Runtime visual slots such as cover, background, room, object, inventory, and action UI are exposed through backend-neutral view state and bound by `RuntimeUI`. Complex widgets such as ActiveText, MapView, and TextLog may be C++-backed RmlUi elements when ordinary RML/RCSS is insufficient.
+
+For ActiveText, RmlUi hosts `nt-active-text` and continues to receive fallback RML. After RmlUi
+updates layout, `RuntimeUI` collects a direct render snapshot with the resolved content box and a
+FreeType/HarfBuzz-shaped glyph layout mapped back to rich-text metadata. `Engine::render()` submits
+that snapshot through `Renderer::draw_active_text()` after RmlUi has rendered the runtime UI, so the
+direct path overlays the fallback host instead of being hidden by it.
 
 ## Verification
 

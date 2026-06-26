@@ -692,6 +692,9 @@ void Engine::render()
     ++m_frame_count;
 
     m_runtime_ui.end_frame();
+    if (m_runtime_ui.active_text_direct_render_enabled()) {
+        m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
+    }
     if (m_debug_ui_enabled) {
         m_debug_ui.end_frame();
     }

@@ -218,6 +218,14 @@ There are two paths:
 
 The direct shader-pair path still uses precompiled bgfx binaries at runtime and falls back to the default ActiveText/text shader path if the requested pair is unavailable.
 
+Current runtime status: ActiveText glyph visuals preserve material ids and direct shader ids while
+using the engine text stack for shaped glyph positions. `Renderer::draw_active_text()` attempts
+`ShaderRole::ActiveText` material resolution and `resolve_direct_shader_pair_program()` for direct
+shader-pair metadata, then falls back to default text rendering when the requested program is
+unavailable. Diagnostics are deduped by requested material id or shader pair and include the fallback
+behavior. The first direct renderer path does not yet bind custom ActiveText uniforms/samplers or
+provide high-quality custom glow/outline shader effects.
+
 ### RmlUi Decorator Material
 
 Used by RmlUi's generic `shader(<string>)` decorator.

@@ -112,6 +112,7 @@ add_test(
 # --- UI tests (RmlUi is mandatory) ---
 
 add_executable(noveltea_ui_tests
+    ui/active_text_layout_tests.cpp
     ui/active_text_tests.cpp
     ui/rmlui_advanced_gallery_asset_tests.cpp
     ui/rmlui_custom_components_tests.cpp

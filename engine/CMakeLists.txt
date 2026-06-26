@@ -69,6 +69,7 @@ endif()
 
 add_library(engine STATIC
     src/active_text.cpp
+    src/active_text_layout.cpp
     src/assets/asset_manager.cpp
     src/assets.cpp
     src/app.cpp

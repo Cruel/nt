@@ -2,8 +2,10 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
+#include "noveltea/text/text.hpp"
 #include "noveltea/tween_service.hpp"
 #include "script/lua/script_runtime_internal.hpp"
+#include "text/text_engine.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -19,6 +21,7 @@
 #include <SDL3/SDL.h>
 
 #include <RmlUi/Core.h>
+#include <RmlUi/Core/Box.h>
 #include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/EventListener.h>
@@ -74,6 +77,30 @@ core::RuntimeUIViewState validated_visual_state(const assets::AssetManager& asse
     }
     return state;
 }
+
+Rml::Element* find_first_tag(Rml::ElementDocument& doc, const char* tag)
+{
+    Rml::ElementList elements;
+    doc.GetElementsByTagName(elements, tag);
+    return elements.empty() ? nullptr : elements.front();
+}
+
+Rml::Element* find_ancestor_tag(Rml::Element* element, const char* tag)
+{
+    for (auto* current = element; current; current = current->GetParentNode()) {
+        if (current->GetTagName() == tag) {
+            return current;
+        }
+    }
+    return nullptr;
+}
+
+Rect content_rect(Rml::Element& element)
+{
+    const Rml::Vector2f offset = element.GetAbsoluteOffset(Rml::BoxArea::Content);
+    const Rml::Vector2f size = element.GetBox().GetSize(Rml::BoxArea::Content);
+    return {offset.x, offset.y, size.x, size.y};
+}
 } // namespace
 
 struct RuntimeUI::State {
@@ -87,6 +114,7 @@ struct RuntimeUI::State {
         std::function<void()> callback;
     };
     void refresh_runtime_document();
+    void refresh_active_text_layout();
     void load_runtime_document();
     struct RuntimeInputListener final : Rml::EventListener {
         explicit RuntimeInputListener(State& owner_state) : owner(owner_state) {}
@@ -121,6 +149,11 @@ struct RuntimeUI::State {
     float active_text_reveal_progress = 1.0f;
     bool rml_initialized = false;
     core::RuntimeUIViewAdapter runtime_view;
+    std::unique_ptr<text::TextEngine> active_text_engine;
+    FontHandle active_text_font;
+    ActiveTextLayout active_text_layout;
+    double active_text_time_seconds = 0.0;
+    bool active_text_direct_enabled = true;
 };
 
 void RuntimeUI::State::load_runtime_document()
@@ -174,6 +207,49 @@ void RuntimeUI::State::refresh_runtime_document()
     }
     state.active_text_reveal_progress = active_text_reveal_progress;
     document_binder->bind(*doc, state);
+}
+
+void RuntimeUI::State::refresh_active_text_layout()
+{
+    auto doc_it = documents.find("runtime_game");
+    auto* doc = doc_it == documents.end() ? nullptr : doc_it->second;
+    if (!doc) {
+        active_text_layout = {};
+        return;
+    }
+
+    auto* active = find_first_tag(*doc, "nt-active-text");
+    if (!active) {
+        active_text_layout = {};
+        return;
+    }
+
+    const auto& source_state = runtime_host ? runtime_host->view_state() : runtime_view.state();
+    ActiveTextLayoutOptions options;
+    options.bounds = content_rect(*active);
+    options.default_font_alias = "runtime-ui";
+    options.default_text_size = 17.0f;
+    options.line_spacing = 1.35f;
+    options.reveal_progress = active_text_reveal_progress;
+    options.time_seconds = active_text_time_seconds;
+
+    if (active_text_engine && active_text_font) {
+        Text text;
+        text.value = active_text_visible_text(source_state.active_text, options);
+        text.font = active_text_font;
+        text.bounds = options.bounds;
+        text.style.size = options.default_text_size;
+        text.style.color = Color::from_rgba8(247, 244, 237);
+        text.wrap = TextWrap::Word;
+        text.align = options.alignment;
+        const auto shaped = active_text_engine->layout_text(text);
+        active_text_layout = build_active_text_layout(source_state.active_text, options, shaped);
+    } else {
+        active_text_layout = build_active_text_layout(source_state.active_text, options);
+    }
+    active_text_layout.page_break = source_state.page_break || active_text_layout.page_break;
+    active_text_layout.awaiting_continue =
+        source_state.awaiting_continue || active_text_layout.awaiting_continue;
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
@@ -232,6 +308,15 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
         core::RuntimeInput input;
         input.type = core::RuntimeInputType::ClearObjectSelection;
         submit(std::move(input));
+    } else if (find_ancestor_tag(target, "nt-active-text")) {
+        const float x = static_cast<float>(event.GetParameter<int>("mouse_x", 0));
+        const float y = static_cast<float>(event.GetParameter<int>("mouse_y", 0));
+        if (const auto object_id = owner.active_text_layout.object_at({x, y})) {
+            core::RuntimeInput input;
+            input.type = core::RuntimeInputType::SelectObject;
+            input.object_ids = {*object_id};
+            submit(std::move(input));
+        }
     }
 }
 
@@ -287,6 +372,16 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     m_state = new State;
     m_state->window = window;
     m_state->assets = assets;
+    m_state->active_text_engine = std::make_unique<text::TextEngine>(*assets);
+    if (m_state->active_text_engine->valid()) {
+        FontDesc desc;
+        desc.asset_path = kRuntimeUiFontAsset;
+        m_state->active_text_font = m_state->active_text_engine->load_font(desc);
+        if (!m_state->active_text_font) {
+            desc.asset_path = kRuntimeUiSystemFontAsset;
+            m_state->active_text_font = m_state->active_text_engine->load_font(desc);
+        }
+    }
     m_state->file_interface = new ui::rmlui::AssetRmlFileInterface(*assets);
     m_state->system_interface = new ui::rmlui::SdlSystemInterface(window);
     m_state->template_resolver = new ui::rmlui::RuntimeUiTemplateResolver(*assets);
@@ -405,6 +500,9 @@ void RuntimeUI::begin_frame(float delta_time)
     if (m_state && m_state->context) {
         if (m_state->render_interface)
             m_state->render_interface->begin_frame();
+        if (delta_time > 0.0f) {
+            m_state->active_text_time_seconds += static_cast<double>(delta_time);
+        }
         // Advance ActiveText reveal even without twink.
         if (!m_state->tweens && delta_time > 0.0f && m_state->active_text_reveal_progress < 1.0f) {
             constexpr float kRate = 8.0f; // characters per second
@@ -413,6 +511,7 @@ void RuntimeUI::begin_frame(float delta_time)
         }
         m_state->refresh_runtime_document();
         m_state->context->Update();
+        m_state->refresh_active_text_layout();
     }
 }
 
@@ -585,6 +684,19 @@ const core::RuntimeUIViewState& RuntimeUI::runtime_view_state() const
         return m_state->runtime_view.state();
     static const core::RuntimeUIViewState empty;
     return empty;
+}
+
+ActiveTextLayout RuntimeUI::active_text_render_snapshot() const
+{
+    if (!m_state || !m_state->active_text_direct_enabled) {
+        return {};
+    }
+    return m_state->active_text_layout;
+}
+
+bool RuntimeUI::active_text_direct_render_enabled() const
+{
+    return m_state && m_state->active_text_direct_enabled;
 }
 
 void RuntimeUI::bind_runtime_host(core::RuntimeSessionHost* host)

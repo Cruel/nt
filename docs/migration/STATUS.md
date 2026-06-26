@@ -1,6 +1,6 @@
 # Migration Status
 
-Last updated: 2026-06-24.
+Last updated: 2026-06-26.
 
 ## Completed Foundation
 
@@ -17,7 +17,7 @@ Last updated: 2026-06-24.
 - RmlUi runtime UI baseline: project/theme/system template override policy, centralized document binding/template resolution, system fallback RML/RCSS files, reload lifecycle, and runtime UI docs.
 - C++-backed runtime UI component foundation for `nt-active-text`, `nt-map-view`, and `nt-text-log`.
 - `twink` tween integration. RuntimeUI uses it for deterministic ActiveText reveal progress when available.
-- ActiveText v1: runtime view state preserves rich-text data and the UI renders deterministic fallback output with reveal/effect metadata.
+- ActiveText Phase B v1: runtime view state preserves rich-text data, `nt-active-text` remains the RmlUi layout host/fallback, RuntimeUI snapshots resolved RmlUi bounds after layout update, and the engine now builds a shaped backend-neutral `ActiveTextLayout` that is drawn through the bgfx text renderer after RmlUi with reveal, rich-text color, alpha, offsets, scale, deterministic effects, object hit rectangles, descendant-safe hit routing, and material/direct-shader metadata diagnostics.
 - MapView v1: runtime view state exposes map rooms/connections and `nt-map-view` renders deterministic fallback output with current-room highlighting.
 - TextLog v1: runtime view state exposes structured log entries and `nt-text-log` renders deterministic fallback output.
 - Object, inventory, and action presentation: runtime view state tracks selected/available room and inventory objects, predicts action enabled state, exposes clearable selection, and reports invalid selection/action diagnostics.
@@ -34,7 +34,7 @@ Last updated: 2026-06-24.
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Lua-evaluated map visibility is deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
-- Shader-backed ActiveText rendering, bgfx/custom-geometry map rendering, optional map transition animation, and per-object/per-room materials remain active.
+- Exact legacy ActiveText timing, outline/border text, high-quality glow, custom ActiveText shader uniform/sampler binding, advanced mixed-font fallback, bgfx/custom-geometry map rendering, optional map transition animation, and per-object/per-room materials remain active.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 - Once the external renderer API stabilizes, switch `NOVELTEA_RMLUI_BGFX_GIT_TAG` from `master` to a pinned commit or release tag.
@@ -83,5 +83,7 @@ cd android
 For documentation-only cleanup, a targeted stale-reference search is sufficient.
 
 ## Next Implementation Task
+
+Review [`NEXT_STEPS_AFTER_RMLUI_BGFX.md`](NEXT_STEPS_AFTER_RMLUI_BGFX.md) before starting the next migration slice. With the first renderer-backed, shaped ActiveText path in place, the immediate recommended order is to make the updated `rmlui-bgfx` integration green/pinned if still outstanding, harden ActiveText visual parity, then move into MapView Lua visibility, project-authored room/object materials, and real old-project fixture coverage.
 
 Future rendering work should start from a focused NovelTea plan only when it changes NovelTea's integration boundary, shader/material system, runtime presentation, or package/export behavior. RmlUi renderer internals, visual parity probes, refactor goals, and optimization work belong in the standalone `rmlui-bgfx` repository.

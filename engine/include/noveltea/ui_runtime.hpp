@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "noveltea/active_text_layout.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
 #include "noveltea/core/runtime_ui_view.hpp"
 #include "noveltea/surface.hpp"
@@ -54,6 +55,8 @@ public:
     void set_density(float density);
     void apply_controller_commands(const std::vector<core::ControllerCommand>& commands);
     const core::RuntimeUIViewState& runtime_view_state() const;
+    ActiveTextLayout active_text_render_snapshot() const;
+    bool active_text_direct_render_enabled() const;
     void bind_runtime_host(core::RuntimeSessionHost* host);
     void bind_tween_service(TweenService* tweens);
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,

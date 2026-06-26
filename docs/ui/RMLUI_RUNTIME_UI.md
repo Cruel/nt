@@ -79,7 +79,7 @@ Visual metadata is read from backend-neutral entity properties. Supported keys a
 - Rooms: `background`, `image`, `texture`
 - Objects: `image`, `texture`
 
-Values may be full logical paths such as `project:/textures/foyer.png`, relative texture paths such as `textures/foyer.png`, or texture ids/names that resolve to `project:/textures/<value>`. Material properties are not interpreted by the runtime UI v1 path; rich-text material IDs and low-level shader IDs remain preserved as ActiveText metadata stubs.
+Values may be full logical paths such as `project:/textures/foyer.png`, relative texture paths such as `textures/foyer.png`, or texture ids/names that resolve to `project:/textures/<value>`. Material properties are not interpreted for room/object UI image slots in this path; rich-text material IDs and low-level shader IDs are preserved on ActiveText glyph visuals and resolved by the direct ActiveText renderer when possible.
 
 `RuntimeUI` validates resolved visual paths with `AssetManager::exists()` before binding and records missing paths in `RuntimeUIViewState::asset_diagnostics` for display in `rt_asset_status`. Decode/upload failures remain renderer diagnostics from the RmlUi/bgfx texture loader.
 
@@ -115,8 +115,17 @@ The binder:
   in fallback RML. Without a bound service, progress is complete and the UI remains static.
 - ActiveText fallback RML consumes backend-neutral `RichTextDocument` state from
   `RuntimeUIViewState` through the engine `ActiveTextFrame` projection. It emits per-glyph
-  classes/data attributes for style, object, diff, offset, reveal, and effect state. Shader
-  ids are preserved as metadata stubs until renderer-specific material hooks are implemented.
+  classes/data attributes for style, object, diff, offset, reveal, and effect state.
+- RuntimeUI also exposes a direct ActiveText render snapshot. After `Rml::Context::Update()` has
+  resolved layout, `nt-active-text` provides the content box in logical coordinates. RuntimeUI uses
+  the engine text stack to shape the visible text and `ActiveTextLayout` maps the shaped glyph byte
+  ranges back to rich-text metadata, renderer-facing glyph visuals, and object hit rectangles.
+  `Renderer::draw_active_text()` draws those shaped glyphs through the existing bgfx text atlas path
+  after RmlUi has rendered, so the direct path is visibly exercised while fallback RML remains
+  available.
+- Clicking an object span inside `nt-active-text` walks from the event target through ancestors to
+  find the owning active-text element, then uses the direct layout hit rectangles and routes through
+  `RuntimeInputType::SelectObject`. This covers clicks on the root, child spans, or descendants.
 - Logs missing optional slots once per slot per document lifetime.
 - Populates `rt_map` with a placeholder when empty.
 

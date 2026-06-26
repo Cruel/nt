@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 
 namespace noveltea {
 namespace {
@@ -31,19 +30,6 @@ std::vector<std::string> split_utf8_codepoints(std::string_view text)
     if (begin < text.size())
         out.emplace_back(text.substr(begin));
     return out;
-}
-
-void log_material_use(const core::RichTextRun& run, std::size_t run_index)
-{
-    if (!run.style.material_id.empty()) {
-        std::fprintf(stderr, "[active_text] material requested for run %zu: material='%s'\n",
-                     run_index, run.style.material_id.c_str());
-    }
-    if (!run.style.vertex_shader_id.empty() || !run.style.fragment_shader_id.empty()) {
-        std::fprintf(
-            stderr, "[active_text] shader requested for run %zu: vertex='%s' fragment='%s'\n",
-            run_index, run.style.vertex_shader_id.c_str(), run.style.fragment_shader_id.c_str());
-    }
 }
 
 float animation_progress(const core::RichTextAnimation& animation, double time_seconds)
@@ -154,7 +140,6 @@ ActiveTextFrame build_active_text_frame(const core::RichTextDocument& document,
             ++emitted;
         }
         if (!run_frame.glyphs.empty()) {
-            log_material_use(run, run_index);
             frame.runs.push_back(std::move(run_frame));
         }
     }

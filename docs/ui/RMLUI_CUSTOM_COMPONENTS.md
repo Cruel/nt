@@ -6,7 +6,7 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
 
 ## Initial Component Candidates
 
-- `nt-active-text`: registered as a C++ RmlUi element. Phase 5 binds room/dialogue/cutscene body state into safe fallback RML. Phase 6 adds deterministic reveal progress through the engine-owned `TweenService`. Phase 7 preserves `RichTextDocument` state, builds deterministic per-glyph ActiveText frames, and emits fallback RML glyph spans with style, object, material, shader, offset, diff, and effect state. Material and shader ids remain metadata stubs until renderer-specific hooks are added.
+- `nt-active-text`: registered as a C++ RmlUi element. It binds room/dialogue/cutscene body state into safe fallback RML, drives deterministic reveal progress through the engine-owned `TweenService` when available, preserves `RichTextDocument` state, and emits fallback RML glyph spans with style, object, material, shader, offset, diff, and effect state. Phase B adds a direct renderer snapshot: after RmlUi resolves the element box, RuntimeUI shapes visible text through the engine text stack, `ActiveTextLayout` maps shaped glyph ranges back to rich-text metadata and object hit rectangles, and the engine bgfx text renderer draws the direct path after RmlUi while preserving fallback RML.
 - `nt-map-view`: registered as a C++ RmlUi element. Phase 8 binds typed map rooms and
   connections from `RuntimeUIViewState`, highlights the current room, preserves style ids and
   visibility script text as metadata, and emits `nt-nav` click targets for directly reachable
@@ -27,3 +27,9 @@ component snapshots.
 The system fallback runtime template contains all three initial tags. Project/theme
 overrides may still provide legacy slots such as `rt_body`, `rt_log`, and `rt_map`; the
 binder keeps those working with the same fallback RML.
+
+Direct ActiveText rendering is intentionally engine-side. RmlUi owns layout hosting and fallback
+markup; RuntimeUI snapshots the resolved element bounds after `Rml::Context::Update()`; NovelTea's
+text stack owns shaping; and NovelTea's renderer owns glyph submission, material/direct-shader
+resolution attempts, and deduped diagnostics. Missing ActiveText material or direct shader-pair
+programs fall back to default text rendering.

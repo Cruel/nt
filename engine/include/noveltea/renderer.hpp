@@ -2,6 +2,7 @@
 
 #include "noveltea/render/quad_batch.hpp"
 #include "noveltea/preview_bridge.hpp"
+#include "noveltea/active_text_layout.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/text/font.hpp"
 #include "noveltea/text/text.hpp"
@@ -60,6 +61,7 @@ public:
     void draw_text(const Text& text);
     void draw_text(const TextLayout& layout);
     void draw_text(const TextRun& run);
+    void draw_active_text(const ActiveTextLayout& layout);
     TextMetrics measure_text(FontHandle font, std::string_view text, float size) const;
 
     const char* renderer_name() const;
