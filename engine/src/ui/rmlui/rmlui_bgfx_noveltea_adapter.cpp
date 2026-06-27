@@ -441,6 +441,7 @@ BgfxRenderInterface::BgfxRenderInterface(const SurfaceMetrics& surface,
     config.diagnostics = m_adapter.get();
     config.perf_logger = m_adapter.get();
     config.material_shaders = m_adapter.get();
+    config.render_path = rmlui_bgfx::RenderPath::Optimized;
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
 }
 
