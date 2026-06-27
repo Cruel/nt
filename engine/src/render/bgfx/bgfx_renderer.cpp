@@ -176,7 +176,9 @@ bool Renderer::initialize(const RendererConfig& config)
     const SurfaceMetrics surface = sanitize_surface_metrics(config.surface);
     init.resolution.width = static_cast<uint32_t>(surface.framebuffer_width);
     init.resolution.height = static_cast<uint32_t>(surface.framebuffer_height);
-    init.resolution.reset = BGFX_RESET_MSAA_X4 | (config.vsync ? BGFX_RESET_VSYNC : 0);
+    // Keep swapchain MSAA off. RmlUi resolves its own offscreen MSAA before final presentation,
+    // matching the upstream GL3 renderer's normal-backbuffer final pass.
+    init.resolution.reset = (config.vsync ? BGFX_RESET_VSYNC : 0);
 
     if (!bgfx::init(init)) {
         std::fprintf(stderr, "[renderer] bgfx::init failed\n");
@@ -308,7 +310,7 @@ void Renderer::resize(const SurfaceMetrics& surface)
 
     bgfx::reset(static_cast<uint32_t>(m_surface.framebuffer_width),
                 static_cast<uint32_t>(m_surface.framebuffer_height),
-                BGFX_RESET_MSAA_X4 | (m_vsync ? BGFX_RESET_VSYNC : 0));
+                (m_vsync ? BGFX_RESET_VSYNC : 0));
     bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
                       static_cast<uint16_t>(m_surface.framebuffer_height));
     SDL_Log("[renderer] resized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",

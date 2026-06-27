@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -74,6 +75,14 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
         material.textures.begin(), material.textures.end(),
         [name](const MaterialTextureAssignment& assignment) { return assignment.sampler == name; });
     return found == material.textures.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] bool env_flag_enabled(const char* name)
+{
+    const char* value = std::getenv(name);
+    return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' ||
+                     value[0] == 'y' || value[0] == 'Y' || value[0] == 'o' ||
+                     value[0] == 'O');
 }
 
 [[nodiscard]] bool starts_with(std::string_view value, std::string_view prefix) noexcept
@@ -442,6 +451,7 @@ BgfxRenderInterface::BgfxRenderInterface(const SurfaceMetrics& surface,
     config.perf_logger = m_adapter.get();
     config.material_shaders = m_adapter.get();
     config.render_path = rmlui_bgfx::RenderPath::Optimized;
+    config.trace_filter_pipeline = env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
 }
 
