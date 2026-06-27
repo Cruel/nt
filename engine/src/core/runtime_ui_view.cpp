@@ -248,9 +248,9 @@ void RuntimeUIViewAdapter::set_room_interactions(std::vector<RuntimeUIObject> ob
 
 void RuntimeUIViewAdapter::sync_visuals(const GameSession& session)
 {
-    m_state.cover_image = "project:/image";
+    m_state.cover_image.clear();
     m_state.room_image.clear();
-    m_state.background_image = m_state.cover_image;
+    m_state.background_image.clear();
     m_state.asset_diagnostics.clear();
 
     const auto* project = session.project();

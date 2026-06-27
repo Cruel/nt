@@ -7,18 +7,22 @@ using namespace noveltea::core;
 
 TEST_CASE("Rich text parser preserves old BBCode style semantics")
 {
-    auto doc = parse_rich_text("[b]bo[/b][i]ld[/i] [c=#bed]color[/c] [f=body][s=18]font[/s][/f]");
+    auto doc =
+        parse_rich_text("[b]bo[/b][i]ld[/i] [u]under[/u] [strike]hit[/strike] [c=#bed]color[/c] "
+                        "[f=body][s=18]font[/s][/f]");
 
-    REQUIRE(doc.plain_text == "bold color font");
-    REQUIRE(doc.runs.size() == 6);
+    REQUIRE(doc.plain_text == "bold under hit color font");
+    REQUIRE(doc.runs.size() == 10);
     CHECK((doc.runs[0].style.font_style & FontBold) != 0);
     CHECK((doc.runs[1].style.font_style & FontBold) == 0);
     CHECK((doc.runs[1].style.font_style & FontItalic) != 0);
-    CHECK(doc.runs[3].style.color.r == 0xbb);
-    CHECK(doc.runs[3].style.color.g == 0xee);
-    CHECK(doc.runs[3].style.color.b == 0xdd);
-    CHECK(doc.runs[5].style.font_alias == "body");
-    CHECK(doc.runs[5].style.font_size == 18);
+    CHECK((doc.runs[3].style.font_style & FontUnderlined) != 0);
+    CHECK((doc.runs[5].style.font_style & FontStrikeThrough) != 0);
+    CHECK(doc.runs[7].style.color.r == 0xbb);
+    CHECK(doc.runs[7].style.color.g == 0xee);
+    CHECK(doc.runs[7].style.color.b == 0xdd);
+    CHECK(doc.runs[9].style.font_alias == "body");
+    CHECK(doc.runs[9].style.font_size == 18);
 }
 
 TEST_CASE("Rich text parser handles object shorthand page breaks offsets and animation")

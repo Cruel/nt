@@ -125,28 +125,29 @@ The next migration steps should therefore be organized around visual/runtime par
 
 ### Phase B: Implement real ActiveText rendering `[implemented v1]`
 
-Goal: move ActiveText from metadata-preserving fallback RML to real renderer-backed NovelTea text presentation.
+Goal: keep ActiveText as a renderer-backed NovelTea text object. RmlUi may host layout/input and provide attributes/properties, but it must not generate or render ActiveText glyph RML under the hood.
 
 Current state:
 
 - `RichTextDocument` preserves old BBCode semantics.
 - `ActiveTextFrame` preserves per-glyph reveal/effect/style/object/material/shader metadata.
-- `nt-active-text` projects deterministic fallback RML.
+- `nt-active-text` is an RmlUi custom element host for layout/input; it does not project glyph fallback RML.
 - Engine-owned text layout/rendering exists independently of RmlUi text.
 
 Implemented v1:
 
 - `ActiveTextLayout` is a backend-neutral layout/presentation layer over `RichTextDocument`, `ActiveTextFrame`, and shaped `TextLayout` glyph data.
-- RuntimeUI keeps `nt-active-text` as the RmlUi layout host and fallback RML source, then snapshots the resolved content box after `Rml::Context::Update()` so direct layout uses current RmlUi bounds.
+- RuntimeUI keeps `nt-active-text` as the RmlUi layout host only, then snapshots the resolved content box after `Rml::Context::Update()` so direct layout uses current RmlUi bounds.
 - RuntimeUI shapes the visible ActiveText string through the engine text stack and maps shaped glyph byte ranges back to rich-text run/glyph metadata where possible.
-- `Renderer::draw_active_text()` draws the mapped shaped glyphs through the existing FreeType/HarfBuzz glyph atlas and bgfx text submission path after RmlUi has rendered, making the direct path visibly testable instead of hidden by fallback RML.
-- Reveal, rich-text color, alpha, offsets, best-effort scale, deterministic fade/pop/nod/shake/tremble/glow metadata, page-break/awaiting-continue state, and object hit rectangles are represented.
-- Object span clicks route through `RuntimeInputType::SelectObject` using the direct layout hit rectangles; event routing walks ancestors so clicks on child spans or descendants inside `nt-active-text` are handled.
+- `Renderer::draw_active_text()` draws the mapped shaped glyphs through the existing FreeType/HarfBuzz glyph atlas and bgfx text submission path after RmlUi has rendered. This is the only visible ActiveText glyph renderer.
+- Reveal, rich-text color, alpha, offsets, best-effort scale, font alias/size/style metadata, renderer-side synthetic bold/italic/underline/strike styling, deterministic fade/pop/nod/shake/tremble/glow metadata, page-break/awaiting-continue state, and object hit rectangles are represented.
+- RuntimeUI advances reveal by visible glyph count instead of treating the 0-1 reveal fraction as a fixed duration; the twink-backed and non-twink paths both use the same glyph-rate basis.
+- Object span clicks route through `RuntimeInputType::SelectObject` using the direct layout hit rectangles; event routing walks ancestors so clicks on child spans or descendants inside `nt-active-text` are handled. Non-object body clicks now skip an in-progress reveal or continue after reveal completion.
 - Per-frame material/shader stderr logging was removed. ActiveText material/direct-shader metadata is preserved; failed material or direct shader-pair resolution falls back to default text rendering with deduped diagnostics.
 
 Remaining gap:
 
-Old `ActiveText` was a real drawable/runtime object with reveal progression, segment timing, wait-for-click behavior, skip behavior, cursor state, highlight/object hit testing, alpha/show/hide tweening, layout bounds, line spacing, font scaling, and visual effects. The new v1 direct path establishes the renderer boundary and direct shaped drawing, but exact legacy timing, outline/border text, high-quality glow, custom ActiveText shader uniform/sampler binding, advanced mixed-font fallback, and full visual parity remain deferred.
+Old `ActiveText` was a real drawable/runtime object with reveal progression, segment timing, wait-for-click behavior, skip behavior, cursor state, highlight/object hit testing, alpha/show/hide tweening, layout bounds, line spacing, font scaling, and visual effects. The new v1 direct path establishes the renderer boundary and direct shaped drawing with basic reveal skip/continue behavior and first-pass synthetic font styling, but exact legacy segment timing, outline/border text, high-quality glow, custom ActiveText shader uniform/sampler binding, real multi-face font-family resolution, FreeType-backed synthetic style rasterization, advanced mixed-font fallback, and full visual parity remain deferred.
 
 Implementation slices:
 
@@ -158,7 +159,7 @@ Implementation slices:
 2. Render basic shaped text through the existing engine text stack.
    - Use FreeType/HarfBuzz layout data.
    - Respect logical bounds, line wrapping, alignment, color, font size, and reveal progress.
-   - Preserve fallback RML path until the direct renderer is stable.
+   - Do not reintroduce ActiveText glyph fallback RML; fix direct renderer parity in the bgfx/text path.
 
 3. Map rich-text style runs to renderer styles.
    - Colors.

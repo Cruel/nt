@@ -63,7 +63,14 @@ ActiveTextGlyphVisual make_visual(const ActiveTextGlyph& glyph,
     visual.run_index = glyph.run_index;
     visual.glyph_index = glyph.glyph_index;
     visual.color = to_color(glyph.style.color);
+    if (glyph.style.color.r == 0 && glyph.style.color.g == 0 && glyph.style.color.b == 0 &&
+        glyph.style.color.a == 255) {
+        visual.color = Color::from_rgba8(247, 244, 237);
+    }
     visual.alpha = std::clamp(glyph.alpha, 0.0f, 1.0f);
+    visual.font_alias = glyph.style.font_alias;
+    visual.font_size = glyph.style.font_size;
+    visual.font_style = glyph.style.font_style;
     const float base_size = std::max(options.default_text_size, 1.0f);
     visual.scale = glyph.scale * std::max(glyph_size(glyph, options) / base_size, 0.01f);
     visual.offset = glyph.offset;

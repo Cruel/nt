@@ -96,6 +96,24 @@ TEST_CASE("ActiveTextLayout preserves run style object material and shader metad
     CHECK(glyph.fragment_shader_id == "frag");
 }
 
+TEST_CASE("ActiveTextLayout preserves font alias size and style metadata")
+{
+    const auto doc = parse_rich_text(
+        "[font id=body][s=30][b][i][u][strike]Styled[/strike][/u][/i][/b][/s][/font]");
+
+    const auto layout = build_active_text_layout(
+        doc, ActiveTextLayoutOptions{.bounds = {0.0f, 0.0f, 400.0f, 100.0f}});
+
+    REQUIRE_FALSE(layout.glyphs.empty());
+    const auto& glyph = layout.glyphs.front();
+    CHECK(glyph.font_alias == "body");
+    CHECK(glyph.font_size == 30u);
+    CHECK((glyph.font_style & FontBold) != 0);
+    CHECK((glyph.font_style & FontItalic) != 0);
+    CHECK((glyph.font_style & FontUnderlined) != 0);
+    CHECK((glyph.font_style & FontStrikeThrough) != 0);
+}
+
 TEST_CASE("ActiveTextLayout maps colors alpha and deterministic effects")
 {
     const auto doc = parse_rich_text("[c=#336699][a1 e=s t=1]ab[/a1][/c]");

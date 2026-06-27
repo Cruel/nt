@@ -13,6 +13,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <unordered_map>
 #include <utility>
@@ -41,6 +42,7 @@ namespace {
 constexpr const char* kRuntimeUiFontAsset = "project:/rmlui/LiberationSans.ttf";
 constexpr const char* kRuntimeUiSystemFontAsset = "system:/fonts/LiberationSans.ttf";
 constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
+constexpr float kActiveTextRevealGlyphsPerSecond = 32.0f;
 
 void validate_visual_asset(const assets::AssetManager& assets, core::RuntimeUIViewState& state,
                            const std::string& path, std::unordered_set<std::string>& logged)
@@ -100,6 +102,27 @@ Rect content_rect(Rml::Element& element)
     const Rml::Vector2f offset = element.GetAbsoluteOffset(Rml::BoxArea::Content);
     const Rml::Vector2f size = element.GetBox().GetSize(Rml::BoxArea::Content);
     return {offset.x, offset.y, size.x, size.y};
+}
+
+std::size_t utf8_codepoint_count(std::string_view text)
+{
+    std::size_t count = 0;
+    for (const unsigned char ch : text) {
+        if ((ch & 0xc0u) != 0x80u) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+float active_text_reveal_glyph_count(const core::RichTextDocument& document)
+{
+    return static_cast<float>(std::max<std::size_t>(utf8_codepoint_count(document.plain_text), 1u));
+}
+
+float active_text_reveal_duration_seconds(const core::RichTextDocument& document)
+{
+    return active_text_reveal_glyph_count(document) / kActiveTextRevealGlyphsPerSecond;
 }
 } // namespace
 
@@ -190,7 +213,8 @@ void RuntimeUI::State::refresh_runtime_document()
             active_text_reveal_progress = body.empty() ? 1.0f : 0.0f;
             if (!body.empty()) {
                 tweens->tween_float("runtime-ui", "active-text-reveal", active_text_reveal_progress,
-                                    0.0f, 1.0f, 0.18);
+                                    0.0f, 1.0f,
+                                    active_text_reveal_duration_seconds(source_state.active_text));
             }
         }
     } else {
@@ -316,6 +340,14 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
             input.type = core::RuntimeInputType::SelectObject;
             input.object_ids = {*object_id};
             submit(std::move(input));
+        } else if (owner.active_text_reveal_progress < 1.0f) {
+            owner.active_text_reveal_progress = 1.0f;
+            owner.refresh_runtime_document();
+            owner.refresh_active_text_layout();
+        } else {
+            core::RuntimeInput input;
+            input.type = core::RuntimeInputType::Continue;
+            submit(std::move(input));
         }
     }
 }
@@ -432,10 +464,10 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
 
     if (!Rml::LoadFontFace(kRuntimeUiFontAsset, true)) {
         std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiFontAsset);
-    }
-    if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, true)) {
-        std::fprintf(stderr, "[runtime_ui] (optional) failed to load font: %s\n",
-                     kRuntimeUiSystemFontAsset);
+        if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, true)) {
+            std::fprintf(stderr, "[runtime_ui] (optional) failed to load font: %s\n",
+                         kRuntimeUiSystemFontAsset);
+        }
     }
 
     if (load_demo_document) {
@@ -505,9 +537,12 @@ void RuntimeUI::begin_frame(float delta_time)
         }
         // Advance ActiveText reveal even without twink.
         if (!m_state->tweens && delta_time > 0.0f && m_state->active_text_reveal_progress < 1.0f) {
-            constexpr float kRate = 8.0f; // characters per second
+            const auto& source_state = m_state->runtime_host ? m_state->runtime_host->view_state()
+                                                             : m_state->runtime_view.state();
+            const float glyph_count = active_text_reveal_glyph_count(source_state.active_text);
             m_state->active_text_reveal_progress =
-                std::min(1.0f, m_state->active_text_reveal_progress + delta_time * kRate);
+                std::min(1.0f, m_state->active_text_reveal_progress +
+                                   delta_time * kActiveTextRevealGlyphsPerSecond / glyph_count);
         }
         m_state->refresh_runtime_document();
         m_state->context->Update();

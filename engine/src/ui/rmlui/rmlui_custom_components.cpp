@@ -115,6 +115,31 @@ std::string run_class(const core::RichTextRun& run)
     return classes;
 }
 
+std::string glyph_text_rml(std::string_view text)
+{
+    if (text == " ")
+        return "&#160;";
+    return escape_rml(text);
+}
+
+std::string glyph_style_rml(const ActiveTextGlyph& glyph)
+{
+    std::ostringstream style;
+    style << "color: #" << std::hex << std::setw(2) << std::setfill('0')
+          << static_cast<int>(glyph.style.color.r) << std::setw(2)
+          << static_cast<int>(glyph.style.color.g) << std::setw(2)
+          << static_cast<int>(glyph.style.color.b) << std::dec << ";";
+    if (glyph.style.font_size != 12)
+        style << "font-size: " << glyph.style.font_size << "px;";
+    if ((glyph.style.font_style & core::FontBold) != 0)
+        style << "font-weight: bold;";
+    if ((glyph.style.font_style & core::FontItalic) != 0)
+        style << "color: #bfe3ff;";
+    if ((glyph.style.font_style & core::FontUnderlined) != 0)
+        style << "text-decoration: underline;";
+    return style.str();
+}
+
 std::string glyph_rml(const ActiveTextGlyph& glyph)
 {
     core::RichTextRun class_source;
@@ -123,6 +148,7 @@ std::string glyph_rml(const ActiveTextGlyph& glyph)
 
     std::ostringstream out;
     out << "<span class=\"nt-active-text__glyph " << run_class(class_source) << "\"";
+    out << " style=\"" << glyph_style_rml(glyph) << "\"";
     out << " data-run-index=\"" << glyph.run_index << "\"";
     out << " data-glyph-index=\"" << glyph.glyph_index << "\"";
     if (!glyph.style.object_id.empty())
@@ -157,7 +183,7 @@ std::string glyph_rml(const ActiveTextGlyph& glyph)
         if (glyph.animation.delay_ms > 0)
             out << " data-effect-delay-ms=\"" << glyph.animation.delay_ms << "\"";
     }
-    out << " data-color=\"" << color_attr(glyph.style.color) << "\">" << escape_rml(glyph.text)
+    out << " data-color=\"" << color_attr(glyph.style.color) << "\">" << glyph_text_rml(glyph.text)
         << "</span>";
     return out.str();
 }
@@ -240,23 +266,6 @@ TextLogComponentSnapshot make_text_log_snapshot(const core::RuntimeUIViewState& 
             << "</div></div>";
     }
     return {out.str()};
-}
-
-std::string active_text_rml(const ActiveTextComponentSnapshot& snapshot)
-{
-    std::ostringstream out;
-    const auto reveal_progress = std::clamp(snapshot.reveal_progress, 0.0f, 1.0f);
-    const auto rich_body = rich_text_rml(snapshot.rich_text, reveal_progress);
-    const auto body = rich_body.empty() ? paragraph_rml(snapshot.body) : rich_body;
-    out << "<div class=\"nt-active-text__body\" data-reveal-progress=\"" << std::fixed
-        << std::setprecision(3) << reveal_progress << "\">" << (body.empty() ? "&nbsp;" : body)
-        << "</div>";
-    if (snapshot.page_break) {
-        out << "<div class=\"nt-active-text__prompt\">Page break</div>";
-    } else if (snapshot.awaiting_continue) {
-        out << "<div class=\"nt-active-text__prompt\">Awaiting continue</div>";
-    }
-    return out.str();
 }
 
 std::string map_view_rml(const MapViewComponentSnapshot& snapshot)
@@ -355,7 +364,10 @@ NtActiveTextElement::NtActiveTextElement(const Rml::String& tag) : Rml::Element(
 
 void NtActiveTextElement::set_snapshot(const ActiveTextComponentSnapshot& snapshot)
 {
-    SetInnerRML(active_text_rml(snapshot));
+    SetAttribute("data-reveal-progress", snapshot.reveal_progress);
+    SetAttribute("data-page-break", snapshot.page_break);
+    SetAttribute("data-awaiting-continue", snapshot.awaiting_continue);
+    SetInnerRML("");
 }
 
 NtMapViewElement::NtMapViewElement(const Rml::String& tag) : Rml::Element(tag) {}

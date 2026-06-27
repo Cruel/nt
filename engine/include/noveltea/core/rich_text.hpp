@@ -25,6 +25,8 @@ enum class TextStyleType : int {
     PageBreak,
     Shader,
     Size,
+    Strike,
+    Underline,
     XOffset,
     YOffset,
 };

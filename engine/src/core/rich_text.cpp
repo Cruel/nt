@@ -291,9 +291,17 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
             parse_key_values(tag, tag_full, false);
             if (tag.params.empty() && !closing)
                 throw std::runtime_error("empty shader tag");
+        } else if (tag_lower == "strike" || tag_lower == "strikethrough") {
+            tag.type = TextStyleType::Strike;
         } else {
             tag.type = TextStyleType::Size;
             parse_single_arg(tag, tag_full, "size");
+        }
+    } else if (c == 'u') {
+        if (tag_lower == "u" || tag_lower == "underline") {
+            tag.type = TextStyleType::Underline;
+        } else {
+            throw std::runtime_error("unknown tag");
         }
     } else if (c == 'x') {
         tag.type = TextStyleType::XOffset;
@@ -337,6 +345,12 @@ void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& ta
         break;
     case TextStyleType::Size:
         style.font_size = static_cast<unsigned int>(std::max(parse_int(tag.params.at("size")), 0));
+        break;
+    case TextStyleType::Strike:
+        style.font_style |= FontStrikeThrough;
+        break;
+    case TextStyleType::Underline:
+        style.font_style |= FontUnderlined;
         break;
     case TextStyleType::XOffset:
         style.x_offset = parse_int(tag.params.at("x"));

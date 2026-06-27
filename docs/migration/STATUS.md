@@ -17,7 +17,7 @@ Last updated: 2026-06-26.
 - RmlUi runtime UI baseline: project/theme/system template override policy, centralized document binding/template resolution, system fallback RML/RCSS files, reload lifecycle, and runtime UI docs.
 - C++-backed runtime UI component foundation for `nt-active-text`, `nt-map-view`, and `nt-text-log`.
 - `twink` tween integration. RuntimeUI uses it for deterministic ActiveText reveal progress when available.
-- ActiveText Phase B v1: runtime view state preserves rich-text data, `nt-active-text` remains the RmlUi layout host/fallback, RuntimeUI snapshots resolved RmlUi bounds after layout update, and the engine now builds a shaped backend-neutral `ActiveTextLayout` that is drawn through the bgfx text renderer after RmlUi with reveal, rich-text color, alpha, offsets, scale, deterministic effects, object hit rectangles, descendant-safe hit routing, and material/direct-shader metadata diagnostics.
+- ActiveText Phase B v1: runtime view state preserves rich-text data, `nt-active-text` is now an RmlUi layout/input host only, RuntimeUI snapshots resolved RmlUi bounds after layout update, and the engine builds a shaped backend-neutral `ActiveTextLayout` that is drawn exclusively through the bgfx text renderer after RmlUi with length-scaled reveal progression, click-to-skip/continue behavior, rich-text color, alpha, offsets, scale, font style metadata, renderer-side synthetic bold/italic/underline/strike styling, deterministic effects, object hit rectangles, descendant-safe hit routing, and material/direct-shader metadata diagnostics. ActiveText no longer generates fallback RML glyph markup.
 - MapView v1: runtime view state exposes map rooms/connections and `nt-map-view` renders deterministic fallback output with current-room highlighting.
 - TextLog v1: runtime view state exposes structured log entries and `nt-text-log` renders deterministic fallback output.
 - Object, inventory, and action presentation: runtime view state tracks selected/available room and inventory objects, predicts action enabled state, exposes clearable selection, and reports invalid selection/action diagnostics.
@@ -34,7 +34,7 @@ Last updated: 2026-06-26.
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Lua-evaluated map visibility is deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
-- Exact legacy ActiveText timing, outline/border text, high-quality glow, custom ActiveText shader uniform/sampler binding, advanced mixed-font fallback, bgfx/custom-geometry map rendering, optional map transition animation, and per-object/per-room materials remain active.
+- Exact legacy ActiveText segment timing, outline/border text, high-quality glow, custom ActiveText shader uniform/sampler binding, real multi-face font-family resolution, FreeType-backed synthetic style rasterization, advanced mixed-font fallback, bgfx/custom-geometry map rendering, optional map transition animation, and per-object/per-room materials remain active.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 - Once the external renderer API stabilizes, switch `NOVELTEA_RMLUI_BGFX_GIT_TAG` from `master` to a pinned commit or release tag.

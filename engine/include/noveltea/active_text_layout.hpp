@@ -32,6 +32,9 @@ struct ActiveTextGlyphVisual {
     Rect bounds{};
     Color color{1.0f, 1.0f, 1.0f, 1.0f};
     float alpha = 1.0f;
+    std::string font_alias;
+    unsigned int font_size = 12;
+    unsigned int font_style = core::FontRegular;
     float scale = 1.0f;
     Vec2 offset{};
     float glow = 0.0f;

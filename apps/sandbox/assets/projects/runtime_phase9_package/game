@@ -45,7 +45,7 @@
       "package_room",
       "",
       {},
-      "This room was loaded from a generated legacy project package.",
+      "This packaged room includes styled ActiveText: [b]bold[/b], [i]italic[/i], [u]underline[/u], [strike]strike[/strike], [s=30]large[/s], and [c=#bed]color[/c].",
       "",
       "",
       "",

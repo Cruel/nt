@@ -219,6 +219,7 @@ void Renderer::begin_frame()
     bgfx::setViewRect(ViewGameLayerUIOverlay, 0, 0, fb_w, fb_h);
 
     bgfx::setViewRect(ViewTextLab, 0, 0, fb_w, fb_h);
+    bgfx::setViewRect(ViewActiveText, 0, 0, fb_w, fb_h);
     bgfx::setViewRect(ViewDebugUI, 0, 0, fb_w, fb_h);
 
     float ortho[16];
@@ -229,6 +230,7 @@ void Renderer::begin_frame()
     bgfx::setViewTransform(ViewGameLayerForeground, nullptr, ortho);
     bgfx::setViewTransform(ViewGameLayerUIOverlay, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
+    bgfx::setViewTransform(ViewActiveText, nullptr, ortho);
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::dbgTextClear();

@@ -53,7 +53,7 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
             dynamic_cast<NtActiveTextElement*>(find_component(doc, "nt-active-text"))) {
         active_text->set_snapshot(make_active_text_snapshot(state));
     } else if (auto* body = find_element(doc, "rt_body", m_logged_missing)) {
-        body->SetInnerRML(active_text_rml(make_active_text_snapshot(state)));
+        body->SetInnerRML("");
     }
     if (auto* note = find_element(doc, "rt_notification", m_logged_missing)) {
         note->SetInnerRML(escape_rml(state.notification));

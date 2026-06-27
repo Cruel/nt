@@ -1,9 +1,10 @@
 #include "noveltea/renderer.hpp"
 
+#include "noveltea/core/rich_text.hpp"
+#include "noveltea/render/shader_manifest.hpp"
 #include "render/bgfx/bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
-#include "noveltea/render/shader_manifest.hpp"
 #include "text/text_engine.hpp"
 
 #include <SDL3/SDL_log.h>
@@ -67,6 +68,8 @@ float effective_alpha(const TextStyle& style)
 {
     return std::clamp(style.color.a * style.alpha, 0.0f, 1.0f);
 }
+
+bool has_font_style(unsigned int style, unsigned int flag) noexcept { return (style & flag) != 0; }
 
 Vec2 transform_point(Vec2 point, Vec2 origin, const Transform2D& transform)
 {
@@ -442,22 +445,89 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
             positioned.position.y + positioned.offset.y - glyph_bearing_y + visual.offset.y;
         const float x1 = x0 + glyph_width;
         const float y1 = y0 + glyph_height;
-        const uint16_t base = static_cast<uint16_t>(vertices.size());
         const Color color = visual.diff ? Color::from_rgba8(255, 214, 92) : visual.color;
         const float alpha = std::clamp(visual.alpha * color.a, 0.0f, 1.0f);
-        vertices.push_back({x0, y0, glyph->u0, glyph->v0, color.r, color.g, color.b, alpha});
-        vertices.push_back({x1, y0, glyph->u1, glyph->v0, color.r, color.g, color.b, alpha});
-        vertices.push_back({x1, y1, glyph->u1, glyph->v1, color.r, color.g, color.b, alpha});
-        vertices.push_back({x0, y1, glyph->u0, glyph->v1, color.r, color.g, color.b, alpha});
-        indices.insert(indices.end(),
-                       {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
-                        base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
+        const bool synthetic_bold = has_font_style(visual.font_style, core::FontBold);
+        const bool synthetic_italic = has_font_style(visual.font_style, core::FontItalic);
+        const float italic_shear = synthetic_italic ? std::max(glyph_height * 0.18f, 1.0f) : 0.0f;
+        const float bold_offset =
+            synthetic_bold ? std::max(0.75f, visual.font_size * 0.035f) : 0.0f;
+        const int passes = synthetic_bold ? 2 : 1;
+        for (int pass = 0; pass < passes; ++pass) {
+            const float pass_offset = static_cast<float>(pass) * bold_offset;
+            if (vertices.size() > std::numeric_limits<uint16_t>::max() - 4u) {
+                return;
+            }
+            const uint16_t base = static_cast<uint16_t>(vertices.size());
+            vertices.push_back({x0 + italic_shear + pass_offset, y0, glyph->u0, glyph->v0, color.r,
+                                color.g, color.b, alpha});
+            vertices.push_back({x1 + italic_shear + pass_offset, y0, glyph->u1, glyph->v0, color.r,
+                                color.g, color.b, alpha});
+            vertices.push_back(
+                {x1 + pass_offset, y1, glyph->u1, glyph->v1, color.r, color.g, color.b, alpha});
+            vertices.push_back(
+                {x0 + pass_offset, y1, glyph->u0, glyph->v1, color.r, color.g, color.b, alpha});
+            indices.insert(indices.end(),
+                           {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
+                            base, static_cast<uint16_t>(base + 2),
+                            static_cast<uint16_t>(base + 3)});
+        }
+    };
+
+    const auto append_decoration = [&](const ActiveTextGlyphVisual& visual, std::string_view value,
+                                       Rect bounds) {
+        if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
+            return;
+        }
+        Text text;
+        text.value = std::string(value);
+        text.font = font;
+        text.bounds = bounds;
+        text.style.size = std::max(visual.font_size > 0 ? static_cast<float>(visual.font_size)
+                                                        : layout.metrics.line_height,
+                                   1.0f);
+        text.style.color = visual.diff ? Color::from_rgba8(255, 214, 92) : visual.color;
+        text.style.alpha = visual.alpha;
+        text.wrap = TextWrap::NoWrap;
+        auto shaped = m_text.layout_text(text, effective_scale());
+        for (const auto& line : shaped.lines) {
+            for (const auto& run : line.visual_runs) {
+                for (const auto& positioned : run.glyphs) {
+                    append_positioned_glyph(visual, positioned);
+                }
+            }
+        }
+    };
+
+    const auto append_decorations = [&](const ActiveTextGlyphVisual& visual,
+                                        const PositionedGlyph& positioned) {
+        if (!has_font_style(visual.font_style, core::FontUnderlined) &&
+            !has_font_style(visual.font_style, core::FontStrikeThrough)) {
+            return;
+        }
+        const float advance_width = std::max(positioned.advance.x * std::max(visual.scale, 0.0001f),
+                                             std::max(visual.font_size * 0.25f, 1.0f));
+        if (has_font_style(visual.font_style, core::FontUnderlined)) {
+            append_decoration(visual, "_",
+                              {positioned.position.x + visual.offset.x,
+                               positioned.position.y + visual.offset.y, advance_width,
+                               std::max(static_cast<float>(visual.font_size), 1.0f)});
+        }
+        if (has_font_style(visual.font_style, core::FontStrikeThrough)) {
+            append_decoration(visual, "-",
+                              {positioned.position.x + visual.offset.x,
+                               positioned.position.y + visual.offset.y -
+                                   std::max(static_cast<float>(visual.font_size) * 0.35f, 1.0f),
+                               advance_width,
+                               std::max(static_cast<float>(visual.font_size), 1.0f)});
+        }
     };
 
     for (const auto& glyph : layout.glyphs) {
         diagnose_shader_metadata(glyph);
         if (glyph.has_shaped_glyph) {
             append_positioned_glyph(glyph, glyph.shaped_glyph);
+            append_decorations(glyph, glyph.shaped_glyph);
             continue;
         }
 
@@ -474,6 +544,7 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
             for (const auto& run : line.visual_runs) {
                 for (const auto& positioned : run.glyphs) {
                     append_positioned_glyph(glyph, positioned);
+                    append_decorations(glyph, positioned);
                 }
             }
         }
@@ -524,7 +595,7 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         bgfx::setVertexBuffer(0, &tvb);
         bgfx::setIndexBuffer(&tib);
         bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
-        bgfx::submit(bgfx_backend::ViewTextLab, m_program);
+        bgfx::submit(bgfx_backend::ViewActiveText, m_program);
     }
 }
 

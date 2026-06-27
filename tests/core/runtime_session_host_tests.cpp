@@ -434,7 +434,7 @@ TEST_CASE("RuntimeSessionHost derives visual presentation from room and object m
     host.tick(0.0);
 
     const auto& view = host.view_state();
-    CHECK(view.cover_image == "project:/image");
+    CHECK(view.cover_image.empty());
     CHECK(view.background_image == "project:/textures/foyer-bg.png");
     CHECK(view.room_image == "project:/textures/foyer-room.png");
     const auto* lamp = find_object(view, "lamp");

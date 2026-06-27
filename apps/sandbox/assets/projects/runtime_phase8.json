@@ -61,7 +61,7 @@
       1,
       [
         [0, -1, false, false, false, false, false, false, "", "", "", [1]],
-        [1, -1, false, false, false, false, false, false, "", "", "[Guide]The runtime UI is now driven by controller commands.", [2]],
+        [1, -1, false, false, false, false, false, false, "", "", "[Guide]ActiveText now shows [b]bold[/b], [i]italic[/i], [u]underline[/u], [strike]strike[/strike], [s=30]large text[/s], and [c=#bed]colored text[/c].", [2]],
         [2, -1, false, false, false, false, false, false, "", "", "Enter the foyer", []]
       ]
     ]
@@ -73,7 +73,7 @@
       "foyer",
       "",
       {},
-      "You are standing in a compact test room rendered by RmlUi.",
+      "You are standing in a compact test room rendered by RmlUi. Sandbox styling sample: [b]bold[/b], [i]italic[/i], [u]underline[/u], [strike]strike[/strike], [s=30]large[/s], [c=#bed]color[/c].",
       "",
       "",
       "",
@@ -88,7 +88,7 @@
       "gallery",
       "",
       {},
-      "The second room proves that navigation clicks can drive the runtime controller.",
+      "The second room keeps the styled ActiveText path visible: [b][i]bold italic[/i][/b], [u]underlined[/u], and [strike]struck[/strike].",
       "",
       "",
       "",

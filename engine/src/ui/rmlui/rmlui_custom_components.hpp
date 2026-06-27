@@ -35,7 +35,6 @@ make_active_text_snapshot(const core::RuntimeUIViewState& state);
 make_map_view_snapshot(const core::RuntimeUIViewState& state);
 [[nodiscard]] TextLogComponentSnapshot
 make_text_log_snapshot(const core::RuntimeUIViewState& state);
-[[nodiscard]] std::string active_text_rml(const ActiveTextComponentSnapshot& snapshot);
 [[nodiscard]] std::string map_view_rml(const MapViewComponentSnapshot& snapshot);
 [[nodiscard]] std::string text_log_rml(const TextLogComponentSnapshot& snapshot);
 

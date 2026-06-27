@@ -16,6 +16,7 @@ enum ViewId : bgfx::ViewId {
     // copies, resolves, and final composition all require ordered bgfx views.
     ViewRuntimeUIBegin = 32,
     ViewRuntimeUIEnd = 223,
+    ViewActiveText = 224,
     ViewDebugUI = 250,
 };
 
