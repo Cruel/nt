@@ -78,6 +78,7 @@ add_library(engine STATIC
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
     src/surface.cpp
+    src/text/text_breaks.cpp
     src/text/text_engine.cpp
     src/text/text_layout.cpp
     src/tween/tween_service.cpp

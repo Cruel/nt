@@ -19,6 +19,7 @@ struct ActiveTextLayoutOptions {
     float default_text_size = 24.0f;
     float line_spacing = 1.2f;
     TextAlign alignment = TextAlign::Start;
+    std::string language = "und";
     Color default_color = Color::from_rgba8(247, 244, 237);
     float reveal_progress = 1.0f;
     double time_seconds = 0.0;

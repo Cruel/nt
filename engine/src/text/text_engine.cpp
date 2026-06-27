@@ -1,5 +1,7 @@
 #include "text/text_engine.hpp"
 
+#include "text/text_breaks.hpp"
+
 #include <SheenBidi/SBAlgorithm.h>
 #include <SheenBidi/SBCodepointSequence.h>
 #include <SheenBidi/SBLine.h>
@@ -8,12 +10,8 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
-#include <graphemebreak.h>
 #include <hb-ft.h>
 #include <hb.h>
-#include <linebreak.h>
-#include <wordbreak.h>
-
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -121,12 +119,6 @@ struct ShapedData {
     float width = 0.0f;
 };
 
-struct BreakData {
-    std::vector<char> line;
-    std::vector<char> grapheme;
-    std::vector<char> word;
-};
-
 uint32_t checked_u32(size_t value)
 {
     return value > std::numeric_limits<uint32_t>::max() ? std::numeric_limits<uint32_t>::max()
@@ -203,57 +195,6 @@ FontMetrics metrics_for(FontResource& font, float pixel_size)
     result.line_height = static_cast<float>(metrics.height) / 64.0f;
     result.line_gap = result.line_height - (result.ascender - result.descender);
     return result;
-}
-
-BreakData collect_breaks(std::string_view value, const std::string& language)
-{
-    static bool initialized = false;
-    if (!initialized) {
-        init_linebreak();
-        init_graphemebreak();
-        init_wordbreak();
-        initialized = true;
-    }
-
-    BreakData breaks;
-    breaks.line.assign(value.size(), LINEBREAK_NOBREAK);
-    breaks.grapheme.assign(value.size(), GRAPHEMEBREAK_NOBREAK);
-    breaks.word.assign(value.size(), WORDBREAK_NOBREAK);
-    if (!value.empty()) {
-        const auto* data = reinterpret_cast<const utf8_t*>(value.data());
-        const char* lang = language.empty() ? "und" : language.c_str();
-        set_linebreaks_utf8(data, value.size(), lang, breaks.line.data());
-        set_graphemebreaks_utf8(data, value.size(), lang, breaks.grapheme.data());
-        set_wordbreaks_utf8(data, value.size(), lang, breaks.word.data());
-    }
-    return breaks;
-}
-
-bool valid_boundary(size_t offset, std::string_view value, const BreakData& breaks,
-                    const std::set<uint32_t>& clusters)
-{
-    if (offset == 0 || offset >= value.size()) {
-        return offset == 0 || offset == value.size();
-    }
-    if (!is_utf8_boundary(value, offset)) {
-        return false;
-    }
-    const auto marker_index = unibreak_marker_index_for_boundary(value, offset);
-    if (!marker_index || breaks.grapheme[*marker_index] != GRAPHEMEBREAK_BREAK) {
-        return false;
-    }
-    return clusters.contains(checked_u32(offset));
-}
-
-bool legal_wrap_boundary(size_t offset, std::string_view value, const BreakData& breaks,
-                         const std::set<uint32_t>& clusters)
-{
-    if (!valid_boundary(offset, value, breaks, clusters)) {
-        return false;
-    }
-    const auto marker_index = unibreak_marker_index_for_boundary(value, offset);
-    return marker_index && (breaks.line[*marker_index] == LINEBREAK_ALLOWBREAK ||
-                            breaks.line[*marker_index] == LINEBREAK_MUSTBREAK);
 }
 
 std::vector<uint32_t> cluster_ends(const std::vector<ShapedGlyphData>& glyphs, uint32_t run_end)
@@ -484,7 +425,7 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
         physical_font_metrics.line_height * inverse_scale,
     };
     const float line_height = std::max(font_metrics.line_height, text.style.size);
-    const BreakData breaks = collect_breaks(text.value, text.language);
+    const TextBreaks breaks = collect_text_breaks(text.value, text.language);
     const SBCodepointSequence sequence{SBStringEncodingUTF8, text.value.data(), text.value.size()};
     SbAlgorithmPtr algorithm(SBAlgorithmCreate(&sequence));
     if (!algorithm) {
@@ -526,7 +467,8 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
             uint32_t best = line_begin;
             for (uint32_t candidate = line_begin + 1; candidate <= mandatory_end; ++candidate) {
                 if (candidate < mandatory_end &&
-                    !legal_wrap_boundary(candidate, text.value, breaks, cluster_boundaries)) {
+                    !text_legal_line_break_boundary(text.value, breaks, candidate,
+                                                    cluster_boundaries)) {
                     continue;
                 }
                 const float width = m_impl->range_width(

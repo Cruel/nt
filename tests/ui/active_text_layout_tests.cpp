@@ -150,8 +150,35 @@ TEST_CASE("ActiveTextLayout wraps at words and trims leading whitespace")
     REQUIRE(font);
 
     const auto doc = parse_rich_text("one two three four");
-    const ActiveTextLayoutOptions options{.bounds = {0.0f, 0.0f, 78.0f, 160.0f},
+    const ActiveTextLayoutOptions options{.bounds = {0.0f, 0.0f, 78.0f, 20.0f},
                                           .default_text_size = 17.0f};
+    const auto layout = build_active_text_layout(
+        doc, options, font, [&](const Text& text) { return engine.layout_text(text); });
+
+    REQUIRE(layout.metrics.line_count >= 2);
+    CHECK(layout.bounds.height >= layout.metrics.height);
+    bool found_line_start = false;
+    for (std::size_t i = 1; i < layout.glyphs.size(); ++i) {
+        if (layout.glyphs[i].bounds.y > layout.glyphs[i - 1].bounds.y) {
+            found_line_start = true;
+            CHECK(layout.glyphs[i].text != " ");
+            CHECK(layout.glyphs[i].bounds.x == Catch::Approx(options.bounds.x));
+        }
+    }
+    CHECK(found_line_start);
+}
+
+TEST_CASE("ActiveTextLayout wraps CJK text using libunibreak without spaces")
+{
+    auto assets = make_assets();
+    text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text(
+        "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E\xE3\x83\x86\xE3\x82\xAD\xE3\x82\xB9\xE3\x83\x88");
+    const ActiveTextLayoutOptions options{
+        .bounds = {0.0f, 0.0f, 38.0f, 180.0f}, .default_text_size = 17.0f, .language = "ja"};
     const auto layout = build_active_text_layout(
         doc, options, font, [&](const Text& text) { return engine.layout_text(text); });
 
@@ -160,7 +187,6 @@ TEST_CASE("ActiveTextLayout wraps at words and trims leading whitespace")
     for (std::size_t i = 1; i < layout.glyphs.size(); ++i) {
         if (layout.glyphs[i].bounds.y > layout.glyphs[i - 1].bounds.y) {
             found_line_start = true;
-            CHECK(layout.glyphs[i].text != " ");
             CHECK(layout.glyphs[i].bounds.x == Catch::Approx(options.bounds.x));
         }
     }

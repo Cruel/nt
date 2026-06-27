@@ -1,8 +1,11 @@
 #include <noveltea/active_text_layout.hpp>
 
+#include "text/text_breaks.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -151,13 +154,35 @@ bool is_collapsible_whitespace(const ActiveTextGlyph& glyph)
 
 bool is_hard_break(const ActiveTextGlyph& glyph) { return glyph.text == "\n"; }
 
-float token_width(const std::vector<ShapedActiveGlyph>& glyphs, std::size_t begin, std::size_t end)
+std::set<uint32_t> source_boundaries_for(const std::vector<VisibleGlyphMetadata>& glyphs,
+                                         uint32_t text_size)
 {
-    float width = 0.0f;
-    for (std::size_t i = begin; i < end; ++i) {
-        width += glyphs[i].advance;
+    std::set<uint32_t> boundaries;
+    boundaries.insert(0u);
+    boundaries.insert(text_size);
+    for (const auto& glyph : glyphs) {
+        boundaries.insert(glyph.source_byte_begin);
+        boundaries.insert(glyph.source_byte_end);
     }
-    return width;
+    return boundaries;
+}
+
+std::size_t skip_leading_collapsible_whitespace(const std::vector<ShapedActiveGlyph>& glyphs,
+                                                std::size_t index)
+{
+    while (index < glyphs.size() && is_collapsible_whitespace(glyphs[index].metadata->glyph)) {
+        ++index;
+    }
+    return index;
+}
+
+std::size_t trim_trailing_collapsible_whitespace(const std::vector<ShapedActiveGlyph>& glyphs,
+                                                 std::size_t begin, std::size_t end)
+{
+    while (end > begin && is_collapsible_whitespace(glyphs[end - 1].metadata->glyph)) {
+        --end;
+    }
+    return end;
 }
 
 ActiveTextLayout make_base_layout(const core::RichTextDocument& document,
@@ -322,6 +347,10 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
     const std::size_t visible_glyph_count = visible_plan.frame.visible_glyphs;
     std::vector<ShapedActiveGlyph> shaped_glyphs;
     shaped_glyphs.reserve(full_plan.glyphs.size());
+    const auto source_boundaries =
+        source_boundaries_for(full_plan.glyphs, static_cast<uint32_t>(full_plan.text.size()));
+    const auto breaks = text::collect_text_breaks(full_plan.text, options.language);
+
     for (const auto& metadata : full_plan.glyphs) {
         const auto& glyph = metadata.glyph;
         ShapedActiveGlyph shaped_glyph;
@@ -337,7 +366,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
             text.style.size = size;
             text.wrap = TextWrap::NoWrap;
             text.align = TextAlign::Start;
-            text.language = "en";
+            text.language = options.language;
             const auto shaped = shape_text(text);
 
             shaped_glyph.advance = glyph.text == "\t" ? size : size * 0.55f;
@@ -352,102 +381,113 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
     }
 
     std::unordered_map<std::string, std::size_t> object_indices;
-    float x = options.bounds.x;
     float y = options.bounds.y;
-    float line_width = 0.0f;
     float max_width = 0.0f;
-    float current_line_height = std::max(options.default_text_size * options.line_spacing, 1.0f);
+    float max_line_height = std::max(options.default_text_size * options.line_spacing, 1.0f);
     uint32_t line_count = 0;
 
-    const auto new_line = [&]() {
-        max_width = std::max(max_width, line_width);
-        x = options.bounds.x;
-        y += current_line_height;
-        line_width = 0.0f;
-        current_line_height = std::max(options.default_text_size * options.line_spacing, 1.0f);
+    const auto emit_line = [&](std::size_t begin, std::size_t end) {
+        begin = skip_leading_collapsible_whitespace(shaped_glyphs, begin);
+        end = trim_trailing_collapsible_whitespace(shaped_glyphs, begin, end);
+        if (begin >= end) {
+            return;
+        }
+
+        float x = options.bounds.x;
+        float line_height = std::max(options.default_text_size * options.line_spacing, 1.0f);
+        for (std::size_t i = begin; i < end; ++i) {
+            line_height = std::max(line_height, shaped_glyphs[i].line_height);
+        }
+        for (std::size_t i = begin; i < end; ++i) {
+            const auto& shaped_glyph = shaped_glyphs[i];
+            const auto& metadata = *shaped_glyph.metadata;
+            const auto& glyph = metadata.glyph;
+            if (glyph.glyph_index < visible_glyph_count) {
+                auto visual = make_visual(glyph, options);
+                visual.source_byte_begin = metadata.source_byte_begin;
+                visual.source_byte_end = metadata.source_byte_end;
+                visual.bounds = {x + visual.offset.x, y + visual.offset.y,
+                                 shaped_glyph.advance * visual.scale, line_height};
+                if (shaped_glyph.has_positioned) {
+                    auto positioned = shaped_glyph.positioned;
+                    positioned.source_byte_begin = metadata.source_byte_begin;
+                    positioned.source_byte_end = metadata.source_byte_end;
+                    positioned.position = {x,
+                                           y + std::max(resolved_glyph_size(glyph, options), 1.0f)};
+                    positioned.logical_pixel_size = resolved_glyph_size(glyph, options);
+                    visual.shaped_glyph = positioned;
+                    visual.has_shaped_glyph = true;
+                }
+                add_object_span_rect(layout, object_indices, visual);
+                layout.glyphs.push_back(std::move(visual));
+            }
+            x += shaped_glyph.advance;
+        }
+
+        max_width = std::max(max_width, x - options.bounds.x);
+        max_line_height = std::max(max_line_height, line_height);
+        y += line_height;
         ++line_count;
     };
 
-    const auto append_glyph = [&](const ShapedActiveGlyph& shaped_glyph) {
-        const auto& metadata = *shaped_glyph.metadata;
-        const auto& glyph = metadata.glyph;
-        current_line_height = std::max(current_line_height, shaped_glyph.line_height);
-        if (glyph.glyph_index < visible_glyph_count) {
-            auto visual = make_visual(glyph, options);
-            visual.source_byte_begin = metadata.source_byte_begin;
-            visual.source_byte_end = metadata.source_byte_end;
-            visual.bounds = {x + visual.offset.x, y + visual.offset.y,
-                             shaped_glyph.advance * visual.scale, current_line_height};
-            if (shaped_glyph.has_positioned) {
-                auto positioned = shaped_glyph.positioned;
-                positioned.source_byte_begin = metadata.source_byte_begin;
-                positioned.source_byte_end = metadata.source_byte_end;
-                positioned.position = {x, y + std::max(resolved_glyph_size(glyph, options), 1.0f)};
-                positioned.logical_pixel_size = resolved_glyph_size(glyph, options);
-                visual.shaped_glyph = positioned;
-                visual.has_shaped_glyph = true;
-            }
-            add_object_span_rect(layout, object_indices, visual);
-            layout.glyphs.push_back(std::move(visual));
-        }
-        x += shaped_glyph.advance;
-        line_width = x - options.bounds.x;
-    };
+    const float wrap_width = options.bounds.width;
+    std::size_t line_begin = skip_leading_collapsible_whitespace(shaped_glyphs, 0);
+    std::size_t candidate_break = line_begin;
+    float line_width = 0.0f;
 
-    const float wrap_right = options.bounds.x + options.bounds.width;
-    std::size_t index = 0;
-    while (index < shaped_glyphs.size()) {
+    for (std::size_t index = line_begin; index < shaped_glyphs.size(); ++index) {
         const auto& glyph = shaped_glyphs[index].metadata->glyph;
         if (is_hard_break(glyph)) {
-            new_line();
-            ++index;
+            emit_line(line_begin, index);
+            line_begin = skip_leading_collapsible_whitespace(shaped_glyphs, index + 1u);
+            index = line_begin == 0 ? 0 : line_begin - 1u;
+            candidate_break = line_begin;
+            line_width = 0.0f;
             continue;
         }
 
-        const bool whitespace = is_collapsible_whitespace(glyph);
-        std::size_t token_end = index;
-        while (token_end < shaped_glyphs.size()) {
-            const auto& token_glyph = shaped_glyphs[token_end].metadata->glyph;
-            if (is_hard_break(token_glyph) ||
-                is_collapsible_whitespace(token_glyph) != whitespace) {
-                break;
-            }
-            ++token_end;
-        }
-
-        if (whitespace && line_width <= 0.0f) {
-            index = token_end;
-            continue;
-        }
-
-        const float width = token_width(shaped_glyphs, index, token_end);
-        if (options.bounds.width > 0.0f && line_width > 0.0f && x + width > wrap_right) {
-            new_line();
-            if (whitespace) {
-                index = token_end;
+        const float next_width = line_width + shaped_glyphs[index].advance;
+        const bool legal_break_after = text::text_legal_line_break_boundary(
+            full_plan.text, breaks, shaped_glyphs[index].metadata->source_byte_end,
+            source_boundaries);
+        if (wrap_width > 0.0f && line_width > 0.0f && next_width > wrap_width) {
+            if (candidate_break > line_begin) {
+                emit_line(line_begin, candidate_break);
+                line_begin = skip_leading_collapsible_whitespace(shaped_glyphs, candidate_break);
+                index = line_begin == 0 ? 0 : line_begin - 1u;
+                candidate_break = line_begin;
+                line_width = 0.0f;
                 continue;
             }
-        }
-        if (options.bounds.height > 0.0f &&
-            y + current_line_height > options.bounds.y + options.bounds.height) {
-            break;
+            emit_line(line_begin, index);
+            line_begin = index;
+            candidate_break = line_begin;
+            line_width = 0.0f;
+            --index;
+            continue;
         }
 
-        for (; index < token_end; ++index) {
-            append_glyph(shaped_glyphs[index]);
+        line_width = next_width;
+        if (legal_break_after) {
+            candidate_break = index + 1u;
+        }
+        if (text::text_mandatory_line_break_boundary(full_plan.text, breaks,
+                                                     shaped_glyphs[index].metadata->source_byte_end,
+                                                     source_boundaries)) {
+            emit_line(line_begin, index + 1u);
+            line_begin = skip_leading_collapsible_whitespace(shaped_glyphs, index + 1u);
+            index = line_begin == 0 ? 0 : line_begin - 1u;
+            candidate_break = line_begin;
+            line_width = 0.0f;
         }
     }
-
-    max_width = std::max(max_width, line_width);
-    if (!layout.glyphs.empty()) {
-        ++line_count;
-    }
+    emit_line(line_begin, shaped_glyphs.size());
     layout.metrics.width =
         options.bounds.width > 0.0f ? std::min(max_width, options.bounds.width) : max_width;
-    layout.metrics.height =
-        layout.glyphs.empty() ? 0.0f : (y - options.bounds.y) + current_line_height;
-    layout.metrics.line_height = current_line_height;
+    layout.metrics.height = line_count == 0 ? 0.0f : (y - options.bounds.y);
+    layout.metrics.line_height = max_line_height;
     layout.metrics.line_count = line_count;
+    layout.bounds.height = std::max(layout.bounds.height, layout.metrics.height);
     return layout;
 }
 

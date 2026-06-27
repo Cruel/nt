@@ -5,6 +5,7 @@
 #include "noveltea/text/text.hpp"
 #include "noveltea/tween_service.hpp"
 #include "script/lua/script_runtime_internal.hpp"
+#include "text/text_breaks.hpp"
 #include "text/text_engine.hpp"
 
 #include <algorithm>
@@ -113,20 +114,18 @@ Color element_text_color(Rml::Element& element)
     return Color::from_rgba8(247, 244, 237);
 }
 
-std::size_t utf8_codepoint_count(std::string_view text)
+std::string element_text_language(Rml::Element& element)
 {
-    std::size_t count = 0;
-    for (const unsigned char ch : text) {
-        if ((ch & 0xc0u) != 0x80u) {
-            ++count;
-        }
+    if (const auto* property = element.GetProperty(Rml::PropertyId::RmlUi_Language)) {
+        return property->Get<Rml::String>();
     }
-    return count;
+    return "und";
 }
 
 float active_text_reveal_glyph_count(const core::RichTextDocument& document)
 {
-    return static_cast<float>(std::max<std::size_t>(utf8_codepoint_count(document.plain_text), 1u));
+    return static_cast<float>(
+        std::max<std::size_t>(text::utf8_grapheme_count(document.plain_text), 1u));
 }
 
 float active_text_reveal_duration_seconds(const core::RichTextDocument& document)
@@ -262,6 +261,7 @@ void RuntimeUI::State::refresh_active_text_layout()
     options.bounds = content_rect(*active);
     options.default_font_alias = "runtime-ui";
     options.default_text_size = 17.0f;
+    options.language = element_text_language(*active);
     options.default_color = element_text_color(*active);
     options.line_spacing = 1.35f;
     options.reveal_progress = active_text_reveal_progress;

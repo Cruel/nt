@@ -1,36 +1,12 @@
 #include <noveltea/active_text.hpp>
 
+#include "text/text_breaks.hpp"
+
 #include <algorithm>
 #include <cmath>
 
 namespace noveltea {
 namespace {
-
-std::size_t utf8_codepoint_count(std::string_view text)
-{
-    std::size_t count = 0;
-    for (const unsigned char ch : text) {
-        if ((ch & 0xc0u) != 0x80u)
-            ++count;
-    }
-    return count;
-}
-
-std::vector<std::string> split_utf8_codepoints(std::string_view text)
-{
-    std::vector<std::string> out;
-    std::size_t begin = 0;
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        const unsigned char ch = static_cast<unsigned char>(text[i]);
-        if (i > begin && (ch & 0xc0u) != 0x80u) {
-            out.emplace_back(text.substr(begin, i - begin));
-            begin = i;
-        }
-    }
-    if (begin < text.size())
-        out.emplace_back(text.substr(begin));
-    return out;
-}
 
 float animation_progress(const core::RichTextAnimation& animation, double time_seconds)
 {
@@ -108,7 +84,7 @@ ActiveTextFrame build_active_text_frame(const core::RichTextDocument& document,
                                         const ActiveTextOptions& options)
 {
     ActiveTextFrame frame;
-    frame.total_glyphs = utf8_codepoint_count(document.plain_text);
+    frame.total_glyphs = text::utf8_grapheme_count(document.plain_text);
     const auto reveal = std::clamp(options.reveal_progress, 0.0f, 1.0f);
     frame.visible_glyphs =
         reveal >= 1.0f
@@ -123,7 +99,7 @@ ActiveTextFrame build_active_text_frame(const core::RichTextDocument& document,
         const auto& run = document.runs[run_index];
         ActiveTextRunFrame run_frame;
         run_frame.run_index = run_index;
-        for (const auto& glyph_text : split_utf8_codepoints(run.text)) {
+        for (const auto& glyph_text : text::split_utf8_graphemes(run.text)) {
             if (emitted >= frame.visible_glyphs)
                 break;
             ActiveTextGlyph glyph;

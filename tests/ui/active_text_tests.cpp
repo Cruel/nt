@@ -21,6 +21,19 @@ TEST_CASE("ActiveTextFrame reveals UTF-8 glyphs without corrupting codepoint bou
     CHECK((frame.runs[0].glyphs[0].style.font_style & FontBold) != 0);
 }
 
+TEST_CASE("ActiveTextFrame reveals grapheme clusters without splitting combining marks")
+{
+    const auto doc = parse_rich_text("e\xCC\x81x");
+
+    const auto frame = build_active_text_frame(doc, ActiveTextOptions{.reveal_progress = 0.5f});
+
+    CHECK(frame.total_glyphs == 2);
+    CHECK(frame.visible_glyphs == 1);
+    REQUIRE(frame.runs.size() == 1);
+    REQUIRE(frame.runs[0].glyphs.size() == 1);
+    CHECK(frame.runs[0].glyphs[0].text == "e\xCC\x81");
+}
+
 TEST_CASE("ActiveTextFrame preserves object shader and offset metadata")
 {
     const auto doc =
