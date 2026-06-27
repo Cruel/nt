@@ -21,27 +21,48 @@ struct VisibleTextPlan {
     std::vector<VisibleGlyphMetadata> glyphs;
 };
 
+struct ShapedActiveGlyph {
+    const VisibleGlyphMetadata* metadata = nullptr;
+    PositionedGlyph positioned{};
+    float advance = 0.0f;
+    float line_height = 0.0f;
+    bool has_positioned = false;
+};
+
 Color to_color(const core::RichTextColor& color)
 {
     return Color::from_rgba8(color.r, color.g, color.b, color.a);
 }
 
-float glyph_size(const ActiveTextGlyph& glyph, const ActiveTextLayoutOptions& options)
+constexpr unsigned int kRichTextDefaultFontSize = 12;
+
+float resolved_glyph_size(const ActiveTextGlyph& glyph, const ActiveTextLayoutOptions& options)
 {
-    const float tagged = glyph.style.font_size > 0 ? static_cast<float>(glyph.style.font_size)
-                                                   : options.default_text_size;
+    const float tagged =
+        (glyph.style.font_size > 0 && glyph.style.font_size != kRichTextDefaultFontSize)
+            ? static_cast<float>(glyph.style.font_size)
+            : options.default_text_size;
     const bool highlighted = !options.highlight_object_id.empty() &&
                              glyph.style.object_id == options.highlight_object_id;
     return tagged * (highlighted ? std::max(options.highlight_font_size_multiplier, 0.01f) : 1.0f);
 }
 
+float animation_scale(const ActiveTextGlyph& glyph, const ActiveTextLayoutOptions& options)
+{
+    const bool highlighted = !options.highlight_object_id.empty() &&
+                             glyph.style.object_id == options.highlight_object_id;
+    return glyph.scale *
+           (highlighted ? std::max(options.highlight_font_size_multiplier, 0.01f) : 1.0f);
+}
+
 VisibleTextPlan build_visible_text_plan(const core::RichTextDocument& document,
-                                        const ActiveTextLayoutOptions& options)
+                                        const ActiveTextLayoutOptions& options,
+                                        float reveal_progress)
 {
     VisibleTextPlan plan;
-    plan.frame = build_active_text_frame(
-        document, ActiveTextOptions{.reveal_progress = options.reveal_progress,
-                                    .time_seconds = options.time_seconds});
+    plan.frame =
+        build_active_text_frame(document, ActiveTextOptions{.reveal_progress = reveal_progress,
+                                                            .time_seconds = options.time_seconds});
     for (const auto& run_frame : plan.frame.runs) {
         for (const auto& glyph : run_frame.glyphs) {
             VisibleGlyphMetadata metadata;
@@ -55,6 +76,12 @@ VisibleTextPlan build_visible_text_plan(const core::RichTextDocument& document,
     return plan;
 }
 
+VisibleTextPlan build_visible_text_plan(const core::RichTextDocument& document,
+                                        const ActiveTextLayoutOptions& options)
+{
+    return build_visible_text_plan(document, options, options.reveal_progress);
+}
+
 ActiveTextGlyphVisual make_visual(const ActiveTextGlyph& glyph,
                                   const ActiveTextLayoutOptions& options)
 {
@@ -65,14 +92,14 @@ ActiveTextGlyphVisual make_visual(const ActiveTextGlyph& glyph,
     visual.color = to_color(glyph.style.color);
     if (glyph.style.color.r == 0 && glyph.style.color.g == 0 && glyph.style.color.b == 0 &&
         glyph.style.color.a == 255) {
-        visual.color = Color::from_rgba8(247, 244, 237);
+        visual.color = options.default_color;
     }
     visual.alpha = std::clamp(glyph.alpha, 0.0f, 1.0f);
     visual.font_alias = glyph.style.font_alias;
-    visual.font_size = glyph.style.font_size;
+    visual.font_size =
+        static_cast<unsigned int>(std::max(std::round(resolved_glyph_size(glyph, options)), 1.0f));
     visual.font_style = glyph.style.font_style;
-    const float base_size = std::max(options.default_text_size, 1.0f);
-    visual.scale = glyph.scale * std::max(glyph_size(glyph, options) / base_size, 0.01f);
+    visual.scale = animation_scale(glyph, options);
     visual.offset = glyph.offset;
     visual.glow = glyph.glow;
     visual.object_id = glyph.style.object_id;
@@ -115,6 +142,22 @@ void add_object_span_rect(ActiveTextLayout& layout,
         layout.object_spans.push_back(std::move(span));
     }
     layout.object_spans[it->second].rects.push_back(visual.bounds);
+}
+
+bool is_collapsible_whitespace(const ActiveTextGlyph& glyph)
+{
+    return glyph.text == " " || glyph.text == "\t";
+}
+
+bool is_hard_break(const ActiveTextGlyph& glyph) { return glyph.text == "\n"; }
+
+float token_width(const std::vector<ShapedActiveGlyph>& glyphs, std::size_t begin, std::size_t end)
+{
+    float width = 0.0f;
+    for (std::size_t i = begin; i < end; ++i) {
+        width += glyphs[i].advance;
+    }
+    return width;
 }
 
 ActiveTextLayout make_base_layout(const core::RichTextDocument& document,
@@ -173,7 +216,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
 
     for (const auto& metadata : plan.glyphs) {
         const auto& glyph = metadata.glyph;
-        const float size = glyph_size(glyph, options);
+        const float size = resolved_glyph_size(glyph, options);
         const float advance = glyph.text == "\t" ? size : size * 0.55f;
         const float line_height = std::max(size * options.line_spacing * glyph.scale, 1.0f);
         current_line_height = std::max(current_line_height, line_height);
@@ -260,6 +303,151 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
         }
     }
 
+    return layout;
+}
+
+ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
+                                          const ActiveTextLayoutOptions& options, FontHandle font,
+                                          const ActiveTextShaper& shape_text)
+{
+    const auto full_plan = build_visible_text_plan(document, options, 1.0f);
+    const auto visible_plan = build_visible_text_plan(document, options);
+    auto layout = make_base_layout(document, options, visible_plan);
+    layout.used_shaped_layout = true;
+
+    if (!font || !shape_text) {
+        return build_active_text_layout(document, options);
+    }
+
+    const std::size_t visible_glyph_count = visible_plan.frame.visible_glyphs;
+    std::vector<ShapedActiveGlyph> shaped_glyphs;
+    shaped_glyphs.reserve(full_plan.glyphs.size());
+    for (const auto& metadata : full_plan.glyphs) {
+        const auto& glyph = metadata.glyph;
+        ShapedActiveGlyph shaped_glyph;
+        shaped_glyph.metadata = &metadata;
+        const float size = resolved_glyph_size(glyph, options);
+        shaped_glyph.line_height = std::max(size * options.line_spacing * glyph.scale, 1.0f);
+
+        if (!is_hard_break(glyph)) {
+            Text text;
+            text.value = glyph.text;
+            text.font = font;
+            text.bounds = {0.0f, 0.0f, 0.0f, 0.0f};
+            text.style.size = size;
+            text.wrap = TextWrap::NoWrap;
+            text.align = TextAlign::Start;
+            text.language = "en";
+            const auto shaped = shape_text(text);
+
+            shaped_glyph.advance = glyph.text == "\t" ? size : size * 0.55f;
+            if (!shaped.lines.empty() && !shaped.lines.front().visual_runs.empty() &&
+                !shaped.lines.front().visual_runs.front().glyphs.empty()) {
+                shaped_glyph.positioned = shaped.lines.front().visual_runs.front().glyphs.front();
+                shaped_glyph.advance = std::max(shaped_glyph.positioned.advance.x, 1.0f);
+                shaped_glyph.has_positioned = true;
+            }
+        }
+        shaped_glyphs.push_back(shaped_glyph);
+    }
+
+    std::unordered_map<std::string, std::size_t> object_indices;
+    float x = options.bounds.x;
+    float y = options.bounds.y;
+    float line_width = 0.0f;
+    float max_width = 0.0f;
+    float current_line_height = std::max(options.default_text_size * options.line_spacing, 1.0f);
+    uint32_t line_count = 0;
+
+    const auto new_line = [&]() {
+        max_width = std::max(max_width, line_width);
+        x = options.bounds.x;
+        y += current_line_height;
+        line_width = 0.0f;
+        current_line_height = std::max(options.default_text_size * options.line_spacing, 1.0f);
+        ++line_count;
+    };
+
+    const auto append_glyph = [&](const ShapedActiveGlyph& shaped_glyph) {
+        const auto& metadata = *shaped_glyph.metadata;
+        const auto& glyph = metadata.glyph;
+        current_line_height = std::max(current_line_height, shaped_glyph.line_height);
+        if (glyph.glyph_index < visible_glyph_count) {
+            auto visual = make_visual(glyph, options);
+            visual.source_byte_begin = metadata.source_byte_begin;
+            visual.source_byte_end = metadata.source_byte_end;
+            visual.bounds = {x + visual.offset.x, y + visual.offset.y,
+                             shaped_glyph.advance * visual.scale, current_line_height};
+            if (shaped_glyph.has_positioned) {
+                auto positioned = shaped_glyph.positioned;
+                positioned.source_byte_begin = metadata.source_byte_begin;
+                positioned.source_byte_end = metadata.source_byte_end;
+                positioned.position = {x, y + std::max(resolved_glyph_size(glyph, options), 1.0f)};
+                positioned.logical_pixel_size = resolved_glyph_size(glyph, options);
+                visual.shaped_glyph = positioned;
+                visual.has_shaped_glyph = true;
+            }
+            add_object_span_rect(layout, object_indices, visual);
+            layout.glyphs.push_back(std::move(visual));
+        }
+        x += shaped_glyph.advance;
+        line_width = x - options.bounds.x;
+    };
+
+    const float wrap_right = options.bounds.x + options.bounds.width;
+    std::size_t index = 0;
+    while (index < shaped_glyphs.size()) {
+        const auto& glyph = shaped_glyphs[index].metadata->glyph;
+        if (is_hard_break(glyph)) {
+            new_line();
+            ++index;
+            continue;
+        }
+
+        const bool whitespace = is_collapsible_whitespace(glyph);
+        std::size_t token_end = index;
+        while (token_end < shaped_glyphs.size()) {
+            const auto& token_glyph = shaped_glyphs[token_end].metadata->glyph;
+            if (is_hard_break(token_glyph) ||
+                is_collapsible_whitespace(token_glyph) != whitespace) {
+                break;
+            }
+            ++token_end;
+        }
+
+        if (whitespace && line_width <= 0.0f) {
+            index = token_end;
+            continue;
+        }
+
+        const float width = token_width(shaped_glyphs, index, token_end);
+        if (options.bounds.width > 0.0f && line_width > 0.0f && x + width > wrap_right) {
+            new_line();
+            if (whitespace) {
+                index = token_end;
+                continue;
+            }
+        }
+        if (options.bounds.height > 0.0f &&
+            y + current_line_height > options.bounds.y + options.bounds.height) {
+            break;
+        }
+
+        for (; index < token_end; ++index) {
+            append_glyph(shaped_glyphs[index]);
+        }
+    }
+
+    max_width = std::max(max_width, line_width);
+    if (!layout.glyphs.empty()) {
+        ++line_count;
+    }
+    layout.metrics.width =
+        options.bounds.width > 0.0f ? std::min(max_width, options.bounds.width) : max_width;
+    layout.metrics.height =
+        layout.glyphs.empty() ? 0.0f : (y - options.bounds.y) + current_line_height;
+    layout.metrics.line_height = current_line_height;
+    layout.metrics.line_count = line_count;
     return layout;
 }
 

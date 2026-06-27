@@ -2,9 +2,11 @@
 
 #include <noveltea/active_text.hpp>
 #include <noveltea/math/geometry.hpp>
+#include <noveltea/text/text.hpp>
 #include <noveltea/text/text_layout.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,6 +19,7 @@ struct ActiveTextLayoutOptions {
     float default_text_size = 24.0f;
     float line_spacing = 1.2f;
     TextAlign alignment = TextAlign::Start;
+    Color default_color = Color::from_rgba8(247, 244, 237);
     float reveal_progress = 1.0f;
     double time_seconds = 0.0;
     std::string highlight_object_id;
@@ -77,5 +80,12 @@ build_active_text_layout(const core::RichTextDocument& document,
 [[nodiscard]] ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
                                                         const ActiveTextLayoutOptions& options,
                                                         const TextLayout& shaped_layout);
+
+using ActiveTextShaper = std::function<TextLayout(const Text&)>;
+
+[[nodiscard]] ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
+                                                        const ActiveTextLayoutOptions& options,
+                                                        FontHandle font,
+                                                        const ActiveTextShaper& shape_text);
 
 } // namespace noveltea

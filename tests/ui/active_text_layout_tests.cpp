@@ -78,6 +78,124 @@ TEST_CASE("ActiveTextLayout can map rich text metadata onto shaped glyph positio
     CHECK(layout.object_at({rect.x + 1.0f, rect.y + 1.0f}) == "key-object");
 }
 
+TEST_CASE("ActiveTextLayout uses default color for uncolored rich text")
+{
+    const auto doc = parse_rich_text("default [c=#336699]colored[/c]");
+    const auto layout = build_active_text_layout(
+        doc, ActiveTextLayoutOptions{.bounds = {0.0f, 0.0f, 400.0f, 100.0f},
+                                     .default_color = Color::from_rgba8(10, 20, 30)});
+
+    REQUIRE_FALSE(layout.glyphs.empty());
+    CHECK(layout.glyphs.front().color.r == Catch::Approx(10.0f / 255.0f));
+    CHECK(layout.glyphs.front().color.g == Catch::Approx(20.0f / 255.0f));
+    CHECK(layout.glyphs.front().color.b == Catch::Approx(30.0f / 255.0f));
+    const auto colored = std::find_if(layout.glyphs.begin(), layout.glyphs.end(),
+                                      [](const auto& glyph) { return glyph.text == "c"; });
+    REQUIRE(colored != layout.glyphs.end());
+    CHECK(colored->color.r == Catch::Approx(0x33 / 255.0f));
+    CHECK(colored->color.g == Catch::Approx(0x66 / 255.0f));
+    CHECK(colored->color.b == Catch::Approx(0x99 / 255.0f));
+}
+
+TEST_CASE("ActiveTextLayout resolves default rich text size to runtime default when shaping")
+{
+    auto assets = make_assets();
+    text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text("ActiveText");
+    const ActiveTextLayoutOptions options{.bounds = {0.0f, 0.0f, 400.0f, 100.0f},
+                                          .default_text_size = 17.0f};
+    const auto layout = build_active_text_layout(
+        doc, options, font, [&](const Text& text) { return engine.layout_text(text); });
+
+    REQUIRE_FALSE(layout.glyphs.empty());
+    CHECK(layout.used_shaped_layout);
+    CHECK(layout.glyphs.front().font_size == 17u);
+    CHECK(layout.glyphs.front().scale == Catch::Approx(1.0f));
+    CHECK(layout.glyphs[1].bounds.x > layout.glyphs[0].bounds.x);
+    CHECK(layout.glyphs[1].bounds.x - layout.glyphs[0].bounds.x < 20.0f);
+}
+
+TEST_CASE("ActiveTextLayout shapes explicit size tags with matching advances")
+{
+    auto assets = make_assets();
+    text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text("a [s=40]large[/s] z");
+    const ActiveTextLayoutOptions options{.bounds = {0.0f, 0.0f, 600.0f, 120.0f},
+                                          .default_text_size = 17.0f};
+    const auto layout = build_active_text_layout(
+        doc, options, font, [&](const Text& text) { return engine.layout_text(text); });
+
+    REQUIRE(layout.glyphs.size() >= 8);
+    const auto large = std::find_if(layout.glyphs.begin(), layout.glyphs.end(),
+                                    [](const auto& glyph) { return glyph.text == "l"; });
+    REQUIRE(large != layout.glyphs.end());
+    CHECK(large->font_size == 40u);
+    CHECK(large->has_shaped_glyph);
+    CHECK(large->shaped_glyph.logical_pixel_size == Catch::Approx(40.0f));
+    CHECK(std::next(large)->bounds.x > large->bounds.x);
+    CHECK(std::next(large)->bounds.x - large->bounds.x > 4.0f);
+}
+
+TEST_CASE("ActiveTextLayout wraps at words and trims leading whitespace")
+{
+    auto assets = make_assets();
+    text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text("one two three four");
+    const ActiveTextLayoutOptions options{.bounds = {0.0f, 0.0f, 78.0f, 160.0f},
+                                          .default_text_size = 17.0f};
+    const auto layout = build_active_text_layout(
+        doc, options, font, [&](const Text& text) { return engine.layout_text(text); });
+
+    REQUIRE(layout.metrics.line_count >= 2);
+    bool found_line_start = false;
+    for (std::size_t i = 1; i < layout.glyphs.size(); ++i) {
+        if (layout.glyphs[i].bounds.y > layout.glyphs[i - 1].bounds.y) {
+            found_line_start = true;
+            CHECK(layout.glyphs[i].text != " ");
+            CHECK(layout.glyphs[i].bounds.x == Catch::Approx(options.bounds.x));
+        }
+    }
+    CHECK(found_line_start);
+}
+
+TEST_CASE("ActiveTextLayout precomputes final wrapping before reveal")
+{
+    auto assets = make_assets();
+    text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text("one two three four");
+    const ActiveTextLayoutOptions full_options{
+        .bounds = {0.0f, 0.0f, 78.0f, 160.0f}, .default_text_size = 17.0f, .reveal_progress = 1.0f};
+    const ActiveTextLayoutOptions partial_options{
+        .bounds = full_options.bounds, .default_text_size = 17.0f, .reveal_progress = 0.55f};
+    const auto full = build_active_text_layout(
+        doc, full_options, font, [&](const Text& text) { return engine.layout_text(text); });
+    const auto partial = build_active_text_layout(
+        doc, partial_options, font, [&](const Text& text) { return engine.layout_text(text); });
+
+    REQUIRE(partial.glyphs.size() > 4);
+    for (const auto& glyph : partial.glyphs) {
+        const auto matching =
+            std::find_if(full.glyphs.begin(), full.glyphs.end(), [&](const auto& full_glyph) {
+                return full_glyph.glyph_index == glyph.glyph_index;
+            });
+        REQUIRE(matching != full.glyphs.end());
+        CHECK(glyph.bounds.x == Catch::Approx(matching->bounds.x));
+        CHECK(glyph.bounds.y == Catch::Approx(matching->bounds.y));
+    }
+}
+
 TEST_CASE("ActiveTextLayout preserves run style object material and shader metadata")
 {
     const auto doc =

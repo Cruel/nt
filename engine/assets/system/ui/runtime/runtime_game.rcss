@@ -123,6 +123,7 @@ body {
 
 nt-active-text {
     display: block;
+    color: #ffd6b5;
 }
 
 nt-active-text .nt-active-text__prompt {

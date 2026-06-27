@@ -104,6 +104,15 @@ Rect content_rect(Rml::Element& element)
     return {offset.x, offset.y, size.x, size.y};
 }
 
+Color element_text_color(Rml::Element& element)
+{
+    if (const auto* property = element.GetProperty(Rml::PropertyId::Color)) {
+        const auto color = property->Get<Rml::Colourb>();
+        return Color::from_rgba8(color.red, color.green, color.blue, color.alpha);
+    }
+    return Color::from_rgba8(247, 244, 237);
+}
+
 std::size_t utf8_codepoint_count(std::string_view text)
 {
     std::size_t count = 0;
@@ -253,21 +262,15 @@ void RuntimeUI::State::refresh_active_text_layout()
     options.bounds = content_rect(*active);
     options.default_font_alias = "runtime-ui";
     options.default_text_size = 17.0f;
+    options.default_color = element_text_color(*active);
     options.line_spacing = 1.35f;
     options.reveal_progress = active_text_reveal_progress;
     options.time_seconds = active_text_time_seconds;
 
     if (active_text_engine && active_text_font) {
-        Text text;
-        text.value = active_text_visible_text(source_state.active_text, options);
-        text.font = active_text_font;
-        text.bounds = options.bounds;
-        text.style.size = options.default_text_size;
-        text.style.color = Color::from_rgba8(247, 244, 237);
-        text.wrap = TextWrap::Word;
-        text.align = options.alignment;
-        const auto shaped = active_text_engine->layout_text(text);
-        active_text_layout = build_active_text_layout(source_state.active_text, options, shaped);
+        active_text_layout = build_active_text_layout(
+            source_state.active_text, options, active_text_font,
+            [this](const Text& text) { return active_text_engine->layout_text(text); });
     } else {
         active_text_layout = build_active_text_layout(source_state.active_text, options);
     }

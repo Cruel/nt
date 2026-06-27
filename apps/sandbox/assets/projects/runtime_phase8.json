@@ -61,7 +61,7 @@
       1,
       [
         [0, -1, false, false, false, false, false, false, "", "", "", [1]],
-        [1, -1, false, false, false, false, false, false, "", "", "[Guide]ActiveText now shows [b]bold[/b], [i]italic[/i], [u]underline[/u], [strike]strike[/strike], [s=30]large text[/s], and [c=#bed]colored text[/c].", [2]],
+        [1, -1, false, false, false, false, false, false, "", "", "[Guide]ActiveText now shows [b]bold[/b], [i]italic[/i], [u]underline[/u], [strike]strike[/strike], [s=30]large text[/s], and [c=#bed]colored text[/c]. And the text continues until it finally wraps to the next line just to see if it [s=40]works[/s] properly.", [2]],
         [2, -1, false, false, false, false, false, false, "", "", "Enter the foyer", []]
       ]
     ]
@@ -77,6 +77,7 @@
       "",
       "",
       "",
+
       "",
       [],
       [
