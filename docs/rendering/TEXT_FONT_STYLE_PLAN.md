@@ -54,17 +54,18 @@ register_font_family("body", {
 });
 ```
 
-A font family registration must provide at least one base/regular face. Bold, italic, and bold-italic faces are optional refinements, not required assets. The initial system/default family is `Liberation Sans`, backed by the bundled Liberation Sans regular face. Until additional default faces are bundled, default-family bold/italic/bold-italic requests must resolve to Liberation Sans regular plus synthetic styling.
+A font family registration must provide at least one base/regular face. Bold, italic, and bold-italic faces are optional refinements, not required assets. Keep the legacy terminology: the engine-shipped fallback family is the **system font** and uses alias `sys`. The current system font asset is Liberation Sans regular, but that is only the current backing file and should be easy to replace later with a font that has broader language coverage. The **default font** is project/user configuration (`fontDefault`) and may point at `sys` or any project font alias. Editor-shipped built-in fonts should behave like already-imported project fonts at export time: include them with project assets unless the selected font is the engine system font.
 
 Resolution rules:
 
-1. Empty font alias resolves to the default runtime font family, currently `Liberation Sans`.
-2. Unknown font aliases resolve to the default runtime family and emit a deduped diagnostic.
-3. Exact real face wins.
-4. Partial real face plus synthetic missing style is allowed when synthesis is enabled. For example, bold+italic may resolve to a real italic face plus synthetic bold.
-5. If no matching face exists and synthesis is disabled, fall back to the family regular face and emit a deduped diagnostic.
-6. If the family regular face cannot load, fall back to `Liberation Sans` regular and emit a structured diagnostic.
-7. Underline and strike are synthetic decorations even when real bold/italic faces exist.
+1. Empty font alias resolves to the project's configured default font alias when available; until that project setting is threaded into a caller, it resolves to the runtime default family, which is initialized to `sys`.
+2. Unknown font aliases resolve to the runtime default family and emit a deduped diagnostic.
+3. The `sys` alias resolves to the engine-shipped system font. The compatibility aliases `Liberation Sans` and `runtime-ui` may also resolve to the same family while old code and docs are being migrated.
+4. Exact real face wins.
+5. Partial real face plus synthetic missing style is allowed when synthesis is enabled. For example, bold+italic may resolve to a real italic face plus synthetic bold.
+6. If no matching face exists and synthesis is disabled, fall back to the family regular face and emit a deduped diagnostic.
+7. If a project default family cannot load, fall back to `sys` and emit a structured diagnostic.
+8. Underline and strike are synthetic decorations even when real bold/italic faces exist.
 
 ## Implementation phases
 
@@ -86,8 +87,9 @@ Resolution rules:
 - Require a base/regular face for every registered family; reject or diagnose registrations that provide no usable base face.
 - Allow a family to optionally register bold, italic, and bold-italic faces.
 - Allow synthetic bold/italic fallback per family.
-- Register the default runtime family as `Liberation Sans` using the bundled Liberation Sans regular face and synthetic style enabled.
-- Treat `runtime-ui`, an empty alias, and any missing project default alias as references to the same default family until the project schema grows explicit font selection.
+- Register the engine system font family as `sys` using the current bundled Liberation Sans regular face and synthetic style enabled.
+- Treat `runtime-ui` and `Liberation Sans` as transitional compatibility aliases for `sys`.
+- Keep the runtime default family separate from the system font concept. Runtime default should eventually come from project `fontDefault`; `sys` is only the engine fallback and the default value for new projects.
 
 ### Phase 4: Layout styled spans
 

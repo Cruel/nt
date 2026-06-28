@@ -53,13 +53,22 @@ public:
 
     [[nodiscard]] bool valid() const;
     [[nodiscard]] FontHandle load_font(const FontDesc& desc);
+    [[nodiscard]] FontFamilyHandle register_font_family(const FontFamilyDesc& desc);
+    [[nodiscard]] FontFamilyHandle default_font_family() const;
+    void set_default_font_family(FontFamilyHandle family);
+    [[nodiscard]] ResolvedFont resolve_font(std::string_view alias, uint32_t style) const;
     [[nodiscard]] TextLayout layout_text(const Text& text) const;
     [[nodiscard]] TextLayout layout_text(const Text& text, float scale) const;
+    [[nodiscard]] TextLayout layout_text(const StyledText& text) const;
+    [[nodiscard]] TextLayout layout_text(const StyledText& text, float scale) const;
     [[nodiscard]] TextMetrics measure_text(const Text& text) const;
     [[nodiscard]] TextMetrics measure_text(FontHandle font, std::string_view value,
                                            float size) const;
     [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id,
                                                              float raster_pixel_size) const;
+    [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id,
+                                                             float raster_pixel_size,
+                                                             uint32_t synthetic_style) const;
     [[nodiscard]] FontMetrics metrics(FontHandle font, float pixel_size) const;
     [[nodiscard]] uint32_t glyph_index(FontHandle font, uint32_t codepoint) const;
 

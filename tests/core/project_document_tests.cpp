@@ -35,7 +35,7 @@ nlohmann::json make_legacy_game_json()
         {project_ids::project_version, "0.9"},
         {project_ids::project_author, "Author"},
         {project_ids::project_website, "https://example.invalid"},
-        {project_ids::project_font_default, "sys"},
+        {project_ids::project_font_default, std::string(project_ids::system_font_alias)},
         {project_ids::project_fonts, nlohmann::json::array()},
         {project_ids::starting_inventory, nlohmann::json::array()},
         {project_ids::script_before_save, ""},
@@ -56,8 +56,10 @@ nlohmann::json make_legacy_game_json()
                                })},
         {project_ids::system_shaders, nlohmann::json::array({"defaultFrag", "defaultFrag"})},
         {project_ids::engine_fonts, nlohmann::json::object({
-                                        {"sys", "LiberationSans.ttf"},
-                                        {"sysIcon", "fontawesome.ttf"},
+                                        {std::string(project_ids::system_font_alias),
+                                         std::string(project_ids::system_font_file)},
+                                        {std::string(project_ids::system_icon_font_alias),
+                                         std::string(project_ids::system_icon_font_file)},
                                     })},
     });
     for (auto key : project_ids::entity_collection_keys) {
@@ -161,7 +163,7 @@ TEST_CASE("ProjectDocument new_project creates old-compatible default project ke
     CHECK(root[project_ids::project_name] == "Project Name");
     CHECK(root[project_ids::project_version] == "1.0");
     CHECK(root[project_ids::project_author] == "Author Name");
-    CHECK(root[project_ids::project_font_default] == "sys");
+    CHECK(root[project_ids::project_font_default] == project_ids::system_font_alias);
     REQUIRE(root[project_ids::engine_fonts].is_object());
     REQUIRE(root[project_ids::project_fonts].is_object());
     REQUIRE(root[project_ids::starting_inventory].is_array());

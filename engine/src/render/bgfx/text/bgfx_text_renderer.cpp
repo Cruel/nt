@@ -34,6 +34,7 @@ struct GlyphCacheKey {
     uint32_t font = 0;
     uint32_t glyph_id = 0;
     uint32_t pixel_size = 0;
+    uint32_t synthetic_style = TextFontRegular;
 
     [[nodiscard]] friend bool operator==(const GlyphCacheKey&, const GlyphCacheKey&) = default;
 };
@@ -44,6 +45,7 @@ struct GlyphCacheKeyHash {
         uint64_t value = key.font;
         value = value * 1315423911u + key.glyph_id;
         value = value * 1315423911u + key.pixel_size;
+        value = value * 1315423911u + key.synthetic_style;
         return static_cast<std::size_t>(value);
     }
 };
@@ -92,6 +94,14 @@ public:
     bool initialize();
     void shutdown();
     FontHandle load_font(const FontDesc& desc) { return m_text.load_font(desc); }
+    FontFamilyHandle register_font_family(const FontFamilyDesc& desc)
+    {
+        return m_text.register_font_family(desc);
+    }
+    ResolvedFont resolve_font(std::string_view alias, uint32_t style) const
+    {
+        return m_text.resolve_font(alias, style);
+    }
     void resize(const SurfaceMetrics& surface) { m_surface = sanitize_surface_metrics(surface); }
     TextLayout layout_text(const Text& text) const
     {
@@ -192,12 +202,14 @@ CachedGlyph* BgfxTextRenderer::ensure_glyph(const PositionedGlyph& glyph)
     key.font = glyph.font.id;
     key.glyph_id = glyph.glyph_id;
     key.pixel_size = text::glyph_cache_pixel_size_key(glyph.raster_pixel_size);
+    key.synthetic_style = glyph.synthetic_font_style & (TextFontBold | TextFontItalic);
     auto found = m_glyphs.find(key);
     if (found != m_glyphs.end()) {
         return &found->second;
     }
 
-    auto bitmap = m_text.rasterize_glyph(glyph.font, glyph.glyph_id, glyph.raster_pixel_size);
+    auto bitmap = m_text.rasterize_glyph(glyph.font, glyph.glyph_id, glyph.raster_pixel_size,
+                                         glyph.synthetic_font_style);
     if (!bitmap) {
         return nullptr;
     }
@@ -618,8 +630,17 @@ void Renderer::create_text()
     m_text_renderer = text;
 
     FontDesc desc;
-    desc.asset_path = "project:/rmlui/LiberationSans.ttf";
-    m_default_text_font = text->load_font(desc).id;
+    desc.asset_path = std::string(kSystemFontProjectAsset);
+    FontFamilyDesc family;
+    family.alias = std::string(kSystemFontAlias);
+    family.regular = desc;
+    family.synthetic_styles = true;
+    if (!text->register_font_family(family)) {
+        desc.asset_path = std::string(kSystemFontAsset);
+        family.regular = desc;
+        text->register_font_family(family);
+    }
+    m_default_text_font = text->resolve_font(kSystemFontAlias, TextFontRegular).face.id;
     SDL_Log("[text] bgfx grayscale text renderer initialized");
 }
 

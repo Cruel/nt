@@ -259,7 +259,7 @@ void RuntimeUI::State::refresh_active_text_layout()
     const auto& source_state = runtime_host ? runtime_host->view_state() : runtime_view.state();
     ActiveTextLayoutOptions options;
     options.bounds = content_rect(*active);
-    options.default_font_alias = "runtime-ui";
+    options.default_font_alias = std::string(kSystemFontAlias);
     options.default_text_size = 17.0f;
     options.language = element_text_language(*active);
     options.default_color = element_text_color(*active);
@@ -269,8 +269,8 @@ void RuntimeUI::State::refresh_active_text_layout()
 
     if (active_text_engine && active_text_font) {
         active_text_layout = build_active_text_layout(
-            source_state.active_text, options, active_text_font,
-            [this](const Text& text) { return active_text_engine->layout_text(text); });
+            source_state.active_text, options,
+            [this](const StyledText& text) { return active_text_engine->layout_text(text); });
     } else {
         active_text_layout = build_active_text_layout(source_state.active_text, options);
     }
@@ -411,11 +411,18 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     if (m_state->active_text_engine->valid()) {
         FontDesc desc;
         desc.asset_path = kRuntimeUiFontAsset;
-        m_state->active_text_font = m_state->active_text_engine->load_font(desc);
-        if (!m_state->active_text_font) {
+        FontFamilyDesc family;
+        family.alias = std::string(kSystemFontAlias);
+        family.regular = desc;
+        family.synthetic_styles = true;
+        auto handle = m_state->active_text_engine->register_font_family(family);
+        if (!handle) {
             desc.asset_path = kRuntimeUiSystemFontAsset;
-            m_state->active_text_font = m_state->active_text_engine->load_font(desc);
+            family.regular = desc;
+            handle = m_state->active_text_engine->register_font_family(family);
         }
+        m_state->active_text_font =
+            m_state->active_text_engine->resolve_font(kSystemFontAlias, TextFontRegular).face;
     }
     m_state->file_interface = new ui::rmlui::AssetRmlFileInterface(*assets);
     m_state->system_interface = new ui::rmlui::SdlSystemInterface(window);

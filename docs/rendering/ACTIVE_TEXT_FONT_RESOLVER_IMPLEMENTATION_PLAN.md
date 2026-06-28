@@ -4,15 +4,35 @@ Date: 2026-06-28
 
 ## Purpose
 
-This plan defines the next implementation slice for renderer-backed ActiveText: a real font-family resolver with a default Liberation Sans family, styled-span shaping, and synthetic style fallback. This should happen before deeper ActiveText shader/material binding or tween/effect visual work because those later features depend on stable glyph geometry, style segmentation, and cache keys.
+This plan defines the next implementation slice for renderer-backed ActiveText: a real font-family resolver with a legacy-compatible `sys` system font family, styled-span shaping, and synthetic style fallback. This should happen before deeper ActiveText shader/material binding or tween/effect visual work because those later features depend on stable glyph geometry, style segmentation, and cache keys.
 
 The goal is not full font fallback for every script yet. The goal is a concrete and testable font selection layer that supports:
 
 - one required base/regular face per family;
 - optional bold, italic, and bold-italic faces;
 - synthetic fallback when a requested style face is missing;
-- a default `Liberation Sans` runtime family backed initially by the bundled regular face;
+- a `sys` system font family backed initially by the bundled Liberation Sans regular face;
 - ActiveText styled-run shaping without reintroducing RmlUi glyph fallback markup.
+
+## Current Implementation Status
+
+Implemented in the first pass:
+
+- Public font-family data model: `FontFamilyHandle`, `FontFamilyDesc`, `ResolvedFont`, and `TextFont*` style bits.
+- `TextEngine` font-family registration, default-family selection, alias resolution, unknown-alias fallback, regular-only synthetic style fallback, and deduped diagnostics.
+- `StyledText` / `TextSpan` public API plus a first styled layout path that carries resolved faces and synthetic style bits into `PositionedGlyph`.
+- Renderer-facing `PositionedGlyph::synthetic_font_style` and bgfx glyph cache-key separation for synthetic bold/italic variants.
+- System font family registration as `sys` in the bgfx text renderer and RuntimeUI ActiveText helper, with `Liberation Sans` and `runtime-ui` retained as transitional aliases.
+- ActiveText styled-shaper overload and RuntimeUI direct ActiveText shaping through `StyledText`.
+- FreeType-backed synthetic bold via `FT_GlyphSlot_Embolden` and a scoped synthetic italic transform in glyph rasterization.
+- Tests for regular-only family fallback, `StyledText` synthetic style propagation, synthetic rasterization, and ActiveText shaped glyph synthetic style propagation.
+
+Remaining follow-up work:
+
+- Improve `StyledText` shaping so span-specific faces and sizes participate fully in line metrics/wrapping rather than using the first span as the base layout face.
+- Add exact multi-face and partial-face tests once additional test font faces are available or fixtures are added.
+- Replace remaining renderer-side ActiveText bold/italic quad approximations once FreeType synthetic rasterization is visually validated.
+- Add visual/screenshot smoke coverage for styled ActiveText.
 
 ## Current State
 
@@ -25,13 +45,13 @@ Relevant current files:
 - `engine/src/text/text_engine.hpp` and `engine/src/text/text_engine.cpp`: `TextEngine` loads concrete FreeType/HarfBuzz faces, shapes one `Text` at a time, and rasterizes one concrete `FontHandle`.
 - `engine/src/active_text_layout.cpp`: the direct ActiveText path currently derives rich-text glyph metadata and, in the shaped path, shapes one glyph at a time against one provided `FontHandle`.
 - `engine/src/render/bgfx/text/bgfx_text_renderer.cpp`: the bgfx text renderer caches glyph bitmaps by concrete font id, glyph id, and raster pixel size. ActiveText bold/italic/underline/strike are currently renderer-side approximations.
-- `engine/src/ui_runtime_rmlui.cpp`: RuntimeUI currently loads `project:/rmlui/LiberationSans.ttf` with fallback to `system:/fonts/LiberationSans.ttf` for its ActiveText shaping helper.
+- `engine/src/ui_runtime_rmlui.cpp`: RuntimeUI currently registers the `sys` family from `project:/rmlui/LiberationSans.ttf` with fallback to `system:/fonts/LiberationSans.ttf` for its ActiveText shaping helper.
 
 Important constraints:
 
 - Keep backend-neutral core free of renderer, SDL, bgfx, RmlUi, and Lua types.
 - Do not use RmlUi as a fallback glyph renderer for ActiveText.
-- Do not require bold/italic font assets for the default font. The bundled default is regular Liberation Sans, and missing styles must synthesize.
+- Do not require bold/italic font assets for the system font. The bundled system font is currently regular Liberation Sans, and missing styles must synthesize.
 - Preserve the existing single-face `Text` API for current tests and non-ActiveText callers while adding richer APIs alongside it.
 
 ## Target Model
@@ -119,13 +139,13 @@ The existing `Text` API should be expressed internally as a single-span `StyledT
 ## Resolution Rules
 
 1. A registered family must have a usable regular/base face. If the regular face fails to load, reject the registration or return an invalid handle with a structured diagnostic.
-2. Empty alias resolves to the default runtime family.
-3. Unknown alias resolves to the default runtime family and emits one deduped diagnostic per alias.
+2. Empty alias resolves to the project-configured default font alias when available; until that setting is threaded through, it resolves to the runtime default family initialized to `sys`.
+3. Unknown alias resolves to the runtime default family and emits one deduped diagnostic per alias.
 4. Exact style face wins. Bold+italic uses `bold_italic` when present.
 5. Partial real face plus synthetic missing style is valid when synthesis is enabled. Example: bold+italic may resolve to real italic plus synthetic bold if italic exists but bold-italic does not.
 6. If synthesis is disabled and the exact face is missing, fall back to the family regular face and emit a deduped diagnostic.
 7. Underline and strike are not face-selection bits. They remain decoration bits after shaping.
-8. The initial default family is `Liberation Sans`, backed by `project:/rmlui/LiberationSans.ttf` with `system:/fonts/LiberationSans.ttf` as a fallback where the runtime already supports that policy. Because only regular is guaranteed to exist initially, bold/italic/bold-italic resolve to regular plus synthetic style bits.
+8. The initial system family alias is `sys`, backed by `project:/rmlui/LiberationSans.ttf` with `system:/fonts/LiberationSans.ttf` as a fallback where the runtime already supports that policy. Because only regular is guaranteed to exist initially, bold/italic/bold-italic resolve to regular plus synthetic style bits. The concrete backing font should be easy to replace later without changing authored project aliases.
 
 ## Implementation Slices
 
@@ -169,7 +189,7 @@ Acceptance:
 - Existing text tests still pass without requiring callers to use font families.
 - No renderer or RmlUi dependency is introduced into the text model.
 
-### Slice 2: Register the default Liberation Sans family centrally
+### Slice 2: Register the system font family centrally
 
 Files likely touched:
 
@@ -179,20 +199,20 @@ Files likely touched:
 
 Tasks:
 
-1. Replace one-off default font loading in bgfx text renderer with default family registration where possible.
-2. Register `Liberation Sans` regular from the existing project asset path first:
+1. Replace one-off default font loading in bgfx text renderer with system family registration where possible.
+2. Register alias `sys` from the existing project asset path first:
    - `project:/rmlui/LiberationSans.ttf`
 3. Preserve the existing system fallback behavior in RuntimeUI:
    - try `project:/rmlui/LiberationSans.ttf`;
    - fallback to `system:/fonts/LiberationSans.ttf`.
-4. Treat aliases `""`, `"Liberation Sans"`, and transitional `"runtime-ui"` as resolving to the default family.
+4. Treat compatibility aliases `"Liberation Sans"` and `"runtime-ui"` as resolving to `sys`. Empty aliases should resolve to the runtime default family, currently initialized to `sys` until project `fontDefault` is threaded in.
 5. Keep the old `m_default_text_font` path working until `Renderer::draw_active_text()` can consume resolved family/span data directly.
 
 Tests:
 
-- Runtime/default family registration succeeds with the bundled Liberation Sans asset in test asset setup.
-- Empty and `runtime-ui` aliases resolve to the same default face.
-- Requesting bold/italic against default family returns regular face plus synthetic bits.
+- System family registration succeeds with the bundled Liberation Sans asset in test asset setup.
+- `sys`, empty alias, `runtime-ui`, and `Liberation Sans` resolve to the same system face during the transition.
+- Requesting bold/italic against the system family returns regular face plus synthetic bits.
 
 Acceptance:
 
@@ -304,7 +324,7 @@ Tasks:
 Tests:
 
 - `[font id=missing]` falls back to default family while preserving diagnostic behavior.
-- `[b]`, `[i]`, `[b][i]` against default Liberation Sans produce glyphs with synthetic bits.
+- `[b]`, `[i]`, `[b][i]` against `sys` produce glyphs with synthetic bits.
 - Explicit font size spans affect advances and line height.
 - ActiveText precomputes wrapping before reveal with styled spans.
 - Object hit testing still works after styled-span shaping.
@@ -358,7 +378,7 @@ Files likely touched:
 
 Tasks:
 
-1. Update the text implementation docs to describe font families, default Liberation Sans, styled spans, and synthetic fallback.
+1. Update the text implementation docs to describe font families, the `sys` system font, project default font configuration, styled spans, and synthetic fallback.
 2. Mark completed slices in this plan as they land.
 3. Update the migration status once ActiveText uses styled-span shaping.
 4. If old `runtime-ui` alias remains only as compatibility glue, document it as transitional.
@@ -368,7 +388,7 @@ Tasks:
 Use this order to keep each patch reviewable:
 
 1. Data model and resolver, with tests.
-2. Default Liberation Sans family registration, with tests.
+2. System font family registration, with tests.
 3. Synthetic bits in `PositionedGlyph` and glyph cache key, with tests.
 4. Styled-span shaping API, with tests.
 5. ActiveText switch to styled-span shaping, with tests and sandbox smoke.
@@ -405,8 +425,8 @@ cmake --build --preset web-debug
 
 This implementation slice is complete when:
 
-- A default `Liberation Sans` family is registered and used by direct ActiveText.
-- Empty and unknown aliases fall back to the default family with deduped diagnostics.
+- A `sys` system font family is registered and used by direct ActiveText when no project default is provided.
+- Empty and unknown aliases fall back to the runtime default family with deduped diagnostics.
 - A regular-only family can satisfy bold/italic/bold-italic requests through synthetic bits.
 - Styled-span shaping preserves source byte ranges and wraps before reveal.
 - ActiveText uses styled-span shaping for its primary direct-render path.

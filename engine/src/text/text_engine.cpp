@@ -10,6 +10,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
+#include FT_SYNTHESIS_H
 #include <hb-ft.h>
 #include <hb.h>
 #include <algorithm>
@@ -22,7 +23,9 @@
 #include <memory>
 #include <numeric>
 #include <set>
+#include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 
 namespace noveltea::text {
@@ -117,6 +120,15 @@ struct ShapedGlyphData {
 struct ShapedData {
     std::vector<ShapedGlyphData> glyphs;
     float width = 0.0f;
+};
+
+struct FontFamilyResource {
+    std::string alias;
+    FontHandle regular{};
+    FontHandle bold{};
+    FontHandle italic{};
+    FontHandle bold_italic{};
+    bool synthetic_styles = true;
 };
 
 uint32_t checked_u32(size_t value)
@@ -217,6 +229,21 @@ uint32_t source_end_for_cluster(uint32_t cluster, const std::vector<uint32_t>& s
     return it == sorted_clusters.end() ? run_end : *it;
 }
 
+[[nodiscard]] bool wants_bold(uint32_t style) noexcept { return (style & TextFontBold) != 0; }
+[[nodiscard]] bool wants_italic(uint32_t style) noexcept { return (style & TextFontItalic) != 0; }
+
+[[nodiscard]] uint32_t face_style_bits(uint32_t style) noexcept
+{
+    uint32_t bits = TextFontRegular;
+    if (wants_bold(style)) {
+        bits |= TextFontBold;
+    }
+    if (wants_italic(style)) {
+        bits |= TextFontItalic;
+    }
+    return bits;
+}
+
 } // namespace
 
 uint32_t normalize_raster_pixel_size(float pixel_size)
@@ -287,12 +314,36 @@ struct TextEngine::Impl {
     const assets::AssetManager& assets;
     FtLibraryPtr library;
     mutable std::unordered_map<uint32_t, FontResource> fonts;
+    std::unordered_map<uint32_t, FontFamilyResource> families;
+    std::unordered_map<std::string, uint32_t> families_by_alias;
+    mutable std::unordered_set<std::string> diagnostics;
+    uint32_t default_family_id = 0;
     uint32_t next_id = 1;
+    uint32_t next_family_id = 1;
 
     FontResource* find(FontHandle handle) const
     {
         auto it = fonts.find(handle.id);
         return it == fonts.end() ? nullptr : &it->second;
+    }
+
+    const FontFamilyResource* find_family(FontFamilyHandle handle) const
+    {
+        auto it = families.find(handle.id);
+        return it == families.end() ? nullptr : &it->second;
+    }
+
+    const FontFamilyResource* find_family(std::string_view alias) const
+    {
+        const auto it = families_by_alias.find(std::string(alias));
+        return it == families_by_alias.end() ? nullptr : find_family(FontFamilyHandle{it->second});
+    }
+
+    void diagnose_once(const std::string& key, const std::string& message) const
+    {
+        if (diagnostics.insert(key).second) {
+            std::fprintf(stderr, "[text] %s\n", message.c_str());
+        }
     }
 
     ShapedData shape(const Text& text, uint32_t begin, uint32_t end, TextDirection direction,
@@ -384,6 +435,128 @@ FontHandle TextEngine::load_font(const FontDesc& desc)
     const uint32_t id = m_impl->next_id++;
     m_impl->fonts.emplace(id, std::move(font));
     return FontHandle{id};
+}
+
+FontFamilyHandle TextEngine::register_font_family(const FontFamilyDesc& desc)
+{
+    FontFamilyResource family;
+    family.alias = desc.alias.empty() ? "default" : desc.alias;
+    family.synthetic_styles = desc.synthetic_styles;
+    family.regular = load_font(desc.regular);
+    if (!family.regular) {
+        if (!desc.alias.empty()) {
+            m_impl->diagnose_once("family-regular:" + desc.alias,
+                                  "font family '" + desc.alias +
+                                      "' has no usable regular/base face");
+        }
+        return {};
+    }
+
+    const auto load_optional = [&](const std::optional<FontDesc>& face,
+                                   std::string_view style_name) -> FontHandle {
+        if (!face) {
+            return {};
+        }
+        FontHandle handle = load_font(*face);
+        if (!handle) {
+            m_impl->diagnose_once("family-optional:" + family.alias + ":" + std::string(style_name),
+                                  "font family '" + family.alias + "' failed to load " +
+                                      std::string(style_name) +
+                                      " face; synthetic fallback may be used");
+        }
+        return handle;
+    };
+    family.bold = load_optional(desc.bold, "bold");
+    family.italic = load_optional(desc.italic, "italic");
+    family.bold_italic = load_optional(desc.bold_italic, "bold-italic");
+
+    const uint32_t id = m_impl->next_family_id++;
+    m_impl->families.emplace(id, std::move(family));
+    const auto& stored = m_impl->families.at(id);
+    m_impl->families_by_alias[stored.alias] = id;
+    if (stored.alias == kSystemFontAlias) {
+        m_impl->families_by_alias[std::string(kSystemFontDisplayName)] = id;
+        m_impl->families_by_alias["runtime-ui"] = id;
+    }
+    if (m_impl->default_family_id == 0) {
+        m_impl->default_family_id = id;
+        m_impl->families_by_alias[""] = id;
+    }
+    return FontFamilyHandle{id};
+}
+
+FontFamilyHandle TextEngine::default_font_family() const
+{
+    return FontFamilyHandle{m_impl ? m_impl->default_family_id : 0u};
+}
+
+void TextEngine::set_default_font_family(FontFamilyHandle family)
+{
+    if (!m_impl || !m_impl->find_family(family)) {
+        return;
+    }
+    m_impl->default_family_id = family.id;
+    m_impl->families_by_alias[""] = family.id;
+}
+
+ResolvedFont TextEngine::resolve_font(std::string_view alias, uint32_t style) const
+{
+    ResolvedFont resolved;
+    resolved.requested_style = style;
+    if (!m_impl) {
+        return resolved;
+    }
+
+    const FontFamilyResource* family = alias.empty() ? nullptr : m_impl->find_family(alias);
+    if (!family && alias.empty() && m_impl->default_family_id != 0) {
+        family = m_impl->find_family(FontFamilyHandle{m_impl->default_family_id});
+    }
+    if (!family && !alias.empty()) {
+        m_impl->diagnose_once("unknown-family:" + std::string(alias),
+                              "unknown font family '" + std::string(alias) +
+                                  "'; falling back to default font family");
+        family = m_impl->find_family(FontFamilyHandle{m_impl->default_family_id});
+    }
+    if (!family) {
+        return resolved;
+    }
+
+    resolved.alias = family->alias;
+    const uint32_t requested_face_style = face_style_bits(style);
+    FontHandle face = family->regular;
+    uint32_t real_style = TextFontRegular;
+    if (requested_face_style == (TextFontBold | TextFontItalic) && family->bold_italic) {
+        face = family->bold_italic;
+        real_style = TextFontBold | TextFontItalic;
+    } else if (requested_face_style == TextFontBold && family->bold) {
+        face = family->bold;
+        real_style = TextFontBold;
+    } else if (requested_face_style == TextFontItalic && family->italic) {
+        face = family->italic;
+        real_style = TextFontItalic;
+    } else if (requested_face_style == (TextFontBold | TextFontItalic)) {
+        if (family->italic) {
+            face = family->italic;
+            real_style = TextFontItalic;
+        } else if (family->bold) {
+            face = family->bold;
+            real_style = TextFontBold;
+        }
+    }
+
+    uint32_t missing_style = requested_face_style & ~real_style;
+    if (!family->synthetic_styles && missing_style != 0) {
+        m_impl->diagnose_once("missing-style:" + family->alias + ":" + std::to_string(style),
+                              "font family '" + family->alias +
+                                  "' has no requested styled face and synthetic styles are "
+                                  "disabled; using regular face");
+        face = family->regular;
+        missing_style = TextFontRegular;
+    }
+
+    resolved.face = face;
+    resolved.synthetic_style = missing_style;
+    return resolved;
 }
 
 TextMetrics TextEngine::measure_text(FontHandle font, std::string_view value, float size) const
@@ -525,6 +698,7 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
                     positioned.advance = glyph.advance;
                     positioned.offset = glyph.offset;
                     positioned.font = text.font;
+                    positioned.synthetic_font_style = TextFontRegular;
                     positioned.logical_pixel_size = text.style.size;
                     positioned.raster_pixel_size = physical_size;
                     visual_run.glyphs.push_back(positioned);
@@ -608,16 +782,108 @@ TextLayout TextEngine::layout_text(const Text& text, float scale) const
     return layout;
 }
 
+TextLayout TextEngine::layout_text(const StyledText& styled_text) const
+{
+    return layout_text(styled_text, 1.0f);
+}
+
+TextLayout TextEngine::layout_text(const StyledText& styled_text, float scale) const
+{
+    TextLayout empty;
+    empty.bounds = styled_text.bounds;
+    empty.align = styled_text.align;
+    empty.transform = styled_text.transform;
+    if (styled_text.value.empty()) {
+        return empty;
+    }
+
+    const auto span_for_offset = [&](uint32_t offset) -> TextSpan {
+        for (const auto& span : styled_text.spans) {
+            if (offset >= span.source_byte_begin && offset < span.source_byte_end) {
+                return span;
+            }
+        }
+        TextSpan fallback;
+        fallback.source_byte_begin = 0;
+        fallback.source_byte_end = checked_u32(styled_text.value.size());
+        return fallback;
+    };
+
+    const TextSpan first_span =
+        styled_text.spans.empty() ? span_for_offset(0) : styled_text.spans.front();
+    const auto first_font = resolve_font(first_span.font_alias, first_span.font_style);
+    if (!first_font.face) {
+        return empty;
+    }
+
+    Text text;
+    text.value = styled_text.value;
+    text.font = first_font.face;
+    text.bounds = styled_text.bounds;
+    text.style.size = first_span.size;
+    text.style.color = first_span.color;
+    text.style.alpha = first_span.alpha;
+    text.align = styled_text.align;
+    text.direction = styled_text.direction;
+    text.wrap = styled_text.wrap;
+    text.language = styled_text.language;
+    text.transform = styled_text.transform;
+
+    auto layout = layout_text(text, scale);
+    for (auto& line : layout.lines) {
+        for (auto& run : line.visual_runs) {
+            for (auto& glyph : run.glyphs) {
+                const auto span = span_for_offset(glyph.source_byte_begin);
+                const auto resolved = resolve_font(span.font_alias, span.font_style);
+                if (resolved.face) {
+                    glyph.font = resolved.face;
+                    glyph.synthetic_font_style = resolved.synthetic_style;
+                }
+                glyph.logical_pixel_size = span.size;
+                glyph.raster_pixel_size =
+                    static_cast<float>(normalize_raster_pixel_size(span.size * scale));
+            }
+        }
+    }
+    return layout;
+}
+
 std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32_t glyph_id,
                                                        float pixel_size) const
+{
+    return rasterize_glyph(handle, glyph_id, pixel_size, TextFontRegular);
+}
+
+std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32_t glyph_id,
+                                                       float pixel_size,
+                                                       uint32_t synthetic_style) const
 {
     FontResource* font = m_impl->find(handle);
     if (!font || !set_size(*font, pixel_size)) {
         return std::nullopt;
     }
+    const bool synthetic_italic = (synthetic_style & TextFontItalic) != 0;
+    if (synthetic_italic) {
+        FT_Matrix matrix;
+        matrix.xx = 0x10000L;
+        matrix.xy = 0x0366AL;
+        matrix.yx = 0;
+        matrix.yy = 0x10000L;
+        FT_Set_Transform(font->ft_face.get(), &matrix, nullptr);
+    }
+
     const FT_Int32 flags = ft_load_flags(font->desc.hinting);
     if (FT_Load_Glyph(font->ft_face.get(), glyph_id, flags) != 0) {
+        if (synthetic_italic) {
+            FT_Set_Transform(font->ft_face.get(), nullptr, nullptr);
+        }
         return std::nullopt;
+    }
+    if (synthetic_italic) {
+        FT_Set_Transform(font->ft_face.get(), nullptr, nullptr);
+    }
+    if ((synthetic_style & TextFontBold) != 0) {
+        FT_GlyphSlot_Embolden(font->ft_face->glyph);
     }
     if (FT_Render_Glyph(font->ft_face->glyph, FT_RENDER_MODE_NORMAL) != 0) {
         return std::nullopt;

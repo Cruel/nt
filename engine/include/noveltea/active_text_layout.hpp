@@ -83,10 +83,15 @@ build_active_text_layout(const core::RichTextDocument& document,
                                                         const TextLayout& shaped_layout);
 
 using ActiveTextShaper = std::function<TextLayout(const Text&)>;
+using ActiveTextStyledShaper = std::function<TextLayout(const StyledText&)>;
 
 [[nodiscard]] ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
                                                         const ActiveTextLayoutOptions& options,
                                                         FontHandle font,
                                                         const ActiveTextShaper& shape_text);
+
+[[nodiscard]] ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
+                                                        const ActiveTextLayoutOptions& options,
+                                                        const ActiveTextStyledShaper& shape_text);
 
 } // namespace noveltea

@@ -190,8 +190,10 @@ Implementation slices:
    - A font family registration must accept at minimum one base/regular face.
    - Optional faces: bold, italic, and bold-italic.
    - If a requested styled face is missing, resolve to the closest available real face and apply synthetic styling for the missing style bits.
-   - The default runtime family is `Liberation Sans`, backed by the bundled Liberation Sans regular face for now. Because only the regular default face is guaranteed to ship initially, bold/italic/bold-italic requests against the default family should fall back to Liberation Sans regular plus synthetic styling.
-   - Empty rich-text font aliases resolve to this default runtime family. Unknown aliases should fall back to the default family with a deduped diagnostic.
+   - Preserve the legacy `sys` system font alias. It is the engine-shipped fallback family and is currently backed by bundled Liberation Sans regular, but the concrete backing font should be easy to replace later.
+   - Keep project/user default font separate from the system font. The project default (`fontDefault`) chooses what empty rich-text aliases resolve to; new projects default that setting to `sys`.
+   - Editor-shipped built-in fonts should behave like pre-imported project fonts for export: include them with project assets unless the selected family is the engine system font.
+   - Unknown font aliases should fall back to the runtime default family with a deduped diagnostic.
 
 6. Add hit testing for object/text spans.
    - Map click positions to rich-text object spans.

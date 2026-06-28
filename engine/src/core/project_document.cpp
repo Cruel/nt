@@ -1,7 +1,9 @@
 #include <noveltea/core/project_document.hpp>
 
-#include <array>
 #include <noveltea/core/project_ids.hpp>
+
+#include <array>
+#include <string>
 
 namespace noveltea::core {
 
@@ -38,7 +40,7 @@ ProjectDocument ProjectDocument::new_project()
     root[project_ids::project_version] = "1.0";
     root[project_ids::project_author] = "Author Name";
     root[project_ids::project_website] = "";
-    root[project_ids::project_font_default] = "sys";
+    root[project_ids::project_font_default] = std::string(project_ids::system_font_alias);
     root[project_ids::project_fonts] = empty_object();
     root[project_ids::starting_inventory] = empty_array();
     root[project_ids::script_before_save] = "";
@@ -61,8 +63,9 @@ ProjectDocument ProjectDocument::new_project()
     });
     root[project_ids::system_shaders] = nlohmann::json::array({"defaultFrag", "defaultFrag"});
     root[project_ids::engine_fonts] = nlohmann::json::object({
-        {"sys", "LiberationSans.ttf"},
-        {"sysIcon", "fontawesome.ttf"},
+        {std::string(project_ids::system_font_alias), std::string(project_ids::system_font_file)},
+        {std::string(project_ids::system_icon_font_alias),
+         std::string(project_ids::system_icon_font_file)},
     });
 
     for (auto key : project_ids::entity_collection_keys) {

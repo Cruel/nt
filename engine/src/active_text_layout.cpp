@@ -39,6 +39,24 @@ Color to_color(const core::RichTextColor& color)
 
 constexpr unsigned int kRichTextDefaultFontSize = 12;
 
+uint32_t active_text_style_bits(unsigned int style) noexcept
+{
+    uint32_t bits = TextFontRegular;
+    if ((style & core::FontBold) != 0) {
+        bits |= TextFontBold;
+    }
+    if ((style & core::FontItalic) != 0) {
+        bits |= TextFontItalic;
+    }
+    if ((style & core::FontUnderlined) != 0) {
+        bits |= TextFontUnderline;
+    }
+    if ((style & core::FontStrikeThrough) != 0) {
+        bits |= TextFontStrike;
+    }
+    return bits;
+}
+
 float resolved_glyph_size(const ActiveTextGlyph& glyph, const ActiveTextLayoutOptions& options)
 {
     const float tagged =
@@ -198,6 +216,47 @@ ActiveTextLayout make_base_layout(const core::RichTextDocument& document,
     return layout;
 }
 
+StyledText make_styled_text(const VisibleTextPlan& plan, const ActiveTextLayoutOptions& options)
+{
+    StyledText text;
+    text.value = plan.text;
+    text.bounds = options.bounds;
+    text.align = options.alignment;
+    text.wrap = TextWrap::Word;
+    text.language = options.language;
+
+    text.spans.reserve(plan.glyphs.size());
+    for (const auto& metadata : plan.glyphs) {
+        if (metadata.glyph.text == "\n") {
+            continue;
+        }
+        TextSpan span;
+        span.source_byte_begin = metadata.source_byte_begin;
+        span.source_byte_end = metadata.source_byte_end;
+        span.font_alias = metadata.glyph.style.font_alias.empty() ? options.default_font_alias
+                                                                  : metadata.glyph.style.font_alias;
+        span.font_style = active_text_style_bits(metadata.glyph.style.font_style);
+        span.size = resolved_glyph_size(metadata.glyph, options);
+        span.color = to_color(metadata.glyph.style.color);
+        if (metadata.glyph.style.color.r == 0 && metadata.glyph.style.color.g == 0 &&
+            metadata.glyph.style.color.b == 0 && metadata.glyph.style.color.a == 255) {
+            span.color = options.default_color;
+        }
+        span.alpha = std::clamp(metadata.glyph.alpha, 0.0f, 1.0f);
+        text.spans.push_back(std::move(span));
+    }
+    if (text.spans.empty() && !text.value.empty()) {
+        TextSpan span;
+        span.source_byte_begin = 0;
+        span.source_byte_end = static_cast<uint32_t>(text.value.size());
+        span.font_alias = options.default_font_alias;
+        span.size = options.default_text_size;
+        span.color = options.default_color;
+        text.spans.push_back(std::move(span));
+    }
+    return text;
+}
+
 } // namespace
 
 std::optional<std::string> ActiveTextLayout::object_at(Vec2 logical_point) const
@@ -332,6 +391,22 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
 }
 
 ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
+                                          const ActiveTextLayoutOptions& options,
+                                          const ActiveTextStyledShaper& shape_text)
+{
+    if (!shape_text) {
+        return build_active_text_layout(document, options);
+    }
+    const auto full_plan = build_visible_text_plan(document, options, 1.0f);
+    auto styled = make_styled_text(full_plan, options);
+    auto shaped = shape_text(styled);
+    if (shaped.lines.empty()) {
+        return build_active_text_layout(document, options);
+    }
+    return build_active_text_layout(document, options, shaped);
+}
+
+ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
                                           const ActiveTextLayoutOptions& options, FontHandle font,
                                           const ActiveTextShaper& shape_text)
 {
@@ -414,6 +489,9 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
                     positioned.source_byte_end = metadata.source_byte_end;
                     positioned.position = {x,
                                            y + std::max(resolved_glyph_size(glyph, options), 1.0f)};
+                    positioned.synthetic_font_style =
+                        active_text_style_bits(glyph.style.font_style) &
+                        (TextFontBold | TextFontItalic);
                     positioned.logical_pixel_size = resolved_glyph_size(glyph, options);
                     visual.shaped_glyph = positioned;
                     visual.has_shaped_glyph = true;

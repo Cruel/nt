@@ -43,6 +43,17 @@ Text make_text(FontHandle font, std::string value, float size = 24.0f)
     return text;
 }
 
+FontFamilyHandle register_liberation_regular(noveltea::text::TextEngine& engine,
+                                             std::string alias = std::string(kSystemFontAlias),
+                                             bool synthetic_styles = true)
+{
+    FontFamilyDesc family;
+    family.alias = std::move(alias);
+    family.regular = FontDesc{std::string(kSystemFontProjectAsset)};
+    family.synthetic_styles = synthetic_styles;
+    return engine.register_font_family(family);
+}
+
 std::vector<PositionedGlyph> glyphs_for(const TextLayout& layout)
 {
     std::vector<PositionedGlyph> glyphs;
@@ -55,6 +66,84 @@ std::vector<PositionedGlyph> glyphs_for(const TextLayout& layout)
 }
 
 } // namespace
+
+TEST_CASE("TextEngine resolves regular-only font families with synthetic style fallback")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto family = register_liberation_regular(engine, "body");
+    REQUIRE(family);
+    engine.set_default_font_family(family);
+
+    const auto system_by_name = engine.resolve_font(kSystemFontDisplayName, TextFontRegular);
+    CHECK(system_by_name.face);
+
+    const auto regular = engine.resolve_font("body", TextFontRegular);
+    const auto bold = engine.resolve_font("body", TextFontBold);
+    const auto italic = engine.resolve_font("body", TextFontItalic);
+    const auto bold_italic = engine.resolve_font("body", TextFontBold | TextFontItalic);
+
+    REQUIRE(regular.face);
+    CHECK(bold.face == regular.face);
+    CHECK(italic.face == regular.face);
+    CHECK(bold_italic.face == regular.face);
+    CHECK(bold.synthetic_style == TextFontBold);
+    CHECK(italic.synthetic_style == TextFontItalic);
+    CHECK(bold_italic.synthetic_style == (TextFontBold | TextFontItalic));
+
+    const auto missing = engine.resolve_font("missing-family", TextFontBold);
+    CHECK(missing.face == regular.face);
+    CHECK(missing.synthetic_style == TextFontBold);
+}
+
+TEST_CASE("StyledText preserves synthetic font style on positioned glyphs")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto family = register_liberation_regular(engine, "body");
+    REQUIRE(family);
+    engine.set_default_font_family(family);
+
+    StyledText text;
+    text.value = "Bold plain";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "en";
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = 4,
+                                  .font_alias = "body",
+                                  .font_style = TextFontBold,
+                                  .size = 24.0f});
+    text.spans.push_back(TextSpan{.source_byte_begin = 4,
+                                  .source_byte_end = static_cast<uint32_t>(text.value.size()),
+                                  .font_alias = "body",
+                                  .font_style = TextFontRegular,
+                                  .size = 24.0f});
+
+    const auto layout = engine.layout_text(text);
+    const auto glyphs = glyphs_for(layout);
+    REQUIRE_FALSE(glyphs.empty());
+    CHECK(glyphs.front().synthetic_font_style == TextFontBold);
+    CHECK(std::ranges::any_of(glyphs, [](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin >= 4 && glyph.synthetic_font_style == TextFontRegular;
+    }));
+}
+
+TEST_CASE("TextEngine synthetic raster style has a distinct cache key and bitmap")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+    const uint32_t glyph_id = engine.glyph_index(font, 'A');
+    REQUIRE(glyph_id != 0);
+
+    const auto regular = engine.rasterize_glyph(font, glyph_id, 24.0f, TextFontRegular);
+    const auto bold = engine.rasterize_glyph(font, glyph_id, 24.0f, TextFontBold);
+    REQUIRE(regular);
+    REQUIRE(bold);
+    CHECK_FALSE(regular->coverage.empty());
+    CHECK_FALSE(bold->coverage.empty());
+}
 
 TEST_CASE("TextEngine preserves UTF-8 byte clusters for multibyte input")
 {

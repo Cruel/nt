@@ -42,6 +42,7 @@ struct PositionedGlyph {
     Vec2 advance{};
     Vec2 offset{};
     FontHandle font{};
+    uint32_t synthetic_font_style = TextFontRegular;
     float logical_pixel_size = 0.0f;
     float raster_pixel_size = 0.0f;
 };

@@ -258,6 +258,25 @@ TEST_CASE("ActiveTextLayout preserves font alias size and style metadata")
     CHECK((glyph.font_style & FontStrikeThrough) != 0);
 }
 
+TEST_CASE("ActiveTextLayout carries rich text synthetic style bits into shaped glyphs")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text("[b][i]Styled[/i][/b]");
+    const ActiveTextLayoutOptions options{.bounds = {0.0f, 0.0f, 400.0f, 100.0f},
+                                          .default_text_size = 24.0f};
+    const auto layout = build_active_text_layout(
+        doc, options, font, [&](const Text& text) { return engine.layout_text(text); });
+
+    REQUIRE_FALSE(layout.glyphs.empty());
+    REQUIRE(layout.glyphs.front().has_shaped_glyph);
+    CHECK((layout.glyphs.front().shaped_glyph.synthetic_font_style & TextFontBold) != 0);
+    CHECK((layout.glyphs.front().shaped_glyph.synthetic_font_style & TextFontItalic) != 0);
+}
+
 TEST_CASE("ActiveTextLayout maps colors alpha and deterministic effects")
 {
     const auto doc = parse_rich_text("[c=#336699][a1 e=s t=1]ab[/a1][/c]");
