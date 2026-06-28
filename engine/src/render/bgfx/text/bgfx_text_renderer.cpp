@@ -90,6 +90,23 @@ struct ActiveTextDrawBatch {
     std::vector<uint16_t> indices;
 };
 
+Color active_text_glow_color(Color base, float glow)
+{
+    const float intensity = std::clamp(glow, 0.0f, 1.0f);
+    if (intensity <= 0.0f) {
+        return base;
+    }
+
+    constexpr Color warm_glow = Color::from_rgba8(255, 210, 78);
+    const float mix_amount = 0.65f * intensity;
+    base.r =
+        std::clamp(base.r + (warm_glow.r - base.r) * mix_amount + 0.20f * intensity, 0.0f, 1.0f);
+    base.g =
+        std::clamp(base.g + (warm_glow.g - base.g) * mix_amount + 0.14f * intensity, 0.0f, 1.0f);
+    base.b = std::clamp(base.b + (warm_glow.b - base.b) * mix_amount, 0.0f, 1.0f);
+    return base;
+}
+
 float effective_alpha(const TextStyle& style)
 {
     return std::clamp(style.color.a * style.alpha, 0.0f, 1.0f);
@@ -487,12 +504,12 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
                                       : effective_scale();
         const float inv_glyph_scale = 1.0f / std::max(glyph_scale, 0.0001f);
         const float visual_scale = std::max(visual.scale, 0.0001f);
-        const float glyph_width = glyph ? glyph->width * inv_glyph_scale * visual_scale : 0.0f;
-        const float glyph_height = glyph ? glyph->height * inv_glyph_scale * visual_scale : 0.0f;
-        const float glyph_bearing_x =
-            glyph ? glyph->bearing_x * inv_glyph_scale * visual_scale : 0.0f;
-        const float glyph_bearing_y =
-            glyph ? glyph->bearing_y * inv_glyph_scale * visual_scale : 0.0f;
+        const float base_width = glyph ? glyph->width * inv_glyph_scale : 0.0f;
+        const float base_height = glyph ? glyph->height * inv_glyph_scale : 0.0f;
+        const float glyph_width = base_width * visual_scale;
+        const float glyph_height = base_height * visual_scale;
+        const float glyph_bearing_x = glyph ? glyph->bearing_x * inv_glyph_scale : 0.0f;
+        const float glyph_bearing_y = glyph ? glyph->bearing_y * inv_glyph_scale : 0.0f;
         if (!glyph || glyph_width <= 0.0f || glyph_height <= 0.0f) {
             return;
         }
@@ -503,13 +520,18 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
             return;
         }
 
-        const float x0 =
+        const float base_x0 =
             positioned.position.x + positioned.offset.x + glyph_bearing_x + visual.offset.x;
-        const float y0 =
+        const float base_y0 =
             positioned.position.y + positioned.offset.y - glyph_bearing_y + visual.offset.y;
+        const float pivot_x = base_x0 + base_width * 0.5f;
+        const float pivot_y = base_y0 + base_height * 0.5f;
+        const float x0 = pivot_x + (base_x0 - pivot_x) * visual_scale;
+        const float y0 = pivot_y + (base_y0 - pivot_y) * visual_scale;
         const float x1 = x0 + glyph_width;
         const float y1 = y0 + glyph_height;
-        const Color color = visual.diff ? Color::from_rgba8(255, 214, 92) : visual.color;
+        const Color color = active_text_glow_color(
+            visual.diff ? Color::from_rgba8(255, 214, 92) : visual.color, visual.glow);
         const float alpha = std::clamp(visual.alpha * color.a, 0.0f, 1.0f);
         const bool synthetic_bold = has_font_style(visual.font_style, core::FontBold);
         const bool synthetic_italic = has_font_style(visual.font_style, core::FontItalic);

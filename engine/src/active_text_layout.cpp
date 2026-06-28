@@ -302,7 +302,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
         const auto& glyph = metadata.glyph;
         const float size = resolved_glyph_size(glyph, options);
         const float advance = glyph.text == "\t" ? size : size * 0.55f;
-        const float line_height = std::max(size * options.line_spacing * glyph.scale, 1.0f);
+        const float line_height = std::max(size * options.line_spacing, 1.0f);
         current_line_height = std::max(current_line_height, line_height);
 
         if (glyph.text == "\n") {
@@ -321,7 +321,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
         auto visual = make_visual(glyph, options);
         visual.source_byte_begin = metadata.source_byte_begin;
         visual.source_byte_end = metadata.source_byte_end;
-        visual.bounds = {x, y, advance * visual.scale, line_height};
+        visual.bounds = {x, y, advance, line_height};
         add_object_span_rect(layout, object_indices, visual);
 
         layout.glyphs.push_back(std::move(visual));
@@ -376,8 +376,8 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
                 visual.shaped_glyph = positioned;
                 visual.has_shaped_glyph = true;
 
-                const float advance_width = std::max(positioned.advance.x, 1.0f) * visual.scale;
-                const float height = line_height * visual.scale;
+                const float advance_width = std::max(positioned.advance.x, 1.0f);
+                const float height = line_height;
                 visual.bounds = {positioned.position.x + visual.offset.x,
                                  line.baseline - line_height + visual.offset.y, advance_width,
                                  height};
@@ -431,7 +431,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
         ShapedActiveGlyph shaped_glyph;
         shaped_glyph.metadata = &metadata;
         const float size = resolved_glyph_size(glyph, options);
-        shaped_glyph.line_height = std::max(size * options.line_spacing * glyph.scale, 1.0f);
+        shaped_glyph.line_height = std::max(size * options.line_spacing, 1.0f);
 
         if (!is_hard_break(glyph)) {
             Text text;
@@ -481,8 +481,8 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
                 auto visual = make_visual(glyph, options);
                 visual.source_byte_begin = metadata.source_byte_begin;
                 visual.source_byte_end = metadata.source_byte_end;
-                visual.bounds = {x + visual.offset.x, y + visual.offset.y,
-                                 shaped_glyph.advance * visual.scale, line_height};
+                visual.bounds = {x + visual.offset.x, y + visual.offset.y, shaped_glyph.advance,
+                                 line_height};
                 if (shaped_glyph.has_positioned) {
                     auto positioned = shaped_glyph.positioned;
                     positioned.source_byte_begin = metadata.source_byte_begin;

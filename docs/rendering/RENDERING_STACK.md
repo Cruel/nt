@@ -9,7 +9,7 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 - `Renderer` owns bgfx initialization, frame lifecycle, view setup, engine 2D draws, screenshots, resize handling, and shader/material resource caches.
 - `RuntimeUI` owns RmlUi documents, input forwarding, runtime UI binding, and the NovelTea adapter around the external `rmlui-bgfx` renderer package.
 - `DebugUI` owns Dear ImGui developer/debug overlay only.
-- Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale metadata, object hit rectangles, reveal clipping, and deterministic effect state.
+- Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale/glow metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
 ## External Renderer Package
 
@@ -45,11 +45,19 @@ Material-backed engine 2D quads use `ShaderRole::Engine2D`. RmlUi decorator mate
 
 RmlUi is NovelTea's general runtime UI layer. Runtime visual slots such as cover, background, room, object, inventory, and action UI are exposed through backend-neutral view state and bound by `RuntimeUI`. Complex widgets such as ActiveText, MapView, and TextLog may be C++-backed RmlUi elements when ordinary RML/RCSS is insufficient.
 
-For ActiveText, RmlUi hosts `nt-active-text` and continues to receive fallback RML. After RmlUi
-updates layout, `RuntimeUI` collects a direct render snapshot with the resolved content box and a
+For ActiveText, RmlUi hosts `nt-active-text` as a layout/input component only. After RmlUi updates
+layout, `RuntimeUI` collects a direct render snapshot with the resolved content box and a
 FreeType/HarfBuzz-shaped glyph layout mapped back to rich-text metadata. `Engine::render()` submits
-that snapshot through `Renderer::draw_active_text()` after RmlUi has rendered the runtime UI, so the
-direct path overlays the fallback host instead of being hidden by it.
+that snapshot through `Renderer::draw_active_text()` after RmlUi has rendered the runtime UI. ActiveText
+does not generate RML glyph fallback markup.
+
+ActiveText effect visuals are V1 CPU-side projections applied after stable full-text layout. `Fade`
+and `FadeAcross` multiply glyph alpha; `FadeAcross` uses run-local stagger from `animation.value` or a
+20 ms default. `Pop` scales only the rendered glyph quad and the bgfx renderer pivots scaling around
+the glyph center. `Nod`, `Shake`, and `Tremble` apply deterministic sine/cosine offsets. `Glow` writes
+a normalized intensity consumed by the bgfx text renderer as a simple warm color boost. `Test` remains
+a diagnostic-only nod/glow combination. High-quality halo/blur glow and outline/border rendering remain
+future work.
 
 ## Verification
 

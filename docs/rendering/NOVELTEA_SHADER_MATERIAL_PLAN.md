@@ -236,9 +236,10 @@ rendering with structured, deduped diagnostics.
 
 Text outline/border rendering is intentionally not part of the next ActiveText material milestone.
 Outline metadata may remain preserved for compatibility, but high-quality outline/border effects are
-sidelined until an authored fixture requires them. High-quality glow remains in scope because the old
-rich-text/effect model already exposes glow-like animation metadata and it can be implemented through
-the material/effect path.
+sidelined until an authored fixture requires them. ActiveText V1 glow is implemented as CPU effect
+metadata plus a simple renderer-side warm color boost in `v_color0`, including material and direct
+shader batches. A true halo/blur glow remains future work for an expanded glyph, SDF/MSDF, or bounded
+postprocess slice.
 
 ### RmlUi Decorator Material
 

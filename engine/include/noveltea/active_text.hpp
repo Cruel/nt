@@ -18,6 +18,7 @@ struct ActiveTextGlyph {
     std::string text;
     std::size_t run_index = 0;
     std::size_t glyph_index = 0;
+    std::size_t run_glyph_index = 0;
     core::RichTextStyle style{};
     core::RichTextAnimation animation{};
     Vec2 offset{};

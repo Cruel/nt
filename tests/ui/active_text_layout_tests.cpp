@@ -352,6 +352,24 @@ TEST_CASE("ActiveTextLayout maps colors alpha and deterministic effects")
     CHECK(a.glyphs[1].offset.x != Catch::Approx(c.glyphs[1].offset.x));
 }
 
+TEST_CASE("ActiveTextLayout carries effect metadata without changing layout advances")
+{
+    const auto plain_doc = parse_rich_text("ab");
+    const auto effect_doc = parse_rich_text("[a1 e=p f=linear t=1 v=0.5]a[/a1][a1 e=g s=1]b[/a1]");
+    const ActiveTextLayoutOptions options{
+        .bounds = {0.0f, 0.0f, 400.0f, 100.0f}, .default_text_size = 20.0f, .time_seconds = 0.0};
+
+    const auto plain = build_active_text_layout(plain_doc, options);
+    const auto effect = build_active_text_layout(effect_doc, options);
+
+    REQUIRE(plain.glyphs.size() == 2);
+    REQUIRE(effect.glyphs.size() == 2);
+    CHECK(effect.glyphs[0].scale == Catch::Approx(1.5f));
+    CHECK(effect.glyphs[1].glow == Catch::Approx(0.5f));
+    CHECK(effect.glyphs[0].bounds.width == Catch::Approx(plain.glyphs[0].bounds.width));
+    CHECK(effect.glyphs[1].bounds.x == Catch::Approx(plain.glyphs[1].bounds.x));
+}
+
 TEST_CASE("ActiveTextLayout hit tests object spans")
 {
     const auto doc = parse_rich_text("Look [[Key|key-object]] now");
