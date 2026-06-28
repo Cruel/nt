@@ -49,7 +49,11 @@ For ActiveText, RmlUi hosts `nt-active-text` as a layout/input component only. A
 layout, `RuntimeUI` collects a direct render snapshot with the resolved content box and a
 FreeType/HarfBuzz-shaped glyph layout mapped back to rich-text metadata. `Engine::render()` submits
 that snapshot through `Renderer::draw_active_text()` after RmlUi has rendered the runtime UI. ActiveText
-does not generate RML glyph fallback markup.
+does not generate RML glyph fallback markup. RuntimeUI owns an explicit ActiveText playback lifecycle:
+new text instances reveal by glyph rate and fade in, empty text fades the last displayed document out,
+local rich-text page breaks and wait-for-click spans split playback into page segments, body clicks skip
+an in-progress reveal without continuing in the same click, and the bgfx text renderer draws a small
+prompt marker only after the current page is fully revealed and waiting for input.
 
 ActiveText effect visuals are V1 CPU-side projections applied after stable full-text layout. `Fade`
 and `FadeAcross` multiply glyph alpha; `FadeAcross` uses run-local stagger from `animation.value` or a

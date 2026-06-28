@@ -636,6 +636,33 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         }
     }
 
+    if (layout.prompt.visible && layout.prompt.alpha > 0.0f) {
+        ActiveTextGlyphVisual prompt_visual;
+        prompt_visual.text = layout.prompt.page_break ? "v" : ">";
+        prompt_visual.bounds = layout.prompt.bounds;
+        prompt_visual.color = Color::from_rgba8(255, 228, 128);
+        prompt_visual.alpha = std::clamp(layout.prompt.alpha, 0.0f, 1.0f);
+        prompt_visual.font_size = static_cast<unsigned int>(
+            std::max(std::round(std::max(layout.prompt.bounds.height, 1.0f)), 1.0f));
+
+        Text text;
+        text.value = prompt_visual.text;
+        text.font = font;
+        text.bounds = prompt_visual.bounds;
+        text.style.size = std::max(layout.prompt.bounds.height, 1.0f);
+        text.style.color = prompt_visual.color;
+        text.style.alpha = prompt_visual.alpha;
+        text.wrap = TextWrap::NoWrap;
+        auto shaped = m_text.layout_text(text, effective_scale());
+        for (const auto& line : shaped.lines) {
+            for (const auto& run : line.visual_runs) {
+                for (const auto& positioned : run.glyphs) {
+                    append_positioned_glyph(prompt_visual, positioned);
+                }
+            }
+        }
+    }
+
     bgfx::VertexLayout vertex_layout;
     vertex_layout.begin()
         .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)

@@ -370,6 +370,45 @@ TEST_CASE("ActiveTextLayout carries effect metadata without changing layout adva
     CHECK(effect.glyphs[1].bounds.x == Catch::Approx(plain.glyphs[1].bounds.x));
 }
 
+TEST_CASE("ActiveTextLayout splits local page breaks into selectable pages")
+{
+    const auto doc = parse_rich_text("First[p]Second[a1 w=1] wait[/a1]Third");
+
+    CHECK(active_text_page_count(doc) == 3);
+
+    const auto first = build_active_text_layout(
+        doc, ActiveTextLayoutOptions{.bounds = {0.0f, 0.0f, 400.0f, 100.0f}, .page_index = 0});
+    const auto second = build_active_text_layout(
+        doc, ActiveTextLayoutOptions{.bounds = {0.0f, 0.0f, 400.0f, 100.0f}, .page_index = 1});
+    const auto third = build_active_text_layout(
+        doc, ActiveTextLayoutOptions{.bounds = {0.0f, 0.0f, 400.0f, 100.0f}, .page_index = 2});
+
+    CHECK(first.visible_text == "First");
+    CHECK(first.page_break);
+    CHECK(first.awaiting_continue);
+    CHECK(second.visible_text == "Second wait");
+    CHECK(second.page_break);
+    CHECK(second.awaiting_continue);
+    CHECK(third.visible_text == "Third");
+    CHECK_FALSE(third.page_break);
+    CHECK_FALSE(third.awaiting_continue);
+}
+
+TEST_CASE("ActiveTextLayout applies playback alpha to glyph visuals")
+{
+    const auto doc = parse_rich_text("[a1 e=f f=linear t=1]a[/a1]");
+
+    const auto layout = build_active_text_layout(
+        doc, ActiveTextLayoutOptions{.bounds = {0.0f, 0.0f, 400.0f, 100.0f},
+                                     .reveal_progress = 1.0f,
+                                     .alpha = 0.5f,
+                                     .time_seconds = 0.5});
+
+    REQUIRE(layout.glyphs.size() == 1);
+    CHECK(layout.alpha == Catch::Approx(0.5f));
+    CHECK(layout.glyphs.front().alpha == Catch::Approx(0.25f));
+}
+
 TEST_CASE("ActiveTextLayout hit tests object spans")
 {
     const auto doc = parse_rich_text("Look [[Key|key-object]] now");

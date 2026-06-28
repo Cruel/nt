@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -31,6 +32,32 @@ struct ShapedActiveGlyph {
     float line_height = 0.0f;
     bool has_positioned = false;
 };
+
+std::vector<std::size_t> active_text_page_boundaries(const core::RichTextDocument& document)
+{
+    std::vector<std::size_t> boundaries{0};
+    auto add_boundary = [&](std::size_t run_index) {
+        run_index = std::min(run_index, document.runs.size());
+        if (run_index > boundaries.back()) {
+            boundaries.push_back(run_index);
+        }
+    };
+
+    for (const auto& page_break : document.page_breaks) {
+        add_boundary(page_break.run_index);
+    }
+    for (std::size_t run_index = 0; run_index < document.runs.size(); ++run_index) {
+        if (document.runs[run_index].animation.wait_for_click) {
+            add_boundary(run_index + 1u);
+        }
+    }
+    add_boundary(document.runs.size());
+
+    if (boundaries.size() == 1) {
+        boundaries.push_back(document.runs.size());
+    }
+    return boundaries;
+}
 
 Color to_color(const core::RichTextColor& color)
 {
@@ -209,11 +236,21 @@ ActiveTextLayout make_base_layout(const core::RichTextDocument& document,
 {
     ActiveTextLayout layout;
     layout.bounds = options.bounds;
-    layout.page_break = !document.page_breaks.empty();
+    layout.page_index = std::min(options.page_index, active_text_page_count(document) - 1u);
+    layout.page_count = active_text_page_count(document);
+    layout.page_break = layout.page_index + 1u < layout.page_count;
     layout.awaiting_continue = layout.page_break;
     layout.visible_glyph_count = plan.frame.visible_glyphs;
     layout.visible_text = plan.text;
     return layout;
+}
+
+void apply_layout_alpha(ActiveTextLayout& layout, float alpha)
+{
+    layout.alpha = std::clamp(alpha, 0.0f, 1.0f);
+    for (auto& glyph : layout.glyphs) {
+        glyph.alpha = std::clamp(glyph.alpha * layout.alpha, 0.0f, 1.0f);
+    }
 }
 
 StyledText make_styled_text(const VisibleTextPlan& plan, const ActiveTextLayoutOptions& options)
@@ -259,6 +296,32 @@ StyledText make_styled_text(const VisibleTextPlan& plan, const ActiveTextLayoutO
 
 } // namespace
 
+std::size_t active_text_page_count(const core::RichTextDocument& document)
+{
+    const auto boundaries = active_text_page_boundaries(document);
+    return std::max<std::size_t>(boundaries.size() - 1u, 1u);
+}
+
+core::RichTextDocument active_text_document_page(const core::RichTextDocument& document,
+                                                 std::size_t page_index)
+{
+    const auto boundaries = active_text_page_boundaries(document);
+    const std::size_t page_count = std::max<std::size_t>(boundaries.size() - 1u, 1u);
+    page_index = std::min(page_index, page_count - 1u);
+    const std::size_t begin = boundaries[page_index];
+    const std::size_t end = std::min(boundaries[page_index + 1u], document.runs.size());
+
+    core::RichTextDocument page;
+    for (std::size_t index = begin; index < end; ++index) {
+        page.runs.push_back(document.runs[index]);
+        page.plain_text += document.runs[index].text;
+    }
+    if (end < document.runs.size()) {
+        page.page_breaks.push_back(core::RichTextPageBreak{page.runs.size(), 0});
+    }
+    return page;
+}
+
 std::optional<std::string> ActiveTextLayout::object_at(Vec2 logical_point) const
 {
     for (const auto& span : object_spans) {
@@ -274,13 +337,15 @@ std::optional<std::string> ActiveTextLayout::object_at(Vec2 logical_point) const
 std::string active_text_visible_text(const core::RichTextDocument& document,
                                      const ActiveTextLayoutOptions& options)
 {
-    return build_visible_text_plan(document, options).text;
+    const auto page = active_text_document_page(document, options.page_index);
+    return build_visible_text_plan(page, options).text;
 }
 
 ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document,
                                           const ActiveTextLayoutOptions& options)
 {
-    const auto plan = build_visible_text_plan(document, options);
+    const auto page = active_text_document_page(document, options.page_index);
+    const auto plan = build_visible_text_plan(page, options);
     auto layout = make_base_layout(document, options, plan);
 
     std::unordered_map<std::string, std::size_t> object_indices;
@@ -340,6 +405,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
             ? 0u
             : static_cast<uint32_t>(
                   std::floor((layout.metrics.height + 0.5f) / std::max(current_line_height, 1.0f)));
+    apply_layout_alpha(layout, options.alpha);
     return layout;
 }
 
@@ -347,7 +413,8 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
                                           const ActiveTextLayoutOptions& options,
                                           const TextLayout& shaped_layout)
 {
-    const auto plan = build_visible_text_plan(document, options);
+    const auto page = active_text_document_page(document, options.page_index);
+    const auto plan = build_visible_text_plan(page, options);
     auto layout = make_base_layout(document, options, plan);
     layout.bounds = shaped_layout.bounds;
     layout.metrics = shaped_layout.metrics;
@@ -387,6 +454,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
         }
     }
 
+    apply_layout_alpha(layout, options.alpha);
     return layout;
 }
 
@@ -397,7 +465,8 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
     if (!shape_text) {
         return build_active_text_layout(document, options);
     }
-    const auto full_plan = build_visible_text_plan(document, options, 1.0f);
+    const auto page = active_text_document_page(document, options.page_index);
+    const auto full_plan = build_visible_text_plan(page, options, 1.0f);
     auto styled = make_styled_text(full_plan, options);
     auto shaped = shape_text(styled);
     if (shaped.lines.empty()) {
@@ -410,8 +479,9 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
                                           const ActiveTextLayoutOptions& options, FontHandle font,
                                           const ActiveTextShaper& shape_text)
 {
-    const auto full_plan = build_visible_text_plan(document, options, 1.0f);
-    const auto visible_plan = build_visible_text_plan(document, options);
+    const auto page = active_text_document_page(document, options.page_index);
+    const auto full_plan = build_visible_text_plan(page, options, 1.0f);
+    const auto visible_plan = build_visible_text_plan(page, options);
     auto layout = make_base_layout(document, options, visible_plan);
     layout.used_shaped_layout = true;
 
@@ -566,6 +636,7 @@ ActiveTextLayout build_active_text_layout(const core::RichTextDocument& document
     layout.metrics.line_height = max_line_height;
     layout.metrics.line_count = line_count;
     layout.bounds.height = std::max(layout.bounds.height, layout.metrics.height);
+    apply_layout_alpha(layout, options.alpha);
     return layout;
 }
 

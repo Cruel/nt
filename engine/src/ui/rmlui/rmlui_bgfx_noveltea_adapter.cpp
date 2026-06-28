@@ -80,9 +80,8 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
 [[nodiscard]] bool env_flag_enabled(const char* name)
 {
     const char* value = std::getenv(name);
-    return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' ||
-                     value[0] == 'y' || value[0] == 'Y' || value[0] == 'o' ||
-                     value[0] == 'O');
+    return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' || value[0] == 'y' ||
+                     value[0] == 'Y' || value[0] == 'o' || value[0] == 'O');
 }
 
 [[nodiscard]] bool starts_with(std::string_view value, std::string_view prefix) noexcept

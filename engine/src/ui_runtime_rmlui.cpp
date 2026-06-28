@@ -1,5 +1,6 @@
 #include "noveltea/ui_runtime.hpp"
 
+#include "noveltea/active_text_playback.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/text/text.hpp"
@@ -122,15 +123,32 @@ std::string element_text_language(Rml::Element& element)
     return "und";
 }
 
-float active_text_reveal_glyph_count(const core::RichTextDocument& document)
-{
-    return static_cast<float>(
-        std::max<std::size_t>(text::utf8_grapheme_count(document.plain_text), 1u));
-}
-
 float active_text_reveal_duration_seconds(const core::RichTextDocument& document)
 {
-    return active_text_reveal_glyph_count(document) / kActiveTextRevealGlyphsPerSecond;
+    return static_cast<float>(
+               std::max<std::size_t>(text::utf8_grapheme_count(document.plain_text), 1u)) /
+           kActiveTextRevealGlyphsPerSecond;
+}
+
+std::string active_text_body_key(const core::RuntimeUIViewState& state)
+{
+    if (state.body.empty()) {
+        return {};
+    }
+    return state.mode + ":" + state.body;
+}
+
+ActiveTextPlaybackInput active_text_playback_input(const core::RuntimeUIViewState& state,
+                                                   std::size_t page_index, float delta_seconds)
+{
+    const auto page = active_text_document_page(state.active_text, page_index);
+    return ActiveTextPlaybackInput{
+        .body_key = active_text_body_key(state) + ":page:" + std::to_string(page_index),
+        .glyph_count = text::utf8_grapheme_count(page.plain_text),
+        .delta_seconds = delta_seconds,
+        .awaiting_continue = state.awaiting_continue,
+        .page_break =
+            state.page_break || page_index + 1u < active_text_page_count(state.active_text)};
 }
 } // namespace
 
@@ -176,8 +194,16 @@ struct RuntimeUI::State {
     std::uintptr_t next_listener_id = 1;
     std::string runtime_document_path;
     std::string active_text_body;
+    core::RichTextDocument active_text_display_document;
     std::unordered_set<std::string> logged_missing_visual_assets;
+    ActiveTextPlaybackState active_text_playback;
+    ActiveTextPlaybackConfig active_text_playback_config{};
+    std::uint64_t active_text_page_instance_id = 0;
+    std::size_t active_text_page_index = 0;
+    std::size_t active_text_local_page_count = 1;
     float active_text_reveal_progress = 1.0f;
+    float active_text_tween_reveal = 1.0f;
+    float active_text_tween_alpha = 1.0f;
     bool rml_initialized = false;
     core::RuntimeUIViewAdapter runtime_view;
     std::unique_ptr<text::TextEngine> active_text_engine;
@@ -214,24 +240,11 @@ void RuntimeUI::State::refresh_runtime_document()
     if (!doc || !document_binder)
         return;
     const auto& source_state = runtime_host ? runtime_host->view_state() : runtime_view.state();
-    if (tweens) {
-        const auto& body = source_state.body;
-        if (body != active_text_body) {
-            active_text_body = body;
-            active_text_reveal_progress = body.empty() ? 1.0f : 0.0f;
-            if (!body.empty()) {
-                tweens->tween_float("runtime-ui", "active-text-reveal", active_text_reveal_progress,
-                                    0.0f, 1.0f,
-                                    active_text_reveal_duration_seconds(source_state.active_text));
-            }
-        }
-    } else {
-        const auto& body = source_state.body;
-        if (body != active_text_body) {
-            active_text_body = body;
-            active_text_reveal_progress = body.empty() ? 1.0f : 0.0f;
-        }
+    if (!source_state.active_text.plain_text.empty()) {
+        active_text_display_document = source_state.active_text;
     }
+    active_text_body = source_state.body;
+    active_text_reveal_progress = active_text_playback.reveal_progress;
 
     auto state = source_state;
     if (assets) {
@@ -257,6 +270,12 @@ void RuntimeUI::State::refresh_active_text_layout()
     }
 
     const auto& source_state = runtime_host ? runtime_host->view_state() : runtime_view.state();
+    const auto& active_document = source_state.active_text.plain_text.empty()
+                                      ? active_text_display_document
+                                      : source_state.active_text;
+    active_text_local_page_count = active_text_page_count(active_document);
+    active_text_page_index = std::min(active_text_page_index, active_text_local_page_count - 1u);
+
     ActiveTextLayoutOptions options;
     options.bounds = content_rect(*active);
     options.default_font_alias = std::string(kSystemFontAlias);
@@ -264,19 +283,35 @@ void RuntimeUI::State::refresh_active_text_layout()
     options.language = element_text_language(*active);
     options.default_color = element_text_color(*active);
     options.line_spacing = 1.35f;
-    options.reveal_progress = active_text_reveal_progress;
+    options.reveal_progress = active_text_playback.reveal_progress;
+    options.alpha = active_text_playback.alpha;
+    options.page_index = active_text_page_index;
     options.time_seconds = active_text_time_seconds;
 
     if (active_text_engine && active_text_font) {
-        active_text_layout = build_active_text_layout(
-            source_state.active_text, options,
-            [this](const StyledText& text) { return active_text_engine->layout_text(text); });
+        active_text_layout =
+            build_active_text_layout(active_document, options, [this](const StyledText& text) {
+                return active_text_engine->layout_text(text);
+            });
     } else {
-        active_text_layout = build_active_text_layout(source_state.active_text, options);
+        active_text_layout = build_active_text_layout(active_document, options);
     }
     active_text_layout.page_break = source_state.page_break || active_text_layout.page_break;
     active_text_layout.awaiting_continue =
         source_state.awaiting_continue || active_text_layout.awaiting_continue;
+    active_text_local_page_count = active_text_layout.page_count;
+    active_text_page_index = active_text_layout.page_index;
+    active_text_layout.prompt.visible = active_text_playback.prompt_visible;
+    active_text_layout.prompt.alpha =
+        active_text_playback.prompt_alpha * active_text_playback.alpha;
+    active_text_layout.prompt.page_break = active_text_playback.page_break;
+    if (active_text_layout.prompt.visible) {
+        constexpr float prompt_size = 10.0f;
+        active_text_layout.prompt.bounds = {
+            options.bounds.x + std::max(options.bounds.width - prompt_size, 0.0f),
+            options.bounds.y + std::max(options.bounds.height - prompt_size, 0.0f), prompt_size,
+            prompt_size};
+    }
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
@@ -343,14 +378,30 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
             input.type = core::RuntimeInputType::SelectObject;
             input.object_ids = {*object_id};
             submit(std::move(input));
-        } else if (owner.active_text_reveal_progress < 1.0f) {
-            owner.active_text_reveal_progress = 1.0f;
+        } else if (owner.active_text_playback.can_skip_reveal) {
+            owner.active_text_playback = skip_active_text_reveal(owner.active_text_playback);
+            owner.active_text_tween_reveal = 1.0f;
+            if (owner.tweens) {
+                owner.tweens->kill_channel("active-text-reveal");
+            }
+            owner.active_text_reveal_progress = owner.active_text_playback.reveal_progress;
             owner.refresh_runtime_document();
             owner.refresh_active_text_layout();
-        } else {
-            core::RuntimeInput input;
-            input.type = core::RuntimeInputType::Continue;
-            submit(std::move(input));
+        } else if (owner.active_text_playback.can_continue) {
+            if (owner.active_text_page_index + 1u < owner.active_text_local_page_count) {
+                ++owner.active_text_page_index;
+                owner.active_text_playback = {};
+                owner.active_text_reveal_progress = 0.0f;
+                owner.active_text_tween_reveal = 0.0f;
+                owner.active_text_tween_alpha = 0.0f;
+                owner.active_text_time_seconds = 0.0;
+                owner.refresh_runtime_document();
+                owner.refresh_active_text_layout();
+            } else {
+                core::RuntimeInput input;
+                input.type = core::RuntimeInputType::Continue;
+                submit(std::move(input));
+            }
         }
     }
 }
@@ -542,17 +593,54 @@ void RuntimeUI::begin_frame(float delta_time)
     if (m_state && m_state->context) {
         if (m_state->render_interface)
             m_state->render_interface->begin_frame();
-        if (delta_time > 0.0f) {
-            m_state->active_text_time_seconds += static_cast<double>(delta_time);
+        const auto& source_state = m_state->runtime_host ? m_state->runtime_host->view_state()
+                                                         : m_state->runtime_view.state();
+        const auto previous_instance = m_state->active_text_playback.instance_id;
+        const auto previous_phase = m_state->active_text_playback.phase;
+        const float playback_delta = m_state->tweens ? 0.0f : delta_time;
+        m_state->active_text_playback = update_active_text_playback(
+            m_state->active_text_playback,
+            active_text_playback_input(source_state, m_state->active_text_page_index,
+                                       playback_delta),
+            m_state->active_text_playback_config);
+        if (m_state->tweens) {
+            if (m_state->active_text_playback.instance_id != previous_instance) {
+                m_state->active_text_tween_reveal = 0.0f;
+                m_state->active_text_tween_alpha = 0.0f;
+                m_state->tweens->tween_float(
+                    "runtime-ui", "active-text-reveal", m_state->active_text_tween_reveal, 0.0f,
+                    1.0f,
+                    active_text_reveal_duration_seconds(active_text_document_page(
+                        source_state.active_text, m_state->active_text_page_index)));
+                m_state->tweens->tween_float("runtime-ui", "active-text-alpha",
+                                             m_state->active_text_tween_alpha, 0.0f, 1.0f,
+                                             m_state->active_text_playback_config.show_seconds);
+            } else if (m_state->active_text_playback.phase ==
+                           ActiveTextPlaybackPhase::Disappearing &&
+                       previous_phase != ActiveTextPlaybackPhase::Disappearing) {
+                m_state->tweens->tween_float("runtime-ui", "active-text-alpha",
+                                             m_state->active_text_tween_alpha,
+                                             m_state->active_text_playback.alpha, 0.0f,
+                                             m_state->active_text_playback_config.hide_seconds);
+            }
+            if (!source_state.active_text.plain_text.empty()) {
+                m_state->active_text_playback.reveal_progress = m_state->active_text_tween_reveal;
+            }
+            m_state->active_text_playback.alpha = m_state->active_text_tween_alpha;
+            const bool reveal_complete = m_state->active_text_playback.reveal_progress >= 1.0f;
+            const bool waiting = m_state->active_text_playback.wait_for_click ||
+                                 m_state->active_text_playback.page_break;
+            m_state->active_text_playback.can_skip_reveal = !reveal_complete;
+            m_state->active_text_playback.can_continue = reveal_complete && waiting;
+            m_state->active_text_playback.prompt_visible =
+                m_state->active_text_playback.can_continue &&
+                m_state->active_text_playback.alpha > 0.0f;
         }
-        // Advance ActiveText reveal even without twink.
-        if (!m_state->tweens && delta_time > 0.0f && m_state->active_text_reveal_progress < 1.0f) {
-            const auto& source_state = m_state->runtime_host ? m_state->runtime_host->view_state()
-                                                             : m_state->runtime_view.state();
-            const float glyph_count = active_text_reveal_glyph_count(source_state.active_text);
-            m_state->active_text_reveal_progress =
-                std::min(1.0f, m_state->active_text_reveal_progress +
-                                   delta_time * kActiveTextRevealGlyphsPerSecond / glyph_count);
+        m_state->active_text_reveal_progress = m_state->active_text_playback.reveal_progress;
+        if (m_state->active_text_playback.instance_id != previous_instance) {
+            m_state->active_text_time_seconds = 0.0;
+        } else if (delta_time > 0.0f) {
+            m_state->active_text_time_seconds += static_cast<double>(delta_time);
         }
         m_state->refresh_runtime_document();
         m_state->context->Update();

@@ -22,6 +22,8 @@ struct ActiveTextLayoutOptions {
     std::string language = "und";
     Color default_color = Color::from_rgba8(247, 244, 237);
     float reveal_progress = 1.0f;
+    float alpha = 1.0f;
+    std::size_t page_index = 0;
     double time_seconds = 0.0;
     std::string highlight_object_id;
     float highlight_font_size_multiplier = 1.0f;
@@ -57,6 +59,13 @@ struct ActiveTextObjectSpan {
     std::vector<Rect> rects;
 };
 
+struct ActiveTextPromptVisual {
+    Rect bounds{};
+    float alpha = 0.0f;
+    bool visible = false;
+    bool page_break = false;
+};
+
 struct ActiveTextLayout {
     Rect bounds{};
     TextMetrics metrics{};
@@ -64,12 +73,21 @@ struct ActiveTextLayout {
     std::string visible_text;
     std::vector<ActiveTextGlyphVisual> glyphs;
     std::vector<ActiveTextObjectSpan> object_spans;
+    ActiveTextPromptVisual prompt;
+    float alpha = 1.0f;
+    std::size_t page_index = 0;
+    std::size_t page_count = 1;
     bool page_break = false;
     bool awaiting_continue = false;
     bool used_shaped_layout = false;
 
     [[nodiscard]] std::optional<std::string> object_at(Vec2 logical_point) const;
 };
+
+[[nodiscard]] std::size_t active_text_page_count(const core::RichTextDocument& document);
+
+[[nodiscard]] core::RichTextDocument
+active_text_document_page(const core::RichTextDocument& document, std::size_t page_index);
 
 [[nodiscard]] std::string active_text_visible_text(const core::RichTextDocument& document,
                                                    const ActiveTextLayoutOptions& options = {});

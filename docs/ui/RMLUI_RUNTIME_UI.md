@@ -111,9 +111,9 @@ The binder:
 - Feeds `RuntimeUIViewState` into the Phase 5 custom components when the document contains
   `nt-active-text`, `nt-text-log`, or `nt-map-view`.
 - RuntimeUI may bind a borrowed engine `TweenService`. When present, ActiveText body changes
-  start a deterministic `runtime-ui` / `active-text-reveal` tween and expose current progress
-  to the direct ActiveText snapshot. Without a bound service, RuntimeUI advances reveal with the
-  same glyph-rate basis so behavior remains deterministic.
+  start deterministic `runtime-ui` reveal/alpha tweens and expose current progress to the direct
+  ActiveText snapshot. Without a bound service, RuntimeUI advances reveal and alpha with the same
+  glyph-rate/duration basis so behavior remains deterministic.
 - ActiveText consumes backend-neutral `RichTextDocument` state from `RuntimeUIViewState` through
   the engine `ActiveTextFrame` and `ActiveTextLayout` projection. `nt-active-text` is the RmlUi
   layout/input host; it does not emit visible fallback glyph markup in the current direct path.
@@ -125,6 +125,8 @@ The binder:
 - Clicking an object span inside `nt-active-text` walks from the event target through ancestors to
   find the owning active-text element, then uses the direct layout hit rectangles and routes through
   `RuntimeInputType::SelectObject`. This covers clicks on the root, child spans, or descendants.
+  Non-object clicks first skip an incomplete reveal, then advance local rich-text page/wait segments,
+  and only send controller `Continue` when the final revealed page is awaiting input.
 - Logs missing optional slots once per slot per document lifetime.
 - Populates `rt_map` with a placeholder when empty.
 
