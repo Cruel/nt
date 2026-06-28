@@ -1,0 +1,18 @@
+{
+  "resources": {
+    "audio": {
+      "ui.notification": {
+        "path": "project:/audio/notification.mp3",
+        "kind": "sfx",
+        "load": "decode"
+      },
+      "music.cello_loop": {
+        "path": "project:/audio/cello-loop.mp3",
+        "kind": "music",
+        "load": "stream"
+      }
+    },
+    "textures": {},
+    "materials": {}
+  }
+}

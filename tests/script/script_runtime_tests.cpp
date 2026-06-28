@@ -260,12 +260,18 @@ TEST_CASE("ScriptRuntime exposes audio playback bindings")
     auto backend = std::make_unique<FakeAudioBackend>();
     auto* backend_ptr = backend.get();
     AudioSystem audio(std::move(backend));
+    assets::ResourceAliasRegistry aliases;
+    aliases.register_audio("ui.notification",
+                           assets::AudioAssetRequest{.path = "project:/audio/notification.mp3",
+                                                     .mode = AudioLoadMode::Decode,
+                                                     .kind = AudioClipKind::Sfx});
+    fixture.assets.configure_resource_aliases(std::move(aliases));
     REQUIRE(audio.initialize(fixture.assets));
     fixture.assets.bind_audio_loader(&audio);
     REQUIRE(fixture.runtime.initialize({&fixture.assets, &audio}));
 
     REQUIRE(fixture.runtime.execute(R"(
-        sfx_ok = audio.play_sfx("project:/audio/notification.mp3", {
+        sfx_ok = audio.play_sfx_alias("ui.notification", {
             volume = 0.75,
             pitch = 1.35,
             max_simultaneous = 2,

@@ -72,6 +72,7 @@ add_library(engine STATIC
     src/active_text_layout.cpp
     src/active_text_playback.cpp
     src/assets/asset_manager.cpp
+    src/assets/resource_aliases.cpp
     src/assets.cpp
     src/app.cpp
     src/audio/audio_system.cpp

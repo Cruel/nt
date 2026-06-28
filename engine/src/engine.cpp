@@ -518,6 +518,12 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
     renderer_initialized = true;
 
+    if (auto aliases = m_assets.load_resource_aliases("project:/resources/aliases.json")) {
+        std::printf("[assets] loaded resource aliases from project:/resources/aliases.json\n");
+    } else {
+        std::printf("[assets] resource aliases not loaded: %s\n", aliases.error.c_str());
+    }
+
     if (m_audio.initialize(m_assets)) {
         m_assets.bind_audio_loader(&m_audio);
         audio_bound = true;

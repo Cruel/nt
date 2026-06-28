@@ -112,6 +112,30 @@ void bind_audio(lua_State* state, AudioSystem* audio)
             return static_cast<bool>(
                 audio_system->play_track(track_id, path, track_desc(track_id, options)));
         });
+    table.set_function(
+        "play_sfx_alias",
+        [](std::string alias, sol::optional<sol::table> options, sol::this_state L) -> bool {
+            AudioSystem* audio_system = audio_from(sol::state_view(L));
+            if (!audio_system) {
+                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                            "[lua] audio.play_sfx_alias ignored; audio system is unavailable");
+                return false;
+            }
+            return static_cast<bool>(audio_system->play_sfx_alias(alias, sfx_desc(options)));
+        });
+    table.set_function(
+        "play_track_alias",
+        [](std::string track_id, std::string alias, sol::optional<sol::table> options,
+           sol::this_state L) -> bool {
+            AudioSystem* audio_system = audio_from(sol::state_view(L));
+            if (!audio_system) {
+                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                            "[lua] audio.play_track_alias ignored; audio system is unavailable");
+                return false;
+            }
+            return static_cast<bool>(
+                audio_system->play_track_alias(track_id, alias, track_desc(track_id, options)));
+        });
     table.set_function("stop_track", [](std::string track_id, sol::optional<sol::table> options,
                                         sol::this_state L) {
         AudioSystem* audio_system = audio_from(sol::state_view(L));

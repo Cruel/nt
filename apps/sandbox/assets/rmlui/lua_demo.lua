@@ -82,7 +82,7 @@ function noveltea_demo.play_notification(event, element, document)
     noveltea_demo.pitch = slider_pitch(document, nil)
     update_pitch_label(document, noveltea_demo.pitch)
 
-    local ok = audio.play_sfx("project:/audio/notification.mp3", {
+    local ok = audio.play_sfx_alias("ui.notification", {
         volume = 1.0,
         pitch = noveltea_demo.pitch,
         max_simultaneous = 8,

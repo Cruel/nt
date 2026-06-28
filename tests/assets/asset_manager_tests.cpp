@@ -9,6 +9,11 @@ using namespace noveltea::assets;
 using noveltea::core::ProjectDocument;
 using noveltea::core::legacy::ProjectPackage;
 
+static AssetBytes asset_bytes(std::string_view text)
+{
+    return AssetBytes(text.begin(), text.end());
+}
+
 static std::shared_ptr<MemoryAssetSource> memory_source(std::string_view path, AssetBytes bytes)
 {
     auto source = std::make_shared<MemoryAssetSource>();
@@ -195,6 +200,54 @@ TEST_CASE("AssetManager typed audio API reports missing loader and forwards requ
     CHECK(loader.last_request->kind == noveltea::AudioClipKind::Sfx);
     CHECK(audio.value->clip == noveltea::AudioClipHandle{99});
     CHECK(audio.value->path == "project:/audio/notification.mp3");
+}
+
+TEST_CASE("AssetManager parses and resolves typed resource aliases")
+{
+    AssetManager manager;
+    manager.mount("project", memory_source("project:/resources/aliases.json", asset_bytes(R"({
+        "resources": {
+          "audio": {
+            "ui.notification": { "path": "project:/audio/notification.mp3", "kind": "sfx", "load": "decode" }
+          },
+          "textures": {
+            "bg.school": { "path": "project:/images/bg/school.png", "sampler": "repeat_linear" }
+          },
+          "materials": {
+            "ui.glow": { "id": "materials/ui_glow" }
+          }
+        }
+    })")));
+
+    auto aliases = manager.load_resource_aliases("project:/resources/aliases.json");
+    REQUIRE(aliases);
+    auto audio_request = manager.resolve_audio_alias("ui.notification");
+    REQUIRE(audio_request);
+    CHECK(audio_request->path == "project:/audio/notification.mp3");
+    CHECK(audio_request->kind == noveltea::AudioClipKind::Sfx);
+    CHECK(audio_request->mode == noveltea::AudioLoadMode::Decode);
+
+    FakeAudioAssetLoader audio_loader;
+    manager.bind_audio_loader(&audio_loader);
+    auto audio = manager.load_audio_alias("ui.notification");
+    REQUIRE(audio);
+    REQUIRE(audio_loader.last_request);
+    CHECK(audio_loader.last_request->path == "project:/audio/notification.mp3");
+
+    FakeTextureAssetLoader texture_loader;
+    manager.bind_texture_loader(&texture_loader);
+    auto texture = manager.load_texture_alias("bg.school");
+    REQUIRE(texture);
+    REQUIRE(texture_loader.last_request);
+    CHECK(texture_loader.last_request->path == "project:/images/bg/school.png");
+    CHECK(texture_loader.last_request->sampler == noveltea::MaterialTextureSampler::RepeatLinear);
+
+    FakeMaterialAssetLoader material_loader;
+    manager.bind_material_loader(&material_loader);
+    auto material = manager.load_material_alias("ui.glow");
+    REQUIRE(material);
+    REQUIRE(material_loader.last_request);
+    CHECK(material_loader.last_request->id == "materials/ui_glow");
 }
 
 TEST_CASE("AssetManager uses first mounted source that contains the asset")

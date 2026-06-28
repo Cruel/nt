@@ -151,6 +151,21 @@ AudioVoiceHandle AudioSystem::play_sfx(const std::string& path, AudioSfxDesc des
     return voice;
 }
 
+AudioVoiceHandle AudioSystem::play_sfx_alias(const std::string& alias, AudioSfxDesc desc)
+{
+    if (!m_assets) {
+        std::fprintf(stderr, "[audio] cannot play SFX alias without AssetManager: %s\n",
+                     alias.c_str());
+        return {};
+    }
+    const auto request = m_assets->resolve_audio_alias(alias);
+    if (!request) {
+        std::fprintf(stderr, "[audio] unknown SFX alias: %s\n", alias.c_str());
+        return {};
+    }
+    return play_sfx(request->path, desc);
+}
+
 AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id, const std::string& path,
                                          AudioTrackDesc desc)
 {
@@ -203,6 +218,25 @@ AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id, const std
     }
     voices.push_back(managed);
     return AudioTrackHandle{m_next_track_handle++};
+}
+
+AudioTrackHandle AudioSystem::play_track_alias(const AudioTrackId& track_id,
+                                               const std::string& alias, AudioTrackDesc desc)
+{
+    if (!m_assets) {
+        std::fprintf(stderr, "[audio] cannot play track alias without AssetManager: %s\n",
+                     alias.c_str());
+        return {};
+    }
+    const auto request = m_assets->resolve_audio_alias(alias);
+    if (!request) {
+        std::fprintf(stderr, "[audio] unknown track alias: %s\n", alias.c_str());
+        return {};
+    }
+    if (request->kind == AudioClipKind::Ambience && desc.bus == AudioBus::Music) {
+        desc.bus = AudioBus::Ambience;
+    }
+    return play_track(track_id, request->path, desc);
 }
 
 void AudioSystem::stop_track(const AudioTrackId& track_id, float fade_seconds)

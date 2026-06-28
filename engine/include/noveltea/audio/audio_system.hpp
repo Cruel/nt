@@ -34,8 +34,12 @@ public:
     void set_bus_volume(AudioBus bus, float volume);
 
     [[nodiscard]] AudioVoiceHandle play_sfx(const std::string& path, AudioSfxDesc desc = {});
+    [[nodiscard]] AudioVoiceHandle play_sfx_alias(const std::string& alias, AudioSfxDesc desc = {});
     [[nodiscard]] AudioTrackHandle play_track(const AudioTrackId& track_id, const std::string& path,
                                               AudioTrackDesc desc = {});
+    [[nodiscard]] AudioTrackHandle play_track_alias(const AudioTrackId& track_id,
+                                                    const std::string& alias,
+                                                    AudioTrackDesc desc = {});
     void stop_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
 
     void update(float dt);

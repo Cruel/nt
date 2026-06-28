@@ -631,6 +631,32 @@ const std::string& AssetManager::default_font_alias() const noexcept
     return m_font_config.default_alias;
 }
 
+void AssetManager::configure_resource_aliases(ResourceAliasRegistry aliases)
+{
+    m_resource_aliases = std::move(aliases);
+}
+
+AssetResult<ResourceAliasRegistry>
+AssetManager::load_resource_aliases(std::string_view logical_path)
+{
+    auto text = read_text(logical_path);
+    if (!text) {
+        return fail<ResourceAliasRegistry>("failed to read resource alias manifest '" +
+                                           std::string(logical_path) + "': " + text.error);
+    }
+    auto parsed = parse_resource_alias_registry(*text.value);
+    if (!parsed) {
+        return parsed;
+    }
+    configure_resource_aliases(*parsed.value);
+    return parsed;
+}
+
+const ResourceAliasRegistry& AssetManager::resource_aliases() const noexcept
+{
+    return m_resource_aliases;
+}
+
 void AssetManager::bind_font_loader(FontAssetLoader* loader) const { m_font_loader = loader; }
 void AssetManager::bind_texture_loader(TextureAssetLoader* loader) const
 {
@@ -666,6 +692,15 @@ AssetResult<TextureAsset> AssetManager::load_texture(const TextureAssetRequest& 
     return m_texture_loader->load_texture(request);
 }
 
+AssetResult<TextureAsset> AssetManager::load_texture_alias(std::string_view alias) const
+{
+    const auto request = m_resource_aliases.texture_request(alias);
+    if (!request) {
+        return fail<TextureAsset>("unknown texture resource alias: " + std::string(alias));
+    }
+    return load_texture(*request);
+}
+
 AssetResult<ShaderProgramAsset>
 AssetManager::load_shader_program(const ShaderProgramAssetRequest& request) const
 {
@@ -683,12 +718,35 @@ AssetResult<MaterialAsset> AssetManager::load_material(const MaterialAssetReques
     return m_material_loader->load_material(request);
 }
 
+AssetResult<MaterialAsset> AssetManager::load_material_alias(std::string_view alias) const
+{
+    const auto request = m_resource_aliases.material_request(alias);
+    if (!request) {
+        return fail<MaterialAsset>("unknown material resource alias: " + std::string(alias));
+    }
+    return load_material(*request);
+}
+
 AssetResult<AudioAsset> AssetManager::load_audio(const AudioAssetRequest& request) const
 {
     if (!m_audio_loader) {
         return fail<AudioAsset>("no typed audio loader bound to AssetManager");
     }
     return m_audio_loader->load_audio(request);
+}
+
+AssetResult<AudioAsset> AssetManager::load_audio_alias(std::string_view alias) const
+{
+    const auto request = resolve_audio_alias(alias);
+    if (!request) {
+        return fail<AudioAsset>("unknown audio resource alias: " + std::string(alias));
+    }
+    return load_audio(*request);
+}
+
+std::optional<AudioAssetRequest> AssetManager::resolve_audio_alias(std::string_view alias) const
+{
+    return m_resource_aliases.audio_request(alias);
 }
 
 bool AssetManager::exists(std::string_view logical_path) const
