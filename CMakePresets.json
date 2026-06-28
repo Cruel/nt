@@ -15,6 +15,16 @@
             }
         },
         {
+            "name": "linux-debug-local-rmlui-bgfx",
+            "displayName": "Linux Debug + Local rmlui-bgfx",
+            "description": "Debug build for tandem NovelTea/rmlui-bgfx development",
+            "inherits": "linux-debug",
+            "cacheVariables": {
+                "NOVELTEA_USE_LOCAL_RMLUI_BGFX": "ON",
+                "NOVELTEA_LOCAL_RMLUI_BGFX_DIR": "${sourceDir}/rmlui-bgfx"
+            }
+        },
+        {
             "name": "linux-release",
             "displayName": "Linux Release",
             "description": "Release build for Linux desktop",
@@ -70,6 +80,16 @@
             }
         },
         {
+            "name": "web-debug-local-rmlui-bgfx",
+            "displayName": "Web Debug + Local rmlui-bgfx",
+            "description": "Debug Web build for tandem NovelTea/rmlui-bgfx development",
+            "inherits": "web-debug",
+            "cacheVariables": {
+                "NOVELTEA_USE_LOCAL_RMLUI_BGFX": "ON",
+                "NOVELTEA_LOCAL_RMLUI_BGFX_DIR": "${sourceDir}/rmlui-bgfx"
+            }
+        },
+        {
             "name": "web-release",
             "displayName": "Web Release (Emscripten)",
             "description": "Release build for Web using Emscripten with -Oz -flto",
@@ -100,6 +120,10 @@
             "configurePreset": "linux-debug"
         },
         {
+            "name": "linux-debug-local-rmlui-bgfx",
+            "configurePreset": "linux-debug-local-rmlui-bgfx"
+        },
+        {
             "name": "linux-release",
             "configurePreset": "linux-release"
         },
@@ -114,6 +138,10 @@
         {
             "name": "web-debug",
             "configurePreset": "web-debug"
+        },
+        {
+            "name": "web-debug-local-rmlui-bgfx",
+            "configurePreset": "web-debug-local-rmlui-bgfx"
         },
         {
             "name": "web-release",

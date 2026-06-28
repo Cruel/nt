@@ -45,6 +45,14 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
+if [ -d "$PROJECT_ROOT/rmlui-bgfx" ]; then
+  echo "[run] using local rmlui-bgfx checkout at $PROJECT_ROOT/rmlui-bgfx"
+  CMAKE_CONFIGURE_ARGS+=(
+    -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON
+    -DNOVELTEA_LOCAL_RMLUI_BGFX_DIR="$PROJECT_ROOT/rmlui-bgfx"
+  )
+fi
+
 echo "[run] configuring web build ($PRESET)..."
 cmake --preset "$PRESET" "${CMAKE_CONFIGURE_ARGS[@]}"
 

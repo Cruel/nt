@@ -8,7 +8,6 @@ MODE="profile"
 CLEAN=0
 BUILD=1
 RUN=1
-USE_LOCAL_RMLUI_BGFX=0
 GENERATOR="Ninja"
 FRAMES=""
 MIN_PERF_LINES=""
@@ -27,7 +26,6 @@ Options:
   --clean                    Remove the selected build directory before configuring.
   --no-build                 Do not configure/build; only run the smoke script.
   --build-only               Configure/build but do not run the smoke script.
-  --local-rmlui-bgfx         Use ./rmlui-bgfx via FETCHCONTENT_SOURCE_DIR_RMLUI_BGFX.
   --frames <count>           Override smoke frame count.
   --min-perf-lines <count>   Override required captured perf line count.
   --cmake-arg <arg>          Pass an extra argument to CMake configure.
@@ -36,7 +34,6 @@ Options:
 
 Examples:
   scripts/run-web-smoke.sh --clean
-  scripts/run-web-smoke.sh --clean --local-rmlui-bgfx
   scripts/run-web-smoke.sh --debug --clean --frames 6 --min-perf-lines 1
 EOF
 }
@@ -61,10 +58,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --build-only)
       RUN=0
-      shift
-      ;;
-    --local-rmlui-bgfx)
-      USE_LOCAL_RMLUI_BGFX=1
       shift
       ;;
     --frames)
@@ -156,8 +149,12 @@ if [[ "$BUILD" = 1 ]]; then
     -DBUILD_TESTING=OFF
   )
 
-  if [[ "$USE_LOCAL_RMLUI_BGFX" = 1 ]]; then
-    CONFIGURE_ARGS+=("-DFETCHCONTENT_SOURCE_DIR_RMLUI_BGFX=$PROJECT_ROOT/rmlui-bgfx")
+  if [[ -d "$PROJECT_ROOT/rmlui-bgfx" ]]; then
+    echo "[web-smoke] using local rmlui-bgfx checkout at $PROJECT_ROOT/rmlui-bgfx"
+    CONFIGURE_ARGS+=(
+      "-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON"
+      "-DNOVELTEA_LOCAL_RMLUI_BGFX_DIR=$PROJECT_ROOT/rmlui-bgfx"
+    )
   fi
 
   CONFIGURE_ARGS+=("${EXTRA_CMAKE_ARGS[@]}")

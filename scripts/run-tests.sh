@@ -41,8 +41,17 @@ else
     rm -f "$COMPAT_MARKER"
 fi
 
+CMAKE_CONFIGURE_ARGS=()
+if [ -d "$PROJECT_ROOT/rmlui-bgfx" ]; then
+    echo "[test] using local rmlui-bgfx checkout at $PROJECT_ROOT/rmlui-bgfx"
+    CMAKE_CONFIGURE_ARGS+=(
+        -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON
+        -DNOVELTEA_LOCAL_RMLUI_BGFX_DIR="$PROJECT_ROOT/rmlui-bgfx"
+    )
+fi
+
 echo "[test] configuring $PRESET..."
-cmake --preset "$PRESET"
+cmake --preset "$PRESET" "${CMAKE_CONFIGURE_ARGS[@]}"
 
 echo "[test] building $PRESET..."
 cmake --build --preset "$PRESET" --parallel

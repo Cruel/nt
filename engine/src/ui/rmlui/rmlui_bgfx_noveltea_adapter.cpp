@@ -84,6 +84,27 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
                      value[0] == 'Y' || value[0] == 'o' || value[0] == 'O');
 }
 
+[[nodiscard]] rmlui_bgfx::RenderPath render_path_from_env()
+{
+    const char* value = std::getenv("RMLUI_BGFX_RENDER_PATH");
+    if (!value) {
+        return rmlui_bgfx::RenderPath::Optimized;
+    }
+
+    const std::string_view mode(value);
+    if (mode == "optimized" || mode == "bounded" || mode == "fast") {
+        return rmlui_bgfx::RenderPath::Optimized;
+    }
+    if (mode == "reference" || mode == "ref" || mode == "gl3" || mode == "gl3-compatible" ||
+        mode == "compatible" || mode == "compat") {
+        return rmlui_bgfx::RenderPath::Reference;
+    }
+
+    std::fprintf(stderr, "[rmlui-bgfx] unknown RMLUI_BGFX_RENDER_PATH='%s'; using optimized\n",
+                 value);
+    return rmlui_bgfx::RenderPath::Optimized;
+}
+
 [[nodiscard]] bool starts_with(std::string_view value, std::string_view prefix) noexcept
 {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
@@ -455,7 +476,7 @@ BgfxRenderInterface::BgfxRenderInterface(const SurfaceMetrics& surface,
     config.diagnostics = m_adapter.get();
     config.perf_logger = m_adapter.get();
     config.material_shaders = m_adapter.get();
-    config.render_path = rmlui_bgfx::RenderPath::Optimized;
+    config.render_path = render_path_from_env();
     config.trace_filter_pipeline = env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
 }
