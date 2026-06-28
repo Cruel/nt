@@ -71,6 +71,8 @@ TEST_CASE("TextEngine resolves regular-only font families with synthetic style f
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
+    const auto system_family = register_liberation_regular(engine);
+    REQUIRE(system_family);
     const auto family = register_liberation_regular(engine, "body");
     REQUIRE(family);
     engine.set_default_font_family(family);
@@ -126,6 +128,186 @@ TEST_CASE("StyledText preserves synthetic font style on positioned glyphs")
     CHECK(std::ranges::any_of(glyphs, [](const PositionedGlyph& glyph) {
         return glyph.source_byte_begin >= 4 && glyph.synthetic_font_style == TextFontRegular;
     }));
+}
+
+TEST_CASE("StyledText mixed sizes affect real advances line height and wrapping")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto family = register_liberation_regular(engine, "body");
+    REQUIRE(family);
+    engine.set_default_font_family(family);
+
+    StyledText mixed;
+    mixed.value = "Big small wrap";
+    mixed.bounds = {0.0f, 0.0f, 140.0f, 0.0f};
+    mixed.language = "en";
+    mixed.spans.push_back(TextSpan{
+        .source_byte_begin = 0, .source_byte_end = 3, .font_alias = "body", .size = 48.0f});
+    mixed.spans.push_back(TextSpan{.source_byte_begin = 3,
+                                   .source_byte_end = static_cast<uint32_t>(mixed.value.size()),
+                                   .font_alias = "body",
+                                   .size = 16.0f});
+
+    StyledText small = mixed;
+    small.spans.front().size = 16.0f;
+
+    const auto mixed_layout = engine.layout_text(mixed);
+    const auto small_layout = engine.layout_text(small);
+    const auto mixed_glyphs = glyphs_for(mixed_layout);
+    const auto small_glyphs = glyphs_for(small_layout);
+    REQUIRE_FALSE(mixed_glyphs.empty());
+    REQUIRE_FALSE(small_glyphs.empty());
+    CHECK(mixed_glyphs.front().logical_pixel_size == 48.0f);
+    CHECK(mixed_glyphs.front().advance.x > small_glyphs.front().advance.x);
+    CHECK(mixed_layout.metrics.line_height > small_layout.metrics.line_height);
+    CHECK(mixed_layout.metrics.line_count >= small_layout.metrics.line_count);
+}
+
+TEST_CASE("StyledText fills span gaps without losing source byte ranges")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto family = register_liberation_regular(engine, "body");
+    REQUIRE(family);
+    engine.set_default_font_family(family);
+
+    StyledText text;
+    text.value = "abc def";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "en";
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = 3,
+                                  .font_alias = "body",
+                                  .font_style = TextFontBold,
+                                  .size = 24.0f});
+    text.spans.push_back(TextSpan{.source_byte_begin = 4,
+                                  .source_byte_end = static_cast<uint32_t>(text.value.size()),
+                                  .font_alias = "body",
+                                  .font_style = TextFontItalic,
+                                  .size = 24.0f});
+
+    const auto layout = engine.layout_text(text);
+    const auto glyphs = glyphs_for(layout);
+    REQUIRE_FALSE(glyphs.empty());
+    CHECK(std::ranges::any_of(glyphs, [](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin == 3 && glyph.synthetic_font_style == TextFontRegular;
+    }));
+    CHECK(std::ranges::any_of(glyphs, [](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin >= 4 && (glyph.synthetic_font_style & TextFontItalic) != 0;
+    }));
+}
+
+TEST_CASE("StyledText normalizes overlapping span ranges")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto family = register_liberation_regular(engine, "body");
+    REQUIRE(family);
+    engine.set_default_font_family(family);
+
+    StyledText text;
+    text.value = "abcdef xyz";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "en";
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = 6,
+                                  .font_alias = "body",
+                                  .font_style = TextFontBold,
+                                  .size = 24.0f});
+    text.spans.push_back(TextSpan{.source_byte_begin = 3,
+                                  .source_byte_end = 10,
+                                  .font_alias = "body",
+                                  .font_style = TextFontItalic,
+                                  .size = 24.0f});
+
+    const auto layout = engine.layout_text(text);
+    const auto glyphs = glyphs_for(layout);
+    REQUIRE_FALSE(glyphs.empty());
+    CHECK(std::ranges::all_of(glyphs, [&](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin < glyph.source_byte_end &&
+               glyph.source_byte_end <= text.value.size();
+    }));
+    CHECK(std::ranges::all_of(glyphs, [](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin < 6 ? (glyph.synthetic_font_style & TextFontBold) != 0
+                                           : (glyph.synthetic_font_style & TextFontItalic) != 0;
+    }));
+}
+
+TEST_CASE("StyledText preserves bidi smoke ordering across style boundaries")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto family = register_liberation_regular(engine, "body");
+    REQUIRE(family);
+    engine.set_default_font_family(family);
+
+    StyledText text;
+    text.value = std::string("abc ") + "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D" + " def";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "he";
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = 4,
+                                  .font_alias = "body",
+                                  .font_style = TextFontBold,
+                                  .size = 24.0f});
+    text.spans.push_back(TextSpan{.source_byte_begin = 4,
+                                  .source_byte_end = 12,
+                                  .font_alias = "body",
+                                  .font_style = TextFontItalic,
+                                  .size = 24.0f});
+    text.spans.push_back(TextSpan{.source_byte_begin = 12,
+                                  .source_byte_end = static_cast<uint32_t>(text.value.size()),
+                                  .font_alias = "body",
+                                  .font_style = TextFontRegular,
+                                  .size = 24.0f});
+
+    const auto layout = engine.layout_text(text);
+    REQUIRE(layout.lines.size() == 1);
+    CHECK(layout.lines.front().visual_runs.size() >= 3);
+    CHECK(std::ranges::any_of(layout.lines.front().visual_runs, [](const ShapedRun& run) {
+        return run.direction == TextDirection::RightToLeft;
+    }));
+    const auto glyphs = glyphs_for(layout);
+    REQUIRE_FALSE(glyphs.empty());
+    CHECK(std::ranges::any_of(glyphs, [](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin >= 4 && glyph.source_byte_begin < 12 &&
+               (glyph.synthetic_font_style & TextFontItalic) != 0;
+    }));
+}
+
+TEST_CASE("StyledText snaps invalid UTF-8 span boundaries")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto family = register_liberation_regular(engine, "body");
+    REQUIRE(family);
+    engine.set_default_font_family(family);
+
+    StyledText text;
+    text.value = "caf\xC3\xA9 xyz";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "en";
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = 4,
+                                  .font_alias = "body",
+                                  .font_style = TextFontBold,
+                                  .size = 24.0f});
+    text.spans.push_back(TextSpan{.source_byte_begin = 4,
+                                  .source_byte_end = static_cast<uint32_t>(text.value.size()),
+                                  .font_alias = "body",
+                                  .font_style = TextFontItalic,
+                                  .size = 24.0f});
+
+    const auto layout = engine.layout_text(text);
+    const auto glyphs = glyphs_for(layout);
+    REQUIRE_FALSE(glyphs.empty());
+    const auto e_acute =
+        std::find_if(glyphs.begin(), glyphs.end(),
+                     [](const PositionedGlyph& glyph) { return glyph.source_byte_begin == 3; });
+    REQUIRE(e_acute != glyphs.end());
+    CHECK(e_acute->source_byte_end == 5);
+    CHECK((e_acute->synthetic_font_style & TextFontBold) != 0);
 }
 
 TEST_CASE("TextEngine synthetic raster style has a distinct cache key and bitmap")

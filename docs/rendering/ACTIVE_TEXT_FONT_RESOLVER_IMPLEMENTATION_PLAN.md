@@ -29,10 +29,8 @@ Implemented in the first pass:
 
 Remaining follow-up work:
 
-- Improve `StyledText` shaping so span-specific faces and sizes participate fully in line metrics/wrapping rather than using the first span as the base layout face.
 - Add exact multi-face and partial-face tests once additional test font faces are available or fixtures are added.
 - Replace remaining renderer-side ActiveText bold/italic quad approximations once FreeType synthetic rasterization is visually validated.
-- Add visual/screenshot smoke coverage for styled ActiveText.
 
 ## Current State
 

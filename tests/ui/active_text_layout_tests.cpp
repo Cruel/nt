@@ -222,6 +222,60 @@ TEST_CASE("ActiveTextLayout precomputes final wrapping before reveal")
     }
 }
 
+TEST_CASE("ActiveTextLayout styled sizes affect final wrapping before reveal")
+{
+    auto assets = make_assets();
+    text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text("aa [s=48]wide[/s] tail");
+    const ActiveTextLayoutOptions full_options{
+        .bounds = {0.0f, 0.0f, 95.0f, 220.0f}, .default_text_size = 17.0f, .reveal_progress = 1.0f};
+    const ActiveTextLayoutOptions partial_options{
+        .bounds = full_options.bounds, .default_text_size = 17.0f, .reveal_progress = 0.6f};
+    const auto shape_text = [&](const Text& text) { return engine.layout_text(text); };
+    const auto full = build_active_text_layout(doc, full_options, font, shape_text);
+    const auto partial = build_active_text_layout(doc, partial_options, font, shape_text);
+
+    REQUIRE(full.metrics.line_count >= 2);
+    REQUIRE_FALSE(partial.glyphs.empty());
+    for (const auto& glyph : partial.glyphs) {
+        const auto matching =
+            std::find_if(full.glyphs.begin(), full.glyphs.end(), [&](const auto& full_glyph) {
+                return full_glyph.glyph_index == glyph.glyph_index;
+            });
+        REQUIRE(matching != full.glyphs.end());
+        CHECK(glyph.bounds.x == Catch::Approx(matching->bounds.x));
+        CHECK(glyph.bounds.y == Catch::Approx(matching->bounds.y));
+    }
+}
+
+TEST_CASE("ActiveTextLayout object hit rectangles survive styled span boundaries")
+{
+    auto assets = make_assets();
+    text::TextEngine engine(assets);
+    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    REQUIRE(font);
+
+    const auto doc = parse_rich_text("Look [[B[s=42]ig[/s]|big-object]] now");
+    const ActiveTextLayoutOptions options{.bounds = {10.0f, 20.0f, 120.0f, 180.0f},
+                                          .default_text_size = 18.0f};
+    const auto layout = build_active_text_layout(
+        doc, options, font, [&](const Text& text) { return engine.layout_text(text); });
+
+    REQUIRE(layout.used_shaped_layout);
+    REQUIRE_FALSE(layout.object_spans.empty());
+    CHECK(layout.object_spans.front().rects.size() >= 1);
+    bool found_hit = false;
+    for (const auto& rect : layout.object_spans.front().rects) {
+        if (layout.object_at({rect.x + 1.0f, rect.y + 1.0f}) == "big-object") {
+            found_hit = true;
+        }
+    }
+    CHECK(found_hit);
+}
+
 TEST_CASE("ActiveTextLayout preserves run style object material and shader metadata")
 {
     const auto doc =

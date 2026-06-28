@@ -137,7 +137,7 @@ The first implementation checkpoint is now the font-family resolver and styled-s
 
 Known limitations after the first checkpoint may include:
 
-- direct ActiveText still shapes with the default face if no family resolver has been installed;
-- synthetic bold/italic may be renderer-side approximations before full FreeType embolden/oblique rasterization;
+- direct ActiveText still needs project `fontDefault` threaded through instead of using the runtime default initialized to `sys`;
+- styled text needs stricter invalid-span and styled-bidi coverage;
 - underline/strike may be simple per-glyph or per-run geometry rather than font-metric-perfect decorations; and
 - exact legacy visual parity remains deferred.

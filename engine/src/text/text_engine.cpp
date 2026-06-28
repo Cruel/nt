@@ -789,62 +789,343 @@ TextLayout TextEngine::layout_text(const StyledText& styled_text) const
 
 TextLayout TextEngine::layout_text(const StyledText& styled_text, float scale) const
 {
-    TextLayout empty;
-    empty.bounds = styled_text.bounds;
-    empty.align = styled_text.align;
-    empty.transform = styled_text.transform;
+    TextLayout layout;
+    layout.bounds = styled_text.bounds;
+    layout.align = styled_text.align;
+    layout.transform = styled_text.transform;
     if (styled_text.value.empty()) {
-        return empty;
+        return layout;
     }
 
-    const auto span_for_offset = [&](uint32_t offset) -> TextSpan {
-        for (const auto& span : styled_text.spans) {
-            if (offset >= span.source_byte_begin && offset < span.source_byte_end) {
-                return span;
-            }
-        }
-        TextSpan fallback;
-        fallback.source_byte_begin = 0;
-        fallback.source_byte_end = checked_u32(styled_text.value.size());
-        return fallback;
+    struct ResolvedSpan {
+        TextSpan span;
+        ResolvedFont font;
+        float physical_size = 0.0f;
+        float inverse_scale = 1.0f;
+        FontMetrics metrics{};
     };
 
-    const TextSpan first_span =
-        styled_text.spans.empty() ? span_for_offset(0) : styled_text.spans.front();
-    const auto first_font = resolve_font(first_span.font_alias, first_span.font_style);
-    if (!first_font.face) {
-        return empty;
+    const auto byte_size = checked_u32(styled_text.value.size());
+    const auto is_continuation_byte = [&](uint32_t offset) {
+        return offset < styled_text.value.size() &&
+               (static_cast<unsigned char>(styled_text.value[offset]) & 0xC0u) == 0x80u;
+    };
+    const auto snap_begin = [&](uint32_t offset) {
+        offset = std::min(offset, byte_size);
+        while (offset > 0 && is_continuation_byte(offset)) {
+            --offset;
+        }
+        return offset;
+    };
+    const auto snap_end = [&](uint32_t offset) {
+        offset = std::min(offset, byte_size);
+        while (offset < byte_size && is_continuation_byte(offset)) {
+            ++offset;
+        }
+        return offset;
+    };
+
+    auto raw_spans = styled_text.spans;
+    if (raw_spans.empty()) {
+        TextSpan span;
+        span.source_byte_begin = 0;
+        span.source_byte_end = byte_size;
+        raw_spans.push_back(std::move(span));
+    }
+    std::stable_sort(raw_spans.begin(), raw_spans.end(),
+                     [](const TextSpan& lhs, const TextSpan& rhs) {
+                         return lhs.source_byte_begin < rhs.source_byte_begin;
+                     });
+
+    std::vector<TextSpan> spans;
+    spans.reserve(raw_spans.size() + 1);
+    uint32_t cursor = 0;
+    const auto append_default_gap = [&](std::vector<TextSpan>& out, uint32_t begin, uint32_t end) {
+        if (begin >= end) {
+            return;
+        }
+        TextSpan gap;
+        gap.source_byte_begin = begin;
+        gap.source_byte_end = end;
+        out.push_back(std::move(gap));
+    };
+    for (auto span : raw_spans) {
+        uint32_t begin = snap_begin(span.source_byte_begin);
+        uint32_t end = snap_end(span.source_byte_end);
+        if (end <= begin || end <= cursor) {
+            continue;
+        }
+        if (begin < cursor) {
+            begin = cursor;
+        }
+        if (cursor < begin) {
+            append_default_gap(spans, cursor, begin);
+        }
+        span.source_byte_begin = begin;
+        span.source_byte_end = end;
+        spans.push_back(std::move(span));
+        cursor = end;
+    }
+    if (cursor < byte_size) {
+        append_default_gap(spans, cursor, byte_size);
     }
 
-    Text text;
-    text.value = styled_text.value;
-    text.font = first_font.face;
-    text.bounds = styled_text.bounds;
-    text.style.size = first_span.size;
-    text.style.color = first_span.color;
-    text.style.alpha = first_span.alpha;
-    text.align = styled_text.align;
-    text.direction = styled_text.direction;
-    text.wrap = styled_text.wrap;
-    text.language = styled_text.language;
-    text.transform = styled_text.transform;
+    std::vector<ResolvedSpan> resolved_spans;
+    resolved_spans.reserve(spans.size());
+    for (const auto& span : spans) {
+        auto resolved = resolve_font(span.font_alias, span.font_style);
+        if (!resolved.face) {
+            continue;
+        }
+        ResolvedSpan out;
+        out.span = span;
+        out.font = std::move(resolved);
+        out.physical_size = static_cast<float>(normalize_raster_pixel_size(span.size * scale));
+        out.inverse_scale = span.size / std::max(out.physical_size, 1.0f);
+        if (auto* font = m_impl->find(out.font.face)) {
+            out.metrics = metrics_for(*font, out.physical_size);
+        }
+        if (out.metrics.line_height <= 0.0f) {
+            out.metrics.line_height = std::max(span.size, 1.0f);
+            out.metrics.ascender = out.metrics.line_height;
+        }
+        resolved_spans.push_back(std::move(out));
+    }
+    if (resolved_spans.empty()) {
+        return layout;
+    }
 
-    auto layout = layout_text(text, scale);
-    for (auto& line : layout.lines) {
-        for (auto& run : line.visual_runs) {
-            for (auto& glyph : run.glyphs) {
-                const auto span = span_for_offset(glyph.source_byte_begin);
-                const auto resolved = resolve_font(span.font_alias, span.font_style);
-                if (resolved.face) {
-                    glyph.font = resolved.face;
-                    glyph.synthetic_font_style = resolved.synthetic_style;
-                }
-                glyph.logical_pixel_size = span.size;
-                glyph.raster_pixel_size =
-                    static_cast<float>(normalize_raster_pixel_size(span.size * scale));
+    const auto spans_intersecting = [&](uint32_t begin, uint32_t end) {
+        std::vector<const ResolvedSpan*> result;
+        for (const auto& span : resolved_spans) {
+            if (span.span.source_byte_end <= begin || span.span.source_byte_begin >= end) {
+                continue;
+            }
+            result.push_back(&span);
+        }
+        return result;
+    };
+    const auto shape_span_range = [&](const ResolvedSpan& span, uint32_t begin, uint32_t end,
+                                      TextDirection direction) {
+        Text text;
+        text.value = styled_text.value;
+        text.font = span.font.face;
+        text.style.size = span.span.size;
+        text.language = styled_text.language;
+        return m_impl->shape(text, begin, end, direction, span.physical_size, span.inverse_scale);
+    };
+    const auto range_width = [&](uint32_t begin, uint32_t end, TextDirection direction) {
+        float width = 0.0f;
+        for (const auto* span : spans_intersecting(begin, end)) {
+            const uint32_t segment_begin = std::max(begin, span->span.source_byte_begin);
+            const uint32_t segment_end = std::min(end, span->span.source_byte_end);
+            if (segment_begin < segment_end) {
+                width += shape_span_range(*span, segment_begin, segment_end, direction).width;
             }
         }
+        return width;
+    };
+
+    const TextBreaks breaks = collect_text_breaks(styled_text.value, styled_text.language);
+    const SBCodepointSequence sequence{SBStringEncodingUTF8, styled_text.value.data(),
+                                       styled_text.value.size()};
+    SbAlgorithmPtr algorithm(SBAlgorithmCreate(&sequence));
+    if (!algorithm) {
+        return layout;
     }
+    SbParagraphPtr paragraph(SBAlgorithmCreateParagraph(
+        algorithm.get(), 0, styled_text.value.size(), base_level(styled_text.direction)));
+    if (!paragraph) {
+        return layout;
+    }
+
+    const TextDirection paragraph_direction =
+        direction_from_level(SBParagraphGetBaseLevel(paragraph.get()));
+    layout.direction = paragraph_direction;
+    const float wrap_width = styled_text.wrap == TextWrap::Word && styled_text.bounds.width > 0.0f
+                                 ? styled_text.bounds.width
+                                 : 0.0f;
+
+    std::set<uint32_t> cluster_boundaries;
+    cluster_boundaries.insert(0);
+    cluster_boundaries.insert(byte_size);
+    for (const auto& span : resolved_spans) {
+        const auto shaped = shape_span_range(span, span.span.source_byte_begin,
+                                             span.span.source_byte_end, paragraph_direction);
+        cluster_boundaries.insert(span.span.source_byte_begin);
+        cluster_boundaries.insert(span.span.source_byte_end);
+        for (const auto& glyph : shaped.glyphs) {
+            cluster_boundaries.insert(glyph.cluster);
+        }
+    }
+
+    float y = 0.0f;
+    float max_line_height = 0.0f;
+    uint32_t line_begin = 0;
+    while (line_begin < styled_text.value.size()) {
+        uint32_t mandatory_end = byte_size;
+        for (uint32_t i = line_begin; i < styled_text.value.size(); ++i) {
+            if (styled_text.value[i] == '\n') {
+                mandatory_end = i;
+                break;
+            }
+        }
+
+        uint32_t line_end = mandatory_end;
+        if (wrap_width > 0.0f) {
+            uint32_t best = line_begin;
+            for (uint32_t candidate = line_begin + 1; candidate <= mandatory_end; ++candidate) {
+                if (candidate < mandatory_end &&
+                    !text_legal_line_break_boundary(styled_text.value, breaks, candidate,
+                                                    cluster_boundaries)) {
+                    continue;
+                }
+                const float width = range_width(line_begin, candidate, paragraph_direction);
+                if (width <= wrap_width || best == line_begin) {
+                    best = candidate;
+                }
+                if (width > wrap_width && best != candidate) {
+                    break;
+                }
+            }
+            line_end = best > line_begin ? best : mandatory_end;
+        }
+
+        SbLinePtr bidi_line(
+            SBParagraphCreateLine(paragraph.get(), line_begin, line_end - line_begin));
+        TextLine line;
+        line.source_byte_begin = line_begin;
+        line.source_byte_end = line_end;
+        float line_ascent = 0.0f;
+        float line_height = 0.0f;
+
+        if (bidi_line) {
+            const SBRun* runs = SBLineGetRunsPtr(bidi_line.get());
+            const SBUInteger run_count = SBLineGetRunCount(bidi_line.get());
+            for (SBUInteger run_index = 0; run_index < run_count; ++run_index) {
+                const SBRun& run = runs[run_index];
+                const uint32_t run_begin = checked_u32(run.offset);
+                const uint32_t run_end = checked_u32(run.offset + run.length);
+                const TextDirection run_direction = direction_from_level(run.level);
+                for (const auto* span : spans_intersecting(run_begin, run_end)) {
+                    const uint32_t segment_begin =
+                        std::max(run_begin, span->span.source_byte_begin);
+                    const uint32_t segment_end = std::min(run_end, span->span.source_byte_end);
+                    if (segment_begin >= segment_end) {
+                        continue;
+                    }
+                    auto shaped =
+                        shape_span_range(*span, segment_begin, segment_end, run_direction);
+                    auto sorted_clusters = cluster_ends(shaped.glyphs, segment_end);
+                    ShapedRun visual_run;
+                    visual_run.source_byte_begin = segment_begin;
+                    visual_run.source_byte_end = segment_end;
+                    visual_run.direction = run_direction;
+                    visual_run.bidi_level = run.level;
+                    visual_run.glyphs.reserve(shaped.glyphs.size());
+                    float pen_x = styled_text.bounds.x + line.width;
+                    for (const auto& glyph : shaped.glyphs) {
+                        PositionedGlyph positioned;
+                        positioned.glyph_id = glyph.glyph_id;
+                        positioned.source_byte_begin = glyph.cluster;
+                        positioned.source_byte_end =
+                            source_end_for_cluster(glyph.cluster, sorted_clusters, segment_end);
+                        positioned.position = {pen_x, 0.0f};
+                        positioned.advance = glyph.advance;
+                        positioned.offset = glyph.offset;
+                        positioned.font = span->font.face;
+                        positioned.synthetic_font_style = span->font.synthetic_style;
+                        positioned.logical_pixel_size = span->span.size;
+                        positioned.raster_pixel_size = span->physical_size;
+                        visual_run.glyphs.push_back(positioned);
+                        pen_x += glyph.advance.x;
+                    }
+                    line.width += shaped.width;
+                    line_ascent = std::max(line_ascent, span->metrics.ascender);
+                    line_height = std::max(line_height, span->metrics.line_height);
+                    line.visual_runs.push_back(std::move(visual_run));
+                }
+            }
+        }
+        if (line_height <= 0.0f) {
+            line_height = resolved_spans.front().metrics.line_height;
+            line_ascent = resolved_spans.front().metrics.ascender;
+        }
+        line.baseline = styled_text.bounds.y + y + line_ascent;
+        for (auto& run : line.visual_runs) {
+            for (auto& glyph : run.glyphs) {
+                glyph.position.y = line.baseline;
+            }
+        }
+
+        float align_offset = 0.0f;
+        const bool final_line = line_end >= styled_text.value.size();
+        const float box_width =
+            styled_text.bounds.width > 0.0f ? styled_text.bounds.width : line.width;
+        if (box_width > line.width) {
+            if (styled_text.align == TextAlign::Center) {
+                align_offset = (box_width - line.width) * 0.5f;
+            } else if ((styled_text.align == TextAlign::End &&
+                        paragraph_direction == TextDirection::LeftToRight) ||
+                       (styled_text.align == TextAlign::Start &&
+                        paragraph_direction == TextDirection::RightToLeft)) {
+                align_offset = box_width - line.width;
+            } else if (styled_text.align == TextAlign::Justify && !final_line) {
+                uint32_t spaces = 0;
+                for (uint32_t i = line.source_byte_begin; i < line.source_byte_end; ++i) {
+                    if (styled_text.value[i] == ' ') {
+                        ++spaces;
+                    }
+                }
+                if (spaces > 0) {
+                    const float extra = (box_width - line.width) / static_cast<float>(spaces);
+                    float accumulated = 0.0f;
+                    for (auto& run : line.visual_runs) {
+                        for (auto& glyph : run.glyphs) {
+                            glyph.position.x += accumulated;
+                            if (glyph.source_byte_begin < styled_text.value.size() &&
+                                styled_text.value[glyph.source_byte_begin] == ' ') {
+                                glyph.advance.x += extra;
+                                accumulated += extra;
+                            }
+                        }
+                    }
+                    line.width = box_width;
+                }
+            }
+        }
+        if (align_offset != 0.0f) {
+            for (auto& run : line.visual_runs) {
+                for (auto& glyph : run.glyphs) {
+                    glyph.position.x += align_offset;
+                }
+            }
+        }
+
+        layout.metrics.width = std::max(layout.metrics.width, line.width + align_offset);
+        layout.lines.push_back(std::move(line));
+        y += line_height;
+        max_line_height = std::max(max_line_height, line_height);
+        if (styled_text.bounds.height > 0.0f && y > styled_text.bounds.height) {
+            layout.overflowed = true;
+            layout.lines.pop_back();
+            y -= line_height;
+            break;
+        }
+
+        if (mandatory_end < styled_text.value.size() && line_end == mandatory_end) {
+            line_begin = mandatory_end + 1;
+        } else {
+            line_begin = line_end;
+        }
+        if (line_begin == line_end && line_begin < styled_text.value.size()) {
+            ++line_begin;
+        }
+    }
+
+    layout.metrics.line_count = checked_u32(layout.lines.size());
+    layout.metrics.line_height = max_line_height;
+    layout.metrics.height = y;
     return layout;
 }
 
