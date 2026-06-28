@@ -145,9 +145,13 @@ Implemented v1:
 - Object span clicks route through `RuntimeInputType::SelectObject` using the direct layout hit rectangles; event routing walks ancestors so clicks on child spans or descendants inside `nt-active-text` are handled. Non-object body clicks now skip an in-progress reveal or continue after reveal completion.
 - Per-frame material/shader stderr logging was removed. ActiveText material/direct-shader metadata is preserved; failed material or direct shader-pair resolution falls back to default text rendering with deduped diagnostics.
 
-Remaining gap:
+Remaining gap and scoped decisions:
 
-Old `ActiveText` was a real drawable/runtime object with reveal progression, segment timing, wait-for-click behavior, skip behavior, cursor state, highlight/object hit testing, alpha/show/hide tweening, layout bounds, line spacing, font scaling, and visual effects. The new v1 direct path establishes the renderer boundary and direct shaped drawing with basic reveal skip/continue behavior and first-pass synthetic font styling, but exact legacy segment timing, outline/border text, high-quality glow, custom ActiveText shader uniform/sampler binding, real multi-face font-family resolution, FreeType-backed synthetic style rasterization, advanced mixed-font fallback, and full visual parity remain deferred.
+Old `ActiveText` was a real drawable/runtime object with reveal progression, segment timing, wait-for-click behavior, skip behavior, cursor state, highlight/object hit testing, alpha/show/hide tweening, layout bounds, line spacing, font scaling, and visual effects. The new v1 direct path establishes the renderer boundary and direct shaped drawing with basic reveal skip/continue behavior and first-pass synthetic font styling.
+
+Not every old or parsed rich-text feature is a Phase B blocker. Text outline/border metadata may remain parsed/preserved but is intentionally sidelined until a project fixture or authored game actually needs it; do not treat outline/border text as required for the next ActiveText parity slice.
+
+The active Phase B hardening work is: exact segment timing where it affects playback, cursor/continue prompt presentation, alpha/show/hide tweening, high-quality glow/effect rendering, real ActiveText material/direct-shader program binding, real font-family resolution with synthetic fallback, FreeType-backed synthetic style rasterization, advanced mixed-font fallback, and visual snapshot coverage.
 
 Implementation slices:
 
@@ -170,14 +174,24 @@ Implementation slices:
    - Page-break and continue prompt state.
 
 4. Add deterministic effect rendering.
-   - Start with fade/pop/nod/shake/tremble/glow as metadata-to-transform/alpha/material operations.
-   - Use `TweenService` or deterministic time from `ActiveTextOptions`; avoid ad hoc untracked animation state.
-   - Preserve reproducibility under playback fixed-step tests.
+   - Implement fade/pop/nod/shake/tremble/glow as metadata-to-transform/alpha/material operations.
+   - Use `TweenService` for stateful/timeline-backed effects when an effect needs tween lifecycle semantics; use deterministic time from `ActiveTextOptions` for pure frame projection. Avoid ad hoc untracked animation state.
+   - Keep effect evaluation reproducible under playback fixed-step tests.
+   - Text outline/border is explicitly out of scope for this slice unless a fixture makes it necessary.
 
-5. Add material/shader hooks.
-   - Rich-text `[mat]` metadata should resolve to material ids when appropriate.
-   - Low-level ActiveText shader-pair metadata should use `resolve_direct_shader_pair_program()`.
-   - Missing material/program variants should fall back to default text rendering with structured diagnostics.
+5. Complete ActiveText material/shader binding.
+   - Rich-text `[mat]` metadata should resolve to `ShaderRole::ActiveText` material ids through the existing material/shader registry and bgfx program cache.
+   - Low-level ActiveText shader-pair metadata should use `resolve_direct_shader_pair_program()` and precompiled shader variants, just like the rest of the runtime shader pipeline.
+   - Binding should not stop at diagnostics: when a material or direct shader pair resolves, the renderer should submit the affected glyph geometry with the resolved bgfx program, declared uniforms, and declared samplers/textures where applicable.
+   - Missing material/program variants should fall back to default text rendering with structured, deduped diagnostics.
+
+5a. Add the font-family loader/resolver required by direct ActiveText.
+   - Follow [`../rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`](../rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md) for the detailed implementation sequence.
+   - A font family registration must accept at minimum one base/regular face.
+   - Optional faces: bold, italic, and bold-italic.
+   - If a requested styled face is missing, resolve to the closest available real face and apply synthetic styling for the missing style bits.
+   - The default runtime family is `Liberation Sans`, backed by the bundled Liberation Sans regular face for now. Because only the regular default face is guaranteed to ship initially, bold/italic/bold-italic requests against the default family should fall back to Liberation Sans regular plus synthetic styling.
+   - Empty rich-text font aliases resolve to this default runtime family. Unknown aliases should fall back to the default family with a deduped diagnostic.
 
 6. Add hit testing for object/text spans.
    - Map click positions to rich-text object spans.

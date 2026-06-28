@@ -112,17 +112,16 @@ The binder:
   `nt-active-text`, `nt-text-log`, or `nt-map-view`.
 - RuntimeUI may bind a borrowed engine `TweenService`. When present, ActiveText body changes
   start a deterministic `runtime-ui` / `active-text-reveal` tween and expose current progress
-  in fallback RML. Without a bound service, progress is complete and the UI remains static.
-- ActiveText fallback RML consumes backend-neutral `RichTextDocument` state from
-  `RuntimeUIViewState` through the engine `ActiveTextFrame` projection. It emits per-glyph
-  classes/data attributes for style, object, diff, offset, reveal, and effect state.
-- RuntimeUI also exposes a direct ActiveText render snapshot. After `Rml::Context::Update()` has
-  resolved layout, `nt-active-text` provides the content box in logical coordinates. RuntimeUI uses
-  the engine text stack to shape the visible text and `ActiveTextLayout` maps the shaped glyph byte
-  ranges back to rich-text metadata, renderer-facing glyph visuals, and object hit rectangles.
-  `Renderer::draw_active_text()` draws those shaped glyphs through the existing bgfx text atlas path
-  after RmlUi has rendered, so the direct path is visibly exercised while fallback RML remains
-  available.
+  to the direct ActiveText snapshot. Without a bound service, RuntimeUI advances reveal with the
+  same glyph-rate basis so behavior remains deterministic.
+- ActiveText consumes backend-neutral `RichTextDocument` state from `RuntimeUIViewState` through
+  the engine `ActiveTextFrame` and `ActiveTextLayout` projection. `nt-active-text` is the RmlUi
+  layout/input host; it does not emit visible fallback glyph markup in the current direct path.
+- After `Rml::Context::Update()` has resolved layout, `nt-active-text` provides the content box in
+  logical coordinates. RuntimeUI uses the engine text stack to shape the visible text and
+  `ActiveTextLayout` maps the shaped glyph byte ranges back to rich-text metadata, renderer-facing
+  glyph visuals, and object hit rectangles. `Renderer::draw_active_text()` draws those shaped glyphs
+  through the existing bgfx text atlas path after RmlUi has rendered.
 - Clicking an object span inside `nt-active-text` walks from the event target through ancestors to
   find the owning active-text element, then uses the direct layout hit rectangles and routes through
   `RuntimeInputType::SelectObject`. This covers clicks on the root, child spans, or descendants.

@@ -34,7 +34,7 @@ Last updated: 2026-06-26.
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Lua-evaluated map visibility is deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
-- Exact legacy ActiveText segment timing, outline/border text, high-quality glow, custom ActiveText shader uniform/sampler binding, real multi-face font-family resolution, FreeType-backed synthetic style rasterization, advanced mixed-font fallback, bgfx/custom-geometry map rendering, optional map transition animation, and per-object/per-room materials remain active.
+- ActiveText Phase B hardening remains active: exact segment timing where it affects playback, cursor/continue prompt presentation, alpha/show/hide tweening, high-quality glow/effect rendering, real material/program binding for precompiled ActiveText programs, a font-family loader that requires at least a regular/base face, default `Liberation Sans` regular with synthetic fallback for missing bold/italic/bold-italic faces, FreeType-backed synthetic style rasterization, advanced mixed-font fallback, bgfx/custom-geometry map rendering, optional map transition animation, and per-object/per-room materials. Text outline/border metadata is intentionally sidelined until an authored fixture requires it.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.
 - Once the external renderer API stabilizes, switch `NOVELTEA_RMLUI_BGFX_GIT_TAG` from `master` to a pinned commit or release tag.
@@ -84,6 +84,6 @@ For documentation-only cleanup, a targeted stale-reference search is sufficient.
 
 ## Next Implementation Task
 
-Review [`NEXT_STEPS_AFTER_RMLUI_BGFX.md`](NEXT_STEPS_AFTER_RMLUI_BGFX.md) before starting the next migration slice. With the first renderer-backed, shaped ActiveText path in place, the immediate recommended order is to make the updated `rmlui-bgfx` integration green/pinned if still outstanding, harden ActiveText visual parity, then move into MapView Lua visibility, project-authored room/object materials, and real old-project fixture coverage.
+Review [`NEXT_STEPS_AFTER_RMLUI_BGFX.md`](NEXT_STEPS_AFTER_RMLUI_BGFX.md) before starting the next migration slice. With the first renderer-backed, shaped ActiveText path in place, the immediate recommended order is to implement the font-family resolver and styled-span ActiveText shaping plan in [`../rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`](../rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md), then complete ActiveText material/shader binding and effect visuals, then move into MapView Lua visibility, project-authored room/object materials, and real old-project fixture coverage.
 
 Future rendering work should start from a focused NovelTea plan only when it changes NovelTea's integration boundary, shader/material system, runtime presentation, or package/export behavior. RmlUi renderer internals, visual parity probes, refactor goals, and optimization work belong in the standalone `rmlui-bgfx` repository.

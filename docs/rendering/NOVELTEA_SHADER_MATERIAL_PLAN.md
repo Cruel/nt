@@ -223,8 +223,22 @@ using the engine text stack for shaped glyph positions. `Renderer::draw_active_t
 `ShaderRole::ActiveText` material resolution and `resolve_direct_shader_pair_program()` for direct
 shader-pair metadata, then falls back to default text rendering when the requested program is
 unavailable. Diagnostics are deduped by requested material id or shader pair and include the fallback
-behavior. The first direct renderer path does not yet bind custom ActiveText uniforms/samplers or
-provide high-quality custom glow/outline shader effects.
+behavior.
+
+Implementation requirement: this should advance from resolution-only diagnostics to real binding.
+When an ActiveText material or direct shader pair resolves to an available precompiled bgfx program,
+the affected glyph geometry should be submitted with that program. Material records should bind their
+declared uniform values and texture/sampler assignments through the same `BgfxMaterialBinder` policy
+used by engine 2D quads. Direct shader-pair metadata has no material record, so it may initially bind
+only engine-provided uniforms/samplers and default glyph atlas inputs, but the program selection must
+be real rather than diagnostic-only. Missing material/program variants still fall back to default text
+rendering with structured, deduped diagnostics.
+
+Text outline/border rendering is intentionally not part of the next ActiveText material milestone.
+Outline metadata may remain preserved for compatibility, but high-quality outline/border effects are
+sidelined until an authored fixture requires them. High-quality glow remains in scope because the old
+rich-text/effect model already exposes glow-like animation metadata and it can be implemented through
+the material/effect path.
 
 ### RmlUi Decorator Material
 

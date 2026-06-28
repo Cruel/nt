@@ -1,6 +1,8 @@
 # Text Font Style and Synthetic Styling Plan
 
-Last updated: 2026-06-26.
+Last updated: 2026-06-28.
+
+Detailed implementation plan: [`ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`](ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md).
 
 ## Goal
 
@@ -35,7 +37,7 @@ Terminology:
 
 ## API direction
 
-The eventual public-facing registration shape should be equivalent to:
+The public-facing registration shape should be equivalent to:
 
 ```cpp
 register_font_family("body", {
@@ -52,13 +54,17 @@ register_font_family("body", {
 });
 ```
 
+A font family registration must provide at least one base/regular face. Bold, italic, and bold-italic faces are optional refinements, not required assets. The initial system/default family is `Liberation Sans`, backed by the bundled Liberation Sans regular face. Until additional default faces are bundled, default-family bold/italic/bold-italic requests must resolve to Liberation Sans regular plus synthetic styling.
+
 Resolution rules:
 
-1. Empty font alias resolves to the default runtime font family.
-2. Exact real face wins.
-3. Partial real face plus synthetic missing style is allowed when synthesis is enabled. For example, bold+italic may resolve to a real italic face plus synthetic bold.
-4. If no matching face exists and synthesis is disabled, fall back to regular and emit a deduped diagnostic.
-5. Underline and strike are synthetic decorations even when real bold/italic faces exist.
+1. Empty font alias resolves to the default runtime font family, currently `Liberation Sans`.
+2. Unknown font aliases resolve to the default runtime family and emit a deduped diagnostic.
+3. Exact real face wins.
+4. Partial real face plus synthetic missing style is allowed when synthesis is enabled. For example, bold+italic may resolve to a real italic face plus synthetic bold.
+5. If no matching face exists and synthesis is disabled, fall back to the family regular face and emit a deduped diagnostic.
+6. If the family regular face cannot load, fall back to `Liberation Sans` regular and emit a structured diagnostic.
+7. Underline and strike are synthetic decorations even when real bold/italic faces exist.
 
 ## Implementation phases
 
@@ -77,9 +83,11 @@ Resolution rules:
 ### Phase 3: Add a font family resolver
 
 - Add `FontFamilyDesc`, `FontFamilyHandle`, and `ResolvedFont`.
-- Allow a family to be registered with regular, bold, italic, and bold-italic faces.
+- Require a base/regular face for every registered family; reject or diagnose registrations that provide no usable base face.
+- Allow a family to optionally register bold, italic, and bold-italic faces.
 - Allow synthetic bold/italic fallback per family.
-- Register the runtime `runtime-ui` family with the current LiberationSans face and synthetic style enabled.
+- Register the default runtime family as `Liberation Sans` using the bundled Liberation Sans regular face and synthetic style enabled.
+- Treat `runtime-ui`, an empty alias, and any missing project default alias as references to the same default family until the project schema grows explicit font selection.
 
 ### Phase 4: Layout styled spans
 
@@ -123,7 +131,7 @@ Required tests:
 
 ## Current checkpoint scope
 
-The first implementation checkpoint should complete Phase 1 and a minimal text-renderer synthetic style path sufficient for direct ActiveText to visually distinguish bold, italic, underline, and strike while leaving full multi-span/multi-family shaping as the next larger checkpoint.
+The first implementation checkpoint is now the font-family resolver and styled-span shaping slice described in [`ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`](ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md). This should land before deeper ActiveText material/shader binding or glow/effect visuals.
 
 Known limitations after the first checkpoint may include:
 
