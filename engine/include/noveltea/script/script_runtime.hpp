@@ -7,6 +7,9 @@
 #include <string>
 #include <string_view>
 
+namespace noveltea {
+class AudioSystem;
+}
 namespace noveltea::assets {
 class AssetManager;
 }
@@ -23,6 +26,7 @@ struct ScriptRuntimeAccess;
 
 struct ScriptRuntimeConfig {
     const assets::AssetManager* assets = nullptr;
+    AudioSystem* audio = nullptr;
 };
 
 class ScriptRuntime {
@@ -51,6 +55,8 @@ public:
 
     void bind_game_session(core::GameSession* session);
     void bind_runtime_host(core::RuntimeSessionHost* host);
+    void bind_audio(AudioSystem* audio);
+    void clear_audio_binding();
     void clear_game_bindings();
 
 private:

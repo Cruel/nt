@@ -644,6 +644,7 @@ void AssetManager::bind_material_loader(MaterialAssetLoader* loader) const
 {
     m_material_loader = loader;
 }
+void AssetManager::bind_audio_loader(AudioAssetLoader* loader) const { m_audio_loader = loader; }
 
 AssetResult<FontAsset> AssetManager::load_font(const FontAssetRequest& request) const
 {
@@ -680,6 +681,14 @@ AssetResult<MaterialAsset> AssetManager::load_material(const MaterialAssetReques
         return fail<MaterialAsset>("no typed material loader bound to AssetManager");
     }
     return m_material_loader->load_material(request);
+}
+
+AssetResult<AudioAsset> AssetManager::load_audio(const AudioAssetRequest& request) const
+{
+    if (!m_audio_loader) {
+        return fail<AudioAsset>("no typed audio loader bound to AssetManager");
+    }
+    return m_audio_loader->load_audio(request);
 }
 
 bool AssetManager::exists(std::string_view logical_path) const

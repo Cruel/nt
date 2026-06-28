@@ -33,12 +33,14 @@ public:
     void bind_texture_loader(TextureAssetLoader* loader) const;
     void bind_shader_program_loader(ShaderProgramAssetLoader* loader) const;
     void bind_material_loader(MaterialAssetLoader* loader) const;
+    void bind_audio_loader(AudioAssetLoader* loader) const;
     [[nodiscard]] AssetResult<FontAsset> load_font(const FontAssetRequest& request) const;
     [[nodiscard]] AssetResult<TextureAsset> load_texture(const TextureAssetRequest& request) const;
     [[nodiscard]] AssetResult<ShaderProgramAsset>
     load_shader_program(const ShaderProgramAssetRequest& request) const;
     [[nodiscard]] AssetResult<MaterialAsset>
     load_material(const MaterialAssetRequest& request) const;
+    [[nodiscard]] AssetResult<AudioAsset> load_audio(const AudioAssetRequest& request) const;
 
     [[nodiscard]] bool exists(std::string_view logical_path) const;
     [[nodiscard]] bool has_namespace(std::string_view namespace_name) const;
@@ -55,6 +57,7 @@ private:
     mutable TextureAssetLoader* m_texture_loader = nullptr;
     mutable ShaderProgramAssetLoader* m_shader_program_loader = nullptr;
     mutable MaterialAssetLoader* m_material_loader = nullptr;
+    mutable AudioAssetLoader* m_audio_loader = nullptr;
 };
 
 } // namespace noveltea::assets

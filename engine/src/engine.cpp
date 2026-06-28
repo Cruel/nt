@@ -1,5 +1,6 @@
 #include "noveltea/engine.hpp"
 
+#include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/core/legacy/project_package_reader.hpp"
 #include "noveltea/core/project_ids.hpp"
 #include "noveltea/math/geometry.hpp"
@@ -22,7 +23,7 @@
 
 namespace noveltea {
 
-Engine::Engine() = default;
+Engine::Engine() : m_audio(make_miniaudio_backend()) {}
 Engine::~Engine() { shutdown(); }
 
 namespace {
@@ -451,6 +452,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     m_render_perf_logging = run_config.render_perf_logging;
     bool platform_initialized = false;
     bool renderer_initialized = false;
+    bool audio_bound = false;
     bool scripts_initialized = false;
     bool runtime_ui_initialized = false;
     bool debug_ui_initialized = false;
@@ -467,6 +469,11 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         if (scripts_initialized) {
             m_scripts.shutdown();
             scripts_initialized = false;
+        }
+        if (audio_bound) {
+            m_assets.bind_audio_loader(nullptr);
+            m_audio.shutdown();
+            audio_bound = false;
         }
         if (renderer_initialized) {
             m_renderer.shutdown();
@@ -510,6 +517,13 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         return false;
     }
     renderer_initialized = true;
+
+    if (m_audio.initialize(m_assets)) {
+        m_assets.bind_audio_loader(&m_audio);
+        audio_bound = true;
+    } else {
+        m_assets.bind_audio_loader(nullptr);
+    }
     m_shader_materials = make_demo_shader_materials();
     m_renderer.set_shader_material_project(&m_shader_materials);
     if (!load_project_shader_materials()) {
@@ -518,7 +532,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
 
     {
-        auto script_init = m_scripts.initialize({&m_assets});
+        auto script_init = m_scripts.initialize({&m_assets, &m_audio});
         if (!script_init) {
             std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
                          script_init.error ? script_init.error->message.c_str() : "unknown error");
@@ -578,6 +592,20 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     if (!run_config.runtime_project.empty() && !load_runtime_project(run_config.runtime_project)) {
         rollback();
         return false;
+    }
+
+    for (const std::string& path : run_config.audio_sfx_paths) {
+        (void)m_audio.play_sfx(path);
+    }
+    for (const std::string& spec : run_config.audio_track_specs) {
+        const std::string::size_type equals = spec.find('=');
+        if (equals == std::string::npos || equals == 0 || equals + 1 >= spec.size()) {
+            std::fprintf(stderr, "[engine] invalid --audio-track spec: %s\n", spec.c_str());
+            continue;
+        }
+        const AudioTrackId track_id = spec.substr(0, equals);
+        const std::string path = spec.substr(equals + 1);
+        (void)m_audio.play_track(track_id, path);
     }
 
     m_running = true;
@@ -776,6 +804,7 @@ void Engine::update(float dt)
     if (!m_preview_running)
         return;
     m_elapsed_seconds += dt;
+    m_audio.update(dt);
     m_tweens.advance(dt);
     if (m_runtime_host.loaded()) {
         core::RuntimeInput input;
@@ -851,6 +880,8 @@ void Engine::shutdown()
     }
     m_runtime_ui.shutdown();
     m_tweens.reset();
+    m_assets.bind_audio_loader(nullptr);
+    m_audio.shutdown();
     m_script_executor.shutdown();
     m_scripts.shutdown();
     m_renderer.shutdown();
@@ -878,6 +909,23 @@ void Engine::set_preview_running(bool running)
 {
     m_preview_running = running;
     preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
+}
+
+AudioVoiceHandle Engine::play_audio_sfx(const std::string& path, float volume, float pitch)
+{
+    return m_audio.play_sfx(path, AudioSfxDesc{.volume = volume, .pitch = pitch});
+}
+
+AudioTrackHandle Engine::play_audio_track(const AudioTrackId& track_id, const std::string& path,
+                                          float volume, bool loop)
+{
+    return m_audio.play_track(track_id, path,
+                              AudioTrackDesc{.track_id = track_id, .volume = volume, .loop = loop});
+}
+
+void Engine::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
+{
+    m_audio.stop_track(track_id, fade_seconds);
 }
 
 } // namespace noveltea

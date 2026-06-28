@@ -3,6 +3,7 @@
 #include "platform.hpp"
 #include "preview_bridge.hpp"
 #include "renderer.hpp"
+#include "noveltea/audio/audio_system.hpp"
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
 #include "noveltea/assets/asset_manager.hpp"
@@ -41,6 +42,8 @@ struct EngineRunConfig {
     bool enable_debug_ui = true;
     bool render_perf_logging = false;
     bool rmlui_base_direct_compat = false;
+    std::vector<std::string> audio_sfx_paths;
+    std::vector<std::string> audio_track_specs;
 };
 
 class Engine {
@@ -60,6 +63,11 @@ public:
     void set_demo_position(float normalized_x, float normalized_y);
     void reset_demo_position();
     void set_preview_running(bool running);
+    AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
+                                    float pitch = 1.0f);
+    AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,
+                                      float volume = 1.0f, bool loop = true);
+    void stop_audio_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
     preview_bridge::NormalizedPosition demo_position() const { return m_demo_position; }
     bool preview_running() const { return m_preview_running; }
 
@@ -76,6 +84,7 @@ private:
     bool load_runtime_project(const std::string& logical_path);
 
     assets::AssetManager m_assets;
+    AudioSystem m_audio;
     Platform m_platform;
     Renderer m_renderer;
     TweenService m_tweens;

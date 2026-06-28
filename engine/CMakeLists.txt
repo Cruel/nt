@@ -74,6 +74,7 @@ add_library(engine STATIC
     src/assets/asset_manager.cpp
     src/assets.cpp
     src/app.cpp
+    src/audio/audio_system.cpp
     src/audio/miniaudio/miniaudio_backend.cpp
     src/engine.cpp
     src/platform/sdl/sdl_platform.cpp
@@ -101,6 +102,9 @@ target_include_directories(engine
 )
 
 target_link_libraries(engine PUBLIC noveltea_core)
+include(NovelTeaAudio)
+noveltea_provide_miniaudio(MINIAUDIO_INCLUDE_DIRS)
+target_include_directories(engine PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
 
 # --- Generated asset paths ---
 
@@ -205,12 +209,13 @@ if(TARGET bx::bx)
     target_link_libraries(engine PUBLIC bx::bx)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    target_link_libraries(engine PUBLIC EGL GLESv2 android)
+    target_link_libraries(engine PUBLIC EGL GLESv2 android log OpenSLES)
 endif()
 
 # --- Lua scripting (mandatory) ---
 
 target_sources(engine PRIVATE
+    src/script/lua/bind_audio.cpp
     src/script/lua/bind_game_session.cpp
     src/script/lua/bind_noveltea.cpp
     src/script/lua/runtime_script_executor.cpp

@@ -2,6 +2,7 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/audio/audio_system.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -11,6 +12,7 @@
 #include <stdexcept>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace noveltea;
 
@@ -25,6 +27,57 @@ struct RuntimeFixture {
     script::ScriptRuntime runtime;
 
     RuntimeFixture() { assets.mount("project", memory); }
+};
+
+struct FakeAudioEvent {
+    AudioClipHandle clip;
+    AudioPlaybackDesc desc;
+};
+
+class FakeAudioBackend final : public AudioBackend {
+public:
+    AudioBackendInfo backend_info() const override { return {"fake", initialized}; }
+    bool initialize(const assets::AssetManager&) override
+    {
+        initialized = true;
+        return true;
+    }
+    void shutdown() override { initialized = false; }
+
+    assets::AssetResult<assets::AudioAsset>
+    load_audio(const assets::AudioAssetRequest& request) override
+    {
+        last_request = request;
+        return {assets::AudioAsset{.clip = AudioClipHandle{next_clip++},
+                                   .path = request.path,
+                                   .mode = request.mode,
+                                   .kind = request.kind},
+                {}};
+    }
+
+    AudioVoiceHandle play(AudioClipHandle clip, const AudioPlaybackDesc& desc) override
+    {
+        played.push_back(FakeAudioEvent{clip, desc});
+        return AudioVoiceHandle{next_voice++};
+    }
+    void stop(AudioVoiceHandle voice) override { stopped.push_back(voice); }
+    void set_volume(AudioVoiceHandle, float) override {}
+    void set_bus_volume(AudioBus bus, float volume) override
+    {
+        last_bus = bus;
+        last_bus_volume = volume;
+    }
+    bool voice_active(AudioVoiceHandle voice) const override { return static_cast<bool>(voice); }
+    void collect_finished_voices() override {}
+
+    bool initialized = false;
+    uint32_t next_clip = 1;
+    uint32_t next_voice = 1;
+    std::optional<assets::AudioAssetRequest> last_request;
+    std::vector<FakeAudioEvent> played;
+    std::vector<AudioVoiceHandle> stopped;
+    AudioBus last_bus = AudioBus::Master;
+    float last_bus_volume = 1.0f;
 };
 
 } // namespace
@@ -199,6 +252,41 @@ TEST_CASE("ScriptRuntime converts bound C++ exceptions into failures and stays u
     auto still_usable = fixture.runtime.evaluate_string("'still' .. '-ok'", "after_failure");
     REQUIRE(still_usable);
     CHECK(*still_usable.value == "still-ok");
+}
+
+TEST_CASE("ScriptRuntime exposes audio playback bindings")
+{
+    RuntimeFixture fixture;
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(fixture.assets));
+    fixture.assets.bind_audio_loader(&audio);
+    REQUIRE(fixture.runtime.initialize({&fixture.assets, &audio}));
+
+    REQUIRE(fixture.runtime.execute(R"(
+        sfx_ok = audio.play_sfx("project:/audio/notification.mp3", {
+            volume = 0.75,
+            pitch = 1.35,
+            max_simultaneous = 2,
+        })
+        audio.set_bus_volume("music", 0.25)
+    )",
+                                    "audio_bindings"));
+
+    auto ok = fixture.runtime.evaluate_bool("sfx_ok", "sfx_ok");
+    REQUIRE(ok);
+    CHECK(*ok.value);
+    REQUIRE(backend_ptr->last_request);
+    CHECK(backend_ptr->last_request->path == "project:/audio/notification.mp3");
+    CHECK(backend_ptr->last_request->kind == AudioClipKind::Sfx);
+    REQUIRE(backend_ptr->played.size() == 1);
+    CHECK(backend_ptr->played[0].desc.bus == AudioBus::Sfx);
+    CHECK(backend_ptr->played[0].desc.volume == 0.75f);
+    CHECK(backend_ptr->played[0].desc.pitch == 1.35f);
+    CHECK_FALSE(backend_ptr->played[0].desc.loop);
+    CHECK(backend_ptr->last_bus == AudioBus::Music);
+    CHECK(backend_ptr->last_bus_volume == 0.25f);
 }
 
 TEST_CASE("ScriptRuntime executes scripts through AssetManager logical paths")

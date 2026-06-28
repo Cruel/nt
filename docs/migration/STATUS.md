@@ -24,6 +24,7 @@ Last updated: 2026-06-28.
 - Runtime visual presentation v1: runtime view state exposes cover/background/room/object image slots, resolves logical project asset paths, validates missing visual assets, and binds them through RuntimeUI.
 - Engine 2D renderer layer system, scissor stack, frame timing integration for ActiveText reveal, and material-backed engine 2D quads.
 - Backend-neutral project-schema shader/material records, runtime compiled bgfx binary loading, host/editor/import shader compilation, package export of compiled shader variants, and engine material binding.
+- Typed audio asset foundation: backend-neutral audio handles/descriptors, AssetManager `load_audio()` facade, AudioSystem SFX/track/bus policy, miniaudio backend hidden behind `AudioBackend`, project MP3 loading through AssetManager bytes, sandbox `--audio-sfx` / `--audio-track` smoke hooks, Web/Emscripten and Android miniaudio include support, browser-callable audio entry points for user-gesture playback, and Lua `audio` bindings demonstrated from RmlUi with a pitch slider.
 - RmlUi decorator material bridge: `shader(<string>)` resolves to NovelTea material ids through the NovelTea adapter for `rmlui-bgfx`.
 - Editor preview and recorded test playback: `RuntimePlaybackSession` runs backend-neutral specs and the Electron workspace can list/run playback tests and export packages through `noveltea-editor-tool`.
 - Package writing/export: `.ntpkg` runtime packages include legacy-compatible entries, `manifest.json`, safe asset filtering, checksums, and compiled shader variants.
@@ -34,6 +35,7 @@ Last updated: 2026-06-28.
 - Invalid imported legacy script text should fail as Lua; no JavaScript, Duktape, dukglue, or JS compatibility layer will be added.
 - Platform-specific save-slot persistence, runtime save/load screens, and richer autosave UI feedback remain incomplete.
 - Lua-evaluated map visibility is deferred. `noveltea_core` must remain Lua-free, so this needs an engine-layer evaluation/result contract before implementation.
+- Web/editor UI still needs production controls wired to the exported browser audio entry points; the current visible RmlUi audio control is a sandbox demo.
 - ActiveText Phase B hardening remains active: high-quality halo/blur glow, richer project font-family records beyond regular-only aliases, advanced mixed-font fallback, bgfx/custom-geometry map rendering, optional map transition animation, and per-object/per-room materials. CPU-side Fade/FadeAcross/Pop/Nod/Shake/Tremble/Glow/Test visuals, simple renderer glow, playback lifecycle, prompt presentation, alpha show/hide, typed font requests, typed texture/shader/material facade registration, bimg-backed typed texture loading, typed material-binder texture/shader/material routing, legacy-compatible `sys` fallback, `fontDefault` ingestion, and synthetic style fallback are implemented; text outline/border metadata is intentionally sidelined until an authored fixture requires it.
 - Editable/source package workflows and real old-project fixture coverage remain incomplete.
 - Web browser and Android emulator runtime smoke coverage should be expanded where practical.

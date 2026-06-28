@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/audio/audio_types.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/shader_manifest.hpp"
 #include "noveltea/text/font.hpp"
@@ -74,6 +75,19 @@ struct MaterialAsset {
     std::string id;
 };
 
+struct AudioAssetRequest {
+    std::string path;
+    AudioLoadMode mode = AudioLoadMode::Auto;
+    AudioClipKind kind = AudioClipKind::Auto;
+};
+
+struct AudioAsset {
+    AudioClipHandle clip;
+    std::string path;
+    AudioLoadMode mode = AudioLoadMode::Auto;
+    AudioClipKind kind = AudioClipKind::Auto;
+};
+
 class FontAssetLoader {
 public:
     virtual ~FontAssetLoader() = default;
@@ -99,6 +113,12 @@ public:
     virtual ~MaterialAssetLoader() = default;
     [[nodiscard]] virtual AssetResult<MaterialAsset>
     load_material(const MaterialAssetRequest& request) = 0;
+};
+
+class AudioAssetLoader {
+public:
+    virtual ~AudioAssetLoader() = default;
+    [[nodiscard]] virtual AssetResult<AudioAsset> load_audio(const AudioAssetRequest& request) = 0;
 };
 
 } // namespace noveltea::assets

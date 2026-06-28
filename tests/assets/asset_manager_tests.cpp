@@ -67,6 +67,21 @@ public:
     std::optional<MaterialAssetRequest> last_request;
 };
 
+class FakeAudioAssetLoader final : public AudioAssetLoader {
+public:
+    AssetResult<AudioAsset> load_audio(const AudioAssetRequest& request) override
+    {
+        last_request = request;
+        return {AudioAsset{.clip = noveltea::AudioClipHandle{99},
+                           .path = request.path,
+                           .mode = request.mode,
+                           .kind = request.kind},
+                {}};
+    }
+
+    std::optional<AudioAssetRequest> last_request;
+};
+
 TEST_CASE("AssetManager reports missing mounts and missing assets")
 {
     AssetManager manager;
@@ -159,6 +174,27 @@ TEST_CASE("AssetManager typed texture shader and material APIs forward to bound 
     REQUIRE(material_loader.last_request);
     CHECK(material_loader.last_request->id == "demo/material");
     CHECK(material.value->definition == &material_loader.material);
+}
+
+TEST_CASE("AssetManager typed audio API reports missing loader and forwards requests")
+{
+    AssetManager manager;
+    auto missing = manager.load_audio(AudioAssetRequest{.path = "project:/audio/notification.mp3"});
+    CHECK_FALSE(missing);
+    CHECK(missing.error.find("audio loader") != std::string::npos);
+
+    FakeAudioAssetLoader loader;
+    manager.bind_audio_loader(&loader);
+    auto audio = manager.load_audio(AudioAssetRequest{.path = "project:/audio/notification.mp3",
+                                                      .mode = noveltea::AudioLoadMode::Stream,
+                                                      .kind = noveltea::AudioClipKind::Sfx});
+    REQUIRE(audio);
+    REQUIRE(loader.last_request);
+    CHECK(loader.last_request->path == "project:/audio/notification.mp3");
+    CHECK(loader.last_request->mode == noveltea::AudioLoadMode::Stream);
+    CHECK(loader.last_request->kind == noveltea::AudioClipKind::Sfx);
+    CHECK(audio.value->clip == noveltea::AudioClipHandle{99});
+    CHECK(audio.value->path == "project:/audio/notification.mp3");
 }
 
 TEST_CASE("AssetManager uses first mounted source that contains the asset")

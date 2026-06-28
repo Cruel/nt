@@ -14,7 +14,7 @@ body
     left: 40px;
     top: 40px;
     width: 400px;
-    min-height: 220px;
+    min-height: 320px;
     background: rgba(30, 40, 60, 200);
     border-width: 2px;
     border-color: #6a8cff;
@@ -33,6 +33,16 @@ h1
     font-weight: bold;
     margin: 0px;
     margin-bottom: 12px;
+}
+
+h2
+{
+    display: block;
+    color: #d7e1ff;
+    font-size: 15px;
+    font-weight: bold;
+    margin: 0px;
+    margin-bottom: 10px;
 }
 
 p
@@ -62,6 +72,84 @@ button
 button:hover
 {
     background: #5a7ddf;
+}
+
+#audio_controls
+{
+    display: block;
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(25, 32, 48, 180);
+    border-width: 1px;
+    border-color: #445a99;
+    border-radius: 4px;
+}
+
+#audio_controls label
+{
+    display: block;
+    margin-bottom: 8px;
+    color: #cdd7ff;
+}
+
+input.range
+{
+    display: block;
+    width: 100%;
+    height: 28px;
+    margin-bottom: 12px;
+}
+
+input.range slidertrack
+{
+    display: block;
+    height: 8px;
+    margin-top: 10px;
+    background: #1b2238;
+    border-width: 1px;
+    border-color: #6a8cff;
+    border-radius: 4px;
+}
+
+input.range sliderprogress
+{
+    display: block;
+    height: 8px;
+    background: #4a6dcf;
+    border-radius: 4px;
+}
+
+input.range sliderbar
+{
+    display: block;
+    width: 16px;
+    height: 22px;
+    margin-top: 3px;
+    background: #d7e1ff;
+    border-width: 1px;
+    border-color: #ffffff;
+    border-radius: 8px;
+}
+
+input.range sliderbar:hover
+{
+    background: #ffffff;
+}
+
+input.range sliderbar:active
+{
+    background: #8ab4ff;
+}
+
+input.range sliderarrowdec,
+input.range sliderarrowinc
+{
+    display: none;
+}
+
+#play_sfx_btn
+{
+    width: 180px;
 }
 
 #status_box

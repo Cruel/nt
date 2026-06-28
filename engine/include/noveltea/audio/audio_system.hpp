@@ -2,11 +2,67 @@
 
 #include "noveltea/audio/audio_backend.hpp"
 
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 namespace noveltea {
 
-class AudioSystem {
+class AudioSystem final : public assets::AudioAssetLoader {
 public:
-    [[nodiscard]] AudioBackendInfo backend_info() const { return {}; }
+    AudioSystem();
+    explicit AudioSystem(std::unique_ptr<AudioBackend> backend);
+    ~AudioSystem() override;
+
+    AudioSystem(const AudioSystem&) = delete;
+    AudioSystem& operator=(const AudioSystem&) = delete;
+    AudioSystem(AudioSystem&&) noexcept;
+    AudioSystem& operator=(AudioSystem&&) noexcept;
+
+    void set_backend(std::unique_ptr<AudioBackend> backend);
+    [[nodiscard]] bool initialize(const assets::AssetManager& assets);
+    void shutdown();
+    [[nodiscard]] AudioBackendInfo backend_info() const;
+
+    [[nodiscard]] assets::AssetResult<assets::AudioAsset>
+    load_audio(const assets::AudioAssetRequest& request) override;
+
+    [[nodiscard]] AudioVoiceHandle play(AudioClipHandle clip, AudioPlaybackDesc desc = {});
+    void stop(AudioVoiceHandle voice);
+    void set_volume(AudioVoiceHandle voice, float volume);
+    void set_bus_volume(AudioBus bus, float volume);
+
+    [[nodiscard]] AudioVoiceHandle play_sfx(const std::string& path, AudioSfxDesc desc = {});
+    [[nodiscard]] AudioTrackHandle play_track(const AudioTrackId& track_id, const std::string& path,
+                                              AudioTrackDesc desc = {});
+    void stop_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
+
+    void update(float dt);
+
+private:
+    struct ManagedVoice {
+        AudioVoiceHandle voice;
+        std::string path;
+        float base_volume = 1.0f;
+        float current_volume = 1.0f;
+        float fade_from = 1.0f;
+        float fade_to = 1.0f;
+        float fade_elapsed = 0.0f;
+        float fade_duration = 0.0f;
+        bool stop_after_fade = false;
+        bool sfx = false;
+    };
+
+    void fade_voice(ManagedVoice& voice, float target, float seconds, bool stop_after_fade);
+    void cleanup_inactive();
+
+    std::unique_ptr<AudioBackend> m_backend;
+    const assets::AssetManager* m_assets = nullptr;
+    bool m_initialized = false;
+    uint32_t m_next_track_handle = 1;
+    std::vector<ManagedVoice> m_sfx_voices;
+    std::unordered_map<AudioTrackId, std::vector<ManagedVoice>> m_tracks;
 };
 
 } // namespace noveltea

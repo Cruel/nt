@@ -157,6 +157,18 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.perf_logging = true;
         } else if (std::strcmp(arg, "--rmlui-base-direct-compat") == 0) {
             options.rmlui_base_direct_compat = true;
+        } else if (std::strcmp(arg, "--audio-sfx") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --audio-sfx requires an asset path\n");
+                return false;
+            }
+            options.audio_sfx_paths.push_back(argv[++i]);
+        } else if (std::strcmp(arg, "--audio-track") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --audio-track requires TRACK_ID=asset/path\n");
+                return false;
+            }
+            options.audio_track_specs.push_back(argv[++i]);
         }
     }
     return true;
@@ -186,6 +198,8 @@ bool App::initialize(int argc, char* argv[])
     run_config.enable_debug_ui = !options.no_imgui;
     run_config.render_perf_logging = options.perf_logging;
     run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
+    run_config.audio_sfx_paths = options.audio_sfx_paths;
+    run_config.audio_track_specs = options.audio_track_specs;
 
     if (!m_engine.initialize(config, run_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");
@@ -281,6 +295,36 @@ void noveltea_preview_resize(int logical_width, int logical_height, int framebuf
                     surface.logical_width, surface.logical_height, surface.framebuffer_width,
                     surface.framebuffer_height, surface.scale_x, surface.scale_y);
         noveltea::g_preview_engine->resize(surface);
+    }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_audio_play_sfx(const char* path, float volume, float pitch)
+{
+    if (noveltea::g_preview_engine && path) {
+        (void)noveltea::g_preview_engine->play_audio_sfx(path, volume, pitch);
+    }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_audio_play_track(const char* track_id, const char* path, float volume, int loop)
+{
+    if (noveltea::g_preview_engine && track_id && path) {
+        (void)noveltea::g_preview_engine->play_audio_track(track_id, path, volume, loop != 0);
+    }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_audio_stop_track(const char* track_id, float fade_seconds)
+{
+    if (noveltea::g_preview_engine && track_id) {
+        noveltea::g_preview_engine->stop_audio_track(track_id, fade_seconds);
     }
 }
 }

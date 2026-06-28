@@ -2,6 +2,10 @@
 
 struct lua_State;
 
+namespace noveltea {
+class AudioSystem;
+}
+
 namespace noveltea::script {
 
 class ScriptRuntime;
@@ -14,6 +18,8 @@ struct ScriptRuntimeAccess {
 } // namespace detail
 
 void bind_noveltea(lua_State* state);
+void bind_audio(lua_State* state, noveltea::AudioSystem* audio);
+void clear_audio_binding(lua_State* state);
 void install_host_print(lua_State* state);
 
 } // namespace noveltea::script

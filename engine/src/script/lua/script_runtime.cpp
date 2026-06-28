@@ -142,6 +142,9 @@ ScriptResult<void> ScriptRuntime::initialize(ScriptRuntimeConfig config)
         m_impl->traceback = m_impl->lua["__noveltea_traceback"];
         sol::protected_function::set_default_handler(m_impl->traceback);
         bind_noveltea(m_impl->lua.lua_state());
+        if (config.audio) {
+            ::noveltea::script::bind_audio(m_impl->lua.lua_state(), config.audio);
+        }
         install_host_print(m_impl->lua.lua_state());
         m_impl->initialized = true;
         return ScriptResult<void>::success();
@@ -284,6 +287,20 @@ void ScriptRuntime::bind_runtime_host(core::RuntimeSessionHost* host)
     if (!is_initialized())
         return;
     noveltea::script::bind_runtime_host(m_impl->lua.lua_state(), host);
+}
+
+void ScriptRuntime::bind_audio(AudioSystem* audio)
+{
+    if (!is_initialized())
+        return;
+    ::noveltea::script::bind_audio(m_impl->lua.lua_state(), audio);
+}
+
+void ScriptRuntime::clear_audio_binding()
+{
+    if (!is_initialized())
+        return;
+    noveltea::script::clear_audio_binding(m_impl->lua.lua_state());
 }
 
 void ScriptRuntime::clear_game_bindings()
