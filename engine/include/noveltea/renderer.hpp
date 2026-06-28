@@ -25,6 +25,7 @@ struct ShaderMaterialProject;
 namespace bgfx_backend {
 class BgfxMaterialBinder;
 class BgfxShaderProgramCache;
+class BgfxTypedAssetLoader;
 } // namespace bgfx_backend
 
 struct RendererConfig {
@@ -97,7 +98,6 @@ private:
     void submit_quad(const QuadCommand& command);
     void submit_default_quad(const QuadCommand& command);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command);
-    uint16_t load_ppm_texture(std::string_view logical_path);
 
     struct ScissorRect {
         int16_t x = 0, y = 0;
@@ -122,12 +122,12 @@ private:
     uint16_t m_triangle_program = UINT16_MAX;
     uint16_t m_quad_program = UINT16_MAX;
     uint16_t m_checker_texture = UINT16_MAX;
-    uint16_t m_disk_texture = UINT16_MAX;
     uint16_t m_sampler = UINT16_MAX;
     uint16_t m_use_texture_uniform = UINT16_MAX;
     uint32_t m_default_text_font = 0;
     void* m_text_renderer = nullptr;
     std::unique_ptr<bgfx_backend::BgfxShaderProgramCache> m_shader_program_cache;
+    std::unique_ptr<bgfx_backend::BgfxTypedAssetLoader> m_typed_asset_loader;
     std::unique_ptr<bgfx_backend::BgfxMaterialBinder> m_material_binder;
     std::string m_texture_status = "procedural checker";
     std::string m_pending_screenshot;

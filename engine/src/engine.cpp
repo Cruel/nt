@@ -1,6 +1,7 @@
 #include "noveltea/engine.hpp"
 
 #include "noveltea/core/legacy/project_package_reader.hpp"
+#include "noveltea/core/project_ids.hpp"
 #include "noveltea/math/geometry.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/preview_bridge.hpp"
@@ -329,6 +330,56 @@ bool Engine::load_runtime_project(const std::string& logical_path)
     }
 
     auto load_document = [&](core::ProjectDocument document) {
+        assets::FontAssetConfig font_config;
+        if (document.root().contains(core::project_ids::project_font_default) &&
+            document.root()[core::project_ids::project_font_default].is_string()) {
+            font_config.default_alias =
+                document.root()[core::project_ids::project_font_default].get<std::string>();
+        }
+        const auto add_font_map = [&](std::string_view key) {
+            if (!document.root().contains(key) || !document.root()[key].is_object()) {
+                return;
+            }
+            for (const auto& [alias, value] : document.root()[key].items()) {
+                assets::FontFamilyAssetDesc family;
+                family.alias = alias;
+                family.synthetic_styles = true;
+                if (value.is_string()) {
+                    family.regular = FontDesc{.asset_path = value.get<std::string>()};
+                } else if (value.is_object()) {
+                    const auto read_face = [&](std::string_view face) -> FontDesc {
+                        if (value.contains(face) && value[face].is_string()) {
+                            return FontDesc{.asset_path = value[face].get<std::string>()};
+                        }
+                        return {};
+                    };
+                    family.regular = read_face("regular");
+                    if (auto bold = read_face("bold"); !bold.asset_path.empty()) {
+                        family.bold = bold;
+                    }
+                    if (auto italic = read_face("italic"); !italic.asset_path.empty()) {
+                        family.italic = italic;
+                    }
+                    if (auto bold_italic = read_face("bold_italic");
+                        !bold_italic.asset_path.empty()) {
+                        family.bold_italic = bold_italic;
+                    } else if (auto boldItalic = read_face("boldItalic");
+                               !boldItalic.asset_path.empty()) {
+                        family.bold_italic = boldItalic;
+                    }
+                    if (value.contains("syntheticStyles") &&
+                        value["syntheticStyles"].is_boolean()) {
+                        family.synthetic_styles = value["syntheticStyles"].get<bool>();
+                    }
+                }
+                if (!family.alias.empty() && !family.regular.asset_path.empty()) {
+                    font_config.families.push_back(std::move(family));
+                }
+            }
+        };
+        add_font_map(core::project_ids::engine_fonts);
+        add_font_map(core::project_ids::project_fonts);
+        m_assets.configure_fonts(std::move(font_config));
         auto result = m_runtime_host.load(std::move(document));
         for (const auto& diagnostic : result.diagnostics) {
             const char* severity = "info";

@@ -10,6 +10,7 @@ Implemented:
 - Public boxed `Text` primitive with UTF-8 value, font face, pixel size, bounds, color/alpha, horizontal alignment, base direction, language, wrap mode, and transform.
 - Backend-neutral `TextLayout` result with source byte ranges, HarfBuzz clusters, visual bidi runs, positioned glyphs, metrics, and overflow reporting.
 - FreeType face loading through `AssetManager::read_binary`; no platform-path font opening in the text path.
+- Runtime systems should request prepared fonts through `AssetManager::load_font(FontAssetRequest)` rather than duplicating font-default, `sys`, or style-fallback policy. The current typed font loader is backed by `TextEngine`, which remains responsible for FreeType/HarfBuzz operations.
 - HarfBuzz shaping for all engine text, including Latin.
 - SheenBidi paragraph and line run resolution using UTF-8 byte offsets.
 - libunibreak line, word, and grapheme boundary data for wrapping decisions, with a small ZWJ post-process so emoji ZWJ sequences are not split by NovelTea wrapping.

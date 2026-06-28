@@ -1,3 +1,4 @@
+#include <noveltea/text/text_asset_loader.hpp>
 #include "text/text_engine.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -66,6 +67,25 @@ std::vector<PositionedGlyph> glyphs_for(const TextLayout& layout)
 }
 
 } // namespace
+
+TEST_CASE("TextFontAssetLoader resolves system and compatibility aliases through AssetManager")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    noveltea::text::TextFontAssetLoader loader(assets, engine);
+    assets.bind_font_loader(&loader);
+
+    auto regular = assets.load_font(noveltea::assets::FontAssetRequest{});
+    REQUIRE(regular);
+    CHECK(regular.value->face);
+    CHECK(regular.value->resolved_alias == std::string(kSystemFontAlias));
+
+    auto bold = assets.load_font(
+        noveltea::assets::FontAssetRequest{.alias = "Liberation Sans", .style = TextFontBold});
+    REQUIRE(bold);
+    CHECK(bold.value->face == regular.value->face);
+    CHECK((bold.value->synthetic_style & TextFontBold) != 0u);
+}
 
 TEST_CASE("TextEngine resolves regular-only font families with synthetic style fallback")
 {

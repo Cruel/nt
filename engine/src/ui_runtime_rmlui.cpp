@@ -4,6 +4,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/text/text.hpp"
+#include "noveltea/text/text_asset_loader.hpp"
 #include "noveltea/tween_service.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 #include "text/text_breaks.hpp"
@@ -207,6 +208,7 @@ struct RuntimeUI::State {
     bool rml_initialized = false;
     core::RuntimeUIViewAdapter runtime_view;
     std::unique_ptr<text::TextEngine> active_text_engine;
+    std::unique_ptr<text::TextFontAssetLoader> active_text_font_loader;
     FontHandle active_text_font;
     ActiveTextLayout active_text_layout;
     double active_text_time_seconds = 0.0;
@@ -460,20 +462,14 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     m_state->assets = assets;
     m_state->active_text_engine = std::make_unique<text::TextEngine>(*assets);
     if (m_state->active_text_engine->valid()) {
-        FontDesc desc;
-        desc.asset_path = kRuntimeUiFontAsset;
-        FontFamilyDesc family;
-        family.alias = std::string(kSystemFontAlias);
-        family.regular = desc;
-        family.synthetic_styles = true;
-        auto handle = m_state->active_text_engine->register_font_family(family);
-        if (!handle) {
-            desc.asset_path = kRuntimeUiSystemFontAsset;
-            family.regular = desc;
-            handle = m_state->active_text_engine->register_font_family(family);
+        m_state->active_text_font_loader =
+            std::make_unique<text::TextFontAssetLoader>(*assets, *m_state->active_text_engine);
+        assets->bind_font_loader(m_state->active_text_font_loader.get());
+        auto font = assets->load_font(assets::FontAssetRequest{
+            .alias = std::string(kSystemFontAlias), .style = TextFontRegular});
+        if (font) {
+            m_state->active_text_font = font.value->face;
         }
-        m_state->active_text_font =
-            m_state->active_text_engine->resolve_font(kSystemFontAlias, TextFontRegular).face;
     }
     m_state->file_interface = new ui::rmlui::AssetRmlFileInterface(*assets);
     m_state->system_interface = new ui::rmlui::SdlSystemInterface(window);

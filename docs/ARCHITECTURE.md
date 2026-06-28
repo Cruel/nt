@@ -53,7 +53,7 @@ That member order matters for lifetime. `Engine::initialize` also performs expli
 
 The owned subsystems have these current responsibilities:
 
-- `AssetManager`: logical asset namespaces and mounted sources for system, project, cache, and legacy package assets.
+- `AssetManager`: logical asset namespaces and mounted sources for system, project, cache, and legacy package assets. It also acts as the public typed prepared-asset facade for runtime systems; fonts resolve through typed font requests backed by a registered text/font loader, and the bgfx renderer registers typed texture, shader-program, and material loaders for prepared render assets. The bgfx typed texture loader uses `bimg::imageParse` for ordinary image assets. Raw `open`/`read_binary`/`read_text` remain available for scripts, tools, and low-level loaders.
 - `Platform`: SDL3 window, events, native window handles, timing, quit state, and surface metrics.
 - `Renderer`: bgfx renderer ownership, view setup, demo drawing, screenshots, and resize handling.
 - `ScriptRuntime`: Lua state, host bindings, asset-backed script execution helpers, and `bind_game_session`.

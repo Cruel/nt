@@ -3,6 +3,7 @@
 #include "bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
+#include "render/bgfx/bgfx_typed_asset_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
 
 #include <SDL3/SDL.h>
@@ -149,6 +150,9 @@ Renderer::~Renderer() { shutdown(); }
 void Renderer::set_shader_material_project(const ShaderMaterialProject* project)
 {
     m_shader_materials = project;
+    if (m_typed_asset_loader) {
+        m_typed_asset_loader->set_shader_material_project(project);
+    }
 }
 
 void Renderer::set_shader_standard_inputs(const ShaderStandardInputs& inputs)

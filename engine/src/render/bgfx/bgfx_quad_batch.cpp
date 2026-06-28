@@ -4,6 +4,7 @@
 #include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
+#include "render/bgfx/bgfx_typed_asset_loader.hpp"
 
 #include <SDL3/SDL_log.h>
 #include <bgfx/bgfx.h>
@@ -93,10 +94,9 @@ void Renderer::draw_demo_2d(float time_seconds)
     QuadBatch batch;
     batch.draw_colored_quad({72.0f, 96.0f, 220.0f, 132.0f}, {0.15f, 0.65f, 0.95f, 0.88f}, 0.1f,
                             GameLayer::Background);
-    const uint16_t texture =
-        bgfx::isValid(bgfx::TextureHandle{m_disk_texture}) ? m_disk_texture : m_checker_texture;
     batch.draw_material_textured_quad(
-        {330.0f, 116.0f, 160.0f, 160.0f}, MaterialId("demo/engine_2d_quad"), Texture{texture},
+        {330.0f, 116.0f, 160.0f, 160.0f}, MaterialId("demo/engine_2d_quad"),
+        Texture{m_checker_texture},
         {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f, GameLayer::Main);
     batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f},
                             {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f, GameLayer::Foreground);
@@ -138,24 +138,30 @@ void Renderer::create_2d()
                                               bgfx::copy(pixels, sizeof(pixels)))
                             .idx;
 
-    m_disk_texture = load_ppm_texture("project:/checker.ppm");
-    if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture})) {
-        m_texture_status = "disk PPM checker.ppm";
-    } else {
-        m_texture_status = "fallback procedural checker";
-    }
+    m_texture_status = "procedural checker";
 
     m_shader_program_cache = std::make_unique<BgfxShaderProgramCache>(*m_assets);
+    m_typed_asset_loader =
+        std::make_unique<BgfxTypedAssetLoader>(*m_assets, *m_shader_program_cache);
+    m_typed_asset_loader->set_fallback_texture(bgfx::TextureHandle{m_checker_texture});
+    m_typed_asset_loader->set_shader_material_project(m_shader_materials);
+    m_assets->bind_texture_loader(m_typed_asset_loader.get());
+    m_assets->bind_shader_program_loader(m_typed_asset_loader.get());
+    m_assets->bind_material_loader(m_typed_asset_loader.get());
     m_material_binder = std::make_unique<BgfxMaterialBinder>(
         *m_assets, *m_shader_program_cache, bgfx::TextureHandle{m_checker_texture});
 }
 
 void Renderer::destroy_2d()
 {
+    if (m_assets) {
+        m_assets->bind_texture_loader(nullptr);
+        m_assets->bind_shader_program_loader(nullptr);
+        m_assets->bind_material_loader(nullptr);
+    }
     m_material_binder.reset();
+    m_typed_asset_loader.reset();
     m_shader_program_cache.reset();
-    if (bgfx::isValid(bgfx::TextureHandle{m_disk_texture}))
-        bgfx::destroy(bgfx::TextureHandle{m_disk_texture});
     if (bgfx::isValid(bgfx::TextureHandle{m_checker_texture}))
         bgfx::destroy(bgfx::TextureHandle{m_checker_texture});
     if (bgfx::isValid(bgfx::UniformHandle{m_use_texture_uniform}))
@@ -165,7 +171,6 @@ void Renderer::destroy_2d()
     if (bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
         bgfx::destroy(bgfx::ProgramHandle{m_quad_program});
     m_checker_texture = UINT16_MAX;
-    m_disk_texture = UINT16_MAX;
     m_use_texture_uniform = UINT16_MAX;
     m_sampler = UINT16_MAX;
     m_quad_program = UINT16_MAX;

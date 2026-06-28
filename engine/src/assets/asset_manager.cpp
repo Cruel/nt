@@ -611,6 +611,77 @@ AssetResult<AssetText> AssetManager::read_text(std::string_view logical_path) co
     return {AssetText(binary.value->bytes.begin(), binary.value->bytes.end()), {}};
 }
 
+void AssetManager::set_default_font_alias(std::string alias)
+{
+    m_font_config.default_alias = alias.empty() ? std::string(kSystemFontAlias) : std::move(alias);
+}
+
+void AssetManager::configure_fonts(FontAssetConfig config)
+{
+    if (config.default_alias.empty()) {
+        config.default_alias = std::string(kSystemFontAlias);
+    }
+    m_font_config = std::move(config);
+}
+
+const FontAssetConfig& AssetManager::font_config() const noexcept { return m_font_config; }
+
+const std::string& AssetManager::default_font_alias() const noexcept
+{
+    return m_font_config.default_alias;
+}
+
+void AssetManager::bind_font_loader(FontAssetLoader* loader) const { m_font_loader = loader; }
+void AssetManager::bind_texture_loader(TextureAssetLoader* loader) const
+{
+    m_texture_loader = loader;
+}
+void AssetManager::bind_shader_program_loader(ShaderProgramAssetLoader* loader) const
+{
+    m_shader_program_loader = loader;
+}
+void AssetManager::bind_material_loader(MaterialAssetLoader* loader) const
+{
+    m_material_loader = loader;
+}
+
+AssetResult<FontAsset> AssetManager::load_font(const FontAssetRequest& request) const
+{
+    if (!m_font_loader) {
+        return fail<FontAsset>("no typed font loader bound to AssetManager");
+    }
+    auto resolved_request = request;
+    if (resolved_request.alias.empty()) {
+        resolved_request.alias = m_font_config.default_alias;
+    }
+    return m_font_loader->load_font(resolved_request);
+}
+
+AssetResult<TextureAsset> AssetManager::load_texture(const TextureAssetRequest& request) const
+{
+    if (!m_texture_loader) {
+        return fail<TextureAsset>("no typed texture loader bound to AssetManager");
+    }
+    return m_texture_loader->load_texture(request);
+}
+
+AssetResult<ShaderProgramAsset>
+AssetManager::load_shader_program(const ShaderProgramAssetRequest& request) const
+{
+    if (!m_shader_program_loader) {
+        return fail<ShaderProgramAsset>("no typed shader program loader bound to AssetManager");
+    }
+    return m_shader_program_loader->load_shader_program(request);
+}
+
+AssetResult<MaterialAsset> AssetManager::load_material(const MaterialAssetRequest& request) const
+{
+    if (!m_material_loader) {
+        return fail<MaterialAsset>("no typed material loader bound to AssetManager");
+    }
+    return m_material_loader->load_material(request);
+}
+
 bool AssetManager::exists(std::string_view logical_path) const
 {
     const auto path = AssetPath::parse(logical_path);

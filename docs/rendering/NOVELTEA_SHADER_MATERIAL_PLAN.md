@@ -557,7 +557,7 @@ Implemented model:
 
 Still intentionally not implemented:
 
-- Full PNG/JPEG material texture decoding; material texture assets currently use the same limited PPM path as the existing 2D demo loader.
+- Material texture assets now route through the typed `AssetManager` texture facade and bgfx's bimg decoder path. Remaining texture work is asset-format policy, authoring metadata, and additional runtime validation rather than the old PPM-only loader.
 - Runtime shader source compilation.
 
 Acceptance:

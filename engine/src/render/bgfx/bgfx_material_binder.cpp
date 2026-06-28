@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -57,56 +56,6 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
 [[nodiscard]] bool is_glyph_atlas_sampler(std::string_view name) noexcept
 {
     return name == glyph_atlas_sampler || name == legacy_glyph_atlas_sampler;
-}
-
-[[nodiscard]] std::optional<std::string> read_asset_text(const assets::AssetManager& assets,
-                                                         std::string_view source)
-{
-    const auto bytes = assets.read_binary(source);
-    if (!bytes)
-        return std::nullopt;
-    return std::string(bytes.value->bytes.begin(), bytes.value->bytes.end());
-}
-
-[[nodiscard]] bgfx::TextureHandle load_ppm_texture(const assets::AssetManager& assets,
-                                                   std::string_view source,
-                                                   MaterialTextureSampler sampler)
-{
-    const auto text = read_asset_text(assets, source);
-    if (!text)
-        return BGFX_INVALID_HANDLE;
-
-    std::istringstream in(*text);
-    std::string magic;
-    int width = 0;
-    int height = 0;
-    int max_value = 0;
-    in >> magic >> width >> height >> max_value;
-    if (magic != "P3" || width <= 0 || height <= 0 || max_value <= 0)
-        return BGFX_INVALID_HANDLE;
-
-    std::vector<uint32_t> pixels(static_cast<std::size_t>(width * height));
-    for (int i = 0; i < width * height; ++i) {
-        int r = 0;
-        int g = 0;
-        int b = 0;
-        if (!(in >> r >> g >> b))
-            return BGFX_INVALID_HANDLE;
-        const auto scale = [max_value](int value) -> uint32_t {
-            if (value < 0)
-                value = 0;
-            if (value > max_value)
-                value = max_value;
-            return static_cast<uint32_t>((value * 255) / max_value);
-        };
-        pixels[static_cast<std::size_t>(i)] =
-            0xff000000u | (scale(b) << 16) | (scale(g) << 8) | scale(r);
-    }
-
-    return bgfx::createTexture2D(
-        static_cast<uint16_t>(width), static_cast<uint16_t>(height), false, 1,
-        bgfx::TextureFormat::RGBA8, bgfx_sampler_flags(sampler),
-        bgfx::copy(pixels.data(), static_cast<uint32_t>(pixels.size() * sizeof(uint32_t))));
 }
 
 [[nodiscard]] bool has_texture_assignment_for_sampler(const MaterialDefinition& material,
@@ -266,15 +215,24 @@ BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadComman
         return m_fallback_texture;
     }
 
-    const auto texture = load_ppm_texture(m_assets, source, sampler);
-    if (!bgfx::isValid(texture)) {
+    const auto texture = m_assets.load_texture(
+        assets::TextureAssetRequest{.path = std::string(source), .sampler = sampler});
+    if (!texture || texture.value->handle == assets::invalid_typed_asset_handle) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant, {},
                        "failed to load material texture source '" + std::string(source) +
-                           "' as an ASCII PPM texture");
+                           "' through typed AssetManager texture loader");
         return m_fallback_texture;
     }
-    m_textures.emplace(key, texture);
-    return texture;
+
+    const auto handle = bgfx::TextureHandle{texture.value->handle};
+    if (!bgfx::isValid(handle)) {
+        add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant, {},
+                       "typed AssetManager texture loader returned invalid handle for '" +
+                           std::string(source) + "'");
+        return m_fallback_texture;
+    }
+    m_textures.emplace(key, handle);
+    return handle;
 }
 
 void BgfxMaterialBinder::bind_standard_uniforms(const ShaderProgramResolution& program,
@@ -295,7 +253,10 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
     const ShaderMaterialProject& project, const MaterialId& material_id,
     const BgfxMaterialBindInputs& inputs, std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
-    const auto* material = find_material(project, material_id);
+    const auto material_asset =
+        m_assets.load_material(assets::MaterialAssetRequest{.id = material_id.value()});
+    const auto* material =
+        material_asset ? material_asset.value->definition : find_material(project, material_id);
     if (material == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::UnknownMaterial,
                        material_context(material_id, inputs.role), "unknown material");
@@ -319,9 +280,18 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
         return {};
     }
 
-    const bgfx::ProgramHandle program = m_programs.load_program(*resolved.program, diagnostics);
-    if (!bgfx::isValid(program))
+    const auto program_asset = m_assets.load_shader_program(
+        assets::ShaderProgramAssetRequest{.resolution = *resolved.program});
+    const bgfx::ProgramHandle program = program_asset
+                                            ? bgfx::ProgramHandle{program_asset.value->handle}
+                                            : bgfx::ProgramHandle{UINT16_MAX};
+    if (!bgfx::isValid(program)) {
+        if (!program_asset) {
+            add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                           material_context(material_id, inputs.role), program_asset.error);
+        }
         return {};
+    }
 
     for (const auto& uniform : resolved.program->uniforms) {
         const MaterialUniformAssignment* assignment =

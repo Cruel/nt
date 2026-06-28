@@ -79,6 +79,7 @@ add_library(engine STATIC
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
     src/surface.cpp
+    src/text/text_asset_loader.cpp
     src/text/text_breaks.cpp
     src/text/text_engine.cpp
     src/text/text_layout.cpp
@@ -183,7 +184,7 @@ target_sources(engine PRIVATE
     src/render/bgfx/bgfx_shader_loader.cpp
     src/render/bgfx/bgfx_shader_program_cache.cpp
     src/render/bgfx/text/bgfx_text_renderer.cpp
-    src/render/bgfx/bgfx_texture.cpp
+    src/render/bgfx/bgfx_typed_asset_loader.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RENDER2D)
