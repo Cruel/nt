@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/math/geometry.hpp"
+
 #include <array>
 #include <optional>
 #include <string>
@@ -64,8 +66,20 @@ enum class ShaderSamplerType {
 
 enum class ShaderInputSemantic {
     EngineTime,
+    EnginePaintDimensions,
+    EngineDpiScale,
+    EnginePointerPosition,
+    EnginePointerValid,
     RmlUiPaintDimensions,
     RmlUiDpiScale,
+};
+
+struct ShaderStandardInputs {
+    float time_seconds = 0.0f;
+    Vec2 paint_dimensions{};
+    float dpi_scale = 1.0f;
+    Vec2 pointer_position{};
+    bool pointer_valid = false;
 };
 
 struct ShaderSourceRef {

@@ -2,6 +2,7 @@
 
 #include "noveltea/core/rich_text.hpp"
 #include "noveltea/render/shader_manifest.hpp"
+#include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
@@ -66,6 +67,29 @@ struct AtlasPage {
     bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
 };
 
+enum class ActiveTextBindingKind {
+    Default,
+    Material,
+    DirectShaderPair,
+};
+
+struct ActiveTextBatchKey {
+    ActiveTextBindingKind kind = ActiveTextBindingKind::Default;
+    uint16_t page = 0;
+    std::string material_id;
+    std::string vertex_shader_id;
+    std::string fragment_shader_id;
+
+    [[nodiscard]] friend bool operator==(const ActiveTextBatchKey&,
+                                         const ActiveTextBatchKey&) = default;
+};
+
+struct ActiveTextDrawBatch {
+    ActiveTextBatchKey key;
+    std::vector<TextVertex> vertices;
+    std::vector<uint16_t> indices;
+};
+
 float effective_alpha(const TextStyle& style)
 {
     return std::clamp(style.color.a * style.alpha, 0.0f, 1.0f);
@@ -103,6 +127,7 @@ public:
         return m_text.resolve_font(alias, style);
     }
     void resize(const SurfaceMetrics& surface) { m_surface = sanitize_surface_metrics(surface); }
+    void set_standard_inputs(ShaderStandardInputs inputs) { m_standard_inputs = inputs; }
     TextLayout layout_text(const Text& text) const
     {
         return m_text.layout_text(text, effective_scale());
@@ -116,7 +141,8 @@ public:
     void draw_text(const TextLayout& layout);
     void draw_active_text(const ActiveTextLayout& layout, FontHandle font,
                           const ShaderMaterialProject* materials,
-                          bgfx_backend::BgfxShaderProgramCache* programs);
+                          bgfx_backend::BgfxShaderProgramCache* programs,
+                          bgfx_backend::BgfxMaterialBinder* material_binder);
 
 private:
     CachedGlyph* ensure_glyph(const PositionedGlyph& glyph);
@@ -126,6 +152,7 @@ private:
     const assets::AssetManager& m_assets;
     text::TextEngine m_text;
     SurfaceMetrics m_surface{};
+    ShaderStandardInputs m_standard_inputs{};
     text::ShelfAtlasPacker m_packer;
     std::vector<AtlasPage> m_pages;
     std::unordered_map<GlyphCacheKey, CachedGlyph, GlyphCacheKeyHash> m_glyphs;
@@ -355,14 +382,42 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
 
 void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHandle font,
                                         const ShaderMaterialProject* materials,
-                                        bgfx_backend::BgfxShaderProgramCache* programs)
+                                        bgfx_backend::BgfxShaderProgramCache* programs,
+                                        bgfx_backend::BgfxMaterialBinder* material_binder)
 {
     if (!bgfx::isValid(m_program) || layout.glyphs.empty()) {
         return;
     }
 
-    std::vector<std::vector<TextVertex>> page_vertices(m_pages.size() + 1);
-    std::vector<std::vector<uint16_t>> page_indices(m_pages.size() + 1);
+    std::vector<ActiveTextDrawBatch> batches;
+
+    const auto binding_key_for = [&](const ActiveTextGlyphVisual& glyph, uint16_t page) {
+        ActiveTextBatchKey key;
+        key.page = page;
+        if (!glyph.material_id.empty()) {
+            key.kind = ActiveTextBindingKind::Material;
+            key.material_id = glyph.material_id;
+            return key;
+        }
+        if (!glyph.vertex_shader_id.empty() || !glyph.fragment_shader_id.empty()) {
+            key.kind = ActiveTextBindingKind::DirectShaderPair;
+            key.vertex_shader_id = glyph.vertex_shader_id;
+            key.fragment_shader_id = glyph.fragment_shader_id;
+        }
+        return key;
+    };
+
+    const auto batch_for = [&](const ActiveTextGlyphVisual& visual,
+                               uint16_t page) -> ActiveTextDrawBatch& {
+        const ActiveTextBatchKey key = binding_key_for(visual, page);
+        if (!batches.empty() && batches.back().key == key) {
+            return batches.back();
+        }
+        ActiveTextDrawBatch batch;
+        batch.key = key;
+        batches.push_back(std::move(batch));
+        return batches.back();
+    };
 
     const auto diagnose_shader_metadata = [&](const ActiveTextGlyphVisual& glyph) {
         if (!glyph.material_id.empty() && materials) {
@@ -441,12 +496,9 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         if (!glyph || glyph_width <= 0.0f || glyph_height <= 0.0f) {
             return;
         }
-        if (page_vertices.size() <= glyph->page) {
-            page_vertices.resize(static_cast<size_t>(glyph->page) + 1u);
-            page_indices.resize(static_cast<size_t>(glyph->page) + 1u);
-        }
-        auto& vertices = page_vertices[glyph->page];
-        auto& indices = page_indices[glyph->page];
+        auto& batch = batch_for(visual, glyph->page);
+        auto& vertices = batch.vertices;
+        auto& indices = batch.indices;
         if (vertices.size() > std::numeric_limits<uint16_t>::max() - 4u) {
             return;
         }
@@ -579,9 +631,76 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
                   static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.height))))
             : UINT16_MAX;
 
-    for (size_t page_index = 0; page_index < page_vertices.size(); ++page_index) {
-        const auto& vertices = page_vertices[page_index];
-        const auto& indices = page_indices[page_index];
+    const auto log_diagnostics = [&](const std::string& key_prefix,
+                                     const std::vector<ShaderProgramDiagnostic>& diagnostics) {
+        for (const auto& diagnostic : diagnostics) {
+            const std::string key =
+                key_prefix + ":" + diagnostic.context + ":" + diagnostic.message;
+            if (m_active_text_diagnostics.insert(key).second) {
+                std::fprintf(
+                    stderr,
+                    "[active_text] custom shader path fell back to default text rendering: "
+                    "%s: %s\n",
+                    diagnostic.context.c_str(), diagnostic.message.c_str());
+            }
+        }
+    };
+
+    const auto resolve_batch_program = [&](const ActiveTextDrawBatch& batch,
+                                           bgfx::TextureHandle atlas) {
+        if (batch.key.kind == ActiveTextBindingKind::Material && materials && material_binder) {
+            const auto parsed = parse_material_id(batch.key.material_id);
+            if (parsed.ok()) {
+                std::vector<ShaderProgramDiagnostic> diagnostics;
+                const auto bound = material_binder->bind_material(
+                    *materials, *parsed.id,
+                    bgfx_backend::BgfxMaterialBindInputs{.role = ShaderRole::ActiveText,
+                                                         .quad_command = nullptr,
+                                                         .glyph_atlas = atlas,
+                                                         .standard_inputs = m_standard_inputs,
+                                                         .first_texture_stage = 0},
+                    &diagnostics);
+                log_diagnostics("mat:" + batch.key.material_id, diagnostics);
+                if (bound.ok && bgfx::isValid(bound.program)) {
+                    return bound.program;
+                }
+            }
+        }
+
+        if (batch.key.kind == ActiveTextBindingKind::DirectShaderPair && materials && programs) {
+            std::vector<ShaderProgramDiagnostic> diagnostics;
+            const auto resolved = resolve_direct_shader_pair_program(
+                *materials, ShaderId(batch.key.vertex_shader_id),
+                ShaderId(batch.key.fragment_shader_id), programs->active_variant());
+            if (resolved.program) {
+                const auto program = programs->load_program(*resolved.program, &diagnostics);
+                log_diagnostics("shader:" + batch.key.vertex_shader_id + "|" +
+                                    batch.key.fragment_shader_id,
+                                diagnostics);
+                if (bgfx::isValid(program)) {
+                    if (material_binder) {
+                        material_binder->bind_standard_uniforms(*resolved.program,
+                                                                m_standard_inputs);
+                    }
+                    bgfx::setTexture(0, m_sampler, atlas,
+                                     BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+                    return program;
+                }
+            } else {
+                log_diagnostics("shader:" + batch.key.vertex_shader_id + "|" +
+                                    batch.key.fragment_shader_id,
+                                resolved.diagnostics);
+            }
+        }
+
+        bgfx::setTexture(0, m_sampler, atlas);
+        return m_program;
+    };
+
+    for (const auto& batch : batches) {
+        const auto& vertices = batch.vertices;
+        const auto& indices = batch.indices;
+        const size_t page_index = batch.key.page;
         if (vertices.empty() || indices.empty() || page_index >= m_pages.size() ||
             !bgfx::isValid(m_pages[page_index].texture)) {
             continue;
@@ -603,11 +722,12 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
             0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
         };
         bgfx::setTransform(identity);
-        bgfx::setTexture(0, m_sampler, m_pages[page_index].texture);
+        const bgfx::TextureHandle atlas = m_pages[page_index].texture;
+        const bgfx::ProgramHandle program = resolve_batch_program(batch, atlas);
         bgfx::setVertexBuffer(0, &tvb);
         bgfx::setIndexBuffer(&tib);
         bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
-        bgfx::submit(bgfx_backend::ViewActiveText, m_program);
+        bgfx::submit(bgfx_backend::ViewActiveText, program);
     }
 }
 
@@ -709,8 +829,11 @@ void Renderer::draw_active_text(const ActiveTextLayout& layout)
 {
     auto* text = static_cast<BgfxTextRenderer*>(m_text_renderer);
     if (text) {
+        auto inputs = m_shader_standard_inputs;
+        inputs.paint_dimensions = {layout.bounds.width, layout.bounds.height};
+        text->set_standard_inputs(inputs);
         text->draw_active_text(layout, FontHandle{m_default_text_font}, m_shader_materials,
-                               m_shader_program_cache.get());
+                               m_shader_program_cache.get(), m_material_binder.get());
     }
 }
 

@@ -282,7 +282,13 @@ Initial policy:
 - Uniform declarations live on shader/interface records.
 - Shader records may provide defaults for editor material creation and fallback behavior.
 - Material records override uniform values and texture assignments.
-- Engine-provided values use explicit bindings such as `engine.time`, `rmlui.paint_dimensions`, `rmlui.dpi_scale`, and later safe runtime-state bindings.
+- Engine-provided values use explicit bindings. Standard `nt` bindings are:
+  - `engine.time`: elapsed runtime seconds as `float`, packed as `{time, 0, 0, 0}`.
+  - `engine.paint_dimensions`: current material paint area in logical pixels as `vec2`, packed as `{width, height, 0, 0}`. For Engine2D this is the quad rect size; for ActiveText this is the ActiveText layout bounds.
+  - `engine.dpi_scale`: current content/framebuffer scale as `float`, packed as `{scale, 0, 0, 0}`.
+  - `engine.pointer_position`: last known pointer position in logical pixels as `vec2`, packed as `{x, y, 0, 0}`.
+  - `engine.pointer_valid`: whether pointer position is currently known as `float/bool`, packed as `{1 or 0, 0, 0, 0}`.
+  - `rmlui.paint_dimensions` and `rmlui.dpi_scale` remain supported aliases for RmlUi material compatibility; bgfx engine materials map them to the same values as the generic `engine.*` equivalents.
 - Material records must not assign values for undeclared uniforms/samplers.
 - Shader records must not rely on undeclared uniforms/samplers.
 
@@ -550,7 +556,6 @@ Implemented model:
 
 Still intentionally not implemented:
 
-- ActiveText custom shader rendering.
 - Full PNG/JPEG material texture decoding; material texture assets currently use the same limited PPM path as the existing 2D demo loader.
 - Runtime shader source compilation.
 

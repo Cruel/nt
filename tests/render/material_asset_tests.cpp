@@ -94,7 +94,11 @@ TEST_CASE("project shader and material records parse")
           "uniforms":{
             "u_amount":{"type":"float","default":0.25,"range":[0.0,1.0]},
             "u_tint":{"type":"color","default":"#66ccffff"},
-            "u_time":{"type":"float","binding":"engine.time"}
+            "u_time":{"type":"float","binding":"engine.time"},
+            "u_dims":{"type":"vec2","binding":"engine.paint_dimensions"},
+            "u_dpi":{"type":"float","binding":"engine.dpi_scale"},
+            "u_pointer":{"type":"vec2","binding":"engine.pointer_position"},
+            "u_pointer_valid":{"type":"bool","binding":"engine.pointer_valid"}
           },
           "samplers":{"s_noise":{"type":"texture2d"}},
           "roles":["rmlui-decorator","engine-2d"]
@@ -131,6 +135,18 @@ TEST_CASE("project shader and material records parse")
     REQUIRE(find_uniform(*shader, "u_time") != nullptr);
     REQUIRE(find_uniform(*shader, "u_time")->binding);
     CHECK(*find_uniform(*shader, "u_time")->binding == noveltea::ShaderInputSemantic::EngineTime);
+    REQUIRE(find_uniform(*shader, "u_dims")->binding);
+    CHECK(*find_uniform(*shader, "u_dims")->binding ==
+          noveltea::ShaderInputSemantic::EnginePaintDimensions);
+    REQUIRE(find_uniform(*shader, "u_dpi")->binding);
+    CHECK(*find_uniform(*shader, "u_dpi")->binding ==
+          noveltea::ShaderInputSemantic::EngineDpiScale);
+    REQUIRE(find_uniform(*shader, "u_pointer")->binding);
+    CHECK(*find_uniform(*shader, "u_pointer")->binding ==
+          noveltea::ShaderInputSemantic::EnginePointerPosition);
+    REQUIRE(find_uniform(*shader, "u_pointer_valid")->binding);
+    CHECK(*find_uniform(*shader, "u_pointer_valid")->binding ==
+          noveltea::ShaderInputSemantic::EnginePointerValid);
 
     const auto* material =
         noveltea::find_material(*result.project, *noveltea::parse_material_id("ui/noise_panel").id);

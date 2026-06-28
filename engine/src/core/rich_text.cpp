@@ -145,7 +145,7 @@ std::string replace_object_shorthand(std::string_view text)
 std::optional<std::string> parse_tag_at(std::string_view text, std::size_t start,
                                         std::size_t& end_out)
 {
-    static constexpr std::string_view allowed = " =_,.-#";
+    static constexpr std::string_view allowed = " =_,.-#/";
     if (start >= text.size() || text[start] != '[')
         return std::nullopt;
     std::string tag;

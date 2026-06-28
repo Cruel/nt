@@ -185,8 +185,13 @@ bool Renderer::submit_material_quad(const QuadCommand& command)
         return false;
 
     std::vector<ShaderProgramDiagnostic> diagnostics;
-    const auto bound = m_material_binder->bind_engine_2d_material(
-        *m_shader_materials, command.material, command, &diagnostics);
+    auto inputs = m_shader_standard_inputs;
+    inputs.paint_dimensions = {command.rect.width, command.rect.height};
+    const auto bound = m_material_binder->bind_material(
+        *m_shader_materials, command.material,
+        BgfxMaterialBindInputs{
+            .role = ShaderRole::Engine2D, .quad_command = &command, .standard_inputs = inputs},
+        &diagnostics);
     for (const auto& diagnostic : diagnostics) {
         SDL_Log("[renderer] material diagnostic: %s: %s", diagnostic.context.c_str(),
                 diagnostic.message.c_str());

@@ -117,10 +117,16 @@ bound_uniform_value(const ShaderUniformDeclaration& uniform,
             Rml::SystemInterface* system = Rml::GetSystemInterface();
             return {system ? static_cast<float>(system->GetElapsedTime()) : 0.0f, 0.0f, 0.0f, 0.0f};
         }
+        case ShaderInputSemantic::EnginePaintDimensions:
         case ShaderInputSemantic::RmlUiPaintDimensions:
             return {context.paint_dimensions.x, context.paint_dimensions.y, 0.0f, 0.0f};
+        case ShaderInputSemantic::EngineDpiScale:
         case ShaderInputSemantic::RmlUiDpiScale:
             return {context.dpi_scale, 0.0f, 0.0f, 0.0f};
+        case ShaderInputSemantic::EnginePointerPosition:
+            return {0.0f, 0.0f, 0.0f, 0.0f};
+        case ShaderInputSemantic::EnginePointerValid:
+            return {0.0f, 0.0f, 0.0f, 0.0f};
         }
     }
 

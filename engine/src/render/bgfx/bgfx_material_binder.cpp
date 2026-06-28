@@ -15,6 +15,8 @@ namespace noveltea::bgfx_backend {
 namespace {
 
 constexpr std::string_view draw_texture_source = "$draw.texture";
+constexpr std::string_view glyph_atlas_sampler = "s_textAtlas";
+constexpr std::string_view legacy_glyph_atlas_sampler = "s_glyphAtlas";
 
 void add_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
                     ShaderProgramDiagnosticCode code, std::string context, std::string message)
@@ -24,9 +26,9 @@ void add_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
             ShaderProgramDiagnostic{code, std::move(context), std::move(message)});
 }
 
-[[nodiscard]] std::string material_context(const MaterialId& material_id)
+[[nodiscard]] std::string material_context(const MaterialId& material_id, ShaderRole role)
 {
-    return "engine-2d material '" + material_id.value() + "'";
+    return "material '" + material_id.value() + "' role '" + std::string(to_string(role)) + "'";
 }
 
 [[nodiscard]] const MaterialUniformAssignment*
@@ -50,6 +52,11 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
 [[nodiscard]] bool starts_with(std::string_view value, std::string_view prefix) noexcept
 {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+}
+
+[[nodiscard]] bool is_glyph_atlas_sampler(std::string_view name) noexcept
+{
+    return name == glyph_atlas_sampler || name == legacy_glyph_atlas_sampler;
 }
 
 [[nodiscard]] std::optional<std::string> read_asset_text(const assets::AssetManager& assets,
@@ -106,6 +113,32 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
                                                       std::string_view sampler)
 {
     return find_texture_assignment(material, sampler) != nullptr;
+}
+
+[[nodiscard]] std::array<float, 4> standard_uniform_value(const ShaderUniformDeclaration& uniform,
+                                                          const BgfxMaterialBindInputs& inputs)
+{
+    const ShaderStandardInputs& standard = inputs.standard_inputs;
+    switch (*uniform.binding) {
+    case ShaderInputSemantic::EngineTime:
+        return {standard.time_seconds, 0.0f, 0.0f, 0.0f};
+    case ShaderInputSemantic::EnginePaintDimensions:
+    case ShaderInputSemantic::RmlUiPaintDimensions: {
+        Vec2 dimensions = standard.paint_dimensions;
+        if ((dimensions.x <= 0.0f || dimensions.y <= 0.0f) && inputs.quad_command != nullptr) {
+            dimensions = {inputs.quad_command->rect.width, inputs.quad_command->rect.height};
+        }
+        return {dimensions.x, dimensions.y, 0.0f, 0.0f};
+    }
+    case ShaderInputSemantic::EngineDpiScale:
+    case ShaderInputSemantic::RmlUiDpiScale:
+        return {standard.dpi_scale, 0.0f, 0.0f, 0.0f};
+    case ShaderInputSemantic::EnginePointerPosition:
+        return {standard.pointer_position.x, standard.pointer_position.y, 0.0f, 0.0f};
+    case ShaderInputSemantic::EnginePointerValid:
+        return {standard.pointer_valid ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    }
+    return {};
 }
 
 } // namespace
@@ -210,14 +243,16 @@ bgfx::UniformHandle BgfxMaterialBinder::sampler_handle(std::string_view name)
 }
 
 bgfx::TextureHandle
-BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadCommand& command,
+BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadCommand* command,
                                        MaterialTextureSampler sampler,
                                        std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
     if (source == draw_texture_source) {
-        const auto draw_texture = bgfx::TextureHandle{command.texture.handle};
-        if (command.texture.valid() && bgfx::isValid(draw_texture))
-            return draw_texture;
+        if (command != nullptr) {
+            const auto draw_texture = bgfx::TextureHandle{command->texture.handle};
+            if (command->texture.valid() && bgfx::isValid(draw_texture))
+                return draw_texture;
+        }
         return m_fallback_texture;
     }
 
@@ -242,21 +277,35 @@ BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadComman
     return texture;
 }
 
-BgfxMaterialBindResult BgfxMaterialBinder::bind_engine_2d_material(
-    const ShaderMaterialProject& project, const MaterialId& material_id, const QuadCommand& command,
-    std::vector<ShaderProgramDiagnostic>* diagnostics)
+void BgfxMaterialBinder::bind_standard_uniforms(const ShaderProgramResolution& program,
+                                                const ShaderStandardInputs& inputs)
+{
+    BgfxMaterialBindInputs bind_inputs;
+    bind_inputs.standard_inputs = inputs;
+    for (const auto& uniform : program.uniforms) {
+        if (!uniform.binding) {
+            continue;
+        }
+        const auto value = standard_uniform_value(uniform, bind_inputs);
+        bgfx::setUniform(uniform_handle(uniform.name), value.data());
+    }
+}
+
+BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
+    const ShaderMaterialProject& project, const MaterialId& material_id,
+    const BgfxMaterialBindInputs& inputs, std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
     const auto* material = find_material(project, material_id);
     if (material == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::UnknownMaterial,
-                       material_context(material_id), "unknown engine-2d material");
+                       material_context(material_id, inputs.role), "unknown material");
         return {};
     }
-    if (material->role != ShaderRole::Engine2D) {
+    if (material->role != inputs.role) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
-                       material_context(material_id),
+                       material_context(material_id, inputs.role),
                        "material role is '" + std::string(to_string(material->role)) +
-                           "', expected 'engine-2d'");
+                           "', expected '" + std::string(to_string(inputs.role)) + "'");
         return {};
     }
 
@@ -277,12 +326,20 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_engine_2d_material(
     for (const auto& uniform : resolved.program->uniforms) {
         const MaterialUniformAssignment* assignment =
             find_uniform_assignment(*material, uniform.name);
+        if (uniform.binding) {
+            const auto value = standard_uniform_value(uniform, inputs);
+            bgfx::setUniform(uniform_handle(uniform.name), value.data());
+            continue;
+        }
         const ShaderUniformValue* value =
             assignment != nullptr ? &assignment->value : &uniform.default_value;
-        if (uniform.name == "u_useTexture" && std::holds_alternative<std::monostate>(*value) &&
+        if (inputs.role == ShaderRole::Engine2D && uniform.name == "u_useTexture" &&
+            std::holds_alternative<std::monostate>(*value) &&
             has_texture_assignment_for_sampler(*material, "s_texColor")) {
-            const auto use_texture = bgfx::isValid(bgfx::TextureHandle{command.texture.handle}) ||
-                                     bgfx::isValid(m_fallback_texture);
+            const bool use_texture =
+                (inputs.quad_command != nullptr &&
+                 bgfx::isValid(bgfx::TextureHandle{inputs.quad_command->texture.handle})) ||
+                bgfx::isValid(m_fallback_texture);
             const std::array<float, 4> packed = {use_texture ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
             bgfx::setUniform(uniform_handle(uniform.name), packed.data());
             continue;
@@ -293,13 +350,20 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_engine_2d_material(
         bgfx::setUniform(uniform_handle(uniform.name), packed.value.data());
     }
 
-    uint8_t texture_stage = 0;
+    uint8_t texture_stage = inputs.first_texture_stage;
     for (const auto& sampler : resolved.program->samplers) {
+        if (inputs.role == ShaderRole::ActiveText && is_glyph_atlas_sampler(sampler.name) &&
+            bgfx::isValid(inputs.glyph_atlas)) {
+            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.glyph_atlas,
+                             BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+            continue;
+        }
+
         const auto* assignment = find_texture_assignment(*material, sampler.name);
         if (assignment == nullptr)
             continue;
-        const auto texture =
-            texture_for_source(assignment->source, command, assignment->filtering, diagnostics);
+        const auto texture = texture_for_source(assignment->source, inputs.quad_command,
+                                                assignment->filtering, diagnostics);
         if (!bgfx::isValid(texture))
             continue;
         bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), texture,
@@ -307,6 +371,19 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_engine_2d_material(
     }
 
     return BgfxMaterialBindResult{.program = program, .ok = true};
+}
+
+BgfxMaterialBindResult BgfxMaterialBinder::bind_engine_2d_material(
+    const ShaderMaterialProject& project, const MaterialId& material_id, const QuadCommand& command,
+    std::vector<ShaderProgramDiagnostic>* diagnostics)
+{
+    return bind_material(project, material_id,
+                         BgfxMaterialBindInputs{.role = ShaderRole::Engine2D,
+                                                .quad_command = &command,
+                                                .glyph_atlas = BGFX_INVALID_HANDLE,
+                                                .standard_inputs = {},
+                                                .first_texture_stage = 0},
+                         diagnostics);
 }
 
 } // namespace noveltea::bgfx_backend

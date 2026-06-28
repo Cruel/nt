@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/render/quad_batch.hpp"
+#include "noveltea/render/shader.hpp"
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/active_text_layout.hpp"
 #include "noveltea/assets/asset_manager.hpp"
@@ -55,6 +56,7 @@ public:
     void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
     void set_shader_material_project(const ShaderMaterialProject* project);
+    void set_shader_standard_inputs(const ShaderStandardInputs& inputs);
     FontHandle load_font(const FontDesc& desc);
     TextLayout layout_text(const Text& text) const;
     TextMetrics measure_text(const Text& text) const;
@@ -106,6 +108,7 @@ private:
 
     const assets::AssetManager* m_assets = nullptr;
     const ShaderMaterialProject* m_shader_materials = nullptr;
+    ShaderStandardInputs m_shader_standard_inputs{};
     bool m_initialized = false;
     bool m_vsync = true;
     SurfaceMetrics m_surface{};

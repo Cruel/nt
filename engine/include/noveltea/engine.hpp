@@ -94,6 +94,8 @@ private:
     size_t m_resize_sequence_index = 0;
     DemoMode m_demo_mode = DemoMode::None;
     float m_elapsed_seconds = 0.0f;
+    Vec2 m_pointer_position{};
+    bool m_pointer_valid = false;
     preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
     bool m_preview_running = true;
     bool m_debug_ui_enabled = true;

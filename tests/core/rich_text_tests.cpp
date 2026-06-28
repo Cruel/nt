@@ -42,6 +42,31 @@ TEST_CASE("Rich text parser handles object shorthand page breaks offsets and ani
     CHECK(doc.runs.back().animation.wait_for_click);
 }
 
+TEST_CASE("Rich text parser accepts material and shader ids with slash namespaces")
+{
+    auto doc = parse_rich_text(
+        "[mat id=demo/active_text_default]material[/mat] "
+        "[shader v=demo/active_text_glow_shader f=demo/active_text_glow_shader]shader[/shader]");
+
+    REQUIRE(doc.plain_text == "material shader");
+    REQUIRE_FALSE(doc.runs.empty());
+    bool found_material_run = false;
+    bool found_shader_run = false;
+    for (const auto& run : doc.runs) {
+        if (run.text == "material") {
+            CHECK(run.style.material_id == "demo/active_text_default");
+            found_material_run = true;
+        }
+        if (run.text == "shader") {
+            CHECK(run.style.vertex_shader_id == "demo/active_text_glow_shader");
+            CHECK(run.style.fragment_shader_id == "demo/active_text_glow_shader");
+            found_shader_run = true;
+        }
+    }
+    CHECK(found_material_run);
+    CHECK(found_shader_run);
+}
+
 TEST_CASE("Rich text parser recovers from malformed and unmatched tags like the old parser")
 {
     CHECK(strip_rich_text_tags("te[/i]st") == "test");

@@ -240,6 +240,14 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
 {
     if (semantic == "engine.time")
         return ShaderInputSemantic::EngineTime;
+    if (semantic == "engine.paint_dimensions")
+        return ShaderInputSemantic::EnginePaintDimensions;
+    if (semantic == "engine.dpi_scale")
+        return ShaderInputSemantic::EngineDpiScale;
+    if (semantic == "engine.pointer_position")
+        return ShaderInputSemantic::EnginePointerPosition;
+    if (semantic == "engine.pointer_valid")
+        return ShaderInputSemantic::EnginePointerValid;
     if (semantic == "rmlui.paint_dimensions")
         return ShaderInputSemantic::RmlUiPaintDimensions;
     if (semantic == "rmlui.dpi_scale")
@@ -1339,6 +1347,14 @@ std::string_view to_string(ShaderInputSemantic semantic) noexcept
     switch (semantic) {
     case ShaderInputSemantic::EngineTime:
         return "engine.time";
+    case ShaderInputSemantic::EnginePaintDimensions:
+        return "engine.paint_dimensions";
+    case ShaderInputSemantic::EngineDpiScale:
+        return "engine.dpi_scale";
+    case ShaderInputSemantic::EnginePointerPosition:
+        return "engine.pointer_position";
+    case ShaderInputSemantic::EnginePointerValid:
+        return "engine.pointer_valid";
     case ShaderInputSemantic::RmlUiPaintDimensions:
         return "rmlui.paint_dimensions";
     case ShaderInputSemantic::RmlUiDpiScale:

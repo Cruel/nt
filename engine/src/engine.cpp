@@ -8,6 +8,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdint>
@@ -107,11 +108,72 @@ ShaderMaterialProject make_demo_shader_materials()
     rmlui_material.shader = ShaderId("ui/noise_panel");
     rmlui_material.display_name = "RmlUi Noise Panel";
 
+    ShaderStageDefinition text_vertex;
+    text_vertex.stage = ShaderStage::Vertex;
+    text_vertex.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/text.vs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/text.vs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/text.vs.bin"},
+    };
+
+    ShaderStageDefinition text_fragment;
+    text_fragment.stage = ShaderStage::Fragment;
+    text_fragment.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/text.fs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/text.fs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/text.fs.bin"},
+    };
+
+    ShaderStageDefinition glow_fragment;
+    glow_fragment.stage = ShaderStage::Fragment;
+    glow_fragment.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/active_text_glow.fs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/active_text_glow.fs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/active_text_glow.fs.bin"},
+    };
+
+    ShaderDefinition active_text_shader;
+    active_text_shader.id = ShaderId("demo/active_text_default_shader");
+    active_text_shader.display_name = "Demo ActiveText Default Material Shader";
+    active_text_shader.roles = {ShaderRole::ActiveText};
+    active_text_shader.stages = {text_vertex, text_fragment};
+    active_text_shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_textAtlas"});
+
+    ShaderDefinition active_text_glow_shader;
+    active_text_glow_shader.id = ShaderId("demo/active_text_glow_shader");
+    active_text_glow_shader.display_name = "Demo ActiveText Glow Material Shader";
+    active_text_glow_shader.roles = {ShaderRole::ActiveText};
+    active_text_glow_shader.stages = {std::move(text_vertex), std::move(glow_fragment)};
+    active_text_glow_shader.uniforms.push_back(
+        ShaderUniformDeclaration{.name = "u_time",
+                                 .type = ShaderUniformType::Float,
+                                 .default_value = 0.0f,
+                                 .range = {},
+                                 .editor_label = {},
+                                 .binding = ShaderInputSemantic::EngineTime});
+    active_text_glow_shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_textAtlas"});
+
+    MaterialDefinition active_text_material;
+    active_text_material.id = MaterialId("demo/active_text_default");
+    active_text_material.role = ShaderRole::ActiveText;
+    active_text_material.shader = active_text_shader.id;
+    active_text_material.display_name = "Demo ActiveText Default Material";
+
+    MaterialDefinition active_text_glow_material;
+    active_text_glow_material.id = MaterialId("demo/active_text_glow");
+    active_text_glow_material.role = ShaderRole::ActiveText;
+    active_text_glow_material.shader = active_text_glow_shader.id;
+    active_text_glow_material.display_name = "Demo ActiveText Glow Material";
+
     ShaderMaterialProject project;
     project.shaders.push_back(std::move(shader));
     project.shaders.push_back(std::move(rmlui_noise_shader));
+    project.shaders.push_back(std::move(active_text_shader));
+    project.shaders.push_back(std::move(active_text_glow_shader));
     project.materials.push_back(std::move(material));
     project.materials.push_back(std::move(rmlui_material));
+    project.materials.push_back(std::move(active_text_material));
+    project.materials.push_back(std::move(active_text_glow_material));
     return project;
 }
 
@@ -580,6 +642,8 @@ void Engine::handle_events()
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            m_pointer_position = {event.button.x, event.button.y};
+            m_pointer_valid = true;
             if (ui_consumed)
                 break;
             std::printf(
@@ -590,7 +654,17 @@ void Engine::handle_events()
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
+            m_pointer_position = {event.button.x, event.button.y};
+            m_pointer_valid = true;
+            if (ui_consumed)
+                break;
+            break;
         case SDL_EVENT_MOUSE_MOTION:
+            m_pointer_position = {event.motion.x, event.motion.y};
+            m_pointer_valid = true;
+            if (ui_consumed)
+                break;
+            break;
         case SDL_EVENT_MOUSE_WHEEL:
         case SDL_EVENT_TEXT_INPUT:
         case SDL_EVENT_KEY_UP:
@@ -678,6 +752,15 @@ void Engine::render()
         m_debug_ui.begin_frame(m_renderer.surface());
     }
     m_runtime_ui.begin_frame(m_platform.delta_time());
+    ShaderStandardInputs shader_inputs;
+    shader_inputs.time_seconds = m_elapsed_seconds;
+    shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.logical_width()),
+                                      static_cast<float>(m_renderer.logical_height())};
+    shader_inputs.dpi_scale = std::max(m_renderer.scale_x(), m_renderer.scale_y());
+    shader_inputs.pointer_position = m_pointer_position;
+    shader_inputs.pointer_valid = m_pointer_valid;
+    m_renderer.set_shader_standard_inputs(shader_inputs);
+
     m_renderer.begin_frame();
     if (m_demo_mode != DemoMode::None) {
         m_renderer.draw_preview_triangle(m_demo_position);

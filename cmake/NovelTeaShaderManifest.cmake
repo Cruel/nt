@@ -2,6 +2,7 @@ set(NOVELTEA_SHADER_PROGRAMS
     triangle vs_triangle.sc fs_triangle.sc
     quad     vs_quad.sc     fs_quad.sc
     text     vs_text.sc     fs_text.sc
+    active_text_glow vs_text.sc fs_active_text_glow.sc
     imgui    vs_imgui.sc    fs_imgui.sc
     rmlui    vs_rmlui.sc    fs_rmlui.sc
     rmlui_composite vs_rmlui_composite.sc fs_rmlui_composite.sc

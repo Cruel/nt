@@ -151,6 +151,11 @@ void Renderer::set_shader_material_project(const ShaderMaterialProject* project)
     m_shader_materials = project;
 }
 
+void Renderer::set_shader_standard_inputs(const ShaderStandardInputs& inputs)
+{
+    m_shader_standard_inputs = inputs;
+}
+
 bool Renderer::initialize(const RendererConfig& config)
 {
     if (m_initialized)

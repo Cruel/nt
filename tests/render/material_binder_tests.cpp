@@ -2,6 +2,7 @@
 
 #include "noveltea/render/quad_batch.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
+#include "render/bgfx/bgfx_shader_program_cache.hpp"
 
 namespace {
 
@@ -9,6 +10,33 @@ const noveltea::QuadCommand& only_command(const noveltea::QuadBatch& batch)
 {
     REQUIRE(batch.commands().size() == 1);
     return batch.commands().front();
+}
+
+noveltea::ShaderMaterialProject make_role_test_project()
+{
+    noveltea::ShaderDefinition shader;
+    shader.id = noveltea::ShaderId("test_shader");
+    shader.roles.push_back(noveltea::ShaderRole::Engine2D);
+
+    noveltea::MaterialDefinition material;
+    material.id = noveltea::MaterialId("world/water");
+    material.role = noveltea::ShaderRole::Engine2D;
+    material.shader = shader.id;
+
+    noveltea::ShaderMaterialProject project;
+    project.shaders.push_back(std::move(shader));
+    project.materials.push_back(std::move(material));
+    return project;
+}
+
+bool has_program_diagnostic(const std::vector<noveltea::ShaderProgramDiagnostic>& diagnostics,
+                            noveltea::ShaderProgramDiagnosticCode code)
+{
+    for (const auto& diagnostic : diagnostics) {
+        if (diagnostic.code == code)
+            return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -55,6 +83,40 @@ TEST_CASE("material binder maps sampler policy to bgfx flags")
     CHECK((bgfx_sampler_flags(MaterialTextureSampler::RepeatNearest) & BGFX_SAMPLER_MIN_POINT) !=
           0);
     CHECK(bgfx_sampler_flags(MaterialTextureSampler::RepeatLinear) == 0);
+}
+
+TEST_CASE("material binder validates requested shader role before bgfx program loading")
+{
+    noveltea::assets::AssetManager assets;
+    noveltea::bgfx_backend::BgfxShaderProgramCache programs(assets);
+    noveltea::bgfx_backend::BgfxMaterialBinder binder(assets, programs, BGFX_INVALID_HANDLE);
+    std::vector<noveltea::ShaderProgramDiagnostic> diagnostics;
+
+    const auto result = binder.bind_material(
+        make_role_test_project(), noveltea::MaterialId("world/water"),
+        noveltea::bgfx_backend::BgfxMaterialBindInputs{.role = noveltea::ShaderRole::ActiveText},
+        &diagnostics);
+
+    CHECK_FALSE(result.ok);
+    CHECK(has_program_diagnostic(diagnostics,
+                                 noveltea::ShaderProgramDiagnosticCode::IncompatibleShaderRole));
+}
+
+TEST_CASE("material binder reports unknown materials without bgfx program loading")
+{
+    noveltea::assets::AssetManager assets;
+    noveltea::bgfx_backend::BgfxShaderProgramCache programs(assets);
+    noveltea::bgfx_backend::BgfxMaterialBinder binder(assets, programs, BGFX_INVALID_HANDLE);
+    std::vector<noveltea::ShaderProgramDiagnostic> diagnostics;
+
+    const auto result = binder.bind_material(
+        make_role_test_project(), noveltea::MaterialId("missing"),
+        noveltea::bgfx_backend::BgfxMaterialBindInputs{.role = noveltea::ShaderRole::ActiveText},
+        &diagnostics);
+
+    CHECK_FALSE(result.ok);
+    CHECK(has_program_diagnostic(diagnostics,
+                                 noveltea::ShaderProgramDiagnosticCode::UnknownMaterial));
 }
 
 TEST_CASE("material binder packs schema uniform values into vec4 bgfx uniforms")
