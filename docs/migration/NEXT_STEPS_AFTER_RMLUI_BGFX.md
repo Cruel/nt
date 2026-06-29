@@ -51,11 +51,11 @@ The migration strategy remains: preserve formats and behavior where intended, bu
 
 ## Recent Verification Snapshot
 
-A local verification run was performed against the local updated renderer using CMake's FetchContent source override:
+A local verification run was performed against the local updated renderer. The current equivalent is NovelTea's explicit local renderer dependency mode:
 
 ```sh
-cmake --preset linux-debug -DFETCHCONTENT_SOURCE_DIR_RMLUI_BGFX=/home/thomas/dev/nt/rmlui-bgfx
-cmake --build --preset linux-debug
+cmake --preset linux-debug-local-rmlui-bgfx
+cmake --build --preset linux-debug-local-rmlui-bgfx
 ctest --test-dir build/linux-debug --output-on-failure
 ```
 

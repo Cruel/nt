@@ -2,7 +2,7 @@ body
 {
     display: block;
     width: 860px;
-    height: 300px;
+    height: 520px;
     margin: 0px;
     background: #101820;
 }
@@ -14,7 +14,8 @@ body
 #gradients,
 #transform_clip,
 #individual_filters,
-#repeating_gradients
+#repeating_gradients,
+#effects_stress
 {
     position: absolute;
     display: block;
@@ -39,6 +40,7 @@ body
 #transform_clip { left: 596px; top: 16px; width: 96px; overflow: hidden; border-radius: 34px 10px; transform: rotate(14deg); background: #ffd34f; }
 #individual_filters { left: 16px; top: 140px; width: 228px; }
 #repeating_gradients { left: 264px; top: 140px; width: 180px; }
+#effects_stress { left: 16px; top: 260px; width: 828px; height: 224px; overflow: hidden; background: #a4b6b7; }
 
 .corner
 {
@@ -143,3 +145,123 @@ body
 .gradient2.repeating-linear { top: 12px; decorator: repeating-linear-gradient(90deg, #ff453a 0%, #ffd60a 20%, #0a84ff 40%); }
 .gradient2.repeating-radial { top: 38px; decorator: repeating-radial-gradient(circle closest-side at center, #ffffff 0%, #30d158 18%, #005a2b 36%); }
 .gradient2.repeating-conic { top: 64px; decorator: repeating-conic-gradient(from 0deg at center, #ff453a 0%, #ffd60a 18%, #30d158 36%); }
+
+.stress-label
+{
+    position: absolute;
+    display: block;
+    left: 12px;
+    top: 8px;
+    color: #111111aa;
+    font-size: 13px;
+}
+
+.stress-wrapper
+{
+    position: absolute;
+    display: block;
+    width: 176px;
+    height: 68px;
+}
+
+.noop-filter
+{
+    filter: opacity(1) sepia(0) grayscale(0) saturate(1) brightness(1) contrast(1) hue-rotate(0deg) invert(0) blur(0px);
+}
+
+.stress-box
+{
+    position: absolute;
+    display: block;
+    box-sizing: border-box;
+    width: 156px;
+    height: 48px;
+    padding: 10px;
+    border-width: 2px;
+    border-color: #def6f7;
+    border-radius: 24px 8px;
+    background: #f5f7f8ee;
+    color: #111;
+    font-size: 13px;
+}
+
+.transformed-shadow
+{
+    left: 62px;
+    top: 42px;
+    transform: rotate3d(0.2, 0.4, 0.1, 15deg);
+}
+
+.soft-shadow
+{
+    box-shadow: #f00f 28px 22px 16px 0px, #00ff -26px -20px 28px 0px, #0f08 -32px 42px 34px 0px, #333a 0px 0px 18px 10px inset;
+}
+
+.trail-contract
+{
+    left: 300px;
+    top: 42px;
+}
+
+.trail-shadow
+{
+    filter: opacity(1);
+    box-shadow: #f66 22px 22px 0 0, #c88 44px 44px 0 0, #baa 66px 66px 0 0, #ffac 0 0 8px 8px inset;
+}
+
+.inset-clip
+{
+    left: 560px;
+    top: 42px;
+    overflow: hidden;
+    border-radius: 24px 8px;
+}
+
+.inset-shadow
+{
+    box-shadow: #f4fd 10px 5px 5px 3px inset;
+}
+
+.stress-backdrop-bg
+{
+    position: absolute;
+    display: block;
+    border-radius: 22px;
+}
+
+.stress-backdrop-bg.red { left: 78px; top: 142px; width: 160px; height: 24px; background: #ff2d55; }
+.stress-backdrop-bg.green { left: 126px; top: 122px; width: 150px; height: 46px; background: #32d74b; }
+.stress-backdrop-bg.blue { left: 170px; top: 106px; width: 150px; height: 24px; background: #0a84ff; }
+
+.backdrop-window
+{
+    left: 96px;
+    top: 116px;
+    width: 188px;
+    height: 54px;
+    background: #ffffff88;
+    backdrop-filter: blur(5px);
+}
+
+.multi-source-a
+{
+    left: 402px;
+    top: 124px;
+}
+
+.multi-source-b
+{
+    left: 562px;
+    top: 136px;
+}
+
+.small-shadow
+{
+    box-shadow: #ffd60acc 12px 10px 4px 0px;
+    filter: drop-shadow(#ff453acc 8px 8px 3px);
+}
+
+.small-inset
+{
+    box-shadow: #bf5af2dd 0 0 6px 5px inset;
+}

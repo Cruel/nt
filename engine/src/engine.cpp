@@ -489,13 +489,6 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     m_demo_mode = run_config.demo_mode;
     m_screenshot_path = run_config.screenshot_path;
     m_audio_enabled = run_config.enable_audio;
-    m_resize_sequence = run_config.resize_sequence;
-    m_resize_sequence_index = 0;
-    if (!m_resize_sequence.empty() && run_config.readback_after_resize_frames > 0 &&
-        m_frame_limit == 0) {
-        m_frame_limit =
-            uint32_t(m_resize_sequence.size()) + run_config.readback_after_resize_frames;
-    }
     m_debug_ui_enabled = run_config.enable_debug_ui;
     m_render_perf_logging = run_config.render_perf_logging;
     bool platform_initialized = false;
@@ -704,7 +697,6 @@ bool Engine::tick()
     if (!m_running)
         return false;
 
-    apply_scheduled_resize();
     handle_events();
     update(m_platform.delta_time());
     render();
@@ -719,19 +711,6 @@ bool Engine::tick()
     }
 
     return m_running;
-}
-
-void Engine::apply_scheduled_resize()
-{
-    if (m_resize_sequence_index >= m_resize_sequence.size()) {
-        return;
-    }
-    const SurfaceMetrics scheduled =
-        sanitize_surface_metrics(m_resize_sequence[m_resize_sequence_index++]);
-    SDL_Log("[engine] applying scheduled resize %zu/%zu: logical=%dx%d framebuffer=%dx%d",
-            m_resize_sequence_index, m_resize_sequence.size(), scheduled.logical_width,
-            scheduled.logical_height, scheduled.framebuffer_width, scheduled.framebuffer_height);
-    resize(scheduled);
 }
 
 void Engine::resize(const SurfaceMetrics& surface)

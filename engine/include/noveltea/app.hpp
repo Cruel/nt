@@ -26,6 +26,7 @@ private:
         std::string runtime_project;
         std::string screenshot_path;
         std::vector<SurfaceMetrics> resize_sequence;
+        uint32_t resize_interval_frames = 1;
         uint32_t readback_after_resize_frames = 0;
         bool no_imgui = false;
         bool perf_logging = false;
@@ -37,9 +38,11 @@ private:
 
     bool initialize(int argc, char* argv[]);
     bool parse_options(int argc, char* argv[], Options& options) const;
+    int run_resize_readback_fixture();
     static void web_tick(void* user_data);
 
     Engine m_engine;
+    Options m_options;
 };
 
 } // namespace noveltea

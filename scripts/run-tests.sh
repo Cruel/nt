@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 RELEASE=0
 COMPAT=0
+REFERENCE=0
 CTEST_ARGS=()
 
 for arg in "$@"; do
@@ -15,6 +16,9 @@ for arg in "$@"; do
             ;;
         --compat)
             COMPAT=1
+            ;;
+        --reference)
+            REFERENCE=1
             ;;
         *)
             CTEST_ARGS+=("$arg")
@@ -57,4 +61,9 @@ echo "[test] building $PRESET..."
 cmake --build --preset "$PRESET" --parallel
 
 echo "[test] running CTest in $BUILD_DIR..."
-ctest --test-dir "$BUILD_DIR" --output-on-failure "${CTEST_ARGS[@]}"
+if [ "$REFERENCE" = "1" ]; then
+    echo "[test] using RMLUI_BGFX_RENDER_PATH=reference"
+    RMLUI_BGFX_RENDER_PATH=reference ctest --test-dir "$BUILD_DIR" --output-on-failure "${CTEST_ARGS[@]}"
+else
+    ctest --test-dir "$BUILD_DIR" --output-on-failure "${CTEST_ARGS[@]}"
+fi

@@ -37,8 +37,6 @@ struct EngineRunConfig {
     std::string runtime_ui_document;
     std::string runtime_project;
     std::string screenshot_path;
-    std::vector<SurfaceMetrics> resize_sequence;
-    uint32_t readback_after_resize_frames = 0;
     bool enable_debug_ui = true;
     bool render_perf_logging = false;
     bool rmlui_base_direct_compat = false;
@@ -75,7 +73,6 @@ public:
     bool is_running() const { return m_running; }
 
 private:
-    void apply_scheduled_resize();
     void handle_events();
     void handle_mouse_down(float x, float y, uint8_t button);
     void update(float dt);
@@ -101,8 +98,6 @@ private:
     uint32_t m_frame_count = 0;
     uint32_t m_frame_limit = 0;
     std::string m_screenshot_path;
-    std::vector<SurfaceMetrics> m_resize_sequence;
-    size_t m_resize_sequence_index = 0;
     DemoMode m_demo_mode = DemoMode::None;
     float m_elapsed_seconds = 0.0f;
     Vec2 m_pointer_position{};

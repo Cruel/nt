@@ -1,5 +1,6 @@
 #include "noveltea/app.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -144,6 +145,13 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 std::fprintf(stderr, "[app] invalid --resize-sequence value\n");
                 return false;
             }
+        } else if (std::strcmp(arg, "--resize-interval-frames") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --resize-interval-frames requires a number\n");
+                return false;
+            }
+            options.resize_interval_frames =
+                std::max(1u, static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10)));
         } else if (std::strcmp(arg, "--readback-after-resize-frames") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "[app] --readback-after-resize-frames requires a number\n");
@@ -194,9 +202,15 @@ bool App::initialize(int argc, char* argv[])
     run_config.cache_asset_root = options.cache_asset_root;
     run_config.runtime_ui_document = options.runtime_ui_document;
     run_config.runtime_project = options.runtime_project;
+    const bool resize_readback_fixture =
+        !options.resize_sequence.empty() && options.readback_after_resize_frames > 0;
+    if (resize_readback_fixture && options.frame_limit == 0) {
+        const uint32_t interval = std::max(1u, options.resize_interval_frames);
+        const uint32_t resize_frame_count =
+            uint32_t((options.resize_sequence.size() - 1u) * interval + 1u);
+        run_config.frame_limit = resize_frame_count + options.readback_after_resize_frames;
+    }
     run_config.screenshot_path = options.screenshot_path;
-    run_config.resize_sequence = options.resize_sequence;
-    run_config.readback_after_resize_frames = options.readback_after_resize_frames;
     run_config.enable_debug_ui = !options.no_imgui;
     run_config.render_perf_logging = options.perf_logging;
     run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
@@ -209,6 +223,7 @@ bool App::initialize(int argc, char* argv[])
         return false;
     }
 
+    m_options = std::move(options);
     g_preview_engine = &m_engine;
     return true;
 }
@@ -224,10 +239,37 @@ int App::run(int argc, char* argv[])
     emscripten_set_main_loop_arg(&App::web_tick, this, 0, true);
     return 0;
 #else
-    const int result = m_engine.run();
+    const bool resize_readback_fixture =
+        !m_options.resize_sequence.empty() && m_options.readback_after_resize_frames > 0;
+    const int result = resize_readback_fixture ? run_resize_readback_fixture() : m_engine.run();
     m_engine.shutdown();
     return result;
 #endif
+}
+
+int App::run_resize_readback_fixture()
+{
+    const uint32_t interval = std::max(1u, m_options.resize_interval_frames);
+    uint32_t countdown = 0;
+    size_t resize_index = 0;
+    while (m_engine.is_running()) {
+        if (resize_index < m_options.resize_sequence.size()) {
+            if (countdown == 0) {
+                SurfaceMetrics scheduled = sanitize_surface_metrics(m_options.resize_sequence[resize_index++]);
+                std::printf(
+                    "[app] applying resize-readback fixture resize %zu/%zu: logical=%dx%d framebuffer=%dx%d\n",
+                    resize_index, m_options.resize_sequence.size(), scheduled.logical_width,
+                    scheduled.logical_height, scheduled.framebuffer_width,
+                    scheduled.framebuffer_height);
+                m_engine.resize(scheduled);
+                countdown = interval - 1u;
+            } else {
+                --countdown;
+            }
+        }
+        m_engine.tick();
+    }
+    return 0;
 }
 
 void App::web_tick(void* user_data)

@@ -65,4 +65,16 @@ TEST_CASE("RmlUi readback gallery pixels verify advanced renderer output")
     CHECK(red_dominant(image.pixel(282, 214)));
     CHECK(red_dominant(image.pixel(346, 214)));
     CHECK(image.pixel(420, 214)[1] > image.pixel(420, 214)[0]);
+
+    // Effects stress row: reference-derived checks for interactions that simple gradients and
+    // filters do not cover. These are intentionally sampled from the correctness/reference path.
+    CHECK(close_to(image.pixel(524, 64), {255, 214, 10}, 45));
+    CHECK(close_to(image.pixel(146, 321), {239, 242, 243}, 35));
+    CHECK(close_to(image.pixel(92, 302), {109, 121, 243}, 45));
+    CHECK(close_to(image.pixel(360, 320), {239, 242, 243}, 25));
+    CHECK(red_dominant(image.pixel(455, 350)));
+    CHECK(close_to(image.pixel(190, 401), {159, 236, 171}, 35));
+    CHECK(close_to(image.pixel(580, 315), {222, 246, 247}, 35));
+    CHECK(red_dominant(image.pixel(472, 445)));
+    CHECK(blue_dominant(image.pixel(584, 410)));
 }

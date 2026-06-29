@@ -43,5 +43,27 @@
         <div class="gradient2 repeating-radial"></div>
         <div class="gradient2 repeating-conic"></div>
     </div>
+    <div id="effects_stress">
+        <div class="stress-label">effects stress</div>
+        <div class="stress-wrapper noop-filter transformed-shadow">
+            <div class="stress-box soft-shadow">transform + blur shadow</div>
+        </div>
+        <div class="stress-wrapper noop-filter trail-contract">
+            <div class="stress-box trail-shadow">trail opacity(1)</div>
+        </div>
+        <div class="stress-wrapper inset-clip">
+            <div class="stress-box inset-shadow">rounded inset</div>
+        </div>
+        <div class="stress-backdrop-bg red"></div>
+        <div class="stress-backdrop-bg green"></div>
+        <div class="stress-backdrop-bg blue"></div>
+        <div class="stress-box backdrop-window">backdrop blur</div>
+        <div class="stress-wrapper noop-filter multi-source-a">
+            <div class="stress-box small-shadow">multi comp A</div>
+        </div>
+        <div class="stress-wrapper noop-filter multi-source-b">
+            <div class="stress-box small-inset">multi comp B</div>
+        </div>
+    </div>
 </body>
 </rml>
