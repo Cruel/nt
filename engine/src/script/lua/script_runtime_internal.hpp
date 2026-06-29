@@ -4,7 +4,11 @@ struct lua_State;
 
 namespace noveltea {
 class AudioSystem;
-}
+namespace core {
+class GameSession;
+class RuntimeSessionHost;
+} // namespace core
+} // namespace noveltea
 
 namespace noveltea::script {
 
@@ -19,15 +23,11 @@ struct ScriptRuntimeAccess {
 
 void bind_noveltea(lua_State* state);
 void bind_audio(lua_State* state, noveltea::AudioSystem* audio);
+void bind_audio_runtime_host(lua_State* state, noveltea::core::RuntimeSessionHost* host);
 void clear_audio_binding(lua_State* state);
 void install_host_print(lua_State* state);
 
 } // namespace noveltea::script
-
-namespace noveltea::core {
-class GameSession;
-class RuntimeSessionHost;
-} // namespace noveltea::core
 
 namespace noveltea::script {
 

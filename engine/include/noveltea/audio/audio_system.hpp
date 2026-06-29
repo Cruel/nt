@@ -24,6 +24,7 @@ public:
     [[nodiscard]] bool initialize(const assets::AssetManager& assets);
     void shutdown();
     [[nodiscard]] AudioBackendInfo backend_info() const;
+    [[nodiscard]] AudioBackendStats backend_stats() const;
 
     [[nodiscard]] assets::AssetResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) override;

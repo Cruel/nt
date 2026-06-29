@@ -69,6 +69,7 @@ enum class RuntimeOutputType {
     Notification,
     Diagnostic,
     TestObservation,
+    AudioCommand,
 };
 
 struct RuntimeOutput {

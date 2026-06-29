@@ -136,6 +136,8 @@ std::string to_string(RuntimeOutputType type)
         return "diagnostic";
     case RuntimeOutputType::TestObservation:
         return "test_observation";
+    case RuntimeOutputType::AudioCommand:
+        return "audio_command";
     }
     return "command";
 }
@@ -162,6 +164,8 @@ std::optional<RuntimeOutputType> output_type_from_string(std::string_view value)
         return RuntimeOutputType::Diagnostic;
     if (value == "test_observation")
         return RuntimeOutputType::TestObservation;
+    if (value == "audio_command")
+        return RuntimeOutputType::AudioCommand;
     return std::nullopt;
 }
 

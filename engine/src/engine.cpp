@@ -241,6 +241,53 @@ std::filesystem::path default_cache_asset_root()
 #endif
 }
 
+AudioBus audio_bus_from_string(const std::string& value)
+{
+    if (value == "master")
+        return AudioBus::Master;
+    if (value == "music")
+        return AudioBus::Music;
+    if (value == "ambience" || value == "ambient")
+        return AudioBus::Ambience;
+    if (value == "voice")
+        return AudioBus::Voice;
+    return AudioBus::Sfx;
+}
+
+AudioTrackReplaceMode audio_replace_mode_from_string(const std::string& value)
+{
+    return value == "layer" ? AudioTrackReplaceMode::Layer : AudioTrackReplaceMode::Replace;
+}
+
+AudioSfxDesc audio_sfx_desc_from_json(const nlohmann::json& options)
+{
+    AudioSfxDesc desc;
+    if (options.is_object()) {
+        desc.volume = options.value("volume", desc.volume);
+        desc.pitch = options.value("pitch", desc.pitch);
+        desc.max_simultaneous = options.value("max_simultaneous", desc.max_simultaneous);
+    }
+    return desc;
+}
+
+AudioTrackDesc audio_track_desc_from_json(const AudioTrackId& track_id,
+                                          const nlohmann::json& options)
+{
+    AudioTrackDesc desc;
+    desc.track_id = track_id;
+    if (options.is_object()) {
+        desc.bus = audio_bus_from_string(options.value("bus", std::string("music")));
+        desc.volume = options.value("volume", desc.volume);
+        desc.pitch = options.value("pitch", desc.pitch);
+        desc.loop = options.value("loop", desc.loop);
+        desc.fade_in_seconds = options.value("fade_in", desc.fade_in_seconds);
+        desc.fade_out_seconds = options.value("fade_out", desc.fade_out_seconds);
+        desc.replace_mode =
+            audio_replace_mode_from_string(options.value("replace_mode", std::string("replace")));
+    }
+    return desc;
+}
+
 void mount_default_source(assets::AssetManager& assets, const char* ns,
                           const std::filesystem::path& override_root,
                           const std::filesystem::path& default_root, bool writable)
@@ -792,6 +839,38 @@ void Engine::handle_events()
     }
 }
 
+void Engine::process_audio_outputs(const std::vector<core::RuntimeOutput>& outputs)
+{
+    for (const auto& output : outputs) {
+        if (output.type != core::RuntimeOutputType::AudioCommand || !output.payload.is_object()) {
+            continue;
+        }
+        const auto& payload = output.payload;
+        const std::string op = payload.value("op", std::string{});
+        if (op == "play_sfx_alias") {
+            const std::string alias = payload.value("alias", std::string{});
+            if (!alias.empty()) {
+                (void)m_audio.play_sfx_alias(alias, audio_sfx_desc_from_json(payload.value(
+                                                        "options", nlohmann::json::object())));
+            }
+        } else if (op == "play_track_alias") {
+            const AudioTrackId track_id = payload.value("track_id", std::string("bgm"));
+            const std::string alias = payload.value("alias", std::string{});
+            if (!alias.empty()) {
+                const auto options = payload.value("options", nlohmann::json::object());
+                (void)m_audio.play_track_alias(track_id, alias,
+                                               audio_track_desc_from_json(track_id, options));
+            }
+        } else if (op == "stop_track") {
+            const AudioTrackId track_id = payload.value("track_id", std::string("bgm"));
+            m_audio.stop_track(track_id, payload.value("fade", 0.0f));
+        } else {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[audio] unknown runtime audio command: %s",
+                        op.c_str());
+        }
+    }
+}
+
 void Engine::handle_mouse_down(float x, float y, uint8_t button)
 {
     if (button != SDL_BUTTON_LEFT || m_platform.logical_width() <= 0 ||
@@ -844,6 +923,7 @@ void Engine::update(float dt)
             }
         }
         m_script_executor.process(result);
+        process_audio_outputs(result.outputs);
         if (has_script_request) {
             m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
         }

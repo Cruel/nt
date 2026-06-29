@@ -72,6 +72,13 @@ AudioBackendInfo AudioSystem::backend_info() const
     return m_backend->backend_info();
 }
 
+AudioBackendStats AudioSystem::backend_stats() const
+{
+    if (!m_backend)
+        return {};
+    return m_backend->stats();
+}
+
 assets::AssetResult<assets::AudioAsset>
 AudioSystem::load_audio(const assets::AudioAssetRequest& request)
 {

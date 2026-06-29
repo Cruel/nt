@@ -81,6 +81,7 @@ public:
         ma_resource_manager_config resource_config = ma_resource_manager_config_init();
         ma_result result = ma_resource_manager_init(&resource_config, &m_resource_manager);
         if (result != MA_SUCCESS) {
+            ++m_stats.backend_errors;
             std::fprintf(stderr, "[audio:miniaudio] resource manager init failed: %s (%d)\n",
                          ma_error_name(result), result);
             return false;
@@ -91,6 +92,7 @@ public:
         engine_config.pResourceManager = &m_resource_manager;
         result = ma_engine_init(&engine_config, &m_engine);
         if (result != MA_SUCCESS) {
+            ++m_stats.backend_errors;
             std::fprintf(stderr, "[audio:miniaudio] engine init failed: %s (%d)\n",
                          ma_error_name(result), result);
             shutdown();
@@ -109,8 +111,7 @@ public:
         for (auto& [id, voice] : m_voices) {
             (void)id;
             if (voice) {
-                ma_sound_uninit(&voice->sound);
-                ma_resource_manager_data_source_uninit(&voice->data_source);
+                cleanup_voice_source(*voice);
             }
         }
         m_voices.clear();
@@ -137,6 +138,7 @@ public:
         m_next_clip_id = 1;
         m_next_voice_id = 1;
         m_pause_depth = 0;
+        m_stats = {};
     }
 
     assets::AssetResult<assets::AudioAsset>
@@ -179,6 +181,7 @@ public:
         ma_result result = ma_resource_manager_register_encoded_data(
             &m_resource_manager, clip.path.c_str(), clip.bytes.data(), clip.bytes.size());
         if (result != MA_SUCCESS) {
+            ++m_stats.backend_errors;
             return fail<assets::AudioAsset>("miniaudio failed to register encoded data for '" +
                                             request.path + "': " + ma_error_name(result));
         }
@@ -187,6 +190,7 @@ public:
         m_clips.emplace(handle.id, std::move(clip));
         m_clip_lookup.emplace(key, handle);
         const Clip& stored = m_clips.at(handle.id);
+        ++m_stats.clips_loaded;
         std::fprintf(stderr,
                      "[audio:miniaudio] loaded clip id=%u path='%s' bytes=%zu mode=%d kind=%d\n",
                      handle.id, stored.path.c_str(), stored.bytes.size(),
@@ -208,24 +212,43 @@ public:
         const Clip& clip = clip_it->second;
 
         auto voice = std::make_unique<Voice>();
-        ma_uint32 source_flags =
-            flags_for(clip.mode, clip.kind) | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
-        ma_result result = ma_resource_manager_data_source_init(
-            &m_resource_manager, clip.path.c_str(), source_flags, nullptr, &voice->data_source);
-        if (result != MA_SUCCESS) {
-            std::fprintf(stderr, "[audio:miniaudio] data source init failed for '%s': %s (%d)\n",
-                         clip.path.c_str(), ma_error_name(result), result);
-            return {};
-        }
-        voice->data_source_initialized = true;
-
         ma_sound_group* group = group_for(desc.bus);
-        result = ma_sound_init_from_data_source(
-            &m_engine, &voice->data_source, MA_SOUND_FLAG_NO_SPATIALIZATION, group, &voice->sound);
+        ma_result result = MA_SUCCESS;
+        if (clip.mode == AudioLoadMode::Stream) {
+            result = ma_decoder_init_memory(clip.bytes.data(), clip.bytes.size(), nullptr,
+                                            &voice->decoder);
+            if (result != MA_SUCCESS) {
+                ++m_stats.backend_errors;
+                std::fprintf(stderr,
+                             "[audio:miniaudio] memory stream init failed for '%s': %s (%d)\n",
+                             clip.path.c_str(), ma_error_name(result), result);
+                return {};
+            }
+            voice->decoder_initialized = true;
+            result = ma_sound_init_from_data_source(
+                &m_engine, &voice->decoder, MA_SOUND_FLAG_NO_SPATIALIZATION, group, &voice->sound);
+        } else {
+            ma_uint32 source_flags =
+                flags_for(clip.mode, clip.kind) | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
+            result = ma_resource_manager_data_source_init(
+                &m_resource_manager, clip.path.c_str(), source_flags, nullptr, &voice->data_source);
+            if (result != MA_SUCCESS) {
+                ++m_stats.backend_errors;
+                std::fprintf(stderr,
+                             "[audio:miniaudio] data source init failed for '%s': %s (%d)\n",
+                             clip.path.c_str(), ma_error_name(result), result);
+                return {};
+            }
+            voice->data_source_initialized = true;
+            result = ma_sound_init_from_data_source(&m_engine, &voice->data_source,
+                                                    MA_SOUND_FLAG_NO_SPATIALIZATION, group,
+                                                    &voice->sound);
+        }
         if (result != MA_SUCCESS) {
+            ++m_stats.backend_errors;
             std::fprintf(stderr, "[audio:miniaudio] sound init failed for '%s': %s (%d)\n",
                          clip.path.c_str(), ma_error_name(result), result);
-            ma_resource_manager_data_source_uninit(&voice->data_source);
+            cleanup_voice_source(*voice);
             return {};
         }
         voice->sound_initialized = true;
@@ -237,15 +260,16 @@ public:
 
         result = ma_sound_start(&voice->sound);
         if (result != MA_SUCCESS) {
+            ++m_stats.backend_errors;
             std::fprintf(stderr, "[audio:miniaudio] sound start failed for '%s': %s (%d)\n",
                          clip.path.c_str(), ma_error_name(result), result);
-            ma_sound_uninit(&voice->sound);
-            ma_resource_manager_data_source_uninit(&voice->data_source);
+            cleanup_voice_source(*voice);
             return {};
         }
 
         const AudioVoiceHandle handle{m_next_voice_id++};
         m_voices.emplace(handle.id, std::move(voice));
+        ++m_stats.voices_started;
         std::fprintf(stderr,
                      "[audio:miniaudio] started voice id=%u clip=%u path='%s' bus=%d volume=%.3f "
                      "pitch=%.3f loop=%d\n",
@@ -290,6 +314,7 @@ public:
         if (m_pause_depth == 1) {
             const ma_result result = ma_engine_stop(&m_engine);
             if (result != MA_SUCCESS) {
+                ++m_stats.backend_errors;
                 std::fprintf(stderr, "[audio:miniaudio] pause failed: %s (%d)\n",
                              ma_error_name(result), result);
             } else {
@@ -306,6 +331,7 @@ public:
         if (m_pause_depth == 0) {
             const ma_result result = ma_engine_start(&m_engine);
             if (result != MA_SUCCESS) {
+                ++m_stats.backend_errors;
                 std::fprintf(stderr, "[audio:miniaudio] resume failed: %s (%d)\n",
                              ma_error_name(result), result);
             } else {
@@ -323,15 +349,22 @@ public:
                ma_sound_at_end(&it->second->sound) == MA_FALSE;
     }
 
+    AudioBackendStats stats() const override
+    {
+        AudioBackendStats snapshot = m_stats;
+        snapshot.voices_active = static_cast<uint32_t>(m_voices.size());
+        return snapshot;
+    }
+
     void collect_finished_voices() override
     {
         for (auto it = m_voices.begin(); it != m_voices.end();) {
             if (!it->second || ma_sound_at_end(&it->second->sound) == MA_TRUE ||
                 ma_sound_is_playing(&it->second->sound) == MA_FALSE) {
                 if (it->second) {
-                    ma_sound_uninit(&it->second->sound);
-                    ma_resource_manager_data_source_uninit(&it->second->data_source);
+                    cleanup_voice_source(*it->second);
                 }
+                ++m_stats.voices_finished;
                 it = m_voices.erase(it);
             } else {
                 ++it;
@@ -350,12 +383,30 @@ private:
 
     struct Voice {
         ma_resource_manager_data_source data_source{};
+        ma_decoder decoder{};
         ma_sound sound{};
         AudioClipHandle clip;
         std::string path;
         bool data_source_initialized = false;
+        bool decoder_initialized = false;
         bool sound_initialized = false;
     };
+
+    void cleanup_voice_source(Voice& voice)
+    {
+        if (voice.sound_initialized) {
+            ma_sound_uninit(&voice.sound);
+            voice.sound_initialized = false;
+        }
+        if (voice.data_source_initialized) {
+            ma_resource_manager_data_source_uninit(&voice.data_source);
+            voice.data_source_initialized = false;
+        }
+        if (voice.decoder_initialized) {
+            ma_decoder_uninit(&voice.decoder);
+            voice.decoder_initialized = false;
+        }
+    }
 
     struct Group {
         ma_sound_group group{};
@@ -376,6 +427,7 @@ private:
         ma_result result =
             ma_sound_group_init(&m_engine, MA_SOUND_FLAG_NO_SPATIALIZATION, parent, &group.group);
         if (result != MA_SUCCESS) {
+            ++m_stats.backend_errors;
             std::fprintf(stderr, "[audio:miniaudio] sound group init failed: %s (%d)\n",
                          ma_error_name(result), result);
             group.initialized = false;
@@ -418,6 +470,7 @@ private:
     uint32_t m_next_clip_id = 1;
     uint32_t m_next_voice_id = 1;
     uint32_t m_pause_depth = 0;
+    AudioBackendStats m_stats{};
     std::unordered_map<uint32_t, Clip> m_clips;
     std::unordered_map<std::string, AudioClipHandle> m_clip_lookup;
     std::unordered_map<uint32_t, std::unique_ptr<Voice>> m_voices;

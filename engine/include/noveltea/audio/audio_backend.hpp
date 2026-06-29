@@ -16,6 +16,14 @@ struct AudioBackendInfo {
     bool available = false;
 };
 
+struct AudioBackendStats {
+    uint32_t clips_loaded = 0;
+    uint32_t voices_started = 0;
+    uint32_t voices_active = 0;
+    uint32_t voices_finished = 0;
+    uint32_t backend_errors = 0;
+};
+
 class AudioBackend {
 public:
     virtual ~AudioBackend() = default;
@@ -35,6 +43,7 @@ public:
     virtual void pause() = 0;
     virtual void resume() = 0;
     [[nodiscard]] virtual bool voice_active(AudioVoiceHandle voice) const = 0;
+    [[nodiscard]] virtual AudioBackendStats stats() const = 0;
     virtual void collect_finished_voices() = 0;
 };
 

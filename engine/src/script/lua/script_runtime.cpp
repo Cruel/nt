@@ -287,6 +287,7 @@ void ScriptRuntime::bind_runtime_host(core::RuntimeSessionHost* host)
     if (!is_initialized())
         return;
     noveltea::script::bind_runtime_host(m_impl->lua.lua_state(), host);
+    ::noveltea::script::bind_audio_runtime_host(m_impl->lua.lua_state(), host);
 }
 
 void ScriptRuntime::bind_audio(AudioSystem* audio)

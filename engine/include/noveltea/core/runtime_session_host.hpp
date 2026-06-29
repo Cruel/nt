@@ -57,6 +57,8 @@ public:
     RuntimeInputResult apply_input(const RuntimeInput& input);
     RuntimeInputResult
     flush_pending_outputs(std::optional<std::uint64_t> step_index = std::nullopt);
+    void enqueue_audio_command(nlohmann::json payload,
+                               std::optional<std::uint64_t> step_index = std::nullopt);
 
     bool navigate_path(int direction);
     bool select_dialogue_option(int option_index);
@@ -95,6 +97,7 @@ private:
     std::vector<ControllerCommand> m_last_commands;
     std::vector<RuntimeOutput> m_last_outputs;
     std::vector<RuntimeDiagnostic> m_last_diagnostics;
+    std::vector<RuntimeOutput> m_pending_outputs;
     std::vector<std::string> m_selected_object_ids;
     std::optional<ProjectDocument> m_loaded_project;
     SaveSlotStore* m_save_slots = nullptr;

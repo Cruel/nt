@@ -83,6 +83,7 @@ private:
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
     bool load_runtime_project(const std::string& logical_path);
+    void process_audio_outputs(const std::vector<core::RuntimeOutput>& outputs);
 
     assets::AssetManager m_assets;
     AudioSystem m_audio;

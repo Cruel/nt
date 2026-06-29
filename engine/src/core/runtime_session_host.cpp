@@ -348,11 +348,34 @@ RuntimeInputResult RuntimeSessionHost::load_save(SaveDocument save)
 RuntimeInputResult
 RuntimeSessionHost::flush_pending_outputs(std::optional<std::uint64_t> step_index)
 {
+    RuntimeInputResult result;
     if (!m_controller) {
-        return make_result(false, {}, {}, step_index);
+        result = make_result(false, {}, {}, step_index);
+    } else {
+        (void)m_session.events().dispatch_queued();
+        result = make_result(true, m_controller->take_commands(), {}, step_index);
     }
-    (void)m_session.events().dispatch_queued();
-    return make_result(true, m_controller->take_commands(), {}, step_index);
+    if (!m_pending_outputs.empty()) {
+        for (auto& output : m_pending_outputs) {
+            if (!output.step_index.has_value()) {
+                output.step_index = step_index;
+            }
+            result.outputs.push_back(std::move(output));
+        }
+        m_pending_outputs.clear();
+        m_last_outputs = result.outputs;
+    }
+    return result;
+}
+
+void RuntimeSessionHost::enqueue_audio_command(nlohmann::json payload,
+                                               std::optional<std::uint64_t> step_index)
+{
+    RuntimeOutput output;
+    output.type = RuntimeOutputType::AudioCommand;
+    output.payload = std::move(payload);
+    output.step_index = step_index;
+    m_pending_outputs.push_back(std::move(output));
 }
 
 RuntimeInputResult RuntimeSessionHost::make_result(bool handled,
