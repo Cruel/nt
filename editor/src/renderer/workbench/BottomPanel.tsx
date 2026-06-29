@@ -10,6 +10,7 @@ import {
 } from './bottom-panel-store';
 import { ReferencesPanel } from './ReferencesPanel';
 import { PreviewDiagnosticsPanel } from './PreviewDiagnosticsPanel';
+import { ShaderCompilePanel } from '@/shaders/ShaderCompilePanel';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -116,10 +117,6 @@ function CommandHistoryPanel() {
   );
 }
 
-function EmptyPanel({ label }: { label: string }) {
-  return <p className="p-3 text-xs text-muted-foreground">{label}</p>;
-}
-
 function PanelContent({ panelId }: { panelId: BottomPanelId }) {
   switch (panelId) {
     case 'problems':
@@ -135,7 +132,7 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
     case 'references':
       return <ReferencesPanel />;
     case 'shader-compile':
-      return <EmptyPanel label="Shader compile diagnostics will appear here once the shader/material editor is implemented." />;
+      return <ShaderCompilePanel />;
     case 'package-export':
       return <PackageExportPanel />;
     case 'command-history':

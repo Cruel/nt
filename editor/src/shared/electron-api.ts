@@ -22,6 +22,7 @@ export interface NovelTeaElectronApi {
     outputPath: string,
     options?: PackageExportOptions,
   ): Promise<PackageExportResponse>;
+  compileShaders(shaderProject: unknown, options?: ShaderCompileOptions): Promise<ShaderCompileResponse>;
   saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
   saveProjectAs(project: unknown, defaultPath?: string | null): Promise<SaveProjectResponse>;
   importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
@@ -48,6 +49,8 @@ import type {
   PlaybackReportResponse,
   ProjectLoadResponse,
   SaveProjectResponse,
+  ShaderCompileOptions,
+  ShaderCompileResponse,
   TestListResponse,
   ValidationResponse,
 } from './editor-tooling';

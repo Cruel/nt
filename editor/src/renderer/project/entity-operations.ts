@@ -5,6 +5,8 @@ import {
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
 } from '../../shared/project-schema/authoring-collections';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import {
   entityIdPattern,
   isAuthoringProject,
@@ -61,6 +63,10 @@ export interface UpdateEntityMetadataPayload extends EntityTarget {
 
 export interface SetEntityParentPayload extends EntityTarget {
   parentId: string | null;
+}
+
+export interface SetEntityInheritsPayload extends EntityTarget {
+  inheritsId: string | null;
 }
 
 export interface EntityOperationDiagnostic {
@@ -127,17 +133,29 @@ function cloneRecord(record: AuthoringRecordBase): AuthoringRecordBase {
   return cloneJsonValue(record as unknown as JsonValue) as unknown as AuthoringRecordBase;
 }
 
+export function defaultDataForCollection(
+  collection: AuthoringCollectionKey,
+  label: string,
+  explicitData: unknown,
+): Record<string, unknown> {
+  if (isRecord(explicitData)) return explicitData;
+  if (collection === 'shaders') return defaultShaderData(label) as unknown as Record<string, unknown>;
+  if (collection === 'materials') return defaultMaterialData(label) as unknown as Record<string, unknown>;
+  return {};
+}
+
 export function createDefaultAuthoringRecord(
   collection: AuthoringCollectionKey,
   entityId: string,
   options: Omit<CreateEntityRecordPayload, 'collection' | 'entityId'> = {},
 ): AuthoringRecordBase {
   const metadata = authoringCollectionMetadata[collection];
+  const label = options.label?.trim() || `${metadata.singularLabel} ${entityId}`;
   const record: AuthoringRecordBase = {
     id: entityId,
-    label: options.label?.trim() || `${metadata.singularLabel} ${entityId}`,
+    label,
     tags: options.tags ?? [],
-    data: isRecord(options.data) ? options.data : {},
+    data: defaultDataForCollection(collection, label, options.data),
   };
   if (options.description?.trim()) record.description = options.description;
   if (options.parent !== undefined) record.parent = options.parent;
@@ -371,6 +389,50 @@ export function wouldCreateParentCycle(
     current = parent?.collection === source.collection ? parent.id : null;
   }
   return false;
+}
+
+export function setEntityRelationshipPatches(
+  document: JsonValue | unknown,
+  payload: EntityTarget & { field: 'parent' | 'inherits'; targetId: string | null },
+): EntityOperationResult {
+  const project = validateProject(document);
+  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  const diagnostics = [
+    validateTargetCollection(payload.collection),
+    entityIdDiagnostic(payload.entityId, pathForRecord(payload.collection, payload.entityId)),
+    payload.targetId ? entityIdDiagnostic(payload.targetId, pathForRecord(payload.collection, payload.targetId)) : null,
+  ].filter((item): item is EntityOperationDiagnostic => item !== null);
+  if (diagnostics.length > 0) return { patches: [], diagnostics };
+  const record = project[payload.collection][payload.entityId];
+  if (!record) {
+    return { patches: [], diagnostics: [error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId))] };
+  }
+  if (payload.targetId) {
+    if (payload.targetId === payload.entityId) {
+      return { patches: [], diagnostics: [error(`Record cannot ${payload.field} itself.`, pathForRecordField(payload.collection, payload.entityId, payload.field))] };
+    }
+    if (!project[payload.collection][payload.targetId]) {
+      return { patches: [], diagnostics: [error(`${payload.field === 'parent' ? 'Parent' : 'Inherited'} record does not exist.`, pathForRecord(payload.collection, payload.targetId))] };
+    }
+    if (payload.field === 'parent' && wouldCreateParentCycle(project, payload, payload.targetId)) {
+      return { patches: [], diagnostics: [error('Parent assignment would create a cycle.', pathForRecordField(payload.collection, payload.entityId, 'parent'))] };
+    }
+  }
+  const patch = recordFieldPatch(
+    record,
+    payload.collection,
+    payload.entityId,
+    payload.field,
+    payload.targetId ? { collection: payload.collection, id: payload.targetId } : null,
+  );
+  return { patches: [patch], affectedPaths: [patch.path] };
+}
+
+export function setEntityInheritsPatches(
+  document: JsonValue | unknown,
+  payload: SetEntityInheritsPayload,
+): EntityOperationResult {
+  return setEntityRelationshipPatches(document, { ...payload, field: 'inherits', targetId: payload.inheritsId });
 }
 
 export function setEntityParentPatches(

@@ -63,6 +63,49 @@ export interface PackageExportResponse {
   error?: string;
 }
 
+export interface ShaderCompileOptions {
+  shaderc?: string;
+  bgfxShaderIncludeDir?: string;
+  projectRoot?: string;
+  outputRoot?: string;
+  cacheRoot?: string;
+  forceRebuild?: boolean;
+  shaderVariants?: string[];
+}
+
+export interface ShaderCompileDiagnostic {
+  severity: ToolSeverity;
+  code?: string;
+  shader?: string;
+  stage?: string;
+  variant?: string;
+  sourcePath?: string;
+  outputPath?: string;
+  commandLine?: string;
+  exitCode?: number;
+  message: string;
+  path?: string;
+}
+
+export interface ShaderCompileOutput {
+  shader: string;
+  stage: 'vertex' | 'fragment' | string;
+  variant: string;
+  sourcePath: string;
+  outputPath: string;
+  runtimePath: string;
+  cacheKey: string;
+  cacheHit: boolean;
+}
+
+export interface ShaderCompileResponse {
+  ok: boolean;
+  success: boolean;
+  diagnostics: ShaderCompileDiagnostic[];
+  outputs: ShaderCompileOutput[];
+  error?: string;
+}
+
 export interface EntityEditResponse {
   ok: boolean;
   success: boolean;

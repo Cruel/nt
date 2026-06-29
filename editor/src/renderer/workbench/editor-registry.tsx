@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { FileJson, Image, MonitorPlay } from 'lucide-react';
+import { FileCode, FileJson, Image, MonitorPlay, Palette } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import type { WorkbenchResource, WorkbenchTab } from './workbench-types';
 
@@ -92,8 +92,38 @@ export function buildAssetDetailTabForRecord(entityId: string, title = entityId)
   };
 }
 
+export function buildShaderDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:shader-detail:shaders:${entityId}`,
+    title,
+    editorType: 'shader-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:shaders:${entityId}`,
+      collection: 'shaders',
+      entityId,
+    },
+  };
+}
+
+export function buildMaterialDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:material-detail:materials:${entityId}`,
+    title,
+    editorType: 'material-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:materials:${entityId}`,
+      collection: 'materials',
+      entityId,
+    },
+  };
+}
+
 export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'assets' && node.entityId) return buildAssetDetailTabForRecord(node.entityId, node.entityId);
+  if (node.collection === 'shaders' && node.entityId) return buildShaderDetailTabForRecord(node.entityId, node.entityId);
+  if (node.collection === 'materials' && node.entityId) return buildMaterialDetailTabForRecord(node.entityId, node.entityId);
   return buildRawJsonTab(node);
 }
 
@@ -113,6 +143,8 @@ export function buildPrimaryPreviewTab(): WorkbenchTab {
 export function editorIconForType(editorType: string): ComponentType<{ className?: string }> {
   if (editorType === 'engine-preview') return MonitorPlay;
   if (editorType === 'asset-detail') return Image;
+  if (editorType === 'shader-detail') return FileCode;
+  if (editorType === 'material-detail') return Palette;
   if (editorType === 'raw-json') return FileJson;
   return FileJson;
 }

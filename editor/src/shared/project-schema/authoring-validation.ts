@@ -1,6 +1,8 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { authoringCollectionKeys, isAuthoringCollectionKey, type AuthoringCollectionKey } from './authoring-collections';
 import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './authoring-assets';
+import { validateMaterialData } from './authoring-materials';
+import { validateShaderData } from './authoring-shaders';
 import {
   authoringProjectSchema,
   isValidEntityId,
@@ -136,6 +138,13 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   }
 
   validateAssets(project, diagnostics);
+
+  for (const [id, record] of Object.entries(project.shaders)) {
+    diagnostics.push(...validateShaderData(project, id, record));
+  }
+  for (const [id, record] of Object.entries(project.materials)) {
+    diagnostics.push(...validateMaterialData(project, id, record));
+  }
 
   return diagnostics;
 }

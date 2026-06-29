@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import {
+  compileShaders,
   eraseEntityRecord,
   exportPackage,
   importLegacyGame,
@@ -16,7 +17,7 @@ import {
 } from './main/services/editor-tool-service';
 import { saveProject, saveProjectAs } from './main/services/project-file-service';
 import type { AssetImportOptions } from './shared/asset-import';
-import type { PackageExportOptions } from './shared/editor-tooling';
+import type { PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
 
 if (started) {
   app.quit();
@@ -135,6 +136,12 @@ app.whenReady().then(() => {
       outputPath: string,
       options: unknown,
     ) => exportPackage(project, outputPath, options as PackageExportOptions),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.COMPILE_SHADERS,
+    (_event: Electron.IpcMainInvokeEvent, shaderProject: unknown, options: unknown) =>
+      compileShaders(shaderProject, options as ShaderCompileOptions),
   );
 
   ipcMain.handle(

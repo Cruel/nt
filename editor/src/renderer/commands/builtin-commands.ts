@@ -17,6 +17,12 @@ import {
   setEntityParentPatches,
   updateEntityMetadataPatches,
 } from '@/project/entity-operations';
+import {
+  applyShaderCompiledOutputsPatches,
+  replaceMaterialDataPatches,
+  replaceShaderDataPatches,
+  setMaterialInheritsPatches,
+} from '@/project/shader-material-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
@@ -236,6 +242,11 @@ const assetAliasSchema = z.object({ assetId: entityIdSchema, alias: z.string().m
 const assetRenameAliasSchema = z.object({ fromAlias: z.string().min(1), toAlias: z.string().min(1) });
 const assetReimportSchema = z.object({ assetId: entityIdSchema, asset: importedAssetMetadataSchema });
 const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
+const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unknown() });
+const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
+const materialSetInheritsSchema = z.object({ materialId: entityIdSchema, inheritsId: z.string().nullable() });
+const shaderCompiledOutputSchema = z.object({ shader: z.string(), stage: z.string(), variant: z.string(), runtimePath: z.string() });
+const shaderApplyCompiledOutputsSchema = z.object({ outputs: z.array(shaderCompiledOutputSchema) });
 
 export const entityCreateRecordCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(createEntityRecordSchema, payload, (parsed) => createEntityRecordPatches(document, parsed as never));
@@ -270,6 +281,18 @@ export const assetReimportFileCommand: CommandHandler = ({ document, payload }) 
 export const assetDeleteAssetCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(assetDeleteSchema, payload, (parsed) => deleteAssetPatches(document, parsed));
 
+export const shaderReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(shaderReplaceDataSchema, payload, (parsed) => replaceShaderDataPatches(document, parsed as never));
+
+export const shaderApplyCompiledOutputsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(shaderApplyCompiledOutputsSchema, payload, (parsed) => applyShaderCompiledOutputsPatches(document, parsed));
+
+export const materialReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(materialReplaceDataSchema, payload, (parsed) => replaceMaterialDataPatches(document, parsed as never));
+
+export const materialSetInheritsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(materialSetInheritsSchema, payload, (parsed) => setMaterialInheritsPatches(document, parsed));
+
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
     'project.applyPatch': projectApplyPatchCommand,
@@ -290,6 +313,10 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'asset.renameAlias': assetRenameAliasCommand,
     'asset.reimportFile': assetReimportFileCommand,
     'asset.deleteAsset': assetDeleteAssetCommand,
+    'shader.replaceData': shaderReplaceDataCommand,
+    'shader.applyCompiledOutputs': shaderApplyCompiledOutputsCommand,
+    'material.replaceData': materialReplaceDataCommand,
+    'material.setInherits': materialSetInheritsCommand,
   };
 }
 
@@ -313,6 +340,10 @@ export function labelForCommand(type: string): string {
     case 'asset.renameAlias': return 'Rename asset alias';
     case 'asset.reimportFile': return 'Reimport asset';
     case 'asset.deleteAsset': return 'Delete asset';
+    case 'shader.replaceData': return 'Update shader';
+    case 'shader.applyCompiledOutputs': return 'Apply shader compile outputs';
+    case 'material.replaceData': return 'Update material';
+    case 'material.setInherits': return 'Set material inheritance';
     default: return type;
   }
 }

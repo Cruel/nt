@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
-import type { PackageExportOptions } from '../../shared/editor-tooling';
+import type { PackageExportOptions, ShaderCompileOptions } from '../../shared/editor-tooling';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -148,6 +148,10 @@ export function runPlaybackTest(project: unknown, testId: string) {
 
 export function exportPackage(project: unknown, outputPath: string, options?: PackageExportOptions) {
   return invokeEditorTool('export-package', { project, outputPath, options: options ?? {} });
+}
+
+export function compileShaders(shaderProject: unknown, options?: ShaderCompileOptions) {
+  return invokeEditorTool('compile-shaders', { shaderProject, options: options ?? {} });
 }
 
 export function setEntityRecord(
