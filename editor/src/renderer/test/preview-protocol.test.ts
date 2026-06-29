@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isEditorToPreviewMessage,
+  isPreviewDocument,
   isPreviewToEditorMessage,
   validatePreviewHandshake,
   type EnginePreviewSession,
@@ -21,6 +23,25 @@ describe('preview protocol validation', () => {
       position: { x: 0.5, y: 0.5 },
       pointerPosition: { x: 0.5, y: 0.5 },
     })).toBe(true);
+  });
+
+  it('accepts and rejects authoring preview protocol messages', () => {
+    const document = {
+      kind: 'symbolic',
+      target: { collection: 'materials', entityId: 'mat-a' },
+      label: 'Material A',
+    };
+    expect(isPreviewDocument(document)).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: 'material' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'request-preview-snapshot', requestId: 'r3', snapshotId: 's1' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document: { kind: 'unknown' } })).toBe(false);
+    expect(isPreviewToEditorMessage({
+      version: 1,
+      type: 'preview-diagnostic',
+      diagnostic: { severity: 'warning', message: 'Unsupported preview mode' },
+    })).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'preview-snapshot', snapshotId: 's1', dataUrl: 'data:image/png;base64,test' })).toBe(true);
   });
 
   it('rejects handshakes from the wrong source, origin, or token', () => {

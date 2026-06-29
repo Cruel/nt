@@ -3,6 +3,8 @@ import { MousePointer2, Play, RefreshCw, RotateCcw, StepForward } from 'lucide-r
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useEnginePreview } from '@/hooks/use-engine-preview';
+import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
+import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import type { PreviewPosition, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
@@ -13,6 +15,12 @@ function clamp01(value: number) {
 }
 
 export function EnginePreview() {
+  const ensurePrimaryRuntimeSession = usePreviewManagerStore((s) => s.ensurePrimaryRuntimeSession);
+  const setSessionStatus = usePreviewManagerStore((s) => s.setSessionStatus);
+  const setSessionCapabilities = usePreviewManagerStore((s) => s.setSessionCapabilities);
+  const setPrimaryTransport = usePreviewManagerStore((s) => s.setPrimaryTransport);
+  const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
+  const recordPreviewDiagnostic = usePreviewManagerStore((s) => s.recordPreviewDiagnostic);
   const previewPosition = useWorkspaceStore((s) => s.previewPosition);
   const connectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setPreviewPosition = useWorkspaceStore((s) => s.setPreviewPosition);
@@ -22,29 +30,50 @@ export function EnginePreview() {
   const setLastPreviewEvent = useWorkspaceStore((s) => s.setLastPreviewEvent);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
 
+  const recordTransportError = useCallback((message: string) => {
+    setConnectionState('error');
+    setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'error');
+    recordPreviewDiagnostic({ sessionId: PRIMARY_PREVIEW_SESSION_ID, severity: 'error', source: 'transport', message });
+    setStatusMessage(message);
+  }, [recordPreviewDiagnostic, setConnectionState, setSessionStatus, setStatusMessage]);
+
   const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
     setLastPreviewEvent(message);
+    if (message.type === 'ready' || message.type === 'capabilities') {
+      setSessionCapabilities(PRIMARY_PREVIEW_SESSION_ID, message.capabilities);
+    }
+    if (message.type === 'preview-diagnostic') {
+      recordPreviewDiagnostic({
+        sessionId: PRIMARY_PREVIEW_SESSION_ID,
+        severity: message.diagnostic.severity,
+        source: 'runtime',
+        message: message.diagnostic.message,
+        path: message.diagnostic.path,
+        target: message.diagnostic.target,
+      });
+    }
     if (message.type === 'object-clicked' && message.objectId === 'demo-triangle') {
       setSelectedRuntimeObjectId(message.objectId);
       setStatusMessage('Selected demo-triangle from engine preview');
     } else if (message.type === 'runtime-error') {
       setConnectionState('error');
+      setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'error');
+      recordPreviewDiagnostic({ sessionId: PRIMARY_PREVIEW_SESSION_ID, severity: 'error', source: 'runtime', message: message.message });
       setStatusMessage(message.message);
     }
-  }, [setConnectionState, setLastPreviewEvent, setSelectedRuntimeObjectId, setStatusMessage]);
+  }, [recordPreviewDiagnostic, setConnectionState, setLastPreviewEvent, setSelectedRuntimeObjectId, setSessionCapabilities, setSessionStatus, setStatusMessage]);
 
   const controller = useEnginePreview({
     onReady: () => {
       setConnectionState('ready');
+      setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'ready');
       setStatusMessage('Engine preview ready');
-      void controller.setPosition(useWorkspaceStore.getState().previewPosition).catch(() => undefined);
-      void (useWorkspaceStore.getState().previewRunning ? controller.play() : controller.stop()).catch(() => undefined);
+      const replay = usePreviewManagerStore.getState().replay.primaryRuntime;
+      void controller.setPosition(replay.position).catch(() => undefined);
+      void (replay.running ? controller.play() : controller.stop()).catch(() => undefined);
     },
     onMessage: handlePreviewMessage,
-    onError: (message) => {
-      setConnectionState('error');
-      setStatusMessage(message);
-    },
+    onError: recordTransportError,
   });
   const {
     iframeRef,
@@ -64,27 +93,34 @@ export function EnginePreview() {
   } = controller;
 
   useEffect(() => {
-    setConnectionState('loading');
-    loadSession().catch((error: unknown) => {
-      setConnectionState('missing');
-      setStatusMessage(error instanceof Error ? error.message : 'Engine preview build not found.');
+    ensurePrimaryRuntimeSession();
+    setPrimaryRuntimeReplay({
+      position: useWorkspaceStore.getState().previewPosition,
+      running: useWorkspaceStore.getState().previewRunning,
     });
-  }, [loadSession, setConnectionState, setStatusMessage]);
+    setConnectionState('loading');
+    setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'loading');
+    loadSession()
+      .then((nextSession) => setPrimaryTransport(nextSession))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Engine preview build not found.';
+        setConnectionState('missing');
+        setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'missing');
+        recordPreviewDiagnostic({ sessionId: PRIMARY_PREVIEW_SESSION_ID, severity: 'error', source: 'transport', message });
+        setStatusMessage(message);
+      });
+  }, [ensurePrimaryRuntimeSession, loadSession, recordPreviewDiagnostic, setConnectionState, setPrimaryRuntimeReplay, setPrimaryTransport, setSessionStatus, setStatusMessage]);
 
   useEffect(() => {
     const handlePlay = () => {
       setPreviewRunning(true);
-      void sendPlay().catch((error: Error) => {
-        setConnectionState('error');
-        setStatusMessage(error.message);
-      });
+      setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition, running: true });
+      void sendPlay().catch((error: Error) => recordTransportError(error.message));
     };
     const handleStop = () => {
       setPreviewRunning(false);
-      void sendStop().catch((error: Error) => {
-        setConnectionState('error');
-        setStatusMessage(error.message);
-      });
+      setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition, running: false });
+      void sendStop().catch((error: Error) => recordTransportError(error.message));
     };
     window.addEventListener('noveltea-preview-toolbar-play', handlePlay);
     window.addEventListener('noveltea-preview-toolbar-stop', handleStop);
@@ -92,32 +128,33 @@ export function EnginePreview() {
       window.removeEventListener('noveltea-preview-toolbar-play', handlePlay);
       window.removeEventListener('noveltea-preview-toolbar-stop', handleStop);
     };
-  }, [sendPlay, sendStop, setConnectionState, setPreviewRunning, setStatusMessage]);
+  }, [recordTransportError, sendPlay, sendStop, setPreviewRunning, setPrimaryRuntimeReplay]);
 
   const updatePosition = useCallback((position: PreviewPosition) => {
     const next = { x: clamp01(position.x), y: clamp01(position.y) };
     setPreviewPosition(next);
-    void setPosition(next).catch((error: Error) => {
-      setConnectionState('error');
-      setStatusMessage(error.message);
-    });
-  }, [setConnectionState, setPosition, setPreviewPosition, setStatusMessage]);
+    setPrimaryRuntimeReplay({ position: next, running: useWorkspaceStore.getState().previewRunning });
+    void setPosition(next).catch((error: Error) => recordTransportError(error.message));
+  }, [recordTransportError, setPosition, setPreviewPosition, setPrimaryRuntimeReplay]);
 
   const reload = () => {
     setConnectionState('loading');
-    void loadSession(true).catch((error: unknown) => {
-      setConnectionState('missing');
-      setStatusMessage(error instanceof Error ? error.message : 'Engine preview build not found.');
-    });
+    setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'loading');
+    void loadSession(true)
+      .then((nextSession) => setPrimaryTransport(nextSession))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Engine preview build not found.';
+        setConnectionState('missing');
+        setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'missing');
+        recordPreviewDiagnostic({ sessionId: PRIMARY_PREVIEW_SESSION_ID, severity: 'error', source: 'transport', message });
+        setStatusMessage(message);
+      });
   };
 
   const sendRuntimeCommand = (command: Promise<void>, label: string) => {
     void command
       .then(() => setStatusMessage(label))
-      .catch((error: Error) => {
-        setConnectionState('error');
-        setStatusMessage(error.message);
-      });
+      .catch((error: Error) => recordTransportError(error.message));
   };
 
   return (
@@ -162,11 +199,11 @@ export function EnginePreview() {
             src={session.url}
             sandbox="allow-scripts allow-same-origin"
             className="h-full w-full border-0"
-            onLoad={() => setConnectionState('connecting')}
-            onError={() => {
-              setConnectionState('error');
-              setStatusMessage('Engine preview iframe failed to load.');
+            onLoad={() => {
+              setConnectionState('connecting');
+              setSessionStatus(PRIMARY_PREVIEW_SESSION_ID, 'connecting');
             }}
+            onError={() => recordTransportError('Engine preview iframe failed to load.')}
           />
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">

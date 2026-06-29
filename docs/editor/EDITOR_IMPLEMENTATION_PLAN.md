@@ -1028,25 +1028,17 @@ inheritance, and explicit `$ref` usages with source-record open actions.
 
 ### Milestone 5: Preview Manager Foundation
 
-Goal: make preview scalable before multiple entity editors depend on it.
+Status: complete.
 
-Tasks:
-
-1. Add `PreviewManager` renderer service.
-2. Model preview sessions and capabilities.
-3. Support primary runtime preview session.
-4. Support entity preview sessions with bounded pooling.
-5. Add authoring-preview protocol messages.
-6. Add preview state replay after reload.
-7. Add preview diagnostics panel integration.
-8. Add thumbnail request/cache skeleton.
-
-Acceptance criteria:
-
-- Existing preview continues to work.
-- A tab can request an entity preview through `PreviewManager`.
-- Preview errors surface in bottom panel.
-- Multiple preview consumers do not blindly spawn unlimited iframes.
+Milestone 5 introduced a renderer-side `PreviewManager` foundation so preview
+ownership is no longer just ad hoc React component state. The manager now models
+preview sessions, capabilities, diagnostics, primary runtime replay state,
+bounded entity preview requests, and thumbnail request/cache state. The existing
+primary iframe preview is still the visible runtime preview, but it now mirrors
+connection state, capabilities, transport errors, runtime diagnostics, and replay
+state through the manager. The shared preview protocol now includes explicit
+authoring-preview messages and validators, and the workbench has a dedicated
+Preview Diagnostics bottom panel.
 
 ### Milestone 6: Assets Editor V1
 

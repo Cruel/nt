@@ -130,6 +130,10 @@ Clicks outside the triangle produce no event.
   - `editor/src/shared/preview-protocol.ts`
 - React MessageChannel controller:
   - `editor/src/renderer/hooks/use-engine-preview.ts`
+- Preview manager/session policy:
+  - `editor/src/renderer/preview/preview-types.ts`
+  - `editor/src/renderer/preview/preview-manager.ts`
+  - `editor/src/renderer/preview/preview-manager-store.ts`
 - Preview iframe component:
   - `editor/src/renderer/components/engine-preview.tsx`
 - Editor state:
@@ -169,6 +173,11 @@ Editor to preview:
 - `runtime-select-object`
 - `runtime-clear-object-selection`
 - `runtime-run-action`
+- `load-preview-document`
+- `update-preview-document`
+- `set-preview-mode`
+- `request-preview-state`
+- `request-preview-snapshot`
 
 Preview to editor:
 
@@ -177,10 +186,27 @@ Preview to editor:
 - `state`
 - `object-clicked`
 - `runtime-error`
+- `capabilities`
+- `preview-state`
+- `preview-snapshot`
+- `preview-diagnostic`
+- `preview-object-selected`
+- `preview-object-hovered`
 
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 The `set-demo-position` and `reset-demo` commands remain compatibility commands
 for the current sandbox preview. New editor UI should prefer runtime-named
+commands.
+
+The renderer-side `PreviewManager` owns preview session records, bounded entity
+preview requests, manager diagnostics, replay state, and thumbnail request/cache
+state. The low-level hook remains the MessageChannel transport adapter; React
+editor tabs should request preview ownership through the manager instead of
+creating arbitrary iframe transports.
+
+Authoring-preview messages are explicit typed protocol messages. Engines or
+shells that do not yet implement a mode should return a failed `command-result`
+or a `preview-diagnostic`; they should not accept generic eval or arbitrary JSON
 commands.
 
 ## Adding Editor To Engine Commands

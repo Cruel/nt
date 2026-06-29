@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EnginePreview } from '@/components/engine-preview';
+import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
+import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
 class FakePort {
@@ -32,6 +34,7 @@ beforeEach(() => {
       ports.push(this.port1, this.port2);
     }
   });
+  usePreviewManagerStore.getState().resetPreviewManager();
   useWorkspaceStore.setState({
     previewPosition: { x: 0.5, y: 0.5 },
     previewRunning: true,
@@ -82,6 +85,10 @@ describe('EnginePreview', () => {
       requestId: expect.any(String),
       position: { x: 0.25, y: 0.75 },
     });
+    expect(usePreviewManagerStore.getState().sessionsById[PRIMARY_PREVIEW_SESSION_ID]).toMatchObject({
+      kind: 'primary-runtime',
+      status: 'ready',
+    });
   });
 
   it('demo coordinate input updates Zustand and sends a compatibility command', async () => {
@@ -91,6 +98,7 @@ describe('EnginePreview', () => {
     await user.clear(input);
     await user.type(input, '0.75');
     expect(useWorkspaceStore.getState().previewPosition.x).toBeCloseTo(0.75);
+    expect(usePreviewManagerStore.getState().replay.primaryRuntime.position.x).toBeCloseTo(0.75);
     expect(editorPort.sent).toContainEqual({
       version: 1,
       type: 'set-demo-position',
@@ -123,6 +131,15 @@ describe('EnginePreview', () => {
     });
     expect(useWorkspaceStore.getState().selectedRuntimeObjectId).toBe('demo-triangle');
     expect(useWorkspaceStore.getState().statusMessage).toBe('Selected demo-triangle from engine preview');
+  });
+
+  it('runtime errors are recorded as preview diagnostics', async () => {
+    const { previewPort } = await renderConnectedPreview();
+    await act(async () => {
+      previewPort.postMessage({ version: 1, type: 'runtime-error', message: 'preview failed' });
+    });
+    const diagnostics = usePreviewManagerStore.getState().diagnosticOrder.map((id) => usePreviewManagerStore.getState().diagnosticsById[id]);
+    expect(diagnostics[0]).toMatchObject({ severity: 'error', source: 'runtime', message: 'preview failed' });
   });
 
   it('reload cleanup closes the previous MessagePort', async () => {

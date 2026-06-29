@@ -9,6 +9,7 @@ import {
   useBottomPanelStore,
 } from './bottom-panel-store';
 import { ReferencesPanel } from './ReferencesPanel';
+import { PreviewDiagnosticsPanel } from './PreviewDiagnosticsPanel';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -127,6 +128,8 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
       return <OutputPanel />;
     case 'preview-events':
       return <PreviewEventsPanel />;
+    case 'preview-diagnostics':
+      return <PreviewDiagnosticsPanel />;
     case 'test-playback':
       return <TestPlaybackPanel />;
     case 'references':

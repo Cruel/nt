@@ -3,6 +3,8 @@ import {
   PREVIEW_PROTOCOL_VERSION,
   type EditorToPreviewMessage,
   type EnginePreviewSession,
+  type PreviewDocument,
+  type PreviewMode,
   type PreviewPosition,
   type PreviewToEditorMessage,
   isPreviewToEditorMessage,
@@ -153,5 +155,10 @@ export function useEnginePreview({
     play: () => send({ type: 'play' }),
     stop: () => send({ type: 'stop' }),
     requestState: () => send({ type: 'request-state' }),
+    loadPreviewDocument: (document: PreviewDocument) => send({ type: 'load-preview-document', document }),
+    updatePreviewDocument: (document: PreviewDocument) => send({ type: 'update-preview-document', document }),
+    setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
+    requestPreviewState: () => send({ type: 'request-preview-state' }),
+    requestPreviewSnapshot: (snapshotId: string) => send({ type: 'request-preview-snapshot', snapshotId }),
   }), [cleanupPort, iframeKey, loadSession, send, session]);
 }

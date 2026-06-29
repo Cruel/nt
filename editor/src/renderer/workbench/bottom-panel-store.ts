@@ -4,6 +4,7 @@ export type BottomPanelId =
   | 'problems'
   | 'output'
   | 'preview-events'
+  | 'preview-diagnostics'
   | 'test-playback'
   | 'references'
   | 'shader-compile'
@@ -19,6 +20,7 @@ export const bottomPanelDefinitions: BottomPanelDefinition[] = [
   { id: 'problems', label: 'Problems' },
   { id: 'output', label: 'Output' },
   { id: 'preview-events', label: 'Preview Events' },
+  { id: 'preview-diagnostics', label: 'Preview Diagnostics' },
   { id: 'test-playback', label: 'Test Playback' },
   { id: 'references', label: 'References' },
   { id: 'shader-compile', label: 'Shader Compile' },
