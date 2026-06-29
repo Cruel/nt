@@ -1,6 +1,6 @@
 # Migration Status
 
-Last updated: 2026-06-28.
+Last updated: 2026-06-29.
 
 ## Completed Foundation
 
@@ -29,6 +29,8 @@ Last updated: 2026-06-28.
 - Editor preview and recorded test playback: `RuntimePlaybackSession` runs backend-neutral specs and the Electron workspace can list/run playback tests and export packages through `noveltea-editor-tool`.
 - Package writing/export: `.ntpkg` runtime packages include legacy-compatible entries, `manifest.json`, safe asset filtering, checksums, and compiled shader variants.
 - Editor Integration V1: Electron/TanStack workspace talks to `noveltea-editor-tool` for project load/import, validation, raw entity edits, playback tests, package export, and preview controls.
+- Editor planning baseline: `docs/editor/EDITOR_IMPLEMENTATION_PLAN.md` defines the new workbench, command/undo, preview, schema, and phased editor rollout plan, and `docs/editor/EDITOR_TECH_STACK.md` defines standard editor-side component/dependency choices.
+- Editor Milestone 1 workbench shell: the Electron workspace now uses a tab/group/split workbench model, editor registry, tab-hosted primary preview, fallback raw JSON record tabs, project explorer record opening, and a global bottom panel for problems/output/preview/test/export/command-history surfaces.
 
 ## Active Gaps
 

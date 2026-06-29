@@ -21,6 +21,25 @@ function run(command, args) {
 }
 
 const configureArgs = ['--preset', 'web-release'];
+const localRmluiBgfxDir = path.join(repoRoot, 'rmlui-bgfx');
+if (process.env.NOVELTEA_USE_LOCAL_RMLUI_BGFX === 'ON') {
+  configureArgs.push('-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON');
+  configureArgs.push(
+    `-DNOVELTEA_LOCAL_RMLUI_BGFX_DIR=${process.env.NOVELTEA_LOCAL_RMLUI_BGFX_DIR ?? localRmluiBgfxDir}`,
+  );
+} else {
+  try {
+    const { statSync } = await import('node:fs');
+    if (statSync(localRmluiBgfxDir).isDirectory()) {
+      console.log(`[preview] using local rmlui-bgfx checkout at ${localRmluiBgfxDir}`);
+      configureArgs.push('-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON');
+      configureArgs.push(`-DNOVELTEA_LOCAL_RMLUI_BGFX_DIR=${localRmluiBgfxDir}`);
+    }
+  } catch {
+    // No local checkout; use the configured external dependency.
+  }
+}
+
 if (process.env.NOVELTEA_PREBUILT_SHADER_ASSET_ROOT) {
   configureArgs.push(
     '-DNOVELTEA_COMPILE_SHADERS=OFF',
@@ -33,11 +52,14 @@ if (configure !== 0) {
   process.exit(configure);
 }
 
-const build = await run('cmake', [
+const buildArgs = [
   '--build',
   '--preset',
   'web-release',
   '--target',
   'noveltea-sandbox',
-]);
+  '--parallel',
+];
+
+const build = await run('cmake', buildArgs);
 process.exit(build);
