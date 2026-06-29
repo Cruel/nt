@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { buildJsonPointer, getJsonAtPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { isJsonArray, isJsonObject, toJsonValue, type JsonValue } from '@/project/json-value';
+import {
+  createEntityRecordPatches,
+  deleteEntityRecordPatches,
+  duplicateEntityRecordPatches,
+  renameEntityIdPatches,
+  setEntityParentPatches,
+  updateEntityMetadataPatches,
+} from '@/project/entity-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
@@ -148,14 +156,75 @@ export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }
 export const rawJsonReplaceRecordCommand = entityReplaceRecordCommand;
 
 export const entityDeleteRecordCommand: CommandHandler = ({ document, payload }) => {
-  const parsed = parsePayload(deleteRecordSchema, payload);
+  const parsed = parsePayload(deleteRecordSchema.extend({ force: z.boolean().optional() }), payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
-  const path = buildJsonPointer([parsed.value.collection, parsed.value.entityId]);
-  if (!hasJsonAtPointer(document, path)) {
-    return { patches: [], diagnostics: [error('Entity record does not exist.', path)] };
-  }
-  return { patches: [{ op: 'remove', path }], affectedPaths: [path] };
+  return deleteEntityRecordPatches(document, parsed.value as never);
 };
+
+function parseEntityCommand<T>(schema: z.ZodType<T>, payload: unknown, createResult: (payload: T) => CommandHandlerResult): CommandHandlerResult {
+  const parsed = parsePayload(schema, payload);
+  if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
+  return createResult(parsed.value);
+}
+
+const authoringCollectionSchema = z.string().min(1);
+const entityIdSchema = z.string().min(1);
+
+const createEntityRecordSchema = z.object({
+  collection: authoringCollectionSchema,
+  entityId: entityIdSchema,
+  label: z.string().optional(),
+  description: z.string().optional(),
+  parent: z.object({ collection: z.string(), id: z.string() }).nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  color: z.string().nullable().optional(),
+  data: z.unknown().optional(),
+});
+
+const renameEntityIdSchema = z.object({
+  collection: authoringCollectionSchema,
+  fromId: entityIdSchema,
+  toId: entityIdSchema,
+  label: z.string().optional(),
+});
+
+const duplicateEntityRecordSchema = z.object({
+  collection: authoringCollectionSchema,
+  sourceId: entityIdSchema,
+  targetId: entityIdSchema,
+  label: z.string().optional(),
+});
+
+const updateEntityMetadataSchema = z.object({
+  collection: authoringCollectionSchema,
+  entityId: entityIdSchema,
+  label: z.string().optional(),
+  description: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  color: z.string().nullable().optional(),
+  sortKey: z.string().nullable().optional(),
+});
+
+const setEntityParentSchema = z.object({
+  collection: authoringCollectionSchema,
+  entityId: entityIdSchema,
+  parentId: z.string().nullable(),
+});
+
+export const entityCreateRecordCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(createEntityRecordSchema, payload, (parsed) => createEntityRecordPatches(document, parsed as never));
+
+export const entityRenameIdCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(renameEntityIdSchema, payload, (parsed) => renameEntityIdPatches(document, parsed as never));
+
+export const entityDuplicateRecordCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(duplicateEntityRecordSchema, payload, (parsed) => duplicateEntityRecordPatches(document, parsed as never));
+
+export const entityUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(updateEntityMetadataSchema, payload, (parsed) => updateEntityMetadataPatches(document, parsed as never));
+
+export const entitySetParentCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(setEntityParentSchema, payload, (parsed) => setEntityParentPatches(document, parsed as never));
 
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
@@ -165,7 +234,12 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.removeAtPath': projectRemoveAtPathCommand,
     'rawJson.replaceRecord': rawJsonReplaceRecordCommand,
     'entity.replaceRecord': entityReplaceRecordCommand,
+    'entity.createRecord': entityCreateRecordCommand,
+    'entity.renameId': entityRenameIdCommand,
+    'entity.duplicateRecord': entityDuplicateRecordCommand,
     'entity.deleteRecord': entityDeleteRecordCommand,
+    'entity.updateMetadata': entityUpdateMetadataCommand,
+    'entity.setParent': entitySetParentCommand,
   };
 }
 
@@ -183,8 +257,18 @@ export function labelForCommand(type: string): string {
       return 'Replace raw JSON record';
     case 'entity.replaceRecord':
       return 'Replace entity record';
+    case 'entity.createRecord':
+      return 'Create entity record';
+    case 'entity.renameId':
+      return 'Rename entity ID';
+    case 'entity.duplicateRecord':
+      return 'Duplicate entity record';
     case 'entity.deleteRecord':
       return 'Delete entity record';
+    case 'entity.updateMetadata':
+      return 'Update entity metadata';
+    case 'entity.setParent':
+      return 'Set entity parent';
     default:
       return type;
   }

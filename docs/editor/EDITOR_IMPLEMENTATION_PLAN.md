@@ -1015,24 +1015,16 @@ index skeleton for entrypoint, parent, inheritance, and explicit `$ref` usages.
 
 ### Milestone 4: Project Explorer and Entity Operations
 
-Goal: make basic project authoring possible before specialized editors land.
+Status: complete.
 
-Tasks:
-
-1. Create entity/folder nodes from new schema.
-2. Add create/rename/delete/duplicate commands.
-3. Add parent assignment where supported.
-4. Add color/tag/label metadata.
-5. Add reference-aware delete warnings.
-6. Add find usages entry points.
-7. Add raw JSON fallback editor for any record.
-
-Acceptance criteria:
-
-- Users can create, rename, duplicate, delete, and open records.
-- Rename ID updates references for supported reference types.
-- Delete warns about references.
-- Parent cycles are prevented or diagnosed.
+Milestone 4 made basic authoring operations available before specialized entity
+editors. The editor now has authoring-aware entity commands for create, rename
+ID, duplicate, reference-aware delete, metadata updates, and same-collection
+parent assignment; rename rewrites supported references transactionally;
+reference-aware deletes require force when usages exist; the project explorer has
+row/folder actions and lightweight operation dialogs; raw JSON tabs expose Find
+Usages; and a global References bottom panel shows entrypoint, parent,
+inheritance, and explicit `$ref` usages with source-record open actions.
 
 ### Milestone 5: Preview Manager Foundation
 

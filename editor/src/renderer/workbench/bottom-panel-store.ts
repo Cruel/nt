@@ -5,6 +5,7 @@ export type BottomPanelId =
   | 'output'
   | 'preview-events'
   | 'test-playback'
+  | 'references'
   | 'shader-compile'
   | 'package-export'
   | 'command-history';
@@ -19,6 +20,7 @@ export const bottomPanelDefinitions: BottomPanelDefinition[] = [
   { id: 'output', label: 'Output' },
   { id: 'preview-events', label: 'Preview Events' },
   { id: 'test-playback', label: 'Test Playback' },
+  { id: 'references', label: 'References' },
   { id: 'shader-compile', label: 'Shader Compile' },
   { id: 'package-export', label: 'Package Export' },
   { id: 'command-history', label: 'Command History' },

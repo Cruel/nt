@@ -33,6 +33,7 @@ Last updated: 2026-06-29.
 - Editor Milestone 1 workbench shell: the Electron workspace now uses a tab/group/split workbench model, editor registry, tab-hosted primary preview, fallback raw JSON record tabs, project explorer record opening, and a global bottom panel for problems/output/preview/test/export/command-history surfaces.
 - Editor Milestone 2 command foundation: the Electron workspace now has a dedicated project store, tested JSON pointer/patch helpers, a command bus with history/transactions/undo/redo, command-backed raw JSON record editing, explicit save/save-as IPC through the main process, dirty-state tracking from command history, and bottom-panel command history diagnostics.
 - Editor Milestone 3 authoring schema skeleton: the Electron workspace now has a new-engine-first authoring project schema v1 in shared TypeScript/zod code, `layouts` collection naming, empty project creation, local authoring validation diagnostics, authoring project tree grouping, unsaved new-project dirty state, disabled playback/export until authoring-to-runtime conversion exists, and a reference-index skeleton for entrypoint/parent/inherits/explicit references.
+- Editor Milestone 4 project explorer and entity operations: the Electron workspace now supports command-backed authoring record create, rename ID, duplicate, reference-aware delete, metadata update, same-collection parent assignment, Find Usages, a References bottom panel, and raw JSON fallback opening for new schema records.
 
 ## Active Gaps
 

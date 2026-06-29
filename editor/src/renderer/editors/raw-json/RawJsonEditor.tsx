@@ -2,8 +2,14 @@ import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCommandStore } from '@/commands/command-store';
+import { referenceTargetFromEntity } from '@/project/entity-operations';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useProjectStore } from '@/project/project-store';
+import { buildReferenceIndex, findUsages } from '@/project/reference-index';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { isAuthoringCollectionKey } from '../../../shared/project-schema/authoring-collections';
+import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,11 +25,22 @@ function lookupRecord(project: unknown, collection: string | undefined, entityId
 export function RawJsonEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
+  const setUsages = useEntityUsagesStore((state) => state.setUsages);
+  const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const record = lookupRecord(project, tab.resource?.collection, tab.resource?.entityId);
   const formattedRecord = useMemo(() => JSON.stringify(record, null, 2), [record]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(formattedRecord);
   const [error, setError] = useState<string | null>(null);
+
+  function findRecordUsages() {
+    const collection = tab.resource?.collection;
+    const entityId = tab.resource?.entityId;
+    if (!collection || !entityId || !isAuthoringCollectionKey(collection) || !isAuthoringProject(project)) return;
+    const target = referenceTargetFromEntity({ collection, entityId });
+    setUsages(target, findUsages(buildReferenceIndex(project), target));
+    setActiveBottomPanel('references');
+  }
 
   function startEditing() {
     setDraft(formattedRecord);
@@ -72,6 +89,9 @@ export function RawJsonEditor({ tab }: WorkbenchEditorProps) {
               : 'No record resource'}
           </div>
         </div>
+        <Button size="sm" variant="ghost" onClick={findRecordUsages} disabled={record === null}>
+          Find Usages
+        </Button>
         <Button size="sm" variant={editing ? 'secondary' : 'outline'} onClick={editing ? applyDraft : startEditing} disabled={record === null}>
           {editing ? 'Apply' : 'Edit JSON'}
         </Button>

@@ -8,6 +8,7 @@ import {
   type BottomPanelId,
   useBottomPanelStore,
 } from './bottom-panel-store';
+import { ReferencesPanel } from './ReferencesPanel';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -128,6 +129,8 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
       return <PreviewEventsPanel />;
     case 'test-playback':
       return <TestPlaybackPanel />;
+    case 'references':
+      return <ReferencesPanel />;
     case 'shader-compile':
       return <EmptyPanel label="Shader compile diagnostics will appear here once the shader/material editor is implemented." />;
     case 'package-export':

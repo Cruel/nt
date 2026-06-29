@@ -213,6 +213,16 @@ function WorkspacePage() {
     return () => window.clearTimeout(timer);
   });
 
+  useEffect(() => {
+    if (!project) {
+      setProject(null);
+      setDiagnostics([]);
+      return;
+    }
+    setProject(project);
+    setDiagnostics(isAuthoringProject(project) ? validateAuthoringProject(project) : unsupportedProjectDiagnostics());
+  }, [project, setProject, setDiagnostics]);
+
   function validate() {
     if (!project) return;
     const diagnostics = isAuthoringProject(project) ? validateAuthoringProject(project) : unsupportedProjectDiagnostics();

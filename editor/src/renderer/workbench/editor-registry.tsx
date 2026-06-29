@@ -58,15 +58,24 @@ export function buildRawJsonResource(node: AssetNode): WorkbenchResource | null 
   };
 }
 
+export function buildRawJsonTabForRecord(collection: string, entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:raw-json:record:${collection}:${entityId}`,
+    title,
+    editorType: 'raw-json',
+    resource: {
+      kind: 'record',
+      stableId: `record:${collection}:${entityId}`,
+      collection,
+      entityId,
+    },
+  };
+}
+
 export function buildRawJsonTab(node: AssetNode): WorkbenchTab | null {
   const resource = buildRawJsonResource(node);
   if (!resource) return null;
-  return {
-    id: `tab:raw-json:${resource.stableId}`,
-    title: node.entityId ?? node.label,
-    editorType: 'raw-json',
-    resource,
-  };
+  return buildRawJsonTabForRecord(resource.collection!, resource.entityId!, node.entityId ?? node.label);
 }
 
 export function buildPrimaryPreviewTab(): WorkbenchTab {
