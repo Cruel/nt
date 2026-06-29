@@ -157,6 +157,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.perf_logging = true;
         } else if (std::strcmp(arg, "--rmlui-base-direct-compat") == 0) {
             options.rmlui_base_direct_compat = true;
+        } else if (std::strcmp(arg, "--no-audio") == 0) {
+            options.no_audio = true;
         } else if (std::strcmp(arg, "--audio-sfx") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "[app] --audio-sfx requires an asset path\n");
@@ -198,6 +200,7 @@ bool App::initialize(int argc, char* argv[])
     run_config.enable_debug_ui = !options.no_imgui;
     run_config.render_perf_logging = options.perf_logging;
     run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
+    run_config.enable_audio = !options.no_audio;
     run_config.audio_sfx_paths = options.audio_sfx_paths;
     run_config.audio_track_specs = options.audio_track_specs;
 

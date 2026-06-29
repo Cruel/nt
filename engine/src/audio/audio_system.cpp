@@ -62,6 +62,7 @@ void AudioSystem::shutdown()
     }
     m_assets = nullptr;
     m_initialized = false;
+    m_paused = false;
 }
 
 AudioBackendInfo AudioSystem::backend_info() const
@@ -82,7 +83,7 @@ AudioSystem::load_audio(const assets::AudioAssetRequest& request)
 
 AudioVoiceHandle AudioSystem::play(AudioClipHandle clip, AudioPlaybackDesc desc)
 {
-    if (!m_backend || !m_initialized || !clip)
+    if (!m_backend || !m_initialized || m_paused || !clip)
         return {};
     desc.volume = clamp_volume(desc.volume);
     return m_backend->play(clip, desc);
@@ -106,6 +107,22 @@ void AudioSystem::set_bus_volume(AudioBus bus, float volume)
 {
     if (m_backend && m_initialized) {
         m_backend->set_bus_volume(bus, clamp_volume(volume));
+    }
+}
+
+void AudioSystem::pause()
+{
+    if (m_backend && m_initialized && !m_paused) {
+        m_backend->pause();
+        m_paused = true;
+    }
+}
+
+void AudioSystem::resume()
+{
+    if (m_backend && m_initialized && m_paused) {
+        m_backend->resume();
+        m_paused = false;
     }
 }
 

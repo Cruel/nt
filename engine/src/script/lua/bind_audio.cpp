@@ -155,6 +155,20 @@ void bind_audio(lua_State* state, AudioSystem* audio)
         }
         audio_system->set_bus_volume(parse_bus(bus), volume);
     });
+    table.set_function("pause", [](sol::this_state L) {
+        AudioSystem* audio_system = audio_from(sol::state_view(L));
+        if (audio_system)
+            audio_system->pause();
+    });
+    table.set_function("resume", [](sol::this_state L) {
+        AudioSystem* audio_system = audio_from(sol::state_view(L));
+        if (audio_system)
+            audio_system->resume();
+    });
+    table.set_function("paused", [](sol::this_state L) -> bool {
+        AudioSystem* audio_system = audio_from(sol::state_view(L));
+        return audio_system ? audio_system->paused() : true;
+    });
 
     lua["audio"] = table;
 }

@@ -413,13 +413,14 @@ Completed in the first usable audio slice:
 - Added exported browser/editor audio entry points for user-gesture playback of SFX, tracks, and track stopping.
 - Added Lua `audio` bindings for SFX playback, track playback, track stopping, and bus volume. The sandbox RmlUi demo now includes a pitch slider and button that calls `audio.play_sfx("project:/audio/notification.mp3", { pitch = ... })` from Lua.
 - Added a generic typed `ResourceAliasRegistry` with JSON manifest parsing for audio, textures, and materials. `AssetManager` can load `project:/resources/aliases.json`, resolve typed audio/texture/material aliases, and Lua can call `audio.play_sfx_alias()` / `audio.play_track_alias()`. The sandbox demo now uses `ui.notification` instead of hard-coding the MP3 path.
+- Added explicit `--no-audio`, backend-neutral pause/resume, miniaudio engine pause/resume, Lua `audio.pause()` / `audio.resume()` / `audio.paused()`, SDL lifecycle pause/resume handling, and basic successful clip/voice telemetry.
 
 Remaining work after this pass:
 
 - Add first-class Web UI/editor controls beyond the sandbox demo that call exported audio functions from a user click/tap, because browser WebAudio playback may be blocked until a user gesture unlocks audio.
-- Add stronger diagnostics/telemetry for successful clip load and voice start events.
+- Expand diagnostics/telemetry beyond current successful clip load and voice start logs, especially underrun/device-state reporting.
 - Revisit true streaming for registered in-memory project assets. The current miniaudio path deliberately avoids `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM` for registered encoded data because that flag makes miniaudio look for a backing file path; project assets are loaded from `AssetManager` bytes instead.
-- Add pause/resume integration and user-facing runtime audio commands/events beyond aliases.
+- Add user-facing runtime audio commands/events beyond aliases.
 
 ## Implementation Slices
 

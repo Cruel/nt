@@ -441,6 +441,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     m_frame_limit = run_config.frame_limit;
     m_demo_mode = run_config.demo_mode;
     m_screenshot_path = run_config.screenshot_path;
+    m_audio_enabled = run_config.enable_audio;
     m_resize_sequence = run_config.resize_sequence;
     m_resize_sequence_index = 0;
     if (!m_resize_sequence.empty() && run_config.readback_after_resize_frames > 0 &&
@@ -524,10 +525,15 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         std::printf("[assets] resource aliases not loaded: %s\n", aliases.error.c_str());
     }
 
-    if (m_audio.initialize(m_assets)) {
-        m_assets.bind_audio_loader(&m_audio);
-        audio_bound = true;
+    if (m_audio_enabled) {
+        if (m_audio.initialize(m_assets)) {
+            m_assets.bind_audio_loader(&m_audio);
+            audio_bound = true;
+        } else {
+            m_assets.bind_audio_loader(nullptr);
+        }
     } else {
+        std::printf("[audio] disabled by run configuration\n");
         m_assets.bind_audio_loader(nullptr);
     }
     m_shader_materials = make_demo_shader_materials();
@@ -715,6 +721,18 @@ void Engine::handle_events()
         switch (event.type) {
         case SDL_EVENT_QUIT:
             m_platform.request_quit();
+            break;
+
+        case SDL_EVENT_WINDOW_MINIMIZED:
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+        case SDL_EVENT_DID_ENTER_BACKGROUND:
+            m_audio.pause();
+            break;
+
+        case SDL_EVENT_WINDOW_RESTORED:
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        case SDL_EVENT_DID_ENTER_FOREGROUND:
+            m_audio.resume();
             break;
 
         case SDL_EVENT_KEY_DOWN:

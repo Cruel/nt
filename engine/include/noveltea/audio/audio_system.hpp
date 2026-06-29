@@ -32,6 +32,9 @@ public:
     void stop(AudioVoiceHandle voice);
     void set_volume(AudioVoiceHandle voice, float volume);
     void set_bus_volume(AudioBus bus, float volume);
+    void pause();
+    void resume();
+    [[nodiscard]] bool paused() const noexcept { return m_paused; }
 
     [[nodiscard]] AudioVoiceHandle play_sfx(const std::string& path, AudioSfxDesc desc = {});
     [[nodiscard]] AudioVoiceHandle play_sfx_alias(const std::string& alias, AudioSfxDesc desc = {});
@@ -64,6 +67,7 @@ private:
     std::unique_ptr<AudioBackend> m_backend;
     const assets::AssetManager* m_assets = nullptr;
     bool m_initialized = false;
+    bool m_paused = false;
     uint32_t m_next_track_handle = 1;
     std::vector<ManagedVoice> m_sfx_voices;
     std::unordered_map<AudioTrackId, std::vector<ManagedVoice>> m_tracks;

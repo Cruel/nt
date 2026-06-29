@@ -67,6 +67,8 @@ public:
         last_bus = bus;
         last_bus_volume = volume;
     }
+    void pause() override { ++pause_count; }
+    void resume() override { ++resume_count; }
     bool voice_active(AudioVoiceHandle voice) const override { return static_cast<bool>(voice); }
     void collect_finished_voices() override {}
 
@@ -78,6 +80,8 @@ public:
     std::vector<AudioVoiceHandle> stopped;
     AudioBus last_bus = AudioBus::Master;
     float last_bus_volume = 1.0f;
+    uint32_t pause_count = 0;
+    uint32_t resume_count = 0;
 };
 
 } // namespace
@@ -277,6 +281,10 @@ TEST_CASE("ScriptRuntime exposes audio playback bindings")
             max_simultaneous = 2,
         })
         audio.set_bus_volume("music", 0.25)
+        audio.pause()
+        paused_after_pause = audio.paused()
+        audio.resume()
+        paused_after_resume = audio.paused()
     )",
                                     "audio_bindings"));
 
@@ -293,6 +301,16 @@ TEST_CASE("ScriptRuntime exposes audio playback bindings")
     CHECK_FALSE(backend_ptr->played[0].desc.loop);
     CHECK(backend_ptr->last_bus == AudioBus::Music);
     CHECK(backend_ptr->last_bus_volume == 0.25f);
+    CHECK(backend_ptr->pause_count == 1);
+    CHECK(backend_ptr->resume_count == 1);
+    auto paused_after_pause =
+        fixture.runtime.evaluate_bool("paused_after_pause", "paused_after_pause");
+    REQUIRE(paused_after_pause);
+    CHECK(*paused_after_pause.value);
+    auto paused_after_resume =
+        fixture.runtime.evaluate_bool("paused_after_resume", "paused_after_resume");
+    REQUIRE(paused_after_resume);
+    CHECK_FALSE(*paused_after_resume.value);
 }
 
 TEST_CASE("ScriptRuntime executes scripts through AssetManager logical paths")

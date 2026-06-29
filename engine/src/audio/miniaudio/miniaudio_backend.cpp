@@ -136,6 +136,7 @@ public:
         m_clip_lookup.clear();
         m_next_clip_id = 1;
         m_next_voice_id = 1;
+        m_pause_depth = 0;
     }
 
     assets::AssetResult<assets::AudioAsset>
@@ -186,6 +187,10 @@ public:
         m_clips.emplace(handle.id, std::move(clip));
         m_clip_lookup.emplace(key, handle);
         const Clip& stored = m_clips.at(handle.id);
+        std::fprintf(stderr,
+                     "[audio:miniaudio] loaded clip id=%u path='%s' bytes=%zu mode=%d kind=%d\n",
+                     handle.id, stored.path.c_str(), stored.bytes.size(),
+                     static_cast<int>(stored.mode), static_cast<int>(stored.kind));
         return {assets::AudioAsset{
                     .clip = handle, .path = stored.path, .mode = stored.mode, .kind = stored.kind},
                 {}};
@@ -241,6 +246,11 @@ public:
 
         const AudioVoiceHandle handle{m_next_voice_id++};
         m_voices.emplace(handle.id, std::move(voice));
+        std::fprintf(stderr,
+                     "[audio:miniaudio] started voice id=%u clip=%u path='%s' bus=%d volume=%.3f "
+                     "pitch=%.3f loop=%d\n",
+                     handle.id, clip_handle.id, clip.path.c_str(), static_cast<int>(desc.bus),
+                     desc.volume, desc.pitch, desc.loop ? 1 : 0);
         return handle;
     }
 
@@ -269,6 +279,38 @@ public:
         ma_sound_group* group = group_for(bus);
         if (group) {
             ma_sound_group_set_volume(group, volume);
+        }
+    }
+
+    void pause() override
+    {
+        if (!m_initialized)
+            return;
+        ++m_pause_depth;
+        if (m_pause_depth == 1) {
+            const ma_result result = ma_engine_stop(&m_engine);
+            if (result != MA_SUCCESS) {
+                std::fprintf(stderr, "[audio:miniaudio] pause failed: %s (%d)\n",
+                             ma_error_name(result), result);
+            } else {
+                std::fprintf(stderr, "[audio:miniaudio] paused\n");
+            }
+        }
+    }
+
+    void resume() override
+    {
+        if (!m_initialized || m_pause_depth == 0)
+            return;
+        --m_pause_depth;
+        if (m_pause_depth == 0) {
+            const ma_result result = ma_engine_start(&m_engine);
+            if (result != MA_SUCCESS) {
+                std::fprintf(stderr, "[audio:miniaudio] resume failed: %s (%d)\n",
+                             ma_error_name(result), result);
+            } else {
+                std::fprintf(stderr, "[audio:miniaudio] resumed\n");
+            }
         }
     }
 
@@ -375,6 +417,7 @@ private:
     bool m_initialized = false;
     uint32_t m_next_clip_id = 1;
     uint32_t m_next_voice_id = 1;
+    uint32_t m_pause_depth = 0;
     std::unordered_map<uint32_t, Clip> m_clips;
     std::unordered_map<std::string, AudioClipHandle> m_clip_lookup;
     std::unordered_map<uint32_t, std::unique_ptr<Voice>> m_voices;

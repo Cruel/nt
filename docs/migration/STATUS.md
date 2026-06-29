@@ -24,7 +24,7 @@ Last updated: 2026-06-28.
 - Runtime visual presentation v1: runtime view state exposes cover/background/room/object image slots, resolves logical project asset paths, validates missing visual assets, and binds them through RuntimeUI.
 - Engine 2D renderer layer system, scissor stack, frame timing integration for ActiveText reveal, and material-backed engine 2D quads.
 - Backend-neutral project-schema shader/material records, runtime compiled bgfx binary loading, host/editor/import shader compilation, package export of compiled shader variants, and engine material binding.
-- Typed audio asset foundation: backend-neutral audio handles/descriptors, AssetManager `load_audio()` facade, AudioSystem SFX/track/bus policy, miniaudio backend hidden behind `AudioBackend`, project MP3 loading through AssetManager bytes, sandbox `--audio-sfx` / `--audio-track` smoke hooks, Web/Emscripten and Android miniaudio include support, browser-callable audio entry points for user-gesture playback, Lua `audio` bindings demonstrated from RmlUi with a pitch slider, and generic typed resource aliases for audio/textures/materials with Lua audio alias helpers.
+- Typed audio asset foundation: backend-neutral audio handles/descriptors, AssetManager `load_audio()` facade, AudioSystem SFX/track/bus policy, miniaudio backend hidden behind `AudioBackend`, project MP3 loading through AssetManager bytes, sandbox `--audio-sfx` / `--audio-track` smoke hooks, Web/Emscripten and Android miniaudio include support, browser-callable audio entry points for user-gesture playback, Lua `audio` bindings demonstrated from RmlUi with a pitch slider, generic typed resource aliases for audio/textures/materials with Lua audio alias helpers, explicit `--no-audio`, and backend pause/resume lifecycle hooks.
 - RmlUi decorator material bridge: `shader(<string>)` resolves to NovelTea material ids through the NovelTea adapter for `rmlui-bgfx`.
 - Editor preview and recorded test playback: `RuntimePlaybackSession` runs backend-neutral specs and the Electron workspace can list/run playback tests and export packages through `noveltea-editor-tool`.
 - Package writing/export: `.ntpkg` runtime packages include legacy-compatible entries, `manifest.json`, safe asset filtering, checksums, and compiled shader variants.
@@ -53,13 +53,15 @@ cmake --preset web-debug
 cmake --build --preset web-debug
 ```
 
-When testing local `rmlui-bgfx` changes before they are pushed, prefer CMake's standard FetchContent source override:
+When testing local `rmlui-bgfx` changes before they are pushed, use NovelTea's explicit local renderer dependency mode:
 
 ```sh
-cmake --preset linux-debug -DFETCHCONTENT_SOURCE_DIR_RMLUI_BGFX=/path/to/rmlui-bgfx
-cmake --build --preset linux-debug
+cmake --preset linux-debug-local-rmlui-bgfx
+cmake --build --preset linux-debug-local-rmlui-bgfx
 ctest --test-dir build/linux-debug --output-on-failure
 ```
+
+The equivalent manual form is `cmake --preset linux-debug -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON`. If the checkout is not at `${CMAKE_SOURCE_DIR}/rmlui-bgfx`, also set `NOVELTEA_LOCAL_RMLUI_BGFX_DIR=/path/to/rmlui-bgfx`.
 
 Run the sandbox when runtime loop, UI, input, or rendering behavior changes:
 

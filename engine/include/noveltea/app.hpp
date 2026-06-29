@@ -30,6 +30,7 @@ private:
         bool no_imgui = false;
         bool perf_logging = false;
         bool rmlui_base_direct_compat = false;
+        bool no_audio = false;
         std::vector<std::string> audio_sfx_paths;
         std::vector<std::string> audio_track_specs;
     };

@@ -42,6 +42,7 @@ struct EngineRunConfig {
     bool enable_debug_ui = true;
     bool render_perf_logging = false;
     bool rmlui_base_direct_compat = false;
+    bool enable_audio = true;
     std::vector<std::string> audio_sfx_paths;
     std::vector<std::string> audio_track_specs;
 };
@@ -109,6 +110,7 @@ private:
     bool m_preview_running = true;
     bool m_debug_ui_enabled = true;
     bool m_render_perf_logging = false;
+    bool m_audio_enabled = true;
 };
 
 } // namespace noveltea
