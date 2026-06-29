@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { FolderOpen, Info } from 'lucide-react';
+import { FilePlus2, FolderOpen, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -12,7 +12,12 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/page-header';
+import { useCommandStore } from '@/commands/command-store';
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import type { ToolDiagnostic } from '../../shared/editor-tooling';
 
 export const Route = createFileRoute('/')({
   component: DashboardPage,
@@ -84,6 +89,17 @@ function AppInfoCard() {
   );
 }
 
+function unsupportedProjectDiagnostics(): ToolDiagnostic[] {
+  return [
+    {
+      severity: 'error',
+      path: '/',
+      message: 'Unsupported project schema. Create or open a NovelTea authoring project.',
+      category: 'authoring-schema',
+    },
+  ];
+}
+
 function DashboardPage() {
   const projectPath = useWorkspaceStore((s) => s.projectPath);
   const setProjectPath = useWorkspaceStore((s) => s.setProjectPath);
@@ -92,21 +108,43 @@ function DashboardPage() {
   const setDiagnostics = useWorkspaceStore((s) => s.setDiagnostics);
   const setPlaybackTests = useWorkspaceStore((s) => s.setPlaybackTests);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
+  const loadProjectDocument = useProjectStore((s) => s.loadProjectDocument);
+  const loadUnsavedProjectDocument = useProjectStore((s) => s.loadUnsavedProjectDocument);
+  const resetCommandHistory = useCommandStore((s) => s.resetCommandHistory);
+
+  function handleNewProject() {
+    const next = createAuthoringProject();
+    setProjectPath(null);
+    setProjectFilePath(null);
+    setProject(next);
+    loadUnsavedProjectDocument(next);
+    resetCommandHistory();
+    setPlaybackTests([]);
+    setDiagnostics(validateAuthoringProject(next));
+    setStatusMessage('Created unsaved authoring project');
+  }
 
   async function handleOpenProject() {
     const dir = await window.noveltea.selectProjectDirectory();
     if (!dir) return;
     try {
       const loaded = await window.noveltea.openProject(dir);
+      const document = loaded.project ?? null;
       setProjectPath(loaded.projectPath);
       setProjectFilePath(loaded.projectFilePath);
-      setProject(loaded.project ?? null);
-      setDiagnostics(loaded.diagnostics ?? []);
-      if (loaded.project) {
-        const tests = await window.noveltea.listPlaybackTests(loaded.project);
-        setPlaybackTests(tests.tests ?? []);
-      }
-      setStatusMessage(loaded.success ? 'Project loaded' : loaded.error ?? 'Project loaded with diagnostics');
+      setProject(document);
+      loadProjectDocument({
+        document,
+        projectPath: loaded.projectPath,
+        projectFilePath: loaded.projectFilePath,
+      });
+      resetCommandHistory();
+      setPlaybackTests([]);
+      const diagnostics = isAuthoringProject(document)
+        ? validateAuthoringProject(document)
+        : unsupportedProjectDiagnostics();
+      setDiagnostics(diagnostics);
+      setStatusMessage(isAuthoringProject(document) ? 'Authoring project loaded' : 'Unsupported project schema');
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'Project open failed');
     }
@@ -127,6 +165,10 @@ function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap gap-4">
+          <Button onClick={handleNewProject} className="gap-2">
+            <FilePlus2 className="h-4 w-4" />
+            New Project
+          </Button>
           <Button onClick={handleOpenProject} className="gap-2">
             <FolderOpen className="h-4 w-4" />
             Open Project

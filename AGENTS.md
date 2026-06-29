@@ -4,7 +4,7 @@
 
 This repository is the new NovelTea runtime/framework. The target stack is SDL3 for platform/input/windowing, bgfx for rendering across Linux, Web, and Android, RmlUi for runtime UI, Dear ImGui for developer/debug UI only, and Lua for runtime scripting.
 
-The long-running project is migration from the old `Cruel/NovelTea` engine into this new `Cruel/nt` framework without losing the portable SDL3/bgfx baseline.
+This is a new engine/editor, not a compatibility fork of the old `Cruel/NovelTea` engine. The old engine is a reference for selected behavior and workflows only; new runtime, editor, and project-format decisions should choose the best new-engine design rather than preserve old formats or APIs.
 
 ## Repository Layout
 
@@ -22,6 +22,8 @@ The long-running project is migration from the old `Cruel/NovelTea` engine into 
 
 Treat `refs/NovelTea/` as read-only reference code. Do not edit files under `refs/NovelTea/`. Do not add `refs/NovelTea/` as a CMake subdirectory, production include path, or linked target. Port intentionally selected behavior into the new structure instead.
 
+Do not assume old NovelTea project formats, entity layouts, APIs, or editor workflows are compatibility requirements. They are examples to study, not contracts to preserve. New schema and editor work should be new-engine-first, and old-format import/export should only be implemented when explicitly requested or when a narrow migration tool is intentionally scoped.
+
 The same read-only policy applies to all `refs/` entries (`bgfx/`, `bimg/`, `bx/`, `RmlUi/`). These are upstream snapshots for reference; do not edit them or add them as CMake subdirectories.
 
 Keep the new `nt` tree buildable after each implementation slice. Do not start broad rewrites that require several later fixes before the repository compiles again.
@@ -34,7 +36,7 @@ RmlUi is the general runtime UI layer. Complex game widgets such as ActiveText, 
 
 Do not port the old Qt5 editor unless the user explicitly asks. The old editor is useful for understanding project format and workflows, but the new editor direction is Electron/TanStack/Vite.
 
-Avoid new third-party dependencies unless the task explicitly justifies them. Prefer small compatibility layers, adapters, and tests over dependency expansion.
+Avoid new third-party dependencies unless the task explicitly justifies them. Prefer small adapters and tests over dependency expansion.
 
 Do not paste large logs or file dumps into the parent conversation. Save durable findings under `docs/migration/` or `docs/archive/` when needed and return concise summaries.
 
@@ -132,7 +134,7 @@ Use these files to avoid relying on chat context:
 
 - `docs/migration/PLAN.md` for the next migration-plan placeholder/index.
 - `docs/migration/STATUS.md` for completed foundation, active gaps, current verification, and next planning task.
-- `docs/migration/COMPATIBILITY.md` for the current compatibility contract.
+- `docs/migration/COMPATIBILITY.md` for historical import/export notes only; it is not a requirement to preserve old project formats.
 - `docs/ARCHITECTURE.md`, `docs/BUILD_AND_VERIFY.md`, `docs/runtime/`, `docs/ui/`, `docs/rendering/`, and `docs/editor/` for active technical direction.
 - `docs/archive/` for historical analysis.
 

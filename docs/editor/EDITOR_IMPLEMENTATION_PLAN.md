@@ -191,7 +191,7 @@ Examples:
 - Project settings.
 - Assets and aliases.
 - Materials and shader records.
-- UI layouts and UI style resources.
+- Layouts and UI style resources.
 - Variables.
 - Characters.
 - Scenes.
@@ -246,7 +246,7 @@ project
 assets
 materials
 shaders
-uiLayouts
+layouts
 variables
 characters
 scenes
@@ -600,7 +600,7 @@ Implement editors in dependency order so each slice supports the next.
 3. Assets and aliases.
 4. Shaders/materials.
 5. Variables.
-6. UI layouts.
+6. Layouts.
 7. Characters.
 8. Rooms.
 9. Dialogues.
@@ -1002,25 +1002,16 @@ coverage for project patches, command behavior, dirty state, and raw JSON editin
 
 ### Milestone 3: New Project Schema Skeleton
 
-Goal: define a new authoring schema independent of old compatibility concerns.
+Status: complete.
 
-Tasks:
-
-1. Add schema/version metadata.
-2. Add top-level empty collections for planned authoring records.
-3. Add project creation helper.
-4. Add schema validation in TypeScript and/or helper CLI.
-5. Add reference index skeleton.
-6. Add entity ID validation rules.
-7. Add parent/inheritance metadata conventions.
-
-Acceptance criteria:
-
-- New projects use the new schema skeleton.
-- Project explorer lists new top-level collections.
-- Validation reports malformed records.
-- Existing old/raw scaffolding can be kept temporarily but is no longer the
-  design target.
+Milestone 3 defined the new-engine-first editor authoring schema v1 independent
+of old project-format compatibility concerns. The editor now has shared
+TypeScript/zod schema metadata, top-level authoring collections, `layouts`
+collection naming, project creation defaults, entity ID validation, parent and
+inheritance reference conventions, local authoring validation diagnostics,
+authoring project tree grouping, unsaved new-project dirty state, disabled
+playback/export until authoring-to-runtime conversion exists, and a reference
+index skeleton for entrypoint, parent, inheritance, and explicit `$ref` usages.
 
 ### Milestone 4: Project Explorer and Entity Operations
 
@@ -1254,7 +1245,7 @@ Tasks:
 Acceptance criteria:
 
 - A simple VN scene can be authored using assets, materials, characters,
-  variables, UI layouts, and dialogue.
+  variables, layouts, and dialogue.
 - Scene editing is undoable.
 - Preview can play or approximate the authored sequence.
 

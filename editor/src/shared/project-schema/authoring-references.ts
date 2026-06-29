@@ -1,0 +1,115 @@
+import { authoringCollectionKeys, type AuthoringCollectionKey } from './authoring-collections';
+import type { AuthoringProject, ReferenceTarget } from './authoring-project';
+
+export type ReferenceUsageKind = 'parent' | 'inherits' | 'entrypoint' | 'explicit-ref';
+
+export interface ReferenceUsage {
+  sourceCollection: AuthoringCollectionKey | 'project';
+  sourceId: string;
+  path: string;
+  target: ReferenceTarget;
+  kind: ReferenceUsageKind;
+}
+
+export interface ReferenceIndex {
+  usages: ReferenceUsage[];
+  byTarget: Map<string, ReferenceUsage[]>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isReferenceTarget(value: unknown): value is ReferenceTarget {
+  return isRecord(value) && typeof value.collection === 'string' && typeof value.id === 'string';
+}
+
+function addUsage(usages: ReferenceUsage[], usage: ReferenceUsage) {
+  usages.push(usage);
+}
+
+function scanDataForExplicitRefs(
+  value: unknown,
+  path: string,
+  sourceCollection: AuthoringCollectionKey,
+  sourceId: string,
+  usages: ReferenceUsage[],
+) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => scanDataForExplicitRefs(item, `${path}/${index}`, sourceCollection, sourceId, usages));
+    return;
+  }
+  if (!isRecord(value)) return;
+
+  const ref = value.$ref;
+  if (isReferenceTarget(ref)) {
+    addUsage(usages, {
+      sourceCollection,
+      sourceId,
+      path: `${path}/$ref`,
+      target: ref,
+      kind: 'explicit-ref',
+    });
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    scanDataForExplicitRefs(child, `${path}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`, sourceCollection, sourceId, usages);
+  }
+}
+
+export function referenceTargetKey(target: ReferenceTarget): string {
+  return `${target.collection}:${target.id}`;
+}
+
+export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
+  const usages: ReferenceUsage[] = [];
+
+  if (project.entrypoint) {
+    addUsage(usages, {
+      sourceCollection: 'project',
+      sourceId: 'project',
+      path: '/entrypoint',
+      target: project.entrypoint,
+      kind: 'entrypoint',
+    });
+  }
+
+  for (const collection of authoringCollectionKeys) {
+    const records = project[collection];
+    for (const [id, record] of Object.entries(records)) {
+      if (record.parent) {
+        addUsage(usages, {
+          sourceCollection: collection,
+          sourceId: id,
+          path: `/${collection}/${id}/parent`,
+          target: record.parent,
+          kind: 'parent',
+        });
+      }
+      if (record.inherits) {
+        addUsage(usages, {
+          sourceCollection: collection,
+          sourceId: id,
+          path: `/${collection}/${id}/inherits`,
+          target: record.inherits,
+          kind: 'inherits',
+        });
+      }
+      scanDataForExplicitRefs(record.data, `/${collection}/${id}/data`, collection, id, usages);
+    }
+  }
+
+  const byTarget = new Map<string, ReferenceUsage[]>();
+  for (const usage of usages) {
+    const key = referenceTargetKey(usage.target);
+    const group = byTarget.get(key) ?? [];
+    group.push(usage);
+    byTarget.set(key, group);
+  }
+
+  return { usages, byTarget };
+}
+
+export function findUsages(index: ReferenceIndex, target: ReferenceTarget): ReferenceUsage[] {
+  return index.byTarget.get(referenceTargetKey(target)) ?? [];
+}

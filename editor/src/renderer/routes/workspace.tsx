@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
-import { Eye, FlaskConical, Package, Play, Redo2, Save, SaveAll, Square, Undo2 } from 'lucide-react';
+import { Eye, FilePlus2, FlaskConical, Package, Play, Redo2, Save, SaveAll, Square, Undo2 } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -14,10 +14,24 @@ import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { buildPrimaryPreviewTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
+import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { authoringValidationSucceeded, validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import type { ToolDiagnostic } from '../../shared/editor-tooling';
 
 export const Route = createFileRoute('/workspace')({
   component: WorkspacePage,
 });
+
+function unsupportedProjectDiagnostics(): ToolDiagnostic[] {
+  return [
+    {
+      severity: 'error',
+      path: '/',
+      message: 'Unsupported project schema. Create or open a NovelTea authoring project.',
+      category: 'authoring-schema',
+    },
+  ];
+}
 
 function commandTouchedTests(paths: string[]) {
   return paths.some((path) => path === '/tests' || path.startsWith('/tests/'));
@@ -40,6 +54,7 @@ function WorkspacePage() {
   const isSaving = useProjectStore((state) => state.isSaving);
   const autosaveEnabled = useProjectStore((state) => state.autosaveEnabled);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
+  const loadUnsavedProjectDocument = useProjectStore((state) => state.loadUnsavedProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
   const markProjectSaved = useProjectStore((state) => state.markSaved);
   const setProjectSaving = useProjectStore((state) => state.setSaving);
@@ -63,7 +78,33 @@ function WorkspacePage() {
   const resetCommandHistory = useCommandStore((state) => state.resetCommandHistory);
   const canUndo = commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
   const canRedo = commandHistory.cursor < commandHistory.entries.length - 1 && !commandHistory.activeTransaction;
+  const isAuthoring = isAuthoringProject(project);
   const nodes = useMemo(() => buildProjectTree(project, tests), [project, tests]);
+
+  function loadAuthoringDocument(document: unknown, projectPathValue: string | null, projectFilePathValue: string | null) {
+    setProjectPath(projectPathValue);
+    setProjectFilePath(projectFilePathValue);
+    setProject(document);
+    loadProjectDocument({ document, projectPath: projectPathValue, projectFilePath: projectFilePathValue });
+    resetCommandHistory();
+    setPlaybackTests([]);
+    const diagnostics = isAuthoringProject(document) ? validateAuthoringProject(document) : unsupportedProjectDiagnostics();
+    setDiagnostics(diagnostics);
+    return diagnostics;
+  }
+
+  function createNewProject() {
+    const next = createAuthoringProject();
+    setProjectPath(null);
+    setProjectFilePath(null);
+    setProject(next);
+    loadUnsavedProjectDocument(next);
+    resetCommandHistory();
+    setPlaybackTests([]);
+    setDiagnostics(validateAuthoringProject(next));
+    setStatusMessage('Created unsaved authoring project');
+    addTimelineEntry({ source: 'command', message: 'Created unsaved authoring project', detail: next });
+  }
 
   async function openProject() {
     const dir = await window.noveltea.selectProjectDirectory();
@@ -71,23 +112,14 @@ function WorkspacePage() {
     setBusy(true);
     try {
       const loaded = await window.noveltea.openProject(dir);
-      setProjectPath(loaded.projectPath);
-      setProjectFilePath(loaded.projectFilePath);
-      setProject(loaded.project ?? null);
-      loadProjectDocument({
-        document: loaded.project ?? null,
-        projectPath: loaded.projectPath,
-        projectFilePath: loaded.projectFilePath,
-      });
-      resetCommandHistory();
-      setDiagnostics(loaded.diagnostics ?? []);
-      if (loaded.project) {
-        const listed = await window.noveltea.listPlaybackTests(loaded.project);
-        setPlaybackTests(listed.tests ?? []);
-      } else {
-        setPlaybackTests([]);
-      }
-      setStatusMessage(loaded.success ? 'Project loaded' : loaded.error ?? 'Project loaded with diagnostics');
+      const diagnostics = loadAuthoringDocument(loaded.project ?? null, loaded.projectPath, loaded.projectFilePath);
+      setStatusMessage(
+        isAuthoringProject(loaded.project)
+          ? diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+            ? 'Authoring project loaded with diagnostics'
+            : 'Authoring project loaded'
+          : 'Unsupported project schema',
+      );
     } catch (error) {
       clearProjectDocument();
       resetCommandHistory();
@@ -116,12 +148,11 @@ function WorkspacePage() {
         addTimelineEntry({ source: 'command', message: `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? projectFilePath}`, detail: result });
         setStatusMessage(`${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? projectFilePath}`);
         return true;
-      } else {
-        setProjectSaveError(result.error ?? 'Save failed');
-        addTimelineEntry({ source: 'command', message: result.error ?? 'Save failed', detail: result });
-        setStatusMessage(result.error ?? 'Save failed');
-        return false;
       }
+      setProjectSaveError(result.error ?? 'Save failed');
+      addTimelineEntry({ source: 'command', message: result.error ?? 'Save failed', detail: result });
+      setStatusMessage(result.error ?? 'Save failed');
+      return false;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Save failed';
       setProjectSaveError(message);
@@ -169,9 +200,7 @@ function WorkspacePage() {
     addTimelineEntry({ source: 'command', message: latest.label, detail: latest });
     setStatusMessage(latest.label);
     if (project && commandTouchedTests(latest.affectedPaths)) {
-      void window.noveltea.listPlaybackTests(project).then((listed) => {
-        setPlaybackTests(listed.tests ?? []);
-      });
+      setPlaybackTests([]);
     }
   });
 
@@ -184,63 +213,48 @@ function WorkspacePage() {
     return () => window.clearTimeout(timer);
   });
 
-  async function validate() {
+  function validate() {
     if (!project) return;
-    const result = await window.noveltea.validateProject(project);
-    setDiagnostics(result.diagnostics ?? []);
+    const diagnostics = isAuthoringProject(project) ? validateAuthoringProject(project) : unsupportedProjectDiagnostics();
+    setDiagnostics(diagnostics);
     addTimelineEntry({
       source: 'validation',
-      message: result.success ? 'Validation passed' : 'Validation reported issues',
-      detail: result,
+      message: authoringValidationSucceeded(diagnostics) ? 'Authoring validation passed' : 'Authoring validation reported issues',
+      detail: diagnostics,
     });
   }
 
-  async function runFirstTest() {
-    if (!project || tests.length === 0) return;
-    const result = await window.noveltea.runPlaybackTest(project, tests[0]!.id);
-    setLastPlaybackReport(result.report ?? result);
-    addTimelineEntry({
-      source: 'playback',
-      message: `Ran playback ${tests[0]!.id}`,
-      detail: result.report ?? result,
-    });
-    setStatusMessage(result.ok ? `Playback ${tests[0]!.id} complete` : result.error ?? 'Playback failed');
+  function runFirstTest() {
+    setLastPlaybackReport(null);
+    setStatusMessage('Playback requires authoring-to-runtime conversion, which is not implemented yet.');
   }
 
-  async function exportRuntimePackage() {
-    if (!project || !projectPath) return;
-    const outputPath = `${projectPath.replace(/\/+$/, '')}/export.ntpkg`;
-    const result = await window.noveltea.exportPackage(project, outputPath, {
-      kind: 'runtime',
-      projectName: 'NovelTea Export',
-      projectVersion: '1.0',
-    });
-    setLastExportResult(result);
-    addTimelineEntry({
-      source: 'export',
-      message: result.success ? `Exported ${outputPath}` : 'Export failed',
-      detail: result,
-    });
-    setStatusMessage(result.success ? `Exported ${outputPath}` : result.error ?? 'Export failed');
+  function exportRuntimePackage() {
+    setLastExportResult(null);
+    setStatusMessage('Runtime export requires authoring-to-runtime conversion, which is not implemented yet.');
   }
 
   return (
     <>
       <PageHeader
         title="Workspace"
-        description={projectPath ?? 'Open a NovelTea project to inspect, validate, preview, and export it'}
+        description={projectPath ?? 'Create or open a NovelTea authoring project'}
         actions={
           <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline" onClick={createNewProject} disabled={busy} title="New Project">
+              <FilePlus2 className="h-4 w-4" />
+              New
+            </Button>
             <Button size="sm" variant="outline" onClick={openProject} disabled={busy}>
               Open
             </Button>
             <Button size="sm" variant="ghost" onClick={validate} disabled={!project}>
               Validate
             </Button>
-            <Button size="sm" variant="ghost" onClick={runFirstTest} disabled={!project || tests.length === 0}>
+            <Button size="sm" variant="ghost" onClick={runFirstTest} disabled={!project || isAuthoring || tests.length === 0} title="Playback is disabled for authoring projects until conversion exists">
               <FlaskConical className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="ghost" onClick={exportRuntimePackage} disabled={!project}>
+            <Button size="sm" variant="ghost" onClick={exportRuntimePackage} disabled={!project || isAuthoring} title="Export is disabled for authoring projects until conversion exists">
               <Package className="h-4 w-4" />
             </Button>
             <Separator orientation="vertical" className="mx-1 h-5" />
@@ -282,7 +296,7 @@ function WorkspacePage() {
               size="sm"
               variant={autosaveEnabled ? 'secondary' : 'ghost'}
               onClick={() => setAutosaveEnabled(!autosaveEnabled)}
-              disabled={!project}
+              disabled={!project || !projectFilePath}
               title="Toggle autosave"
             >
               Autosave

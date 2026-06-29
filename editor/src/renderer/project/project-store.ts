@@ -12,6 +12,7 @@ interface ProjectStoreState {
   lastSaveError: string | null;
   autosaveEnabled: boolean;
   loadProjectDocument: (payload: ProjectLoadPayload) => void;
+  loadUnsavedProjectDocument: (document: JsonValue | unknown) => void;
   clearProject: () => void;
   replaceDocumentFromCommand: (document: JsonValue, historyCursor: number) => void;
   setHistoryCursor: (historyCursor: number) => void;
@@ -40,6 +41,16 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath,
       projectFilePath,
       historyCursor: -1,
+      savedHistoryCursor: -1,
+      isSaving: false,
+      lastSaveError: null,
+    }),
+  loadUnsavedProjectDocument: (document) =>
+    set({
+      document: normalizeDocument(document),
+      projectPath: null,
+      projectFilePath: null,
+      historyCursor: 0,
       savedHistoryCursor: -1,
       isSaving: false,
       lastSaveError: null,

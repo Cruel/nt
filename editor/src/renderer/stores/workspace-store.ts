@@ -1,11 +1,36 @@
 import { create } from 'zustand';
+import {
+  authoringCollectionKeys,
+  authoringCollectionMetadata,
+} from '../../shared/project-schema/authoring-collections';
+import {
+  isAuthoringProject,
+  type AuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
 import type { PreviewConnectionState, PreviewPosition, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
   label: string;
-  type: 'room' | 'object' | 'verb' | 'action' | 'map' | 'dialogue' | 'cutscene' | 'script' | 'asset' | 'test' | 'folder';
+  type:
+    | 'room'
+    | 'object'
+    | 'verb'
+    | 'action'
+    | 'map'
+    | 'dialogue'
+    | 'cutscene'
+    | 'script'
+    | 'asset'
+    | 'variable'
+    | 'shader'
+    | 'material'
+    | 'layout'
+    | 'character'
+    | 'scene'
+    | 'test'
+    | 'folder';
   collection?: string;
   entityId?: string;
   children?: AssetNode[];
@@ -18,61 +43,32 @@ export interface TimelineEntry {
   detail?: unknown;
 }
 
-const ENTITY_GROUPS: Array<{ key: string; label: string; type: AssetNode['type'] }> = [
-  { key: 'room', label: 'Rooms', type: 'room' },
-  { key: 'object', label: 'Objects', type: 'object' },
-  { key: 'verb', label: 'Verbs', type: 'verb' },
-  { key: 'action', label: 'Actions', type: 'action' },
-  { key: 'map', label: 'Maps', type: 'map' },
-  { key: 'dialogue', label: 'Dialogues', type: 'dialogue' },
-  { key: 'cutscene', label: 'Cutscenes', type: 'cutscene' },
-  { key: 'script', label: 'Scripts', type: 'script' },
-  { key: 'asset', label: 'Assets', type: 'asset' },
-];
+export function buildAuthoringProjectTree(project: AuthoringProject): AssetNode[] {
+  return authoringCollectionKeys.map((collection) => {
+    const metadata = authoringCollectionMetadata[collection];
+    const children = Object.entries(project[collection])
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([entityId, record]) => ({
+        id: `${collection}:${entityId}`,
+        label: record.label || entityId,
+        type: metadata.nodeType,
+        collection,
+        entityId,
+      }));
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+    return {
+      id: collection,
+      label: metadata.label,
+      type: 'folder',
+      collection,
+      children,
+    };
+  });
 }
 
-export function buildProjectTree(project: unknown, tests: PlaybackTestSummary[] = []): AssetNode[] {
-  if (!isRecord(project)) return [];
-  const nodes: AssetNode[] = [];
-  for (const group of ENTITY_GROUPS) {
-    const collection = project[group.key];
-    const children: AssetNode[] = [];
-    if (isRecord(collection)) {
-      for (const entityId of Object.keys(collection).sort()) {
-        children.push({
-          id: `${group.key}:${entityId}`,
-          label: entityId,
-          type: group.type,
-          collection: group.key,
-          entityId,
-        });
-      }
-    }
-    nodes.push({
-      id: group.key,
-      label: group.label,
-      type: 'folder',
-      collection: group.key,
-      children,
-    });
-  }
-  nodes.push({
-    id: 'tests',
-    label: 'Tests',
-    type: 'folder',
-    collection: 'tests',
-    children: tests.map((test) => ({
-      id: `tests:${test.id}`,
-      label: `${test.id} (${test.steps})`,
-      type: 'test',
-      collection: 'tests',
-      entityId: test.id,
-    })),
-  });
-  return nodes;
+export function buildProjectTree(project: unknown, _tests: PlaybackTestSummary[] = []): AssetNode[] {
+  if (!isAuthoringProject(project)) return [];
+  return buildAuthoringProjectTree(project);
 }
 
 interface WorkspaceState {

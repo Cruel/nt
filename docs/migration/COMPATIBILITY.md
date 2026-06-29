@@ -1,57 +1,70 @@
-# NovelTea Compatibility Contract
+# NovelTea Historical Import/Export Notes
 
-Last updated: 2026-06-20.
+Last updated: 2026-06-29.
 
-This document defines the current compatibility boundary for the migrated `nt` runtime.
+This document records old-format import/export work and runtime data behavior that
+was implemented while bootstrapping the new `nt` engine. It is not a requirement
+to preserve old NovelTea project formats, entity layouts, APIs, or editor
+workflows. The new engine and editor should make new-engine-first design choices.
+The old `refs/NovelTea` repository is reference material only.
 
-## Legacy `game` JSON Import
+## Compatibility Is Not The Design Target
 
-- Legacy project `game` JSON can be imported through the backend-neutral legacy importer and editor-facing tooling.
-- Supported legacy shapes are preserved at the project/import boundary, including unknown top-level extension keys.
-- Import is separate from validation: malformed shapes produce diagnostics, while graph/reference checks happen in validation/model layers.
+- New project schemas should not preserve old collection names, array layouts, or
+  JSON shapes merely for compatibility.
+- New editor features should not add legacy fallback paths unless a task
+  explicitly scopes an import/migration tool.
+- Existing old-format helper code may remain while actively useful for smoke
+  tests or fixtures, but it is transitional and should not constrain new schema
+  or editor architecture.
+- Runtime package/export formats may change when the new authoring/runtime split
+  is designed.
 
-## Legacy Package Import
+## Existing Historical Import Work
 
-- Legacy packages are supported as read-only imports.
-- Current package import covers `game`, cover `image`, `fonts/*`, `textures/*`, and safe project-relative auxiliary entries under paths such as `audio/`, `data/`, `music/`, `resources/`, `scripts/`, `shaders/`, `sounds/`, `text/`, and `texts/`.
+Some old-format import/runtime scaffolding exists in the repository:
 
-## Runtime Package Export
+- Old `game` JSON import can be handled by backend-neutral importer/tooling code.
+- Some old package entries can be read for migration/reference use.
+- Imported script text is treated as Lua. Invalid imported script text must fail
+  as Lua with diagnostics. JavaScript, Duktape, dukglue, embedded JS engines, and
+  JavaScript compatibility shims are explicitly out of scope.
 
-- Runtime export writes ZIP-based `.ntpkg` packages with legacy-compatible entries plus additive `manifest.json` metadata.
-- Exported runtime packages contain `game`, optional `image`, safe `fonts/*`, `textures/*`, auxiliary resources, runtime shader/material metadata, and compiled shader binaries under `shaders/bgfx/<variant>/*.bin`. Runtime packages should strip shader source and editor-only shader/material data unless explicitly exporting an editable/dev package.
-- Public export APIs expose options, results, checksums, and diagnostics; ZIP/miniz types remain private implementation details.
-- `manifest.json` uses format `noveltea.runtime-package` with `format_version` 1. It records project metadata, package kind, shader variants, runtime shader metadata set when present, entries, and per-entry checksums where enabled.
+These capabilities are optional migration aids, not active product requirements.
+Do not expand them unless the user explicitly asks for old-project import or a
+narrow migration workflow.
 
-## Save JSON Preservation
+## Runtime Save Notes
 
-- Save JSON import/export preserves recognized runtime fields and unknown extra keys when parsed through the save document APIs.
-- Runtime save snapshots preserve save-backed mutations, object locations, text logs, visited rooms, current runtime state, and namespaced controller state.
-- Manual save/load/autosave are implemented through a backend-neutral slot-store contract; platform-specific persistence is outside this compatibility layer.
+Save JSON behavior is runtime state behavior, not old project-format
+compatibility:
 
-## Runtime Controller Coverage
+- Runtime save snapshots preserve save-backed mutations, object locations, text
+  logs, visited rooms, current runtime state, and namespaced controller state.
+- Manual save/load/autosave are implemented through a backend-neutral slot-store
+  contract.
+- Platform-specific save-slot persistence remains separate platform work.
 
-Current backend-neutral controller coverage includes:
+## Current Runtime Controller Coverage
 
-- room entry and room navigation
-- room object and starting-inventory views
-- save-backed object placement and inventory views
-- verb/action resolution
-- dialogue traversal, options, and logging
-- cutscene page expansion and continuation
-- timer progression and text-log events
-- save entrypoint restoration
-- backend-neutral command capture for UI/editor preview
+Backend-neutral controller coverage currently includes:
 
-## Scripts
-
-Lua is the only runtime scripting target.
-
-Imported script text is treated as Lua. Invalid imported legacy script text must fail as Lua and surface diagnostics to runtime/editor users. JavaScript, Duktape, dukglue, embedded JS engines, and JS compatibility shims are explicitly out of scope.
+- room entry and room navigation;
+- room object and starting-inventory views;
+- save-backed object placement and inventory views;
+- verb/action resolution;
+- dialogue traversal, options, and logging;
+- cutscene page expansion and continuation;
+- timer progression and text-log events;
+- save entrypoint restoration;
+- backend-neutral command capture for UI/editor preview.
 
 ## Known Limits
 
-- Real-project fixture coverage is still limited; broad compatibility claims need private or redistributable old-project fixtures.
+- Old-project fixture coverage is not a goal unless a task explicitly scopes old
+  project import/migration.
 - Platform-specific save-slot persistence is not implemented.
-- Persisted object-location application currently covers room and inventory behavior.
-- Rich-text semantics are backend-neutral, but full visual parity for old ActiveText/effect rendering is not complete.
-- RmlUi runtime components for complex widgets such as ActiveText, MapView, and TextLog are still active work.
+- Rich-text semantics are backend-neutral, but exact visual parity with old
+  ActiveText/effect rendering is not a requirement.
+- RmlUi runtime components for complex widgets such as ActiveText, MapView, and
+  TextLog are still active work.

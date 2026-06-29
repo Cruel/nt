@@ -2,14 +2,19 @@ import {
   Box,
   Clapperboard,
   File,
+  FileCode,
   FileType,
   FlaskConical,
   Folder,
   Image,
+  Layers,
   Map,
   MessageSquare,
+  Palette,
   Route as RouteIcon,
   ScrollText,
+  SlidersHorizontal,
+  User,
 } from 'lucide-react';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { buildRawJsonTab } from '@/workbench/editor-registry';
@@ -26,6 +31,12 @@ const assetIcons: Record<string, typeof File> = {
   script: ScrollText,
   image: Image,
   asset: Image,
+  variable: SlidersHorizontal,
+  shader: FileCode,
+  material: Palette,
+  layout: Layers,
+  character: User,
+  scene: Clapperboard,
   test: FlaskConical,
   folder: Folder,
 };
@@ -75,7 +86,7 @@ function ProjectExplorerItem({ node, depth = 0 }: { node: AssetNode; depth?: num
 
 export function ProjectExplorer({ nodes }: { nodes: AssetNode[] }) {
   if (nodes.length === 0) {
-    return <div className="p-3 text-xs text-muted-foreground">No project loaded.</div>;
+    return <div className="p-3 text-xs text-muted-foreground">No authoring project loaded.</div>;
   }
   return (
     <div className="space-y-0.5">
