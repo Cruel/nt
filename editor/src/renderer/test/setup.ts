@@ -36,6 +36,8 @@ Object.defineProperty(window, 'noveltea', {
     listPlaybackTests: vi.fn().mockResolvedValue({ ok: true, tests: [{ id: 'smoke', steps: 1 }], diagnostics: [] }),
     runPlaybackTest: vi.fn().mockResolvedValue({ ok: true, report: { id: 'smoke', passed: true }, diagnostics: [] }),
     exportPackage: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], byteCount: 1 }),
+    saveProject: vi.fn().mockResolvedValue({ ok: true, success: true, projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' }),
+    saveProjectAs: vi.fn().mockResolvedValue({ ok: true, success: true, projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' }),
     setEntityRecord: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], project: {} }),
     eraseEntityRecord: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], project: {} }),
   },

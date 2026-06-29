@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useCommandStore } from '@/commands/command-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import {
   bottomPanelDefinitions,
@@ -75,6 +76,44 @@ function PackageExportPanel() {
   return <JsonBlock value={lastExportResult} empty="No package export result yet." />;
 }
 
+function CommandHistoryPanel() {
+  const history = useCommandStore((state) => state.history);
+  const lastDiagnostics = useCommandStore((state) => state.lastDiagnostics);
+  if (history.entries.length === 0 && lastDiagnostics.length === 0) {
+    return <p className="p-3 text-xs text-muted-foreground">No project commands yet.</p>;
+  }
+  return (
+    <div className="space-y-2 p-3">
+      {lastDiagnostics.length > 0 ? (
+        <div className="rounded border p-2 text-xs">
+          <div className="mb-1 font-medium">Last command diagnostics</div>
+          {lastDiagnostics.map((diagnostic, index) => (
+            <div key={`${diagnostic.message}-${index}`} className="flex gap-2">
+              <Badge variant={diagnostic.severity === 'error' ? 'destructive' : 'secondary'}>
+                {diagnostic.severity}
+              </Badge>
+              <span className="font-mono text-muted-foreground">{diagnostic.path ?? '/'}</span>
+              <span>{diagnostic.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {history.entries.map((entry, index) => (
+        <div key={entry.id} className={`rounded border p-2 text-xs ${index === history.cursor ? 'bg-accent/50' : ''}`}>
+          <div className="flex items-center gap-2">
+            <Badge variant={index <= history.cursor ? 'default' : 'outline'}>{index}</Badge>
+            <span className="font-medium">{entry.label}</span>
+            <span className="font-mono text-[10px] text-muted-foreground">{entry.type}</span>
+          </div>
+          <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+            {entry.affectedPaths.join(', ') || '/'}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function EmptyPanel({ label }: { label: string }) {
   return <p className="p-3 text-xs text-muted-foreground">{label}</p>;
 }
@@ -94,7 +133,7 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
     case 'package-export':
       return <PackageExportPanel />;
     case 'command-history':
-      return <EmptyPanel label="Command history will appear here once the command bus is implemented." />;
+      return <CommandHistoryPanel />;
   }
 }
 

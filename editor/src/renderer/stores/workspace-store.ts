@@ -13,7 +13,7 @@ export interface AssetNode {
 
 export interface TimelineEntry {
   id: string;
-  source: 'preview' | 'playback' | 'export' | 'validation';
+  source: 'preview' | 'playback' | 'export' | 'validation' | 'command';
   message: string;
   detail?: unknown;
 }

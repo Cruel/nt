@@ -10,6 +10,8 @@ export const IPC_CHANNELS = {
   LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',
   RUN_PLAYBACK_TEST: 'noveltea:run-playback-test',
   EXPORT_PACKAGE: 'noveltea:export-package',
+  SAVE_PROJECT: 'noveltea:save-project',
+  SAVE_PROJECT_AS: 'noveltea:save-project-as',
   SET_ENTITY_RECORD: 'noveltea:set-entity-record',
   ERASE_ENTITY_RECORD: 'noveltea:erase-entity-record',
 } as const;

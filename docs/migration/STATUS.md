@@ -31,6 +31,7 @@ Last updated: 2026-06-29.
 - Editor Integration V1: Electron/TanStack workspace talks to `noveltea-editor-tool` for project load/import, validation, raw entity edits, playback tests, package export, and preview controls.
 - Editor planning baseline: `docs/editor/EDITOR_IMPLEMENTATION_PLAN.md` defines the new workbench, command/undo, preview, schema, and phased editor rollout plan, and `docs/editor/EDITOR_TECH_STACK.md` defines standard editor-side component/dependency choices.
 - Editor Milestone 1 workbench shell: the Electron workspace now uses a tab/group/split workbench model, editor registry, tab-hosted primary preview, fallback raw JSON record tabs, project explorer record opening, and a global bottom panel for problems/output/preview/test/export/command-history surfaces.
+- Editor Milestone 2 command foundation: the Electron workspace now has a dedicated project store, tested JSON pointer/patch helpers, a command bus with history/transactions/undo/redo, command-backed raw JSON record editing, explicit save/save-as IPC through the main process, dirty-state tracking from command history, and bottom-panel command history diagnostics.
 
 ## Active Gaps
 

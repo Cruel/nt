@@ -71,6 +71,14 @@ export interface EntityEditResponse {
   error?: string;
 }
 
+export interface SaveProjectResponse {
+  ok: boolean;
+  success: boolean;
+  projectPath?: string;
+  projectFilePath?: string;
+  error?: string;
+}
+
 export interface OpenProjectResponse extends ProjectLoadResponse {
   projectPath: string;
   projectFilePath: string;

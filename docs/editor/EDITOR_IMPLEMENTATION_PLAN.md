@@ -53,10 +53,6 @@ The repository already has a useful editor foundation:
 
 The weak points are expected for this stage:
 
-- The editor shell is not yet a real split-tab workbench.
-- Persistent editing is not yet command/transaction based.
-- Undo/redo is not yet defined.
-- Project save/autosave is incomplete.
 - Typed editors are mostly absent.
 - Preview protocol is still demo/runtime-command shaped rather than
   authoring-preview shaped.
@@ -994,33 +990,15 @@ Acceptance criteria:
 
 ### Milestone 2: Project Store, Save, and Command Bus
 
-Goal: make persistent editing explicit and undoable.
+Status: complete.
 
-Before implementing this milestone, review `docs/editor/EDITOR_TECH_STACK.md`.
-The intended direction is Zustand for lightweight renderer state, zod for runtime
-validation at project/command/IPC/preview boundaries, and an explicit command bus
-for persistent project mutation. Immer is optional and should only be added if it
-simplifies command patch/inverse-patch implementation.
-
-Tasks:
-
-1. Introduce `ProjectStore` with revision and dirty state.
-2. Introduce `CommandBus`.
-3. Add JSON path patch helpers.
-4. Add command history.
-5. Add undo/redo actions and shortcuts.
-6. Add transaction support.
-7. Add project save and save-as IPC/helper flow.
-8. Add autosave policy behind a setting.
-9. Add command diagnostics to bottom panel.
-
-Acceptance criteria:
-
-- A field edit can be applied through a command.
-- Undo/redo changes the project document.
-- Dirty state reflects command history since last save.
-- Save writes the project file.
-- Failed command preconditions do not mutate state.
+Milestone 2 made persistent editing explicit, undoable, redoable, and saveable.
+The editor now has a dedicated project store, JSON pointer/patch helpers, a
+project command bus, command history, transactions, undo/redo actions and
+shortcuts, command-backed raw JSON editing, save/save-as IPC through Electron
+main, conservative autosave behind a workspace toggle, dirty-state tracking from
+command history, command diagnostics/history in the bottom panel, and focused
+coverage for project patches, command behavior, dirty state, and raw JSON editing.
 
 ### Milestone 3: New Project Schema Skeleton
 

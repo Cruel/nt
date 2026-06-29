@@ -22,6 +22,8 @@ export interface NovelTeaElectronApi {
     outputPath: string,
     options?: PackageExportOptions,
   ): Promise<PackageExportResponse>;
+  saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
+  saveProjectAs(project: unknown, defaultPath?: string | null): Promise<SaveProjectResponse>;
   setEntityRecord(
     project: unknown,
     collection: string,
@@ -42,6 +44,7 @@ import type {
   PackageExportResponse,
   PlaybackReportResponse,
   ProjectLoadResponse,
+  SaveProjectResponse,
   TestListResponse,
   ValidationResponse,
 } from './editor-tooling';

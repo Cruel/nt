@@ -24,6 +24,10 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_TEST, project, testId),
   exportPackage: (project: unknown, outputPath: string, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PACKAGE, project, outputPath, options),
+  saveProject: (project: unknown, projectFilePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT, project, projectFilePath),
+  saveProjectAs: (project: unknown, defaultPath: string | null = null) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT_AS, project, defaultPath),
   setEntityRecord: (project: unknown, collection: string, entityId: string, record: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.SET_ENTITY_RECORD, project, collection, entityId, record),
   eraseEntityRecord: (project: unknown, collection: string, entityId: string) =>

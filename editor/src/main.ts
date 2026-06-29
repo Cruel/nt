@@ -13,6 +13,7 @@ import {
   setEntityRecord,
   validateProject,
 } from './main/services/editor-tool-service';
+import { saveProject, saveProjectAs } from './main/services/project-file-service';
 import type { PackageExportOptions } from './shared/editor-tooling';
 
 if (started) {
@@ -132,6 +133,18 @@ app.whenReady().then(() => {
       outputPath: string,
       options: unknown,
     ) => exportPackage(project, outputPath, options as PackageExportOptions),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SAVE_PROJECT,
+    (_event: Electron.IpcMainInvokeEvent, project: unknown, projectFilePath: string) =>
+      saveProject(project, projectFilePath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SAVE_PROJECT_AS,
+    (_event: Electron.IpcMainInvokeEvent, project: unknown, defaultPath: string | null) =>
+      saveProjectAs(mainWindow, project, defaultPath),
   );
 
   ipcMain.handle(
