@@ -1,4 +1,12 @@
 import { z } from 'zod';
+import {
+  assignAssetAliasPatches,
+  deleteAssetPatches,
+  importAssetRecordsPatches,
+  reimportAssetPatches,
+  removeAssetAliasPatches,
+  renameAssetAliasPatches,
+} from '@/project/asset-operations';
 import { buildJsonPointer, getJsonAtPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { isJsonArray, isJsonObject, toJsonValue, type JsonValue } from '@/project/json-value';
 import {
@@ -211,6 +219,24 @@ const setEntityParentSchema = z.object({
   parentId: z.string().nullable(),
 });
 
+const importedAssetMetadataSchema = z.object({
+  originalPath: z.string(),
+  originalName: z.string(),
+  projectRelativePath: z.string(),
+  kind: z.enum(['image', 'font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
+  extension: z.string(),
+  mimeType: z.string().optional(),
+  byteSize: z.number().nonnegative(),
+  contentHash: z.string(),
+  importedAt: z.string(),
+});
+
+const assetImportSchema = z.object({ assets: z.array(importedAssetMetadataSchema) });
+const assetAliasSchema = z.object({ assetId: entityIdSchema, alias: z.string().min(1) });
+const assetRenameAliasSchema = z.object({ fromAlias: z.string().min(1), toAlias: z.string().min(1) });
+const assetReimportSchema = z.object({ assetId: entityIdSchema, asset: importedAssetMetadataSchema });
+const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
+
 export const entityCreateRecordCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(createEntityRecordSchema, payload, (parsed) => createEntityRecordPatches(document, parsed as never));
 
@@ -226,6 +252,24 @@ export const entityUpdateMetadataCommand: CommandHandler = ({ document, payload 
 export const entitySetParentCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(setEntityParentSchema, payload, (parsed) => setEntityParentPatches(document, parsed as never));
 
+export const assetImportFilesCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(assetImportSchema, payload, (parsed) => importAssetRecordsPatches(document, parsed));
+
+export const assetAssignAliasCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(assetAliasSchema, payload, (parsed) => assignAssetAliasPatches(document, parsed));
+
+export const assetRemoveAliasCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(assetAliasSchema, payload, (parsed) => removeAssetAliasPatches(document, parsed));
+
+export const assetRenameAliasCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(assetRenameAliasSchema, payload, (parsed) => renameAssetAliasPatches(document, parsed));
+
+export const assetReimportFileCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(assetReimportSchema, payload, (parsed) => reimportAssetPatches(document, parsed));
+
+export const assetDeleteAssetCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(assetDeleteSchema, payload, (parsed) => deleteAssetPatches(document, parsed));
+
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
     'project.applyPatch': projectApplyPatchCommand,
@@ -240,37 +284,36 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'entity.deleteRecord': entityDeleteRecordCommand,
     'entity.updateMetadata': entityUpdateMetadataCommand,
     'entity.setParent': entitySetParentCommand,
+    'asset.importFiles': assetImportFilesCommand,
+    'asset.assignAlias': assetAssignAliasCommand,
+    'asset.removeAlias': assetRemoveAliasCommand,
+    'asset.renameAlias': assetRenameAliasCommand,
+    'asset.reimportFile': assetReimportFileCommand,
+    'asset.deleteAsset': assetDeleteAssetCommand,
   };
 }
 
 export function labelForCommand(type: string): string {
   switch (type) {
-    case 'project.applyPatch':
-      return 'Apply project patch';
-    case 'project.replaceAtPath':
-      return 'Replace project value';
-    case 'project.addAtPath':
-      return 'Add project value';
-    case 'project.removeAtPath':
-      return 'Remove project value';
-    case 'rawJson.replaceRecord':
-      return 'Replace raw JSON record';
-    case 'entity.replaceRecord':
-      return 'Replace entity record';
-    case 'entity.createRecord':
-      return 'Create entity record';
-    case 'entity.renameId':
-      return 'Rename entity ID';
-    case 'entity.duplicateRecord':
-      return 'Duplicate entity record';
-    case 'entity.deleteRecord':
-      return 'Delete entity record';
-    case 'entity.updateMetadata':
-      return 'Update entity metadata';
-    case 'entity.setParent':
-      return 'Set entity parent';
-    default:
-      return type;
+    case 'project.applyPatch': return 'Apply project patch';
+    case 'project.replaceAtPath': return 'Replace project value';
+    case 'project.addAtPath': return 'Add project value';
+    case 'project.removeAtPath': return 'Remove project value';
+    case 'rawJson.replaceRecord': return 'Replace raw JSON record';
+    case 'entity.replaceRecord': return 'Replace entity record';
+    case 'entity.createRecord': return 'Create entity record';
+    case 'entity.renameId': return 'Rename entity ID';
+    case 'entity.duplicateRecord': return 'Duplicate entity record';
+    case 'entity.deleteRecord': return 'Delete entity record';
+    case 'entity.updateMetadata': return 'Update entity metadata';
+    case 'entity.setParent': return 'Set entity parent';
+    case 'asset.importFiles': return 'Import assets';
+    case 'asset.assignAlias': return 'Assign asset alias';
+    case 'asset.removeAlias': return 'Remove asset alias';
+    case 'asset.renameAlias': return 'Rename asset alias';
+    case 'asset.reimportFile': return 'Reimport asset';
+    case 'asset.deleteAsset': return 'Delete asset';
+    default: return type;
   }
 }
 

@@ -1,9 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
-import { Eye, FilePlus2, FlaskConical, Package, Play, Redo2, Save, SaveAll, Square, Undo2 } from 'lucide-react';
+import { Download, Eye, FilePlus2, FlaskConical, Package, Play, Redo2, Save, SaveAll, Square, Undo2 } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { useCommandStore } from '@/commands/command-store';
 import { selectCanSave, selectProjectDirty, useProjectStore } from '@/project/project-store';
@@ -37,8 +38,14 @@ function commandTouchedTests(paths: string[]) {
   return paths.some((path) => path === '/tests' || path.startsWith('/tests/'));
 }
 
+interface WorkspaceAlert {
+  title: string;
+  message: string;
+}
+
 function WorkspacePage() {
   const [busy, setBusy] = useState(false);
+  const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const lastObservedCommandId = useRef<string | null>(null);
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
@@ -74,6 +81,7 @@ function WorkspacePage() {
   const commandHistory = useCommandStore((state) => state.history);
   const lastCommandDiagnostics = useCommandStore((state) => state.lastDiagnostics);
   const undoCommand = useCommandStore((state) => state.undo);
+  const executeCommand = useCommandStore((state) => state.executeCommand);
   const redoCommand = useCommandStore((state) => state.redo);
   const resetCommandHistory = useCommandStore((state) => state.resetCommandHistory);
   const canUndo = commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
@@ -234,6 +242,46 @@ function WorkspacePage() {
     });
   }
 
+  async function importAssets() {
+    if (!project) return;
+    if (!projectFilePath) {
+      const message = 'Save the project before importing assets.';
+      setStatusMessage(message);
+      setAlert({ title: 'Asset import unavailable', message });
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await window.noveltea.importAssets(projectFilePath, { allowMultiple: true });
+      if (!result.success || result.assets.length === 0) {
+        const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset import canceled.';
+        setStatusMessage(message);
+        if (result.error || result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+          setAlert({ title: 'Asset import failed', message });
+        }
+        return;
+      }
+      const command = executeCommand({
+        type: 'asset.importFiles',
+        label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
+        payload: { assets: result.assets },
+      });
+      const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      if (failure) {
+        setStatusMessage(failure.message);
+        setAlert({ title: 'Asset import failed', message: failure.message });
+      } else {
+        setStatusMessage(`Imported ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Asset import failed.';
+      setStatusMessage(message);
+      setAlert({ title: 'Asset import failed', message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function runFirstTest() {
     setLastPlaybackReport(null);
     setStatusMessage('Playback requires authoring-to-runtime conversion, which is not implemented yet.');
@@ -245,7 +293,7 @@ function WorkspacePage() {
   }
 
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader
         title="Workspace"
         description={projectPath ?? 'Create or open a NovelTea authoring project'}
@@ -260,6 +308,9 @@ function WorkspacePage() {
             </Button>
             <Button size="sm" variant="ghost" onClick={validate} disabled={!project}>
               Validate
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void importAssets()} disabled={!project || busy} title="Import assets">
+              <Download className="h-4 w-4" />
             </Button>
             <Button size="sm" variant="ghost" onClick={runFirstTest} disabled={!project || isAuthoring || tests.length === 0} title="Playback is disabled for authoring projects until conversion exists">
               <FlaskConical className="h-4 w-4" />
@@ -345,6 +396,15 @@ function WorkspacePage() {
           </Group>
         </div>
       </div>
+      <Dialog open={alert !== null} onOpenChange={(open) => { if (!open) setAlert(null); }}>
+        <DialogPopup>
+          <DialogTitle>{alert?.title ?? 'Workspace warning'}</DialogTitle>
+          <DialogDescription>{alert?.message}</DialogDescription>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setAlert(null)}>OK</Button>
+          </div>
+        </DialogPopup>
+      </Dialog>
       <div className="flex h-7 items-center border-t bg-muted/30 px-3">
         <span className="font-mono text-[10px] text-muted-foreground">
           {nodes.reduce((count, node) => count + (node.children?.length ?? 0), 0)} records{projectDirty ? ' • dirty' : ''}{isSaving ? ' • saving' : ''}{autosaveEnabled ? ' • autosave' : ''}
@@ -356,6 +416,6 @@ function WorkspacePage() {
         <span className="mx-2 text-muted-foreground/30">|</span>
         <span className="truncate font-mono text-[10px] text-muted-foreground">{statusMessage}</span>
       </div>
-    </>
+    </div>
   );
 }

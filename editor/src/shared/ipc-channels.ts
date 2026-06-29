@@ -12,6 +12,8 @@ export const IPC_CHANNELS = {
   EXPORT_PACKAGE: 'noveltea:export-package',
   SAVE_PROJECT: 'noveltea:save-project',
   SAVE_PROJECT_AS: 'noveltea:save-project-as',
+  IMPORT_ASSETS: 'noveltea:import-assets',
+  REIMPORT_ASSET: 'noveltea:reimport-asset',
   SET_ENTITY_RECORD: 'noveltea:set-entity-record',
   ERASE_ENTITY_RECORD: 'noveltea:erase-entity-record',
 } as const;

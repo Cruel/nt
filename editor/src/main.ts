@@ -3,6 +3,7 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
+import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import {
   eraseEntityRecord,
   exportPackage,
@@ -14,6 +15,7 @@ import {
   validateProject,
 } from './main/services/editor-tool-service';
 import { saveProject, saveProjectAs } from './main/services/project-file-service';
+import type { AssetImportOptions } from './shared/asset-import';
 import type { PackageExportOptions } from './shared/editor-tooling';
 
 if (started) {
@@ -145,6 +147,18 @@ app.whenReady().then(() => {
     IPC_CHANNELS.SAVE_PROJECT_AS,
     (_event: Electron.IpcMainInvokeEvent, project: unknown, defaultPath: string | null) =>
       saveProjectAs(mainWindow, project, defaultPath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_ASSETS,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, options: unknown) =>
+      importAssets(mainWindow, projectFilePath, options as AssetImportOptions),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REIMPORT_ASSET,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
+      reimportAsset(mainWindow, projectFilePath, projectRelativePath),
   );
 
   ipcMain.handle(

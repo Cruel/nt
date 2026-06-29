@@ -1042,29 +1042,14 @@ Preview Diagnostics bottom panel.
 
 ### Milestone 6: Assets Editor V1
 
-Goal: implement the first real dependency editor.
+Status: complete.
 
-Before implementing this milestone, review `docs/editor/EDITOR_TECH_STACK.md`.
-Large asset lists/grids should use TanStack Virtual, and any table-like asset
-surface should use TanStack Table once the table behavior is non-trivial.
-
-Tasks:
-
-1. Add asset collection schema.
-2. Add asset import command.
-3. Add main-process file copy/import service.
-4. Add alias assignment and rename command.
-5. Add asset detail editor.
-6. Add image/font/audio preview where practical.
-7. Add usage/reference display.
-8. Add delete/reimport commands.
-
-Acceptance criteria:
-
-- Images/fonts/audio/scripts/shader files can be imported as project assets.
-- Assets have stable IDs and aliases.
-- Aliases can be renamed transactionally.
-- Asset records can be referenced by later material/UI/scene editors.
+Milestone 6 implemented the first typed dependency editor. The editor now has a
+shared asset data schema, asset validation, safe Electron import/reimport IPC,
+command-backed asset import, alias assignment/removal/transactional rename,
+explicit asset-alias usage indexing, reference-aware asset delete, typed asset
+detail tabs, raw JSON fallback, and PreviewManager-backed symbolic thumbnail
+requests/fallback previews for imported asset records.
 
 ### Milestone 7: Shader and Material Editor V1
 

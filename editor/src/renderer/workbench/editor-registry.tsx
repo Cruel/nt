@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { FileJson, MonitorPlay } from 'lucide-react';
+import { FileJson, Image, MonitorPlay } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import type { WorkbenchResource, WorkbenchTab } from './workbench-types';
 
@@ -78,6 +78,25 @@ export function buildRawJsonTab(node: AssetNode): WorkbenchTab | null {
   return buildRawJsonTabForRecord(resource.collection!, resource.entityId!, node.entityId ?? node.label);
 }
 
+export function buildAssetDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:asset-detail:assets:${entityId}`,
+    title,
+    editorType: 'asset-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:assets:${entityId}`,
+      collection: 'assets',
+      entityId,
+    },
+  };
+}
+
+export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
+  if (node.collection === 'assets' && node.entityId) return buildAssetDetailTabForRecord(node.entityId, node.entityId);
+  return buildRawJsonTab(node);
+}
+
 export function buildPrimaryPreviewTab(): WorkbenchTab {
   return {
     id: 'tab:primary-preview',
@@ -93,6 +112,7 @@ export function buildPrimaryPreviewTab(): WorkbenchTab {
 
 export function editorIconForType(editorType: string): ComponentType<{ className?: string }> {
   if (editorType === 'engine-preview') return MonitorPlay;
+  if (editorType === 'asset-detail') return Image;
   if (editorType === 'raw-json') return FileJson;
   return FileJson;
 }

@@ -30,14 +30,14 @@ import { Label } from '@/components/ui/label';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { useProjectStore } from '@/project/project-store';
 import { deleteEntityRecordPreflight, referenceTargetFromEntity } from '@/project/entity-operations';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
-import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { authoringCollectionMetadata, isAuthoringCollectionKey, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
-import { buildRawJsonTab, buildRawJsonTabForRecord } from '@/workbench/editor-registry';
+import { buildDefaultRecordTab, buildRawJsonTabForRecord } from '@/workbench/editor-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
@@ -47,6 +47,11 @@ interface EntityDialogState {
   action: EntityAction;
   collection: AuthoringCollectionKey;
   entityId?: string;
+}
+
+interface ExplorerAlert {
+  title: string;
+  message: string;
 }
 
 const assetIcons: Record<string, typeof File> = {
@@ -360,17 +365,21 @@ function ProjectExplorerItem({
   project,
   depth = 0,
   openDialog,
+  showAlert,
 }: {
   node: AssetNode;
   project: AuthoringProject | null;
   depth?: number;
   openDialog: (state: EntityDialogState) => void;
+  showAlert: (alert: ExplorerAlert) => void;
 }) {
   const selectedId = useWorkspaceStore((state) => state.selectedAssetId);
+  const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const setSelectedId = useWorkspaceStore((state) => state.setSelectedAssetId);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
+  const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const Icon = getAssetIcon(node.type);
   const selectable = node.type !== 'folder' || (node.children?.length ?? 0) === 0;
   const record = recordForNode(project, node);
@@ -379,9 +388,39 @@ function ProjectExplorerItem({
   const openNode = () => {
     if (!selectable) return;
     setSelectedId(node.id);
-    const tab = buildRawJsonTab(node);
+    const tab = buildDefaultRecordTab(node);
     if (tab) openTab(tab);
   };
+
+  async function importAssetsFromFolder() {
+    if (!projectFilePath) {
+      const message = 'Save the project before importing assets.';
+      setStatusMessage(message);
+      showAlert({ title: 'Asset import unavailable', message });
+      return;
+    }
+    const result = await window.noveltea.importAssets(projectFilePath, { allowMultiple: true });
+    if (!result.success || result.assets.length === 0) {
+      const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset import canceled.';
+      setStatusMessage(message);
+      if (result.error || result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+        showAlert({ title: 'Asset import failed', message });
+      }
+      return;
+    }
+    const command = useCommandStore.getState().executeCommand({
+      type: 'asset.importFiles',
+      label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
+      payload: { assets: result.assets },
+    });
+    const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+    if (failure) {
+      setStatusMessage(failure.message);
+      showAlert({ title: 'Asset import failed', message: failure.message });
+    } else {
+      setStatusMessage(`Imported ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`);
+    }
+  }
 
   function findNodeUsages() {
     if (!project || !knownCollection || !node.entityId) return;
@@ -416,12 +455,22 @@ function ProjectExplorerItem({
             </MenuTrigger>
             <MenuPopup>
               {node.type === 'folder' ? (
-                <MenuItem onClick={() => openDialog({ action: 'create', collection: knownCollection })}>
-                  <FilePlus2 /> Create {authoringCollectionMetadata[knownCollection].singularLabel}
-                </MenuItem>
+                <>
+                  {knownCollection === 'assets' ? (
+                    <MenuItem onClick={() => void importAssetsFromFolder()}>
+                      <FilePlus2 /> Import Assets
+                    </MenuItem>
+                  ) : null}
+                  <MenuItem onClick={() => openDialog({ action: 'create', collection: knownCollection })}>
+                    <FilePlus2 /> Create {authoringCollectionMetadata[knownCollection].singularLabel}
+                  </MenuItem>
+                </>
               ) : (
                 <>
-                  <MenuItem onClick={openNode}><File /> Open Raw JSON</MenuItem>
+                  <MenuItem onClick={openNode}><File /> Open</MenuItem>
+                  {knownCollection === 'assets' && node.entityId ? (
+                    <MenuItem onClick={() => openTab(buildRawJsonTabForRecord('assets', node.entityId!, node.entityId!))}><FileCode /> Open Raw JSON</MenuItem>
+                  ) : null}
                   <MenuItem onClick={() => openDialog({ action: 'metadata', collection: knownCollection, entityId: node.entityId })}><Palette /> Edit Metadata</MenuItem>
                   <MenuItem onClick={() => openDialog({ action: 'rename', collection: knownCollection, entityId: node.entityId })}><FileCode /> Rename ID</MenuItem>
                   <MenuItem onClick={() => openDialog({ action: 'duplicate', collection: knownCollection, entityId: node.entityId })}><Copy /> Duplicate</MenuItem>
@@ -435,7 +484,7 @@ function ProjectExplorerItem({
         ) : null}
       </div>
       {node.children?.map((child) => (
-        <ProjectExplorerItem key={child.id} node={child} project={project} depth={depth + 1} openDialog={openDialog} />
+        <ProjectExplorerItem key={child.id} node={child} project={project} depth={depth + 1} openDialog={openDialog} showAlert={showAlert} />
       ))}
     </div>
   );
@@ -445,6 +494,7 @@ export function ProjectExplorer({ nodes }: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const [dialogState, setDialogState] = useState<EntityDialogState | null>(null);
+  const [alert, setAlert] = useState<ExplorerAlert | null>(null);
 
   if (nodes.length === 0) {
     return <div className="p-3 text-xs text-muted-foreground">No authoring project loaded.</div>;
@@ -452,9 +502,18 @@ export function ProjectExplorer({ nodes }: { nodes: AssetNode[] }) {
   return (
     <div className="space-y-0.5">
       {nodes.map((node) => (
-        <ProjectExplorerItem key={node.id} node={node} project={project} openDialog={(state) => setDialogState(state)} />
+        <ProjectExplorerItem key={node.id} node={node} project={project} openDialog={(state) => setDialogState(state)} showAlert={setAlert} />
       ))}
       <EntityOperationDialog state={dialogState} project={project} onClose={() => setDialogState(null)} />
+      <Dialog open={alert !== null} onOpenChange={(open) => { if (!open) setAlert(null); }}>
+        <DialogPopup>
+          <DialogTitle>{alert?.title ?? 'Project explorer warning'}</DialogTitle>
+          <DialogDescription>{alert?.message}</DialogDescription>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setAlert(null)}>OK</Button>
+          </div>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }

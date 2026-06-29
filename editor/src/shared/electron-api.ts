@@ -24,6 +24,8 @@ export interface NovelTeaElectronApi {
   ): Promise<PackageExportResponse>;
   saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
   saveProjectAs(project: unknown, defaultPath?: string | null): Promise<SaveProjectResponse>;
+  importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
+  reimportAsset(projectFilePath: string, projectRelativePath: string): Promise<AssetReimportResponse>;
   setEntityRecord(
     project: unknown,
     collection: string,
@@ -36,6 +38,7 @@ export interface NovelTeaElectronApi {
     entityId: string,
   ): Promise<EntityEditResponse>;
 }
+import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
 import type { EnginePreviewSession } from './preview-protocol';
 import type {
   EntityEditResponse,

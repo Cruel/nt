@@ -68,6 +68,26 @@ describe('workbench model', () => {
     expect(state.activeGroupId).toBe(newGroupId);
   });
 
+  it('duplicates a tab instance when splitting without moving', () => {
+    let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal', tabId: 'tab:foyer', moveTab: false },
+      createTestId,
+    );
+    const newGroupId = Object.keys(state.groupsById).find((id) => id !== ROOT_GROUP_ID)!;
+    const clonedTabId = state.groupsById[newGroupId]?.activeTabId;
+    expect(clonedTabId).toBeTruthy();
+    expect(clonedTabId).not.toBe('tab:foyer');
+    expect(state.tabsById[clonedTabId!]?.resource?.stableId).toBe('record:room:foyer');
+
+    state = closeWorkbenchTab(state, newGroupId, clonedTabId!);
+    expect(state.tabsById['tab:foyer']).toBeTruthy();
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toContain('tab:foyer');
+    expect(Object.keys(state.groupsById)).toEqual([ROOT_GROUP_ID]);
+    expect(state.layout).toEqual({ kind: 'group', groupId: ROOT_GROUP_ID });
+  });
+
   it('moves a tab between groups', () => {
     let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
     state = splitWorkbenchGroup(

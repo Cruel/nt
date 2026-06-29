@@ -16,12 +16,12 @@ export function AppShell({ children }: AppShellProps) {
       expanded={sidebarExpanded}
       onExpandedChange={setSidebarExpanded}
     >
-      <div className="flex h-dvh w-dvh overflow-hidden">
+      <div className="flex h-dvh w-dvw overflow-hidden">
         <Sidebar>
           <AppSidebar />
           <SidebarRail />
         </Sidebar>
-        <main className="flex flex-1 flex-col overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {children}
         </main>
       </div>

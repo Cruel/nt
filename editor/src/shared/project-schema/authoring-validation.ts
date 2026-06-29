@@ -1,5 +1,6 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { authoringCollectionKeys, isAuthoringCollectionKey, type AuthoringCollectionKey } from './authoring-collections';
+import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './authoring-assets';
 import {
   authoringProjectSchema,
   isValidEntityId,
@@ -32,6 +33,35 @@ function validateTarget(
   }
   if (!targetExists(project, target)) {
     diagnostics.push(diagnostic('error', path, `Missing target '${target.collection}:${target.id}'.`));
+  }
+}
+
+function validateAssets(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
+  const aliases = new Map<string, string>();
+  for (const [id, record] of Object.entries(project.assets)) {
+    const basePath = `/assets/${escapePathSegment(id)}/data`;
+    const data = parseAssetData(record.data);
+    if (!data) {
+      diagnostics.push(diagnostic('error', basePath, 'Asset record data must contain valid asset metadata.', 'authoring-assets'));
+      continue;
+    }
+    if (!isSafeProjectAssetPath(data.source.path)) {
+      diagnostics.push(diagnostic('error', `${basePath}/source/path`, 'Asset source path must be a safe project-relative path.', 'authoring-assets'));
+    }
+    const seen = new Set<string>();
+    for (const [index, alias] of data.aliases.entries()) {
+      const aliasPath = `${basePath}/aliases/${index}`;
+      const aliasError = validateAssetAlias(alias);
+      if (aliasError) diagnostics.push(diagnostic('error', aliasPath, aliasError, 'authoring-assets'));
+      if (seen.has(alias)) diagnostics.push(diagnostic('error', aliasPath, `Duplicate alias '${alias}' in asset.`, 'authoring-assets'));
+      seen.add(alias);
+      const owner = aliases.get(alias);
+      if (owner && owner !== id) {
+        diagnostics.push(diagnostic('error', aliasPath, `Alias '${alias}' is already assigned to asset '${owner}'.`, 'authoring-assets'));
+      } else {
+        aliases.set(alias, id);
+      }
+    }
   }
 }
 
@@ -104,6 +134,8 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
     detectCycles(project, collection, 'parent', diagnostics);
     detectCycles(project, collection, 'inherits', diagnostics);
   }
+
+  validateAssets(project, diagnostics);
 
   return diagnostics;
 }

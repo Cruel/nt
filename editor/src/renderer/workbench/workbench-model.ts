@@ -262,8 +262,20 @@ export function splitWorkbenchGroup(
   const newGroupId = createId('group');
   const splitId = createId('split');
   const tabToMove = options.tabId && sourceGroup.tabIds.includes(options.tabId) ? options.tabId : null;
-  const newGroupTabIds = tabToMove ? [tabToMove] : [];
+  const clonedTabId = tabToMove && !options.moveTab ? createId('tab') : null;
+  if (tabToMove && clonedTabId) {
+    const sourceTab = next.tabsById[tabToMove];
+    if (sourceTab) {
+      next.tabsById[clonedTabId] = {
+        ...sourceTab,
+        id: clonedTabId,
+        resource: sourceTab.resource ? { ...sourceTab.resource } : undefined,
+      };
+    }
+  }
+  const newGroupTabIds = tabToMove ? [options.moveTab ? tabToMove : clonedTabId ?? tabToMove] : [];
   const sourceTabIds = tabToMove && options.moveTab ? sourceGroup.tabIds.filter((id) => id !== tabToMove) : sourceGroup.tabIds;
+  const newActiveTabId = newGroupTabIds[0] ?? null;
 
   next.groupsById[options.sourceGroupId] = normalizeGroupActiveTab({
     ...sourceGroup,
@@ -273,7 +285,7 @@ export function splitWorkbenchGroup(
   next.groupsById[newGroupId] = {
     id: newGroupId,
     tabIds: newGroupTabIds,
-    activeTabId: tabToMove,
+    activeTabId: newActiveTabId,
   };
   next.layout = replaceGroupNode(next.layout, options.sourceGroupId, {
     kind: 'split',
