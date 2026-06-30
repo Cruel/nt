@@ -3,6 +3,7 @@ import { authoringCollectionKeys, isAuthoringCollectionKey, type AuthoringCollec
 import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './authoring-assets';
 import { validateMaterialData } from './authoring-materials';
 import { validateShaderData } from './authoring-shaders';
+import { validateVariableData } from './authoring-variables';
 import {
   authoringProjectSchema,
   isValidEntityId,
@@ -138,6 +139,10 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   }
 
   validateAssets(project, diagnostics);
+
+  for (const [id, record] of Object.entries(project.variables)) {
+    diagnostics.push(...validateVariableData(project, id, record));
+  }
 
   for (const [id, record] of Object.entries(project.shaders)) {
     diagnostics.push(...validateShaderData(project, id, record));

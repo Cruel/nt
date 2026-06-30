@@ -1,7 +1,8 @@
 import { authoringCollectionKeys, type AuthoringCollectionKey } from './authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
+import { isVariableRef } from './authoring-variables';
 
-export type ReferenceUsageKind = 'parent' | 'inherits' | 'entrypoint' | 'explicit-ref';
+export type ReferenceUsageKind = 'parent' | 'inherits' | 'entrypoint' | 'explicit-ref' | 'variable-ref';
 
 export interface ReferenceUsage {
   sourceCollection: AuthoringCollectionKey | 'project';
@@ -49,6 +50,16 @@ function scanDataForExplicitRefs(
       path: `${path}/$ref`,
       target: ref,
       kind: 'explicit-ref',
+    });
+  }
+
+  if (isVariableRef(value)) {
+    addUsage(usages, {
+      sourceCollection,
+      sourceId,
+      path: `${path}/$var`,
+      target: { collection: 'variables', id: value.$var },
+      kind: 'variable-ref',
     });
   }
 

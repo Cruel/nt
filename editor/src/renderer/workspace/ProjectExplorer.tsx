@@ -37,7 +37,7 @@ import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { authoringCollectionMetadata, isAuthoringCollectionKey, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
-import { buildDefaultRecordTab, buildRawJsonTabForRecord } from '@/workbench/editor-registry';
+import { buildDefaultRecordTab, buildRawJsonTabForRecord, buildVariablesEditorTab } from '@/workbench/editor-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
@@ -381,14 +381,14 @@ function ProjectExplorerItem({
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const Icon = getAssetIcon(node.type);
-  const selectable = node.type !== 'folder' || (node.children?.length ?? 0) === 0;
+  const selectable = node.type !== 'folder' || node.collection === 'variables' || (node.children?.length ?? 0) === 0;
   const record = recordForNode(project, node);
   const knownCollection = node.collection && isAuthoringCollectionKey(node.collection) ? node.collection : null;
 
   const openNode = () => {
     if (!selectable) return;
     setSelectedId(node.id);
-    const tab = buildDefaultRecordTab(node);
+    const tab = node.collection === 'variables' && !node.entityId ? buildVariablesEditorTab() : buildDefaultRecordTab(node);
     if (tab) openTab(tab);
   };
 
@@ -470,6 +470,9 @@ function ProjectExplorerItem({
                   <MenuItem onClick={openNode}><File /> Open</MenuItem>
                   {knownCollection === 'assets' && node.entityId ? (
                     <MenuItem onClick={() => openTab(buildRawJsonTabForRecord('assets', node.entityId!, node.entityId!))}><FileCode /> Open Raw JSON</MenuItem>
+                  ) : null}
+                  {knownCollection === 'variables' && node.entityId ? (
+                    <MenuItem onClick={() => openTab(buildRawJsonTabForRecord('variables', node.entityId!, node.entityId!))}><FileCode /> Open Raw JSON</MenuItem>
                   ) : null}
                   <MenuItem onClick={() => openDialog({ action: 'metadata', collection: knownCollection, entityId: node.entityId })}><Palette /> Edit Metadata</MenuItem>
                   <MenuItem onClick={() => openDialog({ action: 'rename', collection: knownCollection, entityId: node.entityId })}><FileCode /> Rename ID</MenuItem>

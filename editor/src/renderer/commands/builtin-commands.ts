@@ -23,6 +23,11 @@ import {
   replaceShaderDataPatches,
   setMaterialInheritsPatches,
 } from '@/project/shader-material-operations';
+import {
+  replaceVariableDataPatches,
+  setVariableDefaultValuePatches,
+  setVariableTypePatches,
+} from '@/project/variable-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
@@ -244,6 +249,14 @@ const assetReimportSchema = z.object({ assetId: entityIdSchema, asset: importedA
 const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
 const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unknown() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
+const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
+const variableSetTypeSchema = z.object({
+  variableId: entityIdSchema,
+  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
+  defaultValue: z.unknown().optional(),
+  enumValues: z.array(z.string()).optional(),
+});
+const variableSetDefaultValueSchema = z.object({ variableId: entityIdSchema, defaultValue: z.unknown() });
 const materialSetInheritsSchema = z.object({ materialId: entityIdSchema, inheritsId: z.string().nullable() });
 const shaderCompiledOutputSchema = z.object({ shader: z.string(), stage: z.string(), variant: z.string(), runtimePath: z.string() });
 const shaderApplyCompiledOutputsSchema = z.object({ outputs: z.array(shaderCompiledOutputSchema) });
@@ -293,6 +306,15 @@ export const materialReplaceDataCommand: CommandHandler = ({ document, payload }
 export const materialSetInheritsCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(materialSetInheritsSchema, payload, (parsed) => setMaterialInheritsPatches(document, parsed));
 
+export const variableReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(variableReplaceDataSchema, payload, (parsed) => replaceVariableDataPatches(document, parsed));
+
+export const variableSetTypeCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(variableSetTypeSchema, payload, (parsed) => setVariableTypePatches(document, parsed));
+
+export const variableSetDefaultValueCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(variableSetDefaultValueSchema, payload, (parsed) => setVariableDefaultValuePatches(document, parsed));
+
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
     'project.applyPatch': projectApplyPatchCommand,
@@ -317,6 +339,9 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'shader.applyCompiledOutputs': shaderApplyCompiledOutputsCommand,
     'material.replaceData': materialReplaceDataCommand,
     'material.setInherits': materialSetInheritsCommand,
+    'variable.replaceData': variableReplaceDataCommand,
+    'variable.setType': variableSetTypeCommand,
+    'variable.setDefaultValue': variableSetDefaultValueCommand,
   };
 }
 
@@ -344,6 +369,9 @@ export function labelForCommand(type: string): string {
     case 'shader.applyCompiledOutputs': return 'Apply shader compile outputs';
     case 'material.replaceData': return 'Update material';
     case 'material.setInherits': return 'Set material inheritance';
+    case 'variable.replaceData': return 'Update variable';
+    case 'variable.setType': return 'Set variable type';
+    case 'variable.setDefaultValue': return 'Set variable default value';
     default: return type;
   }
 }

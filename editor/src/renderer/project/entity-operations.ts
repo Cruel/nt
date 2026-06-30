@@ -7,6 +7,7 @@ import {
 } from '../../shared/project-schema/authoring-collections';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import {
   entityIdPattern,
   isAuthoringProject,
@@ -139,6 +140,7 @@ export function defaultDataForCollection(
   explicitData: unknown,
 ): Record<string, unknown> {
   if (isRecord(explicitData)) return explicitData;
+  if (collection === 'variables') return defaultVariableData() as unknown as Record<string, unknown>;
   if (collection === 'shaders') return defaultShaderData(label) as unknown as Record<string, unknown>;
   if (collection === 'materials') return defaultMaterialData(label) as unknown as Record<string, unknown>;
   return {};
@@ -205,6 +207,8 @@ export function rewriteReferenceTarget(value: unknown, from: ReferenceTarget, to
   for (const [key, child] of Object.entries(value)) {
     if (key === '$ref' && referenceEquals(child as ReferenceTarget, from)) {
       next[key] = { ...to };
+    } else if (key === '$var' && from.collection === 'variables' && child === from.id) {
+      next[key] = to.id;
     } else if ((key === 'parent' || key === 'inherits') && referenceEquals(child as ReferenceTarget, from)) {
       next[key] = { ...to };
     } else {
@@ -269,7 +273,7 @@ export function renameEntityIdPatches(
   const index = buildReferenceIndex(project);
   for (const usage of findUsages(index, from)) {
     if (usage.sourceCollection === payload.collection && usage.sourceId === payload.fromId) continue;
-    patches.push({ op: 'replace', path: usage.path, value: toJsonValue(to) });
+    patches.push({ op: 'replace', path: usage.path, value: toJsonValue(usage.kind === 'variable-ref' ? to.id : to) });
     affectedPaths.push(usage.path);
   }
   return { patches, affectedPaths };
