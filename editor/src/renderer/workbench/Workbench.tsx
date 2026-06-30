@@ -1,4 +1,5 @@
 import { Group, Panel, Separator } from 'react-resizable-panels';
+import { DirtyCloseDialog } from './DirtyCloseDialog';
 import { WorkbenchGroup } from './WorkbenchGroup';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchLayoutNode } from './workbench-types';
@@ -45,6 +46,7 @@ export function Workbench() {
   return (
     <div className="h-full min-h-0 overflow-hidden bg-muted/30 p-1">
       <WorkbenchLayoutRenderer node={layout} />
+      <DirtyCloseDialog />
     </div>
   );
 }

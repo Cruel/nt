@@ -12,6 +12,7 @@ import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { buildPrimaryPreviewTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
@@ -58,6 +59,9 @@ function WorkspacePage() {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectDirty = useProjectStore(selectProjectDirty);
   const canSave = useProjectStore(selectCanSave);
+  const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
+  const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
+  const saveDirty = projectDirty || hasDraftDirty;
   const isSaving = useProjectStore((state) => state.isSaving);
   const autosaveEnabled = useProjectStore((state) => state.autosaveEnabled);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
@@ -146,15 +150,28 @@ function WorkspacePage() {
     if (!project) return false;
     setProjectSaving(true);
     try {
-      const result = saveAs || !projectFilePath
-        ? await window.noveltea.saveProjectAs(project, projectFilePath)
-        : await window.noveltea.saveProject(project, projectFilePath);
+      const activeDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey).filter((entry) => entry.dirty);
+      if (activeDrafts.length > 0) {
+        const applied = await runDraftActions(activeDrafts, 'apply');
+        if (!applied) {
+          const message = 'Apply local drafts before saving, or discard them.';
+          setProjectSaveError(message);
+          setStatusMessage(message);
+          return false;
+        }
+      }
+      const latestProject = useProjectStore.getState().document;
+      if (!latestProject) return false;
+      const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+      const result = saveAs || !latestProjectFilePath
+        ? await window.noveltea.saveProjectAs(latestProject, latestProjectFilePath)
+        : await window.noveltea.saveProject(latestProject, latestProjectFilePath);
       if (result.success) {
         markProjectSaved({ projectPath: result.projectPath, projectFilePath: result.projectFilePath });
         setProjectPath(result.projectPath ?? projectPath);
         setProjectFilePath(result.projectFilePath ?? projectFilePath);
-        addTimelineEntry({ source: 'command', message: `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? projectFilePath}`, detail: result });
-        setStatusMessage(`${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? projectFilePath}`);
+        addTimelineEntry({ source: 'command', message: `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}`, detail: result });
+        setStatusMessage(`${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}`);
         return true;
       }
       setProjectSaveError(result.error ?? 'Save failed');
@@ -182,13 +199,15 @@ function WorkspacePage() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const isTextInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      if (isTextInput || !(event.ctrlKey || event.metaKey)) return;
+      if (!(event.ctrlKey || event.metaKey)) return;
       if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         void saveProject(event.shiftKey);
-      } else if (event.key.toLowerCase() === 'z') {
+      }
+      const target = event.target as HTMLElement | null;
+      const isTextInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (isTextInput) return;
+      if (event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redoProjectCommand();
         else undoProjectCommand();
@@ -213,7 +232,7 @@ function WorkspacePage() {
   });
 
   useEffect(() => {
-    if (!autosaveEnabled || !projectDirty || !projectFilePath || isSaving || commandHistory.activeTransaction) return;
+    if (!autosaveEnabled || !saveDirty || !projectFilePath || isSaving || commandHistory.activeTransaction) return;
     if (lastCommandDiagnostics.some((diagnostic) => diagnostic.severity === 'error')) return;
     const timer = window.setTimeout(() => {
       void saveProject(false, 'autosave');
@@ -347,7 +366,7 @@ function WorkspacePage() {
             <Button size="sm" variant="ghost" onClick={redoProjectCommand} disabled={!canRedo} title="Redo">
               <Redo2 className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant={projectDirty ? 'secondary' : 'ghost'} onClick={() => void saveProject(false)} disabled={!canSave || isSaving} title="Save">
+            <Button size="sm" variant={saveDirty ? 'secondary' : 'ghost'} onClick={() => void saveProject(false)} disabled={!project || (!canSave && !hasDraftDirty) || isSaving} title="Save">
               <Save className="h-4 w-4" />
             </Button>
             <Button size="sm" variant="ghost" onClick={() => void saveProject(true)} disabled={!project || isSaving} title="Save As">
@@ -407,7 +426,7 @@ function WorkspacePage() {
       </Dialog>
       <div className="flex h-7 items-center border-t bg-muted/30 px-3">
         <span className="font-mono text-[10px] text-muted-foreground">
-          {nodes.reduce((count, node) => count + (node.children?.length ?? 0), 0)} records{projectDirty ? ' • dirty' : ''}{isSaving ? ' • saving' : ''}{autosaveEnabled ? ' • autosave' : ''}
+          {nodes.reduce((count, node) => count + (node.children?.length ?? 0), 0)} records{saveDirty ? ' • dirty' : ''}{isSaving ? ' • saving' : ''}{autosaveEnabled ? ' • autosave' : ''}
         </span>
         <span className="mx-2 text-muted-foreground/30">|</span>
         <span className="font-mono text-[10px] text-muted-foreground">

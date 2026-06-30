@@ -3,6 +3,10 @@ import { Button } from '@/components/ui/button';
 import { defaultEditorRegistry } from './default-editors';
 import { editorIconForType, renderEditorToolbar } from './editor-registry';
 import { buildPrimaryPreviewTab } from './editor-registry';
+import { useProjectStore } from '@/project/project-store';
+import { useCloseGuardStore } from './close-guard-store';
+import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
+import { getTabDirtyState } from './dirty-state';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchGroup, WorkbenchTab } from './workbench-types';
 
@@ -16,12 +20,16 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   const groupsById = useWorkbenchStore((state) => state.groupsById);
   const recentlyClosedTabs = useWorkbenchStore((state) => state.recentlyClosedTabs);
   const activateTab = useWorkbenchStore((state) => state.activateTab);
-  const closeTab = useWorkbenchStore((state) => state.closeTab);
+  const requestCloseTab = useCloseGuardStore((state) => state.requestCloseTab);
   const splitGroup = useWorkbenchStore((state) => state.splitGroup);
   const moveTab = useWorkbenchStore((state) => state.moveTab);
   const moveTabWithinGroup = useWorkbenchStore((state) => state.moveTabWithinGroup);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const reopenLastClosedTab = useWorkbenchStore((state) => state.reopenLastClosedTab);
+  const project = useProjectStore((state) => state.document);
+  const savedDocument = useProjectStore((state) => state.savedDocument);
+  const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
+  const draftDirtyByTabId = selectDraftDirtyByTabId({ entriesByKey: draftEntries });
   const activeTabId = group.activeTabId;
   const activeTab = activeTabId ? tabs.find((tab) => tab.id === activeTabId) ?? null : null;
   const otherGroup = Object.values(groupsById).find((candidate) => candidate.id !== group.id);
@@ -42,6 +50,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
         {tabs.map((tab, index) => {
           const Icon = editorIconForType(tab.editorType);
           const active = tab.id === activeTabId;
+          const dirty = getTabDirtyState(tab, project, savedDocument, draftDirtyByTabId).dirty;
           return (
             <div
               key={tab.id}
@@ -56,7 +65,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">
-                  {tab.dirty ? '● ' : ''}
+                  {dirty ? '● ' : ''}
                   {tab.title}
                 </span>
               </button>
@@ -92,7 +101,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
                 type="button"
                 className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100"
                 aria-label={`Close ${tab.title}`}
-                onClick={() => closeTab(group.id, tab.id)}
+                onClick={() => requestCloseTab(group.id, tab.id)}
               >
                 <X className="h-3 w-3" />
               </button>

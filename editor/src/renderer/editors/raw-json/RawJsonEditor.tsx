@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCommandStore } from '@/commands/command-store';
@@ -8,6 +8,7 @@ import { useProjectStore } from '@/project/project-store';
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useEditorDraftDirty } from '@/workbench/draft-dirty-store';
 import { isAuthoringCollectionKey } from '../../../shared/project-schema/authoring-collections';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 
@@ -32,6 +33,7 @@ export function RawJsonEditor({ tab }: WorkbenchEditorProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(formattedRecord);
   const [error, setError] = useState<string | null>(null);
+  const draftDirty = editing && draft !== formattedRecord;
 
   function findRecordUsages() {
     const collection = tab.resource?.collection;
@@ -48,17 +50,17 @@ export function RawJsonEditor({ tab }: WorkbenchEditorProps) {
     setEditing(true);
   }
 
-  function applyDraft() {
+  const applyDraft = useCallback(() => {
     if (!tab.resource?.collection || !tab.resource?.entityId) {
       setError('This tab does not reference an editable record.');
-      return;
+      return false;
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(draft);
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : 'Invalid JSON.');
-      return;
+      return false;
     }
     const result = executeCommand({
       type: 'rawJson.replaceRecord',
@@ -72,11 +74,26 @@ export function RawJsonEditor({ tab }: WorkbenchEditorProps) {
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (!result.ok || failure) {
       setError(failure?.message ?? 'Command failed.');
-      return;
+      return false;
     }
     setError(null);
+    setDraft(JSON.stringify(parsed, null, 2));
     setEditing(false);
-  }
+    return true;
+  }, [draft, executeCommand, tab.resource?.collection, tab.resource?.entityId]);
+
+  const discardDraft = useCallback(() => {
+    setEditing(false);
+    setDraft(formattedRecord);
+    setError(null);
+    return true;
+  }, [formattedRecord]);
+
+  useEditorDraftDirty(tab.id, draftDirty, {
+    label: 'Unapplied raw JSON edits',
+    apply: applyDraft,
+    discard: discardDraft,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -96,7 +113,7 @@ export function RawJsonEditor({ tab }: WorkbenchEditorProps) {
           {editing ? 'Apply' : 'Edit JSON'}
         </Button>
         {editing ? (
-          <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setDraft(formattedRecord); setError(null); }}>
+          <Button size="sm" variant="ghost" onClick={discardDraft}>
             Revert
           </Button>
         ) : null}

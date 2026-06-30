@@ -19,6 +19,28 @@ function projectPathFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function safeFileStem(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const stem = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return stem.length > 0 ? stem : null;
+}
+
+function defaultProjectFileName(project: unknown): string {
+  if (isRecord(project) && isRecord(project.project)) {
+    const stem = safeFileStem(project.project.id) ?? safeFileStem(project.project.name);
+    if (stem) return `${stem}.json`;
+  }
+  return 'new-project.json';
+}
+
 export async function saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse> {
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return { ok: false, success: false, error: 'Project save requires a project file path.' };
@@ -44,7 +66,7 @@ export async function saveProjectAs(
   if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
   const result = await dialog.showSaveDialog(owner, {
     title: 'Save NovelTea Project',
-    defaultPath: defaultPath ?? 'game.json',
+    defaultPath: defaultPath ?? defaultProjectFileName(project),
     filters: [
       { name: 'NovelTea Project', extensions: ['json', 'game'] },
       { name: 'All Files', extensions: ['*'] },

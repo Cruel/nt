@@ -73,7 +73,13 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY, async () => {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory'],
+      title: 'Open NovelTea Project',
+      properties: ['openFile'],
+      filters: [
+        { name: 'NovelTea Project', extensions: ['json', 'game'] },
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });

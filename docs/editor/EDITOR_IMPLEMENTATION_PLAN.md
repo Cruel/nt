@@ -1081,7 +1081,43 @@ Acceptance criteria:
 - Invalid shader changes do not crash the preview.
 - Material thumbnails are cached or pooled rather than permanently live per card.
 
-### Milestone 8: Variables Editor V1
+### Milestone 8: Dirty Tabs and Close Guard
+
+Goal: make unsaved editor state deterministic at the entity/tab level before
+more typed entity editors are added.
+
+This milestone implements VS Code-like dirty tab indicators and guarded tab
+closure without scattering `dirty = true` calls across individual form controls.
+Entity editors should commit persistent changes through typed commands, and a
+central dirty-state layer should derive tab dirtiness by comparing the current
+project resource against the last successfully saved project resource. Local
+source/raw JSON drafts should register with a shared draft-dirty store.
+
+Tasks:
+
+1. Add a saved project document snapshot to `ProjectStore`.
+2. Add resource path/equality helpers for workbench record resources.
+3. Add central persistent resource dirty selectors.
+4. Add an editor-local draft dirty registry for unapplied raw JSON/source drafts.
+5. Derive dirty tab markers from resource dirty state plus draft dirty state.
+6. Replace direct user tab close calls with a guarded close request flow.
+7. Add a Save/Discard/Cancel modal for dirty tabs.
+8. Add command-backed discard/restore behavior for record-backed tabs.
+9. Wire raw JSON and shader source draft editors into the draft dirty registry.
+10. Add tests for dirty derivation, undo/redo-to-clean behavior, and guarded
+    close behavior.
+
+Acceptance criteria:
+
+- Editing a command-backed entity marks every tab linked to that entity dirty
+  when it differs from the saved project value.
+- Undoing back to the saved value clears the dirty marker.
+- Redoing away from the saved value marks the tab dirty again.
+- Unapplied raw JSON and shader source drafts mark their tabs dirty.
+- Dirty tabs cannot be closed without Save, Discard, or Cancel.
+- Dirty state is derived centrally rather than manually set by every widget.
+
+### Milestone 9: Variables Editor V1
 
 Goal: create typed global state authoring before scene/dialogue conditions become
 common.
@@ -1100,7 +1136,7 @@ Acceptance criteria:
 - Invalid default values are diagnosed.
 - Rename/delete are command-based.
 
-### Milestone 9: UI Layout Editor V1
+### Milestone 10: UI Layout Editor V1
 
 Goal: make RmlUi authoring visible and previewable.
 
@@ -1124,7 +1160,7 @@ Acceptance criteria:
 - Layout diagnostics surface without crashing preview.
 - Project settings can choose a default layout.
 
-### Milestone 10: Character Editor V1
+### Milestone 11: Character Editor V1
 
 Goal: establish first-class VN character authoring.
 
@@ -1142,7 +1178,7 @@ Acceptance criteria:
 - A character with at least one pose/expression can be authored.
 - Character records can be referenced by scenes and dialogue.
 
-### Milestone 11: Room Editor V1
+### Milestone 12: Room Editor V1
 
 Goal: support visual room authoring and interactive text room basics.
 
@@ -1161,7 +1197,7 @@ Acceptance criteria:
 - A room can be visually previewed.
 - Room data can be used by runtime preview/export path.
 
-### Milestone 12: Dialogue Editor V1
+### Milestone 13: Dialogue Editor V1
 
 Goal: author branching dialogue and embed it later in scenes.
 
@@ -1184,7 +1220,7 @@ Acceptance criteria:
 - Dialogue can reference characters.
 - Preview from selected node works or reports missing runtime support cleanly.
 
-### Milestone 13: Scene Editor V1
+### Milestone 14: Scene Editor V1
 
 Goal: implement the core VN orchestration authoring surface.
 
@@ -1218,7 +1254,7 @@ Acceptance criteria:
 - Scene editing is undoable.
 - Preview can play or approximate the authored sequence.
 
-### Milestone 14: Map, Inventory, and Actions V1
+### Milestone 15: Map, Inventory, and Actions V1
 
 Goal: add optional adventure/point-and-click systems after the VN basics exist.
 
@@ -1235,7 +1271,7 @@ Acceptance criteria:
 - VN-only projects can ignore these systems.
 - Adventure projects can author core interaction data.
 
-### Milestone 15: Tests Editor V1
+### Milestone 16: Tests Editor V1
 
 Goal: make deterministic playback tests authorable and debuggable.
 
@@ -1254,7 +1290,7 @@ Acceptance criteria:
 - Tests can be created, run, and inspected from the editor.
 - Failures are actionable and tied to project references.
 
-### Milestone 16: Export and Packaging Workflow
+### Milestone 17: Export and Packaging Workflow
 
 Goal: make editor-authored projects produce runtime packages.
 

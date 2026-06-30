@@ -119,13 +119,41 @@ function findProjectFile(projectPath: string) {
   return path.join(absolute, 'game.json');
 }
 
+function openAuthoringProjectFromSource(source: string, projectFilePath: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source) as unknown;
+  } catch {
+    return null;
+  }
+  if (
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    !Array.isArray(parsed) &&
+    (parsed as Record<string, unknown>).schema === 'noveltea.authoring.project'
+  ) {
+    return {
+      ok: true,
+      success: true,
+      importedLegacy: false,
+      diagnostics: [],
+      project: parsed,
+      projectPath: path.dirname(projectFilePath),
+      projectFilePath,
+    };
+  }
+  return null;
+}
+
 export async function openProject(projectPath: string) {
   const projectFilePath = findProjectFile(projectPath);
   const source = readFileSync(projectFilePath, 'utf8');
+  const authoringProject = openAuthoringProjectFromSource(source, projectFilePath);
+  if (authoringProject) return authoringProject;
   const response = (await invokeEditorTool('load-project', { source })) as Record<string, unknown>;
   return {
     ...response,
-    projectPath,
+    projectPath: path.dirname(projectFilePath),
     projectFilePath,
   };
 }

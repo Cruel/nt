@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,7 @@ import {
 } from '../../../shared/project-schema/authoring-shaders';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { buildRawJsonTabForRecord } from '@/workbench/editor-registry';
+import { useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
@@ -51,13 +52,32 @@ function valueToText(value: unknown): string {
   return value === undefined || value === null ? '' : String(value);
 }
 
-function ShaderStageRow({ shaderId, data, stage, index, shaderSourceAssets }: { shaderId: string; data: ShaderData; stage: ShaderStageData; index: number; shaderSourceAssets: Array<{ id: string; label: string }> }) {
+function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAssets }: { tabId: string; shaderId: string; data: ShaderData; stage: ShaderStageData; index: number; shaderSourceAssets: Array<{ id: string; label: string }> }) {
   const [draft, setDraft] = useState(stage.sourceText ?? '');
-  function commit(nextStage: ShaderStageData, label = 'Update shader stage') {
+  const clearDraftDirty = useDraftDirtyStore((state) => state.clearDraftDirty);
+  const draftDirty = stage.sourceMode === 'inline' && draft !== (stage.sourceText ?? '');
+  const draftKey = `${tabId}:shader-stage:${index}`;
+  const commit = useCallback((nextStage: ShaderStageData, label = 'Update shader stage') => {
     const stages = [...data.stages];
     stages[index] = nextStage;
     updateShader(shaderId, { ...data, stages }, label);
-  }
+    setDraft(nextStage.sourceText ?? '');
+    clearDraftDirty(draftKey);
+  }, [clearDraftDirty, data, draftKey, index, shaderId]);
+  const applyDraft = useCallback(() => {
+    commit({ ...stage, sourceText: draft }, 'Update shader source');
+    return true;
+  }, [commit, draft, stage]);
+  const discardDraft = useCallback(() => {
+    setDraft(stage.sourceText ?? '');
+    return true;
+  }, [stage.sourceText]);
+  useEditorDraftDirty(tabId, draftDirty, {
+    key: draftKey,
+    label: `Unapplied ${stage.stage} shader source`,
+    apply: applyDraft,
+    discard: discardDraft,
+  });
   return (
     <section className="space-y-3 rounded border p-3">
       <div className="flex items-center gap-2">
@@ -81,7 +101,7 @@ function ShaderStageRow({ shaderId, data, stage, index, shaderSourceAssets }: { 
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="flex items-center justify-between"><Label>Inline source</Label><Button size="sm" variant="outline" onClick={() => commit({ ...stage, sourceText: draft }, 'Update shader source')}>Apply Source</Button></div>
+          <Label>Inline source</Label>
           <SourceEditor value={draft} onChange={setDraft} className="h-64" />
         </div>
       )}
@@ -166,7 +186,7 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
 
         <section className="space-y-3">
           <div className="flex items-center justify-between"><h3 className="text-sm font-medium">Stages</h3><Button size="sm" variant="outline" onClick={() => updateShader(activeShaderId, { ...data, stages: [...data.stages, { stage: 'fragment', sourceMode: 'inline', sourceText: '', compiled: {} }] }, 'Add shader stage')}>Add Stage</Button></div>
-          {data.stages.map((stage, index) => <ShaderStageRow key={`${stage.stage}-${index}`} shaderId={activeShaderId} data={data} stage={stage} index={index} shaderSourceAssets={shaderSourceAssets} />)}
+          {data.stages.map((stage, index) => <ShaderStageRow key={`${stage.stage}-${index}`} tabId={tab.id} shaderId={activeShaderId} data={data} stage={stage} index={index} shaderSourceAssets={shaderSourceAssets} />)}
         </section>
 
         <section className="space-y-3 rounded border p-3">

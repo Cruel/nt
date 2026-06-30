@@ -4,6 +4,7 @@ import { cloneJsonValue, toJsonValue, type JsonValue } from './json-value';
 
 interface ProjectStoreState {
   document: JsonValue | null;
+  savedDocument: JsonValue | null;
   projectPath: string | null;
   projectFilePath: string | null;
   historyCursor: number;
@@ -28,6 +29,7 @@ function normalizeDocument(document: JsonValue | unknown | null): JsonValue | nu
 
 export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   document: null,
+  savedDocument: null,
   projectPath: null,
   projectFilePath: null,
   historyCursor: -1,
@@ -38,6 +40,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   loadProjectDocument: ({ document, projectPath, projectFilePath }) =>
     set({
       document: normalizeDocument(document),
+      savedDocument: normalizeDocument(document),
       projectPath,
       projectFilePath,
       historyCursor: -1,
@@ -48,6 +51,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   loadUnsavedProjectDocument: (document) =>
     set({
       document: normalizeDocument(document),
+      savedDocument: null,
       projectPath: null,
       projectFilePath: null,
       historyCursor: 0,
@@ -58,6 +62,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   clearProject: () =>
     set({
       document: null,
+      savedDocument: null,
       projectPath: null,
       projectFilePath: null,
       historyCursor: -1,
@@ -71,6 +76,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   markSaved: (metadata) => {
     const state = get();
     set({
+      savedDocument: state.document === null ? null : cloneJsonValue(state.document),
       savedHistoryCursor: state.historyCursor,
       projectPath: metadata?.projectPath ?? state.projectPath,
       projectFilePath: metadata?.projectFilePath ?? state.projectFilePath,
