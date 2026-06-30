@@ -1,0 +1,29 @@
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0f172a;
+    font-family: Liberation Sans;
+}
+
+#nt-shader-preview-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #0f172a;
+}
+
+#nt-shader-preview-square {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 256px;
+    height: 256px;
+    margin-left: -128px;
+    margin-top: -128px;
+    background-color: #1e293b;
+    border: 1px #94a3b8;
+    decorator: shader("__NT_PREVIEW_MATERIAL_ID__");
+}

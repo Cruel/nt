@@ -38,6 +38,7 @@ struct EngineRunConfig {
     std::string runtime_project;
     std::string screenshot_path;
     bool enable_debug_ui = true;
+    bool preview_widget = false;
     bool render_perf_logging = false;
     bool rmlui_base_direct_compat = false;
     bool enable_audio = true;
@@ -62,6 +63,8 @@ public:
     void set_demo_position(float normalized_x, float normalized_y);
     void reset_demo_position();
     void set_preview_running(bool running);
+    bool load_preview_rml_document(const std::string& rml);
+    bool execute_preview_lua_script(const std::string& source);
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                     float pitch = 1.0f);
     AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,

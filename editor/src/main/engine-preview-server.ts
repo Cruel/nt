@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -12,6 +12,8 @@ const MIME_TYPES: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.data': 'application/octet-stream',
   '.css': 'text/css; charset=utf-8',
+  '.rcss': 'text/css; charset=utf-8',
+  '.lua': 'text/plain; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -33,6 +35,7 @@ export class EnginePreviewServer {
   private server: Server | null = null;
   private session: EnginePreviewSession | null = null;
   private previewRoot: string | null = null;
+  private editorAssetsRoot: string | null = null;
 
   async getSession(): Promise<EnginePreviewSession> {
     if (this.session) return this.session;
@@ -48,6 +51,7 @@ export class EnginePreviewServer {
     if (this.session) return this.session;
 
     this.previewRoot = resolvePreviewRoot();
+    this.editorAssetsRoot = resolveEditorAssetsRoot();
     const index = path.join(this.previewRoot, 'index.html');
     if (!existsSync(index)) {
       throw new PreviewBuildMissingError(this.previewRoot);
@@ -66,22 +70,19 @@ export class EnginePreviewServer {
         response.writeHead(400).end('Bad request');
         return;
       }
+
+      const assetPrefix = '/editor-assets/';
+      if (pathname.startsWith(assetPrefix)) {
+        if (!this.editorAssetsRoot) {
+          response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Editor assets not found');
+          return;
+        }
+        serveFileFromRoot(this.editorAssetsRoot, pathname.slice(assetPrefix.length), response);
+        return;
+      }
+
       const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-      const filePath = path.resolve(this.previewRoot, relative);
-      const rootWithSep = this.previewRoot.endsWith(path.sep) ? this.previewRoot : `${this.previewRoot}${path.sep}`;
-      if (filePath !== this.previewRoot && !filePath.startsWith(rootWithSep)) {
-        response.writeHead(403).end('Forbidden');
-        return;
-      }
-      if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-        response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
-        return;
-      }
-      response.writeHead(200, {
-        'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
-        'Cache-Control': 'no-store',
-      });
-      createReadStream(filePath).pipe(response);
+      serveFileFromRoot(this.previewRoot, relative, response);
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -107,9 +108,28 @@ export class EnginePreviewServer {
     const server = this.server;
     this.server = null;
     this.session = null;
+    this.editorAssetsRoot = null;
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+}
+
+function serveFileFromRoot(root: string, relativePath: string, response: ServerResponse) {
+  const filePath = path.resolve(root, relativePath);
+  const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+  if (filePath !== root && !filePath.startsWith(rootWithSep)) {
+    response.writeHead(403).end('Forbidden');
+    return;
+  }
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
+    return;
+  }
+  response.writeHead(200, {
+    'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+    'Cache-Control': 'no-store',
+  });
+  createReadStream(filePath).pipe(response);
 }
 
 function resolvePreviewRoot(): string {
@@ -119,9 +139,28 @@ function resolvePreviewRoot(): string {
 
   const cwd = process.cwd();
   const candidates = [
+    path.resolve(cwd, '..', 'build', 'web-release', 'apps', 'sandbox'),
+    path.resolve(cwd, 'build', 'web-release', 'apps', 'sandbox'),
+    path.resolve(app.getAppPath(), '..', 'build', 'web-release', 'apps', 'sandbox'),
     path.resolve(cwd, '..', 'build', 'web-debug', 'apps', 'sandbox'),
     path.resolve(cwd, 'build', 'web-debug', 'apps', 'sandbox'),
     path.resolve(app.getAppPath(), '..', 'build', 'web-debug', 'apps', 'sandbox'),
   ];
   return candidates.find((candidate) => existsSync(path.join(candidate, 'index.html'))) ?? candidates[0]!;
+}
+
+function resolveEditorAssetsRoot(): string | null {
+  if (app.isPackaged) {
+    const packagedRoot = path.join(process.resourcesPath, 'editor-assets');
+    return existsSync(packagedRoot) && statSync(packagedRoot).isDirectory() ? packagedRoot : null;
+  }
+
+  const cwd = process.cwd();
+  const candidates = [
+    path.resolve(cwd, 'assets'),
+    path.resolve(cwd, 'editor', 'assets'),
+    path.resolve(app.getAppPath(), 'assets'),
+    path.resolve(app.getAppPath(), 'editor', 'assets'),
+  ];
+  return candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isDirectory()) ?? null;
 }

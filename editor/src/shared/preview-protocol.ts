@@ -26,12 +26,12 @@ export interface PreviewTarget {
   label?: string;
 }
 
-export type PreviewMode = 'runtime' | 'material' | 'ui-layout' | 'room' | 'scene' | 'character' | 'symbolic';
+export type PreviewMode = 'runtime' | 'material' | 'layout' | 'room' | 'scene' | 'character' | 'symbolic';
 
 export type PreviewDocument =
   | { kind: 'symbolic'; target: PreviewTarget; label: string; revision?: string }
   | {
-      kind: 'material-preview' | 'ui-layout-preview' | 'room-preview' | 'scene-preview' | 'character-preview';
+      kind: 'shader-preview' | 'material-preview' | 'layout-preview' | 'room-preview' | 'scene-preview' | 'character-preview';
       recordId: string;
       revision: string;
       data: Record<string, unknown>;
@@ -124,7 +124,7 @@ function isPreviewTarget(value: unknown): value is PreviewTarget {
 }
 
 function isPreviewMode(value: unknown): value is PreviewMode {
-  return ['runtime', 'material', 'ui-layout', 'room', 'scene', 'character', 'symbolic'].includes(String(value));
+  return ['runtime', 'material', 'layout', 'room', 'scene', 'character', 'symbolic'].includes(String(value));
 }
 
 export function isPreviewDocument(value: unknown): value is PreviewDocument {
@@ -132,7 +132,7 @@ export function isPreviewDocument(value: unknown): value is PreviewDocument {
   if (value.kind === 'symbolic') {
     return isPreviewTarget(value.target) && typeof value.label === 'string' && (value.revision === undefined || typeof value.revision === 'string');
   }
-  if (!['material-preview', 'ui-layout-preview', 'room-preview', 'scene-preview', 'character-preview'].includes(value.kind)) {
+  if (!['shader-preview', 'material-preview', 'layout-preview', 'room-preview', 'scene-preview', 'character-preview'].includes(value.kind)) {
     return false;
   }
   return typeof value.recordId === 'string' && typeof value.revision === 'string' && isRecord(value.data);

@@ -1,0 +1,11 @@
+<rml>
+<head>
+    <title>NovelTea Shader Preview</title>
+    <link type="text/rcss" href="shader-square-preview.rcss" />
+</head>
+<body>
+    <div id="nt-shader-preview-stage">
+        <div id="nt-shader-preview-square" data-preview-material="__NT_PREVIEW_MATERIAL_ID__"></div>
+    </div>
+</body>
+</rml>

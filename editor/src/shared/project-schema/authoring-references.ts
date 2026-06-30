@@ -32,7 +32,7 @@ function addUsage(usages: ReferenceUsage[], usage: ReferenceUsage) {
 function scanDataForExplicitRefs(
   value: unknown,
   path: string,
-  sourceCollection: AuthoringCollectionKey,
+  sourceCollection: AuthoringCollectionKey | 'project',
   sourceId: string,
   usages: ReferenceUsage[],
 ) {
@@ -84,6 +84,8 @@ export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
       kind: 'entrypoint',
     });
   }
+
+  scanDataForExplicitRefs(project.settings, '/settings', 'project', 'settings', usages);
 
   for (const collection of authoringCollectionKeys) {
     const records = project[collection];

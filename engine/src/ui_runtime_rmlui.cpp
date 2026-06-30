@@ -677,6 +677,21 @@ bool RuntimeUI::load_document(const std::string& id, const std::string& path, bo
     return true;
 }
 
+bool RuntimeUI::load_document_from_memory(const std::string& id, const std::string& rml,
+                                           const std::string& source_url, bool show)
+{
+    if (!m_state || !m_state->context || id.empty() || rml.empty())
+        return false;
+    unload_document(id);
+    Rml::ElementDocument* doc = m_state->context->LoadDocumentFromMemory(rml, source_url);
+    if (!doc)
+        return false;
+    m_state->documents[id] = doc;
+    if (show)
+        doc->Show();
+    return true;
+}
+
 bool RuntimeUI::unload_document(const std::string& id)
 {
     if (!m_state || id.empty())

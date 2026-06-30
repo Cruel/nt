@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultFragmentShaderSource, defaultShaderData, defaultVertexShaderSource } from '../../shared/project-schema/authoring-shaders';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
+import { buildShaderMaterialProject, buildShaderPreviewDocumentData, shaderPreviewRevision } from '../../shared/project-schema/shader-material-project';
 
 function projectWithShaderMaterial() {
   const project = createAuthoringProject();
@@ -87,6 +87,21 @@ describe('buildShaderMaterialProject', () => {
       uniforms: { u_amount: 0.75 },
       textures: { s_noise: { source: 'project:/assets/images/noise.png', sampler: 'clamp-linear' } },
       blend: 'premultiplied-alpha',
+    });
+  });
+
+  it('builds shader square preview data with internal template references', () => {
+    const project = projectWithShaderMaterial();
+    expect(shaderPreviewRevision(project, 'noise')).toContain('noise');
+    expect(buildShaderPreviewDocumentData(project, 'noise')).toMatchObject({
+      schema: 'noveltea.shader-preview.v1',
+      shaderId: 'noise',
+      previewMaterialId: 'editor/preview/shader/noise',
+      template: {
+        rml: '/editor-assets/internal-preview/shader-square-preview.rml',
+        rcss: '/editor-assets/internal-preview/shader-square-preview.rcss',
+        materialPlaceholder: '__NT_PREVIEW_MATERIAL_ID__',
+      },
     });
   });
 });

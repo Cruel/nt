@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { FileCode, FileJson, Image, MonitorPlay, Palette, SlidersHorizontal } from 'lucide-react';
+import { FileCode, FileJson, Image, Layers, MonitorPlay, Palette, SlidersHorizontal } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import type { WorkbenchResource, WorkbenchTab } from './workbench-types';
 
@@ -120,6 +120,20 @@ export function buildMaterialDetailTabForRecord(entityId: string, title = entity
   };
 }
 
+export function buildLayoutDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:layout-detail:layouts:${entityId}`,
+    title,
+    editorType: 'layout-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:layouts:${entityId}`,
+      collection: 'layouts',
+      entityId,
+    },
+  };
+}
+
 export function buildVariablesEditorTab(selectedId?: string): WorkbenchTab {
   return {
     id: 'tab:variables',
@@ -139,6 +153,7 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'assets' && node.entityId) return buildAssetDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'shaders' && node.entityId) return buildShaderDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'materials' && node.entityId) return buildMaterialDetailTabForRecord(node.entityId, node.entityId);
+  if (node.collection === 'layouts' && node.entityId) return buildLayoutDetailTabForRecord(node.entityId, node.entityId);
   return buildRawJsonTab(node);
 }
 
@@ -160,6 +175,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'asset-detail') return Image;
   if (editorType === 'shader-detail') return FileCode;
   if (editorType === 'material-detail') return Palette;
+  if (editorType === 'layout-detail') return Layers;
   if (editorType === 'variables') return SlidersHorizontal;
   if (editorType === 'raw-json') return FileJson;
   return FileJson;

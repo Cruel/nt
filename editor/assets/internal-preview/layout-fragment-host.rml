@@ -1,0 +1,13 @@
+<rml>
+<head>
+    <title>NovelTea Layout Fragment Preview</title>
+    <link type="text/rcss" href="layout-fragment-host.rcss" />
+    <!-- Runtime preview generation may add preview:/layout/current.rcss here. -->
+    <!-- Runtime preview generation may add preview:/layout/current.lua here. -->
+</head>
+<body>
+    <div id="nt-layout-preview-root">
+        <div id="nt-layout-preview-mount"></div>
+    </div>
+</body>
+</rml>

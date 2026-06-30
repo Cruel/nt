@@ -9,6 +9,16 @@ commands or runtime events.
 The editor embeds the web build of `apps/sandbox` in an iframe. It does not
 embed or reparent the native SDL window.
 
+There are two Emscripten HTML hosts:
+
+- `web/shell.html`: normal web sandbox/game shell. This remains the general web
+  loading path and may expose normal runtime/demo boot options.
+- `web/widget.html`: editor-only preview widget shell. This is used by
+  `editor/scripts/build-engine-preview.mjs` through `NOVELTEA_WEB_SHELL_FILE`.
+  It is intentionally narrow: canvas, MessageChannel handshake, resize, and
+  typed preview-document application. It should not load default game/runtime UI
+  or expose the full runtime demo toolbar.
+
 There are two communication layers:
 
 - Electron IPC: used for privileged preview setup and editor-tooling helper calls.
@@ -147,8 +157,10 @@ Clicks outside the triangle produce no event.
 - Editor helper service:
   - `editor/src/main/services/editor-tool-service.ts`
   - `tools/editor_tool/main.cpp`
-- Emscripten shell bridge:
+- Emscripten normal web shell:
   - `web/shell.html`
+- Emscripten editor preview widget shell:
+  - `web/widget.html`
 - C++ preview event bridge:
   - `engine/include/noveltea/preview_bridge.hpp`
   - `engine/src/preview/preview_bridge.cpp`
@@ -200,14 +212,82 @@ commands.
 
 The renderer-side `PreviewManager` owns preview session records, bounded entity
 preview requests, manager diagnostics, replay state, and thumbnail request/cache
-state. The low-level hook remains the MessageChannel transport adapter; React
-editor tabs should request preview ownership through the manager instead of
-creating arbitrary iframe transports.
+state. The low-level hook remains the MessageChannel transport adapter.
 
 Authoring-preview messages are explicit typed protocol messages. Engines or
 shells that do not yet implement a mode should return a failed `command-result`
 or a `preview-diagnostic`; they should not accept generic eval or arbitrary JSON
 commands.
+
+## Editor-Managed Authoring Previews
+
+Editor-authored preview content is sent over the MessageChannel protocol. It is
+not passed through startup arguments such as `--rmlui-document` and it is not
+looked up from project assets unless the preview document explicitly references
+an asset-mode source.
+
+The embedded engine iframe should be treated as a neutral rendering surface. In
+practice this is handled by `web/widget.html`, not `web/shell.html`:
+
+```text
+Editor tab
+-> builds typed PreviewDocument from current editor state
+-> EnginePreview(chrome="minimal", previewDocument=..., previewMode=...)
+-> useEnginePreview().setPreviewMode(mode)
+-> useEnginePreview().loadPreviewDocument(document)
+-> web/shell.html validates the document kind
+-> web/shell.html converts the document into narrow runtime calls
+-> C++ preview bridge applies the RmlUi/shader/runtime preview
+```
+
+Layout editor previews send source text directly:
+
+```ts
+{
+  kind: 'layout-preview',
+  recordId: layoutId,
+  revision,
+  data: {
+    layoutKind: 'document' | 'fragment',
+    rml: { sourceMode: 'inline', sourceText: '...' },
+    rcss: { sourceMode: 'inline', sourceText: '...' },
+    lua: { sourceMode: 'inline', sourceText: '...' },
+    script: { enabled: true, namespace: 'layout_preview' },
+    mount: { defaultParent: 'nt-layout-preview-mount' },
+    dependencies: { images: [], fonts: [], stylesheets: [], scripts: [], materials: [] },
+    preview: { width: 1280, height: 720, background: 'dark' }
+  }
+}
+```
+
+For `layoutKind: 'document'`, the shell/runtime uses the supplied RML as the
+preview document and injects the inline RCSS into the document head for the
+current bridge. For `layoutKind: 'fragment'`, the shell/runtime wraps the
+fragment in an internal host document and injects the RCSS there. Lua source is
+part of the preview document shape and should be applied by the runtime bridge;
+until that bridge is complete, the source should still be transported in the
+same document rather than moved to startup flags.
+
+Shader previews use the same pattern: the shader editor builds a
+`shader-preview` document and the runtime bridge applies it to an internal
+centered-square RmlUi template. Internal templates may be bundled under
+`editor/assets/internal-preview`, but those templates are implementation
+details. User-edited RML/RCSS/Lua remains data owned by the editor and sent over
+`load-preview-document` / `update-preview-document`.
+
+Embedded authoring previews should use `EnginePreview` with `chrome="minimal"`.
+That variant has no runtime demo toolbar, no global latest-preview replay, and
+no shared editor-preview document state. Each layout/shader editor passes its
+own `previewDocument` directly so switching tabs does not replay a previous
+shader or layout document. The full runtime preview tab may still use the default
+`chrome="runtime"` variant with runtime controls and primary preview replay.
+
+Startup flags remain valid for coarse engine boot configuration only, such as
+`--preview-widget`, `--demo none`, `--no-imgui`, or test fixtures. They should
+not be used for editor owned content like the current layout's RML, RCSS, or Lua
+source. The `--preview-widget` flag suppresses automatic loading of the default
+runtime UI so the widget does not flicker from the game/sandbox layout to the
+editor-provided preview document.
 
 ## Adding Editor To Engine Commands
 

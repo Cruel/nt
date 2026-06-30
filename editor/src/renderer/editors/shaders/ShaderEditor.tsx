@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
+import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
+import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +9,7 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
-import { buildShaderMaterialProject } from '../../../shared/project-schema/shader-material-project';
+import { buildShaderMaterialProject, buildShaderPreviewDocumentData, shaderPreviewRevision } from '../../../shared/project-schema/shader-material-project';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
@@ -153,7 +155,15 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
   if (!shaderId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Shader record not found.</div>;
   const activeShaderId = shaderId;
   const activeProject = project;
+  const activeRecord = record;
 
+  const revision = shaderPreviewRevision(activeProject, activeShaderId);
+  const previewDocument = {
+    kind: 'shader-preview' as const,
+    recordId: activeShaderId,
+    revision,
+    data: buildShaderPreviewDocumentData(activeProject, activeShaderId),
+  };
   async function compile() {
     const built = buildShaderMaterialProject(activeProject);
     await runCompile(built.project, { shaderVariants: ['glsl-120', 'essl-100', 'essl-300'] });
@@ -161,10 +171,12 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <Group orientation="horizontal" className="h-full min-h-0 bg-background">
+      <Panel defaultSize={62} minSize={35}>
+        <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{record.label}</h2><Badge variant="outline">{activeShaderId}</Badge></div>
+          <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2><Badge variant="outline">{activeShaderId}</Badge></div>
           <p className="mt-1 text-xs text-muted-foreground">Shader source, interface declarations, roles, compiled refs, and helper compile actions.</p>
         </div>
         <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('shaders', activeShaderId, activeShaderId))}>Raw JSON</Button>
@@ -210,6 +222,14 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
           ))}
         </section>
       </div>
-    </div>
+        </div>
+      </Panel>
+      <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
+      <Panel defaultSize={38} minSize={24}>
+        <div className="h-full min-h-0 border-l bg-background">
+          <EnginePreview chrome="minimal" previewMode="material" previewDocument={previewDocument} />
+        </div>
+      </Panel>
+    </Group>
   );
 }

@@ -4,6 +4,7 @@ import { parseMaterialData, resolveMaterialData, type MaterialData, type Materia
 import { parseShaderData, type ShaderData, type ShaderStageData, type ShaderUniformData } from './authoring-shaders';
 
 export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials.v1' as const;
+export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview.v1' as const;
 
 export interface ShaderMaterialProjectDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -187,6 +188,29 @@ export function buildMaterialPreviewDocumentData(project: AuthoringProject, mate
     diagnostics: runtime.diagnostics,
     materialId,
     preview: material?.preview ?? { geometry: 'quad', background: 'checker' },
+  };
+}
+
+export function shaderPreviewRevision(project: AuthoringProject, shaderId: string): string {
+  const shader = project.shaders[shaderId];
+  if (!shader) return `${shaderId}:missing`;
+  return JSON.stringify({ shaderId, shader: shader.data });
+}
+
+export function buildShaderPreviewDocumentData(project: AuthoringProject, shaderId: string): Record<string, unknown> {
+  const runtime = buildShaderMaterialProject(project);
+  return {
+    schema: SHADER_PREVIEW_SCHEMA,
+    shaderMaterials: runtime.project,
+    diagnostics: runtime.diagnostics,
+    shaderId,
+    previewMaterialId: `editor/preview/shader/${shaderId}`,
+    template: {
+      rml: '/editor-assets/internal-preview/shader-square-preview.rml',
+      rcss: '/editor-assets/internal-preview/shader-square-preview.rcss',
+      materialPlaceholder: '__NT_PREVIEW_MATERIAL_ID__',
+    },
+    preview: { geometry: 'square', background: 'dark' },
   };
 }
 

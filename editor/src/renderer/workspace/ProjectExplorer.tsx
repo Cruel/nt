@@ -213,9 +213,22 @@ function EntityOperationDialog({
         executeCommand({
           type: 'entity.createRecord',
           label: `Create ${activeMetadata.singularLabel}`,
-          payload: { collection: activeState.collection, entityId: id.trim(), label: label.trim() || undefined },
+          payload: {
+            collection: activeState.collection,
+            entityId: id.trim(),
+            label: label.trim() || undefined,
+          },
         }),
-        () => openTab(buildRawJsonTabForRecord(activeState.collection, id.trim(), id.trim())),
+        () => {
+          const tab = buildDefaultRecordTab({
+            id: `${activeState.collection}:${id.trim()}`,
+            label: label.trim() || id.trim(),
+            type: authoringCollectionMetadata[activeState.collection].nodeType,
+            collection: activeState.collection,
+            entityId: id.trim(),
+          });
+          if (tab) openTab(tab);
+        },
       );
     } else if (activeState.action === 'rename' && activeState.entityId) {
       const toId = id.trim();
@@ -225,7 +238,16 @@ function EntityOperationDialog({
           label: `Rename ${activeState.collection}/${activeState.entityId}`,
           payload: { collection: activeState.collection, fromId: activeState.entityId, toId, label: label.trim() || undefined },
         }),
-        () => openTab(buildRawJsonTabForRecord(activeState.collection, toId, toId)),
+        () => {
+          const tab = buildDefaultRecordTab({
+            id: `${activeState.collection}:${toId}`,
+            label: label.trim() || toId,
+            type: authoringCollectionMetadata[activeState.collection].nodeType,
+            collection: activeState.collection,
+            entityId: toId,
+          });
+          if (tab) openTab(tab);
+        },
       );
     } else if (activeState.action === 'duplicate' && activeState.entityId) {
       const targetId = id.trim();
@@ -235,7 +257,16 @@ function EntityOperationDialog({
           label: `Duplicate ${activeState.collection}/${activeState.entityId}`,
           payload: { collection: activeState.collection, sourceId: activeState.entityId, targetId, label: label.trim() || undefined },
         }),
-        () => openTab(buildRawJsonTabForRecord(activeState.collection, targetId, targetId)),
+        () => {
+          const tab = buildDefaultRecordTab({
+            id: `${activeState.collection}:${targetId}`,
+            label: label.trim() || targetId,
+            type: authoringCollectionMetadata[activeState.collection].nodeType,
+            collection: activeState.collection,
+            entityId: targetId,
+          });
+          if (tab) openTab(tab);
+        },
       );
     } else if (activeState.action === 'delete' && activeState.entityId) {
       finish(

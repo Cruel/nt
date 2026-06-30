@@ -32,10 +32,14 @@ describe('preview protocol validation', () => {
       label: 'Material A',
     };
     expect(isPreviewDocument(document)).toBe(true);
+    expect(isPreviewDocument({ kind: 'shader-preview', recordId: 'shader-a', revision: 'rev', data: {} })).toBe(true);
+    expect(isPreviewDocument({ kind: 'layout-preview', recordId: 'layout-a', revision: 'rev', data: {} })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document })).toBe(true);
-    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: 'material' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: 'layout' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'request-preview-snapshot', requestId: 'r3', snapshotId: 's1' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document: { kind: 'unknown' } })).toBe(false);
+    const legacyLayoutMode = `ui-${'layout'}`;
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: legacyLayoutMode })).toBe(false);
     expect(isPreviewToEditorMessage({
       version: 1,
       type: 'preview-diagnostic',

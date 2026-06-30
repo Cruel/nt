@@ -22,7 +22,8 @@ if(EMSCRIPTEN)
         OUTPUT_NAME "index"
         SUFFIX ".html"
     )
-    set(SHELL_FILE "${CMAKE_SOURCE_DIR}/web/shell.html")
+    set(NOVELTEA_WEB_SHELL_FILE "${CMAKE_SOURCE_DIR}/web/shell.html" CACHE FILEPATH "HTML shell used by the Emscripten sandbox")
+    set(SHELL_FILE "${NOVELTEA_WEB_SHELL_FILE}")
     set(PERSISTENT_FS_PRE_JS "${CMAKE_SOURCE_DIR}/web/persistent_fs_pre.js")
     set(PERSISTENT_FS_JS "${CMAKE_SOURCE_DIR}/web/persistent_fs.js")
     target_link_options(noveltea-sandbox PRIVATE
@@ -30,7 +31,7 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sEXIT_RUNTIME=0
         -sFORCE_FILESYSTEM=1
-        -sEXPORTED_FUNCTIONS=['_main','_noveltea_preview_set_demo_position','_noveltea_preview_reset_demo','_noveltea_preview_set_running','_noveltea_preview_resize','_noveltea_audio_play_sfx','_noveltea_audio_play_track','_noveltea_audio_stop_track']
+        -sEXPORTED_FUNCTIONS=['_main','_noveltea_preview_set_demo_position','_noveltea_preview_reset_demo','_noveltea_preview_set_running','_noveltea_preview_load_rml_document','_noveltea_preview_execute_lua_script','_noveltea_preview_resize','_noveltea_audio_play_sfx','_noveltea_audio_play_track','_noveltea_audio_stop_track']
         -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
         -lidbfs.js
         --shell-file "${SHELL_FILE}"

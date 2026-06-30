@@ -21,6 +21,8 @@ describe('authoring reference index', () => {
       tags: [],
       data: { home: { $ref: { collection: 'rooms', id: 'foyer' } } },
     };
+    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: {} };
+    project.settings.ui = { defaultLayout: { $ref: { collection: 'layouts', id: 'main' } } };
     project.entrypoint = { collection: 'rooms', id: 'foyer' };
 
     const index = buildReferenceIndex(project);
@@ -32,6 +34,9 @@ describe('authoring reference index', () => {
     ]));
     expect(findUsages(index, { collection: 'objects', id: 'base-lamp' })).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'inherits', path: '/objects/lamp/inherits' }),
+    ]));
+    expect(findUsages(index, { collection: 'layouts', id: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceCollection: 'project', sourceId: 'settings', kind: 'explicit-ref', path: '/settings/ui/defaultLayout/$ref' }),
     ]));
   });
 

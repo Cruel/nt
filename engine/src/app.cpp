@@ -161,6 +161,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (std::strcmp(arg, "--no-imgui") == 0) {
             options.no_imgui = true;
+        } else if (std::strcmp(arg, "--preview-widget") == 0) {
+            options.preview_widget = true;
         } else if (std::strcmp(arg, "--render-perf") == 0) {
             options.perf_logging = true;
         } else if (std::strcmp(arg, "--rmlui-base-direct-compat") == 0) {
@@ -212,6 +214,7 @@ bool App::initialize(int argc, char* argv[])
     }
     run_config.screenshot_path = options.screenshot_path;
     run_config.enable_debug_ui = !options.no_imgui;
+    run_config.preview_widget = options.preview_widget;
     run_config.render_perf_logging = options.perf_logging;
     run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
     run_config.enable_audio = !options.no_audio;
@@ -318,6 +321,28 @@ void noveltea_preview_set_running(int running)
     if (noveltea::g_preview_engine) {
         noveltea::g_preview_engine->set_preview_running(running != 0);
     }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_preview_load_rml_document(const char* rml)
+{
+    if (!noveltea::g_preview_engine || !rml) {
+        return 0;
+    }
+    return noveltea::g_preview_engine->load_preview_rml_document(rml) ? 1 : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_preview_execute_lua_script(const char* source)
+{
+    if (!noveltea::g_preview_engine || !source) {
+        return 0;
+    }
+    return noveltea::g_preview_engine->execute_preview_lua_script(source) ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)

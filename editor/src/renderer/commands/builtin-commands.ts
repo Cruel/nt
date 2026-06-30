@@ -28,6 +28,7 @@ import {
   setVariableDefaultValuePatches,
   setVariableTypePatches,
 } from '@/project/variable-operations';
+import { replaceLayoutDataPatches, setDefaultLayoutPatches } from '@/project/layout-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
@@ -250,6 +251,8 @@ const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean()
 const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unknown() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
+const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
+const setDefaultLayoutSchema = z.object({ layoutId: entityIdSchema.nullable() });
 const variableSetTypeSchema = z.object({
   variableId: entityIdSchema,
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
@@ -315,6 +318,12 @@ export const variableSetTypeCommand: CommandHandler = ({ document, payload }) =>
 export const variableSetDefaultValueCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(variableSetDefaultValueSchema, payload, (parsed) => setVariableDefaultValuePatches(document, parsed));
 
+export const layoutReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(layoutReplaceDataSchema, payload, (parsed) => replaceLayoutDataPatches(document, parsed));
+
+export const projectSetDefaultLayoutCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(setDefaultLayoutSchema, payload, (parsed) => setDefaultLayoutPatches(document, parsed));
+
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
     'project.applyPatch': projectApplyPatchCommand,
@@ -342,6 +351,8 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'variable.replaceData': variableReplaceDataCommand,
     'variable.setType': variableSetTypeCommand,
     'variable.setDefaultValue': variableSetDefaultValueCommand,
+    'layout.replaceData': layoutReplaceDataCommand,
+    'project.setDefaultLayout': projectSetDefaultLayoutCommand,
   };
 }
 
@@ -372,6 +383,8 @@ export function labelForCommand(type: string): string {
     case 'variable.replaceData': return 'Update variable';
     case 'variable.setType': return 'Set variable type';
     case 'variable.setDefaultValue': return 'Set variable default value';
+    case 'layout.replaceData': return 'Update layout';
+    case 'project.setDefaultLayout': return 'Set default layout';
     default: return type;
   }
 }

@@ -20,33 +20,37 @@ const config: ForgeConfig = {
   hooks: {
     packageAfterCopy: async (_config, buildPath) => {
       const source = path.resolve(__dirname, '..', 'build', 'web-release', 'apps', 'sandbox');
-      if (!existsSync(path.join(source, 'index.html'))) {
-        return;
-      }
-      const destination = path.resolve(buildPath, '..', 'engine-preview');
-      mkdirSync(destination, { recursive: true });
-      const runtimeExtensions = new Set([
-        '.html',
-        '.js',
-        '.mjs',
-        '.wasm',
-        '.data',
-        '.css',
-        '.json',
-        '.png',
-        '.jpg',
-        '.jpeg',
-        '.gif',
-        '.svg',
-        '.ttf',
-        '.woff',
-        '.woff2',
-      ]);
-      for (const entry of readdirSync(source)) {
-        const from = path.join(source, entry);
-        if (statSync(from).isFile() && runtimeExtensions.has(path.extname(entry))) {
-          cpSync(from, path.join(destination, entry));
+      if (existsSync(path.join(source, 'index.html'))) {
+        const destination = path.resolve(buildPath, '..', 'engine-preview');
+        mkdirSync(destination, { recursive: true });
+        const runtimeExtensions = new Set([
+          '.html',
+          '.js',
+          '.mjs',
+          '.wasm',
+          '.data',
+          '.css',
+          '.json',
+          '.png',
+          '.jpg',
+          '.jpeg',
+          '.gif',
+          '.svg',
+          '.ttf',
+          '.woff',
+          '.woff2',
+        ]);
+        for (const entry of readdirSync(source)) {
+          const from = path.join(source, entry);
+          if (statSync(from).isFile() && runtimeExtensions.has(path.extname(entry))) {
+            cpSync(from, path.join(destination, entry));
+          }
         }
+      }
+
+      const editorAssetsSource = path.resolve(__dirname, 'assets');
+      if (existsSync(editorAssetsSource) && statSync(editorAssetsSource).isDirectory()) {
+        cpSync(editorAssetsSource, path.resolve(buildPath, '..', 'editor-assets'), { recursive: true });
       }
     },
   },

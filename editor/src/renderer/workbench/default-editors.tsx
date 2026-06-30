@@ -1,5 +1,6 @@
-import { FileCode, FileJson, Image, MonitorPlay, Palette, SlidersHorizontal } from 'lucide-react';
+import { FileCode, FileJson, Image, Layers, MonitorPlay, Palette, SlidersHorizontal } from 'lucide-react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
+import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { RawJsonEditor } from '@/editors/raw-json/RawJsonEditor';
 import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
@@ -31,6 +32,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Material Detail',
     icon: Palette,
     component: MaterialEditor,
+  },
+  {
+    type: 'layout-detail',
+    label: 'Layout Detail',
+    icon: Layers,
+    component: LayoutEditor,
   },
   {
     type: 'variables',

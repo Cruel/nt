@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPrimaryPreviewTab, buildRawJsonTab } from '@/workbench/editor-registry';
+import { buildDefaultRecordTab, buildPrimaryPreviewTab, buildRawJsonTab } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
@@ -35,6 +35,21 @@ describe('editor registry', () => {
         collection: 'room',
         entityId: 'foyer',
       },
+    });
+  });
+
+  it('routes layout records to the typed layout editor', () => {
+    const node: AssetNode = {
+      id: 'layouts:main',
+      label: 'Main UI',
+      type: 'layout',
+      collection: 'layouts',
+      entityId: 'main',
+    };
+    expect(buildDefaultRecordTab(node)).toMatchObject({
+      id: 'tab:layout-detail:layouts:main',
+      editorType: 'layout-detail',
+      resource: { collection: 'layouts', entityId: 'main' },
     });
   });
 

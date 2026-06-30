@@ -49,14 +49,14 @@ export interface SymbolicPreviewDocument {
 }
 
 export interface RecordPreviewDocument {
-  kind: 'material-preview' | 'ui-layout-preview' | 'room-preview' | 'scene-preview' | 'character-preview';
+  kind: 'shader-preview' | 'material-preview' | 'layout-preview' | 'room-preview' | 'scene-preview' | 'character-preview';
   recordId: string;
   revision: string;
   data: Record<string, unknown>;
 }
 
 export type PreviewDocument = SymbolicPreviewDocument | RecordPreviewDocument;
-export type PreviewMode = 'runtime' | 'material' | 'ui-layout' | 'room' | 'scene' | 'character' | 'symbolic';
+export type PreviewMode = 'runtime' | 'material' | 'layout' | 'room' | 'scene' | 'character' | 'symbolic';
 
 export interface PreviewReplayState {
   primaryRuntime: {

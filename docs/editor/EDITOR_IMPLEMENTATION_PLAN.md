@@ -139,7 +139,7 @@ Example tab-local layouts:
 - Material editor: material list + uniform/property panel + engine preview.
 - Scene editor: sequence/graph/timeline + local inspector + preview.
 - Dialogue editor: graph/tree + node inspector + preview-from-node controls.
-- UI layout editor: RML/RCSS source panes + preview + diagnostics.
+- Layout editor: RML/RCSS source panes + preview + diagnostics.
 - Variables editor: table/grid, no extra inspector required.
 - Assets editor: asset browser + detail panel + import diagnostics.
 
@@ -335,7 +335,7 @@ Good candidates:
 - Rooms.
 - Inventory items.
 - Actions/interactions.
-- UI layout/style presets.
+- Layout/style presets.
 - Asset import presets.
 
 Questionable or deferred candidates:
@@ -508,12 +508,12 @@ The editor should support multiple preview types, but manage them deliberately.
 
 2. Entity preview
    - Shows one authored record in isolation.
-   - Examples: material swatch, room, scene section, character pose, UI layout,
+   - Examples: material swatch, room, scene section, character pose, Layout,
      dialogue node, map.
 
 3. Thumbnail preview
    - Produces cached visual summaries for lists and sidebars.
-   - Examples: material cards, UI layout thumbnails, character pose cards.
+   - Examples: material cards, Layout thumbnails, character pose cards.
 
 4. Test playback preview
    - Shows deterministic recorded test state and output timeline.
@@ -573,7 +573,7 @@ Preview documents should be narrow and mode-specific. Example preview documents:
 
 - `material-preview`: material ID, shader/material metadata, test geometry,
   texture bindings, background.
-- `ui-layout-preview`: RML/RCSS asset references or source text, viewport size,
+- `layout-preview`: RML/RCSS asset references or source text, viewport size,
   injected sample data.
 - `room-preview`: room ID, resolved room data, visible objects, background,
   sample runtime state.
@@ -628,7 +628,7 @@ Initial fields:
 - Game title.
 - Author/version.
 - Startup entrypoint.
-- Default UI layout.
+- Default Layout.
 - Default font/text style.
 - Default resolution/aspect/device profile.
 - Supported orientation: portrait, landscape, or both.
@@ -725,9 +725,9 @@ Future features:
 - Test assertions generated from variables.
 - Visual branch condition builders.
 
-### UI Layout Editor
+### Layout Editor
 
-Purpose: author RML/RCSS runtime UI layouts with live engine preview.
+Purpose: author RML/RCSS runtime Layouts with live engine preview.
 
 Initial features:
 
@@ -829,7 +829,7 @@ Initial features:
 - Character enter/exit/move/pose/expression changes.
 - Dialogue block insertion.
 - Audio cues: sound effect, music track, fade in/out, stop.
-- UI layout add/remove/swap.
+- Layout add/remove/swap.
 - Variable set/check.
 - Lua script step.
 - Wait/page-break/continue gates.
@@ -1136,7 +1136,7 @@ Acceptance criteria:
 - Invalid default values are diagnosed.
 - Rename/delete are command-based.
 
-### Milestone 10: UI Layout Editor V1
+### Milestone 10: Layout Editor V1
 
 Goal: make RmlUi authoring visible and previewable.
 
@@ -1147,7 +1147,7 @@ primitives should remain shadcn/Base UI based.
 
 Tasks:
 
-1. Add UI layout schema.
+1. Add Layout schema.
 2. Add RML/RCSS source editor.
 3. Add asset/material picker hooks.
 4. Add live preview document protocol.
@@ -1156,7 +1156,7 @@ Tasks:
 
 Acceptance criteria:
 
-- A UI layout can be edited and previewed live.
+- A Layout can be edited and previewed live.
 - Layout diagnostics surface without crashing preview.
 - Project settings can choose a default layout.
 
@@ -1243,7 +1243,7 @@ Tasks:
    - script
    - wait/continue
    - branch
-   - UI layout change
+   - Layout change
 5. Add local inspector.
 6. Add preview from start/selected step.
 

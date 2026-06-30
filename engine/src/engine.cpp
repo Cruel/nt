@@ -596,7 +596,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     m_runtime_ui.resize(m_platform.surface());
-    const bool should_load_runtime_document =
+    const bool should_load_runtime_document = !run_config.preview_widget &&
         run_config.runtime_ui_document.empty() && run_config.demo_mode == DemoMode::None;
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
                                  &m_scripts, &m_shader_materials)) {
@@ -992,6 +992,31 @@ void Engine::set_preview_running(bool running)
 {
     m_preview_running = running;
     preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
+}
+
+bool Engine::load_preview_rml_document(const std::string& rml)
+{
+    if (rml.empty() || !m_runtime_ui.is_initialized())
+        return false;
+    m_runtime_ui.hide_document("demo");
+    m_runtime_ui.hide_document("runtime_game");
+    m_runtime_ui.hide_document("runtime-acceptance");
+    return m_runtime_ui.load_document_from_memory("editor_preview", rml,
+                                                  "preview:/editor-preview.rml", true);
+}
+
+bool Engine::execute_preview_lua_script(const std::string& source)
+{
+    if (source.empty() || !m_scripts.is_initialized())
+        return source.empty();
+    auto result = m_scripts.execute(source, "editor_preview.lua");
+    if (!result) {
+        const auto& error = *result.error;
+        std::fprintf(stderr, "[engine] editor preview Lua failed: %s\n%s\n",
+                     error.message.c_str(), error.traceback.c_str());
+        return false;
+    }
+    return true;
 }
 
 AudioVoiceHandle Engine::play_audio_sfx(const std::string& path, float volume, float pitch)

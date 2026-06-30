@@ -16,6 +16,7 @@ export interface SourceEditorProps {
   onChange?: (value: string) => void;
   readOnly?: boolean;
   diagnostics?: SourceEditorDiagnostic[];
+  language?: 'json' | 'lua' | 'rml' | 'rcss' | 'shader' | 'text';
   className?: string;
 }
 
@@ -28,7 +29,7 @@ function toCodemirrorDiagnostic(item: SourceEditorDiagnostic, docLength: number)
   };
 }
 
-export function SourceEditor({ value, onChange, readOnly = false, diagnostics = [], className }: SourceEditorProps) {
+export function SourceEditor({ value, onChange, readOnly = false, diagnostics = [], language: _language = 'text', className }: SourceEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const initialValueRef = useRef(value);

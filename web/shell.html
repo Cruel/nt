@@ -15,134 +15,23 @@
 <div id="status">NovelTea Web Sandbox<br>Engine loading...</div>
 <script>
   (function() {
-    const protocolVersion = 1;
     const params = new URLSearchParams(window.location.search);
-    const sessionToken = params.get('sessionToken') || '';
-    const commandQueue = [];
-    let port = null;
-    let engineReady = false;
     let runtimeReady = false;
     let pendingResize = null;
     let appliedResizeKey = '';
     let resizeScheduled = false;
-    let lastReadyPosition = { x: 0.5, y: 0.5 };
-    let lastReadyRunning = true;
 
-    function isFinite01(value) {
-      return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
-    }
-
-    function send(message) {
-      if (port) {
-        port.postMessage(message);
-      }
-    }
-
-    function runCommand(message) {
-      try {
-        if (!runtimeReady || !engineReady) {
-          commandQueue.push(message);
-          return;
-        }
-        if (message.version !== protocolVersion || typeof message.requestId !== 'string') {
-          return;
-        }
-        if (message.type === 'set-demo-position' && message.position && isFinite01(message.position.x) && isFinite01(message.position.y)) {
-          Module._noveltea_preview_set_demo_position(message.position.x, message.position.y);
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
-        } else if (message.type === 'reset-demo') {
-          Module._noveltea_preview_reset_demo();
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
-        } else if (message.type === 'runtime-reset') {
-          Module._noveltea_preview_reset_demo();
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
-        } else if (message.type === 'play') {
-          Module._noveltea_preview_set_running(1);
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
-        } else if (message.type === 'stop') {
-          Module._noveltea_preview_set_running(0);
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
-        } else if (message.type === 'runtime-continue' ||
-                   message.type === 'runtime-dialogue-option' ||
-                   message.type === 'runtime-navigate' ||
-                   message.type === 'runtime-select-object' ||
-                   message.type === 'runtime-clear-object-selection' ||
-                   message.type === 'runtime-run-action') {
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
-        } else if (message.type === 'request-state') {
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: true });
-        } else {
-          send({ version: 1, type: 'command-result', requestId: message.requestId, ok: false, error: 'Unsupported preview command' });
-        }
-      } catch (error) {
-        send({ version: 1, type: 'command-result', requestId: message.requestId || '', ok: false, error: String(error && error.message ? error.message : error) });
-      }
-    }
-
-    function drainCommands() {
-      if (!runtimeReady || !engineReady) return;
-      while (commandQueue.length > 0) {
-        runCommand(commandQueue.shift());
-      }
-    }
-
-    function sendReadySnapshot() {
-      if (!engineReady || !port) return;
-      send({ version: 1, type: 'ready', capabilities: ['demo-position', 'demo-click', 'play-stop', 'runtime-input-v1'] });
-      send({ version: 1, type: 'state', position: lastReadyPosition, running: lastReadyRunning });
+    function hideStatus() {
+      const status = document.getElementById('status');
+      if (status) status.style.display = 'none';
     }
 
     globalThis.NovelTeaPreviewBridge = {
-      send,
-      setPort(nextPort) {
-        if (port) port.close();
-        port = nextPort;
-        port.onmessage = (event) => runCommand(event.data);
-        if (typeof port.start === 'function') port.start();
-        sendReadySnapshot();
-        drainCommands();
-      },
-      markEngineReady(position, running) {
-        engineReady = true;
-        lastReadyPosition = position;
-        lastReadyRunning = running;
-        document.getElementById('status').style.display = 'none';
-        sendReadySnapshot();
-        drainCommands();
+      send() {},
+      markEngineReady() {
+        hideStatus();
       }
     };
-
-    window.addEventListener('message', (event) => {
-      const data = event.data;
-      if (!data || data.type !== 'noveltea-preview-connect') return;
-      if (!sessionToken || data.sessionToken !== sessionToken || data.version !== protocolVersion) return;
-      const nextPort = event.ports && event.ports[0];
-      if (nextPort) {
-        globalThis.NovelTeaPreviewBridge.setPort(nextPort);
-      }
-    });
-
-    window.addEventListener('error', (event) => {
-      send({ version: 1, type: 'runtime-error', message: event.message || 'Preview runtime error' });
-    });
-    window.addEventListener('unhandledrejection', (event) => {
-      send({ version: 1, type: 'runtime-error', message: String(event.reason || 'Unhandled preview rejection') });
-    });
-
-    function sendHello() {
-      if (window.parent && window.parent !== window && sessionToken && !port) {
-        window.parent.postMessage({ type: 'noveltea-preview-hello', version: protocolVersion, sessionToken }, '*');
-      }
-    }
-
-    sendHello();
-    const helloInterval = window.setInterval(() => {
-      if (port) {
-        window.clearInterval(helloInterval);
-      } else {
-        sendHello();
-      }
-    }, 250);
 
     function resizeCanvas() {
       const canvas = document.getElementById('canvas');
@@ -173,14 +62,10 @@
     }
 
     function applyPendingResize() {
-      if (!pendingResize || !runtimeReady || typeof Module._noveltea_preview_resize !== 'function') {
-        return;
-      }
+      if (!pendingResize || !runtimeReady || typeof Module._noveltea_preview_resize !== 'function') return;
       const resize = pendingResize;
       const key = `${resize.logicalWidth}x${resize.logicalHeight}:${resize.framebufferWidth}x${resize.framebufferHeight}:${resize.scaleX}x${resize.scaleY}`;
-      if (key === appliedResizeKey) {
-        return;
-      }
+      if (key === appliedResizeKey) return;
       Module._noveltea_preview_resize(
         resize.logicalWidth,
         resize.logicalHeight,
@@ -200,6 +85,7 @@
         engineScale: `${resize.scaleX}x${resize.scaleY}`,
       });
     }
+
     resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
     window.addEventListener('resize', resizeCanvas);
@@ -209,7 +95,6 @@
       runtimeReady = true;
       resizeCanvas();
       scheduleResizeApply();
-      drainCommands();
     };
   })();
 
@@ -242,9 +127,7 @@
     },
     print: function(text) {
       console.log(text);
-      if (text.indexOf('[engine] ready') !== -1) {
-        document.getElementById('status').style.display = 'none';
-      }
+      if (text.indexOf('[engine] ready') !== -1) hideStatus();
     },
     printErr: function(text) {
       console.error(text);

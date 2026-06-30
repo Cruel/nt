@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NovelTea Editor Preview Widget</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #111318; color: #cbd5e1; font-family: sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; background: #111318; }
+  #status { display: none; position: fixed; left: 10px; top: 10px; right: 10px; z-index: 10; padding: 8px 10px; border-radius: 4px; background: rgba(127, 29, 29, 240); color: #fee2e2; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events: none; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1"></canvas>
+<div id="status"></div>
+<script>
+  (function() {
+    const protocolVersion = 1;
+    const params = new URLSearchParams(window.location.search);
+    const commandQueue = [];
+    const sessionToken = params.get('sessionToken') || '';
+    let port = null;
+    let engineReady = false;
+    let runtimeReady = false;
+    let pendingResize = null;
+    let appliedResizeKey = '';
+    let resizeScheduled = false;
+    let previewMode = 'runtime';
+
+    const rmlUiBaseStyle = `body, div,
+h1, h2, h3, h4,
+h5, h6, p,
+hr, pre,
+tabset tabs {
+  display: block;
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  color: #f8fafc;
+  font-family: Liberation Sans;
+}
+
+h1 {
+  font-size: 2em;
+  margin: .67em 0;
+}
+
+h2 {
+  font-size: 1.5em;
+  margin: .75em 0;
+}
+
+h3 {
+  font-size: 1.17em;
+  margin: .83em 0;
+}
+
+h4, p {
+  margin: 1.12em 0;
+}
+
+h5 {
+  font-size: .83em;
+  margin: 1.5em 0;
+}
+
+h6 {
+  font-size: .75em;
+  margin: 1.67em 0;
+}
+
+h1, h2, h3, h4,
+h5, h6, strong {
+  font-weight: bold;
+}
+
+em {
+  font-style: italic;
+}
+
+pre {
+  white-space: pre;
+}
+
+hr {
+  border-width: 1px;
+}
+
+button {
+  display: inline-block;
+  margin: 4px 0;
+  padding: 8px 12px;
+  min-width: 96px;
+  color: #f8fafc;
+  background-color: #334155;
+  border-width: 1px;
+  border-color: #64748b;
+  border-radius: 4px;
+  font-family: Liberation Sans;
+  font-size: 14px;
+  text-align: center;
+}
+
+button:hover {
+  background-color: #475569;
+  border-color: #94a3b8;
+}
+
+button:active {
+  background-color: #1e293b;
+}
+
+table {
+  box-sizing: border-box;
+  display: table;
+}
+
+tr {
+  box-sizing: border-box;
+  display: table-row;
+}
+
+td {
+  box-sizing: border-box;
+  display: table-cell;
+}
+
+col {
+  box-sizing: border-box;
+  display: table-column;
+}
+
+colgroup {
+  display: table-column-group;
+}
+
+thead, tbody, tfoot {
+  display: table-row-group;
+}`;
+
+    function showFailure(text) {
+      const status = document.getElementById('status');
+      if (!status) return;
+      status.textContent = text;
+      status.style.display = 'block';
+    }
+
+    function hideFailure() {
+      const status = document.getElementById('status');
+      if (status) status.style.display = 'none';
+    }
+
+    function send(message) {
+      if (port) port.postMessage(message);
+    }
+
+    function failCommand(message, reason) {
+      showFailure(reason);
+      send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: reason } });
+      send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: false, error: reason });
+    }
+
+    function sourceText(source) {
+      return source && source.sourceMode === 'inline' && typeof source.sourceText === 'string' ? source.sourceText : '';
+    }
+
+    function injectHeadContent(rml, content) {
+      if (!content) return rml;
+      if (/<\/head\s*>/i.test(rml)) return rml.replace(/<\/head\s*>/i, `${content}\n</head>`);
+      if (/<\s*rml[\s>]/i.test(rml)) return rml.replace(/<\s*rml([^>]*)>/i, `<rml$1>\n<head>\n${content}\n</head>`);
+      return `<rml>\n<head>\n${content}\n</head>\n<body>\n${rml}\n</body>\n</rml>`;
+    }
+
+    function buildLayoutPreviewRml(data) {
+      const rmlSource = sourceText(data && data.rml);
+      const rcssSource = sourceText(data && data.rcss);
+      const layoutKind = data && data.layoutKind === 'fragment' ? 'fragment' : 'document';
+      const style = `<style>\n${rmlUiBaseStyle}\n${rcssSource}\n</style>`;
+      if (layoutKind === 'fragment') {
+        return `<rml>\n<head>\n<title>Layout Preview</title>\n${style}\n</head>\n<body>\n<div id="nt-layout-preview-root">\n<div id="nt-layout-preview-mount">\n${rmlSource}\n</div>\n</div>\n</body>\n</rml>`;
+      }
+      const documentSource = rmlSource.trim().length > 0 ? rmlSource : '<rml><head><title>Empty Layout Preview</title></head><body></body></rml>';
+      return injectHeadContent(documentSource, style);
+    }
+
+    function buildShaderPreviewRml(data) {
+      const materialId = data && typeof data.previewMaterialId === 'string' ? data.previewMaterialId : 'ui/noise_panel';
+      const escapedMaterialId = materialId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      return `<rml>\n<head>\n<title>Shader Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: #0f172a; font-family: Liberation Sans; }\n#nt-shader-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: #0f172a; }\n#nt-shader-preview-square { position: absolute; left: 50%; top: 50%; width: 256px; height: 256px; margin-left: -128px; margin-top: -128px; background-color: #1e293b; border: 1px #94a3b8; decorator: shader("${escapedMaterialId}"); }\n</style>\n</head>\n<body>\n<div id="nt-shader-preview-stage"><div id="nt-shader-preview-square"></div></div>\n</body>\n</rml>`;
+    }
+
+    function emitDocumentDiagnostics(document) {
+      const data = document && document.data ? document.data : null;
+      if (!data || !Array.isArray(data.diagnostics)) return;
+      data.diagnostics.forEach((diagnostic) => {
+        if (!diagnostic || typeof diagnostic.message !== 'string') return;
+        send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic: { severity: diagnostic.severity || 'warning', message: diagnostic.message, path: diagnostic.path } });
+      });
+    }
+
+    function executePreviewLua(message, source) {
+      if (!source || source.trim().length === 0) return true;
+      if (typeof Module._noveltea_preview_execute_lua_script !== 'function') {
+        failCommand(message, 'Preview widget build does not export noveltea_preview_execute_lua_script. Rebuild the editor preview.');
+        return false;
+      }
+      const ok = Module.ccall('noveltea_preview_execute_lua_script', 'number', ['string'], [source]);
+      if (!ok) {
+        failCommand(message, 'Lua preview script failed. Check the engine console for the Lua traceback.');
+        return false;
+      }
+      return true;
+    }
+
+    function applyPreviewRml(message, rml, luaSource) {
+      if (typeof Module._noveltea_preview_load_rml_document !== 'function') {
+        failCommand(message, 'Preview widget build does not export noveltea_preview_load_rml_document. Rebuild the editor preview.');
+        return;
+      }
+      if (!executePreviewLua(message, luaSource || '')) return;
+      const ok = Module.ccall('noveltea_preview_load_rml_document', 'number', ['string'], [rml]);
+      if (ok) {
+        hideFailure();
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      } else {
+        failCommand(message, 'RmlUi failed to load the preview document. Check RML/RCSS diagnostics and engine logs.');
+      }
+    }
+
+    function applyPreviewDocument(message) {
+      const document = message.document;
+      const kind = document && document.kind ? document.kind : 'unknown';
+      const data = document && document.data ? document.data : {};
+      emitDocumentDiagnostics(document);
+      if (kind === 'layout-preview') applyPreviewRml(message, buildLayoutPreviewRml(data), sourceText(data && data.lua));
+      else if (kind === 'shader-preview') applyPreviewRml(message, buildShaderPreviewRml(data));
+      else failCommand(message, `Preview widget cannot render document '${kind}'.`);
+    }
+
+    function runCommand(message) {
+      try {
+        if (!runtimeReady || !engineReady) {
+          commandQueue.push(message);
+          return;
+        }
+        if (message.version !== protocolVersion || typeof message.requestId !== 'string') return;
+        if (message.type === 'set-preview-mode') {
+          previewMode = message.mode || 'runtime';
+          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+        } else if (message.type === 'load-preview-document' || message.type === 'update-preview-document') {
+          applyPreviewDocument(message);
+        } else if (message.type === 'request-preview-state') {
+          send({ version: protocolVersion, type: 'preview-state', state: { mode: previewMode, ready: engineReady && runtimeReady } });
+          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+        } else if (message.type === 'request-preview-snapshot') {
+          failCommand(message, 'Preview snapshots are not implemented by the editor widget yet.');
+        } else {
+          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: false, error: 'Unsupported editor preview widget command' });
+        }
+      } catch (error) {
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId || '', ok: false, error: String(error && error.message ? error.message : error) });
+      }
+    }
+
+    function drainCommands() {
+      if (!runtimeReady || !engineReady) return;
+      while (commandQueue.length > 0) runCommand(commandQueue.shift());
+    }
+
+    function sendReadySnapshot() {
+      if (!engineReady || !port) return;
+      send({ version: protocolVersion, type: 'ready', capabilities: ['layout-preview-v1', 'shader-preview-v1'] });
+      drainCommands();
+    }
+
+    globalThis.NovelTeaPreviewBridge = {
+      send,
+      setPort(nextPort) {
+        if (port) port.close();
+        port = nextPort;
+        port.onmessage = (event) => runCommand(event.data);
+        if (typeof port.start === 'function') port.start();
+        sendReadySnapshot();
+        drainCommands();
+      },
+      markEngineReady(position, running) {
+        engineReady = true;
+        sendReadySnapshot();
+        drainCommands();
+      }
+    };
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || data.type !== 'noveltea-preview-connect') return;
+      if (!sessionToken || data.sessionToken !== sessionToken || data.version !== protocolVersion) return;
+      const nextPort = event.ports && event.ports[0];
+      if (nextPort) globalThis.NovelTeaPreviewBridge.setPort(nextPort);
+    });
+
+    function sendHello() {
+      if (window.parent && window.parent !== window && sessionToken && !port) {
+        window.parent.postMessage({ type: 'noveltea-preview-hello', version: protocolVersion, sessionToken }, '*');
+      }
+    }
+
+    sendHello();
+    const helloInterval = window.setInterval(() => {
+      if (port) window.clearInterval(helloInterval);
+      else sendHello();
+    }, 250);
+
+    function resizeCanvas() {
+      const canvas = document.getElementById('canvas');
+      const maxDpr = parseFloat(params.get('maxDpr') || '1') || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+      const rect = canvas.getBoundingClientRect();
+      const logicalWidth = Math.max(1, Math.round(rect.width));
+      const logicalHeight = Math.max(1, Math.round(rect.height));
+      const framebufferWidth = Math.max(1, Math.round(logicalWidth * dpr));
+      const framebufferHeight = Math.max(1, Math.round(logicalHeight * dpr));
+      const scaleX = framebufferWidth / logicalWidth;
+      const scaleY = framebufferHeight / logicalHeight;
+      if (!runtimeReady) {
+        canvas.width = framebufferWidth;
+        canvas.height = framebufferHeight;
+      }
+      pendingResize = { logicalWidth, logicalHeight, framebufferWidth, framebufferHeight, scaleX, scaleY };
+      scheduleResizeApply();
+    }
+
+    function scheduleResizeApply() {
+      if (resizeScheduled) return;
+      resizeScheduled = true;
+      requestAnimationFrame(() => {
+        resizeScheduled = false;
+        applyPendingResize();
+      });
+    }
+
+    function applyPendingResize() {
+      if (!pendingResize || !runtimeReady || typeof Module._noveltea_preview_resize !== 'function') return;
+      const resize = pendingResize;
+      const key = `${resize.logicalWidth}x${resize.logicalHeight}:${resize.framebufferWidth}x${resize.framebufferHeight}:${resize.scaleX}x${resize.scaleY}`;
+      if (key === appliedResizeKey) return;
+      Module._noveltea_preview_resize(resize.logicalWidth, resize.logicalHeight, resize.framebufferWidth, resize.framebufferHeight, resize.scaleX, resize.scaleY);
+      appliedResizeKey = key;
+    }
+
+    resizeCanvas();
+    new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
+    window.addEventListener('resize', resizeCanvas);
+    requestAnimationFrame(resizeCanvas);
+
+    globalThis.NovelTeaPreviewRuntimeReady = function() {
+      runtimeReady = true;
+      resizeCanvas();
+      scheduleResizeApply();
+      drainCommands();
+    };
+  })();
+
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    arguments: ['--preview-widget', '--demo', 'none', '--no-imgui'],
+    onRuntimeInitialized: function() {
+      if (typeof globalThis.NovelTeaPreviewRuntimeReady === 'function') globalThis.NovelTeaPreviewRuntimeReady();
+    },
+    print: function(text) { console.log(text); },
+    printErr: function(text) { console.error(text); }
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

@@ -1,0 +1,24 @@
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    font-family: Liberation Sans;
+}
+
+#nt-layout-preview-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+#nt-layout-preview-mount {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
