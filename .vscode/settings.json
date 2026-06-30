@@ -1,0 +1,44 @@
+{
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.files.exclude": {
+    "**/.cache/**": true,
+    "**/.cxx/**": true,
+    "**/_deps/**": true,
+    "**/build/**": true,
+    "**/cmake-build-*/**": true,
+    "**/node_modules/**": true,
+    "**/out/**": true,
+    "**/packages/**": true,
+    "**/refs/**": true,
+    "**/vcpkg/**": true,
+    "**/vcpkg_installed/**": true
+  },
+  "files.watcherExclude": {
+    "**/.cache/**": true,
+    "**/.cxx/**": true,
+    "**/.gradle/**": true,
+    "**/_deps/**": true,
+    "**/build/**": true,
+    "**/cmake-build-*/**": true,
+    "**/node_modules/**": true,
+    "**/out/**": true,
+    "**/packages/**": true,
+    "**/refs/**": true,
+    "**/vcpkg/**": true,
+    "**/vcpkg_installed/**": true
+  },
+  "search.exclude": {
+    "**/.cache/**": true,
+    "**/.cxx/**": true,
+    "**/.gradle/**": true,
+    "**/_deps/**": true,
+    "**/build/**": true,
+    "**/cmake-build-*/**": true,
+    "**/node_modules/**": true,
+    "**/out/**": true,
+    "**/packages/**": true,
+    "**/refs/**": true,
+    "**/vcpkg/**": true,
+    "**/vcpkg_installed/**": true
+  }
+}
