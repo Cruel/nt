@@ -11,9 +11,7 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { buildRawJsonTabForRecord } from '@/workbench/editor-registry';
 import { useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   defaultLayoutData,
@@ -115,7 +113,6 @@ function DependencySelector({
 
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const openTab = useWorkbenchStore((state) => state.openTab);
   const clearDraftDirty = useDraftDirtyStore((state) => state.clearDraftDirty);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const layoutId = tab.resource?.entityId;
@@ -275,9 +272,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
               {validationDiagnostics.length} diagnostic{validationDiagnostics.length === 1 ? '' : 's'}
             </Badge>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Source-first RmlUi layout authoring with RML, RCSS, Lua behavior, explicit dependencies, and preview requests.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Source-first RmlUi layout authoring with RML, RCSS, Lua behavior, explicit dependencies, and live preview.</p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('layouts', activeLayoutId, activeLayoutId))}>Raw JSON</Button>
         <Button size="sm" variant="outline" onClick={() => setDefaultLayout(isDefaultLayout ? null : activeLayoutId)}>{isDefaultLayout ? 'Clear Default' : 'Set Default'}</Button>
       </div>
 

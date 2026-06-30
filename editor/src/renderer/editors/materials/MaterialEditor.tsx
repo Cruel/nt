@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
+import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
-import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
@@ -22,8 +22,6 @@ import { isAuthoringProject } from '../../../shared/project-schema/authoring-pro
 import { parseShaderData, shaderRoleValues, type ShaderUniformData } from '../../../shared/project-schema/authoring-shaders';
 import { buildMaterialPreviewDocumentData, materialPreviewRevision } from '../../../shared/project-schema/shader-material-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { buildRawJsonTabForRecord } from '@/workbench/editor-registry';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
 
 function updateMaterial(materialId: string, next: MaterialData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -57,9 +55,6 @@ function inheritedTexture(data: MaterialData, name: string): MaterialTextureData
 
 export function MaterialEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const openTab = useWorkbenchStore((state) => state.openTab);
-  const requestEntityPreview = usePreviewManagerStore((state) => state.requestEntityPreview);
-  const requestThumbnail = usePreviewManagerStore((state) => state.requestThumbnail);
   const materialId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const record = materialId && project ? project.materials[materialId] : null;
@@ -86,23 +81,8 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
     revision,
     data: buildMaterialPreviewDocumentData(activeProject, activeMaterialId),
   };
-  const thumbnail = requestThumbnail({
-    target: { collection: 'materials', entityId: activeMaterialId, kind: 'material', label: activeRecord.label },
-    document: previewDocument,
-    revision,
-  });
-
   function commit(next: MaterialData, label = 'Update material') {
     updateMaterial(activeMaterialId, next, label);
-  }
-
-  function requestPreview() {
-    requestEntityPreview({
-      ownerId: `material-editor:${activeMaterialId}`,
-      target: { collection: 'materials', entityId: activeMaterialId, kind: 'material', label: activeRecord.label },
-      document: previewDocument,
-      mode: 'material',
-    });
   }
 
   function setUniform(declaration: ShaderUniformData, value: unknown) {
@@ -128,11 +108,9 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2><Badge variant="outline">{activeMaterialId}</Badge><Badge variant="secondary">{thumbnail.status}</Badge></div>
-          <p className="mt-1 text-xs text-muted-foreground">Material shader, role, uniform overrides, texture slots, inheritance, and preview requests.</p>
+          <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2><Badge variant="outline">{activeMaterialId}</Badge></div>
+          <p className="mt-1 text-xs text-muted-foreground">Material shader, role, uniform overrides, texture slots, inheritance, and live preview.</p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('materials', activeMaterialId, activeMaterialId))}>Raw JSON</Button>
-        <Button size="sm" onClick={requestPreview}>Request Preview</Button>
       </div>
 
       {!parsedData ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Material data was invalid; showing editable defaults until you apply a change.</div> : null}
@@ -218,12 +196,8 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             })}
           </section>
         </div>
-        <aside className="rounded border bg-muted/20 p-4">
-          <div className="flex items-center gap-2"><Badge variant="secondary">Preview</Badge><span className="font-mono text-xs text-muted-foreground">{thumbnail.status}</span></div>
-          <div className="mt-4 flex h-40 items-center justify-center rounded border border-dashed bg-background text-center text-sm text-muted-foreground">
-            Material preview request is cached through PreviewManager. Engine material rendering can fill this when preview mode is supported.
-          </div>
-          <div className="mt-3 overflow-hidden font-mono text-[10px] text-muted-foreground">revision {revision.slice(0, 80)}</div>
+        <aside className="min-h-[420px] overflow-hidden rounded border bg-muted/20">
+          <EnginePreview chrome="minimal" previewMode="material" previewDocument={previewDocument} />
         </aside>
       </div>
     </div>

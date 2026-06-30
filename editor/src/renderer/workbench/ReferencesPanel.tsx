@@ -2,8 +2,26 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useEntityUsagesStore, usageSourceIsRecord } from '@/project/entity-usages-store';
 import { referenceTargetLabel, referenceUsageSummary } from '@/project/entity-operations';
+import type { AssetNode } from '@/stores/workspace-store';
+import { buildDefaultRecordTab } from './editor-registry';
 import { useWorkbenchStore } from './workbench-store';
-import { buildRawJsonTabForRecord } from './editor-registry';
+
+export function nodeForUsage(collection: string, entityId: string): AssetNode {
+  return {
+    id: `${collection}:${entityId}`,
+    label: entityId,
+    type:
+      collection === 'variables' ? 'variable'
+        : collection === 'assets' ? 'asset'
+          : collection === 'shaders' ? 'shader'
+            : collection === 'materials' ? 'material'
+              : collection === 'layouts' ? 'layout'
+                : collection === 'characters' ? 'character'
+                  : 'folder',
+    collection,
+    entityId,
+  };
+}
 
 export function ReferencesPanel() {
   const result = useEntityUsagesStore((state) => state.result);
@@ -40,15 +58,10 @@ export function ReferencesPanel() {
                     size="sm"
                     variant="ghost"
                     className="ml-auto h-6 px-2 text-[11px]"
-                    onClick={() =>
-                      openTab(
-                        buildRawJsonTabForRecord(
-                          usage.sourceCollection,
-                          usage.sourceId,
-                          usage.sourceId,
-                        ),
-                      )
-                    }
+                    onClick={() => {
+                      const tab = buildDefaultRecordTab(nodeForUsage(usage.sourceCollection, usage.sourceId));
+                      if (tab) openTab(tab);
+                    }}
                   >
                     Open source
                   </Button>

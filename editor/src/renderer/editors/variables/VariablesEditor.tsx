@@ -11,8 +11,6 @@ import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { buildRawJsonTabForRecord } from '@/workbench/editor-registry';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { isAuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
 import {
   defaultVariableData,
@@ -70,7 +68,6 @@ function VariableRow({
   onDelete: (variableId: string, usages: ReturnType<typeof findUsages>) => void;
 }) {
   const executeCommand = useCommandStore((state) => state.executeCommand);
-  const openTab = useWorkbenchStore((state) => state.openTab);
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const data = variableDataFromRecord(record);
@@ -163,7 +160,7 @@ function VariableRow({
           <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Invalid variable data.</div>
         </td>
         <td className="p-2 text-right">
-          <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('variables', variableId, variableId))}>Raw JSON</Button>
+          <span className="text-xs text-muted-foreground">Invalid data</span>
         </td>
       </tr>
     );
@@ -201,7 +198,6 @@ function VariableRow({
         <Badge variant="secondary">{data.scope ?? 'global'}</Badge>
       </td>
       <td className="space-x-2 whitespace-nowrap p-2 text-right">
-        <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('variables', variableId, variableId))}>Raw JSON</Button>
         <Button size="sm" variant="destructive" onClick={() => onDelete(variableId, usages)}>Delete</Button>
       </td>
     </tr>

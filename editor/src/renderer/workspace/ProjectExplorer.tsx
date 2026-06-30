@@ -37,7 +37,7 @@ import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { authoringCollectionMetadata, isAuthoringCollectionKey, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
-import { buildDefaultRecordTab, buildRawJsonTabForRecord, buildVariablesEditorTab } from '@/workbench/editor-registry';
+import { buildDefaultRecordTab, buildVariablesEditorTab } from '@/workbench/editor-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
@@ -499,12 +499,6 @@ function ProjectExplorerItem({
               ) : (
                 <>
                   <MenuItem onClick={openNode}><File /> Open</MenuItem>
-                  {knownCollection === 'assets' && node.entityId ? (
-                    <MenuItem onClick={() => openTab(buildRawJsonTabForRecord('assets', node.entityId!, node.entityId!))}><FileCode /> Open Raw JSON</MenuItem>
-                  ) : null}
-                  {knownCollection === 'variables' && node.entityId ? (
-                    <MenuItem onClick={() => openTab(buildRawJsonTabForRecord('variables', node.entityId!, node.entityId!))}><FileCode /> Open Raw JSON</MenuItem>
-                  ) : null}
                   <MenuItem onClick={() => openDialog({ action: 'metadata', collection: knownCollection, entityId: node.entityId })}><Palette /> Edit Metadata</MenuItem>
                   <MenuItem onClick={() => openDialog({ action: 'rename', collection: knownCollection, entityId: node.entityId })}><FileCode /> Rename ID</MenuItem>
                   <MenuItem onClick={() => openDialog({ action: 'duplicate', collection: knownCollection, entityId: node.entityId })}><Copy /> Duplicate</MenuItem>

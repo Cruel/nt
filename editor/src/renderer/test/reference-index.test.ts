@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
+import { characterAssetRef, characterMaterialRef, defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 
 describe('authoring reference index', () => {
   it('indexes entrypoint, parent, inheritance, and explicit data refs', () => {
@@ -37,6 +39,25 @@ describe('authoring reference index', () => {
     ]));
     expect(findUsages(index, { collection: 'layouts', id: 'main' })).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceCollection: 'project', sourceId: 'settings', kind: 'explicit-ref', path: '/settings/ui/defaultLayout/$ref' }),
+    ]));
+  });
+
+  it('indexes character sprite and material refs', () => {
+    const project = createAuthoringProject();
+    project.assets.iris = { id: 'iris', label: 'Iris Sprite', tags: [], data: {} };
+    project.materials.glow = { id: 'glow', label: 'Glow', tags: [], data: defaultMaterialData('Glow') };
+    const data = defaultCharacterData('Iris');
+    data.poses[0]!.sprite = characterAssetRef('iris');
+    data.expressions[0]!.material = characterMaterialRef('glow');
+    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data };
+
+    const index = buildReferenceIndex(project);
+
+    expect(findUsages(index, { collection: 'assets', id: 'iris' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceCollection: 'characters', sourceId: 'iris', path: '/characters/iris/data/poses/0/sprite/$ref' }),
+    ]));
+    expect(findUsages(index, { collection: 'materials', id: 'glow' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceCollection: 'characters', sourceId: 'iris', path: '/characters/iris/data/expressions/0/material/$ref' }),
     ]));
   });
 

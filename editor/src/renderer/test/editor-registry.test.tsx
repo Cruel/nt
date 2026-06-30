@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildDefaultRecordTab, buildPrimaryPreviewTab, buildRawJsonTab } from '@/workbench/editor-registry';
+import { buildDefaultRecordTab, buildPrimaryPreviewTab } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
 describe('editor registry', () => {
   it('resolves default editor registrations', () => {
     expect(defaultEditorRegistry.resolve('engine-preview')?.label).toBe('Engine Preview');
-    expect(defaultEditorRegistry.resolve('raw-json')?.label).toBe('Raw JSON');
+    expect(defaultEditorRegistry.resolve('raw-json')).toBeNull();
   });
 
   it('builds a stable primary preview tab descriptor', () => {
@@ -17,25 +17,15 @@ describe('editor registry', () => {
     });
   });
 
-  it('builds raw JSON tab descriptors for project records', () => {
+  it('does not fall back to an untyped document editor for records without typed editors', () => {
     const node: AssetNode = {
-      id: 'room:foyer',
-      label: 'foyer',
+      id: 'rooms:foyer',
+      label: 'Foyer',
       type: 'room',
-      collection: 'room',
+      collection: 'rooms',
       entityId: 'foyer',
     };
-    expect(buildRawJsonTab(node)).toMatchObject({
-      id: 'tab:raw-json:record:room:foyer',
-      title: 'foyer',
-      editorType: 'raw-json',
-      resource: {
-        kind: 'record',
-        stableId: 'record:room:foyer',
-        collection: 'room',
-        entityId: 'foyer',
-      },
-    });
+    expect(buildDefaultRecordTab(node)).toBeNull();
   });
 
   it('routes layout records to the typed layout editor', () => {
@@ -53,7 +43,18 @@ describe('editor registry', () => {
     });
   });
 
-  it('does not build a raw JSON tab for non-record folders', () => {
-    expect(buildRawJsonTab({ id: 'room', label: 'Rooms', type: 'folder' })).toBeNull();
+  it('routes character records to the typed character editor', () => {
+    const node: AssetNode = {
+      id: 'characters:iris',
+      label: 'Iris',
+      type: 'character',
+      collection: 'characters',
+      entityId: 'iris',
+    };
+    expect(buildDefaultRecordTab(node)).toMatchObject({
+      id: 'tab:character-detail:characters:iris',
+      editorType: 'character-detail',
+      resource: { collection: 'characters', entityId: 'iris' },
+    });
   });
 });

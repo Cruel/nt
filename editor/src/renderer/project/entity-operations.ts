@@ -5,6 +5,7 @@ import {
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
 } from '../../shared/project-schema/authoring-collections';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
@@ -145,6 +146,7 @@ export function defaultDataForCollection(
   if (collection === 'shaders') return defaultShaderData(label) as unknown as Record<string, unknown>;
   if (collection === 'materials') return defaultMaterialData(label) as unknown as Record<string, unknown>;
   if (collection === 'layouts') return defaultLayoutData(label) as unknown as Record<string, unknown>;
+  if (collection === 'characters') return defaultCharacterData(label) as unknown as Record<string, unknown>;
   return {};
 }
 

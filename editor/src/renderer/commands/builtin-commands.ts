@@ -28,6 +28,7 @@ import {
   setVariableDefaultValuePatches,
   setVariableTypePatches,
 } from '@/project/variable-operations';
+import { replaceCharacterDataPatches } from '@/project/character-operations';
 import { replaceLayoutDataPatches, setDefaultLayoutPatches } from '@/project/layout-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
@@ -173,8 +174,6 @@ export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }
   };
 };
 
-export const rawJsonReplaceRecordCommand = entityReplaceRecordCommand;
-
 export const entityDeleteRecordCommand: CommandHandler = ({ document, payload }) => {
   const parsed = parsePayload(deleteRecordSchema.extend({ force: z.boolean().optional() }), payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
@@ -251,6 +250,7 @@ const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean()
 const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unknown() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
+const characterReplaceDataSchema = z.object({ characterId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
 const setDefaultLayoutSchema = z.object({ layoutId: entityIdSchema.nullable() });
 const variableSetTypeSchema = z.object({
@@ -321,6 +321,9 @@ export const variableSetDefaultValueCommand: CommandHandler = ({ document, paylo
 export const layoutReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(layoutReplaceDataSchema, payload, (parsed) => replaceLayoutDataPatches(document, parsed));
 
+export const characterReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(characterReplaceDataSchema, payload, (parsed) => replaceCharacterDataPatches(document, parsed));
+
 export const projectSetDefaultLayoutCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(setDefaultLayoutSchema, payload, (parsed) => setDefaultLayoutPatches(document, parsed));
 
@@ -330,7 +333,6 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.replaceAtPath': projectReplaceAtPathCommand,
     'project.addAtPath': projectAddAtPathCommand,
     'project.removeAtPath': projectRemoveAtPathCommand,
-    'rawJson.replaceRecord': rawJsonReplaceRecordCommand,
     'entity.replaceRecord': entityReplaceRecordCommand,
     'entity.createRecord': entityCreateRecordCommand,
     'entity.renameId': entityRenameIdCommand,
@@ -352,6 +354,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'variable.setType': variableSetTypeCommand,
     'variable.setDefaultValue': variableSetDefaultValueCommand,
     'layout.replaceData': layoutReplaceDataCommand,
+    'character.replaceData': characterReplaceDataCommand,
     'project.setDefaultLayout': projectSetDefaultLayoutCommand,
   };
 }
@@ -362,7 +365,6 @@ export function labelForCommand(type: string): string {
     case 'project.replaceAtPath': return 'Replace project value';
     case 'project.addAtPath': return 'Add project value';
     case 'project.removeAtPath': return 'Remove project value';
-    case 'rawJson.replaceRecord': return 'Replace raw JSON record';
     case 'entity.replaceRecord': return 'Replace entity record';
     case 'entity.createRecord': return 'Create entity record';
     case 'entity.renameId': return 'Rename entity ID';
@@ -384,6 +386,7 @@ export function labelForCommand(type: string): string {
     case 'variable.setType': return 'Set variable type';
     case 'variable.setDefaultValue': return 'Set variable default value';
     case 'layout.replaceData': return 'Update layout';
+    case 'character.replaceData': return 'Update character';
     case 'project.setDefaultLayout': return 'Set default layout';
     default: return type;
   }

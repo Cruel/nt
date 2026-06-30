@@ -1,7 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
-import { FileCode, FileJson, Image, Layers, MonitorPlay, Palette, SlidersHorizontal } from 'lucide-react';
+import { FileCode, Image, Layers, MonitorPlay, Palette, SlidersHorizontal, User } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
-import type { WorkbenchResource, WorkbenchTab } from './workbench-types';
+import type { WorkbenchTab } from './workbench-types';
 
 export interface WorkbenchEditorProps {
   tab: WorkbenchTab;
@@ -45,37 +45,6 @@ export function createEditorRegistry(
     resolve: (editorType) => byType.get(editorType) ?? null,
     list: () => [...byType.values()],
   };
-}
-
-export function buildRawJsonResource(node: AssetNode): WorkbenchResource | null {
-  if (!node.collection || !node.entityId) return null;
-  return {
-    kind: node.type === 'test' ? 'raw' : 'record',
-    stableId: `record:${node.collection}:${node.entityId}`,
-    collection: node.collection,
-    entityId: node.entityId,
-    testId: node.type === 'test' ? node.entityId : undefined,
-  };
-}
-
-export function buildRawJsonTabForRecord(collection: string, entityId: string, title = entityId): WorkbenchTab {
-  return {
-    id: `tab:raw-json:record:${collection}:${entityId}`,
-    title,
-    editorType: 'raw-json',
-    resource: {
-      kind: 'record',
-      stableId: `record:${collection}:${entityId}`,
-      collection,
-      entityId,
-    },
-  };
-}
-
-export function buildRawJsonTab(node: AssetNode): WorkbenchTab | null {
-  const resource = buildRawJsonResource(node);
-  if (!resource) return null;
-  return buildRawJsonTabForRecord(resource.collection!, resource.entityId!, node.entityId ?? node.label);
 }
 
 export function buildAssetDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
@@ -134,6 +103,20 @@ export function buildLayoutDetailTabForRecord(entityId: string, title = entityId
   };
 }
 
+export function buildCharacterDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:character-detail:characters:${entityId}`,
+    title,
+    editorType: 'character-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:characters:${entityId}`,
+      collection: 'characters',
+      entityId,
+    },
+  };
+}
+
 export function buildVariablesEditorTab(selectedId?: string): WorkbenchTab {
   return {
     id: 'tab:variables',
@@ -154,7 +137,8 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'shaders' && node.entityId) return buildShaderDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'materials' && node.entityId) return buildMaterialDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'layouts' && node.entityId) return buildLayoutDetailTabForRecord(node.entityId, node.entityId);
-  return buildRawJsonTab(node);
+  if (node.collection === 'characters' && node.entityId) return buildCharacterDetailTabForRecord(node.entityId, node.entityId);
+  return null;
 }
 
 export function buildPrimaryPreviewTab(): WorkbenchTab {
@@ -176,9 +160,9 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'shader-detail') return FileCode;
   if (editorType === 'material-detail') return Palette;
   if (editorType === 'layout-detail') return Layers;
+  if (editorType === 'character-detail') return User;
   if (editorType === 'variables') return SlidersHorizontal;
-  if (editorType === 'raw-json') return FileJson;
-  return FileJson;
+  return FileCode;
 }
 
 export function renderEditorToolbar(

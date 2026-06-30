@@ -185,10 +185,45 @@ thead, tbody, tfoot {
       return injectHeadContent(documentSource, style);
     }
 
+    function escapeText(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function escapeRcssString(value) {
+      return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    }
+
+    function projectImageSource(asset) {
+      return asset && typeof asset.path === 'string' && asset.path.length > 0 ? `project:/${asset.path}` : '';
+    }
+
     function buildShaderPreviewRml(data) {
       const materialId = data && typeof data.previewMaterialId === 'string' ? data.previewMaterialId : 'ui/noise_panel';
-      const escapedMaterialId = materialId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const escapedMaterialId = escapeRcssString(materialId);
       return `<rml>\n<head>\n<title>Shader Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: #0f172a; font-family: Liberation Sans; }\n#nt-shader-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: #0f172a; }\n#nt-shader-preview-square { position: absolute; left: 50%; top: 50%; width: 256px; height: 256px; margin-left: -128px; margin-top: -128px; background-color: #1e293b; border: 1px #94a3b8; decorator: shader("${escapedMaterialId}"); }\n</style>\n</head>\n<body>\n<div id="nt-shader-preview-stage"><div id="nt-shader-preview-square"></div></div>\n</body>\n</rml>`;
+    }
+
+    function buildMaterialPreviewRml(data) {
+      const materialId = data && typeof data.materialId === 'string' ? data.materialId : 'ui/noise_panel';
+      const escapedMaterialId = escapeRcssString(materialId);
+      return `<rml>\n<head>\n<title>Material Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: #111827; font-family: Liberation Sans; }\n#nt-material-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: #111827; }\n#nt-material-preview-card { position: absolute; left: 50%; top: 50%; width: 256px; height: 256px; margin-left: -128px; margin-top: -128px; background-color: #1f2937; border: 1px #94a3b8; decorator: shader("${escapedMaterialId}"); }\n#nt-material-preview-label { position: absolute; left: 16px; top: 16px; color: #cbd5e1; font-size: 14px; }\n</style>\n</head>\n<body>\n<div id="nt-material-preview-stage"><div id="nt-material-preview-label">${escapeText(materialId)}</div><div id="nt-material-preview-card"></div></div>\n</body>\n</rml>`;
+    }
+
+    function buildCharacterPreviewRml(data) {
+      const name = data && (data.displayName || data.label || data.characterId) ? data.displayName || data.label || data.characterId : 'Character';
+      const pose = data && data.pose ? data.pose : null;
+      const expression = data && data.expression ? data.expression : null;
+      const spriteSource = projectImageSource(data && data.resolvedSprite);
+      const material = data && data.resolvedMaterial && data.resolvedMaterial.id ? data.resolvedMaterial.id : '';
+      const imageMarkup = spriteSource
+        ? `<img id="nt-character-preview-sprite" src="${escapeText(spriteSource)}" />`
+        : '<div id="nt-character-preview-placeholder">No sprite selected</div>';
+      const materialStyle = material ? ` decorator: shader("${escapeRcssString(material)}");` : '';
+      return `<rml>\n<head>\n<title>Character Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: #0f172a; font-family: Liberation Sans; color: #e5e7eb; }\n#nt-character-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: #0f172a; }\n#nt-character-preview-card { position: absolute; left: 50%; top: 50%; width: 320px; height: 420px; margin-left: -160px; margin-top: -210px; background-color: #111827; border: 1px #334155;${materialStyle} }\n#nt-character-preview-sprite { position: absolute; left: 24px; top: 48px; width: 272px; height: 272px; }\n#nt-character-preview-placeholder { position: absolute; left: 24px; top: 48px; width: 272px; height: 272px; border: 1px #475569; color: #94a3b8; text-align: center; padding-top: 122px; }\n#nt-character-preview-name { position: absolute; left: 24px; top: 336px; right: 24px; color: #f8fafc; font-size: 22px; }\n#nt-character-preview-meta { position: absolute; left: 24px; top: 368px; right: 24px; color: #94a3b8; font-size: 13px; }\n</style>\n</head>\n<body>\n<div id="nt-character-preview-stage"><div id="nt-character-preview-card">${imageMarkup}<div id="nt-character-preview-name">${escapeText(name)}</div><div id="nt-character-preview-meta">Pose: ${escapeText(pose && pose.label || pose && pose.id || 'none')} | Expression: ${escapeText(expression && expression.label || expression && expression.id || 'none')}</div></div></div>\n</body>\n</rml>`;
     }
 
     function emitDocumentDiagnostics(document) {
@@ -236,6 +271,8 @@ thead, tbody, tfoot {
       emitDocumentDiagnostics(document);
       if (kind === 'layout-preview') applyPreviewRml(message, buildLayoutPreviewRml(data), sourceText(data && data.lua));
       else if (kind === 'shader-preview') applyPreviewRml(message, buildShaderPreviewRml(data));
+      else if (kind === 'material-preview') applyPreviewRml(message, buildMaterialPreviewRml(data));
+      else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
       else failCommand(message, `Preview widget cannot render document '${kind}'.`);
     }
 
@@ -271,7 +308,11 @@ thead, tbody, tfoot {
 
     function sendReadySnapshot() {
       if (!engineReady || !port) return;
-      send({ version: protocolVersion, type: 'ready', capabilities: ['layout-preview-v1', 'shader-preview-v1'] });
+      send({
+        version: protocolVersion,
+        type: 'ready',
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1'],
+      });
       drainCommands();
     }
 

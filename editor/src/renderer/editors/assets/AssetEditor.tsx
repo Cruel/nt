@@ -11,8 +11,6 @@ import { isAuthoringProject } from '../../../shared/project-schema/authoring-pro
 import { buildReferenceIndex, findUsages } from '../../../shared/project-schema/authoring-references';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { buildRawJsonTabForRecord } from '@/workbench/editor-registry';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { AssetPreview } from './AssetPreview';
 
 function lookupAsset(project: unknown, assetId: string | undefined) {
@@ -24,7 +22,6 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const executeCommand = useCommandStore((state) => state.executeCommand);
-  const openTab = useWorkbenchStore((state) => state.openTab);
   const assetId = tab.resource?.entityId;
   const record = lookupAsset(project, assetId);
   const data = parseAssetData(record?.data);
@@ -54,7 +51,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     return (
       <div className="space-y-3 p-4 text-sm">
         <div className="font-medium">Invalid asset data</div>
-        <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('assets', assetId, assetId))}>Open Raw JSON</Button>
+        <p className="text-muted-foreground">Validation will report the malformed asset record. Use typed asset import or reimport to replace it.</p>
       </div>
     );
   }
@@ -100,7 +97,6 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
           </div>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{data.source.path}</p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('assets', assetId, assetId))}>Raw JSON</Button>
         <Button size="sm" variant="outline" onClick={() => void reimport()}>Reimport</Button>
         <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>Delete</Button>
       </div>

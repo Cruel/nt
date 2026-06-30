@@ -24,9 +24,7 @@ import {
   type ShaderUniformData,
 } from '../../../shared/project-schema/authoring-shaders';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { buildRawJsonTabForRecord } from '@/workbench/editor-registry';
 import { useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 
@@ -140,7 +138,6 @@ function UniformRow({ shaderId, data, uniform, index }: { shaderId: string; data
 
 export function ShaderEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const openTab = useWorkbenchStore((state) => state.openTab);
   const runCompile = useShaderCompileStore((state) => state.runCompile);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const shaderId = tab.resource?.entityId;
@@ -179,7 +176,6 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
           <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2><Badge variant="outline">{activeShaderId}</Badge></div>
           <p className="mt-1 text-xs text-muted-foreground">Shader source, interface declarations, roles, compiled refs, and helper compile actions.</p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => openTab(buildRawJsonTabForRecord('shaders', activeShaderId, activeShaderId))}>Raw JSON</Button>
         <Button size="sm" onClick={() => void compile()}>Compile</Button>
       </div>
 

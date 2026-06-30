@@ -16,7 +16,7 @@ describe('command bus', () => {
   it('applies, undoes, and redoes commands', () => {
     let state = createInitialCommandBusState({ room: { foyer: ['foyer'] } });
     const applied = executeCommand(state, {
-      type: 'rawJson.replaceRecord',
+      type: 'entity.replaceRecord',
       payload: { collection: 'room', entityId: 'foyer', record: ['foyer', 'edited'] },
     });
     expect(applied.ok).toBe(true);
