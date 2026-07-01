@@ -34,6 +34,7 @@ describe('preview protocol validation', () => {
     expect(isPreviewDocument(document)).toBe(true);
     expect(isPreviewDocument({ kind: 'shader-preview', recordId: 'shader-a', revision: 'rev', data: {} })).toBe(true);
     expect(isPreviewDocument({ kind: 'layout-preview', recordId: 'layout-a', revision: 'rev', data: {} })).toBe(true);
+    expect(isPreviewDocument({ kind: 'room-preview', recordId: 'room-a', revision: 'rev', data: {} })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: 'layout' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'request-preview-snapshot', requestId: 'r3', snapshotId: 's1' })).toBe(true);

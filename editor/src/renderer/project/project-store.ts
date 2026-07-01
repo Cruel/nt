@@ -79,7 +79,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       ? normalizeDocument(metadata.document)
       : state.document === null ? null : cloneJsonValue(state.document);
     set({
-      document: savedDocument === null ? null : cloneJsonValue(savedDocument),
+      document: state.document === null ? null : cloneJsonValue(state.document),
       savedDocument,
       savedHistoryCursor: state.historyCursor,
       projectPath: metadata?.projectPath ?? state.projectPath,

@@ -1,0 +1,155 @@
+import { parseAssetData } from './authoring-assets';
+import { parseLayoutData } from './authoring-layouts';
+import { parseMaterialData } from './authoring-materials';
+import {
+  parseRoomData,
+  validateRoomData,
+  type RoomAssetRef,
+  type RoomData,
+  type RoomLayoutRef,
+  type RoomMaterialRef,
+  type RoomObjectRef,
+} from './authoring-rooms';
+import type { AuthoringProject } from './authoring-project';
+
+export const ROOM_PREVIEW_SCHEMA = 'noveltea.room-preview.v1' as const;
+
+export interface RoomProjectDiagnostic {
+  severity: 'error' | 'warning' | 'info';
+  path: string;
+  message: string;
+  category?: string;
+}
+
+function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): RoomProjectDiagnostic {
+  return { severity, path, message, category: 'room-project' };
+}
+
+function assetMetadata(project: AuthoringProject, ref: RoomAssetRef | null): Record<string, unknown> | null {
+  if (!ref) return null;
+  const id = ref.$ref.id;
+  const record = project.assets[id];
+  const data = parseAssetData(record?.data);
+  return {
+    id,
+    label: record?.label ?? id,
+    kind: data?.kind ?? 'missing',
+    path: data?.source.path ?? null,
+    extension: data?.extension ?? null,
+    contentHash: data?.contentHash ?? null,
+  };
+}
+
+function materialMetadata(project: AuthoringProject, ref: RoomMaterialRef | null): Record<string, unknown> | null {
+  if (!ref) return null;
+  const id = ref.$ref.id;
+  const record = project.materials[id];
+  const data = parseMaterialData(record?.data);
+  return {
+    id,
+    label: record?.label ?? id,
+    role: data?.role ?? null,
+    shader: data?.shader?.$ref.id ?? null,
+  };
+}
+
+function layoutMetadata(project: AuthoringProject, ref: RoomLayoutRef | null): Record<string, unknown> | null {
+  if (!ref) return null;
+  const id = ref.$ref.id;
+  const record = project.layouts[id];
+  const data = parseLayoutData(record?.data);
+  return {
+    id,
+    label: record?.label ?? id,
+    layoutKind: data?.layoutKind ?? null,
+  };
+}
+
+function objectMetadata(project: AuthoringProject, ref: RoomObjectRef | null): Record<string, unknown> | null {
+  if (!ref) return null;
+  const id = ref.$ref.id;
+  const record = project.objects[id];
+  return {
+    id,
+    label: record?.label ?? id,
+  };
+}
+
+function dependencyRevision(project: AuthoringProject, data: RoomData): string[] {
+  const dependencies: string[] = [];
+  if (data.background.asset) {
+    const id = data.background.asset.$ref.id;
+    const asset = project.assets[id];
+    const assetData = parseAssetData(asset?.data);
+    dependencies.push(`asset:${id}:${assetData?.contentHash ?? assetData?.source.path ?? 'missing'}`);
+  }
+  if (data.background.material) {
+    const id = data.background.material.$ref.id;
+    dependencies.push(`material:${id}:${JSON.stringify(project.materials[id]?.data ?? null)}`);
+  }
+  for (const hotspot of data.hotspots) {
+    if (hotspot.object) {
+      const id = hotspot.object.$ref.id;
+      dependencies.push(`object:${id}:${JSON.stringify(project.objects[id] ?? null)}`);
+    }
+  }
+  for (const overlay of data.overlays) {
+    if (overlay.layout) {
+      const id = overlay.layout.$ref.id;
+      dependencies.push(`layout:${id}:${JSON.stringify(project.layouts[id]?.data ?? null)}`);
+    }
+  }
+  for (const path of data.paths) {
+    if (path.target) {
+      const id = path.target.$ref.id;
+      dependencies.push(`room:${id}:${project.rooms[id]?.label ?? 'missing'}`);
+    }
+  }
+  return dependencies.sort();
+}
+
+export function roomPreviewRevision(project: AuthoringProject, roomId: string): string {
+  const record = project.rooms[roomId];
+  const data = parseRoomData(record?.data);
+  if (!record || !data) return `${roomId}:missing-or-invalid`;
+  return JSON.stringify({ roomId, label: record.label, data, dependencies: dependencyRevision(project, data) });
+}
+
+export function buildRoomPreviewDocumentData(project: AuthoringProject, roomId: string): Record<string, unknown> {
+  const record = project.rooms[roomId];
+  const data = parseRoomData(record?.data);
+  if (!record || !data) {
+    return {
+      schema: ROOM_PREVIEW_SCHEMA,
+      roomId,
+      label: roomId,
+      diagnostics: [diagnostic(`/rooms/${roomId}/data`, 'Invalid room data.')],
+    };
+  }
+
+  return {
+    schema: ROOM_PREVIEW_SCHEMA,
+    roomId,
+    label: record.label,
+    displayName: data.displayName,
+    background: data.background,
+    backgroundAsset: assetMetadata(project, data.background.asset),
+    backgroundMaterial: materialMetadata(project, data.background.material),
+    description: data.description,
+    scripts: data.scripts,
+    paths: data.paths.map((path) => ({
+      ...path,
+      targetLabel: path.target ? project.rooms[path.target.$ref.id]?.label ?? path.target.$ref.id : null,
+    })),
+    hotspots: data.hotspots.map((hotspot) => ({
+      ...hotspot,
+      objectMetadata: objectMetadata(project, hotspot.object),
+    })),
+    overlays: data.overlays.map((overlay) => ({
+      ...overlay,
+      layoutMetadata: layoutMetadata(project, overlay.layout),
+    })),
+    preview: data.preview,
+    diagnostics: validateRoomData(project, roomId, record),
+  };
+}

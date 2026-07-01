@@ -22,7 +22,11 @@ function previewDocumentTarget(document: PreviewDocument) {
       ? 'materials'
       : document.kind === 'shader-preview'
         ? 'shaders'
-        : undefined;
+        : document.kind === 'character-preview'
+          ? 'characters'
+          : document.kind === 'room-preview'
+            ? 'rooms'
+            : undefined;
   return { collection, entityId: document.recordId, kind: document.kind.replace('-preview', '') };
 }
 

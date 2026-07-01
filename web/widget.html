@@ -226,6 +226,39 @@ thead, tbody, tfoot {
       return `<rml>\n<head>\n<title>Character Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: #0f172a; font-family: Liberation Sans; color: #e5e7eb; }\n#nt-character-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: #0f172a; }\n#nt-character-preview-card { position: absolute; left: 50%; top: 50%; width: 320px; height: 420px; margin-left: -160px; margin-top: -210px; background-color: #111827; border: 1px #334155;${materialStyle} }\n#nt-character-preview-sprite { position: absolute; left: 24px; top: 48px; width: 272px; height: 272px; }\n#nt-character-preview-placeholder { position: absolute; left: 24px; top: 48px; width: 272px; height: 272px; border: 1px #475569; color: #94a3b8; text-align: center; padding-top: 122px; }\n#nt-character-preview-name { position: absolute; left: 24px; top: 336px; right: 24px; color: #f8fafc; font-size: 22px; }\n#nt-character-preview-meta { position: absolute; left: 24px; top: 368px; right: 24px; color: #94a3b8; font-size: 13px; }\n</style>\n</head>\n<body>\n<div id="nt-character-preview-stage"><div id="nt-character-preview-card">${imageMarkup}<div id="nt-character-preview-name">${escapeText(name)}</div><div id="nt-character-preview-meta">Pose: ${escapeText(pose && pose.label || pose && pose.id || 'none')} | Expression: ${escapeText(expression && expression.label || expression && expression.id || 'none')}</div></div></div>\n</body>\n</rml>`;
     }
 
+
+    function buildRoomPreviewRml(data) {
+      const name = data && (data.displayName || data.label || data.roomId) ? data.displayName || data.label || data.roomId : 'Room';
+      const background = data && data.background ? data.background : {};
+      const backgroundAsset = data && data.backgroundAsset ? data.backgroundAsset : null;
+      const backgroundSource = projectImageSource(backgroundAsset);
+      const backgroundColor = background && typeof background.color === 'string' && background.color.length > 0 ? background.color : '#111827';
+      const material = data && data.backgroundMaterial && data.backgroundMaterial.id ? data.backgroundMaterial.id : '';
+      const materialStyle = material ? ` decorator: shader("${escapeRcssString(material)}");` : '';
+      const description = data && data.description && typeof data.description.source === 'string' ? data.description.source : '';
+      const paths = data && Array.isArray(data.paths) ? data.paths : [];
+      const hotspots = data && Array.isArray(data.hotspots) ? data.hotspots : [];
+      const showHotspots = !data || !data.preview || data.preview.showHotspots !== false;
+      const backgroundMarkup = backgroundSource
+        ? `<img id="nt-room-preview-background-image" src="${escapeText(backgroundSource)}" />`
+        : '<div id="nt-room-preview-background-placeholder">No background image selected</div>';
+      const pathMarkup = paths.filter((path) => path && path.enabled !== false).map((path) => {
+        const target = path.targetLabel || (path.target && path.target.$ref && path.target.$ref.id) || 'no target';
+        return `<button class="nt-room-preview-path">${escapeText(path.label || path.direction || path.id)} → ${escapeText(target)}</button>`;
+      }).join('');
+      const hotspotMarkup = showHotspots ? hotspots.map((hotspot) => {
+        if (!hotspot || !hotspot.bounds) return '';
+        const b = hotspot.bounds;
+        const left = Math.max(0, Math.min(100, Number(b.x || 0) * 100));
+        const top = Math.max(0, Math.min(100, Number(b.y || 0) * 100));
+        const width = Math.max(1, Math.min(100, Number(b.width || 0) * 100));
+        const height = Math.max(1, Math.min(100, Number(b.height || 0) * 100));
+        const objectLabel = hotspot.objectMetadata && hotspot.objectMetadata.label ? hotspot.objectMetadata.label : hotspot.label || hotspot.id;
+        return `<button class="nt-room-preview-hotspot" style="left: ${left}%; top: ${top}%; width: ${width}%; height: ${height}%;" nt-object="${escapeText(hotspot.object && hotspot.object.$ref ? hotspot.object.$ref.id : hotspot.id)}"><span>${escapeText(objectLabel)}</span></button>`;
+      }).join('') : '';
+      return `<rml>\n<head>\n<title>Room Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: ${escapeRcssString(backgroundColor)}; font-family: Liberation Sans; color: #e5e7eb; }\n#nt-room-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; background-color: ${escapeRcssString(backgroundColor)};${materialStyle} }\n#nt-room-preview-background-image { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }\n#nt-room-preview-background-placeholder { position: absolute; left: 24px; top: 24px; right: 24px; bottom: 148px; border: 1px #475569; color: #94a3b8; text-align: center; padding-top: 120px; }\n#nt-room-preview-title { position: absolute; left: 24px; top: 18px; padding: 8px 12px; background-color: rgba(15, 23, 42, 180); color: #f8fafc; font-size: 22px; }\n#nt-room-preview-description { position: absolute; left: 24px; right: 24px; bottom: 64px; min-height: 48px; padding: 10px 12px; background-color: rgba(15, 23, 42, 210); color: #e5e7eb; font-size: 14px; }\n#nt-room-preview-paths { position: absolute; left: 24px; right: 24px; bottom: 16px; height: 36px; }\n.nt-room-preview-path { margin-right: 8px; min-width: 80px; }\n.nt-room-preview-hotspot { position: absolute; border: 1px #f59e0b; background-color: rgba(245, 158, 11, 45); color: #fffbeb; font-size: 12px; text-align: left; }\n.nt-room-preview-hotspot span { display: block; padding: 3px 5px; background-color: rgba(15, 23, 42, 180); }\n</style>\n</head>\n<body>\n<div id="nt-room-preview-stage">${backgroundMarkup}${hotspotMarkup}<div id="nt-room-preview-title">${escapeText(name)}</div><div id="nt-room-preview-description">${escapeText(description || 'No room description yet.')}</div><div id="nt-room-preview-paths">${pathMarkup}</div></div>\n</body>\n</rml>`;
+    }
+
     function emitDocumentDiagnostics(document) {
       const data = document && document.data ? document.data : null;
       if (!data || !Array.isArray(data.diagnostics)) return;
@@ -273,6 +306,7 @@ thead, tbody, tfoot {
       else if (kind === 'shader-preview') applyPreviewRml(message, buildShaderPreviewRml(data));
       else if (kind === 'material-preview') applyPreviewRml(message, buildMaterialPreviewRml(data));
       else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
+      else if (kind === 'room-preview') applyPreviewRml(message, buildRoomPreviewRml(data));
       else failCommand(message, `Preview widget cannot render document '${kind}'.`);
     }
 
@@ -311,7 +345,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1'],
       });
       drainCommands();
     }

@@ -1,0 +1,74 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { RoomEditor } from '@/editors/rooms/RoomEditor';
+import { useCommandStore } from '@/commands/command-store';
+import { useProjectStore } from '@/project/project-store';
+import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+
+vi.mock('@/components/engine-preview', () => ({
+  EnginePreview: ({ previewDocument }: { previewDocument: { kind: string } }) => <div data-kind={previewDocument.kind} data-testid="room-engine-preview" />,
+}));
+
+vi.mock('@/components/source/SourceEditor', () => ({
+  SourceEditor: ({ value, onChange, className }: { value: string; onChange?: (value: string) => void; className?: string }) => (
+    <textarea className={className} value={value} onChange={(event) => onChange?.(event.currentTarget.value)} />
+  ),
+}));
+
+const tab: WorkbenchTab = {
+  id: 'tab:room-detail:rooms:foyer',
+  title: 'Foyer',
+  editorType: 'room-detail',
+  resource: {
+    kind: 'record',
+    stableId: 'record:rooms:foyer',
+    collection: 'rooms',
+    entityId: 'foyer',
+  },
+};
+
+beforeEach(() => {
+  useCommandStore.getState().resetCommandHistory();
+  useProjectStore.getState().clearProject();
+});
+
+describe('RoomEditor', () => {
+  it('renders typed room defaults and room preview', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+
+    render(<RoomEditor tab={tab} />);
+
+    expect(screen.getByText('Foyer')).toBeInTheDocument();
+    expect(screen.getByText('Navigation paths')).toBeInTheDocument();
+    expect(screen.getByText('Hotspots')).toBeInTheDocument();
+    expect(screen.getByTestId('room-engine-preview')).toHaveAttribute('data-kind', 'room-preview');
+  });
+
+  it('dispatches command-backed display name and hotspot updates', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+
+    render(<RoomEditor tab={tab} />);
+
+    fireEvent.change(screen.getByDisplayValue('Foyer'), { target: { value: 'Foyer East' } });
+    await waitFor(() => {
+      expect(useProjectStore.getState().document).toMatchObject({
+        rooms: { foyer: { data: { displayName: 'Foyer East' } } },
+      });
+    });
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('room.replaceData');
+
+    fireEvent.click(screen.getByText('Add Hotspot'));
+    await waitFor(() => {
+      expect(useProjectStore.getState().document).toMatchObject({
+        rooms: { foyer: { data: { hotspots: [expect.objectContaining({ id: 'hotspot' })] } } },
+      });
+    });
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('room.replaceData');
+  });
+});

@@ -26,6 +26,32 @@ describe('project store selectors', () => {
     expect(useProjectStore.getState().savedDocument).toEqual({ room: { foyer: ['foyer', 'new'] } });
   });
 
+  it('does not replace the live document with save-only metadata snapshots', () => {
+    const store = useProjectStore.getState();
+    store.loadProjectDocument({
+      document: { schema: 'noveltea.authoring.project', editor: { workbench: null }, rooms: { foyer: { label: 'Foyer' } } },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    store.markSaved({
+      document: { schema: 'noveltea.authoring.project', editor: { workbench: { tabsById: { stale: {} } } }, rooms: { foyer: { label: 'Foyer' } } },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    expect(useProjectStore.getState().document).toEqual({
+      schema: 'noveltea.authoring.project',
+      editor: { workbench: null },
+      rooms: { foyer: { label: 'Foyer' } },
+    });
+    expect(useProjectStore.getState().savedDocument).toEqual({
+      schema: 'noveltea.authoring.project',
+      editor: { workbench: { tabsById: { stale: {} } } },
+      rooms: { foyer: { label: 'Foyer' } },
+    });
+  });
+
   it('uses no saved baseline for unsaved new projects', () => {
     useProjectStore.getState().loadUnsavedProjectDocument({ room: { foyer: ['foyer'] } });
     expect(useProjectStore.getState().savedDocument).toBeNull();

@@ -4,6 +4,7 @@ import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './au
 import { validateCharacterData } from './authoring-characters';
 import { validateDefaultLayoutSetting, validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
+import { validateRoomData } from './authoring-rooms';
 import { validateShaderData } from './authoring-shaders';
 import { validateVariableData } from './authoring-variables';
 import {
@@ -159,6 +160,9 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   }
   for (const [id, record] of Object.entries(project.characters)) {
     diagnostics.push(...validateCharacterData(project, id, record));
+  }
+  for (const [id, record] of Object.entries(project.rooms)) {
+    diagnostics.push(...validateRoomData(project, id, record));
   }
 
   return diagnostics;

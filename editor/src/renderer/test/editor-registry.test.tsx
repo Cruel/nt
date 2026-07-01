@@ -17,7 +17,7 @@ describe('editor registry', () => {
     });
   });
 
-  it('does not fall back to an untyped document editor for records without typed editors', () => {
+  it('routes room records to the typed room editor', () => {
     const node: AssetNode = {
       id: 'rooms:foyer',
       label: 'Foyer',
@@ -25,7 +25,11 @@ describe('editor registry', () => {
       collection: 'rooms',
       entityId: 'foyer',
     };
-    expect(buildDefaultRecordTab(node)).toBeNull();
+    expect(buildDefaultRecordTab(node)).toMatchObject({
+      id: 'tab:room-detail:rooms:foyer',
+      editorType: 'room-detail',
+      resource: { collection: 'rooms', entityId: 'foyer' },
+    });
   });
 
   it('routes layout records to the typed layout editor', () => {
