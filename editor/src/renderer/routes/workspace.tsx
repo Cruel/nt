@@ -1,13 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
-import { Download, Eye, FilePlus2, FlaskConical, Package, Play, Redo2, Save, SaveAll, Square, Undo2 } from 'lucide-react';
-import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
 import { useCommandStore } from '@/commands/command-store';
-import { selectCanSave, selectProjectDirty, useProjectStore } from '@/project/project-store';
+import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { Workbench } from '@/workbench/Workbench';
@@ -15,7 +12,8 @@ import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { buildPrimaryPreviewTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { ProjectExplorer } from '@/workspace/ProjectExplorer';
+import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
+import { WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
 import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { authoringValidationSucceeded, validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
@@ -44,13 +42,12 @@ interface WorkspaceAlert {
   message: string;
 }
 
-function WorkspacePage() {
-  const [busy, setBusy] = useState(false);
+export function WorkspacePage() {
+  const [, setBusy] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const lastObservedCommandId = useRef<string | null>(null);
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
-  const previewRunning = useWorkspaceStore((state) => state.previewRunning);
   const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
   const previewConnectionState = useWorkspaceStore((state) => state.previewConnectionState);
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
@@ -58,7 +55,6 @@ function WorkspacePage() {
   const projectPath = useProjectStore((state) => state.projectPath);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectDirty = useProjectStore(selectProjectDirty);
-  const canSave = useProjectStore(selectCanSave);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
   const saveDirty = projectDirty || hasDraftDirty;
@@ -81,16 +77,16 @@ function WorkspacePage() {
   const setLastExportResult = useWorkspaceStore((state) => state.setLastExportResult);
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
+  const addRecentProject = useRecentProjectsStore((state) => state.addRecentProject);
+  const removeRecentProject = useRecentProjectsStore((state) => state.removeRecentProject);
   const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
+  const closeProjectTabs = useWorkbenchStore((state) => state.closeProjectTabs);
   const commandHistory = useCommandStore((state) => state.history);
   const lastCommandDiagnostics = useCommandStore((state) => state.lastDiagnostics);
   const undoCommand = useCommandStore((state) => state.undo);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const redoCommand = useCommandStore((state) => state.redo);
   const resetCommandHistory = useCommandStore((state) => state.resetCommandHistory);
-  const canUndo = commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
-  const canRedo = commandHistory.cursor < commandHistory.entries.length - 1 && !commandHistory.activeTransaction;
-  const isAuthoring = isAuthoringProject(project);
   const nodes = useMemo(() => buildProjectTree(project, tests), [project, tests]);
 
   function loadAuthoringDocument(document: unknown, projectPathValue: string | null, projectFilePathValue: string | null) {
@@ -118,13 +114,30 @@ function WorkspacePage() {
     addTimelineEntry({ source: 'command', message: 'Created unsaved authoring project', detail: next });
   }
 
-  async function openProject() {
-    const dir = await window.noveltea.selectProjectDirectory();
+  function closeProject() {
+    clearProjectDocument();
+    resetCommandHistory();
+    closeProjectTabs();
+    setProjectPath(null);
+    setProjectFilePath(null);
+    setProject(null);
+    setDiagnostics([]);
+    setPlaybackTests([]);
+    setLastPlaybackReport(null);
+    setLastExportResult(null);
+    setPreviewRunning(false);
+    setStatusMessage('No project loaded');
+    addTimelineEntry({ source: 'command', message: 'Closed project' });
+  }
+
+  async function openProject(projectPathOverride?: string) {
+    const dir = projectPathOverride ?? await window.noveltea.selectProjectDirectory();
     if (!dir) return;
     setBusy(true);
     try {
       const loaded = await window.noveltea.openProject(dir);
       const diagnostics = loadAuthoringDocument(loaded.project ?? null, loaded.projectPath, loaded.projectFilePath);
+      addRecentProject({ projectPath: loaded.projectPath, projectFilePath: loaded.projectFilePath });
       setStatusMessage(
         isAuthoringProject(loaded.project)
           ? diagnostics.some((diagnostic) => diagnostic.severity === 'error')
@@ -140,6 +153,7 @@ function WorkspacePage() {
       setProject(null);
       setDiagnostics([]);
       setPlaybackTests([]);
+      if (projectPathOverride) removeRecentProject(projectPathOverride);
       setStatusMessage(error instanceof Error ? error.message : 'Project open failed');
     } finally {
       setBusy(false);
@@ -311,91 +325,70 @@ function WorkspacePage() {
     setStatusMessage('Runtime export requires authoring-to-runtime conversion, which is not implemented yet.');
   }
 
+  useEffect(() => {
+    function onToolbarCommand(event: Event) {
+      const detail = (event as CustomEvent<WorkspaceToolbarCommandDetail>).detail;
+      const command = typeof detail === 'string' ? detail : detail.command;
+      switch (command) {
+        case 'new-project':
+          createNewProject();
+          break;
+        case 'open-project':
+          void openProject(typeof detail === 'string' ? undefined : detail.projectPath);
+          break;
+        case 'close-project':
+          closeProject();
+          break;
+        case 'validate':
+          validate();
+          break;
+        case 'import-assets':
+          void importAssets();
+          break;
+        case 'run-first-test':
+          runFirstTest();
+          break;
+        case 'export-package':
+          exportRuntimePackage();
+          break;
+        case 'preview-play':
+          openWorkbenchTab(buildPrimaryPreviewTab());
+          setPreviewRunning(true);
+          window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-play'));
+          break;
+        case 'preview-stop':
+          openWorkbenchTab(buildPrimaryPreviewTab());
+          setPreviewRunning(false);
+          window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-stop'));
+          break;
+        case 'undo':
+          undoProjectCommand();
+          break;
+        case 'redo':
+          redoProjectCommand();
+          break;
+        case 'save':
+          void saveProject(false);
+          break;
+        case 'save-as':
+          void saveProject(true);
+          break;
+        case 'toggle-autosave':
+          setAutosaveEnabled(!autosaveEnabled);
+          break;
+        case 'toggle-bottom-panel':
+          setBottomPanelVisible(!bottomPanelVisible);
+          break;
+      }
+    }
+
+    window.addEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, onToolbarCommand);
+    return () => window.removeEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, onToolbarCommand);
+  });
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <PageHeader
-        title="Workspace"
-        description={projectPath ?? 'Create or open a NovelTea authoring project'}
-        actions={
-          <div className="flex items-center gap-1">
-            <Button size="sm" variant="outline" onClick={createNewProject} disabled={busy} title="New Project">
-              <FilePlus2 className="h-4 w-4" />
-              New
-            </Button>
-            <Button size="sm" variant="outline" onClick={openProject} disabled={busy}>
-              Open
-            </Button>
-            <Button size="sm" variant="ghost" onClick={validate} disabled={!project}>
-              Validate
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => void importAssets()} disabled={!project || busy} title="Import assets">
-              <Download className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={runFirstTest} disabled={!project || isAuthoring || tests.length === 0} title="Playback is disabled for authoring projects until conversion exists">
-              <FlaskConical className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={exportRuntimePackage} disabled={!project || isAuthoring} title="Export is disabled for authoring projects until conversion exists">
-              <Package className="h-4 w-4" />
-            </Button>
-            <Separator orientation="vertical" className="mx-1 h-5" />
-            <Button
-              size="sm"
-              variant={previewRunning ? 'secondary' : 'ghost'}
-              onClick={() => {
-                openWorkbenchTab(buildPrimaryPreviewTab());
-                setPreviewRunning(true);
-                window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-play'));
-              }}
-            >
-              <Play className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant={!previewRunning ? 'secondary' : 'ghost'}
-              onClick={() => {
-                openWorkbenchTab(buildPrimaryPreviewTab());
-                setPreviewRunning(false);
-                window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-stop'));
-              }}
-            >
-              <Square className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={undoProjectCommand} disabled={!canUndo} title="Undo">
-              <Undo2 className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={redoProjectCommand} disabled={!canRedo} title="Redo">
-              <Redo2 className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant={saveDirty ? 'secondary' : 'ghost'} onClick={() => void saveProject(false)} disabled={!project || (!canSave && !hasDraftDirty) || isSaving} title="Save">
-              <Save className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => void saveProject(true)} disabled={!project || isSaving} title="Save As">
-              <SaveAll className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant={autosaveEnabled ? 'secondary' : 'ghost'}
-              onClick={() => setAutosaveEnabled(!autosaveEnabled)}
-              disabled={!project || !projectFilePath}
-              title="Toggle autosave"
-            >
-              Autosave
-            </Button>
-            <Separator orientation="vertical" className="mx-1 h-5" />
-            <Button
-              size="sm"
-              variant={bottomPanelVisible ? 'secondary' : 'ghost'}
-              onClick={() => setBottomPanelVisible(!bottomPanelVisible)}
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
-          </div>
-        }
-      />
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="w-64 shrink-0 overflow-y-auto border-r bg-background p-2">
-          <ProjectExplorer nodes={nodes} />
-        </div>
         <div className="min-w-0 flex-1 overflow-hidden">
           <Group orientation="vertical" className="h-full w-full">
             <Panel defaultSize={bottomPanelVisible ? '70%' : '100%'} minSize="240px">

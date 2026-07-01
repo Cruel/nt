@@ -39,12 +39,12 @@ describe('AppShell', () => {
     expect(screen.getByTestId('child')).toHaveTextContent('Hello');
   });
 
-  it('renders the NovelTea brand', () => {
+  it('renders the application menu across the top chrome', () => {
     renderWithProviders(
       <AppShell>
         <div />
       </AppShell>,
     );
-    expect(screen.getByText('NovelTea')).toBeInTheDocument();
+    expect(screen.getByLabelText('Application menu')).toBeInTheDocument();
   });
 });

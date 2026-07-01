@@ -26,19 +26,16 @@ export function createPrimaryPreviewTab(): WorkbenchTab {
 }
 
 export function createInitialWorkbenchState(): WorkbenchState {
-  const previewTab = createPrimaryPreviewTab();
   return {
     layout: { kind: 'group', groupId: ROOT_GROUP_ID },
     groupsById: {
       [ROOT_GROUP_ID]: {
         id: ROOT_GROUP_ID,
-        tabIds: [previewTab.id],
-        activeTabId: previewTab.id,
+        tabIds: [],
+        activeTabId: null,
       },
     },
-    tabsById: {
-      [previewTab.id]: previewTab,
-    },
+    tabsById: {},
     activeGroupId: ROOT_GROUP_ID,
     recentlyClosedTabs: [],
   };
@@ -151,13 +148,12 @@ function normalizeWorkbenchState(state: WorkbenchState): WorkbenchState {
     if (!layoutGroupIds.has(groupId)) delete next.groupsById[groupId];
   }
   if (Object.keys(next.groupsById).length === 0) {
-    const previewTab = createPrimaryPreviewTab();
     return {
       layout: { kind: 'group', groupId: ROOT_GROUP_ID },
       groupsById: {
-        [ROOT_GROUP_ID]: { id: ROOT_GROUP_ID, tabIds: [previewTab.id], activeTabId: previewTab.id },
+        [ROOT_GROUP_ID]: { id: ROOT_GROUP_ID, tabIds: [], activeTabId: null },
       },
-      tabsById: { [previewTab.id]: previewTab },
+      tabsById: {},
       activeGroupId: ROOT_GROUP_ID,
       recentlyClosedTabs: next.recentlyClosedTabs,
     };
@@ -178,6 +174,27 @@ function normalizeWorkbenchState(state: WorkbenchState): WorkbenchState {
   next.layout = pruneEmptySplits(next.layout);
   next.activeGroupId = fallbackGroupId(next);
   return next;
+}
+
+export function closeProjectWorkbenchTabs(state: WorkbenchState): WorkbenchState {
+  const next = cloneState(state);
+  const preservedTabs = Object.values(next.tabsById).filter((tab) => tab.resource?.kind === 'tool');
+  const activeTab = next.tabsById[next.groupsById[next.activeGroupId]?.activeTabId ?? ''];
+  const preservedActiveTabId = activeTab?.resource?.kind === 'tool' ? activeTab.id : null;
+
+  return normalizeWorkbenchState({
+    layout: { kind: 'group', groupId: ROOT_GROUP_ID },
+    groupsById: {
+      [ROOT_GROUP_ID]: {
+        id: ROOT_GROUP_ID,
+        tabIds: preservedTabs.map((tab) => tab.id),
+        activeTabId: preservedActiveTabId ?? preservedTabs.at(-1)?.id ?? null,
+      },
+    },
+    tabsById: Object.fromEntries(preservedTabs.map((tab) => [tab.id, tab])),
+    activeGroupId: ROOT_GROUP_ID,
+    recentlyClosedTabs: next.recentlyClosedTabs.filter((entry) => entry.tab.resource?.kind === 'tool'),
+  });
 }
 
 export function openWorkbenchTab(

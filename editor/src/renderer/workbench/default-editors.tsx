@@ -1,10 +1,12 @@
-import { FileCode, Image, Layers, MonitorPlay, Palette, SlidersHorizontal, User } from 'lucide-react';
+import { FileCode, Image, Layers, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
 import { ShaderEditor } from '@/editors/shaders/ShaderEditor';
+import { ComponentsTabEditor } from '@/editors/utility/ComponentsTabEditor';
+import { SettingsTabEditor } from '@/editors/utility/SettingsTabEditor';
 import { VariablesEditor } from '@/editors/variables/VariablesEditor';
 import { createEditorRegistry, type WorkbenchEditorRegistration } from './editor-registry';
 
@@ -50,6 +52,18 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Variables',
     icon: SlidersHorizontal,
     component: VariablesEditor,
+  },
+  {
+    type: 'components',
+    label: 'Components',
+    icon: Puzzle,
+    component: ComponentsTabEditor,
+  },
+  {
+    type: 'settings',
+    label: 'Settings',
+    icon: Settings,
+    component: SettingsTabEditor,
   },
 ];
 

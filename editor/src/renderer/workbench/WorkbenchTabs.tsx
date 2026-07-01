@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowRightToLine, ChevronLeft, ChevronRight, PanelRightOpen, RotateCcw, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRightToLine, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { defaultEditorRegistry } from './default-editors';
 import { editorIconForType, renderEditorToolbar } from './editor-registry';
@@ -16,14 +16,10 @@ interface WorkbenchTabsProps {
 }
 
 export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
-  const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
-  const groupsById = useWorkbenchStore((state) => state.groupsById);
   const recentlyClosedTabs = useWorkbenchStore((state) => state.recentlyClosedTabs);
   const activateTab = useWorkbenchStore((state) => state.activateTab);
   const requestCloseTab = useCloseGuardStore((state) => state.requestCloseTab);
   const splitGroup = useWorkbenchStore((state) => state.splitGroup);
-  const moveTab = useWorkbenchStore((state) => state.moveTab);
-  const moveTabWithinGroup = useWorkbenchStore((state) => state.moveTabWithinGroup);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const reopenLastClosedTab = useWorkbenchStore((state) => state.reopenLastClosedTab);
   const project = useProjectStore((state) => state.document);
@@ -32,9 +28,6 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   const draftDirtyByTabId = selectDraftDirtyByTabId({ entriesByKey: draftEntries });
   const activeTabId = group.activeTabId;
   const activeTab = activeTabId ? tabs.find((tab) => tab.id === activeTabId) ?? null : null;
-  const otherGroup = Object.values(groupsById).find((candidate) => candidate.id !== group.id);
-  const focused = activeGroupId === group.id;
-
   const splitActive = (direction: 'horizontal' | 'vertical') => {
     splitGroup({
       sourceGroupId: group.id,
@@ -45,22 +38,28 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   };
 
   return (
-    <div className={`flex h-10 shrink-0 items-center border-b bg-muted/20 ${focused ? 'ring-1 ring-inset ring-primary/20' : ''}`}>
+    <div className="flex h-8 shrink-0 items-stretch border-t bg-background">
       <div className="flex min-w-0 flex-1 self-stretch overflow-x-auto">
         {tabs.map((tab, index) => {
           const Icon = editorIconForType(tab.editorType);
           const active = tab.id === activeTabId;
+          const activeChrome = index === 0
+            ? 'inset -1px 0 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.6)'
+            : 'inset 1px 0 0 hsl(var(--border)), inset -1px 0 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.6)';
           const dirty = getTabDirtyState(tab, project, savedDocument, draftDirtyByTabId).dirty;
           return (
             <div
               key={tab.id}
-              className={`group/tab flex min-w-32 max-w-56 items-center gap-1 border-r px-2 text-xs ${
-                active ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/60'
+              className={`group/tab flex min-w-28 max-w-52 items-center gap-1 px-1.5 text-xs ${
+                active
+                  ? 'border-b border-transparent bg-background text-foreground'
+                  : 'border-b border-r bg-background text-muted-foreground hover:bg-accent/60'
               }`}
+              style={active ? { boxShadow: activeChrome } : undefined}
             >
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                className="flex h-full min-w-0 flex-1 items-center gap-1 self-stretch text-left"
                 onClick={() => activateTab(group.id, tab.id)}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -71,45 +70,20 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
               </button>
               <button
                 type="button"
-                className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100"
-                aria-label={`Move ${tab.title} left`}
-                disabled={index === 0}
-                onClick={() => moveTabWithinGroup(group.id, tab.id, index - 1)}
-              >
-                <ChevronLeft className="h-3 w-3" />
-              </button>
-              <button
-                type="button"
-                className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100"
-                aria-label={`Move ${tab.title} right`}
-                disabled={index === tabs.length - 1}
-                onClick={() => moveTabWithinGroup(group.id, tab.id, index + 1)}
-              >
-                <ChevronRight className="h-3 w-3" />
-              </button>
-              {otherGroup ? (
-                <button
-                  type="button"
-                  className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100"
-                  aria-label={`Move ${tab.title} to another group`}
-                  onClick={() => moveTab({ tabId: tab.id, fromGroupId: group.id, toGroupId: otherGroup.id })}
-                >
-                  <PanelRightOpen className="h-3 w-3" />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100"
+                className={`ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center self-center rounded leading-none opacity-0 hover:bg-muted hover:opacity-100 focus-visible:opacity-100 ${
+                  active ? 'opacity-70' : 'group-hover/tab:opacity-60'
+                }`}
                 aria-label={`Close ${tab.title}`}
                 onClick={() => requestCloseTab(group.id, tab.id)}
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           );
         })}
+        <div className="min-w-3 flex-1 border-b" />
       </div>
-      <div className="flex shrink-0 items-center gap-1 px-2">
+      <div className="flex shrink-0 items-center gap-1 border-b px-1.5">
         {activeTab ? renderEditorToolbar(defaultEditorRegistry, activeTab) : null}
         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Split right" onClick={() => splitActive('horizontal')}>
           <ArrowRightToLine className="h-3.5 w-3.5" />

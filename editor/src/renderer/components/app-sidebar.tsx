@@ -1,62 +1,65 @@
-import { Link, useLocation } from '@tanstack/react-router';
 import {
-  SidebarHeader,
   SidebarContent,
-  SidebarGroup,
+  SidebarFooter,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
+import { Puzzle, Settings } from 'lucide-react';
+import { useMemo } from 'react';
+import { useProjectStore } from '@/project/project-store';
+import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import {
-  LayoutDashboard,
-  Puzzle,
-  Settings,
-  SquarePen,
-} from 'lucide-react';
+  buildComponentsTab,
+  buildSettingsTab,
+} from '@/workbench/editor-registry';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/workspace', label: 'Workspace', icon: SquarePen },
-  { to: '/components', label: 'Components', icon: Puzzle },
-  { to: '/settings', label: 'Settings', icon: Settings },
+const utilityItems = [
+  { tab: buildComponentsTab, label: 'Components', icon: Puzzle },
+  { tab: buildSettingsTab, label: 'Settings', icon: Settings },
 ];
 
 export function AppSidebar() {
-  const location = useLocation();
+  const project = useProjectStore((state) => state.document);
+  const tests = useWorkspaceStore((state) => state.playbackTests);
+  const openTab = useWorkbenchStore((state) => state.openTab);
+  const tabsById = useWorkbenchStore((state) => state.tabsById);
+  const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
+  const groupsById = useWorkbenchStore((state) => state.groupsById);
+  const nodes = useMemo(() => buildProjectTree(project, tests), [project, tests]);
+  const activeTabId = groupsById[activeGroupId]?.activeTabId ?? null;
 
   return (
     <>
-      <SidebarHeader>
-        <Link
-          to="/"
-          className="flex items-center gap-2 text-lg font-semibold tracking-tight"
-        >
-          <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-[10px] font-bold text-primary-foreground">
-            NT
-          </span>
-          NovelTea
-        </Link>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup label="Navigation">
-          <SidebarMenu>
-            {navItems.map((item) => {
+      <SidebarContent className="overflow-y-auto px-2 py-2">
+        <ProjectExplorer nodes={nodes} />
+      </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <div className="flex items-center justify-center gap-1 group-data-[collapsible=icon]:flex-col">
+            {utilityItems.map((item) => {
               const Icon = item.icon;
-              const active = location.pathname === item.to;
+              const tab = item.tab();
+              const active = activeTabId ? tabsById[activeTabId]?.resource?.stableId === tab.resource?.stableId : false;
               return (
-                <SidebarMenuItem key={item.to} active={active}>
-                  <Link to={item.to} className="block">
-                    <SidebarMenuButton>
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                    </SidebarMenuButton>
-                  </Link>
+                <SidebarMenuItem key={item.label}>
+                  <SidebarMenuButton
+                    isActive={active}
+                    tooltip={item.label}
+                    className="h-8 w-8 justify-center p-0"
+                    onClick={() => openTab(tab)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="sr-only">{item.label}</span>
+                  </SidebarMenuButton>
                 </SidebarMenuItem>
               );
             })}
-          </SidebarMenu>
-        </SidebarGroup>
-      </SidebarContent>
+          </div>
+        </SidebarMenu>
+      </SidebarFooter>
     </>
   );
 }

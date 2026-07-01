@@ -13,6 +13,7 @@
     "components": "@/components",
     "ui": "@/components/ui",
     "hooks": "@/hooks",
-    "lib": "@/lib"
+    "lib": "@/lib",
+    "utils": "@/lib/utils"
   }
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   activateWorkbenchTab,
+  closeProjectWorkbenchTabs,
   closeWorkbenchTab,
   createInitialWorkbenchState,
   moveWorkbenchTab,
@@ -28,6 +29,7 @@ interface WorkbenchStore extends WorkbenchState {
   setTabDirty: (tabId: string, dirty: boolean) => void;
   reopenLastClosedTab: () => void;
   resetWorkbench: () => void;
+  closeProjectTabs: () => void;
 }
 
 let nextId = 1;
@@ -61,4 +63,5 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set) => ({
     nextId = 1;
     set(toStoreState(createInitialWorkbenchState()));
   },
+  closeProjectTabs: () => set((state) => toStoreState(closeProjectWorkbenchTabs(state))),
 }));

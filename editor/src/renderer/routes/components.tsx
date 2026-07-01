@@ -12,26 +12,41 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectItem } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
-  DialogTrigger,
-  DialogPopup,
-  DialogTitle,
+  DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  Menu,
-  MenuTrigger,
-  MenuPopup,
-  MenuItem,
-  MenuSeparator,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
+  TooltipContent,
   TooltipTrigger,
-  TooltipPopup,
 } from '@/components/ui/tooltip';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/page-header';
@@ -42,7 +57,7 @@ export const Route = createFileRoute('/components')({
   component: ComponentsPage,
 });
 
-function ComponentsPage() {
+export function ComponentsPage() {
   const [inputValue, setInputValue] = useState('');
   const [switchChecked, setSwitchChecked] = useState(false);
   const [selectValue, setSelectValue] = useState('');
@@ -53,7 +68,7 @@ function ComponentsPage() {
         title="Components"
         description="shadcn Base UI component demonstration"
       />
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 [&>*]:shrink-0">
         <Card>
           <CardHeader>
             <CardTitle>Button</CardTitle>
@@ -124,16 +139,19 @@ function ComponentsPage() {
               <Label htmlFor="demo-select">Choose an option</Label>
               <Select
                 value={selectValue}
-                onValueChange={(v) => {
-                  setSelectValue(v as string);
-                }}
+                onValueChange={(value) => setSelectValue(String(value))}
               >
-                <SelectItem value="apple">Apple</SelectItem>
-                <SelectItem value="banana">Banana</SelectItem>
-                <SelectItem value="cherry">Cherry</SelectItem>
-                <SelectItem value="date" disabled>
-                  Date (disabled)
-                </SelectItem>
+                <SelectTrigger id="demo-select" className="w-52">
+                  <SelectValue placeholder="Choose fruit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="apple">Apple</SelectItem>
+                  <SelectItem value="banana">Banana</SelectItem>
+                  <SelectItem value="cherry">Cherry</SelectItem>
+                  <SelectItem value="date" disabled>
+                    Date (disabled)
+                  </SelectItem>
+                </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 Selected: {selectValue || '(none)'}
@@ -144,7 +162,7 @@ function ComponentsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Dialogs, Menus &amp; Tooltips</CardTitle>
+            <CardTitle>Dialogs, Menus, Sheets &amp; Tooltips</CardTitle>
             <CardDescription>Popups, portals, and overlays</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
@@ -154,21 +172,35 @@ function ComponentsPage() {
               >
                 Open Dialog
               </DialogTrigger>
-              <DialogPopup>
+              <DialogContent>
                 <DialogTitle>Confirm Action</DialogTitle>
                 <DialogDescription>
                   This demonstrates the dialog component working within the
                   Electron renderer. Press Escape or click the close button.
                 </DialogDescription>
-                <div className="flex justify-end gap-2">
+                <DialogFooter>
                   <Button variant="outline">Cancel</Button>
                   <Button>Continue</Button>
-                </div>
-              </DialogPopup>
+                </DialogFooter>
+              </DialogContent>
             </Dialog>
 
-            <Menu>
-              <MenuTrigger
+            <Sheet>
+              <SheetTrigger className={cn(buttonVariants({ variant: 'outline' }))}>
+                Open Sheet
+              </SheetTrigger>
+              <SheetContent>
+                <SheetHeader>
+                  <SheetTitle>Inspector Sheet</SheetTitle>
+                  <SheetDescription>
+                    Sheet is available after the shadcn component update.
+                  </SheetDescription>
+                </SheetHeader>
+              </SheetContent>
+            </Sheet>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
                 className={cn(
                   buttonVariants({ variant: 'outline' }),
                   'gap-2',
@@ -176,23 +208,23 @@ function ComponentsPage() {
               >
                 <Settings className="h-4 w-4" />
                 Menu
-              </MenuTrigger>
-              <MenuPopup>
-                <MenuItem>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem>
                   <User className="h-4 w-4" />
                   Profile
-                </MenuItem>
-                <MenuItem>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
                   <Settings className="h-4 w-4" />
                   Settings
-                </MenuItem>
-                <MenuSeparator />
-                <MenuItem>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
                   <LogOut className="h-4 w-4" />
                   Log out
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <Tooltip>
               <TooltipTrigger
@@ -200,7 +232,7 @@ function ComponentsPage() {
               >
                 <Info className="h-4 w-4" />
               </TooltipTrigger>
-              <TooltipPopup>Help tooltip</TooltipPopup>
+              <TooltipContent>Help tooltip</TooltipContent>
             </Tooltip>
           </CardContent>
         </Card>

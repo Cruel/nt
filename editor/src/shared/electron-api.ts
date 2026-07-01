@@ -4,12 +4,22 @@ export interface AppInfo {
   platform: string;
   arch: string;
   packaged: boolean;
+  frameless: boolean;
+  nativeFrame: boolean;
 }
 
 export interface NovelTeaElectronApi {
   getAppInfo(): Promise<AppInfo>;
   selectProjectDirectory(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
+  zoomIn(): Promise<number>;
+  zoomOut(): Promise<number>;
+  resetZoom(): Promise<number>;
+  minimizeAppWindow(): Promise<void>;
+  toggleMaximizeAppWindow(): Promise<boolean>;
+  requestAppWindowExit(): Promise<void>;
+  isAppWindowMaximized(): Promise<boolean>;
+  setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
   getEnginePreviewSession(): Promise<EnginePreviewSession>;
   reloadEnginePreview(): Promise<EnginePreviewSession>;
   openProject(projectPath: string): Promise<OpenProjectResponse>;

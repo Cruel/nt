@@ -8,6 +8,16 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
   openExternal: (url: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.OPEN_EXTERNAL, url),
+  zoomIn: () => ipcRenderer.invoke(IPC_CHANNELS.ZOOM_IN),
+  zoomOut: () => ipcRenderer.invoke(IPC_CHANNELS.ZOOM_OUT),
+  resetZoom: () => ipcRenderer.invoke(IPC_CHANNELS.RESET_ZOOM),
+  minimizeAppWindow: () => ipcRenderer.invoke(IPC_CHANNELS.MINIMIZE_APP_WINDOW),
+  toggleMaximizeAppWindow: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.TOGGLE_MAXIMIZE_APP_WINDOW),
+  requestAppWindowExit: () => ipcRenderer.invoke(IPC_CHANNELS.REQUEST_APP_WINDOW_EXIT),
+  isAppWindowMaximized: () => ipcRenderer.invoke(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED),
+  setNativeWindowFrame: (nativeFrame: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),
   getEnginePreviewSession: () =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION),
   reloadEnginePreview: () =>

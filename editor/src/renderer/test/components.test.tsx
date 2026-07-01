@@ -23,10 +23,10 @@ describe('UI Components', () => {
     rerender(
       <Button variant="destructive">Delete</Button>,
     );
-    expect(screen.getByText('Delete')).toHaveClass('bg-destructive');
+    expect(screen.getByText('Delete')).toHaveClass('bg-destructive/10');
 
     rerender(<Button variant="ghost">Ghost</Button>);
-    expect(screen.getByText('Ghost')).toHaveClass('hover:bg-accent');
+    expect(screen.getByText('Ghost')).toHaveClass('hover:bg-muted');
   });
 
   it('renders a badge', () => {

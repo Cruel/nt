@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { FileCode, Image, Layers, MonitorPlay, Palette, SlidersHorizontal, User } from 'lucide-react';
+import { FileCode, Image, Layers, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import type { WorkbenchTab } from './workbench-types';
 
@@ -141,6 +141,30 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   return null;
 }
 
+export function buildComponentsTab(): WorkbenchTab {
+  return {
+    id: 'tab:components',
+    title: 'Components',
+    editorType: 'components',
+    resource: {
+      kind: 'tool',
+      stableId: 'utility:components',
+    },
+  };
+}
+
+export function buildSettingsTab(): WorkbenchTab {
+  return {
+    id: 'tab:settings',
+    title: 'Settings',
+    editorType: 'settings',
+    resource: {
+      kind: 'tool',
+      stableId: 'utility:settings',
+    },
+  };
+}
+
 export function buildPrimaryPreviewTab(): WorkbenchTab {
   return {
     id: 'tab:primary-preview',
@@ -162,6 +186,8 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'layout-detail') return Layers;
   if (editorType === 'character-detail') return User;
   if (editorType === 'variables') return SlidersHorizontal;
+  if (editorType === 'components') return Puzzle;
+  if (editorType === 'settings') return Settings;
   return FileCode;
 }
 

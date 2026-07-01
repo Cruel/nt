@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   activateWorkbenchTab,
+  closeProjectWorkbenchTabs,
   closeWorkbenchTab,
   createInitialWorkbenchState,
   moveWorkbenchTab,
   moveWorkbenchTabWithinGroup,
   openWorkbenchTab,
-  PRIMARY_PREVIEW_TAB_ID,
   reopenLastClosedWorkbenchTab,
   ROOT_GROUP_ID,
   splitWorkbenchGroup,
@@ -34,11 +34,12 @@ function createTestId(prefix: string) {
 }
 
 describe('workbench model', () => {
-  it('creates an initial primary preview tab', () => {
+  it('creates an empty initial root group', () => {
     const state = createInitialWorkbenchState();
     expect(state.activeGroupId).toBe(ROOT_GROUP_ID);
-    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe(PRIMARY_PREVIEW_TAB_ID);
-    expect(state.tabsById[PRIMARY_PREVIEW_TAB_ID]?.editorType).toBe('engine-preview');
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBeNull();
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([]);
+    expect(state.tabsById).toEqual({});
   });
 
   it('opens a record tab in the active group', () => {
@@ -102,19 +103,42 @@ describe('workbench model', () => {
       toGroupId: targetGroupId,
     });
     expect(state.groupsById[targetGroupId]?.tabIds).toContain('tab:foyer');
-    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).not.toContain('tab:foyer');
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds ?? []).not.toContain('tab:foyer');
   });
 
   it('reorders tabs within a group', () => {
     let state = createInitialWorkbenchState();
     state = openWorkbenchTab(state, rawTab('foyer'));
     state = openWorkbenchTab(state, rawTab('kitchen'));
-    state = moveWorkbenchTabWithinGroup(state, ROOT_GROUP_ID, 'tab:kitchen', 1);
+    state = moveWorkbenchTabWithinGroup(state, ROOT_GROUP_ID, 'tab:kitchen', 0);
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([
-      PRIMARY_PREVIEW_TAB_ID,
       'tab:kitchen',
       'tab:foyer',
     ]);
+  });
+
+  it('preserves project-independent tool tabs when closing project tabs', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+    state = openWorkbenchTab(state, {
+      id: 'tab:primary-preview',
+      title: 'Preview',
+      editorType: 'engine-preview',
+      preview: true,
+      resource: { kind: 'preview', stableId: 'preview:primary' },
+    });
+
+    state = closeProjectWorkbenchTabs(state);
+
+    expect(Object.keys(state.tabsById)).toEqual(['tab:settings']);
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:settings']);
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:settings');
   });
 
   it('keeps active tab valid after closing and can reopen a closed tab', () => {
@@ -122,7 +146,7 @@ describe('workbench model', () => {
     state = openWorkbenchTab(state, rawTab('foyer'));
     state = activateWorkbenchTab(state, ROOT_GROUP_ID, 'tab:foyer');
     state = closeWorkbenchTab(state, ROOT_GROUP_ID, 'tab:foyer');
-    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe(PRIMARY_PREVIEW_TAB_ID);
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBeNull();
     expect(state.recentlyClosedTabs[0]?.tab.id).toBe('tab:foyer');
     state = reopenLastClosedWorkbenchTab(state);
     expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');

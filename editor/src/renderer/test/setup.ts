@@ -1,6 +1,21 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
+Object.defineProperty(window, 'matchMedia', {
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+  writable: true,
+  configurable: true,
+});
+
 Object.defineProperty(window, 'noveltea', {
   value: {
     getAppInfo: vi.fn().mockResolvedValue({
@@ -9,9 +24,27 @@ Object.defineProperty(window, 'noveltea', {
       platform: 'linux',
       arch: 'x64',
       packaged: false,
+      frameless: false,
+      nativeFrame: true,
     }),
     selectProjectDirectory: vi.fn().mockResolvedValue('/mock/project'),
     openExternal: vi.fn().mockResolvedValue(undefined),
+    zoomIn: vi.fn().mockResolvedValue(1.1),
+    zoomOut: vi.fn().mockResolvedValue(0.9),
+    resetZoom: vi.fn().mockResolvedValue(1),
+    minimizeAppWindow: vi.fn().mockResolvedValue(undefined),
+    toggleMaximizeAppWindow: vi.fn().mockResolvedValue(false),
+    requestAppWindowExit: vi.fn().mockResolvedValue(undefined),
+    isAppWindowMaximized: vi.fn().mockResolvedValue(false),
+    setNativeWindowFrame: vi.fn().mockImplementation((nativeFrame: boolean) => Promise.resolve({
+      version: '1.0.0',
+      electronVersion: '42.0.0',
+      platform: 'linux',
+      arch: 'x64',
+      packaged: false,
+      frameless: !nativeFrame,
+      nativeFrame,
+    })),
     getEnginePreviewSession: vi.fn().mockResolvedValue({
       url: 'http://127.0.0.1:5000/?sessionToken=test-token',
       origin: 'http://127.0.0.1:5000',

@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { useEffect, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
@@ -87,13 +88,37 @@ function DensityOption({
   );
 }
 
-function SettingsPage() {
+export function SettingsPage() {
   const theme = usePreferencesStore((s) => s.theme);
   const density = usePreferencesStore((s) => s.density);
   const showInspector = usePreferencesStore((s) => s.showInspectorByDefault);
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setDensity = usePreferencesStore((s) => s.setDensity);
   const setShowInspector = usePreferencesStore((s) => s.setShowInspectorByDefault);
+  const [nativeFrame, setNativeFrame] = useState(false);
+  const [nativeFrameDefault, setNativeFrameDefault] = useState(false);
+  const [nativeFrameSaved, setNativeFrameSaved] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.noveltea.getAppInfo().then((info) => {
+      if (!mounted) return;
+      setNativeFrame(info.nativeFrame);
+      setNativeFrameDefault(info.platform === 'linux');
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  function updateNativeFrame(value: boolean) {
+    setNativeFrame(value);
+    setNativeFrameSaved(false);
+    void window.noveltea.setNativeWindowFrame(value).then((info) => {
+      setNativeFrame(info.nativeFrame);
+      setNativeFrameSaved(true);
+    });
+  }
 
   return (
     <>
@@ -101,7 +126,7 @@ function SettingsPage() {
         title="Settings"
         description="Editor preferences"
       />
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 [&>*]:shrink-0">
         <Card>
           <CardHeader>
             <CardTitle>Theme</CardTitle>
@@ -165,6 +190,35 @@ function SettingsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Window</CardTitle>
+            <CardDescription>
+              Native frame and custom chrome behavior
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="native-window-frame">Use native window frame</Label>
+                <p className="text-xs text-muted-foreground">
+                  Uses the operating system title bar and window controls. Restart the editor to apply this change.
+                </p>
+                {nativeFrameSaved && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Saved. Restart the editor for the frame mode change to take effect.
+                  </p>
+                )}
+              </div>
+              <Switch
+                id="native-window-frame"
+                checked={nativeFrame}
+                onCheckedChange={updateNativeFrame}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Workspace</CardTitle>
             <CardDescription>
               Editor layout defaults
@@ -194,6 +248,7 @@ function SettingsPage() {
               setTheme('system');
               setDensity('compact');
               setShowInspector(true);
+              updateNativeFrame(nativeFrameDefault);
             }}
           >
             Reset to Defaults

@@ -88,6 +88,7 @@ interface WorkspaceState {
   lastExportResult: unknown | null;
   statusMessage: string;
   sidebarExpanded: boolean;
+  sidebarWidth: number;
   inspectorVisible: boolean;
   setProjectPath: (path: string | null) => void;
   setProjectFilePath: (path: string | null) => void;
@@ -105,6 +106,7 @@ interface WorkspaceState {
   setLastExportResult: (result: unknown | null) => void;
   setStatusMessage: (message: string) => void;
   setSidebarExpanded: (expanded: boolean) => void;
+  setSidebarWidth: (width: number) => void;
   setInspectorVisible: (visible: boolean) => void;
 }
 
@@ -125,6 +127,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   lastExportResult: null,
   statusMessage: 'Preview disconnected',
   sidebarExpanded: true,
+  sidebarWidth: 256,
   inspectorVisible: true,
   setProjectPath: (projectPath) => set({ projectPath }),
   setProjectFilePath: (projectFilePath) => set({ projectFilePath }),
@@ -148,5 +151,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   setLastExportResult: (lastExportResult) => set({ lastExportResult }),
   setStatusMessage: (statusMessage) => set({ statusMessage }),
   setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
+  setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: Math.min(420, Math.max(180, sidebarWidth)) }),
   setInspectorVisible: (inspectorVisible) => set({ inspectorVisible }),
 }));

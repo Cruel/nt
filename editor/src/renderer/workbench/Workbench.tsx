@@ -44,7 +44,7 @@ function WorkbenchLayoutRenderer({ node }: { node: WorkbenchLayoutNode }) {
 export function Workbench() {
   const layout = useWorkbenchStore((state) => state.layout);
   return (
-    <div className="h-full min-h-0 overflow-hidden bg-muted/30 p-1">
+    <div className="h-full min-h-0 overflow-hidden bg-background">
       <WorkbenchLayoutRenderer node={layout} />
       <DirtyCloseDialog />
     </div>

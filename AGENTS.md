@@ -44,6 +44,14 @@ Do not paste large logs or file dumps into the parent conversation. Save durable
 
 The previous 11-phase backend-neutral core migration is complete for the current repository target. The next plan should focus on runtime state/playback, Lua execution, RmlUi runtime components, ActiveText/map/text-log rendering, editor preview/testing, save/autosave/object placement, packaging/export, and real project fixtures.
 
+## Editor UI Component Policy
+
+The Electron editor should use shadcn Base UI components whenever an appropriate shadcn component exists. Do not create custom editor UI primitives or wrappers unless shadcn Base does not provide the needed primitive or the user explicitly asks for a custom component.
+
+When adding or updating editor UI components, use the `shadcn add` workflow for the Base UI registry and reference the official shadcn Base documentation for the intended composition and state attributes before wiring usage code. Keep generated component files close to the upstream shadcn output; prefer adapting usage code over rewriting generated components.
+
+For editor pages, compose official component parts as documented. For example, use `SelectTrigger`, `SelectValue`, and `SelectContent` with `Select`; use the documented dialog, dropdown menu, tooltip, menubar, sidebar, and sheet component structure instead of relying on locally invented shortcut APIs.
+
 ## Build and Verification Commands
 
 Use the smallest relevant command set for the touched area, but keep Linux and Web healthy during engine work.
