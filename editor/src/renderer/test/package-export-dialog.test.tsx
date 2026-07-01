@@ -73,8 +73,35 @@ describe('PackageExportDialog', () => {
     expect(screen.getByText('Export is blocked')).toBeInTheDocument();
     expect(screen.getByText(/Entrypoint collection 'scenes' is not runtime-exportable yet/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fix Errors Before Export' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Open Project Settings' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Fix Errors Before Export' }));
     expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
+  });
+
+  it('opens project settings from a missing-entrypoint export blocker', () => {
+    const onOpenChange = vi.fn();
+    const dispatched: Event[] = [];
+    const listener = (event: Event) => dispatched.push(event);
+    window.addEventListener('noveltea-workspace-toolbar-command', listener);
+    try {
+      const project = exportableProject();
+      project.entrypoint = null;
+      render(
+        <PackageExportDialog
+          open
+          onOpenChange={onOpenChange}
+          project={project}
+          projectRoot="/project"
+          projectFilePath="/project/project.json"
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open Project Settings' }));
+      expect((dispatched[0] as CustomEvent).detail).toBe('project-settings');
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    } finally {
+      window.removeEventListener('noveltea-workspace-toolbar-command', listener);
+    }
   });
 
   it('keeps the dialog open and shows native package errors when export fails', async () => {

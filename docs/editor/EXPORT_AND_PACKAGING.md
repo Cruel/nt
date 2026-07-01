@@ -47,6 +47,8 @@ failed
 
 Validation errors stop the workflow before shader compilation or native package writing. Runtime export conversion errors stop the workflow before native package writing. Shader compile errors stop the workflow before package writing. Native package diagnostics are merged into the final export result.
 
+When project-level settings block export, such as a missing entrypoint or a non-room entrypoint, the Package Export dialog keeps the workflow in preflight, disables `Export Package`, shows the diagnostics inline, and exposes `Open Project Settings` so the user can fix the project setup without editing JSON.
+
 ## Export Profiles
 
 Export profile helpers live in:
@@ -98,6 +100,8 @@ Supported runtime conversion in V1:
 - room hotspot object placements where representable;
 - room entrypoint.
 
+Project Settings currently stores additional package-facing values such as default layout/font, title-screen options, project icon, and startup init script. These settings are validated in the authoring project and exposed by the editor, but only the fields already supported by the runtime export adapter are mapped into the runtime package. Default layout/font have built-in fallbacks and do not block export when unset.
+
 Unsupported V1 conversion:
 
 - scene entrypoints;
@@ -145,6 +149,15 @@ When shader or material records exist, the export workflow can compile shaders b
 Required shader binary paths are passed to native export as `requiredShaderBinaryPaths`. Missing required binaries fail the package export instead of silently producing a package that cannot render material-backed content.
 
 ## UI Surfaces
+
+Project Settings:
+
+```text
+docs/editor/PROJECT_SETTINGS.md
+editor/src/renderer/editors/project/ProjectSettingsEditor.tsx
+```
+
+Project Settings is accessible from `Project > Project Settings…` and from the Package Export dialog when project settings block export.
 
 Export dialog:
 

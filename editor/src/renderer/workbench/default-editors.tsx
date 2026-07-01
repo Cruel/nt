@@ -8,6 +8,7 @@ import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
 import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
+import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { ShaderEditor } from '@/editors/shaders/ShaderEditor';
 import { ComponentsTabEditor } from '@/editors/utility/ComponentsTabEditor';
 import { SettingsTabEditor } from '@/editors/utility/SettingsTabEditor';
@@ -92,6 +93,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Settings',
     icon: Settings,
     component: SettingsTabEditor,
+  },
+  {
+    type: 'project-settings',
+    label: 'Project Settings',
+    icon: Settings,
+    component: ProjectSettingsEditor,
   },
 ];
 

@@ -5,6 +5,7 @@ export type WorkspaceToolbarCommand =
   | 'open-project'
   | 'close-project'
   | 'validate'
+  | 'project-settings'
   | 'import-assets'
   | 'run-first-test'
   | 'export-package'

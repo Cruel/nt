@@ -12,7 +12,7 @@ import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { buildEditorProjectStateSnapshot, clearLocalEditorSessionSnapshot, mergeEditorProjectState, restoreEditorProjectState, restoreNoProjectEditorSession, saveLocalEditorSessionSnapshot } from '@/workbench/project-editor-state';
-import { buildPrimaryPreviewTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import { buildPrimaryPreviewTab, buildProjectSettingsTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
@@ -405,6 +405,11 @@ export function WorkspacePage() {
     useBottomPanelStore.getState().setActivePanelId('package-export');
   }
 
+  function openProjectSettings() {
+    openWorkbenchTab(buildProjectSettingsTab());
+    setStatusMessage('Opened project settings');
+  }
+
   useEffect(() => {
     function onToolbarCommand(event: Event) {
       const detail = (event as CustomEvent<WorkspaceToolbarCommandDetail>).detail;
@@ -421,6 +426,9 @@ export function WorkspacePage() {
           break;
         case 'validate':
           validate();
+          break;
+        case 'project-settings':
+          openProjectSettings();
           break;
         case 'import-assets':
           void importAssets();

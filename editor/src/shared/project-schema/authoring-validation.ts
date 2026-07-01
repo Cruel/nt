@@ -6,6 +6,7 @@ import { validateDialogueData } from './authoring-dialogues';
 import { validateDefaultLayoutSetting, validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
 import { validateRoomData } from './authoring-rooms';
+import { validateTypedProjectSettings } from './authoring-project-settings';
 import { validateSceneData } from './authoring-scenes';
 import { validateShaderData } from './authoring-shaders';
 import { validateTestData } from './authoring-tests';
@@ -146,6 +147,7 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
 
   validateAssets(project, diagnostics);
   diagnostics.push(...validateDefaultLayoutSetting(project));
+  diagnostics.push(...validateTypedProjectSettings(project));
 
   for (const [id, record] of Object.entries(project.layouts)) {
     diagnostics.push(...validateLayoutData(project, id, record));

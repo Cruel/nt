@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { Clapperboard, DoorOpen, FileCode, Image, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
+import { Clapperboard, DoorOpen, FileCode, Image, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User, Wrench } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import type { WorkbenchTab } from './workbench-types';
 
@@ -226,6 +226,18 @@ export function buildSettingsTab(): WorkbenchTab {
   };
 }
 
+export function buildProjectSettingsTab(): WorkbenchTab {
+  return {
+    id: 'tab:project-settings',
+    title: 'Project Settings',
+    editorType: 'project-settings',
+    resource: {
+      kind: 'tool',
+      stableId: 'utility:project-settings',
+    },
+  };
+}
+
 export function buildPrimaryPreviewTab(): WorkbenchTab {
   return {
     id: 'tab:primary-preview',
@@ -253,6 +265,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'variables') return SlidersHorizontal;
   if (editorType === 'components') return Puzzle;
   if (editorType === 'settings') return Settings;
+  if (editorType === 'project-settings') return Wrench;
   return FileCode;
 }
 

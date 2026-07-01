@@ -99,7 +99,7 @@ Transient editor state lives in renderer stores and workbench services. It shoul
 
 `project` stores human-facing project metadata: ID, name, version, author, and description.
 
-`settings` is a namespaced settings bag. One current typed setting is `settings.ui.defaultLayout`, which may point to a layout record.
+`settings` is a namespaced settings bag. Current typed project settings include `settings.startup.initScript`, `settings.ui.defaultLayout`, `settings.text.defaultFont`, `settings.titleScreen`, and `settings.app.icon`. Default layout and default font may be null or absent, which means the built-in fallback resource is used.
 
 `entrypoint` is the intended startup target. It can reference any known authoring collection structurally, but runtime export currently accepts room entrypoints only.
 
@@ -154,6 +154,7 @@ Project validation currently checks:
 - parent and inheritance cycle detection;
 - asset record data and alias safety;
 - default layout setting validity;
+- typed project settings for startup script, default font, title screen image/options, and project icon;
 - typed layout, variable, shader, material, character, room, dialogue, scene, and test data.
 
 Current validation does not make every collection fully typed. `objects`, `verbs`, `actions`, `maps`, and `scripts` exist as collections but do not yet have the same dedicated V1 authoring schema coverage as the high-priority typed components.
@@ -176,7 +177,9 @@ Generic project and entity commands handle most project-level edits:
 
 Entity creation uses collection-specific default data where available. Rename operations rewrite references across the project. Delete preflight checks reference usages before removing a record.
 
-Project UI settings and editor preferences are not the same layer. The existing Settings tab is primarily editor preferences. Project game/runtime settings should remain in the authoring project schema or a dedicated project settings editor as that surface matures.
+Project UI settings and editor preferences are not the same layer. The existing Settings tab is editor preferences. The Project Settings tab is the dedicated authoring surface for game/runtime settings, project metadata, startup entrypoint, startup init Lua, default layout/font, title-screen options, and project icon.
+
+Project-level commands include metadata, entrypoint, startup, runtime default layout/font, title-screen, and project-icon operations. These commands keep Project Settings edits undoable and avoid direct store mutation.
 
 ## Editor Behavior
 
@@ -184,7 +187,7 @@ The workbench treats project data as the persistent source of truth. Typed edito
 
 The Project explorer uses collection metadata from `authoring-collections.ts` to group and create records. Project-wide validation feeds diagnostics into the editor problems/workbench surfaces.
 
-The current `SettingsTabEditor` wraps the editor settings route and is not yet a full project settings editor for runtime defaults.
+The current `SettingsTabEditor` wraps the editor settings route for app preferences. `ProjectSettingsEditor` is separate and opens as a workbench utility tab from `Project > Project Settings…` and from Package Export when project-level blockers such as a missing entrypoint are detected.
 
 ## Editor Preview
 
@@ -215,15 +218,15 @@ The new authoring project format and the native runtime model are not yet a sing
 
 ## Scripting Status
 
-Project itself does not currently expose a dedicated project-level script surface beyond the collection and runtime session context. Lua script surfaces are currently component-specific, such as layout Lua source and room enter/leave scripts.
+Project Settings exposes `settings.startup.initScript` as the authoring project-level startup Lua field. Runtime execution/export handling for this field remains limited until the runtime startup schema consumes it. Component-specific Lua surfaces, such as layout Lua source and room enter/leave scripts, remain separate.
 
 ## Relationship To Other Entity Types
 
 Project owns every authoring collection. Assets, variables, shaders, materials, layouts, characters, rooms, dialogues, scenes, and tests have typed V1 docs or will receive them. Objects, verbs, actions, maps, and scripts are collection-level placeholders until their dedicated new authoring schemas are implemented.
 
-Default layout configuration belongs to project settings but references a layout record.
+Default layout configuration belongs to project settings and either references a layout record or uses the built-in fallback. Default font similarly either references a font asset or uses the built-in fallback.
 
-Startup behavior belongs to the project entrypoint but depends on runtime/export support for the referenced entity type.
+Startup behavior belongs to the project entrypoint and optional startup init script, but export support still depends on the referenced entrypoint type.
 
 ## Legacy Reference Notes
 
@@ -248,10 +251,13 @@ editor/src/shared/project-schema/editor-project-state.ts
 editor/src/shared/project-schema/authoring-validation.ts
 editor/src/shared/project-schema/authoring-export.ts
 editor/src/shared/project-schema/authoring-runtime-export.ts
+editor/src/shared/project-schema/authoring-project-settings.ts
 editor/src/renderer/project/project-store.ts
 editor/src/renderer/project/project-types.ts
 editor/src/renderer/project/entity-operations.ts
+editor/src/renderer/project/project-settings-operations.ts
 editor/src/renderer/commands/builtin-commands.ts
+editor/src/renderer/editors/project/ProjectSettingsEditor.tsx
 editor/src/renderer/editors/utility/SettingsTabEditor.tsx
 ```
 
@@ -286,7 +292,7 @@ refs/NovelTea/res/forms/ProjectSettingsWidget.ui
 
 ## Known Gaps
 
-- A full project settings editor for runtime/game defaults is not complete.
+- Project Settings V1 exists, but not every stored setting is consumed by runtime export/execution yet.
 - The authoring schema and native runtime model are still bridged through partial export adapters.
 - Runtime export currently accepts room entrypoints only.
 - Scenes and dialogues are authored but not runtime-export compatible yet.
@@ -294,7 +300,7 @@ refs/NovelTea/res/forms/ProjectSettingsWidget.ui
 
 ## Future Work
 
-- Add typed project settings for startup defaults, UI defaults, text defaults, feature toggles, and package defaults.
+- Expand typed project settings for feature toggles, package defaults, audio defaults, language defaults, and accessibility defaults as runtime consumers appear.
 - Expand authoring-to-runtime conversion beyond rooms.
 - Make scene/dialogue entrypoints runtime-exportable.
 - Add stronger validation for project settings namespaces as they become stable.

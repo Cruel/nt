@@ -34,6 +34,15 @@ import { replaceRoomDataPatches } from '@/project/room-operations';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
 import { replaceTestDataPatches } from '@/project/test-operations';
 import { replaceLayoutDataPatches, setDefaultLayoutPatches } from '@/project/layout-operations';
+import {
+  setProjectDefaultFontPatches,
+  setProjectDefaultLayoutPatches,
+  setProjectEntrypointPatches,
+  setProjectIconPatches,
+  setProjectStartupPatches,
+  setProjectTitleScreenPatches,
+  updateProjectMetadataPatches,
+} from '@/project/project-settings-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
@@ -261,6 +270,18 @@ const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unkno
 const testReplaceDataSchema = z.object({ testId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
 const setDefaultLayoutSchema = z.object({ layoutId: entityIdSchema.nullable() });
+const projectMetadataSchema = z.object({ name: z.string().optional(), version: z.string().optional(), author: z.string().optional(), description: z.string().optional() });
+const projectEntrypointSchema = z.object({ target: z.object({ collection: z.string().min(1), id: entityIdSchema }).nullable() });
+const projectStartupSchema = z.object({ initScript: z.string() });
+const projectDefaultFontSchema = z.object({ assetId: entityIdSchema.nullable() });
+const projectTitleScreenSchema = z.object({
+  titleImageId: entityIdSchema.nullable().optional(),
+  showProjectTitle: z.boolean().optional(),
+  showAuthor: z.boolean().optional(),
+  subtitle: z.string().optional(),
+  startLabel: z.string().optional(),
+});
+const projectIconSchema = z.object({ assetId: entityIdSchema.nullable() });
 const variableSetTypeSchema = z.object({
   variableId: entityIdSchema,
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
@@ -347,6 +368,27 @@ export const testReplaceDataCommand: CommandHandler = ({ document, payload }) =>
 export const projectSetDefaultLayoutCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(setDefaultLayoutSchema, payload, (parsed) => setDefaultLayoutPatches(document, parsed));
 
+export const projectUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectMetadataSchema, payload, (parsed) => updateProjectMetadataPatches(document, parsed));
+
+export const projectSetEntrypointCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectEntrypointSchema, payload, (parsed) => setProjectEntrypointPatches(document, parsed as never));
+
+export const projectSetStartupCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectStartupSchema, payload, (parsed) => setProjectStartupPatches(document, parsed));
+
+export const projectSetRuntimeDefaultLayoutCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(setDefaultLayoutSchema, payload, (parsed) => setProjectDefaultLayoutPatches(document, parsed));
+
+export const projectSetDefaultFontCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectDefaultFontSchema, payload, (parsed) => setProjectDefaultFontPatches(document, parsed));
+
+export const projectSetTitleScreenCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectTitleScreenSchema, payload, (parsed) => setProjectTitleScreenPatches(document, parsed));
+
+export const projectSetIconCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectIconSchema, payload, (parsed) => setProjectIconPatches(document, parsed));
+
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
     'project.applyPatch': projectApplyPatchCommand,
@@ -380,6 +422,13 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'scene.replaceData': sceneReplaceDataCommand,
     'test.replaceData': testReplaceDataCommand,
     'project.setDefaultLayout': projectSetDefaultLayoutCommand,
+    'project.updateMetadata': projectUpdateMetadataCommand,
+    'project.setEntrypoint': projectSetEntrypointCommand,
+    'project.setStartup': projectSetStartupCommand,
+    'project.setRuntimeDefaultLayout': projectSetRuntimeDefaultLayoutCommand,
+    'project.setDefaultFont': projectSetDefaultFontCommand,
+    'project.setTitleScreen': projectSetTitleScreenCommand,
+    'project.setIcon': projectSetIconCommand,
   };
 }
 
@@ -416,6 +465,13 @@ export function labelForCommand(type: string): string {
     case 'scene.replaceData': return 'Update scene';
     case 'test.replaceData': return 'Update test';
     case 'project.setDefaultLayout': return 'Set default layout';
+    case 'project.updateMetadata': return 'Update project metadata';
+    case 'project.setEntrypoint': return 'Set project entrypoint';
+    case 'project.setStartup': return 'Update project startup';
+    case 'project.setRuntimeDefaultLayout': return 'Set project default layout';
+    case 'project.setDefaultFont': return 'Set project default font';
+    case 'project.setTitleScreen': return 'Update title screen settings';
+    case 'project.setIcon': return 'Set project icon';
     default: return type;
   }
 }

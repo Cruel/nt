@@ -208,6 +208,16 @@ export function AppMenuBar() {
         </MenubarMenu>
 
         <MenubarMenu>
+          <MenubarTrigger>Project</MenubarTrigger>
+          <MenubarContent className="min-w-52">
+            <MenubarItem disabled={!project} onClick={() => dispatchWorkspaceToolbarCommand('project-settings')}>Project Settings…</MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem disabled={!project} onClick={() => dispatchWorkspaceToolbarCommand('validate')}>Validate Project</MenubarItem>
+            <MenubarItem disabled={!project} onClick={() => dispatchWorkspaceToolbarCommand('export-package')}>Package Export…</MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
+
+        <MenubarMenu>
           <MenubarTrigger>Edit</MenubarTrigger>
           <MenubarContent className="min-w-52">
             <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('undo')}>Undo<MenubarShortcut>Ctrl+Z</MenubarShortcut></MenubarItem>

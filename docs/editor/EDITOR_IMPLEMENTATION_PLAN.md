@@ -621,15 +621,28 @@ so the workbench and schema can be designed without blocking on every detail.
 
 ### Project Settings Editor
 
-Purpose: define global project/runtime/editor defaults.
+Purpose: define global project/runtime defaults. Editor preferences remain in the separate Settings surface.
 
-Initial fields:
+Implemented V1 fields:
 
-- Game title.
-- Author/version.
-- Startup entrypoint.
-- Default Layout.
-- Default font/text style.
+- Project title.
+- Author/version/description.
+- Read-only project ID.
+- Room-only startup entrypoint for current runtime export support.
+- Startup init Lua source stored as `settings.startup.initScript`.
+- Default layout with built-in fallback.
+- Default font with built-in fallback.
+- Title-screen image, title visibility, author visibility, subtitle, and start label.
+- Project icon.
+
+Implemented V1 access:
+
+- `Project > Project Settings…`.
+- Package Export dialog `Open Project Settings` action when project-level preflight blockers exist.
+
+Future fields:
+
+- Default text style.
 - Default resolution/aspect/device profile.
 - Supported orientation: portrait, landscape, or both.
 - Whether map is enabled.

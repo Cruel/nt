@@ -11,6 +11,7 @@ import { buildAuthoringRuntimeExport } from '../../shared/project-schema/authori
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { runPackageExportWorkflow } from './package-export-workflow';
 import { usePackageExportStore } from './package-export-store';
+import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 
 interface PackageExportDialogProps {
   open: boolean;
@@ -94,6 +95,12 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
   const warningCount = preflightDiagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length;
   const failedResultDiagnostics = lastResult && !lastResult.success && lastResult.outputPath === outputPath ? lastResult.diagnostics.filter((diagnostic) => diagnostic.severity === 'error') : [];
   const canExport = !running && blockingDiagnostics.length === 0 && outputPath.trim().length > 0;
+  const hasProjectSettingsBlocker = blockingDiagnostics.some((diagnostic) => diagnostic.path === '/entrypoint' || diagnostic.path.startsWith('/settings/') || diagnostic.path.startsWith('/project/'));
+
+  function openProjectSettings() {
+    dispatchWorkspaceToolbarCommand('project-settings');
+    onOpenChange(false);
+  }
 
   async function chooseOutputPath() {
     const selected = await window.noveltea.selectPackageOutputPath(outputPath);
@@ -179,6 +186,7 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
           ) : null}
         </div>
         <DialogFooter>
+          {hasProjectSettingsBlocker ? <Button variant="secondary" onClick={openProjectSettings} disabled={running}>Open Project Settings</Button> : null}
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={running}>Cancel</Button>
           <Button onClick={runExport} disabled={!canExport} title={blockingDiagnostics.length > 0 ? 'Fix export errors before packaging.' : undefined}>{running ? 'Exporting…' : blockingDiagnostics.length > 0 ? 'Fix Errors Before Export' : 'Export Package'}</Button>
         </DialogFooter>
