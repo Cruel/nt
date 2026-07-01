@@ -73,6 +73,8 @@ function WorkspaceTopToolbar() {
   const canUndo = commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
   const canRedo = commandHistory.cursor < commandHistory.entries.length - 1 && !commandHistory.activeTransaction;
   const isAuthoring = isAuthoringProject(project);
+  const authoringTestCount = isAuthoring ? Object.keys(project.tests).length : 0;
+  const canRunTest = isAuthoring ? authoringTestCount > 0 : tests.length > 0;
 
   if (!project) return null;
 
@@ -94,7 +96,7 @@ function WorkspaceTopToolbar() {
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('import-assets')} title="Import assets">
         <Download className="h-3.5 w-3.5" />
       </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('run-first-test')} disabled={isAuthoring || tests.length === 0} title="Playback is disabled for authoring projects until conversion exists">
+      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('run-first-test')} disabled={!canRunTest} title={canRunTest ? 'Open or run a test' : 'No tests exist yet'}>
         <FlaskConical className="h-3.5 w-3.5" />
       </Button>
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('export-package')} disabled={isAuthoring} title="Export is disabled for authoring projects until conversion exists">

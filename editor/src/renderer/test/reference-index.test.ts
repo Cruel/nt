@@ -3,6 +3,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { characterAssetRef, characterMaterialRef, defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultTestAssertion, defaultTestData, testSceneRef, testVariableRef } from '../../shared/project-schema/authoring-tests';
 
 describe('authoring reference index', () => {
   it('indexes entrypoint, parent, inheritance, and explicit data refs', () => {
@@ -58,6 +59,25 @@ describe('authoring reference index', () => {
     ]));
     expect(findUsages(index, { collection: 'materials', id: 'glow' })).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceCollection: 'characters', sourceId: 'iris', path: '/characters/iris/data/expressions/0/material/$ref' }),
+    ]));
+  });
+
+  it('indexes test entrypoint and assertion variable refs', () => {
+    const project = createAuthoringProject();
+    const data = defaultTestData('Smoke');
+    data.entrypoint = testSceneRef('opening');
+    data.steps[0]!.assertions = [
+      { ...defaultTestAssertion('property-equals'), id: 'flag-check', key: '', variable: testVariableRef('flag'), expected: true },
+    ];
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+
+    const index = buildReferenceIndex(project);
+
+    expect(findUsages(index, { collection: 'scenes', id: 'opening' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceCollection: 'tests', sourceId: 'smoke', path: '/tests/smoke/data/entrypoint/$ref' }),
+    ]));
+    expect(findUsages(index, { collection: 'variables', id: 'flag' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceCollection: 'tests', sourceId: 'smoke', path: '/tests/smoke/data/steps/0/assertions/0/variable/$ref' }),
     ]));
   });
 

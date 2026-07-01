@@ -174,6 +174,10 @@ export function runPlaybackTest(project: unknown, testId: string) {
   return invokeEditorTool('run-test', { project, testId });
 }
 
+export function runPlaybackSpec(project: unknown, spec: unknown) {
+  return invokeEditorTool('run-test', { project, spec });
+}
+
 export function exportPackage(project: unknown, outputPath: string, options?: PackageExportOptions) {
   return invokeEditorTool('export-package', { project, outputPath, options: options ?? {} });
 }

@@ -12,6 +12,7 @@ import {
   importLegacyGame,
   listPlaybackTests,
   openProject,
+  runPlaybackSpec,
   runPlaybackTest,
   setEntityRecord,
   validateProject,
@@ -336,6 +337,12 @@ app.whenReady().then(() => {
     IPC_CHANNELS.RUN_PLAYBACK_TEST,
     (_event: Electron.IpcMainInvokeEvent, project: unknown, testId: string) =>
       runPlaybackTest(project, testId),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.RUN_PLAYBACK_SPEC,
+    (_event: Electron.IpcMainInvokeEvent, project: unknown, spec: unknown) =>
+      runPlaybackSpec(project, spec),
   );
 
   ipcMain.handle(

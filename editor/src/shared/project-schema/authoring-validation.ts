@@ -8,6 +8,7 @@ import { validateMaterialData } from './authoring-materials';
 import { validateRoomData } from './authoring-rooms';
 import { validateSceneData } from './authoring-scenes';
 import { validateShaderData } from './authoring-shaders';
+import { validateTestData } from './authoring-tests';
 import { validateVariableData } from './authoring-variables';
 import {
   authoringProjectSchema,
@@ -171,6 +172,9 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   }
   for (const [id, record] of Object.entries(project.scenes)) {
     diagnostics.push(...validateSceneData(project, id, record));
+  }
+  for (const [id, record] of Object.entries(project.tests)) {
+    diagnostics.push(...validateTestData(project, id, record));
   }
 
   return diagnostics;

@@ -12,7 +12,7 @@ import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { buildEditorProjectStateSnapshot, clearLocalEditorSessionSnapshot, mergeEditorProjectState, restoreEditorProjectState, restoreNoProjectEditorSession, saveLocalEditorSessionSnapshot } from '@/workbench/project-editor-state';
-import { buildPrimaryPreviewTab } from '@/workbench/editor-registry';
+import { buildPrimaryPreviewTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
@@ -373,7 +373,27 @@ export function WorkspacePage() {
 
   function runFirstTest() {
     setLastPlaybackReport(null);
-    setStatusMessage('Playback requires authoring-to-runtime conversion, which is not implemented yet.');
+    const latestProject = useProjectStore.getState().document;
+    if (isAuthoringProject(latestProject)) {
+      const firstTest = Object.entries(latestProject.tests).sort(([left], [right]) => left.localeCompare(right))[0];
+      if (!firstTest) {
+        setStatusMessage('No tests exist yet. Create a test record in the Tests collection.');
+        return;
+      }
+      const [testId, record] = firstTest;
+      openWorkbenchTab(buildTestDetailTabForRecord(testId, record.label || testId));
+      setStatusMessage(`Opened test ${testId}`);
+      return;
+    }
+    if (tests.length === 0) {
+      setStatusMessage('No playback tests are available.');
+      return;
+    }
+    void window.noveltea.runPlaybackTest(latestProject, tests[0]!.id).then((result) => {
+      setLastPlaybackReport(result.report ?? result);
+      setStatusMessage(result.ok ? `Ran test ${tests[0]!.id}` : result.error ?? 'Test run failed');
+      addTimelineEntry({ source: 'playback', message: result.ok ? `Ran test ${tests[0]!.id}` : result.error ?? 'Test run failed', detail: result });
+    });
   }
 
   function exportRuntimePackage() {

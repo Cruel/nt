@@ -12,6 +12,7 @@ import { defaultMaterialData } from '../../shared/project-schema/authoring-mater
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import {
   entityIdPattern,
@@ -153,6 +154,7 @@ export function defaultDataForCollection(
   if (collection === 'rooms') return defaultRoomData(label) as unknown as Record<string, unknown>;
   if (collection === 'dialogues') return defaultDialogueData(label) as unknown as Record<string, unknown>;
   if (collection === 'scenes') return defaultSceneData(label) as unknown as Record<string, unknown>;
+  if (collection === 'tests') return defaultTestData(label) as unknown as Record<string, unknown>;
   return {};
 }
 

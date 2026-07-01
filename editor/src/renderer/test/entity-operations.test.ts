@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { executeCommand, createInitialCommandBusState, undoCommand, redoCommand } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
+import { defaultTestAssertion, defaultTestData, testSceneRef, testVariableRef } from '../../shared/project-schema/authoring-tests';
+import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 
 function projectWithRooms() {
   const project = createAuthoringProject();
@@ -83,6 +86,35 @@ describe('authoring entity operations', () => {
     const document = result.state.document as ReturnType<typeof projectWithRooms> & { rooms: Record<string, unknown> };
     expect(document.rooms['hall-copy']).toMatchObject({ id: 'hall-copy', label: 'Hall Copy' });
     expect(document.entrypoint).toEqual({ collection: 'rooms', id: 'foyer' });
+  });
+
+  it('renames IDs and blocks deletes for references inside tests', () => {
+    const project = createAuthoringProject();
+    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: defaultSceneData('Opening') };
+    project.variables.flag = { id: 'flag', label: 'Flag', tags: [], data: defaultVariableData('boolean') };
+    const data = defaultTestData('Smoke');
+    data.entrypoint = testSceneRef('opening');
+    data.steps[0]!.assertions = [
+      { ...defaultTestAssertion('property-equals'), id: 'flag-check', key: '', variable: testVariableRef('flag'), expected: true },
+    ];
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    let state = createInitialCommandBusState(toJsonValue(project));
+
+    const renamed = executeCommand(state, {
+      type: 'entity.renameId',
+      payload: { collection: 'variables', fromId: 'flag', toId: 'visited' },
+    });
+    expect(renamed.ok).toBe(true);
+    const renamedDocument = renamed.state.document as typeof project & { tests: { smoke: { data: ReturnType<typeof defaultTestData> } } };
+    expect(renamedDocument.tests.smoke.data.steps[0]?.assertions[0]?.variable).toEqual({ $ref: { collection: 'variables', id: 'visited' } });
+
+    state = renamed.state;
+    const blocked = executeCommand(state, {
+      type: 'entity.deleteRecord',
+      payload: { collection: 'scenes', entityId: 'opening' },
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.diagnostics[0]?.message).toContain('referenced');
   });
 
   it('blocks referenced deletes unless force is supplied', () => {

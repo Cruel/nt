@@ -29,6 +29,7 @@ export interface NovelTeaElectronApi {
   validateProject(project: unknown): Promise<ValidationResponse>;
   listPlaybackTests(project: unknown): Promise<TestListResponse>;
   runPlaybackTest(project: unknown, testId: string): Promise<PlaybackReportResponse>;
+  runPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
   exportPackage(
     project: unknown,
     outputPath: string,

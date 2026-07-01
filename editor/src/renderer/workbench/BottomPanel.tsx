@@ -11,6 +11,7 @@ import {
 import { ReferencesPanel } from './ReferencesPanel';
 import { PreviewDiagnosticsPanel } from './PreviewDiagnosticsPanel';
 import { ShaderCompilePanel } from '@/shaders/ShaderCompilePanel';
+import { TestPlaybackPanel } from './TestPlaybackPanel';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -67,11 +68,6 @@ function OutputPanel() {
 function PreviewEventsPanel() {
   const lastPreviewEvent = useWorkspaceStore((state) => state.lastPreviewEvent);
   return <JsonBlock value={lastPreviewEvent} empty="No preview events yet." />;
-}
-
-function TestPlaybackPanel() {
-  const lastPlaybackReport = useWorkspaceStore((state) => state.lastPlaybackReport);
-  return <JsonBlock value={lastPlaybackReport} empty="No playback report yet." />;
 }
 
 function PackageExportPanel() {

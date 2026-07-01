@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
   VALIDATE_PROJECT: 'noveltea:validate-project',
   LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',
   RUN_PLAYBACK_TEST: 'noveltea:run-playback-test',
+  RUN_PLAYBACK_SPEC: 'noveltea:run-playback-spec',
   EXPORT_PACKAGE: 'noveltea:export-package',
   COMPILE_SHADERS: 'noveltea:compile-shaders',
   SAVE_PROJECT: 'noveltea:save-project',

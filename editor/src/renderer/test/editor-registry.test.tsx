@@ -62,6 +62,21 @@ describe('editor registry', () => {
     });
   });
 
+  it('routes test records to the typed test editor', () => {
+    const node: AssetNode = {
+      id: 'tests:smoke',
+      label: 'Smoke',
+      type: 'test',
+      collection: 'tests',
+      entityId: 'smoke',
+    };
+    expect(buildDefaultRecordTab(node)).toMatchObject({
+      id: 'tab:test-detail:tests:smoke',
+      editorType: 'test-detail',
+      resource: { collection: 'tests', entityId: 'smoke' },
+    });
+  });
+
   it('routes layout records to the typed layout editor', () => {
     const node: AssetNode = {
       id: 'layouts:main',
