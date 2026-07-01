@@ -259,6 +259,35 @@ thead, tbody, tfoot {
       return `<rml>\n<head>\n<title>Room Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: ${escapeRcssString(backgroundColor)}; font-family: Liberation Sans; color: #e5e7eb; }\n#nt-room-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; background-color: ${escapeRcssString(backgroundColor)};${materialStyle} }\n#nt-room-preview-background-image { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }\n#nt-room-preview-background-placeholder { position: absolute; left: 24px; top: 24px; right: 24px; bottom: 148px; border: 1px #475569; color: #94a3b8; text-align: center; padding-top: 120px; }\n#nt-room-preview-title { position: absolute; left: 24px; top: 18px; padding: 8px 12px; background-color: rgba(15, 23, 42, 180); color: #f8fafc; font-size: 22px; }\n#nt-room-preview-description { position: absolute; left: 24px; right: 24px; bottom: 64px; min-height: 48px; padding: 10px 12px; background-color: rgba(15, 23, 42, 210); color: #e5e7eb; font-size: 14px; }\n#nt-room-preview-paths { position: absolute; left: 24px; right: 24px; bottom: 16px; height: 36px; }\n.nt-room-preview-path { margin-right: 8px; min-width: 80px; }\n.nt-room-preview-hotspot { position: absolute; border: 1px #f59e0b; background-color: rgba(245, 158, 11, 45); color: #fffbeb; font-size: 12px; text-align: left; }\n.nt-room-preview-hotspot span { display: block; padding: 3px 5px; background-color: rgba(15, 23, 42, 180); }\n</style>\n</head>\n<body>\n<div id="nt-room-preview-stage">${backgroundMarkup}${hotspotMarkup}<div id="nt-room-preview-title">${escapeText(name)}</div><div id="nt-room-preview-description">${escapeText(description || 'No room description yet.')}</div><div id="nt-room-preview-paths">${pathMarkup}</div></div>\n</body>\n</rml>`;
     }
 
+    function buildDialoguePreviewRml(data) {
+      const name = data && (data.displayName || data.label || data.dialogueId) ? data.displayName || data.label || data.dialogueId : 'Dialogue';
+      const block = data && data.selectedBlock ? data.selectedBlock : null;
+      const blockLabel = block && (block.label || block.id) ? block.label || block.id : 'No block selected';
+      const blockType = block && block.type ? block.type : 'missing';
+      const segments = block && Array.isArray(block.segments) ? block.segments : [];
+      const choices = data && Array.isArray(data.choices) ? data.choices : [];
+      const background = data && data.preview && data.preview.background === 'light' ? '#f8fafc' : '#0f172a';
+      const foreground = data && data.preview && data.preview.background === 'light' ? '#0f172a' : '#e5e7eb';
+      const segmentMarkup = segments.length > 0 ? segments.map((segment) => {
+        if (!segment) return '';
+        const speaker = segment.speakerMetadata && segment.speakerMetadata.displayName ? segment.speakerMetadata.displayName : '';
+        const text = segment.text && typeof segment.text.source === 'string' && segment.text.source.trim().length > 0 ? segment.text.source : '[empty line]';
+        const flags = [];
+        if (segment.condition && segment.condition.enabled) flags.push('condition');
+        if (segment.script && segment.script.enabled) flags.push('script');
+        if (segment.flags && segment.flags.showOnce) flags.push('once');
+        const meta = flags.length > 0 ? `<span class="nt-dialogue-preview-flags">${escapeText(flags.join(' · '))}</span>` : '';
+        return `<div class="nt-dialogue-preview-segment"><div class="nt-dialogue-preview-speaker">${escapeText(speaker)}</div><div class="nt-dialogue-preview-line">${escapeText(text)}</div>${meta}</div>`;
+      }).join('') : '<div class="nt-dialogue-preview-empty">No dialogue segments in this block.</div>';
+      const choiceMarkup = choices.length > 0 ? choices.map((choice) => {
+        const target = choice.targetLabel || choice.toBlockId || 'missing target';
+        const label = choice.label || choice.kind || choice.id;
+        const flags = choice.condition && choice.condition.enabled ? ' condition' : '';
+        return `<button class="nt-dialogue-preview-choice">${escapeText(label)} → ${escapeText(target)}${escapeText(flags)}</button>`;
+      }).join('') : '<div class="nt-dialogue-preview-no-choices">No outgoing choices.</div>';
+      return `<rml>\n<head>\n<title>Dialogue Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: ${background}; font-family: Liberation Sans; color: ${foreground}; }\n#nt-dialogue-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; padding: 24px; background-color: ${background}; }\n#nt-dialogue-preview-card { position: absolute; left: 24px; right: 24px; top: 24px; bottom: 24px; background-color: rgba(15, 23, 42, 220); border: 1px #334155; padding: 18px; }\n#nt-dialogue-preview-title { color: #f8fafc; font-size: 22px; margin-bottom: 4px; }\n#nt-dialogue-preview-meta { color: #94a3b8; font-size: 12px; margin-bottom: 16px; }\n.nt-dialogue-preview-segment { margin-bottom: 10px; padding: 10px; background-color: rgba(30, 41, 59, 210); }\n.nt-dialogue-preview-speaker { color: #93c5fd; font-size: 12px; margin-bottom: 4px; }\n.nt-dialogue-preview-line { color: #e5e7eb; font-size: 15px; }\n.nt-dialogue-preview-flags { display: block; margin-top: 4px; color: #fbbf24; font-size: 11px; }\n#nt-dialogue-preview-choices { position: absolute; left: 18px; right: 18px; bottom: 18px; }\n.nt-dialogue-preview-choice { display: block; width: 100%; margin-top: 6px; text-align: left; }\n.nt-dialogue-preview-empty, .nt-dialogue-preview-no-choices { color: #94a3b8; font-size: 13px; }\n</style>\n</head>\n<body>\n<div id="nt-dialogue-preview-stage"><div id="nt-dialogue-preview-card"><div id="nt-dialogue-preview-title">${escapeText(name)}</div><div id="nt-dialogue-preview-meta">${escapeText(blockLabel)} · ${escapeText(blockType)}</div>${segmentMarkup}<div id="nt-dialogue-preview-choices">${choiceMarkup}</div></div></div>\n</body>\n</rml>`;
+    }
+
     function emitDocumentDiagnostics(document) {
       const data = document && document.data ? document.data : null;
       if (!data || !Array.isArray(data.diagnostics)) return;
@@ -307,6 +336,7 @@ thead, tbody, tfoot {
       else if (kind === 'material-preview') applyPreviewRml(message, buildMaterialPreviewRml(data));
       else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
       else if (kind === 'room-preview') applyPreviewRml(message, buildRoomPreviewRml(data));
+      else if (kind === 'dialogue-preview') applyPreviewRml(message, buildDialoguePreviewRml(data));
       else failCommand(message, `Preview widget cannot render document '${kind}'.`);
     }
 
@@ -345,7 +375,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1'],
       });
       drainCommands();
     }

@@ -1,6 +1,7 @@
-import { DoorOpen, FileCode, Image, Layers, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
+import { DoorOpen, FileCode, Image, Layers, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
+import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
@@ -53,6 +54,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Room Detail',
     icon: DoorOpen,
     component: RoomEditor,
+  },
+  {
+    type: 'dialogue-detail',
+    label: 'Dialogue Detail',
+    icon: MessageSquareText,
+    component: DialogueEditor,
   },
   {
     type: 'variables',

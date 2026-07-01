@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { DoorOpen, FileCode, Image, Layers, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
+import { DoorOpen, FileCode, Image, Layers, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import type { WorkbenchTab } from './workbench-types';
 
@@ -132,6 +132,20 @@ export function buildRoomDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
+export function buildDialogueDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:dialogue-detail:dialogues:${entityId}`,
+    title,
+    editorType: 'dialogue-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:dialogues:${entityId}`,
+      collection: 'dialogues',
+      entityId,
+    },
+  };
+}
+
 export function buildVariablesEditorTab(selectedId?: string): WorkbenchTab {
   return {
     id: 'tab:variables',
@@ -154,6 +168,7 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'layouts' && node.entityId) return buildLayoutDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'characters' && node.entityId) return buildCharacterDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'rooms' && node.entityId) return buildRoomDetailTabForRecord(node.entityId, node.entityId);
+  if (node.collection === 'dialogues' && node.entityId) return buildDialogueDetailTabForRecord(node.entityId, node.entityId);
   return null;
 }
 
@@ -202,6 +217,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'layout-detail') return Layers;
   if (editorType === 'character-detail') return User;
   if (editorType === 'room-detail') return DoorOpen;
+  if (editorType === 'dialogue-detail') return MessageSquareText;
   if (editorType === 'variables') return SlidersHorizontal;
   if (editorType === 'components') return Puzzle;
   if (editorType === 'settings') return Settings;

@@ -29,6 +29,7 @@ import {
   setVariableTypePatches,
 } from '@/project/variable-operations';
 import { replaceCharacterDataPatches } from '@/project/character-operations';
+import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import { replaceLayoutDataPatches, setDefaultLayoutPatches } from '@/project/layout-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
@@ -252,6 +253,7 @@ const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unk
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
 const characterReplaceDataSchema = z.object({ characterId: entityIdSchema, data: z.unknown() });
+const dialogueReplaceDataSchema = z.object({ dialogueId: entityIdSchema, data: z.unknown() });
 const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
 const setDefaultLayoutSchema = z.object({ layoutId: entityIdSchema.nullable() });
@@ -326,6 +328,9 @@ export const layoutReplaceDataCommand: CommandHandler = ({ document, payload }) 
 export const characterReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(characterReplaceDataSchema, payload, (parsed) => replaceCharacterDataPatches(document, parsed));
 
+export const dialogueReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(dialogueReplaceDataSchema, payload, (parsed) => replaceDialogueDataPatches(document, parsed));
+
 export const roomReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomReplaceDataSchema, payload, (parsed) => replaceRoomDataPatches(document, parsed));
 
@@ -360,6 +365,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'variable.setDefaultValue': variableSetDefaultValueCommand,
     'layout.replaceData': layoutReplaceDataCommand,
     'character.replaceData': characterReplaceDataCommand,
+    'dialogue.replaceData': dialogueReplaceDataCommand,
     'room.replaceData': roomReplaceDataCommand,
     'project.setDefaultLayout': projectSetDefaultLayoutCommand,
   };
@@ -393,6 +399,7 @@ export function labelForCommand(type: string): string {
     case 'variable.setDefaultValue': return 'Set variable default value';
     case 'layout.replaceData': return 'Update layout';
     case 'character.replaceData': return 'Update character';
+    case 'dialogue.replaceData': return 'Update dialogue';
     case 'room.replaceData': return 'Update room';
     case 'project.setDefaultLayout': return 'Set default layout';
     default: return type;

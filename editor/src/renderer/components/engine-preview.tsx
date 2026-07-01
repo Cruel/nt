@@ -26,7 +26,9 @@ function previewDocumentTarget(document: PreviewDocument) {
           ? 'characters'
           : document.kind === 'room-preview'
             ? 'rooms'
-            : undefined;
+            : document.kind === 'dialogue-preview'
+              ? 'dialogues'
+              : undefined;
   return { collection, entityId: document.recordId, kind: document.kind.replace('-preview', '') };
 }
 

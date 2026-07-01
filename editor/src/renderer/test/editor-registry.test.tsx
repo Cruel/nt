@@ -32,6 +32,21 @@ describe('editor registry', () => {
     });
   });
 
+  it('routes dialogue records to the typed dialogue editor', () => {
+    const node: AssetNode = {
+      id: 'dialogues:intro',
+      label: 'Intro',
+      type: 'dialogue',
+      collection: 'dialogues',
+      entityId: 'intro',
+    };
+    expect(buildDefaultRecordTab(node)).toMatchObject({
+      id: 'tab:dialogue-detail:dialogues:intro',
+      editorType: 'dialogue-detail',
+      resource: { collection: 'dialogues', entityId: 'intro' },
+    });
+  });
+
   it('routes layout records to the typed layout editor', () => {
     const node: AssetNode = {
       id: 'layouts:main',
