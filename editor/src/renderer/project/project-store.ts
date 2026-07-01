@@ -75,8 +75,12 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   setHistoryCursor: (historyCursor) => set({ historyCursor }),
   markSaved: (metadata) => {
     const state = get();
+    const savedDocument = metadata && 'document' in metadata
+      ? normalizeDocument(metadata.document)
+      : state.document === null ? null : cloneJsonValue(state.document);
     set({
-      savedDocument: state.document === null ? null : cloneJsonValue(state.document),
+      document: savedDocument === null ? null : cloneJsonValue(savedDocument),
+      savedDocument,
       savedHistoryCursor: state.historyCursor,
       projectPath: metadata?.projectPath ?? state.projectPath,
       projectFilePath: metadata?.projectFilePath ?? state.projectFilePath,

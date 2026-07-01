@@ -15,7 +15,9 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import {
   Menubar,
   MenubarContent,
@@ -23,16 +25,21 @@ import {
   MenubarMenu,
   MenubarSeparator,
   MenubarShortcut,
+  MenubarSub,
+  MenubarSubContent,
+  MenubarSubTrigger,
   MenubarTrigger,
 } from '@/components/ui/menubar';
 import { Separator } from '@/components/ui/separator';
 import { useCommandStore } from '@/commands/command-store';
-import { selectCanSave, selectProjectDirty, useProjectStore } from '@/project/project-store';
+import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { recentProjectKey, useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
+import type { AppInfo } from '../../shared/electron-api';
 
 async function runMenuAction(action: () => Promise<unknown>) {
   try {
@@ -54,7 +61,6 @@ function WorkspaceTopToolbar() {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectDirty = useProjectStore(selectProjectDirty);
-  const canSave = useProjectStore(selectCanSave);
   const isSaving = useProjectStore((state) => state.isSaving);
   const autosaveEnabled = useProjectStore((state) => state.autosaveEnabled);
   const previewRunning = useWorkspaceStore((state) => state.previewRunning);
@@ -107,7 +113,7 @@ function WorkspaceTopToolbar() {
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('redo')} disabled={!canRedo} title="Redo">
         <Redo2 className="h-3.5 w-3.5" />
       </Button>
-      <Button size="icon-xs" variant={saveDirty ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('save')} disabled={(!canSave && !hasDraftDirty) || isSaving} title="Save">
+      <Button size="icon-xs" variant={saveDirty ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('save')} disabled={!saveDirty || isSaving} title="Save">
         <Save className="h-3.5 w-3.5" />
       </Button>
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('save-as')} disabled={isSaving} title="Save As">
@@ -126,12 +132,22 @@ function WorkspaceTopToolbar() {
 
 export function AppMenuBar() {
   const [frameless, setFrameless] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const project = useProjectStore((state) => state.document);
+  const projectDirty = useProjectStore(selectProjectDirty);
+  const isSaving = useProjectStore((state) => state.isSaving);
+  const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
+  const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
+  const saveDirty = projectDirty || hasDraftDirty;
+  const recentProjects = useRecentProjectsStore((state) => state.recentProjects);
 
   useEffect(() => {
     let mounted = true;
     void window.noveltea.getAppInfo().then((info) => {
-      if (mounted) setFrameless(info.frameless);
+      if (!mounted) return;
+      setFrameless(info.frameless);
+      setAppInfo(info);
     });
     return () => {
       mounted = false;
@@ -139,6 +155,7 @@ export function AppMenuBar() {
   }, []);
 
   return (
+    <>
     <div
       className="flex h-8 shrink-0 items-center border-b bg-background pl-2"
       style={frameless ? dragStyle : undefined}
@@ -158,10 +175,31 @@ export function AppMenuBar() {
           <MenubarContent className="min-w-56">
             <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('new-project')}>New Project<MenubarShortcut>Ctrl+N</MenubarShortcut></MenubarItem>
             <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('open-project')}>Open Project…<MenubarShortcut>Ctrl+O</MenubarShortcut></MenubarItem>
+            <MenubarSub>
+              <MenubarSubTrigger>Recent Projects</MenubarSubTrigger>
+              <MenubarSubContent className="min-w-72">
+                {recentProjects.length === 0 ? (
+                  <MenubarItem disabled>No recent projects</MenubarItem>
+                ) : recentProjects.map((entry) => {
+                  const projectKey = recentProjectKey(entry);
+                  return (
+                  <MenubarItem
+                    key={projectKey}
+                    onClick={() => dispatchWorkspaceToolbarCommand({ command: 'open-project', projectPath: projectKey })}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                    <MenubarShortcut className="max-w-36 truncate normal-case tracking-normal" title={projectKey}>
+                      {projectKey}
+                    </MenubarShortcut>
+                  </MenubarItem>
+                  );
+                })}
+              </MenubarSubContent>
+            </MenubarSub>
             <MenubarItem disabled={!project} onClick={() => dispatchWorkspaceToolbarCommand('close-project')}>Close Project</MenubarItem>
             <MenubarSeparator />
-            <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('save')}>Save<MenubarShortcut>Ctrl+S</MenubarShortcut></MenubarItem>
-            <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('save-as')}>Save As…<MenubarShortcut>Ctrl+Shift+S</MenubarShortcut></MenubarItem>
+            <MenubarItem disabled={!project || !saveDirty || isSaving} onClick={() => dispatchWorkspaceToolbarCommand('save')}>Save<MenubarShortcut>Ctrl+S</MenubarShortcut></MenubarItem>
+            <MenubarItem disabled={!project || isSaving} onClick={() => dispatchWorkspaceToolbarCommand('save-as')}>Save As…<MenubarShortcut>Ctrl+Shift+S</MenubarShortcut></MenubarItem>
             <MenubarSeparator />
             <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('export-package')}>Package Export…</MenubarItem>
           </MenubarContent>
@@ -213,7 +251,7 @@ export function AppMenuBar() {
           <MenubarTrigger>Help</MenubarTrigger>
           <MenubarContent className="min-w-52">
             <MenubarItem disabled>NovelTea Documentation</MenubarItem>
-            <MenubarItem disabled>About NovelTea</MenubarItem>
+            <MenubarItem onClick={() => setAboutOpen(true)}>About NovelTea</MenubarItem>
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
@@ -255,5 +293,45 @@ export function AppMenuBar() {
         </div>
       )}
     </div>
+    <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+      <DialogPopup>
+        <DialogTitle>About NovelTea</DialogTitle>
+        <DialogDescription>Runtime environment and platform details.</DialogDescription>
+        {appInfo ? (
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between gap-6">
+              <dt className="text-muted-foreground">Version</dt>
+              <dd className="font-mono text-xs">{appInfo.version}</dd>
+            </div>
+            <div className="flex justify-between gap-6">
+              <dt className="text-muted-foreground">Electron</dt>
+              <dd className="font-mono text-xs">{appInfo.electronVersion}</dd>
+            </div>
+            <div className="flex justify-between gap-6">
+              <dt className="text-muted-foreground">Platform</dt>
+              <dd className="font-mono text-xs">{appInfo.platform}</dd>
+            </div>
+            <div className="flex justify-between gap-6">
+              <dt className="text-muted-foreground">Architecture</dt>
+              <dd className="font-mono text-xs">{appInfo.arch}</dd>
+            </div>
+            <div className="flex justify-between gap-6">
+              <dt className="text-muted-foreground">Packaged</dt>
+              <dd>
+                <Badge variant={appInfo.packaged ? 'default' : 'secondary'}>
+                  {appInfo.packaged ? 'Yes' : 'No'}
+                </Badge>
+              </dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="text-sm text-muted-foreground">Loading application info…</p>
+        )}
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => setAboutOpen(false)}>Close</Button>
+        </div>
+      </DialogPopup>
+    </Dialog>
+    </>
   );
 }

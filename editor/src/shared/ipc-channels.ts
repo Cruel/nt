@@ -8,6 +8,8 @@ export const IPC_CHANNELS = {
   MINIMIZE_APP_WINDOW: 'noveltea:minimize-app-window',
   TOGGLE_MAXIMIZE_APP_WINDOW: 'noveltea:toggle-maximize-app-window',
   REQUEST_APP_WINDOW_EXIT: 'noveltea:request-app-window-exit',
+  COMPLETE_APP_WINDOW_EXIT: 'noveltea:complete-app-window-exit',
+  APP_WINDOW_BEFORE_CLOSE: 'noveltea:app-window-before-close',
   IS_APP_WINDOW_MAXIMIZED: 'noveltea:is-app-window-maximized',
   SET_NATIVE_WINDOW_FRAME: 'noveltea:set-native-window-frame',
   GET_ENGINE_PREVIEW_SESSION: 'noveltea:get-engine-preview-session',

@@ -92,9 +92,11 @@ export function SettingsPage() {
   const theme = usePreferencesStore((s) => s.theme);
   const density = usePreferencesStore((s) => s.density);
   const showInspector = usePreferencesStore((s) => s.showInspectorByDefault);
+  const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setDensity = usePreferencesStore((s) => s.setDensity);
   const setShowInspector = usePreferencesStore((s) => s.setShowInspectorByDefault);
+  const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const [nativeFrame, setNativeFrame] = useState(false);
   const [nativeFrameDefault, setNativeFrameDefault] = useState(false);
   const [nativeFrameSaved, setNativeFrameSaved] = useState(false);
@@ -225,18 +227,33 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="show-inspector">Show Inspector by default</Label>
-                <p className="text-xs text-muted-foreground">
-                  Display the right-side inspector panel on workspace open
-                </p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="show-inspector">Show Inspector by default</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Display the right-side inspector panel on workspace open
+                  </p>
+                </div>
+                <Switch
+                  id="show-inspector"
+                  checked={showInspector}
+                  onCheckedChange={setShowInspector}
+                />
               </div>
-              <Switch
-                id="show-inspector"
-                checked={showInspector}
-                onCheckedChange={setShowInspector}
-              />
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="restore-last-project">Restore last open project on startup</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatically reopen the last project file when the editor starts.
+                  </p>
+                </div>
+                <Switch
+                  id="restore-last-project"
+                  checked={restoreLastProjectOnStart}
+                  onCheckedChange={setRestoreLastProjectOnStart}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -248,6 +265,7 @@ export function SettingsPage() {
               setTheme('system');
               setDensity('compact');
               setShowInspector(true);
+              setRestoreLastProjectOnStart(true);
               updateNativeFrame(nativeFrameDefault);
             }}
           >

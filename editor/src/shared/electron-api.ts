@@ -18,6 +18,8 @@ export interface NovelTeaElectronApi {
   minimizeAppWindow(): Promise<void>;
   toggleMaximizeAppWindow(): Promise<boolean>;
   requestAppWindowExit(): Promise<void>;
+  completeAppWindowExit(): Promise<void>;
+  onAppWindowBeforeClose(callback: () => void): () => void;
   isAppWindowMaximized(): Promise<boolean>;
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
   getEnginePreviewSession(): Promise<EnginePreviewSession>;

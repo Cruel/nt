@@ -5,11 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { useCommandStore } from '@/commands/command-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { buildEditorProjectStateSnapshot, clearLocalEditorSessionSnapshot, mergeEditorProjectState, restoreEditorProjectState, restoreNoProjectEditorSession, saveLocalEditorSessionSnapshot } from '@/workbench/project-editor-state';
 import { buildPrimaryPreviewTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
@@ -46,6 +48,8 @@ export function WorkspacePage() {
   const [, setBusy] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const lastObservedCommandId = useRef<string | null>(null);
+  const didAttemptStartupRestore = useRef(false);
+  const completingWindowClose = useRef(false);
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
   const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
@@ -79,6 +83,9 @@ export function WorkspacePage() {
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
   const addRecentProject = useRecentProjectsStore((state) => state.addRecentProject);
   const removeRecentProject = useRecentProjectsStore((state) => state.removeRecentProject);
+  const restoreLastProjectOnStart = usePreferencesStore((state) => state.restoreLastProjectOnStart);
+  const lastProjectPath = usePreferencesStore((state) => state.lastProjectPath);
+  const setLastProjectPath = usePreferencesStore((state) => state.setLastProjectPath);
   const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
   const closeProjectTabs = useWorkbenchStore((state) => state.closeProjectTabs);
   const commandHistory = useCommandStore((state) => state.history);
@@ -96,6 +103,7 @@ export function WorkspacePage() {
     loadProjectDocument({ document, projectPath: projectPathValue, projectFilePath: projectFilePathValue });
     resetCommandHistory();
     setPlaybackTests([]);
+    if (document !== null && document !== undefined) restoreEditorProjectState(document as never, projectFilePathValue);
     const diagnostics = isAuthoringProject(document) ? validateAuthoringProject(document) : unsupportedProjectDiagnostics();
     setDiagnostics(diagnostics);
     return diagnostics;
@@ -114,10 +122,32 @@ export function WorkspacePage() {
     addTimelineEntry({ source: 'command', message: 'Created unsaved authoring project', detail: next });
   }
 
-  function closeProject() {
+  async function dirtySaveProjectState(reason: 'close-project' | 'window-close') {
+    const latestProject = useProjectStore.getState().document;
+    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
+    if (!latestProject || !latestProjectFilePath) return false;
+    const projectWithEditorState = mergeEditorProjectState(latestProject, buildEditorProjectStateSnapshot());
+    const result = await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
+    if (!result.success) {
+      const message = result.error ?? 'Editor state dirty save failed.';
+      setStatusMessage(message);
+      addTimelineEntry({ source: 'command', message, detail: result });
+      return false;
+    }
+    const message = reason === 'close-project' ? 'Saved editor state before closing project' : 'Saved editor state before closing editor';
+    addTimelineEntry({ source: 'command', message, detail: result });
+    return true;
+  }
+
+  async function closeProject() {
+    await dirtySaveProjectState('close-project');
+    clearLocalEditorSessionSnapshot();
+    setLastProjectPath(null);
     clearProjectDocument();
     resetCommandHistory();
     closeProjectTabs();
+    saveLocalEditorSessionSnapshot(null);
     setProjectPath(null);
     setProjectFilePath(null);
     setProject(null);
@@ -136,8 +166,14 @@ export function WorkspacePage() {
     setBusy(true);
     try {
       const loaded = await window.noveltea.openProject(dir);
+      if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0) saveLocalEditorSessionSnapshot(loaded.projectFilePath ?? loaded.projectPath ?? null);
       const diagnostics = loadAuthoringDocument(loaded.project ?? null, loaded.projectPath, loaded.projectFilePath);
-      addRecentProject({ projectPath: loaded.projectPath, projectFilePath: loaded.projectFilePath });
+      addRecentProject({
+        projectPath: loaded.projectPath,
+        projectFilePath: loaded.projectFilePath,
+        projectName: isAuthoringProject(loaded.project) ? loaded.project.project.name : null,
+      });
+      setLastProjectPath(loaded.projectFilePath ?? loaded.projectPath);
       setStatusMessage(
         isAuthoringProject(loaded.project)
           ? diagnostics.some((diagnostic) => diagnostic.severity === 'error')
@@ -160,13 +196,32 @@ export function WorkspacePage() {
     }
   }
 
+  useEffect(() => {
+    if (didAttemptStartupRestore.current || project) return;
+    didAttemptStartupRestore.current = true;
+    if (restoreLastProjectOnStart && lastProjectPath) {
+      void openProject(lastProjectPath);
+    } else {
+      restoreNoProjectEditorSession();
+    }
+  });
+
+  useEffect(() => window.noveltea.onAppWindowBeforeClose(() => {
+    if (completingWindowClose.current) return;
+    completingWindowClose.current = true;
+    void dirtySaveProjectState('window-close').finally(() => {
+      void window.noveltea.completeAppWindowExit();
+    });
+  }));
+
   async function saveProject(saveAs = false, reason: 'manual' | 'autosave' = 'manual') {
     if (!project) return false;
     setProjectSaving(true);
     try {
-      const activeDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey).filter((entry) => entry.dirty);
-      if (activeDrafts.length > 0) {
-        const applied = await runDraftActions(activeDrafts, 'apply');
+      const nonSerializableDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey)
+        .filter((entry) => entry.dirty && (!entry.schema || !entry.schemaVersion || entry.payload === undefined));
+      if (nonSerializableDrafts.length > 0) {
+        const applied = await runDraftActions(nonSerializableDrafts, 'apply');
         if (!applied) {
           const message = 'Apply local drafts before saving, or discard them.';
           setProjectSaveError(message);
@@ -176,12 +231,13 @@ export function WorkspacePage() {
       }
       const latestProject = useProjectStore.getState().document;
       if (!latestProject) return false;
+      const projectWithEditorState = mergeEditorProjectState(latestProject, buildEditorProjectStateSnapshot());
       const latestProjectFilePath = useProjectStore.getState().projectFilePath;
       const result = saveAs || !latestProjectFilePath
-        ? await window.noveltea.saveProjectAs(latestProject, latestProjectFilePath)
-        : await window.noveltea.saveProject(latestProject, latestProjectFilePath);
+        ? await window.noveltea.saveProjectAs(projectWithEditorState, latestProjectFilePath)
+        : await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
       if (result.success) {
-        markProjectSaved({ projectPath: result.projectPath, projectFilePath: result.projectFilePath });
+        markProjectSaved({ projectPath: result.projectPath, projectFilePath: result.projectFilePath, document: projectWithEditorState });
         setProjectPath(result.projectPath ?? projectPath);
         setProjectFilePath(result.projectFilePath ?? projectFilePath);
         addTimelineEntry({ source: 'command', message: `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}`, detail: result });
@@ -337,7 +393,7 @@ export function WorkspacePage() {
           void openProject(typeof detail === 'string' ? undefined : detail.projectPath);
           break;
         case 'close-project':
-          closeProject();
+          void closeProject();
           break;
         case 'validate':
           validate();

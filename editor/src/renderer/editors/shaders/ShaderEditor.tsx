@@ -24,9 +24,11 @@ import {
   type ShaderUniformData,
 } from '../../../shared/project-schema/authoring-shaders';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { restoredDraftPayload, useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+
+const SHADER_STAGE_DRAFT_SCHEMA = 'noveltea.editor.draft.shader-stage-source';
 
 function updateShader(shaderId: string, next: ShaderData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -53,10 +55,11 @@ function valueToText(value: unknown): string {
 }
 
 function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAssets }: { tabId: string; shaderId: string; data: ShaderData; stage: ShaderStageData; index: number; shaderSourceAssets: Array<{ id: string; label: string }> }) {
-  const [draft, setDraft] = useState(stage.sourceText ?? '');
+  const draftKey = `${tabId}:shader-stage:${index}`;
+  const restoredDraft = restoredDraftPayload<{ sourceText: string }>(draftKey, SHADER_STAGE_DRAFT_SCHEMA);
+  const [draft, setDraft] = useState(restoredDraft?.sourceText ?? stage.sourceText ?? '');
   const clearDraftDirty = useDraftDirtyStore((state) => state.clearDraftDirty);
   const draftDirty = stage.sourceMode === 'inline' && draft !== (stage.sourceText ?? '');
-  const draftKey = `${tabId}:shader-stage:${index}`;
   const commit = useCallback((nextStage: ShaderStageData, label = 'Update shader stage') => {
     const stages = [...data.stages];
     stages[index] = nextStage;
@@ -75,6 +78,9 @@ function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAsset
   useEditorDraftDirty(tabId, draftDirty, {
     key: draftKey,
     label: `Unapplied ${stage.stage} shader source`,
+    schema: SHADER_STAGE_DRAFT_SCHEMA,
+    schemaVersion: 1,
+    payload: { sourceText: draft },
     apply: applyDraft,
     discard: discardDraft,
   });

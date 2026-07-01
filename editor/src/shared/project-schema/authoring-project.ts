@@ -6,6 +6,7 @@ import {
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
 } from './authoring-collections';
+import { editorProjectStateSchema, emptyEditorProjectState } from './editor-project-state';
 
 export const entityIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
@@ -51,6 +52,7 @@ export const authoringProjectSchema = z.object({
   }),
   settings: z.record(z.string(), z.unknown()).default({}),
   entrypoint: referenceTargetSchema.nullable().default(null),
+  editor: editorProjectStateSchema.default(emptyEditorProjectState),
   ...collectionShape,
 });
 
@@ -94,6 +96,7 @@ export function createAuthoringProject(options: CreateAuthoringProjectOptions = 
     },
     settings: {},
     entrypoint: null,
+    editor: emptyEditorProjectState(),
     ...collections,
   });
 }

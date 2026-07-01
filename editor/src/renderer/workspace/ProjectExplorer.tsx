@@ -9,6 +9,7 @@ import {
   FileType,
   FlaskConical,
   Folder,
+  FolderOpen,
   Image,
   Layers,
   Map,
@@ -38,6 +39,7 @@ import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { authoringCollectionMetadata, isAuthoringCollectionKey, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
 import { buildDefaultRecordTab, buildVariablesEditorTab } from '@/workbench/editor-registry';
+import { dispatchWorkspaceToolbarCommand } from './workspace-toolbar-events';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
@@ -525,7 +527,28 @@ export function ProjectExplorer({ nodes }: { nodes: AssetNode[] }) {
   const [alert, setAlert] = useState<ExplorerAlert | null>(null);
 
   if (nodes.length === 0) {
-    return <div className="p-3 text-xs text-muted-foreground">No authoring project loaded.</div>;
+    return (
+      <div className="space-y-1 p-2">
+        <Button
+          className="h-8 w-full justify-start gap-2 px-2"
+          size="default"
+          variant="ghost"
+          onClick={() => dispatchWorkspaceToolbarCommand('new-project')}
+        >
+          <FilePlus2 className="h-3.5 w-3.5" />
+          New Project
+        </Button>
+        <Button
+          className="h-8 w-full justify-start gap-2 px-2"
+          size="default"
+          variant="ghost"
+          onClick={() => dispatchWorkspaceToolbarCommand('open-project')}
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+          Open Project
+        </Button>
+      </div>
+    );
   }
   return (
     <div className="space-y-0.5">

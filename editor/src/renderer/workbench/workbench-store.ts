@@ -8,6 +8,10 @@ import {
   moveWorkbenchTabWithinGroup,
   openWorkbenchTab,
   reopenLastClosedWorkbenchTab,
+  restoreProjectWorkbenchState,
+  restoreShellWorkbenchState,
+  serializeProjectWorkbenchState,
+  serializeShellWorkbenchState,
   setWorkbenchTabDirty,
   splitWorkbenchGroup,
 } from './workbench-model';
@@ -18,6 +22,7 @@ import type {
   WorkbenchState,
   WorkbenchTab,
 } from './workbench-types';
+import type { SerializedWorkbenchState } from '../../shared/project-schema/editor-project-state';
 
 interface WorkbenchStore extends WorkbenchState {
   openTab: (tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void;
@@ -30,6 +35,11 @@ interface WorkbenchStore extends WorkbenchState {
   reopenLastClosedTab: () => void;
   resetWorkbench: () => void;
   closeProjectTabs: () => void;
+  replaceWorkbench: (state: WorkbenchState) => void;
+  restoreProjectWorkbench: (serialized: SerializedWorkbenchState | undefined, project: unknown) => WorkbenchState;
+  restoreShellWorkbench: (serialized: WorkbenchState | null | undefined, project: unknown, projectWorkbench: WorkbenchState) => WorkbenchState;
+  serializeProjectWorkbench: () => SerializedWorkbenchState | null;
+  serializeShellWorkbench: () => WorkbenchState;
 }
 
 let nextId = 1;
@@ -49,7 +59,7 @@ function toStoreState(state: WorkbenchState): WorkbenchState {
   };
 }
 
-export const useWorkbenchStore = create<WorkbenchStore>()((set) => ({
+export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   ...createInitialWorkbenchState(),
   openTab: (tab, options) => set((state) => toStoreState(openWorkbenchTab(state, tab, options))),
   activateTab: (groupId, tabId) => set((state) => toStoreState(activateWorkbenchTab(state, groupId, tabId))),
@@ -64,4 +74,17 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set) => ({
     set(toStoreState(createInitialWorkbenchState()));
   },
   closeProjectTabs: () => set((state) => toStoreState(closeProjectWorkbenchTabs(state))),
+  replaceWorkbench: (state) => set(toStoreState(state)),
+  restoreProjectWorkbench: (serialized, project) => {
+    const restored = restoreProjectWorkbenchState(serialized, project);
+    set(toStoreState(restored));
+    return restored;
+  },
+  restoreShellWorkbench: (serialized, project, projectWorkbench) => {
+    const restored = restoreShellWorkbenchState(serialized, project, projectWorkbench);
+    set(toStoreState(restored));
+    return restored;
+  },
+  serializeProjectWorkbench: () => serializeProjectWorkbenchState(get()),
+  serializeShellWorkbench: () => serializeShellWorkbenchState(get()),
 }));

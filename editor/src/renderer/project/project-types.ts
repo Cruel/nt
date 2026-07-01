@@ -7,6 +7,7 @@ export interface ProjectLoadPayload {
 export interface ProjectSaveMetadata {
   projectPath?: string;
   projectFilePath?: string;
+  document?: unknown;
 }
 
 export interface ProjectHistoryCursorState {

@@ -11,7 +11,7 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { restoredDraftPayload, useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   defaultLayoutData,
@@ -38,6 +38,9 @@ function assetRef(assetId: string): LayoutAssetRef {
 function materialRef(materialId: string): LayoutMaterialRef {
   return { $ref: { collection: 'materials', id: materialId } };
 }
+
+const LAYOUT_SOURCE_DRAFT_SCHEMA = 'noveltea.editor.draft.layout-sources';
+const LAYOUT_SAMPLE_STATE_DRAFT_SCHEMA = 'noveltea.editor.draft.layout-sample-state';
 
 function sourceWithDraft(source: LayoutSourceData, sourceText: string): LayoutSourceData {
   return { ...source, sourceText };
@@ -125,19 +128,25 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   );
   const data = parsedData ?? fallbackData;
   const sampleStateText = useMemo(() => JSON.stringify(data.sampleState, null, 2), [data.sampleState]);
-  const [rmlDraft, setRmlDraft] = useState(data.rml.sourceText);
-  const [rcssDraft, setRcssDraft] = useState(data.rcss.sourceText);
-  const [luaDraft, setLuaDraft] = useState(data.lua.sourceText);
-  const [sampleStateDraft, setSampleStateDraft] = useState(sampleStateText);
+  const sourceDraftKey = `${tab.id}:layout-sources`;
+  const sampleStateDraftKey = `${tab.id}:layout-sample-state`;
+  const restoredSourceDraft = restoredDraftPayload<{ rml: string; rcss: string; lua: string }>(sourceDraftKey, LAYOUT_SOURCE_DRAFT_SCHEMA);
+  const restoredSampleStateDraft = restoredDraftPayload<{ text: string }>(sampleStateDraftKey, LAYOUT_SAMPLE_STATE_DRAFT_SCHEMA);
+  const [rmlDraft, setRmlDraft] = useState(restoredSourceDraft?.rml ?? data.rml.sourceText);
+  const [rcssDraft, setRcssDraft] = useState(restoredSourceDraft?.rcss ?? data.rcss.sourceText);
+  const [luaDraft, setLuaDraft] = useState(restoredSourceDraft?.lua ?? data.lua.sourceText);
+  const [sampleStateDraft, setSampleStateDraft] = useState(restoredSampleStateDraft?.text ?? sampleStateText);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    setRmlDraft(data.rml.sourceText);
-    setRcssDraft(data.rcss.sourceText);
-    setLuaDraft(data.lua.sourceText);
-    setSampleStateDraft(sampleStateText);
+    if (!restoredSourceDraft) {
+      setRmlDraft(data.rml.sourceText);
+      setRcssDraft(data.rcss.sourceText);
+      setLuaDraft(data.lua.sourceText);
+    }
+    if (!restoredSampleStateDraft) setSampleStateDraft(sampleStateText);
     setMessage(null);
-  }, [data.rml.sourceText, data.rcss.sourceText, data.lua.sourceText, sampleStateText]);
+  }, [data.rml.sourceText, data.rcss.sourceText, data.lua.sourceText, restoredSampleStateDraft, restoredSourceDraft, sampleStateText]);
 
   const draftData = useMemo(() => {
     const parsedSampleState = parseSampleState(sampleStateDraft);
@@ -152,8 +161,6 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
 
   const sourceDraftDirty = rmlDraft !== data.rml.sourceText || rcssDraft !== data.rcss.sourceText || luaDraft !== data.lua.sourceText;
   const sampleStateDirty = sampleStateDraft !== sampleStateText;
-  const sourceDraftKey = `${tab.id}:layout-sources`;
-  const sampleStateDraftKey = `${tab.id}:layout-sample-state`;
 
   const applyDrafts = useCallback(() => {
     if (!layoutId) return false;
@@ -190,8 +197,24 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     return true;
   }, [data.rml.sourceText, data.rcss.sourceText, data.lua.sourceText, sampleStateText]);
 
-  useEditorDraftDirty(tab.id, sourceDraftDirty, { key: sourceDraftKey, label: 'Unapplied layout source edits', apply: applyDrafts, discard: discardDrafts });
-  useEditorDraftDirty(tab.id, sampleStateDirty, { key: sampleStateDraftKey, label: 'Unapplied layout sample state', apply: applyDrafts, discard: discardDrafts });
+  useEditorDraftDirty(tab.id, sourceDraftDirty, {
+    key: sourceDraftKey,
+    label: 'Unapplied layout source edits',
+    schema: LAYOUT_SOURCE_DRAFT_SCHEMA,
+    schemaVersion: 1,
+    payload: { rml: rmlDraft, rcss: rcssDraft, lua: luaDraft },
+    apply: applyDrafts,
+    discard: discardDrafts,
+  });
+  useEditorDraftDirty(tab.id, sampleStateDirty, {
+    key: sampleStateDraftKey,
+    label: 'Unapplied layout sample state',
+    schema: LAYOUT_SAMPLE_STATE_DRAFT_SCHEMA,
+    schemaVersion: 1,
+    payload: { text: sampleStateDraft },
+    apply: applyDrafts,
+    discard: discardDrafts,
+  });
 
   const validationDiagnostics = useMemo(() => project && record && layoutId ? validateLayoutData(project, layoutId, { ...record, data: draftData }) : [], [draftData, layoutId, project, record]);
   const defaultLayout = project ? getDefaultLayoutSetting(project) : null;

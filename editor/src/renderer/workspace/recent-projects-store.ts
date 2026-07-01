@@ -10,8 +10,8 @@ export interface RecentProjectEntry {
 
 interface RecentProjectsState {
   recentProjects: RecentProjectEntry[];
-  addRecentProject: (entry: { projectPath: string; projectFilePath?: string | null }) => void;
-  removeRecentProject: (projectPath: string) => void;
+  addRecentProject: (entry: { projectPath: string; projectFilePath?: string | null; projectName?: string | null }) => void;
+  removeRecentProject: (projectKey: string) => void;
   clearRecentProjects: () => void;
 }
 
@@ -19,7 +19,13 @@ function basename(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
-function projectLabel(projectPath: string, projectFilePath?: string | null) {
+export function recentProjectKey(entry: Pick<RecentProjectEntry, 'projectPath' | 'projectFilePath'>) {
+  return entry.projectFilePath ?? entry.projectPath;
+}
+
+function projectLabel(projectPath: string, projectFilePath?: string | null, projectName?: string | null) {
+  const trimmedProjectName = projectName?.trim();
+  if (trimmedProjectName) return trimmedProjectName;
   if (projectFilePath) return basename(projectFilePath);
   return basename(projectPath);
 }
@@ -28,24 +34,25 @@ export const useRecentProjectsStore = create<RecentProjectsState>()(
   persist(
     (set) => ({
       recentProjects: [],
-      addRecentProject: ({ projectPath, projectFilePath = null }) =>
+      addRecentProject: ({ projectPath, projectFilePath = null, projectName = null }) =>
         set((state) => {
           const normalized = {
             projectPath,
             projectFilePath,
-            label: projectLabel(projectPath, projectFilePath),
+            label: projectLabel(projectPath, projectFilePath, projectName),
             openedAt: Date.now(),
           };
+          const normalizedKey = recentProjectKey(normalized);
           return {
             recentProjects: [
               normalized,
-              ...state.recentProjects.filter((entry) => entry.projectPath !== projectPath),
+              ...state.recentProjects.filter((entry) => recentProjectKey(entry) !== normalizedKey),
             ].slice(0, 8),
           };
         }),
-      removeRecentProject: (projectPath) =>
+      removeRecentProject: (projectKey) =>
         set((state) => ({
-          recentProjects: state.recentProjects.filter((entry) => entry.projectPath !== projectPath),
+          recentProjects: state.recentProjects.filter((entry) => recentProjectKey(entry) !== projectKey),
         })),
       clearRecentProjects: () => set({ recentProjects: [] }),
     }),

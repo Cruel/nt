@@ -40,6 +40,7 @@ const MIN_ZOOM_FACTOR = 0.5;
 const MAX_ZOOM_FACTOR = 2;
 let currentNativeWindowFrame = process.platform === 'linux';
 let currentFramelessWindow = !currentNativeWindowFrame;
+let appWindowExitConfirmed = false;
 function getEditorWindowSettingsPath() {
   return path.join(app.getPath('userData'), 'editor-window-settings.json');
 }
@@ -193,6 +194,17 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.on('close', (event) => {
+    if (appWindowExitConfirmed || mainWindow?.webContents.isDestroyed()) return;
+    event.preventDefault();
+    mainWindow?.webContents.send(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE);
+    setTimeout(() => {
+      if (!appWindowExitConfirmed && mainWindow && !mainWindow.isDestroyed()) {
+        appWindowExitConfirmed = true;
+        mainWindow.close();
+      }
+    }, 5000);
+  });
   installZoomShortcuts(mainWindow);
 
   if (isDev) {
@@ -269,6 +281,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.REQUEST_APP_WINDOW_EXIT, (event: Electron.IpcMainInvokeEvent) => {
     getEventWindow(event)?.close();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.COMPLETE_APP_WINDOW_EXIT, (event: Electron.IpcMainInvokeEvent) => {
+    const window = getEventWindow(event);
+    appWindowExitConfirmed = true;
+    window?.close();
   });
 
   ipcMain.handle(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED, (event: Electron.IpcMainInvokeEvent) => {

@@ -1,3 +1,4 @@
+import type { SerializedWorkbenchState } from '../../shared/project-schema/editor-project-state';
 import type {
   MoveWorkbenchTabOptions,
   OpenWorkbenchTabOptions,
@@ -194,6 +195,185 @@ export function closeProjectWorkbenchTabs(state: WorkbenchState): WorkbenchState
     tabsById: Object.fromEntries(preservedTabs.map((tab) => [tab.id, tab])),
     activeGroupId: ROOT_GROUP_ID,
     recentlyClosedTabs: next.recentlyClosedTabs.filter((entry) => entry.tab.resource?.kind === 'tool'),
+  });
+}
+
+function cloneTabForProjectPersistence(tab: WorkbenchTab): WorkbenchTab | null {
+  if (!tab.resource) return null;
+  if (tab.resource.kind === 'tool') return null;
+  return {
+    id: tab.id,
+    title: tab.title,
+    editorType: tab.editorType,
+    resource: { ...tab.resource },
+    pinned: tab.pinned || undefined,
+    preview: tab.preview || undefined,
+  };
+}
+
+function projectHasResource(project: unknown, tab: WorkbenchTab): boolean {
+  const resource = tab.resource;
+  if (!resource) return false;
+  if (resource.kind === 'preview') return true;
+  if ((resource.kind === 'record' || resource.kind === 'raw') && resource.collection && resource.entityId) {
+    if (typeof project !== 'object' || project === null || Array.isArray(project)) return false;
+    const collection = (project as Record<string, unknown>)[resource.collection];
+    return typeof collection === 'object'
+      && collection !== null
+      && !Array.isArray(collection)
+      && Object.prototype.hasOwnProperty.call(collection, resource.entityId);
+  }
+  return false;
+}
+
+function filterLayoutToGroups(node: WorkbenchLayoutNode, groupIds: Set<string>): WorkbenchLayoutNode | null {
+  if (node.kind === 'group') return groupIds.has(node.groupId) ? node : null;
+  const children = node.children
+    .map((child) => filterLayoutToGroups(child, groupIds))
+    .filter((child): child is WorkbenchLayoutNode => child !== null);
+  if (children.length === 0) return null;
+  if (children.length === 1) return children[0]!;
+  return { ...node, children, sizes: node.sizes?.slice(0, children.length) };
+}
+
+function tabResourceStableId(tab: WorkbenchTab): string | null {
+  return tab.resource?.stableId ?? null;
+}
+
+export function serializeShellWorkbenchState(state: WorkbenchState): WorkbenchState {
+  const next = normalizeWorkbenchState(state);
+  return {
+    layout: cloneLayoutNode(next.layout),
+    groupsById: Object.fromEntries(
+      Object.entries(next.groupsById).map(([groupId, group]) => [groupId, { ...group, tabIds: [...group.tabIds] }]),
+    ),
+    tabsById: Object.fromEntries(
+      Object.entries(next.tabsById).map(([tabId, tab]) => [tabId, {
+        id: tab.id,
+        title: tab.title,
+        editorType: tab.editorType,
+        resource: tab.resource ? { ...tab.resource } : undefined,
+        pinned: tab.pinned || undefined,
+        preview: tab.preview || undefined,
+      }]),
+    ),
+    activeGroupId: next.activeGroupId,
+    recentlyClosedTabs: [],
+  };
+}
+
+export function restoreShellWorkbenchState(
+  serialized: WorkbenchState | null | undefined,
+  project: unknown,
+  projectWorkbench: WorkbenchState,
+): WorkbenchState {
+  if (!serialized) return projectWorkbench;
+  const projectTabsByStableId = new Map(
+    Object.values(projectWorkbench.tabsById)
+      .map((tab) => [tabResourceStableId(tab), tab] as const)
+      .filter((entry): entry is readonly [string, WorkbenchTab] => entry[0] !== null),
+  );
+  const tabEntries: Array<readonly [string, WorkbenchTab]> = [];
+  for (const [tabId, tab] of Object.entries(serialized.tabsById)) {
+    if (tab.resource?.kind === 'tool') {
+      tabEntries.push([tabId, { ...tab, resource: { ...tab.resource } }]);
+      continue;
+    }
+    const stableId = tabResourceStableId(tab);
+    const canonical = stableId ? projectTabsByStableId.get(stableId) : undefined;
+    if (canonical) {
+      tabEntries.push([tabId, { ...canonical, id: tabId, resource: canonical.resource ? { ...canonical.resource } : undefined }]);
+      continue;
+    }
+    if (projectHasResource(project, tab)) {
+      tabEntries.push([tabId, { ...tab, resource: tab.resource ? { ...tab.resource } : undefined }]);
+    }
+  }
+  const tabsById = Object.fromEntries(tabEntries);
+  if (Object.keys(tabsById).length === 0) return projectWorkbench;
+  const groupsById = Object.fromEntries(
+    Object.entries(serialized.groupsById)
+      .map(([groupId, group]) => {
+        const tabIds = group.tabIds.filter((tabId) => !!tabsById[tabId]);
+        return [groupId, { ...group, tabIds, activeTabId: group.activeTabId && tabIds.includes(group.activeTabId) ? group.activeTabId : tabIds.at(-1) ?? null }] as const;
+      })
+      .filter(([, group]) => group.tabIds.length > 0),
+  );
+  if (Object.keys(groupsById).length === 0) return projectWorkbench;
+
+  const representedProjectStableIds = new Set(
+    Object.values(tabsById)
+      .map(tabResourceStableId)
+      .filter((stableId): stableId is string => stableId !== null),
+  );
+  const targetGroupId = groupsById[serialized.activeGroupId] ? serialized.activeGroupId : Object.keys(groupsById)[0]!;
+  const targetGroup = groupsById[targetGroupId]!;
+  for (const projectTab of Object.values(projectWorkbench.tabsById)) {
+    const stableId = tabResourceStableId(projectTab);
+    if (!stableId || representedProjectStableIds.has(stableId)) continue;
+    tabsById[projectTab.id] = { ...projectTab, resource: projectTab.resource ? { ...projectTab.resource } : undefined };
+    targetGroup.tabIds.push(projectTab.id);
+    representedProjectStableIds.add(stableId);
+  }
+
+  const layout = filterLayoutToGroups(serialized.layout, new Set(Object.keys(groupsById))) ?? { kind: 'group' as const, groupId: Object.keys(groupsById)[0]! };
+  return normalizeWorkbenchState({
+    layout,
+    groupsById,
+    tabsById,
+    activeGroupId: groupsById[serialized.activeGroupId] ? serialized.activeGroupId : Object.keys(groupsById)[0]!,
+    recentlyClosedTabs: [],
+  });
+}
+
+export function serializeProjectWorkbenchState(state: WorkbenchState): SerializedWorkbenchState | null {
+  const next = normalizeWorkbenchState(state);
+  const tabsById = Object.fromEntries(
+    Object.entries(next.tabsById)
+      .map(([tabId, tab]) => [tabId, cloneTabForProjectPersistence(tab)] as const)
+      .filter((entry): entry is readonly [string, WorkbenchTab] => entry[1] !== null),
+  );
+  if (Object.keys(tabsById).length === 0) return null;
+
+  const groupsById = Object.fromEntries(
+    Object.entries(next.groupsById)
+      .map(([groupId, group]) => {
+        const tabIds = group.tabIds.filter((tabId) => !!tabsById[tabId]);
+        return [groupId, { ...group, tabIds, activeTabId: group.activeTabId && tabIds.includes(group.activeTabId) ? group.activeTabId : tabIds.at(-1) ?? null }] as const;
+      })
+      .filter(([, group]) => group.tabIds.length > 0),
+  );
+  if (Object.keys(groupsById).length === 0) return null;
+
+  const layout = filterLayoutToGroups(next.layout, new Set(Object.keys(groupsById))) ?? { kind: 'group' as const, groupId: Object.keys(groupsById)[0]! };
+  const activeGroupId = groupsById[next.activeGroupId] ? next.activeGroupId : Object.keys(groupsById)[0]!;
+  return { layout, groupsById, tabsById, activeGroupId };
+}
+
+export function restoreProjectWorkbenchState(serialized: SerializedWorkbenchState | undefined, project: unknown): WorkbenchState {
+  if (!serialized) return createInitialWorkbenchState();
+  const tabsById = Object.fromEntries(
+    Object.entries(serialized.tabsById)
+      .filter(([, tab]) => projectHasResource(project, tab as WorkbenchTab))
+      .map(([tabId, tab]) => [tabId, { ...tab, resource: tab.resource ? { ...tab.resource } : undefined }] as const),
+  );
+  if (Object.keys(tabsById).length === 0) return createInitialWorkbenchState();
+  const groupsById = Object.fromEntries(
+    Object.entries(serialized.groupsById)
+      .map(([groupId, group]) => {
+        const tabIds = group.tabIds.filter((tabId) => !!tabsById[tabId]);
+        return [groupId, { ...group, tabIds, activeTabId: group.activeTabId && tabIds.includes(group.activeTabId) ? group.activeTabId : tabIds.at(-1) ?? null }] as const;
+      })
+      .filter(([, group]) => group.tabIds.length > 0),
+  );
+  if (Object.keys(groupsById).length === 0) return createInitialWorkbenchState();
+  const layout = filterLayoutToGroups(serialized.layout as WorkbenchLayoutNode, new Set(Object.keys(groupsById))) ?? { kind: 'group' as const, groupId: Object.keys(groupsById)[0]! };
+  return normalizeWorkbenchState({
+    layout,
+    groupsById,
+    tabsById,
+    activeGroupId: groupsById[serialized.activeGroupId] ? serialized.activeGroupId : Object.keys(groupsById)[0]!,
+    recentlyClosedTabs: [],
   });
 }
 

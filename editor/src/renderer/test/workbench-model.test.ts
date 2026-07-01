@@ -8,7 +8,11 @@ import {
   moveWorkbenchTabWithinGroup,
   openWorkbenchTab,
   reopenLastClosedWorkbenchTab,
+  restoreProjectWorkbenchState,
+  restoreShellWorkbenchState,
   ROOT_GROUP_ID,
+  serializeProjectWorkbenchState,
+  serializeShellWorkbenchState,
   splitWorkbenchGroup,
 } from '@/workbench/workbench-model';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
@@ -139,6 +143,81 @@ describe('workbench model', () => {
     expect(Object.keys(state.tabsById)).toEqual(['tab:settings']);
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:settings']);
     expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:settings');
+  });
+
+  it('serializes only project-scoped tabs and restores valid references', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+
+    const serialized = serializeProjectWorkbenchState(state);
+    expect(Object.keys(serialized?.tabsById ?? {})).toEqual(['tab:foyer']);
+
+    const restored = restoreProjectWorkbenchState(serialized ?? undefined, {
+      room: {
+        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
+      },
+    });
+    expect(restored.tabsById['tab:foyer']).toBeTruthy();
+
+    const stale = restoreProjectWorkbenchState(serialized ?? undefined, { room: {} });
+    expect(stale.tabsById).toEqual({});
+    expect(stale.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([]);
+  });
+
+  it('merges tool-only local shell state with project-restored tabs', () => {
+    let toolOnly = createInitialWorkbenchState();
+    toolOnly = openWorkbenchTab(toolOnly, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+    const shell = serializeShellWorkbenchState(toolOnly);
+    const projectOnly = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
+    const restored = restoreShellWorkbenchState(shell, {
+      room: {
+        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
+      },
+    }, projectOnly);
+
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:settings', 'tab:foyer']);
+    expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:settings');
+  });
+
+  it('restores interleaved project and tool tabs from local shell state', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+    state = openWorkbenchTab(state, rawTab('kitchen'));
+    state = activateWorkbenchTab(state, ROOT_GROUP_ID, 'tab:settings');
+
+    const shell = serializeShellWorkbenchState(state);
+    const projectOnly = restoreProjectWorkbenchState(serializeProjectWorkbenchState(state) ?? undefined, {
+      room: {
+        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
+        kitchen: { id: 'kitchen', label: 'Kitchen', tags: [], data: {} },
+      },
+    });
+    const restored = restoreShellWorkbenchState(shell, {
+      room: {
+        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
+        kitchen: { id: 'kitchen', label: 'Kitchen', tags: [], data: {} },
+      },
+    }, projectOnly);
+
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:settings', 'tab:kitchen']);
+    expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:settings');
   });
 
   it('keeps active tab valid after closing and can reopen a closed tab', () => {
