@@ -6,6 +6,7 @@ import { validateDialogueData } from './authoring-dialogues';
 import { validateDefaultLayoutSetting, validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
 import { validateRoomData } from './authoring-rooms';
+import { validateSceneData } from './authoring-scenes';
 import { validateShaderData } from './authoring-shaders';
 import { validateVariableData } from './authoring-variables';
 import {
@@ -167,6 +168,9 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   }
   for (const [id, record] of Object.entries(project.dialogues)) {
     diagnostics.push(...validateDialogueData(project, id, record));
+  }
+  for (const [id, record] of Object.entries(project.scenes)) {
+    diagnostics.push(...validateSceneData(project, id, record));
   }
 
   return diagnostics;

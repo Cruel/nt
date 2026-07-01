@@ -10,6 +10,7 @@ import { defaultDialogueData } from '../../shared/project-schema/authoring-dialo
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import {
@@ -151,6 +152,7 @@ export function defaultDataForCollection(
   if (collection === 'characters') return defaultCharacterData(label) as unknown as Record<string, unknown>;
   if (collection === 'rooms') return defaultRoomData(label) as unknown as Record<string, unknown>;
   if (collection === 'dialogues') return defaultDialogueData(label) as unknown as Record<string, unknown>;
+  if (collection === 'scenes') return defaultSceneData(label) as unknown as Record<string, unknown>;
   return {};
 }
 

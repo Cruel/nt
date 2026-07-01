@@ -31,6 +31,7 @@ import {
 import { replaceCharacterDataPatches } from '@/project/character-operations';
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
+import { replaceSceneDataPatches } from '@/project/scene-operations';
 import { replaceLayoutDataPatches, setDefaultLayoutPatches } from '@/project/layout-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
@@ -255,6 +256,7 @@ const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z
 const characterReplaceDataSchema = z.object({ characterId: entityIdSchema, data: z.unknown() });
 const dialogueReplaceDataSchema = z.object({ dialogueId: entityIdSchema, data: z.unknown() });
 const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown() });
+const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
 const setDefaultLayoutSchema = z.object({ layoutId: entityIdSchema.nullable() });
 const variableSetTypeSchema = z.object({
@@ -334,6 +336,9 @@ export const dialogueReplaceDataCommand: CommandHandler = ({ document, payload }
 export const roomReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomReplaceDataSchema, payload, (parsed) => replaceRoomDataPatches(document, parsed));
 
+export const sceneReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(sceneReplaceDataSchema, payload, (parsed) => replaceSceneDataPatches(document, parsed));
+
 export const projectSetDefaultLayoutCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(setDefaultLayoutSchema, payload, (parsed) => setDefaultLayoutPatches(document, parsed));
 
@@ -367,6 +372,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'character.replaceData': characterReplaceDataCommand,
     'dialogue.replaceData': dialogueReplaceDataCommand,
     'room.replaceData': roomReplaceDataCommand,
+    'scene.replaceData': sceneReplaceDataCommand,
     'project.setDefaultLayout': projectSetDefaultLayoutCommand,
   };
 }
@@ -401,6 +407,7 @@ export function labelForCommand(type: string): string {
     case 'character.replaceData': return 'Update character';
     case 'dialogue.replaceData': return 'Update dialogue';
     case 'room.replaceData': return 'Update room';
+    case 'scene.replaceData': return 'Update scene';
     case 'project.setDefaultLayout': return 'Set default layout';
     default: return type;
   }

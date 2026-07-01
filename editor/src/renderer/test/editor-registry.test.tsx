@@ -47,6 +47,21 @@ describe('editor registry', () => {
     });
   });
 
+  it('routes scene records to the typed scene editor', () => {
+    const node: AssetNode = {
+      id: 'scenes:opening',
+      label: 'Opening',
+      type: 'scene',
+      collection: 'scenes',
+      entityId: 'opening',
+    };
+    expect(buildDefaultRecordTab(node)).toMatchObject({
+      id: 'tab:scene-detail:scenes:opening',
+      editorType: 'scene-detail',
+      resource: { collection: 'scenes', entityId: 'opening' },
+    });
+  });
+
   it('routes layout records to the typed layout editor', () => {
     const node: AssetNode = {
       id: 'layouts:main',

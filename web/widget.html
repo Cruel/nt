@@ -288,6 +288,38 @@ thead, tbody, tfoot {
       return `<rml>\n<head>\n<title>Dialogue Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: ${background}; font-family: Liberation Sans; color: ${foreground}; }\n#nt-dialogue-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; padding: 24px; background-color: ${background}; }\n#nt-dialogue-preview-card { position: absolute; left: 24px; right: 24px; top: 24px; bottom: 24px; background-color: rgba(15, 23, 42, 220); border: 1px #334155; padding: 18px; }\n#nt-dialogue-preview-title { color: #f8fafc; font-size: 22px; margin-bottom: 4px; }\n#nt-dialogue-preview-meta { color: #94a3b8; font-size: 12px; margin-bottom: 16px; }\n.nt-dialogue-preview-segment { margin-bottom: 10px; padding: 10px; background-color: rgba(30, 41, 59, 210); }\n.nt-dialogue-preview-speaker { color: #93c5fd; font-size: 12px; margin-bottom: 4px; }\n.nt-dialogue-preview-line { color: #e5e7eb; font-size: 15px; }\n.nt-dialogue-preview-flags { display: block; margin-top: 4px; color: #fbbf24; font-size: 11px; }\n#nt-dialogue-preview-choices { position: absolute; left: 18px; right: 18px; bottom: 18px; }\n.nt-dialogue-preview-choice { display: block; width: 100%; margin-top: 6px; text-align: left; }\n.nt-dialogue-preview-empty, .nt-dialogue-preview-no-choices { color: #94a3b8; font-size: 13px; }\n</style>\n</head>\n<body>\n<div id="nt-dialogue-preview-stage"><div id="nt-dialogue-preview-card"><div id="nt-dialogue-preview-title">${escapeText(name)}</div><div id="nt-dialogue-preview-meta">${escapeText(blockLabel)} · ${escapeText(blockType)}</div>${segmentMarkup}<div id="nt-dialogue-preview-choices">${choiceMarkup}</div></div></div>\n</body>\n</rml>`;
     }
 
+    function buildScenePreviewRml(data) {
+      const name = data && (data.displayName || data.label || data.sceneId) ? data.displayName || data.label || data.sceneId : 'Scene';
+      const selected = data && data.selectedStep ? data.selectedStep : null;
+      const selectedLabel = selected && (selected.label || selected.id) ? selected.label || selected.id : 'No step selected';
+      const selectedType = selected && selected.type ? selected.type : 'missing';
+      const state = data && data.state ? data.state : {};
+      const background = data && data.preview && data.preview.background === 'light' ? '#f8fafc' : '#0f172a';
+      const foreground = data && data.preview && data.preview.background === 'light' ? '#0f172a' : '#e5e7eb';
+      const steps = data && Array.isArray(data.steps) ? data.steps : [];
+      const stepMarkup = steps.slice(0, 12).map((step) => {
+        const marker = step.selected ? '▶ ' : '';
+        const flags = [];
+        if (step.indicators && step.indicators.condition) flags.push('condition');
+        if (step.indicators && step.indicators.script) flags.push('script');
+        if (step.indicators && step.indicators.autosaveBefore) flags.push('autosave-before');
+        if (step.indicators && step.indicators.autosaveAfter) flags.push('autosave-after');
+        const meta = flags.length > 0 ? ` · ${flags.join(', ')}` : '';
+        return `<div class="nt-scene-preview-step${step.selected ? ' selected' : ''}">${escapeText(marker + (step.label || step.id || 'step'))}<span>${escapeText((step.type || 'unknown') + meta)}</span></div>`;
+      }).join('');
+      const characters = state && Array.isArray(state.characters) ? state.characters : [];
+      const characterMarkup = characters.length > 0 ? characters.map((character) => {
+        const meta = [character.action, character.position, character.pose, character.expression].filter(Boolean).join(' · ');
+        const name = character.characterMetadata && character.characterMetadata.displayName ? character.characterMetadata.displayName : character.character && character.character.$ref ? character.character.$ref.id : 'Character';
+        return `<div class="nt-scene-preview-chip">${escapeText(name)}<span>${escapeText(meta)}</span></div>`;
+      }).join('') : '<div class="nt-scene-preview-muted">No visible characters.</div>';
+      const backgroundSummary = state && state.background ? state.background : null;
+      const backgroundLabel = backgroundSummary && backgroundSummary.assetMetadata && backgroundSummary.assetMetadata.label ? backgroundSummary.assetMetadata.label : backgroundSummary && backgroundSummary.color ? backgroundSummary.color : 'Default background';
+      const dialogue = state && state.dialogue && state.dialogue.dialogueMetadata ? state.dialogue.dialogueMetadata : null;
+      const dialogueMarkup = dialogue ? `<div class="nt-scene-preview-chip">${escapeText(dialogue.displayName || dialogue.label || dialogue.id)}<span>${escapeText(dialogue.blockLabel || dialogue.blockId || 'entry')}</span></div>` : '<div class="nt-scene-preview-muted">No dialogue at selected state.</div>';
+      return `<rml>\n<head>\n<title>Scene Preview</title>\n<style>\nbody { margin: 0; width: 100%; height: 100%; background-color: ${background}; font-family: Liberation Sans; color: ${foreground}; }\n#nt-scene-preview-stage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; padding: 20px; background-color: ${background}; }\n#nt-scene-preview-card { position: absolute; left: 20px; right: 20px; top: 20px; bottom: 20px; background-color: rgba(15, 23, 42, 220); border: 1px #334155; padding: 16px; }\n#nt-scene-preview-title { color: #f8fafc; font-size: 22px; margin-bottom: 4px; }\n#nt-scene-preview-meta { color: #94a3b8; font-size: 12px; margin-bottom: 12px; }\n#nt-scene-preview-state { position: absolute; left: 16px; top: 76px; width: 47%; bottom: 16px; }\n#nt-scene-preview-steps { position: absolute; right: 16px; top: 76px; width: 47%; bottom: 16px; }\n.nt-scene-preview-section-title { color: #93c5fd; font-size: 13px; margin: 10px 0 6px; }\n.nt-scene-preview-chip, .nt-scene-preview-step { margin-bottom: 6px; padding: 7px 8px; background-color: rgba(30, 41, 59, 210); color: #e5e7eb; font-size: 13px; }\n.nt-scene-preview-step.selected { border: 1px #60a5fa; }\n.nt-scene-preview-chip span, .nt-scene-preview-step span { display: block; margin-top: 2px; color: #94a3b8; font-size: 11px; }\n.nt-scene-preview-muted { color: #94a3b8; font-size: 12px; margin-bottom: 6px; }\n</style>\n</head>\n<body>\n<div id="nt-scene-preview-stage"><div id="nt-scene-preview-card"><div id="nt-scene-preview-title">${escapeText(name)}</div><div id="nt-scene-preview-meta">${escapeText(selectedLabel)} · ${escapeText(selectedType)}</div><div id="nt-scene-preview-state"><div class="nt-scene-preview-section-title">Background</div><div class="nt-scene-preview-chip">${escapeText(backgroundLabel)}<span>${escapeText(backgroundSummary && backgroundSummary.fit ? backgroundSummary.fit : '')}</span></div><div class="nt-scene-preview-section-title">Characters</div>${characterMarkup}<div class="nt-scene-preview-section-title">Dialogue</div>${dialogueMarkup}</div><div id="nt-scene-preview-steps"><div class="nt-scene-preview-section-title">Steps</div>${stepMarkup || '<div class="nt-scene-preview-muted">No scene steps.</div>'}</div></div></div>\n</body>\n</rml>`;
+    }
+
     function emitDocumentDiagnostics(document) {
       const data = document && document.data ? document.data : null;
       if (!data || !Array.isArray(data.diagnostics)) return;
@@ -337,6 +369,7 @@ thead, tbody, tfoot {
       else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
       else if (kind === 'room-preview') applyPreviewRml(message, buildRoomPreviewRml(data));
       else if (kind === 'dialogue-preview') applyPreviewRml(message, buildDialoguePreviewRml(data));
+      else if (kind === 'scene-preview') applyPreviewRml(message, buildScenePreviewRml(data));
       else failCommand(message, `Preview widget cannot render document '${kind}'.`);
     }
 
@@ -375,7 +408,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1'],
       });
       drainCommands();
     }
