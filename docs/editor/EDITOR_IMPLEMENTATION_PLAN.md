@@ -1364,17 +1364,6 @@ Linux/Web/Android checks documented in `AGENTS.md` and `docs/BUILD_AND_VERIFY.md
 
 ## Suggested First Implementation Prompt
 
-Use this prompt to start the next implementation context:
-
-```text
-@dev nt We are starting implementation of the new editor workbench plan. Read
-`docs/editor/EDITOR_IMPLEMENTATION_PLAN.md`, `docs/editor/ENGINE_PREVIEW_COMMUNICATION.md`,
-and the current `editor/src` structure. Implement Milestone 1 only: a reusable
-VS Code-like workbench shell with editor groups, tabs, split support, fallback
-raw JSON editor registration, bottom panel scaffolding, and project explorer
-records opening into tabs. Keep persistent project editing behavior unchanged for
-now; do not implement the command bus yet except for interfaces/placeholders
-needed by the workbench. Preserve the existing engine preview route/component by
-making it usable as a workbench tab/editor surface. Add/adjust tests for the
-workbench state model and basic tab operations. Do not touch `refs/NovelTea`.
+```
+@dev nt Review `/home/thomas/dev/nt/docs/editor/EDITOR_IMPLEMENTATION_PLAN.md` and all relevant files, including some that may be in the reference project dir `/home/thomas/dev/nt/refs/NovelTea/src/editor/`. Create an implementation plan for Milestone X.
 ```
