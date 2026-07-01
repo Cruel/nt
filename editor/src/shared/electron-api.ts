@@ -11,6 +11,9 @@ export interface AppInfo {
 export interface NovelTeaElectronApi {
   getAppInfo(): Promise<AppInfo>;
   selectProjectDirectory(): Promise<string | null>;
+  selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>;
+  showItemInFolder(path: string): Promise<void>;
+  previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>;
   openExternal(url: string): Promise<void>;
   zoomIn(): Promise<number>;
   zoomOut(): Promise<number>;
@@ -59,6 +62,7 @@ import type {
   OpenProjectResponse,
   PackageExportOptions,
   PackageExportResponse,
+  PackagePreviewResponse,
   PlaybackReportResponse,
   ProjectLoadResponse,
   SaveProjectResponse,

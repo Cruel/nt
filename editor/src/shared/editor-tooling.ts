@@ -48,9 +48,13 @@ export interface PackageExportOptions {
   projectVersion?: string;
   createdBy?: string;
   includeChecksums?: boolean;
+  stripShaderSources?: boolean;
   shaderAssetRoot?: string;
   shaderVariants?: string[];
+  shaderMaterialMetadata?: unknown;
+  requiredShaderBinaryPaths?: string[];
   assetRoots?: Array<{ root: string; packagePrefix?: string }>;
+  fileEntries?: Array<{ source: string; packagePath: string }>;
 }
 
 export interface PackageExportResponse {
@@ -60,6 +64,14 @@ export interface PackageExportResponse {
   manifest?: unknown;
   byteCount?: number;
   checksums?: Record<string, string>;
+  error?: string;
+}
+
+export interface PackagePreviewResponse {
+  ok: boolean;
+  success: boolean;
+  diagnostics: ToolDiagnostic[];
+  packagePath?: string;
   error?: string;
 }
 

@@ -14,6 +14,7 @@ import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-sto
 import { buildEditorProjectStateSnapshot, clearLocalEditorSessionSnapshot, mergeEditorProjectState, restoreEditorProjectState, restoreNoProjectEditorSession, saveLocalEditorSessionSnapshot } from '@/workbench/project-editor-state';
 import { buildPrimaryPreviewTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
 import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -47,6 +48,7 @@ interface WorkspaceAlert {
 export function WorkspacePage() {
   const [, setBusy] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
+  const [packageExportOpen, setPackageExportOpen] = useState(false);
   const lastObservedCommandId = useRef<string | null>(null);
   const didAttemptStartupRestore = useRef(false);
   const completingWindowClose = useRef(false);
@@ -398,7 +400,9 @@ export function WorkspacePage() {
 
   function exportRuntimePackage() {
     setLastExportResult(null);
-    setStatusMessage('Runtime export requires authoring-to-runtime conversion, which is not implemented yet.');
+    setPackageExportOpen(true);
+    setBottomPanelVisible(true);
+    useBottomPanelStore.getState().setActivePanelId('package-export');
   }
 
   useEffect(() => {
@@ -484,6 +488,13 @@ export function WorkspacePage() {
           </Group>
         </div>
       </div>
+      <PackageExportDialog
+        open={packageExportOpen}
+        onOpenChange={setPackageExportOpen}
+        project={isAuthoringProject(project) ? project : null}
+        projectRoot={projectPath}
+        projectFilePath={projectFilePath}
+      />
       <Dialog open={alert !== null} onOpenChange={(open) => { if (!open) setAlert(null); }}>
         <DialogPopup>
           <DialogTitle>{alert?.title ?? 'Workspace warning'}</DialogTitle>

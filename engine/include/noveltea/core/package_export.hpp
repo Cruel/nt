@@ -39,12 +39,18 @@ struct PackageExportAssetRoot {
     std::string package_prefix;
 };
 
+struct PackageExportFileEntry {
+    std::filesystem::path source;
+    std::string package_path;
+};
+
 struct PackageExportOptions {
     PackageExportKind kind = PackageExportKind::Runtime;
     std::string project_name;
     std::string project_version;
     std::string created_by = "noveltea";
     std::vector<PackageExportAssetRoot> asset_roots;
+    std::vector<PackageExportFileEntry> file_entries;
     std::filesystem::path shader_asset_root;
     std::vector<std::string> shader_variants;
     std::optional<nlohmann::json> shader_material_metadata;

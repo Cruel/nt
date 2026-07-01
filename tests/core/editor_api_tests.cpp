@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 
 using namespace noveltea::core;
 using namespace noveltea::core::editor;
@@ -13,6 +14,13 @@ using namespace noveltea::core::editor;
 namespace {
 
 nlohmann::json props() { return nlohmann::json::object(); }
+
+void write_file(const std::filesystem::path& path, std::string_view content)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream file(path, std::ios::binary);
+    file << content;
+}
 
 nlohmann::json ref(EntityType type, std::string id)
 {
@@ -177,6 +185,26 @@ TEST_CASE("ProjectTooling exports runtime project packages for editor workflows"
     CHECK(result.manifest["format"] == "noveltea.runtime-package");
     CHECK(result.manifest["project"]["name"] == "Editor Export");
     CHECK(result.byte_count > 0);
+    CHECK(std::filesystem::exists(output));
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE("ProjectTooling export accepts explicit package file entries")
+{
+    const auto temp = unique_temp_dir("editor-tool-file-entry-export");
+    write_file(temp / "asset.txt", "asset");
+
+    PackageExportOptions options;
+    options.project_name = "Editor Export File Entry";
+    options.project_version = "1.0";
+    options.file_entries.push_back(PackageExportFileEntry{temp / "asset.txt", "text/asset.txt"});
+
+    const auto output = temp / "file-entry.ntpkg";
+    const auto result = ProjectTooling::export_project_package(make_preview_project(), output, options);
+
+    REQUIRE(result.success);
+    CHECK(result.checksums.contains("text/asset.txt"));
     CHECK(std::filesystem::exists(output));
 
     std::filesystem::remove_all(temp);

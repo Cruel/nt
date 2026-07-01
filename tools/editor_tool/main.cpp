@@ -276,6 +276,16 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             options.asset_roots.push_back(std::move(asset_root));
         }
     }
+    if (auto entries = json.find("fileEntries"); entries != json.end() && entries->is_array()) {
+        for (const auto& entry : *entries) {
+            if (!entry.is_object())
+                continue;
+            PackageExportFileEntry file_entry;
+            file_entry.source = entry.value("source", std::string{});
+            file_entry.package_path = entry.value("packagePath", std::string{});
+            options.file_entries.push_back(std::move(file_entry));
+        }
+    }
     return options;
 }
 

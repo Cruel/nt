@@ -1,0 +1,201 @@
+# Export and Packaging Workflow
+
+## Purpose
+
+The editor export workflow turns a NovelTea authoring project into a runtime package. It does not package the authoring project JSON directly. The workflow builds a runtime-shaped package input, collects package-safe assets, passes shader/material metadata when present, and calls the native package writer through the editor tool bridge.
+
+## Current V1 Scope
+
+Milestone 17 implements a first vertical slice:
+
+- export profile defaults for runtime packages;
+- native save dialog for selecting `.ntpkg` output paths;
+- validation-before-export;
+- pure authoring-to-runtime export builder;
+- room-entrypoint runtime conversion for simple text-room projects;
+- deterministic explicit package file entries for referenced assets;
+- native package writer support for explicit file entries;
+- shader/material metadata handoff and required shader binary path derivation;
+- optional shader compile-before-export orchestration;
+- structured Package Export bottom panel;
+- reveal-in-folder support;
+- explicit unsupported diagnostic for preview-from-exported-package.
+
+The runtime conversion is intentionally narrow. Room entrypoints are supported. Scene and dialogue entrypoints are blocked with precise diagnostics because those authoring records do not yet have complete runtime export semantics.
+
+## Workflow Stages
+
+Renderer workflow files:
+
+```text
+editor/src/renderer/export/package-export-workflow.ts
+editor/src/renderer/export/package-export-store.ts
+```
+
+Stages:
+
+```text
+idle
+validating
+building-runtime-project
+compiling-shaders
+writing-package
+previewing-package
+complete
+failed
+```
+
+Validation errors stop the workflow before shader compilation or native package writing. Runtime export conversion errors stop the workflow before native package writing. Shader compile errors stop the workflow before package writing. Native package diagnostics are merged into the final export result.
+
+## Export Profiles
+
+Export profile helpers live in:
+
+```text
+editor/src/shared/project-schema/authoring-export.ts
+```
+
+Default runtime package profile:
+
+```ts
+{
+  id: 'runtime-default',
+  label: 'Runtime Package',
+  kind: 'runtime',
+  outputPath: '',
+  includeChecksums: true,
+  stripEditorData: true,
+  stripShaderSources: true,
+  compileShadersBeforeExport: true,
+  shaderVariants: ['glsl-120', 'essl-100', 'essl-300'],
+  includeAllProjectAssets: false,
+  includeOnlyReferencedAssets: true,
+  includeTests: false,
+  previewAfterExport: false,
+}
+```
+
+Profile parsing supports `project.settings.export`, but V1 does not yet include a full command-backed export profile editor. The dialog uses the selected/default profile and lets the user adjust output path, shader variants, and key toggles for the current export run.
+
+## Authoring-to-Runtime Export Builder
+
+The pure builder lives in:
+
+```text
+editor/src/shared/project-schema/authoring-runtime-export.ts
+```
+
+It produces a runtime-shaped project object, explicit package file entries, shader/material metadata, required shader binary paths, manifest preview metadata, and export diagnostics.
+
+It strips editor-only data by construction. The authoring `editor` state and `tests` collection are not included in runtime package output.
+
+Supported runtime conversion in V1:
+
+- project name/version/author;
+- room collection;
+- room descriptions;
+- room path targets to other rooms;
+- room hotspot object placements where representable;
+- room entrypoint.
+
+Unsupported V1 conversion:
+
+- scene entrypoints;
+- dialogue entrypoints;
+- full scene runtime semantics;
+- full dialogue runtime semantics;
+- authored map/inventory/action runtime semantics beyond data already representable by the room slice.
+
+Unsupported records should produce blocking diagnostics only when they are needed for the runtime entrypoint or exported flow. Extra scene/dialogue records produce warnings because they are not included in the V1 runtime package output.
+
+## Asset Packaging
+
+The editor export builder emits explicit package file entries instead of broad asset roots. This avoids accidentally packaging unreferenced authoring files.
+
+Native support is implemented in:
+
+```text
+engine/include/noveltea/core/package_export.hpp
+engine/src/core/package_export.cpp
+tools/editor_tool/main.cpp
+```
+
+Native export options accept:
+
+```json
+{
+  "fileEntries": [
+    { "source": "/absolute/project/assets/images/foyer.png", "packagePath": "textures/foyer.png" }
+  ]
+}
+```
+
+The package writer validates source existence, package path safety, allowed package prefixes, duplicate paths, and checksums. Existing `assetRoots` remain available for lower-level/native workflows, but the authoring export workflow uses explicit entries.
+
+## Shader Packaging
+
+Shader/material metadata is built with:
+
+```text
+editor/src/shared/project-schema/shader-material-project.ts
+```
+
+When shader or material records exist, the export workflow can compile shaders before writing the package. Compile outputs are applied through `shader.applyCompiledOutputs` before package writing, then shader/material metadata is rebuilt so compiled runtime paths are present.
+
+Required shader binary paths are passed to native export as `requiredShaderBinaryPaths`. Missing required binaries fail the package export instead of silently producing a package that cannot render material-backed content.
+
+## UI Surfaces
+
+Export dialog:
+
+```text
+editor/src/renderer/export/PackageExportDialog.tsx
+```
+
+Structured bottom panel:
+
+```text
+editor/src/renderer/export/PackageExportPanel.tsx
+```
+
+The Package Export panel shows workflow status, profile/output path, manifest summary, diagnostics, asset file entries, shader outputs, byte count, checksums, raw JSON, reveal-in-folder, and preview package actions.
+
+## IPC Surface
+
+The renderer uses narrow Electron APIs:
+
+```ts
+selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>
+showItemInFolder(path: string): Promise<void>
+previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>
+```
+
+`previewExportedPackage` currently returns a precise unsupported diagnostic. Actual package preview should be connected to the engine preview server once loading exported `.ntpkg` files through the preview session is safe.
+
+## Verification
+
+Editor checks:
+
+```sh
+cd editor
+pnpm typecheck
+pnpm test
+pnpm lint
+```
+
+Native checks:
+
+```sh
+cmake --build --preset linux-debug --target noveltea_core_tests noveltea_render_tests noveltea-editor-tool
+build/linux-debug/tests/noveltea_core_tests
+build/linux-debug/tests/noveltea_render_tests
+```
+
+## Known Follow-Up Work
+
+- Persist export profile edits through command-backed project settings updates.
+- Add full scene and dialogue runtime export conversion.
+- Add package preview loading through the engine preview server.
+- Add shader tool path preferences or better automatic shaderc discovery.
+- Add more granular asset reachability based on runtime-converted records.
+- Add platform-specific packaging workflows after runtime package export is stable.

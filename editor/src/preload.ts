@@ -6,6 +6,12 @@ const api: NovelTeaElectronApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.GET_APP_INFO),
   selectProjectDirectory: () =>
     ipcRenderer.invoke(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
+  selectPackageOutputPath: (defaultPath: string | null = null) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, defaultPath),
+  showItemInFolder: (path: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SHOW_ITEM_IN_FOLDER, path),
+  previewExportedPackage: (packagePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE, packagePath),
   openExternal: (url: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.OPEN_EXTERNAL, url),
   zoomIn: () => ipcRenderer.invoke(IPC_CHANNELS.ZOOM_IN),

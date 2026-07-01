@@ -212,6 +212,38 @@ void collect_asset_root(const PackageExportAssetRoot& asset_root,
     }
 }
 
+void collect_file_entries(const PackageExportOptions& options, std::vector<PendingEntry>& entries,
+                          PackageExportResult& result)
+{
+    for (const auto& file_entry : options.file_entries) {
+        auto package_path = file_entry.package_path;
+        std::replace(package_path.begin(), package_path.end(), '\\', '/');
+        if (!ProjectPackageWriter::is_safe_package_path(package_path) ||
+            !has_allowed_package_prefix(package_path)) {
+            add_diagnostic(result, PackageExportSeverity::Error, "asset", package_path,
+                           "Package file entry path is not allowed.");
+            continue;
+        }
+        if (file_entry.source.empty()) {
+            add_diagnostic(result, PackageExportSeverity::Error, "asset", package_path,
+                           "Package file entry source is empty.");
+            continue;
+        }
+        if (!std::filesystem::exists(file_entry.source) ||
+            !std::filesystem::is_regular_file(file_entry.source)) {
+            add_diagnostic(result, PackageExportSeverity::Error, "asset", package_path,
+                           "Package file entry source does not exist: '" +
+                               file_entry.source.string() + "'.");
+            continue;
+        }
+        auto bytes = read_file_bytes(file_entry.source, result, package_path);
+        if (bytes) {
+            add_entry(entries, result, std::move(package_path), std::move(*bytes),
+                      options.include_checksums);
+        }
+    }
+}
+
 void collect_shaders(const PackageExportOptions& options, std::vector<PendingEntry>& entries,
                      PackageExportResult& result)
 {
@@ -363,6 +395,7 @@ PackageExportResult write_zip(const ProjectDocument& project, const PackageExpor
     for (const auto& root : options.asset_roots) {
         collect_asset_root(root, entries, result, options.include_checksums);
     }
+    collect_file_entries(options, entries, result);
     collect_shaders(options, entries, result);
     collect_shader_material_metadata(options, entries, result);
 

@@ -237,6 +237,32 @@ app.whenReady().then(() => {
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
+  ipcMain.handle(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, async (_event: Electron.IpcMainInvokeEvent, defaultPath: string | null = null) => {
+    if (!mainWindow) return null;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export NovelTea Package',
+      defaultPath: defaultPath ?? undefined,
+      filters: [
+        { name: 'NovelTea Package', extensions: ['ntpkg'] },
+        { name: 'Zip Package', extensions: ['zip'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    return result.canceled ? null : (result.filePath ?? null);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SHOW_ITEM_IN_FOLDER, (_event: Electron.IpcMainInvokeEvent, itemPath: string) => {
+    if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE, (_event: Electron.IpcMainInvokeEvent, packagePath: string) => ({
+    ok: false,
+    success: false,
+    packagePath,
+    diagnostics: [{ severity: 'warning', category: 'preview', path: packagePath || '/', message: 'Preview from exported package is not wired to the engine preview server yet.' }],
+    error: 'Preview from exported package is not wired to the engine preview server yet.',
+  }));
+
   ipcMain.handle(
     IPC_CHANNELS.OPEN_EXTERNAL,
     async (_event: Electron.IpcMainInvokeEvent, url: string) => {

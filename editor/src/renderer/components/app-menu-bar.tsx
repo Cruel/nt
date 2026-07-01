@@ -99,7 +99,7 @@ function WorkspaceTopToolbar() {
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('run-first-test')} disabled={!canRunTest} title={canRunTest ? 'Open or run a test' : 'No tests exist yet'}>
         <FlaskConical className="h-3.5 w-3.5" />
       </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('export-package')} disabled={isAuthoring} title="Export is disabled for authoring projects until conversion exists">
+      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('export-package')} title={isAuthoring ? 'Export runtime package' : 'Package export requires an authoring project'}>
         <Package className="h-3.5 w-3.5" />
       </Button>
       <Separator orientation="vertical" className="mx-1 h-4" />

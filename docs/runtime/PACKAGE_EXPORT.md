@@ -33,7 +33,22 @@ exported packages through the legacy-compatible package fallback.
 
 Editor-facing tooling should call `core::editor::ProjectTooling::export_project_package()` or the
 `noveltea-editor-tool export-package` command. Export options can pass `shaderMaterialMetadata`,
-`requiredShaderBinaryPaths`, `shaderAssetRoot`, and `shaderVariants`. Required shader paths are
-validated against the package payload so missing material variants fail during export instead of
-silently falling back at runtime. The result includes success, diagnostics, byte count, manifest
-JSON, and checksum summary without exposing archive-library types.
+`requiredShaderBinaryPaths`, `shaderAssetRoot`, `shaderVariants`, `assetRoots`, and explicit
+`fileEntries`. Required shader paths are validated against the package payload so missing material
+variants fail during export instead of silently falling back at runtime. The result includes
+success, diagnostics, byte count, manifest JSON, and checksum summary without exposing
+archive-library types.
+
+`fileEntries` are the preferred editor-authoring path for referenced assets because they avoid
+copying broad project asset directories into runtime packages. Each entry provides an absolute
+source file and a runtime package path, for example:
+
+```json
+{
+  "source": "/project/assets/images/foyer.png",
+  "packagePath": "textures/foyer.png"
+}
+```
+
+The package writer applies the same safe-path and allowed-prefix checks to explicit file entries as
+it does to collected asset roots.

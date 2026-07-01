@@ -426,6 +426,33 @@ TEST_CASE("ProjectPackageWriter exports runtime package with manifest and legacy
     std::filesystem::remove_all(temp);
 }
 
+TEST_CASE("ProjectPackageWriter exports explicit package file entries")
+{
+    auto project = ProjectDocument::new_project();
+    project.root()[project_ids::entrypoint_entity] = EntityRef{EntityType::Room, "start"}.to_json();
+    const auto temp = unique_temp_dir("package-file-entry-export");
+    write_file(temp / "source" / "intro.txt", "intro");
+
+    PackageExportOptions options;
+    options.project_name = "File Entry Export";
+    options.project_version = "1.0";
+    options.file_entries.push_back(PackageExportFileEntry{temp / "source" / "intro.txt", "text/intro.txt"});
+
+    std::vector<std::byte> bytes;
+    const auto exported = ProjectPackageWriter::write_to_memory(project, options, bytes);
+    REQUIRE(exported.success);
+    CHECK(exported.diagnostics.empty());
+    CHECK(exported.checksums.contains("text/intro.txt"));
+
+    std::vector<PackageError> errors;
+    const auto package =
+        ProjectPackageReader::read(std::span<const std::byte>(bytes.data(), bytes.size()), errors);
+    REQUIRE(package.has_value());
+    CHECK(package->assets.contains("text/intro.txt"));
+
+    std::filesystem::remove_all(temp);
+}
+
 TEST_CASE("ProjectPackageWriter writes packages to files and reports stable checksums")
 {
     auto project = ProjectDocument::new_project();

@@ -1,6 +1,9 @@
 export const IPC_CHANNELS = {
   GET_APP_INFO: 'noveltea:get-app-info',
   SELECT_PROJECT_DIRECTORY: 'noveltea:select-project-directory',
+  SELECT_PACKAGE_OUTPUT_PATH: 'noveltea:select-package-output-path',
+  SHOW_ITEM_IN_FOLDER: 'noveltea:show-item-in-folder',
+  PREVIEW_EXPORTED_PACKAGE: 'noveltea:preview-exported-package',
   OPEN_EXTERNAL: 'noveltea:open-external',
   ZOOM_IN: 'noveltea:zoom-in',
   ZOOM_OUT: 'noveltea:zoom-out',
