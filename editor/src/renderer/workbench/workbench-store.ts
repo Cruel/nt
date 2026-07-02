@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import {
+  activateWorkbenchGroup,
   activateWorkbenchTab,
   closeProjectWorkbenchTabs,
   closeWorkbenchTab,
@@ -27,6 +28,7 @@ import type { SerializedWorkbenchState } from '../../shared/project-schema/edito
 interface WorkbenchStore extends WorkbenchState {
   openTab: (tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void;
   activateTab: (groupId: string, tabId: string) => void;
+  activateGroup: (groupId: string) => void;
   closeTab: (groupId: string, tabId: string) => void;
   splitGroup: (options: SplitWorkbenchGroupOptions) => void;
   moveTab: (options: MoveWorkbenchTabOptions) => void;
@@ -63,6 +65,7 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   ...createInitialWorkbenchState(),
   openTab: (tab, options) => set((state) => toStoreState(openWorkbenchTab(state, tab, options))),
   activateTab: (groupId, tabId) => set((state) => toStoreState(activateWorkbenchTab(state, groupId, tabId))),
+  activateGroup: (groupId) => set((state) => toStoreState(activateWorkbenchGroup(state, groupId))),
   closeTab: (groupId, tabId) => set((state) => toStoreState(closeWorkbenchTab(state, groupId, tabId))),
   splitGroup: (options) => set((state) => toStoreState(splitWorkbenchGroup(state, options, createId))),
   moveTab: (options) => set((state) => toStoreState(moveWorkbenchTab(state, options))),

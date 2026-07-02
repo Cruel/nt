@@ -54,6 +54,7 @@ export function WorkspacePage() {
   const completingWindowClose = useRef(false);
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
+  const hydrateBottomPanel = useBottomPanelStore((state) => state.hydrate);
   const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
   const previewConnectionState = useWorkspaceStore((state) => state.previewConnectionState);
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
@@ -111,6 +112,17 @@ export function WorkspacePage() {
     return diagnostics;
   }
 
+  function refreshRecentProjectEntry(document: unknown, projectPathValue?: string | null, projectFilePathValue?: string | null) {
+    if (!projectPathValue && !projectFilePathValue) return;
+    const entryPath = projectPathValue ?? projectPath ?? null;
+    if (!entryPath) return;
+    addRecentProject({
+      projectPath: entryPath,
+      projectFilePath: projectFilePathValue ?? null,
+      projectName: isAuthoringProject(document) ? document.project.name : null,
+    });
+  }
+
   function createNewProject() {
     const next = createAuthoringProject();
     setProjectPath(null);
@@ -120,6 +132,7 @@ export function WorkspacePage() {
     resetCommandHistory();
     setPlaybackTests([]);
     setDiagnostics(validateAuthoringProject(next));
+    hydrateBottomPanel();
     setStatusMessage('Created unsaved authoring project');
     addTimelineEntry({ source: 'command', message: 'Created unsaved authoring project', detail: next });
   }
@@ -137,6 +150,7 @@ export function WorkspacePage() {
       addTimelineEntry({ source: 'command', message, detail: result });
       return false;
     }
+    refreshRecentProjectEntry(projectWithEditorState, result.projectPath ?? projectPath, result.projectFilePath ?? latestProjectFilePath);
     const message = reason === 'close-project' ? 'Saved editor state before closing project' : 'Saved editor state before closing editor';
     addTimelineEntry({ source: 'command', message, detail: result });
     return true;
@@ -158,6 +172,7 @@ export function WorkspacePage() {
     setLastPlaybackReport(null);
     setLastExportResult(null);
     setPreviewRunning(false);
+    setBottomPanelVisible(false);
     setStatusMessage('No project loaded');
     addTimelineEntry({ source: 'command', message: 'Closed project' });
   }
@@ -170,11 +185,7 @@ export function WorkspacePage() {
       const loaded = await window.noveltea.openProject(dir);
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0) saveLocalEditorSessionSnapshot(loaded.projectFilePath ?? loaded.projectPath ?? null);
       const diagnostics = loadAuthoringDocument(loaded.project ?? null, loaded.projectPath, loaded.projectFilePath);
-      addRecentProject({
-        projectPath: loaded.projectPath,
-        projectFilePath: loaded.projectFilePath,
-        projectName: isAuthoringProject(loaded.project) ? loaded.project.project.name : null,
-      });
+      refreshRecentProjectEntry(loaded.project, loaded.projectPath, loaded.projectFilePath);
       setLastProjectPath(loaded.projectFilePath ?? loaded.projectPath);
       setStatusMessage(
         isAuthoringProject(loaded.project)
@@ -240,6 +251,7 @@ export function WorkspacePage() {
         : await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
       if (result.success) {
         markProjectSaved({ projectPath: result.projectPath, projectFilePath: result.projectFilePath, document: projectWithEditorState });
+        refreshRecentProjectEntry(projectWithEditorState, result.projectPath ?? projectPath, result.projectFilePath ?? latestProjectFilePath);
         setProjectPath(result.projectPath ?? projectPath);
         setProjectFilePath(result.projectFilePath ?? projectFilePath);
         addTimelineEntry({ source: 'command', message: `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}`, detail: result });
@@ -465,7 +477,7 @@ export function WorkspacePage() {
           setAutosaveEnabled(!autosaveEnabled);
           break;
         case 'toggle-bottom-panel':
-          setBottomPanelVisible(!bottomPanelVisible);
+          if (project) setBottomPanelVisible(!bottomPanelVisible);
           break;
       }
     }
@@ -474,15 +486,17 @@ export function WorkspacePage() {
     return () => window.removeEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, onToolbarCommand);
   });
 
+  const showBottomPanel = project !== null && bottomPanelVisible;
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           <Group orientation="vertical" className="h-full w-full">
-            <Panel defaultSize={bottomPanelVisible ? '70%' : '100%'} minSize="240px">
+            <Panel defaultSize={showBottomPanel ? '70%' : '100%'} minSize="240px">
               <Workbench />
             </Panel>
-            {bottomPanelVisible
+            {showBottomPanel
               ? [
                   <ResizeSeparator
                     key="bottom-panel-resize"

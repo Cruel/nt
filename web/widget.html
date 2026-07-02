@@ -403,6 +403,15 @@ thead, tbody, tfoot {
       while (commandQueue.length > 0) runCommand(commandQueue.shift());
     }
 
+    function sendPreviewInteraction(interaction) {
+      // Parent documents cannot observe iframe-to-iframe clicks, so report preview-local activity explicitly.
+      if (!port) return;
+      send({ version: protocolVersion, type: 'preview-interacted', interaction });
+    }
+
+    window.addEventListener('pointerdown', () => sendPreviewInteraction('pointer'), { capture: true });
+    window.addEventListener('focus', () => sendPreviewInteraction('focus'), { capture: true });
+
     function sendReadySnapshot() {
       if (!engineReady || !port) return;
       send({

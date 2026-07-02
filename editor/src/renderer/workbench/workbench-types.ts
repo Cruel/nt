@@ -1,6 +1,6 @@
 export type WorkbenchSplitDirection = 'horizontal' | 'vertical';
 
-export type WorkbenchResourceKind = 'record' | 'preview' | 'tool' | 'raw';
+export type WorkbenchResourceKind = 'record' | 'preview' | 'tool' | 'project' | 'raw';
 
 export interface WorkbenchResource {
   kind: WorkbenchResourceKind;
@@ -8,6 +8,7 @@ export interface WorkbenchResource {
   collection?: string;
   entityId?: string;
   testId?: string;
+  explorerNodeId?: string;
 }
 
 export interface WorkbenchTab {

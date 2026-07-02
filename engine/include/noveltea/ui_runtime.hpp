@@ -46,7 +46,7 @@ public:
     // document is unloaded, all documents are reloaded, or RuntimeUI shuts down.
     bool load_document(const std::string& id, const std::string& path, bool show = true);
     bool load_document_from_memory(const std::string& id, const std::string& rml,
-                                   const std::string& source_url = "preview:/document.rml",
+                                   const std::string& source_url = "preview://document.rml",
                                    bool show = true);
     bool unload_document(const std::string& id);
     bool show_document(const std::string& id);

@@ -26,6 +26,12 @@ interface DraftDirtyStoreState {
   resetDraftDirty: () => void;
 }
 
+function jsonPayloadEqual(left: JsonValue | undefined, right: JsonValue | undefined) {
+  if (left === right) return true;
+  if (left === undefined || right === undefined) return false;
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export const useDraftDirtyStore = create<DraftDirtyStoreState>()((set) => ({
   entriesByKey: {},
   setDraftDirty: (key, entry) => set((state) => {
@@ -43,7 +49,7 @@ export const useDraftDirtyStore = create<DraftDirtyStoreState>()((set) => ({
       existing.label === entry.label &&
       existing.schema === entry.schema &&
       existing.schemaVersion === entry.schemaVersion &&
-      existing.payload === entry.payload &&
+      jsonPayloadEqual(existing.payload, entry.payload) &&
       existing.apply === entry.apply &&
       existing.discard === entry.discard
     ) {

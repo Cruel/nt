@@ -11,7 +11,6 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { restoredDraftPayload, useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   defaultLayoutData,
@@ -37,13 +36,6 @@ function assetRef(assetId: string): LayoutAssetRef {
 
 function materialRef(materialId: string): LayoutMaterialRef {
   return { $ref: { collection: 'materials', id: materialId } };
-}
-
-const LAYOUT_SOURCE_DRAFT_SCHEMA = 'noveltea.editor.draft.layout-sources';
-const LAYOUT_SAMPLE_STATE_DRAFT_SCHEMA = 'noveltea.editor.draft.layout-sample-state';
-
-function sourceWithDraft(source: LayoutSourceData, sourceText: string): LayoutSourceData {
-  return { ...source, sourceText };
 }
 
 function refIds<T extends { $ref: { id: string } }>(refs: T[]): string[] {
@@ -116,7 +108,6 @@ function DependencySelector({
 
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const clearDraftDirty = useDraftDirtyStore((state) => state.clearDraftDirty);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const layoutId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -128,95 +119,15 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   );
   const data = parsedData ?? fallbackData;
   const sampleStateText = useMemo(() => JSON.stringify(data.sampleState, null, 2), [data.sampleState]);
-  const sourceDraftKey = `${tab.id}:layout-sources`;
-  const sampleStateDraftKey = `${tab.id}:layout-sample-state`;
-  const restoredSourceDraft = restoredDraftPayload<{ rml: string; rcss: string; lua: string }>(sourceDraftKey, LAYOUT_SOURCE_DRAFT_SCHEMA);
-  const restoredSampleStateDraft = restoredDraftPayload<{ text: string }>(sampleStateDraftKey, LAYOUT_SAMPLE_STATE_DRAFT_SCHEMA);
-  const [rmlDraft, setRmlDraft] = useState(restoredSourceDraft?.rml ?? data.rml.sourceText);
-  const [rcssDraft, setRcssDraft] = useState(restoredSourceDraft?.rcss ?? data.rcss.sourceText);
-  const [luaDraft, setLuaDraft] = useState(restoredSourceDraft?.lua ?? data.lua.sourceText);
-  const [sampleStateDraft, setSampleStateDraft] = useState(restoredSampleStateDraft?.text ?? sampleStateText);
+  const [sampleStateDraft, setSampleStateDraft] = useState(sampleStateText);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!restoredSourceDraft) {
-      setRmlDraft(data.rml.sourceText);
-      setRcssDraft(data.rcss.sourceText);
-      setLuaDraft(data.lua.sourceText);
-    }
-    if (!restoredSampleStateDraft) setSampleStateDraft(sampleStateText);
-    setMessage(null);
-  }, [data.rml.sourceText, data.rcss.sourceText, data.lua.sourceText, restoredSampleStateDraft, restoredSourceDraft, sampleStateText]);
-
-  const draftData = useMemo(() => {
-    const parsedSampleState = parseSampleState(sampleStateDraft);
-    return {
-      ...data,
-      rml: sourceWithDraft(data.rml, rmlDraft),
-      rcss: sourceWithDraft(data.rcss, rcssDraft),
-      lua: sourceWithDraft(data.lua, luaDraft),
-      sampleState: parsedSampleState.ok ? parsedSampleState.value : data.sampleState,
-    } satisfies LayoutData;
-  }, [data, luaDraft, rcssDraft, rmlDraft, sampleStateDraft]);
-
-  const sourceDraftDirty = rmlDraft !== data.rml.sourceText || rcssDraft !== data.rcss.sourceText || luaDraft !== data.lua.sourceText;
-  const sampleStateDirty = sampleStateDraft !== sampleStateText;
-
-  const applyDrafts = useCallback(() => {
-    if (!layoutId) return false;
-    const sampleState = parseSampleState(sampleStateDraft);
-    if (!sampleState.ok) {
-      setMessage(sampleState.message);
-      return false;
-    }
-    const next: LayoutData = {
-      ...data,
-      rml: { ...data.rml, sourceText: rmlDraft },
-      rcss: { ...data.rcss, sourceText: rcssDraft },
-      lua: { ...data.lua, sourceText: luaDraft },
-      sampleState: sampleState.value,
-    };
-    const result = updateLayout(layoutId, next, 'Update layout source');
-    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    if (!result.ok || failure) {
-      setMessage(failure?.message ?? 'Layout update failed.');
-      return false;
-    }
-    clearDraftDirty(sourceDraftKey);
-    clearDraftDirty(sampleStateDraftKey);
-    setMessage(null);
-    return true;
-  }, [clearDraftDirty, data, layoutId, luaDraft, rcssDraft, rmlDraft, sampleStateDraft, sampleStateDraftKey, sourceDraftKey]);
-
-  const discardDrafts = useCallback(() => {
-    setRmlDraft(data.rml.sourceText);
-    setRcssDraft(data.rcss.sourceText);
-    setLuaDraft(data.lua.sourceText);
     setSampleStateDraft(sampleStateText);
     setMessage(null);
-    return true;
-  }, [data.rml.sourceText, data.rcss.sourceText, data.lua.sourceText, sampleStateText]);
+  }, [layoutId, sampleStateText]);
 
-  useEditorDraftDirty(tab.id, sourceDraftDirty, {
-    key: sourceDraftKey,
-    label: 'Unapplied layout source edits',
-    schema: LAYOUT_SOURCE_DRAFT_SCHEMA,
-    schemaVersion: 1,
-    payload: { rml: rmlDraft, rcss: rcssDraft, lua: luaDraft },
-    apply: applyDrafts,
-    discard: discardDrafts,
-  });
-  useEditorDraftDirty(tab.id, sampleStateDirty, {
-    key: sampleStateDraftKey,
-    label: 'Unapplied layout sample state',
-    schema: LAYOUT_SAMPLE_STATE_DRAFT_SCHEMA,
-    schemaVersion: 1,
-    payload: { text: sampleStateDraft },
-    apply: applyDrafts,
-    discard: discardDrafts,
-  });
-
-  const validationDiagnostics = useMemo(() => project && record && layoutId ? validateLayoutData(project, layoutId, { ...record, data: draftData }) : [], [draftData, layoutId, project, record]);
+  const validationDiagnostics = useMemo(() => project && record && layoutId ? validateLayoutData(project, layoutId, record) : [], [layoutId, project, record]);
   const defaultLayout = project ? getDefaultLayoutSetting(project) : null;
   const isDefaultLayout = !!layoutId && defaultLayout?.$ref.id === layoutId;
   const sourceAssetOptions = useMemo(() => project ? selectableAssets(project, (kind, extension) => kind === 'text' || kind === 'data' || kind === 'script' || ['.rml', 'rml', '.rcss', 'rcss', '.css', 'css', '.lua', 'lua'].includes(extension ?? '')) : [], [project]);
@@ -232,15 +143,15 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   if (!layoutId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Layout record not found.</div>;
   const activeLayoutId: string = layoutId;
   const activeRecord = record;
-  const activeProject = project;
+  const activeProject: AuthoringProject = project;
 
   const revision = layoutPreviewRevision(activeProject, activeLayoutId);
-  const previewDocument = {
+  const previewDocument = useMemo(() => ({
     kind: 'layout-preview' as const,
     recordId: activeLayoutId,
     revision,
     data: buildLayoutPreviewDocumentData(activeProject, activeLayoutId),
-  };
+  }), [activeLayoutId, activeProject, revision]);
   function commit(next: LayoutData, label = 'Update layout') {
     const result = updateLayout(activeLayoutId, next, label);
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
@@ -256,6 +167,20 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
       ...data,
       [which]: { ...data[which], sourceAsset: assetId === '__none__' ? null : assetRef(assetId) },
     }, `Set ${which.toUpperCase()} source asset`);
+  }
+
+  function setInlineSource(which: 'rml' | 'rcss' | 'lua', sourceText: string) {
+    commit({ ...data, [which]: { ...data[which], sourceText } }, `Update ${which.toUpperCase()} source`);
+  }
+
+  function setSampleStateSource(sourceText: string) {
+    setSampleStateDraft(sourceText);
+    const parsed = parseSampleState(sourceText);
+    if (!parsed.ok) {
+      setMessage(parsed.message);
+      return;
+    }
+    commit({ ...data, sampleState: parsed.value }, 'Update layout sample state');
   }
 
   function setDefaultLayout(layoutId: string | null) {
@@ -353,10 +278,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                   {sourceAssetOptions.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.label} ({asset.id})</SelectItem>)}
                 </Select>
               ) : null}
-              <Button size="sm" variant="outline" className="ml-auto" onClick={() => void applyDrafts()} disabled={!sourceDraftDirty && !sampleStateDirty}>Apply Sources</Button>
-              <Button size="sm" variant="ghost" onClick={discardDrafts} disabled={!sourceDraftDirty && !sampleStateDirty}>Discard</Button>
             </div>
-            {data.rml.sourceMode === 'inline' ? <SourceEditor language="rml" value={rmlDraft} onChange={setRmlDraft} diagnostics={rmlDiagnostics} className="h-72" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RML source is loaded from the selected asset. Inline draft is preserved for switching back.</p>}
+            {data.rml.sourceMode === 'inline' ? <SourceEditor language="rml" value={data.rml.sourceText} onChange={(value) => setInlineSource('rml', value)} diagnostics={rmlDiagnostics} className="h-72" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RML source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
           <section className="space-y-3 rounded border p-3">
@@ -372,7 +295,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 </Select>
               ) : null}
             </div>
-            {data.rcss.sourceMode === 'inline' ? <SourceEditor language="rcss" value={rcssDraft} onChange={setRcssDraft} diagnostics={rcssDiagnostics} className="h-64" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RCSS source is loaded from the selected asset. Inline draft is preserved for switching back.</p>}
+            {data.rcss.sourceMode === 'inline' ? <SourceEditor language="rcss" value={data.rcss.sourceText} onChange={(value) => setInlineSource('rcss', value)} diagnostics={rcssDiagnostics} className="h-64" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RCSS source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
           <section className="space-y-3 rounded border p-3">
@@ -402,12 +325,12 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 <Input value={data.mount.defaultParent ?? ''} onChange={(event) => commit({ ...data, mount: { ...data.mount, defaultParent: event.currentTarget.value.trim() || undefined } }, 'Set layout mount parent')} placeholder="nt-layout-preview-mount" />
               </div>
             </div>
-            {data.lua.sourceMode === 'inline' ? <SourceEditor language="lua" value={luaDraft} onChange={setLuaDraft} diagnostics={luaDiagnostics} className="h-56" /> : <p className="rounded border p-3 text-xs text-muted-foreground">Lua source is loaded from the selected asset. Inline draft is preserved for switching back.</p>}
+            {data.lua.sourceMode === 'inline' ? <SourceEditor language="lua" value={data.lua.sourceText} onChange={(value) => setInlineSource('lua', value)} diagnostics={luaDiagnostics} className="h-56" /> : <p className="rounded border p-3 text-xs text-muted-foreground">Lua source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
           <section className="space-y-3 rounded border p-3">
             <h3 className="text-sm font-medium">Sample State JSON</h3>
-            <SourceEditor language="json" value={sampleStateDraft} onChange={setSampleStateDraft} className="h-40" />
+            <SourceEditor language="json" value={sampleStateDraft} onChange={setSampleStateSource} className="h-40" />
           </section>
         </div>
 

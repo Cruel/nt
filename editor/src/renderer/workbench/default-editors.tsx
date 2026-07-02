@@ -1,5 +1,6 @@
 import { Clapperboard, DoorOpen, FileCode, Image, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
+import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
@@ -7,6 +8,7 @@ import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
+import { TestSuiteEditor } from '@/editors/tests/TestSuiteEditor';
 import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { ShaderEditor } from '@/editors/shaders/ShaderEditor';
@@ -21,6 +23,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Engine Preview',
     icon: MonitorPlay,
     component: EnginePreviewEditor,
+  },
+  {
+    type: 'asset-library',
+    label: 'Assets',
+    icon: Image,
+    component: AssetLibraryEditor,
   },
   {
     type: 'asset-detail',
@@ -69,6 +77,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Scene Detail',
     icon: Clapperboard,
     component: SceneEditor,
+  },
+  {
+    type: 'test-suite',
+    label: 'Tests',
+    icon: ListChecks,
+    component: TestSuiteEditor,
   },
   {
     type: 'test-detail',

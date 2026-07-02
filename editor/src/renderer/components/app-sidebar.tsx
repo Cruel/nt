@@ -33,7 +33,7 @@ export function AppSidebar() {
 
   return (
     <>
-      <SidebarContent className="overflow-y-auto px-2 py-2">
+      <SidebarContent className="overflow-hidden px-0 py-0">
         <ProjectExplorer nodes={nodes} />
       </SidebarContent>
       <SidebarFooter>

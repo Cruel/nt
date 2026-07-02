@@ -5,6 +5,7 @@ import { EnginePreview } from '@/components/engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 
 class FakePort {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -35,6 +36,7 @@ beforeEach(() => {
     }
   });
   usePreviewManagerStore.getState().resetPreviewManager();
+  useWorkbenchStore.getState().resetWorkbench();
   useWorkspaceStore.setState({
     previewPosition: { x: 0.5, y: 0.5 },
     previewRunning: true,
@@ -76,6 +78,40 @@ async function renderConnectedPreview() {
 }
 
 describe('EnginePreview', () => {
+  it('activates the containing workbench group when the preview iframe receives click focus or child interaction', async () => {
+    useWorkbenchStore.setState({
+      layout: { kind: 'split', id: 'split', direction: 'horizontal', children: [{ kind: 'group', groupId: 'left' }, { kind: 'group', groupId: 'right' }], sizes: [50, 50] },
+      groupsById: {
+        left: { id: 'left', tabIds: ['tab:left'], activeTabId: 'tab:left' },
+        right: { id: 'right', tabIds: ['tab:right'], activeTabId: 'tab:right' },
+      },
+      tabsById: {
+        'tab:left': { id: 'tab:left', title: 'Left', editorType: 'raw-json', resource: { kind: 'raw', stableId: 'left' } },
+        'tab:right': { id: 'tab:right', title: 'Right', editorType: 'engine-preview', resource: { kind: 'preview', stableId: 'preview:right' } },
+      },
+      activeGroupId: 'left',
+      recentlyClosedTabs: [],
+    });
+    render(<div data-workbench-group-id="right"><EnginePreview /></div>);
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    act(() => iframe.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
+    useWorkbenchStore.setState({ activeGroupId: 'left' });
+    act(() => iframe.focus());
+    await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
+    useWorkbenchStore.setState({ activeGroupId: 'left' });
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }));
+      ports[1]?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+      ports[1]?.postMessage({ version: 1, type: 'preview-interacted', interaction: 'pointer' });
+    });
+    await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
+  });
+
   it('replays editor position when ready', async () => {
     useWorkspaceStore.setState({ previewPosition: { x: 0.25, y: 0.75 } });
     const { editorPort } = await renderConnectedPreview();

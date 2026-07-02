@@ -1,7 +1,7 @@
 import { ArrowDownToLine, ArrowRightToLine, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { defaultEditorRegistry } from './default-editors';
-import { editorIconForType, renderEditorToolbar } from './editor-registry';
+import { editorIconClassNameForTab, editorIconForType, renderEditorToolbar } from './editor-registry';
 import { buildPrimaryPreviewTab } from './editor-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useCloseGuardStore } from './close-guard-store';
@@ -62,7 +62,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
                 className="flex h-full min-w-0 flex-1 items-center gap-1 self-stretch text-left"
                 onClick={() => activateTab(group.id, tab.id)}
               >
-                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <Icon className={`h-3.5 w-3.5 shrink-0 ${editorIconClassNameForTab(tab)}`} />
                 <span className="truncate">
                   {dirty ? '● ' : ''}
                   {tab.title}

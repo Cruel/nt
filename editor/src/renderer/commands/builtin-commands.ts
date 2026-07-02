@@ -43,6 +43,15 @@ import {
   setProjectTitleScreenPatches,
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
+import {
+  assignChaptersPatches,
+  createChapterPatches,
+  deleteChapterPatches,
+  renameChapterPatches,
+  setChapterColorPatches,
+  setExplorerOptionsPatches,
+  setHiddenCollectionsPatches,
+} from '@/project/project-chapters-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
@@ -282,6 +291,13 @@ const projectTitleScreenSchema = z.object({
   startLabel: z.string().optional(),
 });
 const projectIconSchema = z.object({ assetId: entityIdSchema.nullable() });
+const chapterCreateSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1), color: z.string().nullable().optional() });
+const chapterRenameSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1) });
+const chapterDeleteSchema = z.object({ chapterId: entityIdSchema });
+const chapterColorSchema = z.object({ chapterId: entityIdSchema, color: z.string().nullable() });
+const assignChaptersSchema = z.object({ collection: z.string().min(1), entityId: entityIdSchema, chapterIds: z.array(entityIdSchema) });
+const hiddenCollectionsSchema = z.object({ hiddenCollectionKeys: z.array(z.string().min(1)) });
+const explorerOptionsSchema = z.object({ followActiveTab: z.boolean().optional(), organizeByChapter: z.boolean().optional(), groupUnassignedItems: z.boolean().optional() });
 const variableSetTypeSchema = z.object({
   variableId: entityIdSchema,
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
@@ -389,6 +405,27 @@ export const projectSetTitleScreenCommand: CommandHandler = ({ document, payload
 export const projectSetIconCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectIconSchema, payload, (parsed) => setProjectIconPatches(document, parsed));
 
+export const projectCreateChapterCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(chapterCreateSchema, payload, (parsed) => createChapterPatches(document, parsed));
+
+export const projectRenameChapterCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(chapterRenameSchema, payload, (parsed) => renameChapterPatches(document, parsed));
+
+export const projectDeleteChapterCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(chapterDeleteSchema, payload, (parsed) => deleteChapterPatches(document, parsed));
+
+export const projectSetChapterColorCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(chapterColorSchema, payload, (parsed) => setChapterColorPatches(document, parsed));
+
+export const projectAssignChaptersCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(assignChaptersSchema, payload, (parsed) => assignChaptersPatches(document, parsed as never));
+
+export const projectSetHiddenCollectionsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(hiddenCollectionsSchema, payload, (parsed) => setHiddenCollectionsPatches(document, parsed as never));
+
+export const projectSetExplorerOptionsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(explorerOptionsSchema, payload, (parsed) => setExplorerOptionsPatches(document, parsed));
+
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
     'project.applyPatch': projectApplyPatchCommand,
@@ -429,6 +466,13 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
     'project.setIcon': projectSetIconCommand,
+    'project.createChapter': projectCreateChapterCommand,
+    'project.renameChapter': projectRenameChapterCommand,
+    'project.deleteChapter': projectDeleteChapterCommand,
+    'project.setChapterColor': projectSetChapterColorCommand,
+    'project.assignChapters': projectAssignChaptersCommand,
+    'project.setHiddenCollections': projectSetHiddenCollectionsCommand,
+    'project.setExplorerOptions': projectSetExplorerOptionsCommand,
   };
 }
 
@@ -472,6 +516,13 @@ export function labelForCommand(type: string): string {
     case 'project.setDefaultFont': return 'Set project default font';
     case 'project.setTitleScreen': return 'Update title screen settings';
     case 'project.setIcon': return 'Set project icon';
+    case 'project.createChapter': return 'Create chapter';
+    case 'project.renameChapter': return 'Rename chapter';
+    case 'project.deleteChapter': return 'Delete chapter';
+    case 'project.setChapterColor': return 'Set chapter color';
+    case 'project.assignChapters': return 'Assign chapters';
+    case 'project.setHiddenCollections': return 'Update hidden categories';
+    case 'project.setExplorerOptions': return 'Update explorer options';
     default: return type;
   }
 }

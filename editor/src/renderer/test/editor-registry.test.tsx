@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDefaultRecordTab, buildPrimaryPreviewTab } from '@/workbench/editor-registry';
+import { buildAssetsEditorTab, buildDefaultRecordTab, buildPrimaryPreviewTab, buildTestsEditorTab, buildVariablesEditorTab } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
@@ -15,6 +15,12 @@ describe('editor registry', () => {
       editorType: 'engine-preview',
       resource: { stableId: 'preview:primary' },
     });
+  });
+
+  it('builds collective tabs as project-scoped tabs', () => {
+    expect(buildAssetsEditorTab()).toMatchObject({ editorType: 'asset-library', resource: { kind: 'project', stableId: 'assets' } });
+    expect(buildTestsEditorTab()).toMatchObject({ editorType: 'test-suite', resource: { kind: 'project', stableId: 'tests' } });
+    expect(buildVariablesEditorTab()).toMatchObject({ editorType: 'variables', resource: { kind: 'project', stableId: 'variables' } });
   });
 
   it('routes room records to the typed room editor', () => {

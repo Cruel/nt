@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MousePointer2, Play, RefreshCw, RotateCcw, StepForward } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,6 +6,7 @@ import { useEnginePreview } from '@/hooks/use-engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { PreviewDocument, PreviewMode, PreviewPosition, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 const BUILD_COMMAND = 'pnpm engine:preview:build';
@@ -79,12 +80,25 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   const setSelectedRuntimeObjectId = useWorkspaceStore((s) => s.setSelectedRuntimeObjectId);
   const setLastPreviewEvent = useWorkspaceStore((s) => s.setLastPreviewEvent);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
+  const activateGroup = useWorkbenchStore((s) => s.activateGroup);
+  const previewHostRef = useRef<HTMLDivElement | null>(null);
   const [localConnectionState, setLocalConnectionState] = useState<'loading' | 'connecting' | 'ready' | 'missing' | 'error'>('loading');
   const connectionState = embedded ? localConnectionState : globalConnectionState;
   const setConnectionState = useCallback((next: typeof localConnectionState) => {
     if (embedded) setLocalConnectionState(next);
     else setGlobalConnectionState(next);
   }, [embedded, setGlobalConnectionState]);
+
+  const activateContainingWorkbenchGroup = useCallback(() => {
+    // Iframe focus does not reliably bubble to React, so activate the owning workbench group explicitly.
+    const groupElement = previewHostRef.current?.closest<HTMLElement>('[data-workbench-group-id]');
+    const groupId = groupElement?.dataset.workbenchGroupId;
+    if (groupId) activateGroup(groupId);
+  }, [activateGroup]);
+
+  const scheduleContainingWorkbenchGroupActivation = useCallback(() => {
+    window.setTimeout(activateContainingWorkbenchGroup, 0);
+  }, [activateContainingWorkbenchGroup]);
 
   const recordTransportError = useCallback((message: string) => {
     setConnectionState('error');
@@ -108,6 +122,10 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
         target: message.diagnostic.target,
       });
     }
+    if (message.type === 'preview-interacted') {
+      // Handles iframe-to-iframe focus changes that parent DOM pointer/focus events cannot observe.
+      activateContainingWorkbenchGroup();
+    }
     if (!embedded && message.type === 'object-clicked' && message.objectId === 'demo-triangle') {
       setSelectedRuntimeObjectId(message.objectId);
       setStatusMessage('Selected demo-triangle from engine preview');
@@ -117,7 +135,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
       recordPreviewDiagnostic({ sessionId, severity: 'error', source: 'runtime', message: message.message });
       if (!embedded) setStatusMessage(message.message);
     }
-  }, [embedded, recordPreviewDiagnostic, sessionId, setConnectionState, setLastPreviewEvent, setSelectedRuntimeObjectId, setSessionCapabilities, setSessionStatus, setStatusMessage]);
+  }, [activateContainingWorkbenchGroup, embedded, recordPreviewDiagnostic, sessionId, setConnectionState, setLastPreviewEvent, setSelectedRuntimeObjectId, setSessionCapabilities, setSessionStatus, setStatusMessage]);
 
   const controller = useEnginePreview({
     onReady: () => {
@@ -151,6 +169,17 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     play: sendPlay,
     stop: sendStop,
   } = controller;
+
+  useEffect(() => {
+    function handleWindowBlur() {
+      window.setTimeout(() => {
+        // Parent window blur is the browser-level signal for focus moving into the iframe.
+        if (document.activeElement === iframeRef.current) activateContainingWorkbenchGroup();
+      }, 0);
+    }
+    window.addEventListener('blur', handleWindowBlur);
+    return () => window.removeEventListener('blur', handleWindowBlur);
+  }, [activateContainingWorkbenchGroup, iframeRef]);
 
   useEffect(() => {
     if (!embedded) {
@@ -298,7 +327,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
           </label>
         </div>
       ) : null}
-      <div className="relative min-h-0 flex-1 bg-zinc-950">
+      <div ref={previewHostRef} className="relative min-h-0 flex-1 bg-zinc-950">
         {iframeSrc ? (
           <iframe
             key={iframeKey}
@@ -307,6 +336,8 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
             src={iframeSrc}
             sandbox="allow-scripts allow-same-origin"
             className="h-full w-full border-0"
+            onPointerDown={scheduleContainingWorkbenchGroupActivation}
+            onFocus={scheduleContainingWorkbenchGroupActivation}
             onLoad={() => {
               setConnectionState('connecting');
               setSessionStatus(sessionId, 'connecting');

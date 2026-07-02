@@ -31,14 +31,18 @@ export const bottomPanelDefinitions: BottomPanelDefinition[] = [
 interface BottomPanelStore {
   visible: boolean;
   activePanelId: BottomPanelId;
+  hydrate: (state?: { visible?: boolean; activePanelId?: BottomPanelId } | null) => void;
+  serialize: () => { visible: boolean; activePanelId: BottomPanelId };
   setVisible: (visible: boolean) => void;
   setActivePanelId: (id: BottomPanelId) => void;
   toggleVisible: () => void;
 }
 
-export const useBottomPanelStore = create<BottomPanelStore>()((set) => ({
+export const useBottomPanelStore = create<BottomPanelStore>()((set, get) => ({
   visible: true,
   activePanelId: 'problems',
+  hydrate: (state) => set({ visible: state?.visible ?? true, activePanelId: state?.activePanelId ?? 'problems' }),
+  serialize: () => ({ visible: get().visible, activePanelId: get().activePanelId }),
   setVisible: (visible) => set({ visible }),
   setActivePanelId: (activePanelId) => set({ activePanelId, visible: true }),
   toggleVisible: () => set((state) => ({ visible: !state.visible })),

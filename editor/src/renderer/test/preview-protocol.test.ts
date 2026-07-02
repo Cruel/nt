@@ -45,6 +45,8 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document: { kind: 'unknown' } })).toBe(false);
     const legacyLayoutMode = `ui-${'layout'}`;
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: legacyLayoutMode })).toBe(false);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'preview-interacted', interaction: 'pointer' })).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'preview-interacted', interaction: 'hover' })).toBe(false);
     expect(isPreviewToEditorMessage({
       version: 1,
       type: 'preview-diagnostic',

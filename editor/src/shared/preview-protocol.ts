@@ -80,6 +80,7 @@ export type PreviewToEditorMessage =
   | { version: 1; type: 'preview-diagnostic'; diagnostic: PreviewDiagnosticMessage }
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
+  | { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }
   | {
       version: 1;
       type: 'object-clicked';
@@ -228,6 +229,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
     case 'preview-object-selected':
     case 'preview-object-hovered':
       return typeof value.objectId === 'string' && (value.position === undefined || isPosition(value.position));
+    case 'preview-interacted':
+      return value.interaction === 'pointer' || value.interaction === 'focus';
     case 'object-clicked':
       return typeof value.objectId === 'string' && isPosition(value.position) && isPosition(value.pointerPosition);
     case 'runtime-error':

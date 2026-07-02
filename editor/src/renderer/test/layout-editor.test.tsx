@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
-import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
@@ -16,7 +15,7 @@ vi.mock('react-resizable-panels', () => ({
 }));
 
 vi.mock('@/components/engine-preview', () => ({
-  EnginePreview: () => <div data-testid="engine-preview" />,
+  EnginePreview: ({ previewDocument }: { previewDocument?: { data?: unknown } }) => <div data-preview-document={JSON.stringify(previewDocument?.data ?? null)} data-testid="engine-preview" />,
 }));
 
 vi.mock('@/components/source/SourceEditor', () => ({
@@ -39,7 +38,6 @@ const tab: WorkbenchTab = {
 
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
-  useDraftDirtyStore.getState().resetDraftDirty();
   useProjectStore.getState().clearProject();
 });
 
@@ -58,8 +56,7 @@ describe('LayoutEditor', () => {
     expect(screen.getByTestId('engine-preview')).toBeInTheDocument();
   });
 
-  it('marks source drafts dirty and applies them through layout.replaceData', async () => {
-    const user = userEvent.setup();
+  it('commits source edits immediately through layout.replaceData', async () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
@@ -70,14 +67,7 @@ describe('LayoutEditor', () => {
     fireEvent.change(rmlEditor, { target: { value: '<div><h1>Changed Layout</h1></div>\n' } });
 
     await waitFor(() => {
-      expect(Object.values(useDraftDirtyStore.getState().entriesByKey)).toEqual(expect.arrayContaining([
-        expect.objectContaining({ tabId: tab.id, dirty: true, label: 'Unapplied layout source edits' }),
-      ]));
-    });
-
-    await user.click(screen.getByText('Apply Sources'));
-
-    await waitFor(() => {
+      expect(screen.getByTestId('engine-preview')).toHaveAttribute('data-preview-document', expect.stringContaining('Changed Layout'));
       expect(useProjectStore.getState().document).toMatchObject({
         layouts: {
           main: {

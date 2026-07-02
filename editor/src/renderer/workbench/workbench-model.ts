@@ -102,6 +102,22 @@ function normalizeGroupActiveTab(group: WorkbenchGroup): WorkbenchGroup {
   };
 }
 
+function isProjectScopedUtilityEditorType(editorType: string): boolean {
+  return ['asset-library', 'test-suite', 'variables', 'project-settings'].includes(editorType);
+}
+
+function isGlobalToolTab(tab: WorkbenchTab): boolean {
+  if (tab.resource?.kind !== 'tool') return false;
+  return !isProjectScopedUtilityEditorType(tab.editorType);
+}
+
+function normalizedProjectScopedResource(tab: WorkbenchTab): WorkbenchTab['resource'] | null {
+  if (!tab.resource) return null;
+  if (tab.resource.kind !== 'tool') return { ...tab.resource };
+  if (!isProjectScopedUtilityEditorType(tab.editorType)) return null;
+  return { ...tab.resource, kind: 'project' };
+}
+
 function replaceGroupNode(
   node: WorkbenchLayoutNode,
   groupId: string,
@@ -179,9 +195,9 @@ function normalizeWorkbenchState(state: WorkbenchState): WorkbenchState {
 
 export function closeProjectWorkbenchTabs(state: WorkbenchState): WorkbenchState {
   const next = cloneState(state);
-  const preservedTabs = Object.values(next.tabsById).filter((tab) => tab.resource?.kind === 'tool');
+  const preservedTabs = Object.values(next.tabsById).filter(isGlobalToolTab);
   const activeTab = next.tabsById[next.groupsById[next.activeGroupId]?.activeTabId ?? ''];
-  const preservedActiveTabId = activeTab?.resource?.kind === 'tool' ? activeTab.id : null;
+  const preservedActiveTabId = activeTab && isGlobalToolTab(activeTab) ? activeTab.id : null;
 
   return normalizeWorkbenchState({
     layout: { kind: 'group', groupId: ROOT_GROUP_ID },
@@ -194,18 +210,19 @@ export function closeProjectWorkbenchTabs(state: WorkbenchState): WorkbenchState
     },
     tabsById: Object.fromEntries(preservedTabs.map((tab) => [tab.id, tab])),
     activeGroupId: ROOT_GROUP_ID,
-    recentlyClosedTabs: next.recentlyClosedTabs.filter((entry) => entry.tab.resource?.kind === 'tool'),
+    recentlyClosedTabs: next.recentlyClosedTabs.filter((entry) => isGlobalToolTab(entry.tab)),
   });
 }
 
 function cloneTabForProjectPersistence(tab: WorkbenchTab): WorkbenchTab | null {
   if (!tab.resource) return null;
-  if (tab.resource.kind === 'tool') return null;
+  const resource = normalizedProjectScopedResource(tab);
+  if (!resource) return null;
   return {
     id: tab.id,
     title: tab.title,
     editorType: tab.editorType,
-    resource: { ...tab.resource },
+    resource,
     pinned: tab.pinned || undefined,
     preview: tab.preview || undefined,
   };
@@ -214,7 +231,7 @@ function cloneTabForProjectPersistence(tab: WorkbenchTab): WorkbenchTab | null {
 function projectHasResource(project: unknown, tab: WorkbenchTab): boolean {
   const resource = tab.resource;
   if (!resource) return false;
-  if (resource.kind === 'preview') return true;
+  if (resource.kind === 'preview' || resource.kind === 'project') return true;
   if ((resource.kind === 'record' || resource.kind === 'raw') && resource.collection && resource.entityId) {
     if (typeof project !== 'object' || project === null || Array.isArray(project)) return false;
     const collection = (project as Record<string, unknown>)[resource.collection];
@@ -388,6 +405,15 @@ export function openWorkbenchTab(
 
   if (existingTabId) {
     const existingGroupId = findGroupContainingTab(next, existingTabId) ?? targetGroupId;
+    if (tab.resource?.explorerNodeId) {
+      next.tabsById[existingTabId] = {
+        ...next.tabsById[existingTabId]!,
+        resource: {
+          ...next.tabsById[existingTabId]!.resource!,
+          explorerNodeId: tab.resource.explorerNodeId,
+        },
+      };
+    }
     next.activeGroupId = existingGroupId;
     next.groupsById[existingGroupId] = {
       ...next.groupsById[existingGroupId]!,
@@ -416,6 +442,13 @@ export function activateWorkbenchTab(
   const group = next.groupsById[groupId];
   if (!group || !group.tabIds.includes(tabId)) return next;
   next.groupsById[groupId] = { ...group, activeTabId: tabId };
+  next.activeGroupId = groupId;
+  return normalizeWorkbenchState(next);
+}
+
+export function activateWorkbenchGroup(state: WorkbenchState, groupId: string): WorkbenchState {
+  if (!state.groupsById[groupId] || state.activeGroupId === groupId) return state;
+  const next = cloneState(state);
   next.activeGroupId = groupId;
   return normalizeWorkbenchState(next);
 }

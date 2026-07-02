@@ -1,6 +1,8 @@
 import { cloneJsonValue, type JsonValue } from '@/project/json-value';
 import { useDraftDirtyStore, serializeDraftDirtyState } from './draft-dirty-store';
+import { useBottomPanelStore } from './bottom-panel-store';
 import { useLocalEditorSessionStore } from './local-editor-session-store';
+import { useProjectExplorerStore } from '../workspace/project-explorer-store';
 import { createInitialWorkbenchState } from './workbench-model';
 import { useWorkbenchStore } from './workbench-store';
 import {
@@ -12,9 +14,13 @@ import {
 export function buildEditorProjectStateSnapshot(): EditorProjectState {
   const workbench = useWorkbenchStore.getState().serializeProjectWorkbench();
   const draftsByKey = serializeDraftDirtyState(useDraftDirtyStore.getState());
+  const explorerStore = useProjectExplorerStore.getState();
   return {
     ...emptyEditorProjectState(),
     workbench: workbench ?? undefined,
+    explorer: explorerStore.serializeExplorer(),
+    chapters: explorerStore.serializeChapters(),
+    bottomPanel: useBottomPanelStore.getState().serialize(),
     tabStatesById: {},
     draftsByKey,
   };
@@ -58,6 +64,8 @@ export function restoreNoProjectEditorSession() {
 export function restoreEditorProjectState(project: JsonValue, projectFilePath: string | null) {
   const editorState = editorProjectStateFromProject(project);
   const projectWorkbench = useWorkbenchStore.getState().restoreProjectWorkbench(editorState.workbench, project);
+  useProjectExplorerStore.getState().hydrate(editorState.explorer, editorState.chapters);
+  useBottomPanelStore.getState().hydrate(editorState.bottomPanel);
   useDraftDirtyStore.getState().restoreSerializedDrafts(editorState.draftsByKey ?? {});
   const localShellSession = useLocalEditorSessionStore.getState().shellSession;
   if (localShellSession?.projectFilePath === projectFilePath) {

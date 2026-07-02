@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activateWorkbenchGroup,
   activateWorkbenchTab,
   closeProjectWorkbenchTabs,
   closeWorkbenchTab,
@@ -59,6 +60,14 @@ describe('workbench model', () => {
     expect(Object.keys(state.tabsById).filter((id) => id.includes('foyer'))).toEqual(['tab:foyer']);
   });
 
+  it('updates an existing tab explorer placement when reopened from another explorer row', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, { ...rawTab('foyer'), resource: { ...rawTab('foyer').resource!, explorerNodeId: 'record:rooms:foyer' } });
+    state = openWorkbenchTab(state, { ...rawTab('foyer'), id: 'tab:foyer-again', resource: { ...rawTab('foyer').resource!, explorerNodeId: 'record:rooms:foyer:all' } });
+    expect(Object.keys(state.tabsById).filter((id) => id.includes('foyer'))).toEqual(['tab:foyer']);
+    expect(state.tabsById['tab:foyer']?.resource?.explorerNodeId).toBe('record:rooms:foyer:all');
+  });
+
   it('splits a group and can move the active tab into the new group', () => {
     let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
     state = splitWorkbenchGroup(
@@ -91,6 +100,23 @@ describe('workbench model', () => {
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toContain('tab:foyer');
     expect(Object.keys(state.groupsById)).toEqual([ROOT_GROUP_ID]);
     expect(state.layout).toEqual({ kind: 'group', groupId: ROOT_GROUP_ID });
+  });
+
+  it('activates a group without changing that group active tab', () => {
+    let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('left'));
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal' },
+      createTestId,
+    );
+    const rightGroupId = state.activeGroupId;
+    state = openWorkbenchTab(state, rawTab('right'), { groupId: rightGroupId });
+    state = activateWorkbenchTab(state, rightGroupId, 'tab:right');
+    state = activateWorkbenchGroup(state, ROOT_GROUP_ID);
+
+    expect(state.activeGroupId).toBe(ROOT_GROUP_ID);
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:left');
+    expect(state.groupsById[rightGroupId]?.activeTabId).toBe('tab:right');
   });
 
   it('moves a tab between groups', () => {
@@ -143,6 +169,58 @@ describe('workbench model', () => {
     expect(Object.keys(state.tabsById)).toEqual(['tab:settings']);
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:settings']);
     expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:settings');
+  });
+
+  it('serializes project-scoped utility tabs and closes them with project tabs', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, {
+      id: 'tab:project-settings',
+      title: 'Project Settings',
+      editorType: 'project-settings',
+      resource: { kind: 'project', stableId: 'project:settings' },
+    });
+    state = openWorkbenchTab(state, {
+      id: 'tab:assets',
+      title: 'Assets',
+      editorType: 'asset-library',
+      resource: { kind: 'project', stableId: 'assets', collection: 'assets' },
+    });
+    state = openWorkbenchTab(state, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+
+    const serialized = serializeProjectWorkbenchState(state);
+    expect(Object.keys(serialized?.tabsById ?? {})).toEqual(['tab:project-settings', 'tab:assets']);
+    expect(restoreProjectWorkbenchState(serialized ?? undefined, {}).tabsById['tab:project-settings']).toBeTruthy();
+    expect(restoreProjectWorkbenchState(serialized ?? undefined, {}).tabsById['tab:assets']).toBeTruthy();
+
+    const closed = closeProjectWorkbenchTabs(state);
+    expect(Object.keys(closed.tabsById)).toEqual(['tab:settings']);
+  });
+
+  it('treats stale project-scoped utility tabs with tool resources as project tabs', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, {
+      id: 'tab:assets',
+      title: 'Assets',
+      editorType: 'asset-library',
+      resource: { kind: 'tool', stableId: 'assets', collection: 'assets' },
+    });
+    state = openWorkbenchTab(state, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+
+    const serialized = serializeProjectWorkbenchState(state);
+    expect(serialized?.tabsById['tab:assets']?.resource?.kind).toBe('project');
+    expect(closeProjectWorkbenchTabs(state).tabsById).toEqual({
+      'tab:settings': expect.objectContaining({ editorType: 'settings' }),
+    });
   });
 
   it('serializes only project-scoped tabs and restores valid references', () => {

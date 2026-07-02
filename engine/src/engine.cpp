@@ -1002,7 +1002,7 @@ bool Engine::load_preview_rml_document(const std::string& rml)
     m_runtime_ui.hide_document("runtime_game");
     m_runtime_ui.hide_document("runtime-acceptance");
     return m_runtime_ui.load_document_from_memory("editor_preview", rml,
-                                                  "preview:/editor-preview.rml", true);
+                                                  "preview://editor-preview.rml", true);
 }
 
 bool Engine::execute_preview_lua_script(const std::string& source)

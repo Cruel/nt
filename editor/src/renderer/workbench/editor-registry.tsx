@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Clapperboard, DoorOpen, FileCode, Image, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User, Wrench } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
+import { visualForEditorType } from '@/workspace/collection-visuals';
 import type { WorkbenchTab } from './workbench-types';
 
 export interface WorkbenchEditorProps {
@@ -174,13 +175,41 @@ export function buildTestDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
+export function buildAssetsEditorTab(selectedId?: string): WorkbenchTab {
+  return {
+    id: 'tab:assets',
+    title: 'Assets',
+    editorType: 'asset-library',
+    resource: {
+      kind: 'project',
+      stableId: selectedId ? `assets:${selectedId}` : 'assets',
+      collection: 'assets',
+      entityId: selectedId,
+    },
+  };
+}
+
+export function buildTestsEditorTab(selectedId?: string): WorkbenchTab {
+  return {
+    id: 'tab:tests',
+    title: 'Tests',
+    editorType: 'test-suite',
+    resource: {
+      kind: 'project',
+      stableId: selectedId ? `tests:${selectedId}` : 'tests',
+      collection: 'tests',
+      entityId: selectedId,
+    },
+  };
+}
+
 export function buildVariablesEditorTab(selectedId?: string): WorkbenchTab {
   return {
     id: 'tab:variables',
     title: 'Variables',
     editorType: 'variables',
     resource: {
-      kind: 'tool',
+      kind: 'project',
       stableId: selectedId ? `variables:${selectedId}` : 'variables',
       collection: 'variables',
       entityId: selectedId,
@@ -190,6 +219,8 @@ export function buildVariablesEditorTab(selectedId?: string): WorkbenchTab {
 
 export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'variables') return buildVariablesEditorTab(node.entityId);
+  if (node.collection === 'assets' && !node.entityId) return buildAssetsEditorTab();
+  if (node.collection === 'tests' && !node.entityId) return buildTestsEditorTab();
   if (node.collection === 'assets' && node.entityId) return buildAssetDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'shaders' && node.entityId) return buildShaderDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'materials' && node.entityId) return buildMaterialDetailTabForRecord(node.entityId, node.entityId);
@@ -232,8 +263,8 @@ export function buildProjectSettingsTab(): WorkbenchTab {
     title: 'Project Settings',
     editorType: 'project-settings',
     resource: {
-      kind: 'tool',
-      stableId: 'utility:project-settings',
+      kind: 'project',
+      stableId: 'project:settings',
     },
   };
 }
@@ -251,9 +282,13 @@ export function buildPrimaryPreviewTab(): WorkbenchTab {
   };
 }
 
+export function editorIconClassNameForTab(tab: WorkbenchTab): string {
+  return visualForEditorType(tab.editorType, tab.resource?.collection)?.colorClassName ?? '';
+}
+
 export function editorIconForType(editorType: string): ComponentType<{ className?: string }> {
   if (editorType === 'engine-preview') return MonitorPlay;
-  if (editorType === 'asset-detail') return Image;
+  if (editorType === 'asset-detail' || editorType === 'asset-library') return Image;
   if (editorType === 'shader-detail') return FileCode;
   if (editorType === 'material-detail') return Palette;
   if (editorType === 'layout-detail') return Layers;
@@ -261,7 +296,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'room-detail') return DoorOpen;
   if (editorType === 'dialogue-detail') return MessageSquareText;
   if (editorType === 'scene-detail') return Clapperboard;
-  if (editorType === 'test-detail') return ListChecks;
+  if (editorType === 'test-detail' || editorType === 'test-suite') return ListChecks;
   if (editorType === 'variables') return SlidersHorizontal;
   if (editorType === 'components') return Puzzle;
   if (editorType === 'settings') return Settings;
