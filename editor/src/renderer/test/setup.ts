@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
+if (!window.PointerEvent) {
+  Object.defineProperty(window, 'PointerEvent', { value: MouseEvent, writable: true, configurable: true });
+}
+
 Object.defineProperty(window, 'matchMedia', {
   value: vi.fn().mockImplementation((query: string) => ({
     matches: false,
@@ -80,6 +84,10 @@ Object.defineProperty(window, 'noveltea', {
     saveProjectAs: vi.fn().mockResolvedValue({ ok: true, success: true, projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' }),
     importAssets: vi.fn().mockResolvedValue({ success: true, assets: [], diagnostics: [] }),
     reimportAsset: vi.fn().mockResolvedValue({ success: true, asset: null, diagnostics: [] }),
+    resolveProjectAssetUrl: vi.fn().mockResolvedValue({ url: 'data:image/png;base64,bW9jaw==', absolutePath: '/mock/project/assets/images/logo.png' }),
+    checkComfyUiConnection: vi.fn().mockResolvedValue({ state: 'ready', serverUrl: 'http://127.0.0.1:8000', checkedAt: 'now', message: 'ComfyUI ready', queueRemaining: 0 }),
+    getComfyUiQueue: vi.fn().mockResolvedValue({ promptId: null, workflowId: null, state: 'idle', queueRemaining: 0, currentNode: null, progressValue: null, progressMax: null, message: 'ComfyUI queue idle' }),
+    onComfyUiProgress: vi.fn().mockReturnValue(() => {}),
     setEntityRecord: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], project: {} }),
     eraseEntityRecord: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], project: {} }),
   },

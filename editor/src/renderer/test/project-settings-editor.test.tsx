@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { useCommandStore } from '@/commands/command-store';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -43,6 +44,7 @@ function project() {
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useComfyUiStore.getState().hydrateFromProject(null);
 });
 
 describe('ProjectSettingsEditor', () => {
@@ -81,5 +83,22 @@ describe('ProjectSettingsEditor', () => {
         app: { icon: { $ref: { collection: 'assets', id: 'logo' } } },
       },
     }));
+  });
+
+  it('updates ComfyUI settings and can test the connection', async () => {
+    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    render(<ProjectSettingsEditor tab={tab} />);
+
+    fireEvent.click(screen.getAllByLabelText('Enable ComfyUI integration')[0]!);
+    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'http://127.0.0.1:8000/' } });
+    fireEvent.change(screen.getByLabelText('Generated image folder'), { target: { value: 'assets/images/generated' } });
+
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
+      settings: { comfyui: { enabled: true, serverUrl: 'http://127.0.0.1:8000' } },
+    }));
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setComfyUi');
+
+    fireEvent.click(screen.getByText('Test Connection'));
+    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalled());
   });
 });

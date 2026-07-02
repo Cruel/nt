@@ -40,9 +40,13 @@ export interface NovelTeaElectronApi {
   ): Promise<PackageExportResponse>;
   compileShaders(shaderProject: unknown, options?: ShaderCompileOptions): Promise<ShaderCompileResponse>;
   saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
-  saveProjectAs(project: unknown, defaultPath?: string | null): Promise<SaveProjectResponse>;
+  saveProjectAs(project: unknown, defaultPath?: string | null, currentProjectFilePath?: string | null): Promise<SaveProjectResponse>;
   importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
   reimportAsset(projectFilePath: string, projectRelativePath: string): Promise<AssetReimportResponse>;
+  resolveProjectAssetUrl(projectFilePath: string, projectRelativePath: string): Promise<ProjectAssetUrlResponse | null>;
+  checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
+  getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
+  onComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void;
   setEntityRecord(
     project: unknown,
     collection: string,
@@ -56,7 +60,9 @@ export interface NovelTeaElectronApi {
   ): Promise<EntityEditResponse>;
 }
 import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
+import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
 import type { EnginePreviewSession } from './preview-protocol';
+import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {
   EntityEditResponse,
   OpenProjectResponse,

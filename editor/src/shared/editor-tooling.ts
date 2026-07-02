@@ -131,6 +131,7 @@ export interface SaveProjectResponse {
   success: boolean;
   projectPath?: string;
   projectFilePath?: string;
+  diagnostics?: ToolDiagnostic[];
   error?: string;
 }
 

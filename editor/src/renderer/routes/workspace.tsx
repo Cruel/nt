@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useCommandStore } from '@/commands/command-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -56,6 +58,9 @@ export function WorkspacePage() {
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
   const hydrateBottomPanel = useBottomPanelStore((state) => state.hydrate);
   const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
+  const hydrateComfyUi = useComfyUiStore((state) => state.hydrateFromProject);
+  const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
+  const comfyUiConfig = useComfyUiStore((state) => state.config);
   const previewConnectionState = useWorkspaceStore((state) => state.previewConnectionState);
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
   const project = useProjectStore((state) => state.document);
@@ -247,15 +252,17 @@ export function WorkspacePage() {
       const projectWithEditorState = mergeEditorProjectState(latestProject, buildEditorProjectStateSnapshot());
       const latestProjectFilePath = useProjectStore.getState().projectFilePath;
       const result = saveAs || !latestProjectFilePath
-        ? await window.noveltea.saveProjectAs(projectWithEditorState, latestProjectFilePath)
+        ? await window.noveltea.saveProjectAs(projectWithEditorState, latestProjectFilePath, latestProjectFilePath)
         : await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
       if (result.success) {
         markProjectSaved({ projectPath: result.projectPath, projectFilePath: result.projectFilePath, document: projectWithEditorState });
         refreshRecentProjectEntry(projectWithEditorState, result.projectPath ?? projectPath, result.projectFilePath ?? latestProjectFilePath);
         setProjectPath(result.projectPath ?? projectPath);
         setProjectFilePath(result.projectFilePath ?? projectFilePath);
-        addTimelineEntry({ source: 'command', message: `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}`, detail: result });
-        setStatusMessage(`${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}`);
+        const warningCount = result.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning').length ?? 0;
+        const savedMessage = `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
+        addTimelineEntry({ source: 'command', message: savedMessage, detail: result });
+        setStatusMessage(savedMessage);
         return true;
       }
       setProjectSaveError(result.error ?? 'Save failed');
@@ -328,11 +335,23 @@ export function WorkspacePage() {
     if (!project) {
       setProject(null);
       setDiagnostics([]);
+      hydrateComfyUi(null);
       return;
     }
     setProject(project);
-    setDiagnostics(isAuthoringProject(project) ? validateAuthoringProject(project) : unsupportedProjectDiagnostics());
-  }, [project, setProject, setDiagnostics]);
+    const authoringProject = isAuthoringProject(project) ? project : null;
+    hydrateComfyUi(authoringProject);
+    setDiagnostics(authoringProject ? validateAuthoringProject(authoringProject) : unsupportedProjectDiagnostics());
+  }, [hydrateComfyUi, project, setProject, setDiagnostics]);
+
+  useEffect(() => {
+    if (!project || !comfyUiConfig.enabled) return;
+    void checkComfyUiConnection(comfyUiConfig);
+    const timer = window.setInterval(() => {
+      void useComfyUiStore.getState().checkConnection(useComfyUiStore.getState().config);
+    }, comfyUiConfig.connectionCheckIntervalMs);
+    return () => window.clearInterval(timer);
+  }, [checkComfyUiConnection, comfyUiConfig, project]);
 
   function validate() {
     if (!project) return;
@@ -534,6 +553,8 @@ export function WorkspacePage() {
         <span className="font-mono text-[10px] text-muted-foreground">
           Preview {previewConnectionState}
         </span>
+        <span className="mx-2 text-muted-foreground/30">|</span>
+        <ComfyUiStatusIndicator />
         <span className="mx-2 text-muted-foreground/30">|</span>
         <span className="truncate font-mono text-[10px] text-muted-foreground">{statusMessage}</span>
       </div>

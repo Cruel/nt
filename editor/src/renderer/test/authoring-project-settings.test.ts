@@ -26,6 +26,12 @@ describe('authoring project settings', () => {
     expect(settings.text.defaultFont).toBeNull();
     expect(settings.titleScreen).toMatchObject({ showProjectTitle: true, showAuthor: false, startLabel: 'Start' });
     expect(settings.startup.initScript).toBe('');
+    expect(settings.comfyui).toMatchObject({
+      enabled: false,
+      serverUrl: 'http://127.0.0.1:8000',
+      defaultWorkflowId: 'basic-text-to-image',
+      outputSubfolder: 'assets/images/generated',
+    });
   });
 
   it('validates project-level layout, font, image, and icon refs', () => {
@@ -40,5 +46,21 @@ describe('authoring project settings', () => {
 
     project.settings.text = { defaultFont: assetRef('logo') };
     expect(validateTypedProjectSettings(project)).toContainEqual(expect.objectContaining({ severity: 'error', path: '/settings/text/defaultFont/$ref' }));
+  });
+
+  it('validates ComfyUI settings when enabled', () => {
+    const project = createAuthoringProject();
+    project.settings.comfyui = {
+      enabled: true,
+      serverUrl: 'file:///tmp/comfyui',
+      defaultWorkflowId: 'basic-text-to-image',
+      outputSubfolder: '../generated',
+      requestTimeoutMs: 15000,
+      connectionCheckIntervalMs: 10000,
+    };
+    expect(validateTypedProjectSettings(project)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'error', path: '/settings/comfyui/serverUrl' }),
+      expect.objectContaining({ severity: 'error', path: '/settings/comfyui/outputSubfolder' }),
+    ]));
   });
 });

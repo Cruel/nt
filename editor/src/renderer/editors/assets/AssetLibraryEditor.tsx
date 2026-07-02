@@ -42,17 +42,28 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {assets.map((asset) => (
-          <button key={asset.id} type="button" className="rounded border p-3 text-left transition-colors hover:bg-accent" onClick={() => openTab(buildAssetDetailTabForRecord(asset.id, asset.label))}>
+          <div key={asset.id} className="rounded border p-3 text-left transition-colors hover:bg-accent">
             <div className="flex items-start gap-3">
-              <div className="h-20 w-20 shrink-0 overflow-hidden rounded border bg-muted/30">{asset.data ? <AssetPreview assetId={asset.id} label={asset.label} data={asset.data} /> : null}</div>
-              <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                className="h-20 w-20 shrink-0 overflow-hidden rounded border bg-muted/30 text-left"
+                onClick={() => openTab(buildAssetDetailTabForRecord(asset.id, asset.label))}
+                aria-label={`Open ${asset.label}`}
+              >
+                {asset.data ? <AssetPreview assetId={asset.id} label={asset.label} data={asset.data} compact /> : null}
+              </button>
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => openTab(buildAssetDetailTabForRecord(asset.id, asset.label))}
+              >
                 <div className="truncate font-medium">{asset.label}</div>
                 <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{asset.id}</div>
                 {asset.data ? <Badge variant="secondary" className="mt-2">{asset.data.kind}</Badge> : <Badge variant="destructive" className="mt-2">invalid</Badge>}
                 <div className="mt-2 truncate text-xs text-muted-foreground">{asset.data?.source.path ?? 'Invalid asset data'}</div>
-              </div>
+              </button>
             </div>
-          </button>
+          </div>
         ))}
       </div>
       {assets.length === 0 ? <div className="mt-8 rounded border p-4 text-sm text-muted-foreground">No assets match the current filter.</div> : null}

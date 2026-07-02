@@ -3,7 +3,7 @@ import { toJsonValue, type JsonValue } from '@/project/json-value';
 import { defaultLayoutRef } from '../../shared/project-schema/authoring-layouts';
 import { assetRef, roomEntrypointRef } from '../../shared/project-schema/authoring-project-settings';
 import { isAuthoringProject, type ReferenceTarget } from '../../shared/project-schema/authoring-project';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
+import { isSafeProjectAssetPath, parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
@@ -42,6 +42,15 @@ export interface SetProjectIconPayload {
   assetId: string | null;
 }
 
+export interface SetProjectComfyUiPayload {
+  enabled?: boolean;
+  serverUrl?: string;
+  defaultWorkflowId?: string;
+  outputSubfolder?: string;
+  requestTimeoutMs?: number;
+  connectionCheckIntervalMs?: number;
+}
+
 function error(message: string, path?: string): EntityOperationDiagnostic {
   return { severity: 'error', message, path };
 }
@@ -52,6 +61,30 @@ function ensureSettingsObject(patches: JsonPatchOperation[], documentValue: Json
 
 function patchValue(documentValue: JsonValue, path: string, value: unknown): JsonPatchOperation {
   return { op: hasJsonAtPointer(documentValue, path) ? 'replace' : 'add', path, value: toJsonValue(value) };
+}
+
+function normalizeServerUrl(serverUrl: string): string {
+  return serverUrl.trim().replace(/\/+$/, '');
+}
+
+function validateComfyUiOutputFolder(outputSubfolder: string): EntityOperationDiagnostic | null {
+  const trimmed = outputSubfolder.trim();
+  if (!trimmed) return error('ComfyUI output folder is required.', '/settings/comfyui/outputSubfolder');
+  return isSafeProjectAssetPath(`${trimmed}/placeholder.png`)
+    ? null
+    : error('ComfyUI output folder must be a safe project-relative path.', '/settings/comfyui/outputSubfolder');
+}
+
+function validateComfyUiServerUrl(serverUrl: string): EntityOperationDiagnostic | null {
+  try {
+    const url = new URL(normalizeServerUrl(serverUrl));
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return error('ComfyUI server URL must use http or https.', '/settings/comfyui/serverUrl');
+    }
+    return null;
+  } catch {
+    return error('ComfyUI server URL is invalid.', '/settings/comfyui/serverUrl');
+  }
 }
 
 function validateAssetKind(document: unknown, assetId: string, expectedKind: 'font' | 'image', path: string): EntityOperationDiagnostic | null {
@@ -155,6 +188,34 @@ export function setProjectIconPatches(document: unknown, payload: SetProjectIcon
   ensureSettingsObject(patches, documentValue, '/settings/app');
   patches.push(patchValue(documentValue, '/settings/app/icon', payload.assetId === null ? null : assetRef(payload.assetId)));
   return { patches, affectedPaths: ['/settings/app/icon'] };
+}
+
+export function setProjectComfyUiPatches(document: unknown, payload: SetProjectComfyUiPayload): EntityOperationResult {
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (payload.serverUrl !== undefined) {
+    const urlError = validateComfyUiServerUrl(payload.serverUrl);
+    if (urlError) return { patches: [], diagnostics: [urlError] };
+  }
+  if (payload.outputSubfolder !== undefined) {
+    const folderError = validateComfyUiOutputFolder(payload.outputSubfolder);
+    if (folderError) return { patches: [], diagnostics: [folderError] };
+  }
+  const patches: JsonPatchOperation[] = [];
+  const documentValue = toJsonValue(document);
+  ensureSettingsObject(patches, documentValue, '/settings/comfyui');
+  const affectedPaths: string[] = [];
+  const set = (key: keyof SetProjectComfyUiPayload, value: unknown) => {
+    const path = buildJsonPointer(['settings', 'comfyui', key]);
+    patches.push(patchValue(documentValue, path, value));
+    affectedPaths.push(path);
+  };
+  if (payload.enabled !== undefined) set('enabled', payload.enabled);
+  if (payload.serverUrl !== undefined) set('serverUrl', normalizeServerUrl(payload.serverUrl));
+  if (payload.defaultWorkflowId !== undefined) set('defaultWorkflowId', payload.defaultWorkflowId.trim());
+  if (payload.outputSubfolder !== undefined) set('outputSubfolder', payload.outputSubfolder.trim());
+  if (payload.requestTimeoutMs !== undefined) set('requestTimeoutMs', payload.requestTimeoutMs);
+  if (payload.connectionCheckIntervalMs !== undefined) set('connectionCheckIntervalMs', payload.connectionCheckIntervalMs);
+  return { patches, affectedPaths };
 }
 
 export { roomEntrypointRef };

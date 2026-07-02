@@ -60,7 +60,7 @@ export function DirtyCloseDialog() {
       const latestProjectFilePath = useProjectStore.getState().projectFilePath;
       const result = latestProjectFilePath
         ? await window.noveltea.saveProject(latestProject, latestProjectFilePath)
-        : await window.noveltea.saveProjectAs(latestProject, latestProjectFilePath);
+        : await window.noveltea.saveProjectAs(latestProject, latestProjectFilePath, latestProjectFilePath);
       if (!result.success) {
         const message = result.error ?? 'Save failed.';
         setProjectSaveError(message);
@@ -71,7 +71,8 @@ export function DirtyCloseDialog() {
       markProjectSaved({ projectPath: result.projectPath, projectFilePath: result.projectFilePath });
       setProjectPath(result.projectPath ?? projectPath);
       setProjectFilePath(result.projectFilePath ?? projectFilePath);
-      const message = `Saved ${result.projectFilePath ?? latestProjectFilePath}`;
+      const warningCount = result.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning').length ?? 0;
+      const message = `Saved ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
       setStatusMessage(message);
       addTimelineEntry({ source: 'command', message, detail: result });
       closeApprovedTab();

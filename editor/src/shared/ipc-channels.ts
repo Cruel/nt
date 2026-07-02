@@ -29,6 +29,10 @@ export const IPC_CHANNELS = {
   SAVE_PROJECT_AS: 'noveltea:save-project-as',
   IMPORT_ASSETS: 'noveltea:import-assets',
   REIMPORT_ASSET: 'noveltea:reimport-asset',
+  RESOLVE_PROJECT_ASSET_URL: 'noveltea:resolve-project-asset-url',
+  COMFYUI_CHECK_CONNECTION: 'noveltea:comfyui-check-connection',
+  COMFYUI_GET_QUEUE: 'noveltea:comfyui-get-queue',
+  COMFYUI_PROGRESS_EVENT: 'noveltea:comfyui-progress-event',
   SET_ENTITY_RECORD: 'noveltea:set-entity-record',
   ERASE_ENTITY_RECORD: 'noveltea:erase-entity-record',
 } as const;

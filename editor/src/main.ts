@@ -5,6 +5,8 @@ import started from 'electron-squirrel-startup';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
+import { checkComfyUiConnection, getComfyUiQueue } from './main/services/comfyui-service';
+import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
 import {
   compileShaders,
   eraseEntityRecord,
@@ -19,6 +21,7 @@ import {
 } from './main/services/editor-tool-service';
 import { saveProject, saveProjectAs } from './main/services/project-file-service';
 import type { AssetImportOptions } from './shared/asset-import';
+import type { ComfyUiConfig } from './shared/comfyui';
 import type { PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
 
 if (started) {
@@ -395,8 +398,8 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.SAVE_PROJECT_AS,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, defaultPath: string | null) =>
-      saveProjectAs(mainWindow, project, defaultPath),
+    (_event: Electron.IpcMainInvokeEvent, project: unknown, defaultPath: string | null, currentProjectFilePath: string | null) =>
+      saveProjectAs(mainWindow, project, defaultPath, currentProjectFilePath),
   );
 
   ipcMain.handle(
@@ -409,6 +412,24 @@ app.whenReady().then(() => {
     IPC_CHANNELS.REIMPORT_ASSET,
     (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
       reimportAsset(mainWindow, projectFilePath, projectRelativePath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
+      resolveProjectAssetUrl(projectFilePath, projectRelativePath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_CHECK_CONNECTION,
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
+      checkComfyUiConnection(config),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_GET_QUEUE,
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
+      getComfyUiQueue(config),
   );
 
   ipcMain.handle(

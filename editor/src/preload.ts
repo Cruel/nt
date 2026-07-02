@@ -52,12 +52,23 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
   saveProject: (project: unknown, projectFilePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT, project, projectFilePath),
-  saveProjectAs: (project: unknown, defaultPath: string | null = null) =>
-    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT_AS, project, defaultPath),
+  saveProjectAs: (project: unknown, defaultPath: string | null = null, currentProjectFilePath: string | null = null) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT_AS, project, defaultPath, currentProjectFilePath),
   importAssets: (projectFilePath: string, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_ASSETS, projectFilePath, options),
   reimportAsset: (projectFilePath: string, projectRelativePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.REIMPORT_ASSET, projectFilePath, projectRelativePath),
+  resolveProjectAssetUrl: (projectFilePath: string, projectRelativePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL, projectFilePath, projectRelativePath),
+  checkComfyUiConnection: (config) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
+  getComfyUiQueue: (config) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),
+  onComfyUiProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => callback(progress as never);
+    ipcRenderer.on(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, listener);
+  },
   setEntityRecord: (project: unknown, collection: string, entityId: string, record: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.SET_ENTITY_RECORD, project, collection, entityId, record),
   eraseEntityRecord: (project: unknown, collection: string, entityId: string) =>
