@@ -1,16 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import {
-  Download,
-  Eye,
-  FilePlus2,
-  FlaskConical,
   Maximize2,
   Minus,
-  Package,
-  Play,
   Redo2,
   Save,
-  SaveAll,
   Square,
   Undo2,
   X,
@@ -30,7 +23,6 @@ import {
   MenubarSubTrigger,
   MenubarTrigger,
 } from '@/components/ui/menubar';
-import { Separator } from '@/components/ui/separator';
 import { useCommandStore } from '@/commands/command-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -62,20 +54,12 @@ function WorkspaceTopToolbar() {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectDirty = useProjectStore(selectProjectDirty);
   const isSaving = useProjectStore((state) => state.isSaving);
-  const autosaveEnabled = useProjectStore((state) => state.autosaveEnabled);
-  const previewRunning = useWorkspaceStore((state) => state.previewRunning);
-  const tests = useWorkspaceStore((state) => state.playbackTests);
-  const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
   const commandHistory = useCommandStore((state) => state.history);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
   const saveDirty = projectDirty || hasDraftDirty;
   const canUndo = commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
   const canRedo = commandHistory.cursor < commandHistory.entries.length - 1 && !commandHistory.activeTransaction;
-  const isAuthoring = isAuthoringProject(project);
-  const authoringTestCount = isAuthoring ? Object.keys(project.tests).length : 0;
-  const canRunTest = isAuthoring ? authoringTestCount > 0 : tests.length > 0;
-
   if (!project) return null;
 
   return (
@@ -83,32 +67,6 @@ function WorkspaceTopToolbar() {
       <span className="mr-2 max-w-48 truncate font-mono text-[11px] text-muted-foreground" title={projectFilePath ?? 'Unsaved project'}>
         {projectFileName(projectFilePath)}
       </span>
-      <Button size="xs" variant="outline" onClick={() => dispatchWorkspaceToolbarCommand('new-project')} title="New Project">
-        <FilePlus2 className="h-3.5 w-3.5" />
-        New
-      </Button>
-      <Button size="xs" variant="outline" onClick={() => dispatchWorkspaceToolbarCommand('open-project')}>
-        Open
-      </Button>
-      <Button size="xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('validate')}>
-        Validate
-      </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('import-assets')} title="Import assets">
-        <Download className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('run-first-test')} disabled={!canRunTest} title={canRunTest ? 'Open or run a test' : 'No tests exist yet'}>
-        <FlaskConical className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('export-package')} title={isAuthoring ? 'Export runtime package' : 'Package export requires an authoring project'}>
-        <Package className="h-3.5 w-3.5" />
-      </Button>
-      <Separator orientation="vertical" className="mx-1 h-4" />
-      <Button size="icon-xs" variant={previewRunning ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('preview-play')} title="Run preview">
-        <Play className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="icon-xs" variant={!previewRunning ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('preview-stop')} title="Stop preview">
-        <Square className="h-3.5 w-3.5" />
-      </Button>
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('undo')} disabled={!canUndo} title="Undo">
         <Undo2 className="h-3.5 w-3.5" />
       </Button>
@@ -117,16 +75,6 @@ function WorkspaceTopToolbar() {
       </Button>
       <Button size="icon-xs" variant={saveDirty ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('save')} disabled={!saveDirty || isSaving} title="Save">
         <Save className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('save-as')} disabled={isSaving} title="Save As">
-        <SaveAll className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="xs" variant={autosaveEnabled ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('toggle-autosave')} disabled={!projectFilePath} title="Toggle autosave">
-        Autosave
-      </Button>
-      <Separator orientation="vertical" className="mx-1 h-4" />
-      <Button size="icon-xs" variant={bottomPanelVisible ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('toggle-bottom-panel')} title="Toggle bottom panel">
-        <Eye className="h-3.5 w-3.5" />
       </Button>
     </div>
   );
@@ -243,7 +191,7 @@ export function AppMenuBar() {
             </MenubarItem>
             <MenubarSeparator />
             <MenubarItem disabled>Command Palette…<MenubarShortcut>Ctrl+Shift+P</MenubarShortcut></MenubarItem>
-            <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('toggle-bottom-panel')}>Toggle Bottom Panel</MenubarItem>
+            <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('toggle-bottom-panel')}>Toggle Bottom Panel<MenubarShortcut>Ctrl+J</MenubarShortcut></MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 

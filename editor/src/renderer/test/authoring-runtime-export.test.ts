@@ -49,7 +49,8 @@ describe('authoring runtime export builder', () => {
       expect.objectContaining({ source: '/project/assets/images/foyer.png', packagePath: 'textures/foyer.png', assetId: 'foyer' }),
     ]);
     expect(result.packageOptions.fileEntries).toEqual([{ source: '/project/assets/images/foyer.png', packagePath: 'textures/foyer.png' }]);
-    expect(result.manifestPreview).toMatchObject({ projectName: 'Export Demo', assetCount: 1 });
+    expect(result.packageOptions.shaderVariants).toEqual([]);
+    expect(result.manifestPreview).toMatchObject({ projectName: 'Export Demo', assetCount: 1, shaderVariants: [] });
   });
 
   it('blocks unsupported entrypoints with precise diagnostics', () => {

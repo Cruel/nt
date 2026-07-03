@@ -15,7 +15,6 @@ export type WorkspaceToolbarCommand =
   | 'redo'
   | 'save'
   | 'save-as'
-  | 'toggle-autosave'
   | 'toggle-bottom-panel';
 
 export type WorkspaceToolbarCommandDetail =

@@ -94,14 +94,12 @@ export function WorkspacePage() {
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
   const saveDirty = projectDirty || hasDraftDirty;
   const isSaving = useProjectStore((state) => state.isSaving);
-  const autosaveEnabled = useProjectStore((state) => state.autosaveEnabled);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
   const loadUnsavedProjectDocument = useProjectStore((state) => state.loadUnsavedProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
   const markProjectSaved = useProjectStore((state) => state.markSaved);
   const setProjectSaving = useProjectStore((state) => state.setSaving);
   const setProjectSaveError = useProjectStore((state) => state.setSaveError);
-  const setAutosaveEnabled = useProjectStore((state) => state.setAutosaveEnabled);
   const tests = useWorkspaceStore((state) => state.playbackTests);
   const setProjectPath = useWorkspaceStore((state) => state.setProjectPath);
   const setProjectFilePath = useWorkspaceStore((state) => state.setProjectFilePath);
@@ -120,7 +118,6 @@ export function WorkspacePage() {
   const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
   const closeProjectTabs = useWorkbenchStore((state) => state.closeProjectTabs);
   const commandHistory = useCommandStore((state) => state.history);
-  const lastCommandDiagnostics = useCommandStore((state) => state.lastDiagnostics);
   const undoCommand = useCommandStore((state) => state.undo);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const redoCommand = useCommandStore((state) => state.redo);
@@ -349,7 +346,7 @@ export function WorkspacePage() {
     })();
   }));
 
-  async function saveProject(saveAs = false, reason: 'manual' | 'autosave' = 'manual') {
+  async function saveProject(saveAs = false) {
     if (!project) return false;
     setProjectSaving(true);
     try {
@@ -377,7 +374,7 @@ export function WorkspacePage() {
         setProjectPath(result.projectPath ?? projectPath);
         setProjectFilePath(result.projectFilePath ?? projectFilePath);
         const warningCount = result.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning').length ?? 0;
-        const savedMessage = `${reason === 'autosave' ? 'Autosaved' : 'Saved'} ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
+        const savedMessage = `Saved ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
         addTimelineEntry({ source: 'command', message: savedMessage, detail: result });
         setStatusMessage(savedMessage);
         return true;
@@ -415,7 +412,10 @@ export function WorkspacePage() {
       const target = event.target as HTMLElement | null;
       const isTextInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (isTextInput) return;
-      if (event.key.toLowerCase() === 'z') {
+      if (event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        setBottomPanelVisible(!useBottomPanelStore.getState().visible);
+      } else if (event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redoProjectCommand();
         else undoProjectCommand();
@@ -449,15 +449,6 @@ export function WorkspacePage() {
       });
     }
   }, [deletedAssetTrash, forgetDeletedAsset, project, projectFilePath]);
-
-  useEffect(() => {
-    if (!autosaveEnabled || !saveDirty || !projectFilePath || isSaving || commandHistory.activeTransaction) return;
-    if (lastCommandDiagnostics.some((diagnostic) => diagnostic.severity === 'error')) return;
-    const timer = window.setTimeout(() => {
-      void saveProject(false, 'autosave');
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  });
 
   useEffect(() => {
     if (!project) {
@@ -687,9 +678,6 @@ export function WorkspacePage() {
         case 'save-as':
           void saveProject(true);
           break;
-        case 'toggle-autosave':
-          setAutosaveEnabled(!autosaveEnabled);
-          break;
         case 'toggle-bottom-panel':
           if (project) setBottomPanelVisible(!bottomPanelVisible);
           break;
@@ -701,6 +689,7 @@ export function WorkspacePage() {
   });
 
   const showBottomPanel = project !== null && bottomPanelVisible;
+  const showCollapsedBottomPanel = project !== null && !bottomPanelVisible;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -730,6 +719,7 @@ export function WorkspacePage() {
           </Group>
         </div>
       </div>
+      {showCollapsedBottomPanel ? <div className="h-9 shrink-0 overflow-hidden"><BottomPanel /></div> : null}
       <PackageExportDialog
         open={packageExportOpen}
         onOpenChange={setPackageExportOpen}
@@ -756,7 +746,7 @@ export function WorkspacePage() {
       </Dialog>
       <div className="flex h-7 items-center border-t bg-muted/30 px-3">
         <span className="font-mono text-[10px] text-muted-foreground">
-          {nodes.reduce((count, node) => count + (node.children?.length ?? 0), 0)} records{saveDirty ? ' • dirty' : ''}{isSaving ? ' • saving' : ''}{autosaveEnabled ? ' • autosave' : ''}
+          {nodes.reduce((count, node) => count + (node.children?.length ?? 0), 0)} records{saveDirty ? ' • dirty' : ''}{isSaving ? ' • saving' : ''}
         </span>
         <span className="mx-2 text-muted-foreground/30">|</span>
         <span className="font-mono text-[10px] text-muted-foreground">

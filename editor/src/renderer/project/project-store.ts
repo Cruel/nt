@@ -11,7 +11,6 @@ interface ProjectStoreState {
   savedHistoryCursor: number;
   isSaving: boolean;
   lastSaveError: string | null;
-  autosaveEnabled: boolean;
   loadProjectDocument: (payload: ProjectLoadPayload) => void;
   loadUnsavedProjectDocument: (document: JsonValue | unknown) => void;
   clearProject: () => void;
@@ -20,7 +19,6 @@ interface ProjectStoreState {
   markSaved: (metadata?: ProjectSaveMetadata) => void;
   setSaving: (saving: boolean) => void;
   setSaveError: (error: string | null) => void;
-  setAutosaveEnabled: (enabled: boolean) => void;
 }
 
 function normalizeDocument(document: JsonValue | unknown | null): JsonValue | null {
@@ -36,7 +34,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   savedHistoryCursor: -1,
   isSaving: false,
   lastSaveError: null,
-  autosaveEnabled: false,
   loadProjectDocument: ({ document, projectPath, projectFilePath }) =>
     set({
       document: normalizeDocument(document),
@@ -90,7 +87,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   },
   setSaving: (isSaving) => set({ isSaving }),
   setSaveError: (lastSaveError) => set({ lastSaveError, isSaving: false }),
-  setAutosaveEnabled: (autosaveEnabled) => set({ autosaveEnabled }),
 }));
 
 export function selectProjectDirty(state: Pick<ProjectStoreState, 'document' | 'historyCursor' | 'savedHistoryCursor'>) {

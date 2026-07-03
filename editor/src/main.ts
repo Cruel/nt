@@ -144,6 +144,12 @@ function installWindowShortcuts(window: BrowserWindow) {
       return;
     }
 
+    if (key === 'i' && input.shift && (input.control || input.meta)) {
+      event.preventDefault();
+      window.webContents.toggleDevTools();
+      return;
+    }
+
     if (!(input.control || input.meta)) return;
     const zoomFactor = window.webContents.getZoomFactor();
 
@@ -278,7 +284,6 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(DEV_SERVER_URL!);
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),

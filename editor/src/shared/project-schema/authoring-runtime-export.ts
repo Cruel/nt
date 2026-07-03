@@ -252,14 +252,15 @@ export function buildAuthoringRuntimeExport(
   diagnostics.push(...shaderBuild.diagnostics.map((item) => ({ ...item, category: item.category ?? 'shader' })));
   const hasShaderMetadata = Object.keys(shaderBuild.project.shaders).length > 0 || Object.keys(shaderBuild.project.materials).length > 0;
   const shaderMaterialMetadata = hasShaderMetadata ? shaderBuild.project : undefined;
-  const requiredShaderBinaryPaths = shaderMaterialMetadata ? requiredShaderBinaryPathsFromMetadata(shaderMaterialMetadata, options.profile.shaderVariants as ExportShaderVariant[]) : [];
+  const shaderVariants = shaderMaterialMetadata ? options.profile.shaderVariants : [];
+  const requiredShaderBinaryPaths = shaderMaterialMetadata ? requiredShaderBinaryPathsFromMetadata(shaderMaterialMetadata, shaderVariants as ExportShaderVariant[]) : [];
   const fileEntries = buildFileEntries(project, options, diagnostics);
   const manifestPreview: ExportManifestPreview = {
     projectName: project.project.name,
     projectVersion: project.project.version,
     entryCount: 1 + fileEntries.length + requiredShaderBinaryPaths.length + (shaderMaterialMetadata ? 1 : 0),
     assetCount: fileEntries.length,
-    shaderVariants: options.profile.shaderVariants,
+    shaderVariants,
     requiredShaderBinaryPaths,
   };
   const packageOptions: PackageExportOptions = {
@@ -269,7 +270,7 @@ export function buildAuthoringRuntimeExport(
     createdBy: 'noveltea-editor',
     includeChecksums: options.profile.includeChecksums,
     stripShaderSources: options.profile.stripShaderSources,
-    shaderVariants: options.profile.shaderVariants,
+    shaderVariants,
     shaderMaterialMetadata,
     requiredShaderBinaryPaths,
     fileEntries: fileEntries.map((entry) => ({ source: entry.source, packagePath: entry.packagePath })),

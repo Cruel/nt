@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultPackageOutputFileName, exportShaderVariantValues, selectedExportProfile, type ExportProfileData, type ExportShaderVariant } from '../../shared/project-schema/authoring-export';
-import { buildAuthoringRuntimeExport } from '../../shared/project-schema/authoring-runtime-export';
+import { buildAuthoringRuntimeExport, hasAuthoringShadersOrMaterials } from '../../shared/project-schema/authoring-runtime-export';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { runPackageExportWorkflow } from './package-export-workflow';
 import { usePackageExportStore } from './package-export-store';
@@ -90,6 +90,7 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
   const currentProject: AuthoringProject = project;
   const currentProfile: ExportProfileData = activeProfile;
   const outputPath = currentProfile.outputPath || defaultOutputPath(currentProject, projectRoot, projectFilePath);
+  const usesProjectShaders = hasAuthoringShadersOrMaterials(currentProject);
   const preflightDiagnostics = [...validationDiagnostics, ...(preview?.diagnostics ?? [])];
   const blockingDiagnostics = preflightDiagnostics.filter((diagnostic) => diagnostic.severity === 'error');
   const warningCount = preflightDiagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length;
@@ -122,17 +123,11 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="max-w-2xl">
-        <DialogTitle>Package Export</DialogTitle>
-        <DialogDescription>
-          Export a runtime package from the authoring project. Validation, runtime conversion, shader compile, asset collection, and package writing are reported in the Package Export panel.
-        </DialogDescription>
+        <DialogTitle>Export Project</DialogTitle>
+        <DialogDescription className="sr-only">Export a compiled project file.</DialogDescription>
         <div className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="package-export-label">Profile</Label>
-            <Input id="package-export-label" value={currentProfile.label} onChange={(event) => setProfile({ ...currentProfile, label: event.currentTarget.value })} />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="package-export-output">Output package</Label>
+            <Label htmlFor="package-export-output">Output file</Label>
             <div className="flex gap-2">
               <Input id="package-export-output" className="font-mono text-[11px]" value={outputPath} onChange={(event) => setProfile({ ...currentProfile, outputPath: event.currentTarget.value })} />
               <Button type="button" variant="outline" onClick={chooseOutputPath}>Browse…</Button>
@@ -143,30 +138,36 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
               <input type="checkbox" checked={currentProfile.includeChecksums} onChange={(event) => setProfile({ ...currentProfile, includeChecksums: event.currentTarget.checked })} />
               Include checksums
             </label>
-            <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={currentProfile.stripShaderSources} onChange={(event) => setProfile({ ...currentProfile, stripShaderSources: event.currentTarget.checked })} />
-              Strip shader sources
-            </label>
-            <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={currentProfile.compileShadersBeforeExport} onChange={(event) => setProfile({ ...currentProfile, compileShadersBeforeExport: event.currentTarget.checked })} />
-              Compile shaders before export
-            </label>
+            {usesProjectShaders ? (
+              <>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={currentProfile.stripShaderSources} onChange={(event) => setProfile({ ...currentProfile, stripShaderSources: event.currentTarget.checked })} />
+                  Strip shader sources
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={currentProfile.compileShadersBeforeExport} onChange={(event) => setProfile({ ...currentProfile, compileShadersBeforeExport: event.currentTarget.checked })} />
+                  Compile shaders before export
+                </label>
+              </>
+            ) : null}
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={currentProfile.includeAllProjectAssets} onChange={(event) => setProfile({ ...currentProfile, includeAllProjectAssets: event.currentTarget.checked, includeOnlyReferencedAssets: !event.currentTarget.checked })} />
               Include all project assets
             </label>
           </div>
-          <div className="grid gap-2 rounded border p-3">
-            <div className="font-medium">Shader variants</div>
-            <div className="flex flex-wrap gap-3">
-              {exportShaderVariantValues.map((variant) => (
-                <label key={variant} className="flex items-center gap-2 text-xs">
-                  <input type="checkbox" checked={currentProfile.shaderVariants.includes(variant)} onChange={() => setProfile(toggleVariant(currentProfile, variant))} />
-                  {variant}
-                </label>
-              ))}
+          {usesProjectShaders ? (
+            <div className="grid gap-2 rounded border p-3">
+              <div className="font-medium">Shader variants</div>
+              <div className="flex flex-wrap gap-3">
+                {exportShaderVariantValues.map((variant) => (
+                  <label key={variant} className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={currentProfile.shaderVariants.includes(variant)} onChange={() => setProfile(toggleVariant(currentProfile, variant))} />
+                    {variant}
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
           <div className="rounded border p-3 text-xs">
             <div className="mb-2 font-medium">Manifest preview</div>
             <div className="grid grid-cols-2 gap-2 text-muted-foreground">
@@ -188,7 +189,7 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
         <DialogFooter>
           {hasProjectSettingsBlocker ? <Button variant="secondary" onClick={openProjectSettings} disabled={running}>Open Project Settings</Button> : null}
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={running}>Cancel</Button>
-          <Button onClick={runExport} disabled={!canExport} title={blockingDiagnostics.length > 0 ? 'Fix export errors before packaging.' : undefined}>{running ? 'Exporting…' : blockingDiagnostics.length > 0 ? 'Fix Errors Before Export' : 'Export Package'}</Button>
+          <Button onClick={runExport} disabled={!canExport} title={blockingDiagnostics.length > 0 ? 'Fix export errors before exporting.' : undefined}>{running ? 'Exporting…' : blockingDiagnostics.length > 0 ? 'Fix Errors Before Export' : 'Export Project'}</Button>
         </DialogFooter>
       </DialogPopup>
     </Dialog>
