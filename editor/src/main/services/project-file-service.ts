@@ -3,6 +3,8 @@ import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import type { SaveProjectResponse, ToolDiagnostic } from '../../shared/editor-tooling';
 import { isSafeProjectAssetPath, parseAssetData } from '../../shared/project-schema/authoring-assets';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 
 function jsonText(project: unknown): string {
   return `${JSON.stringify(project, null, 2)}\n`;
@@ -41,6 +43,11 @@ function defaultProjectFileName(project: unknown): string {
     if (stem) return `${stem}.json`;
   }
   return 'new-project.json';
+}
+
+function validationErrors(project: unknown): ToolDiagnostic[] {
+  if (!isAuthoringProject(project)) return [];
+  return validateAuthoringProject(project).filter((diagnostic) => diagnostic.severity === 'error');
 }
 
 function collectProjectAssetPaths(project: unknown): string[] {
@@ -128,6 +135,15 @@ async function confirmNonEmptyDestination(owner: BrowserWindow, projectFilePath:
 export async function saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse> {
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return { ok: false, success: false, error: 'Project save requires a project file path.' };
+  }
+  const errors = validationErrors(project);
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      success: false,
+      error: errors[0]?.message ?? 'Project validation failed.',
+      diagnostics: errors,
+    };
   }
   try {
     await writeProjectAtomic(project, projectFilePath);

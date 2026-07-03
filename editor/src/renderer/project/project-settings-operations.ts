@@ -3,7 +3,7 @@ import { toJsonValue, type JsonValue } from '@/project/json-value';
 import { defaultLayoutRef } from '../../shared/project-schema/authoring-layouts';
 import { assetRef, roomEntrypointRef } from '../../shared/project-schema/authoring-project-settings';
 import { isAuthoringProject, type ReferenceTarget } from '../../shared/project-schema/authoring-project';
-import { isSafeProjectAssetPath, parseAssetData } from '../../shared/project-schema/authoring-assets';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
@@ -46,7 +46,6 @@ export interface SetProjectComfyUiPayload {
   enabled?: boolean;
   serverUrl?: string;
   defaultWorkflowId?: string;
-  outputSubfolder?: string;
   requestTimeoutMs?: number;
   connectionCheckIntervalMs?: number;
 }
@@ -65,14 +64,6 @@ function patchValue(documentValue: JsonValue, path: string, value: unknown): Jso
 
 function normalizeServerUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
-}
-
-function validateComfyUiOutputFolder(outputSubfolder: string): EntityOperationDiagnostic | null {
-  const trimmed = outputSubfolder.trim();
-  if (!trimmed) return error('ComfyUI output folder is required.', '/settings/comfyui/outputSubfolder');
-  return isSafeProjectAssetPath(`${trimmed}/placeholder.png`)
-    ? null
-    : error('ComfyUI output folder must be a safe project-relative path.', '/settings/comfyui/outputSubfolder');
 }
 
 function validateComfyUiServerUrl(serverUrl: string): EntityOperationDiagnostic | null {
@@ -101,9 +92,7 @@ export function updateProjectMetadataPatches(document: unknown, payload: UpdateP
   if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
   const patches: JsonPatchOperation[] = [];
   const documentValue = toJsonValue(document);
-  const nextName = payload.name ?? document.project.name;
   const nextVersion = payload.version ?? document.project.version;
-  if (!nextName.trim()) return { patches: [], diagnostics: [error('Project title is required.', '/project/name')] };
   if (!nextVersion.trim()) return { patches: [], diagnostics: [error('Project version is required.', '/project/version')] };
   for (const key of ['name', 'version', 'author', 'description'] as const) {
     if (payload[key] !== undefined) patches.push(patchValue(documentValue, buildJsonPointer(['project', key]), payload[key]));
@@ -196,10 +185,6 @@ export function setProjectComfyUiPatches(document: unknown, payload: SetProjectC
     const urlError = validateComfyUiServerUrl(payload.serverUrl);
     if (urlError) return { patches: [], diagnostics: [urlError] };
   }
-  if (payload.outputSubfolder !== undefined) {
-    const folderError = validateComfyUiOutputFolder(payload.outputSubfolder);
-    if (folderError) return { patches: [], diagnostics: [folderError] };
-  }
   const patches: JsonPatchOperation[] = [];
   const documentValue = toJsonValue(document);
   ensureSettingsObject(patches, documentValue, '/settings/comfyui');
@@ -212,7 +197,6 @@ export function setProjectComfyUiPatches(document: unknown, payload: SetProjectC
   if (payload.enabled !== undefined) set('enabled', payload.enabled);
   if (payload.serverUrl !== undefined) set('serverUrl', normalizeServerUrl(payload.serverUrl));
   if (payload.defaultWorkflowId !== undefined) set('defaultWorkflowId', payload.defaultWorkflowId.trim());
-  if (payload.outputSubfolder !== undefined) set('outputSubfolder', payload.outputSubfolder.trim());
   if (payload.requestTimeoutMs !== undefined) set('requestTimeoutMs', payload.requestTimeoutMs);
   if (payload.connectionCheckIntervalMs !== undefined) set('connectionCheckIntervalMs', payload.connectionCheckIntervalMs);
   return { patches, affectedPaths };

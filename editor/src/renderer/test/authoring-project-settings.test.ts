@@ -34,7 +34,6 @@ describe('authoring project settings', () => {
         'image.generate': 'flux2-klein-text-to-image',
         'image.edit': 'flux2-klein-image-edit',
       },
-      outputSubfolder: 'assets/generated',
     });
   });
 
@@ -58,13 +57,11 @@ describe('authoring project settings', () => {
       enabled: true,
       serverUrl: 'file:///tmp/comfyui',
       defaultWorkflowId: 'basic-text-to-image',
-      outputSubfolder: '../generated',
       requestTimeoutMs: 15000,
       connectionCheckIntervalMs: 10000,
     };
     expect(validateTypedProjectSettings(project)).toEqual(expect.arrayContaining([
       expect.objectContaining({ severity: 'error', path: '/settings/comfyui/serverUrl' }),
-      expect.objectContaining({ severity: 'error', path: '/settings/comfyui/outputSubfolder' }),
     ]));
   });
 });

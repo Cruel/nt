@@ -27,7 +27,7 @@ function nullableValue(value: string) {
 }
 
 function runProjectCommand(type: string, payload: unknown, label: string) {
-  useCommandStore.getState().executeCommand({ type, label, payload });
+  return useCommandStore.getState().executeCommand({ type, label, payload });
 }
 
 export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
@@ -105,8 +105,11 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
     runProjectCommand('project.setIcon', { assetId }, 'Set project icon');
   }
 
-  function setComfyUi(patch: { enabled?: boolean; serverUrl?: string; defaultWorkflowId?: string; outputSubfolder?: string }) {
-    runProjectCommand('project.setComfyUi', patch, 'Update ComfyUI settings');
+  function setComfyUi(patch: { enabled?: boolean; serverUrl?: string; defaultWorkflowId?: string }) {
+    const result = runProjectCommand('project.setComfyUi', patch, 'Update ComfyUI settings');
+    if (!result.projectChanged) return;
+    const latestProject = useProjectStore.getState().document;
+    useComfyUiStore.getState().hydrateFromProject(isAuthoringProject(latestProject) ? latestProject : null);
   }
 
   async function testComfyUiConnection() {
@@ -322,14 +325,6 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
                 >
                   <option value="basic-text-to-image">Basic Text to Image</option>
                 </select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="comfyui-output-folder">Generated image folder</Label>
-                <Input
-                  id="comfyui-output-folder"
-                  value={comfyUiSettings.outputSubfolder}
-                  onChange={(event) => setComfyUi({ outputSubfolder: event.currentTarget.value })}
-                />
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <Badge variant={comfyUiStatus.state === 'ready' ? 'default' : comfyUiStatus.state === 'error' ? 'destructive' : 'secondary'}>{comfyUiStatus.state}</Badge>

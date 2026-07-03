@@ -45,7 +45,7 @@ export const authoringProjectSchema = z.object({
   schemaVersion: z.literal(AUTHORING_PROJECT_SCHEMA_VERSION),
   project: z.object({
     id: entityIdSchema,
-    name: z.string().min(1, 'Project name is required.'),
+    name: z.string(),
     version: z.string().default('0.1.0'),
     author: z.string().default(''),
     description: z.string().default(''),

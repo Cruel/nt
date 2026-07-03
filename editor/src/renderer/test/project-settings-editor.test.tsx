@@ -57,6 +57,9 @@ describe('ProjectSettingsEditor', () => {
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'New Title' } }));
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.updateMetadata');
 
+    fireEvent.change(screen.getByDisplayValue('New Title'), { target: { value: '' } });
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ project: { name: '' } }));
+
     fireEvent.change(screen.getByLabelText('Entrypoint room'), { target: { value: 'foyer' } });
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: { collection: 'rooms', id: 'foyer' } }));
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setEntrypoint');
@@ -91,7 +94,6 @@ describe('ProjectSettingsEditor', () => {
 
     fireEvent.click(screen.getAllByLabelText('Enable ComfyUI integration')[0]!);
     fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'http://127.0.0.1:8000/' } });
-    fireEvent.change(screen.getByLabelText('Generated image folder'), { target: { value: 'assets/images/generated' } });
 
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
       settings: { comfyui: { enabled: true, serverUrl: 'http://127.0.0.1:8000' } },
@@ -100,5 +102,38 @@ describe('ProjectSettingsEditor', () => {
 
     fireEvent.click(screen.getByText('Test Connection'));
     await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalled());
+  });
+
+  it('resets the ComfyUI status immediately when integration is disabled', async () => {
+    const next = project();
+    next.settings.comfyui = {
+      enabled: true,
+      serverUrl: 'http://127.0.0.1:8000',
+      defaultWorkflowId: 'flux2-klein-text-to-image',
+      defaultWorkflows: {
+        'image.generate': 'flux2-klein-text-to-image',
+        'image.edit': 'flux2-klein-image-edit',
+      },
+      requestTimeoutMs: 15000,
+      connectionCheckIntervalMs: 10000,
+    };
+    useProjectStore.getState().loadProjectDocument({ document: next, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useComfyUiStore.getState().hydrateFromProject(next);
+    useComfyUiStore.setState((state) => ({
+      status: { ...state.status, state: 'error', message: 'ComfyUI connection refused' },
+    }));
+
+    render(<ProjectSettingsEditor tab={tab} />);
+    expect(useComfyUiStore.getState().status.state).toBe('error');
+
+    fireEvent.click(screen.getAllByLabelText('Enable ComfyUI integration')[0]!);
+
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
+      settings: { comfyui: { enabled: false } },
+    }));
+    expect(useComfyUiStore.getState().status).toMatchObject({
+      state: 'disabled',
+      message: 'ComfyUI disabled',
+    });
   });
 });

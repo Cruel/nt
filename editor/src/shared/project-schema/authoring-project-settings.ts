@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isSafeProjectAssetPath, parseAssetData } from './authoring-assets';
+import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
 import { defaultLayoutSettingSchema } from './authoring-layouts';
 
@@ -41,7 +41,6 @@ export const projectComfyUiSettingsSchema = z.object({
     'image.generate': 'flux2-klein-text-to-image',
     'image.edit': 'flux2-klein-image-edit',
   }),
-  outputSubfolder: z.string().min(1).default('assets/generated'),
   requestTimeoutMs: z.number().int().min(1000).max(120000).default(15000),
   connectionCheckIntervalMs: z.number().int().min(3000).max(120000).default(10000),
 }).default({
@@ -52,7 +51,6 @@ export const projectComfyUiSettingsSchema = z.object({
     'image.generate': 'flux2-klein-text-to-image',
     'image.edit': 'flux2-klein-image-edit',
   },
-  outputSubfolder: 'assets/generated',
   requestTimeoutMs: 15000,
   connectionCheckIntervalMs: 10000,
 });
@@ -169,9 +167,6 @@ export function validateTypedProjectSettings(project: AuthoringProject): Project
     } catch {
       diagnostics.push(diagnostic('/settings/comfyui/serverUrl', 'ComfyUI server URL is invalid.'));
     }
-  }
-  if (!isSafeProjectAssetPath(`${settings.comfyui.outputSubfolder}/placeholder.png`)) {
-    diagnostics.push(diagnostic('/settings/comfyui/outputSubfolder', 'ComfyUI output folder must be a safe project-relative path.'));
   }
   return diagnostics;
 }

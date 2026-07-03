@@ -66,6 +66,10 @@ function progressChanged(previous: ComfyUiQueueProgress, next: ComfyUiQueueProgr
     || previous.message !== next.message;
 }
 
+function requestStillCurrent(requestConfig: ComfyUiConfig, currentConfig: ComfyUiConfig) {
+  return requestConfig === currentConfig;
+}
+
 export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
   config: defaultComfyUiConfig(),
   status: disabledStatus(),
@@ -100,12 +104,14 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
       set({ config });
     }
     const status = await requestComfyUiConnection(config);
+    if (!requestStillCurrent(config, get().config)) return status;
     if (visibleStatusChanged(get().status, status)) set({ status });
     return status;
   },
   refreshQueue: async (overrideConfig) => {
     const config = overrideConfig ?? get().config;
     const progress = await requestComfyUiQueue(config);
+    if (!requestStillCurrent(config, get().config)) return progress;
     const nextStatus = { ...get().status, queueRemaining: progress.queueRemaining };
     if (progressChanged(get().progress, progress) || visibleStatusChanged(get().status, nextStatus)) set({ progress, status: nextStatus });
     return progress;

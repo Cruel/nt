@@ -42,6 +42,19 @@ describe('project-file-service', () => {
     expect(fs.existsSync(projectFilePath)).toBe(true);
   });
 
+  it('blocks saving invalid authoring projects', async () => {
+    const root = tempRoot();
+    const project = projectWithImage();
+    project.project.name = '';
+
+    const result = await saveProject(project, path.join(root, 'game.json'));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Project title is required.');
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', path: '/project/name' }));
+    expect(fs.existsSync(path.join(root, 'game.json'))).toBe(false);
+  });
+
   it('copies project-owned asset files when Save As changes project root', async () => {
     const oldRoot = tempRoot();
     const newRoot = tempRoot();

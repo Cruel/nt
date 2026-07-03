@@ -48,10 +48,16 @@ describe('project settings operations', () => {
 
   it('rejects invalid project settings refs and empty required metadata', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
-    expect(executeCommand(state, { type: 'project.updateMetadata', payload: { name: '' } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setEntrypoint', payload: { target: { collection: 'rooms', id: 'missing' } } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setDefaultFont', payload: { assetId: 'logo' } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setIcon', payload: { assetId: 'main-font' } }).ok).toBe(false);
+  });
+
+  it('allows blank project titles so validation can report the invalid project state', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
+    const result = executeCommand(state, { type: 'project.updateMetadata', payload: { name: '' } });
+    expect(result.ok).toBe(true);
+    expect(result.state.document).toMatchObject({ project: { name: '' } });
   });
 
   it('updates title screen and project icon settings', () => {
@@ -80,7 +86,7 @@ describe('project settings operations', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     const result = executeCommand(state, {
       type: 'project.setComfyUi',
-      payload: { enabled: true, serverUrl: 'http://127.0.0.1:8000/', outputSubfolder: 'assets/images/generated' },
+      payload: { enabled: true, serverUrl: 'http://127.0.0.1:8000/' },
     });
     expect(result.ok).toBe(true);
     expect(result.state.document).toMatchObject({
@@ -88,16 +94,14 @@ describe('project settings operations', () => {
         comfyui: {
           enabled: true,
           serverUrl: 'http://127.0.0.1:8000',
-          outputSubfolder: 'assets/images/generated',
         },
       },
     });
     expect(undoCommand(result.state).state.document).not.toMatchObject({ settings: { comfyui: expect.anything() } });
   });
 
-  it('rejects invalid ComfyUI URL and unsafe output folders', () => {
+  it('rejects invalid ComfyUI URLs', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     expect(executeCommand(state, { type: 'project.setComfyUi', payload: { serverUrl: 'file:///tmp/comfy' } }).ok).toBe(false);
-    expect(executeCommand(state, { type: 'project.setComfyUi', payload: { outputSubfolder: '../images' } }).ok).toBe(false);
   });
 });

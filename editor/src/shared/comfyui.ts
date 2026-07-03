@@ -8,7 +8,6 @@ export interface ComfyUiConfig {
   serverUrl: string;
   defaultWorkflowId: string;
   defaultWorkflows: Partial<Record<ComfyUiWorkflowRole, ComfyUiWorkflowId>>;
-  outputSubfolder: string;
   requestTimeoutMs: number;
   connectionCheckIntervalMs: number;
 }
@@ -71,7 +70,6 @@ export function defaultComfyUiConfig(): ComfyUiConfig {
       'image.generate': 'flux2-klein-text-to-image',
       'image.edit': 'flux2-klein-image-edit',
     },
-    outputSubfolder: 'assets/generated',
     requestTimeoutMs: 15000,
     connectionCheckIntervalMs: 10000,
   };

@@ -296,7 +296,6 @@ const projectComfyUiSchema = z.object({
   enabled: z.boolean().optional(),
   serverUrl: z.string().optional(),
   defaultWorkflowId: z.string().min(1).optional(),
-  outputSubfolder: z.string().min(1).optional(),
   requestTimeoutMs: z.number().int().min(1000).max(120000).optional(),
   connectionCheckIntervalMs: z.number().int().min(3000).max(120000).optional(),
 });
