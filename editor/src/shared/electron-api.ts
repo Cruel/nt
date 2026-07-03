@@ -43,9 +43,22 @@ export interface NovelTeaElectronApi {
   saveProjectAs(project: unknown, defaultPath?: string | null, currentProjectFilePath?: string | null): Promise<SaveProjectResponse>;
   importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
   reimportAsset(projectFilePath: string, projectRelativePath: string): Promise<AssetReimportResponse>;
+  auditProjectAssets(projectFilePath: string, project: unknown): Promise<ProjectAssetAuditResponse>;
+  importUntrackedProjectAssets(projectFilePath: string, projectRelativePaths: string[]): Promise<ProjectAssetFileOperationResponse>;
+  trashProjectAssetFiles(projectFilePath: string, projectRelativePaths: string[]): Promise<ProjectAssetFileOperationResponse>;
+  restoreProjectAssetFiles(projectFilePath: string, moves: ProjectAssetTrashMove[]): Promise<ProjectAssetFileOperationResponse>;
+  purgeProjectTrash(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
+  startProjectAssetWatcher(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
+  stopProjectAssetWatcher(): Promise<ProjectAssetFileOperationResponse>;
+  onProjectAssetAuditChanged(callback: (event: ProjectAssetAuditChangeEvent) => void): () => void;
   resolveProjectAssetUrl(projectFilePath: string, projectRelativePath: string): Promise<ProjectAssetUrlResponse | null>;
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
+  listComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowListResponse>;
+  installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse>;
+  generateComfyUiImage(config: ComfyUiConfig, request: ComfyUiGenerateImageRequest): Promise<ComfyUiImageJobResponse>;
+  editComfyUiImage(config: ComfyUiConfig, request: ComfyUiEditImageRequest): Promise<ComfyUiImageJobResponse>;
+  cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse>;
   onComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void;
   setEntityRecord(
     project: unknown,
@@ -61,7 +74,10 @@ export interface NovelTeaElectronApi {
 }
 import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
+import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from './comfyui-generation';
+import type { ComfyUiInstallStarterWorkflowsResponse, ComfyUiWorkflowListResponse } from './comfyui-workflows';
 import type { EnginePreviewSession } from './preview-protocol';
+import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from './project-asset-audit';
 import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {
   EntityEditResponse,

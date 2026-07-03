@@ -1,11 +1,12 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu, screen } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
-import { checkComfyUiConnection, getComfyUiQueue } from './main/services/comfyui-service';
+import { cancelComfyUiJob, checkComfyUiConnection, editComfyUiImage, generateComfyUiImage, getComfyUiQueue, installProjectComfyUiStarterWorkflows, listComfyUiWorkflows } from './main/services/comfyui-service';
+import { auditProjectAssets, importUntrackedProjectAssets, purgeProjectTrash, restoreProjectAssetFiles, startProjectAssetWatcher, stopProjectAssetWatcher, trashProjectAssetFiles } from './main/services/project-asset-audit-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
 import {
   compileShaders,
@@ -22,6 +23,7 @@ import {
 import { saveProject, saveProjectAs } from './main/services/project-file-service';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
+import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
 import type { PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
 
 if (started) {
@@ -45,6 +47,13 @@ const MAX_ZOOM_FACTOR = 2;
 let currentNativeWindowFrame = process.platform === 'linux';
 let currentFramelessWindow = !currentNativeWindowFrame;
 let appWindowExitConfirmed = false;
+
+interface EditorWindowSettings {
+  nativeWindowFrame?: boolean;
+  bounds?: { x: number; y: number; width: number; height: number };
+  maximized?: boolean;
+}
+
 function getEditorWindowSettingsPath() {
   return path.join(app.getPath('userData'), 'editor-window-settings.json');
 }
@@ -53,22 +62,48 @@ function defaultNativeWindowFrame() {
   return process.platform === 'linux';
 }
 
-function readNativeWindowFrameSetting() {
+function readEditorWindowSettings(): EditorWindowSettings {
   const settingsPath = getEditorWindowSettingsPath();
   try {
-    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { nativeWindowFrame?: unknown };
-    return typeof parsed.nativeWindowFrame === 'boolean'
-      ? parsed.nativeWindowFrame
-      : defaultNativeWindowFrame();
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as EditorWindowSettings;
   } catch {
-    return defaultNativeWindowFrame();
+    return {};
   }
 }
 
-function writeNativeWindowFrameSetting(nativeWindowFrame: boolean) {
+function writeEditorWindowSettings(settings: EditorWindowSettings) {
   const settingsPath = getEditorWindowSettingsPath();
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, `${JSON.stringify({ nativeWindowFrame }, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+function readNativeWindowFrameSetting() {
+  const parsed = readEditorWindowSettings();
+  return typeof parsed.nativeWindowFrame === 'boolean'
+    ? parsed.nativeWindowFrame
+    : defaultNativeWindowFrame();
+}
+
+function writeNativeWindowFrameSetting(nativeWindowFrame: boolean) {
+  writeEditorWindowSettings({ ...readEditorWindowSettings(), nativeWindowFrame });
+}
+
+function validSavedBounds(bounds: EditorWindowSettings['bounds']) {
+  if (!bounds) return null;
+  if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return null;
+  if (bounds.width < 1000 || bounds.height < 650) return null;
+  const nearestDisplay = screen.getDisplayMatching(bounds);
+  const area = nearestDisplay.workArea;
+  const visibleX = bounds.x + bounds.width > area.x && bounds.x < area.x + area.width;
+  const visibleY = bounds.y + bounds.height > area.y && bounds.y < area.y + area.height;
+  return visibleX && visibleY ? bounds : null;
+}
+
+function saveEditorWindowBounds(window: BrowserWindow) {
+  const settings = readEditorWindowSettings();
+  const maximized = window.isMaximized();
+  const bounds = maximized ? settings.bounds : window.getBounds();
+  writeEditorWindowSettings({ ...settings, bounds, maximized });
 }
 
 function getAppInfoPayload() {
@@ -97,12 +132,19 @@ function getEventWindow(event: Electron.IpcMainInvokeEvent) {
   return BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
 }
 
-function installZoomShortcuts(window: BrowserWindow) {
+function installWindowShortcuts(window: BrowserWindow) {
   window.webContents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || input.alt || !(input.control || input.meta)) return;
+    if (input.type !== 'keyDown' || input.alt) return;
 
     const key = input.key.toLowerCase();
     const code = input.code;
+    if (code === 'F11' && !input.control && !input.meta && !input.shift) {
+      event.preventDefault();
+      window.setFullScreen(!window.isFullScreen());
+      return;
+    }
+
+    if (!(input.control || input.meta)) return;
     const zoomFactor = window.webContents.getZoomFactor();
 
     if (key === '+' || key === '=' || code === 'NumpadAdd') {
@@ -176,12 +218,16 @@ function installApplicationMenu() {
 }
 
 function createWindow() {
+  const windowSettings = readEditorWindowSettings();
+  const savedBounds = validSavedBounds(windowSettings.bounds);
   currentNativeWindowFrame = readNativeWindowFrameSetting();
   currentFramelessWindow = !currentNativeWindowFrame;
 
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: savedBounds?.width ?? 1280,
+    height: savedBounds?.height ?? 800,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     minWidth: 1000,
     minHeight: 650,
     frame: currentNativeWindowFrame,
@@ -197,6 +243,25 @@ function createWindow() {
     },
   });
 
+  if (windowSettings.maximized) mainWindow.maximize();
+
+  let boundsSaveTimer: NodeJS.Timeout | null = null;
+  const scheduleBoundsSave = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+    boundsSaveTimer = setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) saveEditorWindowBounds(mainWindow);
+    }, 400);
+  };
+  mainWindow.on('resize', scheduleBoundsSave);
+  mainWindow.on('move', scheduleBoundsSave);
+  mainWindow.on('maximize', scheduleBoundsSave);
+  mainWindow.on('unmaximize', scheduleBoundsSave);
+  mainWindow.on('close', () => {
+    if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+    saveEditorWindowBounds(mainWindow!);
+  });
+
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.on('close', (event) => {
     if (appWindowExitConfirmed || mainWindow?.webContents.isDestroyed()) return;
@@ -209,7 +274,7 @@ function createWindow() {
       }
     }, 5000);
   });
-  installZoomShortcuts(mainWindow);
+  installWindowShortcuts(mainWindow);
 
   if (isDev) {
     mainWindow.loadURL(DEV_SERVER_URL!);
@@ -415,6 +480,44 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.AUDIT_PROJECT_ASSETS,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, project: unknown) =>
+      auditProjectAssets(projectFilePath, project),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePaths: string[]) =>
+      importUntrackedProjectAssets(projectFilePath, projectRelativePaths),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePaths: string[]) =>
+      trashProjectAssetFiles(projectFilePath, projectRelativePaths),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, moves: Parameters<typeof restoreProjectAssetFiles>[1]) =>
+      restoreProjectAssetFiles(projectFilePath, moves),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PURGE_PROJECT_TRASH,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>
+      purgeProjectTrash(projectFilePath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.START_PROJECT_ASSET_WATCHER,
+    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>
+      startProjectAssetWatcher(mainWindow, projectFilePath),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_ASSET_WATCHER, () => stopProjectAssetWatcher());
+
+  ipcMain.handle(
     IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
     (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
       resolveProjectAssetUrl(projectFilePath, projectRelativePath),
@@ -430,6 +533,32 @@ app.whenReady().then(() => {
     IPC_CHANNELS.COMFYUI_GET_QUEUE,
     (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
       getComfyUiQueue(config),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.COMFYUI_LIST_WORKFLOWS, (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>
+    listComfyUiWorkflows(projectFilePath),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.COMFYUI_INSTALL_STARTER_WORKFLOWS, (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>
+    installProjectComfyUiStarterWorkflows(projectFilePath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_GENERATE_IMAGE,
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig, request: ComfyUiGenerateImageRequest) =>
+      generateComfyUiImage(mainWindow, config, request),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_EDIT_IMAGE,
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig, request: ComfyUiEditImageRequest) =>
+      editComfyUiImage(mainWindow, config, request),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_CANCEL_JOB,
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
+      cancelComfyUiJob(config),
   );
 
   ipcMain.handle(
@@ -463,6 +592,7 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
+  void stopProjectAssetWatcher();
   void enginePreviewServer.stop();
 });
 

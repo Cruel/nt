@@ -5,12 +5,14 @@ import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/component
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
+import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { buildAssetAliasIndex, findAssetAliasUsages } from '../../../shared/project-schema/authoring-asset-references';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildReferenceIndex, findUsages } from '../../../shared/project-schema/authoring-references';
 import { useProjectStore } from '@/project/project-store';
-import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { buildImageGenerationTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { AssetPreview } from './AssetPreview';
 
 function lookupAsset(project: unknown, assetId: string | undefined) {
@@ -22,6 +24,8 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const executeCommand = useCommandStore((state) => state.executeCommand);
+  const openTab = useWorkbenchStore((state) => state.openTab);
+  const rememberDeletedAsset = useAssetTrashStore((state) => state.rememberDeletedAsset);
   const assetId = tab.resource?.entityId;
   const record = lookupAsset(project, assetId);
   const data = parseAssetData(record?.data);
@@ -80,6 +84,12 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
   function confirmDelete() {
     if (run({ type: 'asset.deleteAsset', label: `Delete ${assetId}`, payload: { assetId, force: true } })) {
+      if (projectFilePath) {
+        void window.noveltea.trashProjectAssetFiles(projectFilePath, [assetData.source.path]).then((trashResult) => {
+          const move = trashResult.moved?.[0];
+          if (move && assetId) rememberDeletedAsset({ assetId, projectFilePath, move });
+        });
+      }
       setDeleteDialogOpen(false);
     }
   }
@@ -97,6 +107,8 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
           </div>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{data.source.path}</p>
         </div>
+        <Button size="sm" variant="outline" onClick={() => openTab(buildImageGenerationTab())}>Generate Image</Button>
+        {data.kind === 'image' ? <Button size="sm" variant="outline" onClick={() => openTab(buildImageGenerationTab({ sourceAssetId: assetId, sourceProjectRelativePath: data.source.path, mode: 'edit' }))}>Edit with ComfyUI</Button> : null}
         <Button size="sm" variant="outline" onClick={() => void reimport()}>Reimport</Button>
         <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>Delete</Button>
       </div>

@@ -9,10 +9,11 @@ import {
   moveWorkbenchTabWithinGroup,
   openWorkbenchTab,
   reopenLastClosedWorkbenchTab,
-  restoreProjectWorkbenchState,
+  restoreProjectWorkbenchStatePreservingGlobalTabs,
   restoreShellWorkbenchState,
   serializeProjectWorkbenchState,
   serializeShellWorkbenchState,
+  setWorkbenchSplitSizesByChild,
   setWorkbenchTabDirty,
   splitWorkbenchGroup,
 } from './workbench-model';
@@ -31,6 +32,7 @@ interface WorkbenchStore extends WorkbenchState {
   activateGroup: (groupId: string) => void;
   closeTab: (groupId: string, tabId: string) => void;
   splitGroup: (options: SplitWorkbenchGroupOptions) => void;
+  setSplitSizesByChild: (splitId: string, sizesByChild: Record<string, number>) => void;
   moveTab: (options: MoveWorkbenchTabOptions) => void;
   moveTabWithinGroup: (groupId: string, tabId: string, toIndex: number) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
@@ -68,6 +70,7 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   activateGroup: (groupId) => set((state) => toStoreState(activateWorkbenchGroup(state, groupId))),
   closeTab: (groupId, tabId) => set((state) => toStoreState(closeWorkbenchTab(state, groupId, tabId))),
   splitGroup: (options) => set((state) => toStoreState(splitWorkbenchGroup(state, options, createId))),
+  setSplitSizesByChild: (splitId, sizesByChild) => set((state) => toStoreState(setWorkbenchSplitSizesByChild(state, splitId, sizesByChild))),
   moveTab: (options) => set((state) => toStoreState(moveWorkbenchTab(state, options))),
   moveTabWithinGroup: (groupId, tabId, toIndex) => set((state) => toStoreState(moveWorkbenchTabWithinGroup(state, groupId, tabId, toIndex))),
   setTabDirty: (tabId, dirty) => set((state) => toStoreState(setWorkbenchTabDirty(state, tabId, dirty))),
@@ -79,7 +82,7 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   closeProjectTabs: () => set((state) => toStoreState(closeProjectWorkbenchTabs(state))),
   replaceWorkbench: (state) => set(toStoreState(state)),
   restoreProjectWorkbench: (serialized, project) => {
-    const restored = restoreProjectWorkbenchState(serialized, project);
+    const restored = restoreProjectWorkbenchStatePreservingGlobalTabs(serialized, project, get());
     set(toStoreState(restored));
     return restored;
   },

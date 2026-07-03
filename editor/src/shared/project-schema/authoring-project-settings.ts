@@ -33,15 +33,26 @@ export const projectAppSettingsSchema = z.object({
 export const projectComfyUiSettingsSchema = z.object({
   enabled: z.boolean().default(false),
   serverUrl: z.string().trim().default('http://127.0.0.1:8000'),
-  defaultWorkflowId: z.string().min(1).default('basic-text-to-image'),
-  outputSubfolder: z.string().min(1).default('assets/images/generated'),
+  defaultWorkflowId: z.string().min(1).default('flux2-klein-text-to-image'),
+  defaultWorkflows: z.object({
+    'image.generate': z.string().min(1).default('flux2-klein-text-to-image'),
+    'image.edit': z.string().min(1).default('flux2-klein-image-edit'),
+  }).partial().default({
+    'image.generate': 'flux2-klein-text-to-image',
+    'image.edit': 'flux2-klein-image-edit',
+  }),
+  outputSubfolder: z.string().min(1).default('assets/generated'),
   requestTimeoutMs: z.number().int().min(1000).max(120000).default(15000),
   connectionCheckIntervalMs: z.number().int().min(3000).max(120000).default(10000),
 }).default({
   enabled: false,
   serverUrl: 'http://127.0.0.1:8000',
-  defaultWorkflowId: 'basic-text-to-image',
-  outputSubfolder: 'assets/images/generated',
+  defaultWorkflowId: 'flux2-klein-text-to-image',
+  defaultWorkflows: {
+    'image.generate': 'flux2-klein-text-to-image',
+    'image.edit': 'flux2-klein-image-edit',
+  },
+  outputSubfolder: 'assets/generated',
   requestTimeoutMs: 15000,
   connectionCheckIntervalMs: 10000,
 });

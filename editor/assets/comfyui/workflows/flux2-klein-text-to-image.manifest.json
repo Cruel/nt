@@ -1,0 +1,51 @@
+{
+  "id": "flux2-klein-text-to-image",
+  "label": "Flux 2 Klein Text to Image",
+  "provider": "comfyui",
+  "role": "image.generate",
+  "description": "Prompt-based image generation using the bundled Flux 2 Klein workflow.",
+  "workflowFile": "flux2-klein-text-to-image.workflow.json",
+  "contract": {
+    "inputs": {
+      "prompt": { "type": "string", "required": true },
+      "width": { "type": "integer", "required": false },
+      "height": { "type": "integer", "required": false },
+      "steps": { "type": "integer", "required": false },
+      "seed": { "type": "integer", "required": false }
+    },
+    "outputs": {
+      "images": { "type": "image-list", "required": true, "primary": "first" }
+    }
+  },
+  "bindings": {
+    "prompt": { "nodeId": "76", "inputName": "value", "valueType": "string" },
+    "width": { "nodeId": "75:68", "inputName": "value", "valueType": "integer" },
+    "height": { "nodeId": "75:69", "inputName": "value", "valueType": "integer" },
+    "seed": { "nodeId": "75:73", "inputName": "noise_seed", "valueType": "integer" },
+    "steps": { "nodeId": "75:62", "inputName": "steps", "valueType": "integer" },
+    "filenamePrefix": { "nodeId": "9", "inputName": "filename_prefix", "valueType": "string" }
+  },
+  "defaults": {
+    "width": 1024,
+    "height": 1024,
+    "steps": 20,
+    "filenamePrefix": "NovelTea"
+  },
+  "outputNodeIds": ["9"],
+  "requiredNodeClasses": [
+    "SaveImage",
+    "PrimitiveStringMultiline",
+    "KSamplerSelect",
+    "Flux2Scheduler",
+    "CFGGuider",
+    "SamplerCustomAdvanced",
+    "VAEDecode",
+    "EmptyFlux2LatentImage",
+    "CLIPTextEncode",
+    "PrimitiveInt",
+    "RandomNoise",
+    "UNETLoader",
+    "CLIPLoader",
+    "VAELoader"
+  ]
+}

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
+import { installComfyUiStarterWorkflows, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -31,6 +32,7 @@ function runProjectCommand(type: string, payload: unknown, label: string) {
 
 export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
+  const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const settings = project ? projectSettingsFromProject(project) : null;
   const defaultLayout = project ? getDefaultLayoutSetting(project) : null;
@@ -38,6 +40,31 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
   const projectSettingsDiagnostics = useMemo(() => project ? validateTypedProjectSettings(project) : [], [project]);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
   const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
+  const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
+  const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
+  const comfyUiSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!projectFilePath) {
+      setWorkflowDiagnostics([]);
+      return;
+    }
+    let canceled = false;
+    void listComfyUiWorkflows(projectFilePath).then((response) => {
+      if (!canceled) setWorkflowDiagnostics(response.diagnostics);
+    });
+    return () => { canceled = true; };
+  }, [projectFilePath]);
+
+  useEffect(() => {
+    function onScrollRequest(event: Event) {
+      const section = (event as CustomEvent<{ section?: string }>).detail?.section;
+      if (section !== 'comfyui') return;
+      comfyUiSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    window.addEventListener('noveltea:project-settings-scroll', onScrollRequest);
+    return () => window.removeEventListener('noveltea:project-settings-scroll', onScrollRequest);
+  }, []);
 
   if (!project || !settings) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to edit project settings.</div>;
 
@@ -84,6 +111,23 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
 
   async function testComfyUiConnection() {
     await checkComfyUiConnection(comfyUiSettings, { showChecking: true });
+  }
+
+  async function refreshWorkflows() {
+    if (!projectFilePath) return;
+    const response = await listComfyUiWorkflows(projectFilePath);
+    setWorkflowDiagnostics(response.diagnostics);
+  }
+
+  async function installStarterWorkflows() {
+    if (!projectFilePath) {
+      setWorkflowMessage('Save the project before installing starter workflows.');
+      return;
+    }
+    const response = await installComfyUiStarterWorkflows(projectFilePath);
+    setWorkflowDiagnostics(response.diagnostics);
+    setWorkflowMessage(response.success ? `Copied ${response.copied.length} file${response.copied.length === 1 ? '' : 's'}; skipped ${response.skipped.length} existing file${response.skipped.length === 1 ? '' : 's'}.` : response.error ?? 'Failed to install starter workflows.');
+    await refreshWorkflows();
   }
 
   return (
@@ -249,7 +293,7 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="project-settings-comfyui" ref={comfyUiSectionRef}>
             <CardHeader>
               <CardTitle>ComfyUI</CardTitle>
               <CardDescription>Configure a ComfyUI server for generated images and future image-editing workflows.</CardDescription>
@@ -291,6 +335,23 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
                 <Badge variant={comfyUiStatus.state === 'ready' ? 'default' : comfyUiStatus.state === 'error' ? 'destructive' : 'secondary'}>{comfyUiStatus.state}</Badge>
                 <span className="text-muted-foreground">{comfyUiStatus.message ?? 'ComfyUI status has not been checked yet.'}</span>
                 <Button size="sm" variant="outline" onClick={() => void testComfyUiConnection()}>Test Connection</Button>
+              </div>
+              <div className="space-y-2 rounded border p-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-medium">Project workflows</div>
+                    <div className="text-xs text-muted-foreground">Install bundled starter workflows into this project's workflows directory.</div>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => void installStarterWorkflows()}>Save Built-in Workflows to Project</Button>
+                </div>
+                {workflowMessage ? <div className="text-xs text-muted-foreground">{workflowMessage}</div> : null}
+                {workflowDiagnostics.length > 0 ? <div className="space-y-1">{workflowDiagnostics.map((diagnostic, index) => (
+                  <div key={`${diagnostic.path}-${diagnostic.message}-${index}`} className="rounded border p-1.5 text-xs">
+                    <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>{diagnostic.severity}</Badge>
+                    <span className="ml-2 font-mono text-[10px] text-muted-foreground">{diagnostic.path}</span>
+                    <div className="mt-1">{diagnostic.message}</div>
+                  </div>
+                ))}</div> : <div className="text-xs text-muted-foreground">No workflow diagnostics.</div>}
               </div>
             </CardContent>
           </Card>

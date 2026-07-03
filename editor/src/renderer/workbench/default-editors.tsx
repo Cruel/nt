@@ -1,7 +1,8 @@
-import { Clapperboard, DoorOpen, FileCode, Image, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
+import { Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
+import { ImageGenerationEditor } from '@/editors/comfyui/ImageGenerationEditor';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
@@ -35,6 +36,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Asset Detail',
     icon: Image,
     component: AssetEditor,
+  },
+  {
+    type: 'image-generation',
+    label: 'Image Generation',
+    icon: Images,
+    component: ImageGenerationEditor,
   },
   {
     type: 'shader-detail',

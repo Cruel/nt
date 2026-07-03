@@ -3,6 +3,7 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { defaultComfyUiConfig, normalizeComfyUiServerUrl } from '../../shared/comfyui';
+import { checkComfyUiConnection as requestComfyUiConnection, getComfyUiQueue as requestComfyUiQueue } from './comfyui-service';
 
 interface CheckConnectionOptions {
   showChecking?: boolean;
@@ -98,13 +99,13 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
     } else if (get().config !== config) {
       set({ config });
     }
-    const status = await window.noveltea.checkComfyUiConnection(config);
+    const status = await requestComfyUiConnection(config);
     if (visibleStatusChanged(get().status, status)) set({ status });
     return status;
   },
   refreshQueue: async (overrideConfig) => {
     const config = overrideConfig ?? get().config;
-    const progress = await window.noveltea.getComfyUiQueue(config);
+    const progress = await requestComfyUiQueue(config);
     const nextStatus = { ...get().status, queueRemaining: progress.queueRemaining };
     if (progressChanged(get().progress, progress) || visibleStatusChanged(get().status, nextStatus)) set({ progress, status: nextStatus });
     return progress;

@@ -17,7 +17,7 @@ describe('editor project state defaults', () => {
       groupUnassignedItems: true,
     });
     expect(parsed.chapters).toEqual({ records: {}, assignments: {} });
-    expect(parsed.bottomPanel).toEqual({ visible: true, activePanelId: 'problems' });
+    expect(parsed.bottomPanel).toEqual({ visible: true, activePanelId: 'problems', sizePercent: 30 });
   });
 
   it('empty editor state includes explorer, chapters, and bottom panel', () => {

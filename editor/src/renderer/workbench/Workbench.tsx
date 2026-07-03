@@ -2,7 +2,18 @@ import { Group, Panel, Separator } from 'react-resizable-panels';
 import { DirtyCloseDialog } from './DirtyCloseDialog';
 import { WorkbenchGroup } from './WorkbenchGroup';
 import { useWorkbenchStore } from './workbench-store';
+import { workbenchLayoutChildKey } from './workbench-model';
 import type { WorkbenchLayoutNode } from './workbench-types';
+
+const pendingSplitSizesByChild = new Map<string, Record<string, number>>();
+
+function currentSplitSizesByChild(node: Extract<WorkbenchLayoutNode, { kind: 'split' }>) {
+  const fallback = 100 / node.children.length;
+  return Object.fromEntries(node.children.map((child) => {
+    const key = workbenchLayoutChildKey(child);
+    return [key, node.sizesByChild?.[key] ?? fallback];
+  }));
+}
 
 function ResizeHandle({ orientation }: { orientation: 'horizontal' | 'vertical' }) {
   return (
@@ -15,6 +26,7 @@ function ResizeHandle({ orientation }: { orientation: 'horizontal' | 'vertical' 
 function WorkbenchLayoutRenderer({ node }: { node: WorkbenchLayoutNode }) {
   const groupsById = useWorkbenchStore((state) => state.groupsById);
   const tabsById = useWorkbenchStore((state) => state.tabsById);
+  const setSplitSizesByChild = useWorkbenchStore((state) => state.setSplitSizesByChild);
 
   if (node.kind === 'group') {
     const group = groupsById[node.groupId];
@@ -24,9 +36,21 @@ function WorkbenchLayoutRenderer({ node }: { node: WorkbenchLayoutNode }) {
   }
 
   const children = node.children.flatMap((child, index) => {
-    const key = child.kind === 'group' ? child.groupId : child.id;
+    const key = workbenchLayoutChildKey(child);
+    const panelId = `${node.id}:${key}`;
     const panel = (
-      <Panel key={`panel:${key}`} defaultSize={`${node.sizes?.[index] ?? 100 / node.children.length}%`} minSize="180px">
+      <Panel
+        id={panelId}
+        key={`panel:${key}`}
+        defaultSize={`${node.sizesByChild?.[key] ?? 100 / node.children.length}%`}
+        minSize="180px"
+        onResize={(panelSize) => {
+          if (!Number.isFinite(panelSize.asPercentage) || panelSize.asPercentage <= 0) return;
+          const pending = pendingSplitSizesByChild.get(node.id) ?? currentSplitSizesByChild(node);
+          pending[key] = panelSize.asPercentage;
+          pendingSplitSizesByChild.set(node.id, pending);
+        }}
+      >
         <WorkbenchLayoutRenderer node={child} />
       </Panel>
     );
@@ -35,7 +59,21 @@ function WorkbenchLayoutRenderer({ node }: { node: WorkbenchLayoutNode }) {
   });
 
   return (
-    <Group orientation={node.direction} className="h-full w-full">
+    <Group
+      id={`workbench-split:${node.id}`}
+      orientation={node.direction}
+      className="h-full w-full"
+      onLayoutChanged={(_layout, meta) => {
+        if (!meta.isUserInteraction) return;
+        const pending = pendingSplitSizesByChild.get(node.id);
+        pendingSplitSizesByChild.delete(node.id);
+        if (!pending) return;
+        const childKeys = node.children.map(workbenchLayoutChildKey);
+        if (childKeys.every((childKey) => typeof pending[childKey] === 'number' && Number.isFinite(pending[childKey]))) {
+          setSplitSizesByChild(node.id, pending);
+        }
+      }}
+    >
       {children}
     </Group>
   );

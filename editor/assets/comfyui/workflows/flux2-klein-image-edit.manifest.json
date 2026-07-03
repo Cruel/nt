@@ -1,0 +1,51 @@
+{
+  "id": "flux2-klein-image-edit",
+  "label": "Flux 2 Klein Image Edit",
+  "provider": "comfyui",
+  "role": "image.edit",
+  "description": "Text-guided image editing using the bundled Flux 2 Klein workflow.",
+  "workflowFile": "flux2-klein-image-edit.workflow.json",
+  "contract": {
+    "inputs": {
+      "sourceImage": { "type": "image", "required": true },
+      "prompt": { "type": "string", "required": true },
+      "steps": { "type": "integer", "required": false },
+      "seed": { "type": "integer", "required": false }
+    },
+    "outputs": {
+      "images": { "type": "image-list", "required": true, "primary": "first" }
+    }
+  },
+  "bindings": {
+    "sourceImage": { "nodeId": "76", "inputName": "image", "valueType": "image-upload-reference" },
+    "prompt": { "nodeId": "75:74", "inputName": "text", "valueType": "string" },
+    "seed": { "nodeId": "75:73", "inputName": "noise_seed", "valueType": "integer" },
+    "steps": { "nodeId": "75:62", "inputName": "steps", "valueType": "integer" },
+    "filenamePrefix": { "nodeId": "9", "inputName": "filename_prefix", "valueType": "string" }
+  },
+  "defaults": {
+    "steps": 4,
+    "filenamePrefix": "NovelTea"
+  },
+  "outputNodeIds": ["9"],
+  "requiredNodeClasses": [
+    "SaveImage",
+    "LoadImage",
+    "KSamplerSelect",
+    "UNETLoader",
+    "CLIPLoader",
+    "VAELoader",
+    "EmptyFlux2LatentImage",
+    "ImageScaleToTotalPixels",
+    "Flux2Scheduler",
+    "CLIPTextEncode",
+    "ConditioningZeroOut",
+    "ReferenceLatent",
+    "GetImageSize",
+    "VAEEncode",
+    "SamplerCustomAdvanced",
+    "VAEDecode",
+    "RandomNoise",
+    "CFGGuider"
+  ]
+}

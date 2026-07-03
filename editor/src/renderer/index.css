@@ -59,6 +59,20 @@
     font-feature-settings: 'rlig' 1, 'calt' 1;
   }
 
+  :where(a, button, input, textarea, select, summary, [role='button'], [tabindex]:not([tabindex='-1'])):focus {
+    outline: none;
+  }
+
+  :where(a, button, input, textarea, select, summary, [role='button'], [tabindex]:not([tabindex='-1'])):focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.55);
+    outline-offset: 2px;
+  }
+
+  :where(textarea, select):focus-visible {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.3);
+  }
+
   * {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;

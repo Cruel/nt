@@ -58,12 +58,41 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_ASSETS, projectFilePath, options),
   reimportAsset: (projectFilePath: string, projectRelativePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.REIMPORT_ASSET, projectFilePath, projectRelativePath),
+  auditProjectAssets: (projectFilePath: string, project: unknown) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUDIT_PROJECT_ASSETS, projectFilePath, project),
+  importUntrackedProjectAssets: (projectFilePath: string, projectRelativePaths: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS, projectFilePath, projectRelativePaths),
+  trashProjectAssetFiles: (projectFilePath: string, projectRelativePaths: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES, projectFilePath, projectRelativePaths),
+  restoreProjectAssetFiles: (projectFilePath: string, moves) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES, projectFilePath, moves),
+  purgeProjectTrash: (projectFilePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PURGE_PROJECT_TRASH, projectFilePath),
+  startProjectAssetWatcher: (projectFilePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_ASSET_WATCHER, projectFilePath),
+  stopProjectAssetWatcher: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.STOP_PROJECT_ASSET_WATCHER),
+  onProjectAssetAuditChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: unknown) => callback(event as never);
+    ipcRenderer.on(IPC_CHANNELS.PROJECT_ASSET_AUDIT_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_ASSET_AUDIT_EVENT, listener);
+  },
   resolveProjectAssetUrl: (projectFilePath: string, projectRelativePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL, projectFilePath, projectRelativePath),
   checkComfyUiConnection: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
   getComfyUiQueue: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),
+  listComfyUiWorkflows: (projectFilePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOWS, projectFilePath),
+  installComfyUiStarterWorkflows: (projectFilePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_INSTALL_STARTER_WORKFLOWS, projectFilePath),
+  generateComfyUiImage: (config, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GENERATE_IMAGE, config, request),
+  editComfyUiImage: (config, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_EDIT_IMAGE, config, request),
+  cancelComfyUiJob: (config) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CANCEL_JOB, config),
   onComfyUiProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => callback(progress as never);
     ipcRenderer.on(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, listener);

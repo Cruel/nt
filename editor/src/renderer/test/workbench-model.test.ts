@@ -10,10 +10,12 @@ import {
   openWorkbenchTab,
   reopenLastClosedWorkbenchTab,
   restoreProjectWorkbenchState,
+  restoreProjectWorkbenchStatePreservingGlobalTabs,
   restoreShellWorkbenchState,
   ROOT_GROUP_ID,
   serializeProjectWorkbenchState,
   serializeShellWorkbenchState,
+  setWorkbenchSplitSizesByChild,
   splitWorkbenchGroup,
 } from '@/workbench/workbench-model';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
@@ -223,6 +225,108 @@ describe('workbench model', () => {
     });
   });
 
+  it('serializes and restores child-keyed split sizes', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('left'));
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal' },
+      createTestId,
+    );
+    const rightGroupId = state.activeGroupId;
+    state = openWorkbenchTab(state, rawTab('right'), { groupId: rightGroupId });
+    const split = state.layout.kind === 'split' ? state.layout : null;
+    expect(split).toBeTruthy();
+    state = setWorkbenchSplitSizesByChild(state, split!.id, {
+      [`group:${ROOT_GROUP_ID}`]: 65,
+      [`group:${rightGroupId}`]: 35,
+    });
+
+    const serialized = serializeProjectWorkbenchState(state);
+    expect(serialized?.layout.kind).toBe('split');
+    if (serialized?.layout.kind === 'split') {
+      expect(serialized.layout.sizesByChild).toEqual({
+        [`group:${ROOT_GROUP_ID}`]: 65,
+        [`group:${rightGroupId}`]: 35,
+      });
+    }
+
+    const restored = restoreProjectWorkbenchState(serialized ?? undefined, {
+      room: {
+        left: { id: 'left', label: 'Left', tags: [], data: {} },
+        right: { id: 'right', label: 'Right', tags: [], data: {} },
+      },
+    });
+    expect(restored.layout.kind).toBe('split');
+    if (restored.layout.kind === 'split') {
+      expect(restored.layout.sizesByChild).toEqual({
+        [`group:${ROOT_GROUP_ID}`]: 65,
+        [`group:${rightGroupId}`]: 35,
+      });
+    }
+  });
+
+  it('restores project layout while grafting existing global tabs into the first project group', () => {
+    let current = createInitialWorkbenchState();
+    current = openWorkbenchTab(current, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+    current = splitWorkbenchGroup(
+      current,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal' },
+      createTestId,
+    );
+    const extraToolGroupId = current.activeGroupId;
+    current = openWorkbenchTab(current, {
+      id: 'tab:about',
+      title: 'About',
+      editorType: 'about',
+      resource: { kind: 'tool', stableId: 'utility:about' },
+    }, { groupId: extraToolGroupId });
+
+    let projectState = createInitialWorkbenchState();
+    projectState = openWorkbenchTab(projectState, rawTab('foyer'));
+    projectState = splitWorkbenchGroup(
+      projectState,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal' },
+      createTestId,
+    );
+    const rightProjectGroupId = projectState.activeGroupId;
+    projectState = openWorkbenchTab(projectState, rawTab('kitchen'), { groupId: rightProjectGroupId });
+    const serialized = serializeProjectWorkbenchState(projectState);
+
+    const restored = restoreProjectWorkbenchStatePreservingGlobalTabs(serialized ?? undefined, {
+      room: {
+        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
+        kitchen: { id: 'kitchen', label: 'Kitchen', tags: [], data: {} },
+      },
+    }, current);
+
+    expect(restored.layout.kind).toBe('split');
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:settings', 'tab:about']);
+    expect(restored.groupsById[rightProjectGroupId]?.tabIds).toEqual(['tab:kitchen']);
+    expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
+    expect(restored.activeGroupId).toBe(rightProjectGroupId);
+  });
+
+  it('keeps the current workbench when opening a project without saved tabs', () => {
+    let current = createInitialWorkbenchState();
+    current = openWorkbenchTab(current, {
+      id: 'tab:settings',
+      title: 'Settings',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'utility:settings' },
+    });
+
+    const restored = restoreProjectWorkbenchStatePreservingGlobalTabs(undefined, {}, current);
+
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:settings']);
+    expect(restored.tabsById['tab:settings']).toBeTruthy();
+  });
+
   it('serializes only project-scoped tabs and restores valid references', () => {
     let state = createInitialWorkbenchState();
     state = openWorkbenchTab(state, rawTab('foyer'));
@@ -264,8 +368,8 @@ describe('workbench model', () => {
       },
     }, projectOnly);
 
-    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:settings', 'tab:foyer']);
-    expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:settings');
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:settings']);
+    expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
   });
 
   it('restores interleaved project and tool tabs from local shell state', () => {
@@ -294,8 +398,8 @@ describe('workbench model', () => {
       },
     }, projectOnly);
 
-    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:settings', 'tab:kitchen']);
-    expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:settings');
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:kitchen', 'tab:settings']);
+    expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:kitchen');
   });
 
   it('keeps active tab valid after closing and can reopen a closed tab', () => {

@@ -31,9 +31,11 @@ export const bottomPanelDefinitions: BottomPanelDefinition[] = [
 interface BottomPanelStore {
   visible: boolean;
   activePanelId: BottomPanelId;
-  hydrate: (state?: { visible?: boolean; activePanelId?: BottomPanelId } | null) => void;
-  serialize: () => { visible: boolean; activePanelId: BottomPanelId };
+  sizePercent: number;
+  hydrate: (state?: { visible?: boolean; activePanelId?: BottomPanelId; sizePercent?: number } | null) => void;
+  serialize: () => { visible: boolean; activePanelId: BottomPanelId; sizePercent: number };
   setVisible: (visible: boolean) => void;
+  setSizePercent: (sizePercent: number) => void;
   setActivePanelId: (id: BottomPanelId) => void;
   toggleVisible: () => void;
 }
@@ -41,9 +43,11 @@ interface BottomPanelStore {
 export const useBottomPanelStore = create<BottomPanelStore>()((set, get) => ({
   visible: true,
   activePanelId: 'problems',
-  hydrate: (state) => set({ visible: state?.visible ?? true, activePanelId: state?.activePanelId ?? 'problems' }),
-  serialize: () => ({ visible: get().visible, activePanelId: get().activePanelId }),
+  sizePercent: 30,
+  hydrate: (state) => set({ visible: state?.visible ?? true, activePanelId: state?.activePanelId ?? 'problems', sizePercent: state?.sizePercent ?? 30 }),
+  serialize: () => ({ visible: get().visible, activePanelId: get().activePanelId, sizePercent: get().sizePercent }),
   setVisible: (visible) => set({ visible }),
+  setSizePercent: (sizePercent) => set({ sizePercent: Math.min(70, Math.max(10, sizePercent)) }),
   setActivePanelId: (activePanelId) => set({ activePanelId, visible: true }),
   toggleVisible: () => set((state) => ({ visible: !state.visible })),
 }));

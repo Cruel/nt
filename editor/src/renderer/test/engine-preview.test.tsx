@@ -80,7 +80,7 @@ async function renderConnectedPreview() {
 describe('EnginePreview', () => {
   it('activates the containing workbench group when the preview iframe receives click focus or child interaction', async () => {
     useWorkbenchStore.setState({
-      layout: { kind: 'split', id: 'split', direction: 'horizontal', children: [{ kind: 'group', groupId: 'left' }, { kind: 'group', groupId: 'right' }], sizes: [50, 50] },
+      layout: { kind: 'split', id: 'split', direction: 'horizontal', children: [{ kind: 'group', groupId: 'left' }, { kind: 'group', groupId: 'right' }], sizesByChild: { 'group:left': 50, 'group:right': 50 } },
       groupsById: {
         left: { id: 'left', tabIds: ['tab:left'], activeTabId: 'tab:left' },
         right: { id: 'right', tabIds: ['tab:right'], activeTabId: 'tab:right' },

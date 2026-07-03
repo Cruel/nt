@@ -29,52 +29,27 @@ export const editorWorkbenchGroupSchema = z.object({
   activeTabId: z.string().nullable(),
 });
 
-export const editorWorkbenchLayoutNodeSchema: z.ZodType<{
+type EditorWorkbenchLayoutNode = {
   kind: 'group';
   groupId: string;
 } | {
   kind: 'split';
   id: string;
   direction: 'horizontal' | 'vertical';
-  children: Array<{
-    kind: 'group';
-    groupId: string;
-  } | {
-    kind: 'split';
-    id: string;
-    direction: 'horizontal' | 'vertical';
-    children: unknown[];
-    sizes?: number[];
-  }>;
-  sizes?: number[];
-}> = z.lazy(() => z.union([
+  children: EditorWorkbenchLayoutNode[];
+  sizesByChild?: Record<string, number>;
+};
+
+export const editorWorkbenchLayoutNodeSchema: z.ZodType<EditorWorkbenchLayoutNode> = z.lazy(() => z.union([
   z.object({ kind: z.literal('group'), groupId: z.string().min(1) }),
   z.object({
     kind: z.literal('split'),
     id: z.string().min(1),
     direction: z.enum(['horizontal', 'vertical']),
     children: z.array(editorWorkbenchLayoutNodeSchema),
-    sizes: z.array(z.number()).optional(),
+    sizesByChild: z.record(z.string(), z.number()).optional(),
   }),
-])) as z.ZodType<{
-  kind: 'group';
-  groupId: string;
-} | {
-  kind: 'split';
-  id: string;
-  direction: 'horizontal' | 'vertical';
-  children: Array<{
-    kind: 'group';
-    groupId: string;
-  } | {
-    kind: 'split';
-    id: string;
-    direction: 'horizontal' | 'vertical';
-    children: unknown[];
-    sizes?: number[];
-  }>;
-  sizes?: number[];
-}>;
+]));
 
 export const editorWorkbenchStateSchema = z.object({
   layout: editorWorkbenchLayoutNodeSchema,
@@ -119,6 +94,7 @@ export const editorChaptersStateSchema = z.object({
 
 export const editorBottomPanelStateSchema = z.object({
   visible: z.boolean().default(true),
+  sizePercent: z.number().min(10).max(70).default(30),
   activePanelId: z.enum([
     'problems',
     'output',
@@ -138,7 +114,7 @@ export const editorProjectStateSchema = z.object({
   workbench: editorWorkbenchStateSchema.optional(),
   explorer: editorExplorerStateSchema.default({ expandedNodeIds: [], hiddenCollectionKeys: [], followActiveTab: true, organizeByChapter: true, groupUnassignedItems: true }),
   chapters: editorChaptersStateSchema.default({ records: {}, assignments: {} }),
-  bottomPanel: editorBottomPanelStateSchema.default({ visible: true, activePanelId: 'problems' }),
+  bottomPanel: editorBottomPanelStateSchema.default({ visible: true, activePanelId: 'problems', sizePercent: 30 }),
   tabStatesById: z.record(z.string(), editorTabStateSchema).default({}),
   draftsByKey: z.record(z.string(), editorDraftStateSchema).default({}),
 });
@@ -172,6 +148,7 @@ export function emptyEditorBottomPanelState(): EditorBottomPanelState {
   return {
     visible: true,
     activePanelId: 'problems',
+    sizePercent: 30,
   };
 }
 

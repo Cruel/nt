@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
+import { validateProjectComfyUiWorkflows } from './comfyui-service';
 import type { PackageExportOptions, ShaderCompileOptions } from '../../shared/editor-tooling';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
@@ -119,7 +120,7 @@ function findProjectFile(projectPath: string) {
   return path.join(absolute, 'game.json');
 }
 
-function openAuthoringProjectFromSource(source: string, projectFilePath: string): Record<string, unknown> | null {
+async function openAuthoringProjectFromSource(source: string, projectFilePath: string): Promise<Record<string, unknown> | null> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source) as unknown;
@@ -132,11 +133,12 @@ function openAuthoringProjectFromSource(source: string, projectFilePath: string)
     !Array.isArray(parsed) &&
     (parsed as Record<string, unknown>).schema === 'noveltea.authoring.project'
   ) {
+    const diagnostics = await validateProjectComfyUiWorkflows(projectFilePath);
     return {
       ok: true,
       success: true,
       importedLegacy: false,
-      diagnostics: [],
+      diagnostics,
       project: parsed,
       projectPath: path.dirname(projectFilePath),
       projectFilePath,
@@ -148,11 +150,13 @@ function openAuthoringProjectFromSource(source: string, projectFilePath: string)
 export async function openProject(projectPath: string) {
   const projectFilePath = findProjectFile(projectPath);
   const source = readFileSync(projectFilePath, 'utf8');
-  const authoringProject = openAuthoringProjectFromSource(source, projectFilePath);
+  const authoringProject = await openAuthoringProjectFromSource(source, projectFilePath);
   if (authoringProject) return authoringProject;
   const response = (await invokeEditorTool('load-project', { source })) as Record<string, unknown>;
+  const workflowDiagnostics = await validateProjectComfyUiWorkflows(projectFilePath);
   return {
     ...response,
+    diagnostics: [...(Array.isArray(response.diagnostics) ? response.diagnostics : []), ...workflowDiagnostics],
     projectPath: path.dirname(projectFilePath),
     projectFilePath,
   };

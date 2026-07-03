@@ -64,7 +64,7 @@ function cloneLayoutNode(node: WorkbenchLayoutNode): WorkbenchLayoutNode {
   return {
     ...node,
     children: node.children.map(cloneLayoutNode),
-    sizes: node.sizes ? [...node.sizes] : undefined,
+    sizesByChild: node.sizesByChild ? { ...node.sizesByChild } : undefined,
   };
 }
 
@@ -103,7 +103,7 @@ function normalizeGroupActiveTab(group: WorkbenchGroup): WorkbenchGroup {
 }
 
 function isProjectScopedUtilityEditorType(editorType: string): boolean {
-  return ['asset-library', 'test-suite', 'variables', 'project-settings'].includes(editorType);
+  return ['asset-library', 'test-suite', 'variables', 'project-settings', 'image-generation'].includes(editorType);
 }
 
 function isGlobalToolTab(tab: WorkbenchTab): boolean {
@@ -116,6 +116,42 @@ function normalizedProjectScopedResource(tab: WorkbenchTab): WorkbenchTab['resou
   if (tab.resource.kind !== 'tool') return { ...tab.resource };
   if (!isProjectScopedUtilityEditorType(tab.editorType)) return null;
   return { ...tab.resource, kind: 'project' };
+}
+
+export function workbenchLayoutChildKey(child: WorkbenchLayoutNode): string {
+  return child.kind === 'group' ? `group:${child.groupId}` : `split:${child.id}`;
+}
+
+function normalizeSplitSizesByChild(node: Extract<WorkbenchLayoutNode, { kind: 'split' }>, sizesByChild?: Record<string, number>): Record<string, number> {
+  const fallback = 100 / node.children.length;
+  const entries = node.children.map((child) => {
+    const key = workbenchLayoutChildKey(child);
+    const value = sizesByChild?.[key] ?? fallback;
+    return [key, Number.isFinite(value) && value > 0 ? value : fallback] as const;
+  });
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+  if (total <= 0) return Object.fromEntries(entries.map(([key]) => [key, fallback]));
+  return Object.fromEntries(entries.map(([key, value]) => [key, (value / total) * 100]));
+}
+
+function findSplitNode(node: WorkbenchLayoutNode, splitId: string): Extract<WorkbenchLayoutNode, { kind: 'split' }> | null {
+  if (node.kind === 'group') return null;
+  if (node.id === splitId) return node;
+  for (const child of node.children) {
+    const match = findSplitNode(child, splitId);
+    if (match) return match;
+  }
+  return null;
+}
+
+function replaceSplitSizesByChild(
+  node: WorkbenchLayoutNode,
+  splitId: string,
+  sizesByChild: Record<string, number>,
+): WorkbenchLayoutNode {
+  if (node.kind === 'group') return node;
+  if (node.id === splitId) return { ...node, sizesByChild: normalizeSplitSizesByChild(node, sizesByChild) };
+  return { ...node, children: node.children.map((child) => replaceSplitSizesByChild(child, splitId, sizesByChild)) };
 }
 
 function replaceGroupNode(
@@ -141,11 +177,73 @@ function collectGroupIds(node: WorkbenchLayoutNode, ids = new Set<string>()): Se
   return ids;
 }
 
+function collectGroupIdsInLayoutOrder(node: WorkbenchLayoutNode, groupIds: string[] = []): string[] {
+  if (node.kind === 'group') {
+    groupIds.push(node.groupId);
+  } else {
+    for (const child of node.children) collectGroupIdsInLayoutOrder(child, groupIds);
+  }
+  return groupIds;
+}
+
+function firstGroupIdInLayout(state: WorkbenchState): string | null {
+  return collectGroupIdsInLayoutOrder(state.layout).find((groupId) => !!state.groupsById[groupId]) ?? null;
+}
+
+function globalTabsInLayoutOrder(state: WorkbenchState): WorkbenchTab[] {
+  const tabs: WorkbenchTab[] = [];
+  const seen = new Set<string>();
+  for (const groupId of collectGroupIdsInLayoutOrder(state.layout)) {
+    const group = state.groupsById[groupId];
+    if (!group) continue;
+    for (const tabId of group.tabIds) {
+      const tab = state.tabsById[tabId];
+      if (!tab || seen.has(tab.id) || !isGlobalToolTab(tab)) continue;
+      tabs.push(tab);
+      seen.add(tab.id);
+    }
+  }
+  for (const tab of Object.values(state.tabsById)) {
+    if (seen.has(tab.id) || !isGlobalToolTab(tab)) continue;
+    tabs.push(tab);
+    seen.add(tab.id);
+  }
+  return tabs;
+}
+
+function graftGlobalTabsIntoFirstGroup(projectWorkbench: WorkbenchState, globalTabs: WorkbenchTab[]): WorkbenchState {
+  if (globalTabs.length === 0) return projectWorkbench;
+  const next = cloneState(projectWorkbench);
+  const targetGroupId = firstGroupIdInLayout(next) ?? fallbackGroupId(next);
+  const targetGroup = next.groupsById[targetGroupId];
+  if (!targetGroup) return next;
+  const tabIds = [...targetGroup.tabIds];
+  for (const tab of globalTabs) {
+    if (!isGlobalToolTab(tab)) continue;
+    const duplicateTabId = findTabByResource(next, tab);
+    if (duplicateTabId) {
+      if (!tabIds.includes(duplicateTabId)) tabIds.push(duplicateTabId);
+      continue;
+    }
+    if (next.tabsById[tab.id]) continue;
+    next.tabsById[tab.id] = { ...tab, resource: tab.resource ? { ...tab.resource } : undefined };
+    tabIds.push(tab.id);
+  }
+  next.groupsById[targetGroupId] = {
+    ...targetGroup,
+    tabIds,
+    activeTabId: targetGroup.activeTabId ?? tabIds[0] ?? null,
+  };
+  next.recentlyClosedTabs = next.recentlyClosedTabs.filter((entry) => isGlobalToolTab(entry.tab));
+  return normalizeWorkbenchState(next);
+}
+
 function pruneEmptySplits(node: WorkbenchLayoutNode): WorkbenchLayoutNode {
   if (node.kind === 'group') return node;
   const children = node.children.map(pruneEmptySplits);
   if (children.length === 1) return children[0]!;
-  return { ...node, children };
+  const nextNode = { ...node, children };
+  return { ...nextNode, sizesByChild: normalizeSplitSizesByChild(nextNode, node.sizesByChild) };
 }
 
 function removeGroupFromLayout(node: WorkbenchLayoutNode, groupId: string): WorkbenchLayoutNode | null {
@@ -155,7 +253,8 @@ function removeGroupFromLayout(node: WorkbenchLayoutNode, groupId: string): Work
     .filter((child): child is WorkbenchLayoutNode => child !== null);
   if (children.length === 0) return null;
   if (children.length === 1) return children[0]!;
-  return { ...node, children };
+  const nextNode = { ...node, children };
+  return { ...nextNode, sizesByChild: normalizeSplitSizesByChild(nextNode, node.sizesByChild) };
 }
 
 function normalizeWorkbenchState(state: WorkbenchState): WorkbenchState {
@@ -191,6 +290,18 @@ function normalizeWorkbenchState(state: WorkbenchState): WorkbenchState {
   next.layout = pruneEmptySplits(next.layout);
   next.activeGroupId = fallbackGroupId(next);
   return next;
+}
+
+export function setWorkbenchSplitSizesByChild(state: WorkbenchState, splitId: string, sizesByChild: Record<string, number>): WorkbenchState {
+  const next = cloneState(state);
+  const split = findSplitNode(next.layout, splitId);
+  if (!split) return state;
+  const normalized = normalizeSplitSizesByChild(split, sizesByChild);
+  const current = normalizeSplitSizesByChild(split, split.sizesByChild);
+  const keys = Object.keys(normalized);
+  if (keys.every((key) => Math.abs((current[key] ?? 0) - (normalized[key] ?? 0)) < 0.01)) return state;
+  next.layout = replaceSplitSizesByChild(next.layout, splitId, normalized);
+  return normalizeWorkbenchState(next);
 }
 
 export function closeProjectWorkbenchTabs(state: WorkbenchState): WorkbenchState {
@@ -250,7 +361,8 @@ function filterLayoutToGroups(node: WorkbenchLayoutNode, groupIds: Set<string>):
     .filter((child): child is WorkbenchLayoutNode => child !== null);
   if (children.length === 0) return null;
   if (children.length === 1) return children[0]!;
-  return { ...node, children, sizes: node.sizes?.slice(0, children.length) };
+  const filteredNode = { ...node, children };
+  return { ...filteredNode, sizesByChild: normalizeSplitSizesByChild(filteredNode, node.sizesByChild) };
 }
 
 function tabResourceStableId(tab: WorkbenchTab): string | null {
@@ -285,6 +397,9 @@ export function restoreShellWorkbenchState(
   projectWorkbench: WorkbenchState,
 ): WorkbenchState {
   if (!serialized) return projectWorkbench;
+  if (Object.keys(projectWorkbench.tabsById).length > 0) {
+    return graftGlobalTabsIntoFirstGroup(projectWorkbench, globalTabsInLayoutOrder(serialized));
+  }
   const projectTabsByStableId = new Map(
     Object.values(projectWorkbench.tabsById)
       .map((tab) => [tabResourceStableId(tab), tab] as const)
@@ -392,6 +507,16 @@ export function restoreProjectWorkbenchState(serialized: SerializedWorkbenchStat
     activeGroupId: groupsById[serialized.activeGroupId] ? serialized.activeGroupId : Object.keys(groupsById)[0]!,
     recentlyClosedTabs: [],
   });
+}
+
+export function restoreProjectWorkbenchStatePreservingGlobalTabs(
+  serialized: SerializedWorkbenchState | undefined,
+  project: unknown,
+  currentState: WorkbenchState,
+): WorkbenchState {
+  const restored = restoreProjectWorkbenchState(serialized, project);
+  if (Object.keys(restored.tabsById).length === 0) return normalizeWorkbenchState(currentState);
+  return graftGlobalTabsIntoFirstGroup(restored, globalTabsInLayoutOrder(currentState));
 }
 
 export function openWorkbenchTab(
@@ -517,15 +642,16 @@ export function splitWorkbenchGroup(
     tabIds: newGroupTabIds,
     activeTabId: newActiveTabId,
   };
+  const splitChildren: WorkbenchLayoutNode[] = [
+    { kind: 'group', groupId: options.sourceGroupId },
+    { kind: 'group', groupId: newGroupId },
+  ];
   next.layout = replaceGroupNode(next.layout, options.sourceGroupId, {
     kind: 'split',
     id: splitId,
     direction: options.direction,
-    children: [
-      { kind: 'group', groupId: options.sourceGroupId },
-      { kind: 'group', groupId: newGroupId },
-    ],
-    sizes: [50, 50],
+    children: splitChildren,
+    sizesByChild: Object.fromEntries(splitChildren.map((child) => [workbenchLayoutChildKey(child), 50])),
   });
   next.activeGroupId = newGroupId;
   return normalizeWorkbenchState(next);

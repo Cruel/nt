@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { Clapperboard, DoorOpen, FileCode, Image, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User, Wrench } from 'lucide-react';
+import { Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User, Wrench } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import type { WorkbenchTab } from './workbench-types';
@@ -175,6 +175,23 @@ export function buildTestDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
+export function buildImageGenerationTab(options: { sourceAssetId?: string; sourceProjectRelativePath?: string; mode?: 'generate' | 'edit' } = {}): WorkbenchTab {
+  const suffix = options.sourceAssetId ? `:${options.sourceAssetId}` : '';
+  return {
+    id: `tab:image-generation${suffix}`,
+    title: options.mode === 'edit' ? 'Edit Image' : 'Generate Image',
+    editorType: 'image-generation',
+    resource: {
+      kind: 'tool',
+      stableId: `utility:image-generation${suffix}`,
+      collection: 'assets',
+      entityId: options.sourceAssetId,
+      generationMode: options.mode ?? 'generate',
+      sourceProjectRelativePath: options.sourceProjectRelativePath,
+    },
+  };
+}
+
 export function buildAssetsEditorTab(selectedId?: string): WorkbenchTab {
   return {
     id: 'tab:assets',
@@ -288,6 +305,7 @@ export function editorIconClassNameForTab(tab: WorkbenchTab): string {
 
 export function editorIconForType(editorType: string): ComponentType<{ className?: string }> {
   if (editorType === 'engine-preview') return MonitorPlay;
+  if (editorType === 'image-generation') return Images;
   if (editorType === 'asset-detail' || editorType === 'asset-library') return Image;
   if (editorType === 'shader-detail') return FileCode;
   if (editorType === 'material-detail') return Palette;

@@ -9,6 +9,8 @@ export interface WorkbenchResource {
   entityId?: string;
   testId?: string;
   explorerNodeId?: string;
+  generationMode?: 'generate' | 'edit';
+  sourceProjectRelativePath?: string;
 }
 
 export interface WorkbenchTab {
@@ -37,7 +39,7 @@ export interface WorkbenchLayoutSplitNode {
   id: string;
   direction: WorkbenchSplitDirection;
   children: WorkbenchLayoutNode[];
-  sizes?: number[];
+  sizesByChild?: Record<string, number>;
 }
 
 export type WorkbenchLayoutNode = WorkbenchLayoutGroupNode | WorkbenchLayoutSplitNode;

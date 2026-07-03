@@ -132,7 +132,7 @@ export async function saveProject(project: unknown, projectFilePath: string): Pr
   try {
     await writeProjectAtomic(project, projectFilePath);
     const absolute = path.resolve(projectFilePath);
-    return { ok: true, success: true, projectPath: projectPathFromFile(absolute), projectFilePath: absolute };
+    return { ok: true, success: true, projectPath: projectPathFromFile(absolute), projectFilePath: absolute, diagnostics: [] };
   } catch (error) {
     return {
       ok: false,

@@ -3,7 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
+import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
+import { bestComfyUiErrorMessage, cancelComfyUiJob, editComfyUiImage, generateComfyUiImage, subscribeComfyUiProgress } from '@/comfyui/comfyui-service';
+import { useComfyUiGenerationStore, type GeneratedImageRevision } from '@/comfyui/comfyui-generation-store';
+import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useCommandStore } from '@/commands/command-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
@@ -22,6 +27,7 @@ import { WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } f
 import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { authoringValidationSucceeded, validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
+import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
 
 export const Route = createFileRoute('/workspace')({
   component: WorkspacePage,
@@ -51,16 +57,33 @@ export function WorkspacePage() {
   const [, setBusy] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const [packageExportOpen, setPackageExportOpen] = useState(false);
+  const [untrackedAssetFiles, setUntrackedAssetFiles] = useState<ProjectAssetAuditFile[]>([]);
+  const [untrackedAssetDialogOpen, setUntrackedAssetDialogOpen] = useState(false);
   const lastObservedCommandId = useRef<string | null>(null);
   const didAttemptStartupRestore = useRef(false);
+  const ignoredUntrackedAssetPaths = useRef<Set<string>>(new Set());
+  const latestProjectFilePathRef = useRef<string | null>(null);
   const completingWindowClose = useRef(false);
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
+  const bottomPanelSizePercent = useBottomPanelStore((state) => state.sizePercent);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
+  const setBottomPanelSizePercent = useBottomPanelStore((state) => state.setSizePercent);
   const hydrateBottomPanel = useBottomPanelStore((state) => state.hydrate);
   const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
   const hydrateComfyUi = useComfyUiStore((state) => state.hydrateFromProject);
   const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
   const comfyUiConfig = useComfyUiStore((state) => state.config);
+  const setComfyUiProgress = useComfyUiStore((state) => state.setProgress);
+  const updateComfyUiQueueProgress = useComfyUiQueueStore((state) => state.updateProgress);
+  const clearComfyUiProjectQueue = useComfyUiQueueStore((state) => state.clearProject);
+  const comfyUiQueueOrder = useComfyUiQueueStore((state) => state.order);
+  const comfyUiJobsByPromptId = useComfyUiQueueStore((state) => state.jobsByPromptId);
+  const beginComfyUiJob = useComfyUiQueueStore((state) => state.beginJob);
+  const failComfyUiJob = useComfyUiQueueStore((state) => state.failJob);
+  const removeComfyUiJob = useComfyUiQueueStore((state) => state.removeJob);
+  const nextQueuedComfyUiJob = useComfyUiQueueStore((state) => state.nextQueuedJob);
+  const appendComfyUiRevisions = useComfyUiGenerationStore((state) => state.appendRevisions);
+  const clearComfyUiRevisions = useComfyUiGenerationStore((state) => state.clearProjectSession);
   const previewConnectionState = useWorkspaceStore((state) => state.previewConnectionState);
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
   const project = useProjectStore((state) => state.document);
@@ -101,8 +124,15 @@ export function WorkspacePage() {
   const undoCommand = useCommandStore((state) => state.undo);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const redoCommand = useCommandStore((state) => state.redo);
+  const deletedAssetTrash = useAssetTrashStore((state) => state.deletedAssets);
+  const forgetDeletedAsset = useAssetTrashStore((state) => state.forgetDeletedAsset);
+  const clearAssetTrashProject = useAssetTrashStore((state) => state.clearProject);
   const resetCommandHistory = useCommandStore((state) => state.resetCommandHistory);
   const nodes = useMemo(() => buildProjectTree(project, tests), [project, tests]);
+
+  useEffect(() => {
+    latestProjectFilePathRef.current = projectFilePath;
+  }, [projectFilePath]);
 
   function loadAuthoringDocument(document: unknown, projectPathValue: string | null, projectFilePathValue: string | null) {
     setProjectPath(projectPathValue);
@@ -161,8 +191,23 @@ export function WorkspacePage() {
     return true;
   }
 
+  async function cancelAndClearComfyUiProjectJobs(projectFilePathValue: string | null) {
+    const queueState = useComfyUiQueueStore.getState();
+    const projectJobs = queueState.order
+      .map((promptId) => queueState.jobsByPromptId[promptId])
+      .filter((job) => job && (!projectFilePathValue || job.projectFilePath === projectFilePathValue));
+    const hasRunningJob = projectJobs.some((job) => job.state === 'running' || job.state === 'finalizing');
+    if (hasRunningJob) await cancelComfyUiJob(useComfyUiStore.getState().config);
+    clearComfyUiProjectQueue(projectFilePathValue);
+    clearComfyUiRevisions();
+  }
+
   async function closeProject() {
     await dirtySaveProjectState('close-project');
+    await cancelAndClearComfyUiProjectJobs(projectFilePath);
+    if (projectFilePath) await window.noveltea.purgeProjectTrash(projectFilePath);
+    if (projectFilePath) clearAssetTrashProject(projectFilePath);
+    await window.noveltea.stopProjectAssetWatcher();
     clearLocalEditorSessionSnapshot();
     setLastProjectPath(null);
     clearProjectDocument();
@@ -178,6 +223,9 @@ export function WorkspacePage() {
     setLastExportResult(null);
     setPreviewRunning(false);
     setBottomPanelVisible(false);
+    ignoredUntrackedAssetPaths.current = new Set();
+    setUntrackedAssetFiles([]);
+    setUntrackedAssetDialogOpen(false);
     setStatusMessage('No project loaded');
     addTimelineEntry({ source: 'command', message: 'Closed project' });
   }
@@ -187,6 +235,7 @@ export function WorkspacePage() {
     if (!dir) return;
     setBusy(true);
     try {
+      await cancelAndClearComfyUiProjectJobs(projectFilePath);
       const loaded = await window.noveltea.openProject(dir);
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0) saveLocalEditorSessionSnapshot(loaded.projectFilePath ?? loaded.projectPath ?? null);
       const diagnostics = loadAuthoringDocument(loaded.project ?? null, loaded.projectPath, loaded.projectFilePath);
@@ -215,6 +264,72 @@ export function WorkspacePage() {
   }
 
   useEffect(() => {
+    const unsubscribe = subscribeComfyUiProgress((progress) => {
+      setComfyUiProgress(progress);
+      updateComfyUiQueueProgress(progress);
+    });
+    return unsubscribe;
+  }, [setComfyUiProgress, updateComfyUiQueueProgress]);
+
+  useEffect(() => {
+    const job = nextQueuedComfyUiJob();
+    if (!job) return;
+    beginComfyUiJob(job.promptId);
+    void (async () => {
+      try {
+        const response = job.kind === 'generate'
+          ? await generateComfyUiImage(job.config, job.request)
+          : await editComfyUiImage(job.config, job.request);
+        if (!response.success) throw new Error(`ComfyUI image job failed: ${bestComfyUiErrorMessage(response)}`);
+        const revisions: GeneratedImageRevision[] = response.assets.map((item) => ({
+          id: `${item.promptId}:${item.projectRelativePath}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+          asset: item.asset,
+          promptId: item.promptId,
+          workflowId: item.workflowId,
+          mode: job.kind,
+          prompt: item.prompt,
+          seed: item.seed,
+          projectRelativePath: item.projectRelativePath,
+          absolutePath: item.absolutePath,
+          previewUrl: item.previewUrl,
+          createdAt: item.createdAt,
+        }));
+        for (const revision of revisions) ignoredUntrackedAssetPaths.current.add(revision.projectRelativePath);
+        appendComfyUiRevisions(job.tabId, revisions);
+        removeComfyUiJob(job.promptId);
+      } catch (error) {
+        const latest = useComfyUiQueueStore.getState().jobsByPromptId[job.promptId];
+        if (latest?.state === 'interrupted') return;
+        failComfyUiJob(job.promptId, error instanceof Error ? error.message : 'ComfyUI image job failed.');
+      }
+    })();
+  }, [appendComfyUiRevisions, beginComfyUiJob, comfyUiJobsByPromptId, comfyUiQueueOrder, failComfyUiJob, nextQueuedComfyUiJob, removeComfyUiJob]);
+
+  useEffect(() => {
+    clearComfyUiProjectQueue(projectFilePath);
+  }, [clearComfyUiProjectQueue, projectFilePath]);
+
+  useEffect(() => {
+    ignoredUntrackedAssetPaths.current = new Set();
+    if (!projectFilePath || !project) {
+      void window.noveltea.stopProjectAssetWatcher();
+      setUntrackedAssetFiles([]);
+      setUntrackedAssetDialogOpen(false);
+      return;
+    }
+    void window.noveltea.startProjectAssetWatcher(projectFilePath);
+    void runAssetAudit(project);
+    return () => { void window.noveltea.stopProjectAssetWatcher(); };
+  }, [projectFilePath]);
+
+  useEffect(() => window.noveltea.onProjectAssetAuditChanged((event) => {
+    const latestProject = useProjectStore.getState().document;
+    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    if (!latestProject || !latestProjectFilePath || event.projectFilePath !== latestProjectFilePath || latestProjectFilePathRef.current !== event.projectFilePath) return;
+    void runAssetAudit(latestProject);
+  }));
+
+  useEffect(() => {
     if (didAttemptStartupRestore.current || project) return;
     didAttemptStartupRestore.current = true;
     if (restoreLastProjectOnStart && lastProjectPath) {
@@ -227,9 +342,11 @@ export function WorkspacePage() {
   useEffect(() => window.noveltea.onAppWindowBeforeClose(() => {
     if (completingWindowClose.current) return;
     completingWindowClose.current = true;
-    void dirtySaveProjectState('window-close').finally(() => {
-      void window.noveltea.completeAppWindowExit();
-    });
+    void (async () => {
+      await dirtySaveProjectState('window-close');
+      await cancelAndClearComfyUiProjectJobs(projectFilePath);
+      await window.noveltea.completeAppWindowExit();
+    })();
   }));
 
   async function saveProject(saveAs = false, reason: 'manual' | 'autosave' = 'manual') {
@@ -323,6 +440,17 @@ export function WorkspacePage() {
   });
 
   useEffect(() => {
+    if (!projectFilePath || !isAuthoringProject(project)) return;
+    for (const [assetId, entry] of Object.entries(deletedAssetTrash)) {
+      if (entry.projectFilePath !== projectFilePath || !project.assets[assetId]) continue;
+      void window.noveltea.restoreProjectAssetFiles(projectFilePath, [entry.move]).then((result) => {
+        if (result.success) forgetDeletedAsset(assetId);
+        else setStatusMessage(result.error ?? result.diagnostics[0]?.message ?? 'Failed to restore asset file.');
+      });
+    }
+  }, [deletedAssetTrash, forgetDeletedAsset, project, projectFilePath]);
+
+  useEffect(() => {
     if (!autosaveEnabled || !saveDirty || !projectFilePath || isSaving || commandHistory.activeTransaction) return;
     if (lastCommandDiagnostics.some((diagnostic) => diagnostic.severity === 'error')) return;
     const timer = window.setTimeout(() => {
@@ -362,6 +490,73 @@ export function WorkspacePage() {
       message: authoringValidationSucceeded(diagnostics) ? 'Authoring validation passed' : 'Authoring validation reported issues',
       detail: diagnostics,
     });
+  }
+
+  async function runAssetAudit(projectOverride: unknown = useProjectStore.getState().document) {
+    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    if (!latestProjectFilePath || !projectOverride) return;
+    const result = await window.noveltea.auditProjectAssets(latestProjectFilePath, projectOverride);
+    if (!result.success) {
+      const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset audit failed.';
+      setStatusMessage(message);
+      return;
+    }
+    if (latestProjectFilePath !== latestProjectFilePathRef.current || !useProjectStore.getState().document) return;
+    const visibleFiles = result.untrackedFiles.filter((file) => !ignoredUntrackedAssetPaths.current.has(file.projectRelativePath));
+    setUntrackedAssetFiles(visibleFiles);
+    if (visibleFiles.length > 0) {
+      setUntrackedAssetDialogOpen(true);
+      setStatusMessage(`Detected ${visibleFiles.length} untracked asset file${visibleFiles.length === 1 ? '' : 's'}`);
+    }
+  }
+
+  async function importUntrackedAssets(projectRelativePaths: string[]) {
+    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    if (!latestProjectFilePath || projectRelativePaths.length === 0) return;
+    const result = await window.noveltea.importUntrackedProjectAssets(latestProjectFilePath, projectRelativePaths);
+    if (!result.success || !result.assets?.length) {
+      const message = result.error ?? result.diagnostics[0]?.message ?? 'Untracked asset import failed.';
+      setStatusMessage(message);
+      setAlert({ title: 'Asset import failed', message });
+      return;
+    }
+    const command = executeCommand({
+      type: 'asset.importFiles',
+      label: `Import ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`,
+      payload: { assets: result.assets },
+    });
+    const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+    if (failure) {
+      setStatusMessage(failure.message);
+      setAlert({ title: 'Asset import failed', message: failure.message });
+      return;
+    }
+    setStatusMessage(`Imported ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`);
+    await runAssetAudit();
+  }
+
+  async function trashUntrackedAssets(projectRelativePaths: string[]) {
+    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    if (!latestProjectFilePath || projectRelativePaths.length === 0) return;
+    const result = await window.noveltea.trashProjectAssetFiles(latestProjectFilePath, projectRelativePaths);
+    if (!result.success) {
+      const message = result.error ?? result.diagnostics[0]?.message ?? 'Failed to move selected assets to project trash.';
+      setStatusMessage(message);
+      setAlert({ title: 'Asset trash failed', message });
+      return;
+    }
+    setStatusMessage(`Moved ${result.moved?.length ?? projectRelativePaths.length} asset file${projectRelativePaths.length === 1 ? '' : 's'} to project trash`);
+    await runAssetAudit();
+  }
+
+  async function reopenUntrackedAssetsDialog() {
+    if (untrackedAssetFiles.length > 0) setUntrackedAssetDialogOpen(true);
+    await runAssetAudit();
+  }
+
+  function ignoreUntrackedAssets(projectRelativePaths: string[]) {
+    ignoredUntrackedAssetPaths.current = new Set([...ignoredUntrackedAssetPaths.current, ...projectRelativePaths]);
+    setUntrackedAssetFiles((files) => files.filter((file) => !projectRelativePaths.includes(file.projectRelativePath)));
   }
 
   async function importAssets() {
@@ -511,8 +706,14 @@ export function WorkspacePage() {
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
-          <Group orientation="vertical" className="h-full w-full">
-            <Panel defaultSize={showBottomPanel ? '70%' : '100%'} minSize="240px">
+          <Group
+            orientation="vertical"
+            className="h-full w-full"
+            onLayoutChanged={(layout) => {
+              if (showBottomPanel && typeof layout['workspace-bottom-panel'] === 'number') setBottomPanelSizePercent(layout['workspace-bottom-panel']);
+            }}
+          >
+            <Panel id="workspace-main-panel" defaultSize={showBottomPanel ? 100 - bottomPanelSizePercent : 100} minSize="240px">
               <Workbench />
             </Panel>
             {showBottomPanel
@@ -521,7 +722,7 @@ export function WorkspacePage() {
                     key="bottom-panel-resize"
                     className="h-1.5 cursor-row-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/50"
                   />,
-                  <Panel key="bottom-panel" defaultSize="30%" minSize="180px" maxSize="70%">
+                  <Panel id="workspace-bottom-panel" key="bottom-panel" defaultSize={bottomPanelSizePercent} minSize="180px" maxSize="70%">
                     <BottomPanel />
                   </Panel>,
                 ]
@@ -535,6 +736,14 @@ export function WorkspacePage() {
         project={isAuthoringProject(project) ? project : null}
         projectRoot={projectPath}
         projectFilePath={projectFilePath}
+      />
+      <UntrackedAssetsDialog
+        open={untrackedAssetDialogOpen && untrackedAssetFiles.length > 0}
+        onOpenChange={setUntrackedAssetDialogOpen}
+        files={untrackedAssetFiles}
+        onImportSelected={importUntrackedAssets}
+        onDeleteSelected={trashUntrackedAssets}
+        onIgnoreSelected={ignoreUntrackedAssets}
       />
       <Dialog open={alert !== null} onOpenChange={(open) => { if (!open) setAlert(null); }}>
         <DialogPopup>
@@ -556,7 +765,18 @@ export function WorkspacePage() {
         <span className="mx-2 text-muted-foreground/30">|</span>
         <ComfyUiStatusIndicator />
         <span className="mx-2 text-muted-foreground/30">|</span>
-        <span className="truncate font-mono text-[10px] text-muted-foreground">{statusMessage}</span>
+        {untrackedAssetFiles.length > 0 ? (
+          <button
+            type="button"
+            className="truncate rounded px-1 font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            title="Open untracked asset files"
+            onClick={() => void reopenUntrackedAssetsDialog()}
+          >
+            {statusMessage}
+          </button>
+        ) : (
+          <span className="truncate font-mono text-[10px] text-muted-foreground">{statusMessage}</span>
+        )}
       </div>
     </div>
   );

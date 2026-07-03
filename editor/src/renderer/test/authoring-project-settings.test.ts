@@ -29,8 +29,12 @@ describe('authoring project settings', () => {
     expect(settings.comfyui).toMatchObject({
       enabled: false,
       serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'basic-text-to-image',
-      outputSubfolder: 'assets/images/generated',
+      defaultWorkflowId: 'flux2-klein-text-to-image',
+      defaultWorkflows: {
+        'image.generate': 'flux2-klein-text-to-image',
+        'image.edit': 'flux2-klein-image-edit',
+      },
+      outputSubfolder: 'assets/generated',
     });
   });
 

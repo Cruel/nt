@@ -40,6 +40,7 @@ import { editorProjectStateFromProject } from '@/workbench/project-editor-state'
 import {
   buildAssetsEditorTab,
   buildDefaultRecordTab,
+  buildImageGenerationTab,
   buildProjectSettingsTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
@@ -512,6 +513,7 @@ function ExplorerContextMenu({
       ) : (
         <>
           {collective ? <button className={itemClass} onClick={() => { openNode(); onClose(); }}><File className="h-3.5 w-3.5" /> Open</button> : null}
+          {collection === 'assets' ? <button className={itemClass} onClick={() => { openTab(buildImageGenerationTab()); onClose(); }}><FilePlus2 className="h-3.5 w-3.5" /> Generate Image</button> : null}
           {collection === 'assets' ? <button className={itemClass} onClick={() => { void importAssetsFromFolder(); onClose(); }}><FilePlus2 className="h-3.5 w-3.5" /> Import Assets</button> : null}
           {!collective ? <button className={itemClass} onClick={() => { openDialog({ action: 'create', collection }); onClose(); }}><FilePlus2 className="h-3.5 w-3.5" /> Create {authoringCollectionMetadata[collection].singularLabel}</button> : null}
           <div className="my-1 h-px bg-border" />
