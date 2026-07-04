@@ -57,6 +57,13 @@
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
     font-feature-settings: 'rlig' 1, 'calt' 1;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  :where(input, textarea, [contenteditable='true'], pre, code, .cm-editor, .select-text) {
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   :where(a, button, input, textarea, select, summary, [role='button'], [tabindex]:not([tabindex='-1'])):focus {

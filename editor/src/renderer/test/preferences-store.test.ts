@@ -5,16 +5,18 @@ describe('preferences-store', () => {
   beforeEach(() => {
     usePreferencesStore.setState({
       theme: 'system',
-      density: 'compact',
-      showInspectorByDefault: true,
+      codeEditorTheme: 'noveltea',
+      restoreLastProjectOnStart: true,
+      lastProjectPath: null,
     });
   });
 
   it('has default values', () => {
     const state = usePreferencesStore.getState();
     expect(state.theme).toBe('system');
-    expect(state.density).toBe('compact');
-    expect(state.showInspectorByDefault).toBe(true);
+    expect(state.codeEditorTheme).toBe('noveltea');
+    expect(state.restoreLastProjectOnStart).toBe(true);
+    expect(state.lastProjectPath).toBe(null);
   });
 
   it('updates theme', () => {
@@ -22,14 +24,19 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().theme).toBe('dark');
   });
 
-  it('updates density', () => {
-    usePreferencesStore.getState().setDensity('comfortable');
-    expect(usePreferencesStore.getState().density).toBe('comfortable');
+  it('toggles restoring the last project on startup', () => {
+    usePreferencesStore.getState().setRestoreLastProjectOnStart(false);
+    expect(usePreferencesStore.getState().restoreLastProjectOnStart).toBe(false);
   });
 
-  it('toggles inspector default', () => {
-    usePreferencesStore.getState().setShowInspectorByDefault(false);
-    expect(usePreferencesStore.getState().showInspectorByDefault).toBe(false);
+  it('updates the code editor theme', () => {
+    usePreferencesStore.getState().setCodeEditorTheme('monokai');
+    expect(usePreferencesStore.getState().codeEditorTheme).toBe('monokai');
+  });
+
+  it('updates the last project path', () => {
+    usePreferencesStore.getState().setLastProjectPath('/tmp/project.ntp');
+    expect(usePreferencesStore.getState().lastProjectPath).toBe('/tmp/project.ntp');
   });
 
   it('persists to localStorage', () => {

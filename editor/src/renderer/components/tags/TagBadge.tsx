@@ -19,7 +19,7 @@ export function TagBadge({ name, color, removable = false, onRemove, className }
       {removable ? (
         <button
           type="button"
-          className="-mr-1 rounded p-0.5 opacity-80 hover:bg-background/30 hover:opacity-100"
+          className="-mr-1 rounded p-0.5 opacity-80 transition-colors hover:bg-foreground/5 hover:opacity-100 dark:hover:bg-background/20"
           aria-label={`Remove ${name} tag`}
           onClick={onRemove}
         >
@@ -29,4 +29,3 @@ export function TagBadge({ name, color, removable = false, onRemove, className }
     </Badge>
   );
 }
-

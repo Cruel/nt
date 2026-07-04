@@ -35,4 +35,11 @@ describe('TagInput', () => {
     fireEvent.change(screen.getByPlaceholderText('New Tag'), { target: { value: 'sch' } });
     expect(screen.getByText('School')).toBeInTheDocument();
   });
+
+  it('shows all existing tag suggestions from the chevron toggle', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('Show all tag suggestions'));
+    expect(screen.getByText('Hero')).toBeInTheDocument();
+    expect(screen.getByText('School')).toBeInTheDocument();
+  });
 });

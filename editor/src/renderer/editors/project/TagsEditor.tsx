@@ -65,7 +65,6 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
               <div key={tag.key} className="grid grid-cols-[minmax(12rem,1fr)_6rem_minmax(12rem,1fr)_9rem_6rem] items-center gap-2 border-b px-3 py-2 text-sm last:border-b-0">
                 <div className="min-w-0">
                   <TagBadge name={tag.name} color={tag.color} />
-                  <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{tag.key}</div>
                 </div>
                 <div className="font-mono text-xs">{tag.count}</div>
                 <div className="truncate text-xs text-muted-foreground" title={collectionSummary(tag)}>{collectionSummary(tag) || 'Unused registry tag'}</div>

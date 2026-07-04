@@ -66,6 +66,7 @@ export function WorkspacePage() {
   const lastObservedCommandId = useRef<string | null>(null);
   const didAttemptStartupRestore = useRef(false);
   const ignoredUntrackedAssetPaths = useRef<Set<string>>(new Set());
+  const lastAssetAuditProjectFilePath = useRef<string | null>(null);
   const latestProjectFilePathRef = useRef<string | null>(null);
   const completingWindowClose = useRef(false);
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
@@ -329,7 +330,11 @@ export function WorkspacePage() {
   }, [clearComfyUiProjectQueue, projectFilePath]);
 
   useEffect(() => {
-    ignoredUntrackedAssetPaths.current = new Set();
+    const currentProjectFilePath = projectFilePath ?? null;
+    if (lastAssetAuditProjectFilePath.current !== currentProjectFilePath) {
+      ignoredUntrackedAssetPaths.current = new Set();
+      lastAssetAuditProjectFilePath.current = currentProjectFilePath;
+    }
     if (!projectFilePath || !project) {
       void window.noveltea.stopProjectAssetWatcher();
       setUntrackedAssetFiles([]);

@@ -61,6 +61,7 @@ import { dispatchWorkspaceToolbarCommand } from './workspace-toolbar-events';
 import { visualForCollection, chapterVisual, hiddenVisual } from './collection-visuals';
 import { buildProjectExplorerTree, collectiveCollectionSet, findProjectExplorerPlacementForTab, type ProjectExplorerNode } from './project-explorer-tree';
 import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
+import { RecentProjectsList } from './WorkspaceDashboard';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
 type EntityAction = 'create' | 'rename' | 'duplicate' | 'delete' | 'metadata';
@@ -695,9 +696,14 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
 
   if (!project) {
     return (
-      <div className="space-y-1 p-2">
-        <Button className="h-8 w-full justify-start gap-2 px-2" size="default" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('new-project')}><FilePlus2 className="h-3.5 w-3.5" />New Project</Button>
-        <Button className="h-8 w-full justify-start gap-2 px-2" size="default" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('open-project')}><FolderOpen className="h-3.5 w-3.5" />Open Project</Button>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="space-y-1 border-b p-2">
+          <Button className="h-8 w-full justify-start gap-2 px-2" size="default" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('new-project')}><FilePlus2 className="h-3.5 w-3.5" />New Project</Button>
+          <Button className="h-8 w-full justify-start gap-2 px-2" size="default" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('open-project')}><FolderOpen className="h-3.5 w-3.5" />Open Project</Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <RecentProjectsList compact noBorder />
+        </div>
       </div>
     );
   }
@@ -741,7 +747,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
             <Tags className="h-3.5 w-3.5" />
           </button>
         </div>
-        {showTagFilter ? <TagInput className="text-xs [&>div:first-child]:min-h-8 [&>div:first-child]:rounded-none [&>div:first-child]:border-0 [&>div:first-child]:bg-transparent [&>div:first-child]:px-2 [&>div:first-child]:py-0 [&>div:first-child]:focus-within:ring-0" value={filterTags} onChange={setFilterTags} suggestions={tagSuggestions} placeholder="Filter by tag" allowCreate={false} /> : null}
+        {showTagFilter ? <TagInput className="text-xs [&>div:first-child]:min-h-8 [&>div:first-child]:rounded-none [&>div:first-child]:border-0 [&>div:first-child]:bg-transparent [&>div:first-child]:py-0 [&>div:first-child]:pl-2 [&>div:first-child]:pr-8 [&>div:first-child]:focus-within:ring-0" value={filterTags} onChange={setFilterTags} suggestions={tagSuggestions} placeholder="Filter by tag" allowCreate={false} /> : null}
         {searchResponse?.diagnostics.length ? <div className="text-xs text-destructive">{searchResponse.diagnostics[0]?.message}</div> : null}
       </div>
       <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto p-1">

@@ -12,17 +12,17 @@ function WelcomeMessage() {
   );
 }
 
-function RecentProjectsList() {
+export function RecentProjectsList({ compact = false, noBorder = false }: { compact?: boolean; noBorder?: boolean }) {
   const recentProjects = useRecentProjectsStore((state) => state.recentProjects);
   const removeRecentProject = useRecentProjectsStore((state) => state.removeRecentProject);
 
   if (recentProjects.length === 0) return null;
 
   return (
-    <section className="w-full space-y-2">
+    <section className={compact ? 'w-full space-y-1' : 'w-full space-y-2'}>
       <h2 className="px-1 text-sm font-medium">Recent Projects</h2>
-      <Card>
-        <CardContent className="px-2 py-0">
+      <Card className={`${compact ? 'py-0' : ''} ${noBorder ? 'rounded-none ring-0' : ''}`.trim() || undefined}>
+        <CardContent className={compact ? 'p-0' : 'px-2 py-0'}>
           <div className="space-y-1">
             {recentProjects.map((entry) => {
               const projectKey = recentProjectKey(entry);
@@ -33,7 +33,7 @@ function RecentProjectsList() {
                   className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
                   onClick={() => dispatchWorkspaceToolbarCommand({ command: 'open-project', projectPath: projectKey })}
                 >
-                  <div className="truncate text-sm font-medium">{entry.label}</div>
+                  <div className={compact ? 'truncate text-xs font-medium' : 'truncate text-sm font-medium'}>{entry.label}</div>
                   <div className="truncate font-mono text-[10px] text-muted-foreground">
                     {entry.projectFilePath ?? entry.projectPath}
                   </div>

@@ -1,18 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { CodeEditorThemeId } from '@/components/source/source-editor-theme-types';
 
 export type Theme = 'system' | 'light' | 'dark';
-export type Density = 'comfortable' | 'compact';
 
 interface PreferencesState {
   theme: Theme;
-  density: Density;
-  showInspectorByDefault: boolean;
+  codeEditorTheme: CodeEditorThemeId;
   restoreLastProjectOnStart: boolean;
   lastProjectPath: string | null;
   setTheme: (theme: Theme) => void;
-  setDensity: (density: Density) => void;
-  setShowInspectorByDefault: (show: boolean) => void;
+  setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
   setRestoreLastProjectOnStart: (restore: boolean) => void;
   setLastProjectPath: (projectPath: string | null) => void;
 }
@@ -21,13 +19,11 @@ export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
       theme: 'system',
-      density: 'compact',
-      showInspectorByDefault: true,
+      codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
       lastProjectPath: null,
       setTheme: (theme) => set({ theme }),
-      setDensity: (density) => set({ density }),
-      setShowInspectorByDefault: (show) => set({ showInspectorByDefault: show }),
+      setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
       setRestoreLastProjectOnStart: (restore) => set({ restoreLastProjectOnStart: restore }),
       setLastProjectPath: (lastProjectPath) => set({ lastProjectPath }),
     }),

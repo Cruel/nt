@@ -60,6 +60,12 @@ function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAsset
   const [draft, setDraft] = useState(restoredDraft?.sourceText ?? stage.sourceText ?? '');
   const clearDraftDirty = useDraftDirtyStore((state) => state.clearDraftDirty);
   const draftDirty = stage.sourceMode === 'inline' && draft !== (stage.sourceText ?? '');
+  const shaderCompletionContext = useMemo(() => ({
+    shader: {
+      uniforms: data.uniforms.map((uniform) => uniform.name).filter(Boolean),
+      samplers: data.samplers.map((sampler) => sampler.name).filter(Boolean),
+    },
+  }), [data.samplers, data.uniforms]);
   const commit = useCallback((nextStage: ShaderStageData, label = 'Update shader stage') => {
     const stages = [...data.stages];
     stages[index] = nextStage;
@@ -108,7 +114,7 @@ function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAsset
       ) : (
         <div className="space-y-2">
           <Label>Inline source</Label>
-          <SourceEditor value={draft} onChange={setDraft} className="h-64" />
+          <SourceEditor value={draft} onChange={setDraft} language="shader" completionContext={shaderCompletionContext} className="h-64" />
         </div>
       )}
       {stage.compiled && Object.keys(stage.compiled).length > 0 ? (
