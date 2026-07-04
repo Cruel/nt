@@ -41,6 +41,7 @@ import {
   setProjectEntrypointPatches,
   setProjectIconPatches,
   setProjectStartupPatches,
+  setProjectTagColorPatches,
   setProjectTitleScreenPatches,
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
@@ -299,6 +300,7 @@ const projectComfyUiSchema = z.object({
   requestTimeoutMs: z.number().int().min(1000).max(120000).optional(),
   connectionCheckIntervalMs: z.number().int().min(3000).max(120000).optional(),
 });
+const projectTagColorSchema = z.object({ tag: z.string().min(1), color: z.string().min(1) });
 const chapterCreateSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1), color: z.string().nullable().optional() });
 const chapterRenameSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1) });
 const chapterDeleteSchema = z.object({ chapterId: entityIdSchema });
@@ -416,6 +418,9 @@ export const projectSetIconCommand: CommandHandler = ({ document, payload }) =>
 export const projectSetComfyUiCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectComfyUiSchema, payload, (parsed) => setProjectComfyUiPatches(document, parsed));
 
+export const projectSetTagColorCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectTagColorSchema, payload, (parsed) => setProjectTagColorPatches(document, parsed));
+
 export const projectCreateChapterCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(chapterCreateSchema, payload, (parsed) => createChapterPatches(document, parsed));
 
@@ -478,6 +483,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setTitleScreen': projectSetTitleScreenCommand,
     'project.setIcon': projectSetIconCommand,
     'project.setComfyUi': projectSetComfyUiCommand,
+    'project.setTagColor': projectSetTagColorCommand,
     'project.createChapter': projectCreateChapterCommand,
     'project.renameChapter': projectRenameChapterCommand,
     'project.deleteChapter': projectDeleteChapterCommand,
@@ -529,6 +535,7 @@ export function labelForCommand(type: string): string {
     case 'project.setTitleScreen': return 'Update title screen settings';
     case 'project.setIcon': return 'Set project icon';
     case 'project.setComfyUi': return 'Update ComfyUI settings';
+    case 'project.setTagColor': return 'Set tag color';
     case 'project.createChapter': return 'Create chapter';
     case 'project.renameChapter': return 'Rename chapter';
     case 'project.deleteChapter': return 'Delete chapter';

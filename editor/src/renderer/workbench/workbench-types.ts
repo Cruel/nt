@@ -27,6 +27,7 @@ export interface WorkbenchGroup {
   id: string;
   tabIds: string[];
   activeTabId: string | null;
+  activationHistory?: string[];
 }
 
 export interface WorkbenchLayoutGroupNode {

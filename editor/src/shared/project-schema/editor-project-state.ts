@@ -27,6 +27,7 @@ export const editorWorkbenchGroupSchema = z.object({
   id: z.string().min(1),
   tabIds: z.array(z.string()),
   activeTabId: z.string().nullable(),
+  activationHistory: z.array(z.string()).optional(),
 });
 
 type EditorWorkbenchLayoutNode = {
@@ -92,6 +93,16 @@ export const editorChaptersStateSchema = z.object({
   assignments: z.record(z.string(), z.array(z.string())).default({}),
 });
 
+export const editorTagRecordSchema = z.object({
+  name: z.string().min(1),
+  color: z.string().min(1),
+  sortKey: z.string().nullable().optional(),
+});
+
+export const editorTagsStateSchema = z.object({
+  records: z.record(z.string(), editorTagRecordSchema).default({}),
+});
+
 export const editorBottomPanelStateSchema = z.object({
   visible: z.boolean().default(true),
   sizePercent: z.number().min(10).max(70).default(30),
@@ -114,6 +125,7 @@ export const editorProjectStateSchema = z.object({
   workbench: editorWorkbenchStateSchema.optional(),
   explorer: editorExplorerStateSchema.default({ expandedNodeIds: [], hiddenCollectionKeys: [], followActiveTab: true, organizeByChapter: true, groupUnassignedItems: true }),
   chapters: editorChaptersStateSchema.default({ records: {}, assignments: {} }),
+  tags: editorTagsStateSchema.default({ records: {} }),
   bottomPanel: editorBottomPanelStateSchema.default({ visible: true, activePanelId: 'problems', sizePercent: 30 }),
   tabStatesById: z.record(z.string(), editorTabStateSchema).default({}),
   draftsByKey: z.record(z.string(), editorDraftStateSchema).default({}),
@@ -122,6 +134,8 @@ export const editorProjectStateSchema = z.object({
 export type EditorExplorerState = z.infer<typeof editorExplorerStateSchema>;
 export type EditorChapterRecord = z.infer<typeof editorChapterRecordSchema>;
 export type EditorChaptersState = z.infer<typeof editorChaptersStateSchema>;
+export type EditorTagRecord = z.infer<typeof editorTagRecordSchema>;
+export type EditorTagsState = z.infer<typeof editorTagsStateSchema>;
 export type EditorBottomPanelState = z.infer<typeof editorBottomPanelStateSchema>;
 export type EditorProjectState = z.infer<typeof editorProjectStateSchema>;
 export type SerializedWorkbenchState = z.infer<typeof editorWorkbenchStateSchema>;
@@ -144,6 +158,12 @@ export function emptyEditorChaptersState(): EditorChaptersState {
   };
 }
 
+export function emptyEditorTagsState(): EditorTagsState {
+  return {
+    records: {},
+  };
+}
+
 export function emptyEditorBottomPanelState(): EditorBottomPanelState {
   return {
     visible: true,
@@ -158,6 +178,7 @@ export function emptyEditorProjectState(): EditorProjectState {
     schemaVersion: EDITOR_PROJECT_STATE_SCHEMA_VERSION,
     explorer: emptyEditorExplorerState(),
     chapters: emptyEditorChaptersState(),
+    tags: emptyEditorTagsState(),
     bottomPanel: emptyEditorBottomPanelState(),
     tabStatesById: {},
     draftsByKey: {},

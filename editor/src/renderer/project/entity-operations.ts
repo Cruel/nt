@@ -1,4 +1,4 @@
-import { buildJsonPointer } from '@/project/json-pointer';
+import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { cloneJsonValue, toJsonValue, type JsonValue } from '@/project/json-value';
 import {
   authoringCollectionMetadata,
@@ -21,6 +21,8 @@ import {
   type AuthoringRecordBase,
   type ReferenceTarget,
 } from '../../shared/project-schema/authoring-project';
+import { collectProjectTags, normalizeTagKey, normalizeTags, tagColorForIndex } from '../../shared/project-schema/authoring-tags';
+import { EDITOR_PROJECT_STATE_SCHEMA, EDITOR_PROJECT_STATE_SCHEMA_VERSION } from '../../shared/project-schema/editor-project-state';
 import {
   buildReferenceIndex,
   findUsages,
@@ -203,9 +205,13 @@ export function createEntityRecordPatches(
     }
   }
   const path = pathForRecord(payload.collection, payload.entityId);
+  const documentValue = toJsonValue(document);
+  const normalizedTags = payload.tags ? normalizeTags(payload.tags) : undefined;
+  const record = createDefaultAuthoringRecord(payload.collection, payload.entityId, { ...payload, tags: normalizedTags });
+  const tagRegistryPatches = normalizedTags ? registryPatchesForTags(project, documentValue, normalizedTags) : [];
   return {
-    patches: [{ op: 'add', path, value: toJsonValue(createDefaultAuthoringRecord(payload.collection, payload.entityId, payload)) }],
-    affectedPaths: [path],
+    patches: [...tagRegistryPatches, { op: 'add', path, value: toJsonValue(record) }],
+    affectedPaths: [...tagRegistryPatches.map((patch) => patch.path), path],
   };
 }
 
@@ -249,6 +255,51 @@ function recordFieldPatch(
   return Object.prototype.hasOwnProperty.call(record, field)
     ? { op: 'replace', path, value: toJsonValue(value) }
     : { op: 'add', path, value: toJsonValue(value) };
+}
+
+function ensureEditorTagRegistryObjects(patches: JsonPatchOperation[], documentValue: JsonValue) {
+  if (!hasJsonAtPointer(documentValue, '/editor')) {
+    patches.push({
+      op: 'add',
+      path: '/editor',
+      value: toJsonValue({
+        schema: EDITOR_PROJECT_STATE_SCHEMA,
+        schemaVersion: EDITOR_PROJECT_STATE_SCHEMA_VERSION,
+        tags: { records: {} },
+      }),
+    });
+    return;
+  }
+  if (!hasJsonAtPointer(documentValue, '/editor/tags')) {
+    patches.push({ op: 'add', path: '/editor/tags', value: toJsonValue({ records: {} }) });
+    return;
+  }
+  if (!hasJsonAtPointer(documentValue, '/editor/tags/records')) {
+    patches.push({ op: 'add', path: '/editor/tags/records', value: {} });
+  }
+}
+
+function registryPatchesForTags(project: AuthoringProject, documentValue: JsonValue, tags: string[]): JsonPatchOperation[] {
+  const normalizedTags = normalizeTags(tags);
+  if (normalizedTags.length === 0) return [];
+  const patches: JsonPatchOperation[] = [];
+  ensureEditorTagRegistryObjects(patches, documentValue);
+  const existingRecords = project.editor.tags?.records ?? {};
+  const summaryByKey = new Map(collectProjectTags(project).map((tag) => [tag.key, tag]));
+  const pendingKeys = new Set<string>();
+  let nextIndex = summaryByKey.size;
+  for (const tag of normalizedTags) {
+    const key = normalizeTagKey(tag);
+    if (!key || existingRecords[key] || pendingKeys.has(key)) continue;
+    pendingKeys.add(key);
+    patches.push({
+      op: 'add',
+      path: buildJsonPointer(['editor', 'tags', 'records', key]),
+      value: toJsonValue({ name: tag, color: summaryByKey.get(key)?.color ?? tagColorForIndex(nextIndex) }),
+    });
+    nextIndex += 1;
+  }
+  return patches;
 }
 
 export function renameEntityIdPatches(
@@ -373,10 +424,17 @@ export function updateEntityMetadataPatches(
   }
   const patches: JsonPatchOperation[] = [];
   const affectedPaths: string[] = [];
+  const documentValue = toJsonValue(document);
+  const normalizedTags = payload.tags ? normalizeTags(payload.tags) : undefined;
+  if (normalizedTags) {
+    const tagRegistryPatches = registryPatchesForTags(project, documentValue, normalizedTags);
+    patches.push(...tagRegistryPatches);
+    affectedPaths.push(...tagRegistryPatches.map((patch) => patch.path));
+  }
   const entries: Array<[keyof AuthoringRecordBase, unknown]> = [
     ['label', payload.label],
     ['description', payload.description],
-    ['tags', payload.tags],
+    ['tags', normalizedTags],
     ['color', payload.color],
     ['sortKey', payload.sortKey],
   ];

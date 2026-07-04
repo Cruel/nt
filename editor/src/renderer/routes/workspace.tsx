@@ -15,6 +15,7 @@ import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { BottomPanel } from '@/workbench/BottomPanel';
+import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
@@ -408,6 +409,17 @@ export function WorkspacePage() {
       if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         void saveProject(event.shiftKey);
+      } else if (event.key.toLowerCase() === 'w') {
+        const workbench = useWorkbenchStore.getState();
+        const group = workbench.groupsById[workbench.activeGroupId];
+        const tabId = group?.activeTabId;
+        if (group && tabId) {
+          event.preventDefault();
+          useCloseGuardStore.getState().requestCloseTab(group.id, tabId);
+        }
+      } else if (event.shiftKey && event.key.toLowerCase() === 't') {
+        event.preventDefault();
+        useWorkbenchStore.getState().reopenLastClosedTab();
       }
       const target = event.target as HTMLElement | null;
       const isTextInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);

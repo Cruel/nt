@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
@@ -17,13 +17,13 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    tags: [],
+    tags: ['Hero'],
     data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
   };
   next.assets.click = {
     id: 'click',
     label: 'Click',
-    tags: [],
+    tags: ['sfx'],
     data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/click.mp3' }, aliases: [], extension: '.mp3' },
   };
   return next;
@@ -45,4 +45,19 @@ describe('AssetLibraryEditor', () => {
     expect(screen.getByText('Click')).toBeInTheDocument();
     expect(document.querySelector('audio')).toBeTruthy();
   });
+
+  it('filters assets by type and user tags separately', async () => {
+    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    render(<AssetLibraryEditor tab={tab} />);
+
+    fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'audio' } });
+    expect(screen.getByText('Click')).toBeInTheDocument();
+    expect(screen.queryByText('Logo')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'all' } });
+    fireEvent.change(screen.getByPlaceholderText('Filter by tag'), { target: { value: 'Hero,' } });
+    expect(screen.getByText('Logo')).toBeInTheDocument();
+    expect(screen.queryByText('Click')).not.toBeInTheDocument();
+  });
+
 });

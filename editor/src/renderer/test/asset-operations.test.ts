@@ -44,7 +44,7 @@ describe('asset operations', () => {
     });
     expect(result.ok).toBe(true);
     expect(result.state.document).toMatchObject({
-      assets: { click: { id: 'click', data: { kind: 'audio', source: { path: 'assets/audio/click.mp3' } } } },
+      assets: { click: { id: 'click', tags: [], data: { kind: 'audio', source: { path: 'assets/audio/click.mp3' } } } },
     });
     const undone = undoCommand(result.state);
     expect(undone.state.document).toMatchObject({ assets: {} });

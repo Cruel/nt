@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { TagInput } from '@/components/tags/TagInput';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,6 +9,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { buildAssetAliasIndex, findAssetAliasUsages } from '../../../shared/project-schema/authoring-asset-references';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildReferenceIndex, findUsages } from '../../../shared/project-schema/authoring-references';
 import { useProjectStore } from '@/project/project-store';
@@ -48,6 +50,11 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     return data.aliases.flatMap((alias) => findAssetAliasUsages(index, alias));
   }, [data, project]);
 
+  const tagSuggestions = useMemo(() => {
+    if (!isAuthoringProject(project)) return [];
+    return collectProjectTags(project, record?.tags ?? []);
+  }, [project, record?.tags]);
+
   if (!assetId || !record) {
     return <div className="p-4 text-sm text-muted-foreground">Asset record not found.</div>;
   }
@@ -67,6 +74,14 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     setMessage(failure?.message ?? command.label ?? command.type);
     return result.ok && !failure;
+  }
+
+  function updateTags(tags: string[]) {
+    run({
+      type: 'entity.updateMetadata',
+      label: `Update ${assetId} tags`,
+      payload: { collection: 'assets', entityId: assetId, tags },
+    });
   }
 
   async function reimport() {
@@ -156,6 +171,15 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
+          <section className="rounded border p-3">
+            <h3 className="text-sm font-medium">Tags</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Tags are for user-facing organization and do not affect the asset type.</p>
+            <div className="mt-3">
+              <Label htmlFor="asset-tags">Asset tags</Label>
+              <TagInput id="asset-tags" className="mt-1" value={record.tags ?? []} onChange={updateTags} suggestions={tagSuggestions} placeholder="Add tag" />
+            </div>
+          </section>
+
           <section className="rounded border p-3">
             <h3 className="text-sm font-medium">Aliases</h3>
             <div className="mt-2 flex flex-wrap gap-2">

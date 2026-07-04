@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Images, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { TagInput } from '@/components/tags/TagInput';
 import { Input } from '@/components/ui/input';
 import { useCommandStore } from '@/commands/command-store';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
@@ -10,6 +11,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildAssetDetailTabForRecord, buildImageGenerationTab } from '@/workbench/editor-registry';
 import { parseAssetData, type AssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
+import { collectProjectTags, normalizeTagKey } from '../../../shared/project-schema/authoring-tags';
 import { AssetPreview } from './AssetPreview';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
@@ -84,16 +86,24 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [contextMenu, setContextMenu] = useState<AssetContextMenuState | null>(null);
-  const assets = useMemo(() => {
+  const allAssets = useMemo(() => {
     if (!project) return [];
     return Object.entries(project.assets)
       .map(([id, record]) => ({ id, record, data: parseAssetData(record.data), label: record.label || id }))
-      .filter((asset) => kind === 'all' || asset.data?.kind === kind)
-      .filter((asset) => !query.trim() || `${asset.id} ${asset.label} ${asset.data?.kind ?? ''}`.toLowerCase().includes(query.toLowerCase()))
       .sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
-  }, [kind, project, query]);
-  const kinds = useMemo(() => [...new Set(assets.map((asset) => asset.data?.kind).filter(Boolean))].sort(), [assets]);
+  }, [project]);
+  const selectedTagKeys = useMemo(() => new Set(selectedTags.map(normalizeTagKey)), [selectedTags]);
+  const assets = useMemo(() => {
+    const queryText = query.trim().toLowerCase();
+    return allAssets
+      .filter((asset) => kind === 'all' || asset.data?.kind === kind)
+      .filter((asset) => selectedTagKeys.size === 0 || asset.record.tags?.some((tag) => selectedTagKeys.has(normalizeTagKey(tag))))
+      .filter((asset) => !queryText || `${asset.id} ${asset.label} ${asset.data?.kind ?? ''} ${(asset.record.tags ?? []).join(' ')}`.toLowerCase().includes(queryText));
+  }, [allAssets, kind, query, selectedTagKeys]);
+  const kinds = useMemo(() => [...new Set(allAssets.map((asset) => asset.data?.kind).filter(Boolean))].sort(), [allAssets]);
+  const tagSuggestions = useMemo(() => project ? collectProjectTags(project, selectedTags) : [], [project, selectedTags]);
 
   if (!project) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to browse assets.</div>;
 
@@ -106,10 +116,11 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
         </div>
         <Button size="sm" className="h-8 gap-2" onClick={() => openTab(buildImageGenerationTab())}><Images className="h-3.5 w-3.5" /> Generate Image</Button>
         <Input className="h-8 w-56" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search assets" />
-        <select className="h-8 rounded-md border border-input bg-background px-2 text-xs" value={kind} onChange={(event) => setKind(event.currentTarget.value)}>
-          <option value="all">All kinds</option>
+        <select className="h-8 rounded-md border border-input bg-background px-2 text-xs" value={kind} onChange={(event) => setKind(event.currentTarget.value)} aria-label="Asset type">
+          <option value="all">All types</option>
           {kinds.map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
+        <TagInput className="min-w-64 max-w-sm flex-1" value={selectedTags} onChange={setSelectedTags} suggestions={tagSuggestions} placeholder="Filter by tag" />
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {assets.map((asset) => (

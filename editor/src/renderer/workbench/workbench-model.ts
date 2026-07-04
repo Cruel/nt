@@ -34,6 +34,7 @@ export function createInitialWorkbenchState(): WorkbenchState {
         id: ROOT_GROUP_ID,
         tabIds: [],
         activeTabId: null,
+        activationHistory: [],
       },
     },
     tabsById: {},
@@ -46,7 +47,7 @@ function cloneState(state: WorkbenchState): WorkbenchState {
   return {
     layout: cloneLayoutNode(state.layout),
     groupsById: Object.fromEntries(
-      Object.entries(state.groupsById).map(([id, group]) => [id, { ...group, tabIds: [...group.tabIds] }]),
+      Object.entries(state.groupsById).map(([id, group]) => [id, { ...group, tabIds: [...group.tabIds], activationHistory: [...(group.activationHistory ?? [])] }]),
     ),
     tabsById: Object.fromEntries(
       Object.entries(state.tabsById).map(([id, tab]) => [id, { ...tab, resource: tab.resource ? { ...tab.resource } : undefined }]),
@@ -94,11 +95,22 @@ function fallbackGroupId(state: WorkbenchState): string {
   return Object.keys(state.groupsById)[0] ?? ROOT_GROUP_ID;
 }
 
+function activationHistoryFor(group: WorkbenchGroup, activeTabId = group.activeTabId): string[] {
+  const filtered = (group.activationHistory ?? []).filter((id, index, list) => group.tabIds.includes(id) && list.indexOf(id) === index);
+  if (activeTabId && group.tabIds.includes(activeTabId)) return [activeTabId, ...filtered.filter((id) => id !== activeTabId)];
+  return filtered;
+}
+
+function activateGroupTab(group: WorkbenchGroup, tabId: string): WorkbenchGroup {
+  return { ...group, activeTabId: tabId, activationHistory: activationHistoryFor(group, tabId) };
+}
+
 function normalizeGroupActiveTab(group: WorkbenchGroup): WorkbenchGroup {
-  if (group.activeTabId && group.tabIds.includes(group.activeTabId)) return group;
+  const activeTabId = group.activeTabId && group.tabIds.includes(group.activeTabId) ? group.activeTabId : group.tabIds.at(-1) ?? null;
   return {
     ...group,
-    activeTabId: group.tabIds.at(-1) ?? null,
+    activeTabId,
+    activationHistory: activationHistoryFor(group, activeTabId),
   };
 }
 
@@ -540,20 +552,15 @@ export function openWorkbenchTab(
       };
     }
     next.activeGroupId = existingGroupId;
-    next.groupsById[existingGroupId] = {
-      ...next.groupsById[existingGroupId]!,
-      activeTabId: existingTabId,
-    };
+    next.groupsById[existingGroupId] = activateGroupTab(next.groupsById[existingGroupId]!, existingTabId);
     return normalizeWorkbenchState(next);
   }
 
   next.tabsById[tab.id] = { ...tab, resource: tab.resource ? { ...tab.resource } : undefined };
   const group = next.groupsById[targetGroupId]!;
-  next.groupsById[targetGroupId] = {
-    ...group,
-    tabIds: group.tabIds.includes(tab.id) ? group.tabIds : [...group.tabIds, tab.id],
-    activeTabId: options.activate === false ? group.activeTabId : tab.id,
-  };
+  const tabIds = group.tabIds.includes(tab.id) ? group.tabIds : [...group.tabIds, tab.id];
+  const nextGroup = { ...group, tabIds };
+  next.groupsById[targetGroupId] = options.activate === false ? normalizeGroupActiveTab(nextGroup) : activateGroupTab(nextGroup, tab.id);
   if (options.activate !== false) next.activeGroupId = targetGroupId;
   return normalizeWorkbenchState(next);
 }
@@ -566,7 +573,7 @@ export function activateWorkbenchTab(
   const next = cloneState(state);
   const group = next.groupsById[groupId];
   if (!group || !group.tabIds.includes(tabId)) return next;
-  next.groupsById[groupId] = { ...group, activeTabId: tabId };
+  next.groupsById[groupId] = activateGroupTab(group, tabId);
   next.activeGroupId = groupId;
   return normalizeWorkbenchState(next);
 }
@@ -591,9 +598,12 @@ export function closeWorkbenchTab(
   next.recentlyClosedTabs = [{ tab, closedFromGroupId: groupId }, ...next.recentlyClosedTabs].slice(0, 20);
   const tabIndex = group.tabIds.indexOf(tabId);
   const tabIds = group.tabIds.filter((id) => id !== tabId);
+  const groupAfterClose = { ...group, tabIds, activationHistory: (group.activationHistory ?? []).filter((id) => id !== tabId) };
   const nextActiveTabId =
-    group.activeTabId === tabId ? tabIds[Math.min(tabIndex, tabIds.length - 1)] ?? tabIds.at(-1) ?? null : group.activeTabId;
-  next.groupsById[groupId] = { ...group, tabIds, activeTabId: nextActiveTabId };
+    group.activeTabId === tabId
+      ? groupAfterClose.activationHistory.find((id) => tabIds.includes(id)) ?? tabIds[Math.min(tabIndex, tabIds.length - 1)] ?? tabIds.at(-1) ?? null
+      : group.activeTabId;
+  next.groupsById[groupId] = normalizeGroupActiveTab({ ...groupAfterClose, activeTabId: nextActiveTabId });
   delete next.tabsById[tabId];
 
   if (tabIds.length === 0 && Object.keys(next.groupsById).length > 1) {
@@ -725,7 +735,7 @@ export function moveWorkbenchTabWithinGroup(
   const tabIds = group.tabIds.filter((id) => id !== tabId);
   const insertAt = Math.max(0, Math.min(toIndex, tabIds.length));
   tabIds.splice(insertAt, 0, tabId);
-  next.groupsById[groupId] = { ...group, tabIds, activeTabId: tabId };
+  next.groupsById[groupId] = activateGroupTab({ ...group, tabIds }, tabId);
   next.activeGroupId = groupId;
   return normalizeWorkbenchState(next);
 }

@@ -402,6 +402,21 @@ describe('workbench model', () => {
     expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:kitchen');
   });
 
+
+
+  it('returns to the previously active tab when closing the current tab', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('assets'));
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, rawTab('kitchen'));
+    state = activateWorkbenchTab(state, ROOT_GROUP_ID, 'tab:assets');
+    state = activateWorkbenchTab(state, ROOT_GROUP_ID, 'tab:kitchen');
+
+    state = closeWorkbenchTab(state, ROOT_GROUP_ID, 'tab:kitchen');
+
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:assets');
+  });
+
   it('keeps active tab valid after closing and can reopen a closed tab', () => {
     let state = createInitialWorkbenchState();
     state = openWorkbenchTab(state, rawTab('foyer'));

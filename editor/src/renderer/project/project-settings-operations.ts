@@ -4,6 +4,8 @@ import { defaultLayoutRef } from '../../shared/project-schema/authoring-layouts'
 import { assetRef, roomEntrypointRef } from '../../shared/project-schema/authoring-project-settings';
 import { isAuthoringProject, type ReferenceTarget } from '../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
+import { isTagColor, normalizeTagKey, normalizeTagName } from '../../shared/project-schema/authoring-tags';
+import { EDITOR_PROJECT_STATE_SCHEMA, EDITOR_PROJECT_STATE_SCHEMA_VERSION } from '../../shared/project-schema/editor-project-state';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
@@ -50,12 +52,35 @@ export interface SetProjectComfyUiPayload {
   connectionCheckIntervalMs?: number;
 }
 
+export interface SetProjectTagColorPayload {
+  tag: string;
+  color: string;
+}
+
 function error(message: string, path?: string): EntityOperationDiagnostic {
   return { severity: 'error', message, path };
 }
 
 function ensureSettingsObject(patches: JsonPatchOperation[], documentValue: JsonValue, path: string) {
   if (!hasJsonAtPointer(documentValue, path)) patches.push({ op: 'add', path, value: {} });
+}
+
+function ensureEditorTagObjects(patches: JsonPatchOperation[], documentValue: JsonValue) {
+  if (!hasJsonAtPointer(documentValue, '/editor')) {
+    patches.push({
+      op: 'add',
+      path: '/editor',
+      value: toJsonValue({ schema: EDITOR_PROJECT_STATE_SCHEMA, schemaVersion: EDITOR_PROJECT_STATE_SCHEMA_VERSION, tags: { records: {} } }),
+    });
+    return;
+  }
+  if (!hasJsonAtPointer(documentValue, '/editor/tags')) {
+    patches.push({ op: 'add', path: '/editor/tags', value: toJsonValue({ records: {} }) });
+    return;
+  }
+  if (!hasJsonAtPointer(documentValue, '/editor/tags/records')) {
+    patches.push({ op: 'add', path: '/editor/tags/records', value: {} });
+  }
 }
 
 function patchValue(documentValue: JsonValue, path: string, value: unknown): JsonPatchOperation {
@@ -200,6 +225,20 @@ export function setProjectComfyUiPatches(document: unknown, payload: SetProjectC
   if (payload.requestTimeoutMs !== undefined) set('requestTimeoutMs', payload.requestTimeoutMs);
   if (payload.connectionCheckIntervalMs !== undefined) set('connectionCheckIntervalMs', payload.connectionCheckIntervalMs);
   return { patches, affectedPaths };
+}
+
+export function setProjectTagColorPatches(document: unknown, payload: SetProjectTagColorPayload): EntityOperationResult {
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  const name = normalizeTagName(payload.tag);
+  if (!name) return { patches: [], diagnostics: [error('Tag name is required.', '/editor/tags')] };
+  if (!isTagColor(payload.color)) return { patches: [], diagnostics: [error('Tag color must be one of the built-in tag colors.', '/editor/tags')] };
+  const key = normalizeTagKey(name);
+  const documentValue = toJsonValue(document);
+  const patches: JsonPatchOperation[] = [];
+  ensureEditorTagObjects(patches, documentValue);
+  const path = buildJsonPointer(['editor', 'tags', 'records', key]);
+  patches.push(patchValue(documentValue, path, { name, color: payload.color }));
+  return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
 
 export { roomEntrypointRef };

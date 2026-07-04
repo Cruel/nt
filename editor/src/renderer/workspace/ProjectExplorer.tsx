@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { TagInput } from '@/components/tags/TagInput';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,6 +37,7 @@ import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { authoringCollectionMetadata, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
+import { collectProjectTags } from '../../shared/project-schema/authoring-tags';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import {
   buildAssetsEditorTab,
@@ -95,14 +97,6 @@ function withExplorerPlacement(tab: WorkbenchTab, explorerNodeId: string): Workb
   };
 }
 
-function tagsToText(tags: string[] | undefined) {
-  return (tags ?? []).join(', ');
-}
-
-function textToTags(value: string) {
-  return value.split(',').map((item) => item.trim()).filter(Boolean);
-}
-
 function ParentSelect({
   project,
   collection,
@@ -141,7 +135,7 @@ function EntityOperationDialog({
   const [id, setId] = useState('');
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
-  const [tags, setTags] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [color, setColor] = useState('');
   const [parentId, setParentId] = useState<string | null>(null);
   const [forceDelete, setForceDelete] = useState(false);
@@ -153,18 +147,20 @@ function EntityOperationDialog({
     if (!state) return;
     const record = project && state.entityId ? project[state.collection][state.entityId] : null;
     if (state.action === 'create') {
-      setId(''); setLabel(''); setDescription(''); setTags(''); setColor(''); setParentId(null);
+      setId(''); setLabel(''); setDescription(''); setTags([]); setColor(''); setParentId(null);
     } else if (state.action === 'duplicate') {
       setId(defaultDuplicateId(state.entityId ?? 'record'));
       setLabel(record ? `${record.label} Copy` : 'Copy');
-      setDescription(''); setTags(''); setColor(''); setParentId(null);
+      setDescription(''); setTags([]); setColor(''); setParentId(null);
     } else if (state.action === 'rename') {
-      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(''); setTags(''); setColor(''); setParentId(null);
+      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(''); setTags([]); setColor(''); setParentId(null);
     } else if (state.action === 'metadata') {
-      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(record?.description ?? ''); setTags(tagsToText(record?.tags)); setColor(record?.color ?? '');
+      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(record?.description ?? ''); setTags(record?.tags ?? []); setColor(record?.color ?? '');
       setParentId(record?.parent?.collection === state.collection ? record.parent.id : null);
     }
   }, [project, state]);
+
+  const tagSuggestions = useMemo(() => project ? collectProjectTags(project, tags) : [], [project, tags]);
 
   if (!state || !project) return null;
   const activeState = state;
@@ -209,7 +205,7 @@ function EntityOperationDialog({
     } else if (state.action === 'delete' && state.entityId) {
       finish(executeCommand({ type: 'entity.deleteRecord', label: `Delete ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, force: forceDelete } }), () => undefined);
     } else if (state.action === 'metadata' && state.entityId) {
-      const first = executeCommand({ type: 'entity.updateMetadata', label: `Update ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, label: label.trim(), description: description.trim() || undefined, tags: textToTags(tags), color: color.trim() || null } });
+      const first = executeCommand({ type: 'entity.updateMetadata', label: `Update ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, label: label.trim(), description: description.trim() || undefined, tags, color: color.trim() || null } });
       const failure = first.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
       if (!first.ok || failure) { setError(failure?.message ?? 'Metadata update failed.'); return; }
       finish(executeCommand({ type: 'entity.setParent', label: `Set parent for ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, parentId } }), () => undefined);
@@ -252,7 +248,7 @@ function EntityOperationDialog({
               {state.action === 'metadata' && record ? (
                 <>
                   <div className="space-y-1"><Label htmlFor="entity-description">Description</Label><Input id="entity-description" value={description} onChange={(event) => setDescription(event.currentTarget.value)} /></div>
-                  <div className="space-y-1"><Label htmlFor="entity-tags">Tags</Label><Input id="entity-tags" value={tags} onChange={(event) => setTags(event.currentTarget.value)} placeholder="tag-a, tag-b" /></div>
+                  <div className="space-y-1"><Label htmlFor="entity-tags">Tags</Label><TagInput id="entity-tags" value={tags} onChange={setTags} suggestions={tagSuggestions} placeholder="Add tag" /></div>
                   <div className="space-y-1"><Label htmlFor="entity-color">Color</Label><Input id="entity-color" value={color} onChange={(event) => setColor(event.currentTarget.value)} placeholder="#8b5cf6 or empty" /></div>
                   <div className="space-y-1"><Label>Parent</Label><ParentSelect project={project} collection={state.collection} entityId={state.entityId!} value={parentId} onChange={setParentId} /></div>
                 </>

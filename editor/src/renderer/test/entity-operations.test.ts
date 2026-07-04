@@ -139,14 +139,18 @@ describe('authoring entity operations', () => {
     let state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
     const metadata = executeCommand(state, {
       type: 'entity.updateMetadata',
-      payload: { collection: 'rooms', entityId: 'hall', label: 'Great Hall', tags: ['main'], color: '#fff' },
+      payload: { collection: 'rooms', entityId: 'hall', label: 'Great Hall', tags: [' main ', 'MAIN', 'Hero'], color: '#fff' },
     });
     expect(metadata.ok).toBe(true);
     state = metadata.state;
     expect((state.document as ReturnType<typeof projectWithRooms>).rooms.hall).toMatchObject({
       label: 'Great Hall',
-      tags: ['main'],
+      tags: ['main', 'Hero'],
       color: '#fff',
+    });
+    expect((state.document as ReturnType<typeof projectWithRooms>).editor.tags.records).toMatchObject({
+      main: { name: 'main', color: 'tag-slate' },
+      hero: { name: 'Hero', color: 'tag-red' },
     });
 
     const clearParent = executeCommand(state, {
