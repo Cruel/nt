@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   activateWorkbenchGroup,
   activateWorkbenchTab,
+  closeAllWorkbenchTabsInGroup,
+  closeOtherWorkbenchTabs,
   closeProjectWorkbenchTabs,
   closeWorkbenchTab,
+  closeWorkbenchTabs,
+  closeWorkbenchTabsToRight,
   createInitialWorkbenchState,
   moveWorkbenchTab,
   moveWorkbenchTabWithinGroup,
@@ -18,7 +22,7 @@ import {
   setWorkbenchSplitSizesByChild,
   splitWorkbenchGroup,
 } from '@/workbench/workbench-model';
-import type { WorkbenchTab } from '@/workbench/workbench-types';
+import type { WorkbenchLayoutNode, WorkbenchTab } from '@/workbench/workbench-types';
 
 function rawTab(id: string): WorkbenchTab {
   return {
@@ -38,6 +42,10 @@ function createTestId(prefix: string) {
   const createTestIdCounter = createTestId as typeof createTestId & { next?: number };
   createTestIdCounter.next = (createTestIdCounter.next ?? 0) + 1;
   return `${prefix}:${createTestIdCounter.next}`;
+}
+
+function groupIdsInLayoutOrder(node: WorkbenchLayoutNode): string[] {
+  return node.kind === 'group' ? [node.groupId] : node.children.flatMap(groupIdsInLayoutOrder);
 }
 
 describe('workbench model', () => {
@@ -104,6 +112,83 @@ describe('workbench model', () => {
     expect(state.layout).toEqual({ kind: 'group', groupId: ROOT_GROUP_ID });
   });
 
+  it('supports directional split placement before and after the source group', () => {
+    let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal', placement: 'before' },
+      createTestId,
+    );
+    const leftGroupId = state.activeGroupId;
+    expect(groupIdsInLayoutOrder(state.layout)).toEqual([leftGroupId, ROOT_GROUP_ID]);
+
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'vertical', placement: 'after' },
+      createTestId,
+    );
+    const lowerGroupId = state.activeGroupId;
+    expect(groupIdsInLayoutOrder(state.layout)).toEqual([leftGroupId, ROOT_GROUP_ID, lowerGroupId]);
+  });
+
+  it('allocates collision-free group and split ids when splitting restored layouts', () => {
+    const state = {
+      layout: {
+        kind: 'split' as const,
+        id: 'split:5',
+        direction: 'horizontal' as const,
+        children: [
+          { kind: 'group' as const, groupId: ROOT_GROUP_ID },
+          { kind: 'group' as const, groupId: 'group:4' },
+        ],
+      },
+      groupsById: {
+        [ROOT_GROUP_ID]: {
+          id: ROOT_GROUP_ID,
+          tabIds: ['tab:root'],
+          activeTabId: 'tab:root',
+          activationHistory: ['tab:root'],
+        },
+        'group:4': {
+          id: 'group:4',
+          tabIds: ['tab:foyer'],
+          activeTabId: 'tab:foyer',
+          activationHistory: ['tab:foyer'],
+        },
+      },
+      tabsById: {
+        'tab:root': rawTab('root'),
+        'tab:foyer': rawTab('foyer'),
+      },
+      activeGroupId: 'group:4',
+      recentlyClosedTabs: [],
+    };
+    const idsByPrefix: Record<string, string[]> = {
+      group: ['group:4', 'group:6'],
+      split: ['split:5', 'split:7'],
+      tab: ['tab:foyer', 'tab:foyer-clone'],
+    };
+    const createCollidingId = (prefix: string) => idsByPrefix[prefix]?.shift() ?? `${prefix}:fallback`;
+
+    const split = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: 'group:4', direction: 'vertical', tabId: 'tab:foyer', moveTab: false },
+      createCollidingId,
+    );
+    const groupOrder = groupIdsInLayoutOrder(split.layout);
+    expect(groupOrder).toContain('group:4');
+    expect(groupOrder).toContain('group:6');
+    expect(new Set(groupOrder).size).toBe(groupOrder.length);
+    expect(Object.keys(split.groupsById)).toContain('group:6');
+    expect(Object.keys(split.tabsById)).toContain('tab:foyer-clone');
+    expect(split.layout.kind).toBe('split');
+    if (split.layout.kind === 'split') {
+      expect(split.layout.id).toBe('split:5');
+      const nested = split.layout.children.find((child) => child.kind === 'split');
+      expect(nested?.kind === 'split' ? nested.id : null).toBe('split:7');
+    }
+  });
+
   it('activates a group without changing that group active tab', () => {
     let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('left'));
     state = splitWorkbenchGroup(
@@ -136,6 +221,25 @@ describe('workbench model', () => {
     });
     expect(state.groupsById[targetGroupId]?.tabIds).toContain('tab:foyer');
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds ?? []).not.toContain('tab:foyer');
+  });
+
+  it('prunes an emptied source group after moving its last tab to another group', () => {
+    let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal' },
+      createTestId,
+    );
+    const targetGroupId = Object.keys(state.groupsById).find((id) => id !== ROOT_GROUP_ID)!;
+    state = moveWorkbenchTab(state, {
+      tabId: 'tab:foyer',
+      fromGroupId: ROOT_GROUP_ID,
+      toGroupId: targetGroupId,
+    });
+
+    expect(state.groupsById[ROOT_GROUP_ID]).toBeUndefined();
+    expect(state.layout).toEqual({ kind: 'group', groupId: targetGroupId });
+    expect(state.groupsById[targetGroupId]?.tabIds).toEqual(['tab:foyer']);
   });
 
   it('reorders tabs within a group', () => {
@@ -415,6 +519,78 @@ describe('workbench model', () => {
     state = closeWorkbenchTab(state, ROOT_GROUP_ID, 'tab:kitchen');
 
     expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:assets');
+  });
+
+  it('closes other tabs in the target group and activates the selected tab', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('assets'));
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, rawTab('kitchen'));
+
+    state = closeOtherWorkbenchTabs(state, ROOT_GROUP_ID, 'tab:foyer');
+
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
+    expect(Object.keys(state.tabsById)).toEqual(['tab:foyer']);
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:kitchen', 'tab:assets']);
+  });
+
+  it('closes only tabs to the right of the selected tab', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('assets'));
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, rawTab('kitchen'));
+    state = openWorkbenchTab(state, rawTab('library'));
+
+    state = closeWorkbenchTabsToRight(state, ROOT_GROUP_ID, 'tab:foyer');
+
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:assets', 'tab:foyer']);
+    expect(Object.keys(state.tabsById)).toEqual(['tab:assets', 'tab:foyer']);
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:library', 'tab:kitchen']);
+  });
+
+  it('batch closes tabs deterministically and preserves active tab invariants', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('assets'));
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, rawTab('kitchen'));
+    state = activateWorkbenchTab(state, ROOT_GROUP_ID, 'tab:foyer');
+
+    state = closeWorkbenchTabs(state, ROOT_GROUP_ID, ['missing', 'tab:assets', 'tab:kitchen']);
+
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:kitchen', 'tab:assets']);
+  });
+
+  it('closes all tabs in a secondary group and prunes the empty group after the batch', () => {
+    let state = openWorkbenchTab(createInitialWorkbenchState(), rawTab('left'));
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal' },
+      createTestId,
+    );
+    const rightGroupId = state.activeGroupId;
+    state = openWorkbenchTab(state, rawTab('right-a'), { groupId: rightGroupId });
+    state = openWorkbenchTab(state, rawTab('right-b'), { groupId: rightGroupId });
+
+    state = closeAllWorkbenchTabsInGroup(state, rightGroupId);
+
+    expect(state.groupsById[rightGroupId]).toBeUndefined();
+    expect(state.layout).toEqual({ kind: 'group', groupId: ROOT_GROUP_ID });
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:left']);
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:right-b', 'tab:right-a']);
+  });
+
+  it('keeps the root group valid after closing all remaining tabs', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = closeAllWorkbenchTabsInGroup(state, ROOT_GROUP_ID);
+
+    expect(state.layout).toEqual({ kind: 'group', groupId: ROOT_GROUP_ID });
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([]);
+    expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBeNull();
+    expect(state.tabsById).toEqual({});
   });
 
   it('keeps active tab valid after closing and can reopen a closed tab', () => {

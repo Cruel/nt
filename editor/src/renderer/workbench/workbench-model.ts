@@ -189,6 +189,45 @@ function collectGroupIds(node: WorkbenchLayoutNode, ids = new Set<string>()): Se
   return ids;
 }
 
+function collectSplitIds(node: WorkbenchLayoutNode, ids = new Set<string>()): Set<string> {
+  if (node.kind === 'split') {
+    ids.add(node.id);
+    for (const child of node.children) collectSplitIds(child, ids);
+  }
+  return ids;
+}
+
+function collectUsedWorkbenchIds(state: WorkbenchState): Set<string> {
+  const ids = new Set<string>();
+  for (const groupId of Object.keys(state.groupsById)) ids.add(groupId);
+  for (const tabId of Object.keys(state.tabsById)) ids.add(tabId);
+  for (const splitId of collectSplitIds(state.layout)) ids.add(splitId);
+  for (const entry of state.recentlyClosedTabs) ids.add(entry.tab.id);
+  return ids;
+}
+
+function createUniqueWorkbenchId(
+  state: WorkbenchState,
+  prefix: string,
+  createId: WorkbenchIdFactory,
+  reservedIds: Set<string>,
+): string {
+  const usedIds = collectUsedWorkbenchIds(state);
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const id = createId(prefix);
+    if (!usedIds.has(id) && !reservedIds.has(id)) {
+      reservedIds.add(id);
+      return id;
+    }
+  }
+
+  let next = 1;
+  while (usedIds.has(`${prefix}:${next}`) || reservedIds.has(`${prefix}:${next}`)) next += 1;
+  const id = `${prefix}:${next}`;
+  reservedIds.add(id);
+  return id;
+}
+
 function collectGroupIdsInLayoutOrder(node: WorkbenchLayoutNode, groupIds: string[] = []): string[] {
   if (node.kind === 'group') {
     groupIds.push(node.groupId);
@@ -590,29 +629,86 @@ export function closeWorkbenchTab(
   groupId: string,
   tabId: string,
 ): WorkbenchState {
+  return closeWorkbenchTabs(state, groupId, [tabId]);
+}
+
+export function closeWorkbenchTabs(
+  state: WorkbenchState,
+  groupId: string,
+  tabIds: string[],
+): WorkbenchState {
   const next = cloneState(state);
   const group = next.groupsById[groupId];
-  const tab = next.tabsById[tabId];
-  if (!group || !tab || !group.tabIds.includes(tabId)) return next;
+  if (!group) return next;
 
-  next.recentlyClosedTabs = [{ tab, closedFromGroupId: groupId }, ...next.recentlyClosedTabs].slice(0, 20);
-  const tabIndex = group.tabIds.indexOf(tabId);
-  const tabIds = group.tabIds.filter((id) => id !== tabId);
-  const groupAfterClose = { ...group, tabIds, activationHistory: (group.activationHistory ?? []).filter((id) => id !== tabId) };
+  const closeSet = new Set(tabIds.filter((tabId) => group.tabIds.includes(tabId) && !!next.tabsById[tabId]));
+  if (closeSet.size === 0) return next;
+
+  const closedTabIds = group.tabIds.filter((tabId) => closeSet.has(tabId));
+  const closedTabs = closedTabIds.flatMap((tabId) => {
+    const tab = next.tabsById[tabId];
+    return tab ? [{ tab, closedFromGroupId: groupId }] : [];
+  });
+  next.recentlyClosedTabs = [...closedTabs.reverse(), ...next.recentlyClosedTabs].slice(0, 20);
+
+  const firstClosedIndex = group.tabIds.findIndex((tabId) => closeSet.has(tabId));
+  const remainingTabIds = group.tabIds.filter((tabId) => !closeSet.has(tabId));
+  const activationHistory = (group.activationHistory ?? []).filter((tabId) => !closeSet.has(tabId));
   const nextActiveTabId =
-    group.activeTabId === tabId
-      ? groupAfterClose.activationHistory.find((id) => tabIds.includes(id)) ?? tabIds[Math.min(tabIndex, tabIds.length - 1)] ?? tabIds.at(-1) ?? null
-      : group.activeTabId;
-  next.groupsById[groupId] = normalizeGroupActiveTab({ ...groupAfterClose, activeTabId: nextActiveTabId });
-  delete next.tabsById[tabId];
+    group.activeTabId && !closeSet.has(group.activeTabId)
+      ? group.activeTabId
+      : activationHistory.find((tabId) => remainingTabIds.includes(tabId))
+        ?? remainingTabIds[Math.min(Math.max(firstClosedIndex, 0), remainingTabIds.length - 1)]
+        ?? remainingTabIds.at(-1)
+        ?? null;
 
-  if (tabIds.length === 0 && Object.keys(next.groupsById).length > 1) {
+  next.groupsById[groupId] = normalizeGroupActiveTab({
+    ...group,
+    tabIds: remainingTabIds,
+    activeTabId: nextActiveTabId,
+    activationHistory,
+  });
+  for (const tabId of closedTabIds) delete next.tabsById[tabId];
+
+  if (remainingTabIds.length === 0 && Object.keys(next.groupsById).length > 1) {
     delete next.groupsById[groupId];
     const pruned = removeGroupFromLayout(next.layout, groupId);
     if (pruned) next.layout = pruned;
   }
 
   return normalizeWorkbenchState(next);
+}
+
+export function closeOtherWorkbenchTabs(
+  state: WorkbenchState,
+  groupId: string,
+  tabId: string,
+): WorkbenchState {
+  const group = state.groupsById[groupId];
+  if (!group || !group.tabIds.includes(tabId)) return state;
+  const next = closeWorkbenchTabs(state, groupId, group.tabIds.filter((candidateId) => candidateId !== tabId));
+  return activateWorkbenchTab(next, groupId, tabId);
+}
+
+export function closeWorkbenchTabsToRight(
+  state: WorkbenchState,
+  groupId: string,
+  tabId: string,
+): WorkbenchState {
+  const group = state.groupsById[groupId];
+  if (!group) return state;
+  const tabIndex = group.tabIds.indexOf(tabId);
+  if (tabIndex < 0) return state;
+  return closeWorkbenchTabs(state, groupId, group.tabIds.slice(tabIndex + 1));
+}
+
+export function closeAllWorkbenchTabsInGroup(
+  state: WorkbenchState,
+  groupId: string,
+): WorkbenchState {
+  const group = state.groupsById[groupId];
+  if (!group) return state;
+  return closeWorkbenchTabs(state, groupId, group.tabIds);
 }
 
 export function splitWorkbenchGroup(
@@ -624,10 +720,11 @@ export function splitWorkbenchGroup(
   const sourceGroup = next.groupsById[options.sourceGroupId];
   if (!sourceGroup) return next;
 
-  const newGroupId = createId('group');
-  const splitId = createId('split');
+  const reservedIds = new Set<string>();
+  const newGroupId = createUniqueWorkbenchId(next, 'group', createId, reservedIds);
+  const splitId = createUniqueWorkbenchId(next, 'split', createId, reservedIds);
   const tabToMove = options.tabId && sourceGroup.tabIds.includes(options.tabId) ? options.tabId : null;
-  const clonedTabId = tabToMove && !options.moveTab ? createId('tab') : null;
+  const clonedTabId = tabToMove && !options.moveTab ? createUniqueWorkbenchId(next, 'tab', createId, reservedIds) : null;
   if (tabToMove && clonedTabId) {
     const sourceTab = next.tabsById[tabToMove];
     if (sourceTab) {
@@ -652,10 +749,11 @@ export function splitWorkbenchGroup(
     tabIds: newGroupTabIds,
     activeTabId: newActiveTabId,
   };
-  const splitChildren: WorkbenchLayoutNode[] = [
-    { kind: 'group', groupId: options.sourceGroupId },
-    { kind: 'group', groupId: newGroupId },
-  ];
+  const sourceChild: WorkbenchLayoutNode = { kind: 'group', groupId: options.sourceGroupId };
+  const newChild: WorkbenchLayoutNode = { kind: 'group', groupId: newGroupId };
+  const splitChildren: WorkbenchLayoutNode[] = options.placement === 'before'
+    ? [newChild, sourceChild]
+    : [sourceChild, newChild];
   next.layout = replaceGroupNode(next.layout, options.sourceGroupId, {
     kind: 'split',
     id: splitId,

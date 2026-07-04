@@ -2,8 +2,12 @@ import { create } from 'zustand';
 import {
   activateWorkbenchGroup,
   activateWorkbenchTab,
+  closeAllWorkbenchTabsInGroup,
+  closeOtherWorkbenchTabs,
   closeProjectWorkbenchTabs,
   closeWorkbenchTab,
+  closeWorkbenchTabs,
+  closeWorkbenchTabsToRight,
   createInitialWorkbenchState,
   moveWorkbenchTab,
   moveWorkbenchTabWithinGroup,
@@ -31,6 +35,10 @@ interface WorkbenchStore extends WorkbenchState {
   activateTab: (groupId: string, tabId: string) => void;
   activateGroup: (groupId: string) => void;
   closeTab: (groupId: string, tabId: string) => void;
+  closeTabs: (groupId: string, tabIds: string[]) => void;
+  closeOtherTabs: (groupId: string, tabId: string) => void;
+  closeTabsToRight: (groupId: string, tabId: string) => void;
+  closeAllTabsInGroup: (groupId: string) => void;
   splitGroup: (options: SplitWorkbenchGroupOptions) => void;
   setSplitSizesByChild: (splitId: string, sizesByChild: Record<string, number>) => void;
   moveTab: (options: MoveWorkbenchTabOptions) => void;
@@ -69,6 +77,10 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   activateTab: (groupId, tabId) => set((state) => toStoreState(activateWorkbenchTab(state, groupId, tabId))),
   activateGroup: (groupId) => set((state) => toStoreState(activateWorkbenchGroup(state, groupId))),
   closeTab: (groupId, tabId) => set((state) => toStoreState(closeWorkbenchTab(state, groupId, tabId))),
+  closeTabs: (groupId, tabIds) => set((state) => toStoreState(closeWorkbenchTabs(state, groupId, tabIds))),
+  closeOtherTabs: (groupId, tabId) => set((state) => toStoreState(closeOtherWorkbenchTabs(state, groupId, tabId))),
+  closeTabsToRight: (groupId, tabId) => set((state) => toStoreState(closeWorkbenchTabsToRight(state, groupId, tabId))),
+  closeAllTabsInGroup: (groupId) => set((state) => toStoreState(closeAllWorkbenchTabsInGroup(state, groupId))),
   splitGroup: (options) => set((state) => toStoreState(splitWorkbenchGroup(state, options, createId))),
   setSplitSizesByChild: (splitId, sizesByChild) => set((state) => toStoreState(setWorkbenchSplitSizesByChild(state, splitId, sizesByChild))),
   moveTab: (options) => set((state) => toStoreState(moveWorkbenchTab(state, options))),

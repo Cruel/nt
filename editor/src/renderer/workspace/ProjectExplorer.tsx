@@ -325,7 +325,7 @@ function ProjectExplorerHoverDetails({ state, project }: { state: HoverDetailsSt
   return (
     <div
       className="pointer-events-none fixed z-50 w-72 rounded-r-md border bg-popover p-2 text-xs text-popover-foreground shadow-lg"
-      style={{ left: state.x + 1, top }}
+      style={{ left: state.x, top }}
     >
       <div className="min-w-0">
         <div className="truncate text-sm font-medium">{node.label}</div>

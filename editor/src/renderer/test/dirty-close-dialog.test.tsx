@@ -22,8 +22,25 @@ const tab: WorkbenchTab = {
   },
 };
 
+const kitchenTab: WorkbenchTab = {
+  id: 'tab:rooms:kitchen',
+  title: 'kitchen',
+  editorType: 'raw-json',
+  resource: {
+    kind: 'record',
+    stableId: 'record:rooms:kitchen',
+    collection: 'rooms',
+    entityId: 'kitchen',
+  },
+};
+
 function openTestTab() {
   useWorkbenchStore.getState().openTab(tab);
+}
+
+function openTestTabs() {
+  useWorkbenchStore.getState().openTab(tab);
+  useWorkbenchStore.getState().openTab(kitchenTab);
 }
 
 beforeEach(() => {
@@ -50,6 +67,26 @@ describe('dirty tab close guard', () => {
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 
+  it('closes a clean batch immediately', () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: {
+        rooms: {
+          foyer: { id: 'foyer', label: 'Foyer' },
+          kitchen: { id: 'kitchen', label: 'Kitchen' },
+        },
+      },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    openTestTabs();
+
+    act(() => useCloseGuardStore.getState().requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'));
+
+    expect(useCloseGuardStore.getState().pendingClose).toBeNull();
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
+    expect(useWorkbenchStore.getState().tabsById[kitchenTab.id]).toBeUndefined();
+  });
+
   it('prompts before closing dirty record tabs and can cancel', async () => {
     const user = userEvent.setup();
     useProjectStore.getState().loadProjectDocument({
@@ -67,6 +104,70 @@ describe('dirty tab close guard', () => {
     await user.click(screen.getByText('Cancel'));
     expect(useCloseGuardStore.getState().pendingClose).toBeNull();
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeTruthy();
+  });
+
+  it('prompts once for a dirty batch and cancels atomically', async () => {
+    const user = userEvent.setup();
+    useProjectStore.getState().loadProjectDocument({
+      document: {
+        rooms: {
+          foyer: { id: 'foyer', label: 'Foyer' },
+          kitchen: { id: 'kitchen', label: 'Kitchen' },
+        },
+      },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.getState().replaceDocumentFromCommand({
+      rooms: {
+        foyer: { id: 'foyer', label: 'New Foyer' },
+        kitchen: { id: 'kitchen', label: 'Kitchen' },
+      },
+    }, 0);
+    openTestTabs();
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'));
+    expect(await screen.findByText('Close 2 tabs?')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Cancel'));
+    expect(useCloseGuardStore.getState().pendingClose).toBeNull();
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeTruthy();
+    expect(useWorkbenchStore.getState().tabsById[kitchenTab.id]).toBeTruthy();
+  });
+
+  it('discards a dirty batch and closes every requested tab', async () => {
+    const user = userEvent.setup();
+    useProjectStore.getState().loadProjectDocument({
+      document: {
+        rooms: {
+          foyer: { id: 'foyer', label: 'Foyer' },
+          kitchen: { id: 'kitchen', label: 'Kitchen' },
+        },
+      },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.getState().replaceDocumentFromCommand({
+      rooms: {
+        foyer: { id: 'foyer', label: 'New Foyer' },
+        kitchen: { id: 'kitchen', label: 'New Kitchen' },
+      },
+    }, 0);
+    openTestTabs();
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'));
+    await user.click(await screen.findByText('Discard'));
+
+    expect(useProjectStore.getState().document).toEqual({
+      rooms: {
+        foyer: { id: 'foyer', label: 'Foyer' },
+        kitchen: { id: 'kitchen', label: 'Kitchen' },
+      },
+    });
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
+    expect(useWorkbenchStore.getState().tabsById[kitchenTab.id]).toBeUndefined();
   });
 
   it('discards dirty record changes through the command bus before closing', async () => {

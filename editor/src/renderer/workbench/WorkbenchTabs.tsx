@@ -1,13 +1,18 @@
-import { ArrowDownToLine, ArrowRightToLine, RotateCcw, X } from 'lucide-react';
+import { useState } from 'react';
+import { useDroppable } from '@dnd-kit/core';
+import { ArrowDownToLine, ArrowRightToLine, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { defaultEditorRegistry } from './default-editors';
-import { editorIconClassNameForTab, editorIconForType, renderEditorToolbar } from './editor-registry';
+import { renderEditorToolbar } from './editor-registry';
 import { buildPrimaryPreviewTab } from './editor-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useCloseGuardStore } from './close-guard-store';
 import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
 import { getTabDirtyState } from './dirty-state';
 import { useWorkbenchStore } from './workbench-store';
+import { WorkbenchTabContextMenu, type WorkbenchTabContextMenuState } from './WorkbenchTabContextMenu';
+import { workbenchTabGroupDndId } from './WorkbenchTabDndContext';
+import { WorkbenchTabItem } from './WorkbenchTabItem';
 import type { WorkbenchGroup, WorkbenchTab } from './workbench-types';
 
 interface WorkbenchTabsProps {
@@ -16,12 +21,17 @@ interface WorkbenchTabsProps {
 }
 
 export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
+  const [contextMenu, setContextMenu] = useState<WorkbenchTabContextMenuState | null>(null);
   const recentlyClosedTabs = useWorkbenchStore((state) => state.recentlyClosedTabs);
   const activateTab = useWorkbenchStore((state) => state.activateTab);
   const requestCloseTab = useCloseGuardStore((state) => state.requestCloseTab);
   const splitGroup = useWorkbenchStore((state) => state.splitGroup);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const reopenLastClosedTab = useWorkbenchStore((state) => state.reopenLastClosedTab);
+  const { setNodeRef: setDroppableNodeRef } = useDroppable({
+    id: workbenchTabGroupDndId(group.id),
+    data: { kind: 'workbench-tab-group', groupId: group.id },
+  });
   const project = useProjectStore((state) => state.document);
   const savedDocument = useProjectStore((state) => state.savedDocument);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
@@ -39,46 +49,26 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
 
   return (
     <div className="flex h-8 shrink-0 items-stretch border-t bg-background">
-      <div className="flex min-w-0 flex-1 self-stretch overflow-x-auto">
+      <div ref={setDroppableNodeRef} data-workbench-tab-strip-id={group.id} className="relative flex min-w-0 flex-1 self-stretch overflow-x-auto">
         {tabs.map((tab, index) => {
-          const Icon = editorIconForType(tab.editorType);
           const active = tab.id === activeTabId;
-          const activeChrome = index === 0
-            ? 'inset -1px 0 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.6)'
-            : 'inset 1px 0 0 hsl(var(--border)), inset -1px 0 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.6)';
           const dirty = getTabDirtyState(tab, project, savedDocument, draftDirtyByTabId).dirty;
           return (
-            <div
+            <WorkbenchTabItem
               key={tab.id}
-              className={`group/tab flex min-w-28 max-w-52 items-center gap-1 px-1.5 text-xs ${
-                active
-                  ? 'border-b border-transparent bg-background text-foreground'
-                  : 'border-b border-r bg-background text-muted-foreground hover:bg-accent/60'
-              }`}
-              style={active ? { boxShadow: activeChrome } : undefined}
-            >
-              <button
-                type="button"
-                className="flex h-full min-w-0 flex-1 items-center gap-1 self-stretch text-left"
-                onClick={() => activateTab(group.id, tab.id)}
-              >
-                <Icon className={`h-3.5 w-3.5 shrink-0 ${editorIconClassNameForTab(tab)}`} />
-                <span className="truncate">
-                  {dirty ? '● ' : ''}
-                  {tab.title}
-                </span>
-              </button>
-              <button
-                type="button"
-                className={`ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center self-center rounded leading-none opacity-0 hover:bg-muted hover:opacity-100 focus-visible:opacity-100 ${
-                  active ? 'opacity-70' : 'group-hover/tab:opacity-60'
-                }`}
-                aria-label={`Close ${tab.title}`}
-                onClick={() => requestCloseTab(group.id, tab.id)}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
+              groupId={group.id}
+              tab={tab}
+              active={active}
+              dirty={dirty}
+              index={index}
+              onActivate={() => activateTab(group.id, tab.id)}
+              onRequestClose={() => requestCloseTab(group.id, tab.id)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                activateTab(group.id, tab.id);
+                setContextMenu({ groupId: group.id, tabId: tab.id, x: event.clientX, y: event.clientY });
+              }}
+            />
           );
         })}
         <div className="min-w-3 flex-1 border-b" />
@@ -107,6 +97,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
           </Button>
         ) : null}
       </div>
+      <WorkbenchTabContextMenu state={contextMenu} group={group} tabs={tabs} onClose={() => setContextMenu(null)} />
     </div>
   );
 }

@@ -13,8 +13,8 @@ export function DirtyCloseDialog() {
   const [saving, setSaving] = useState(false);
   const pendingClose = useCloseGuardStore((state) => state.pendingClose);
   const clearPendingClose = useCloseGuardStore((state) => state.clearPendingClose);
+  const confirmPendingClose = useCloseGuardStore((state) => state.confirmPendingClose);
   const tabsById = useWorkbenchStore((state) => state.tabsById);
-  const closeTab = useWorkbenchStore((state) => state.closeTab);
   const project = useProjectStore((state) => state.document);
   const savedDocument = useProjectStore((state) => state.savedDocument);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
@@ -29,30 +29,42 @@ export function DirtyCloseDialog() {
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const clearDraftDirtyForTab = useDraftDirtyStore((state) => state.clearDraftDirtyForTab);
-  const tab = pendingClose ? tabsById[pendingClose.tabId] ?? null : null;
-  const dirty = useMemo(
-    () => tab ? getTabDirtyState(tab, project, savedDocument, selectDraftDirtyByTabId({ entriesByKey: draftEntries })) : null,
-    [draftEntries, project, savedDocument, tab],
+  const pendingTabs = useMemo(
+    () => pendingClose ? pendingClose.tabIds.map((tabId) => tabsById[tabId]).filter((tab): tab is NonNullable<typeof tab> => Boolean(tab)) : [],
+    [pendingClose, tabsById],
   );
+  const pendingDirtyStates = useMemo(
+    () => pendingTabs.map((pendingTab) => ({
+      tab: pendingTab,
+      dirty: getTabDirtyState(pendingTab, project, savedDocument, selectDraftDirtyByTabId({ entriesByKey: draftEntries })),
+    })),
+    [draftEntries, pendingTabs, project, savedDocument],
+  );
+  const dirtyTabStates = pendingDirtyStates.filter((entry) => entry.dirty.dirty);
+  const tab = pendingTabs[0] ?? null;
+  const primaryDirtyTab = dirtyTabStates[0]?.tab ?? tab;
+  const dirtyCount = dirtyTabStates.length;
+  const closeCount = pendingClose?.tabIds.length ?? 0;
 
-  const closeApprovedTab = () => {
+  const closeApprovedTabs = () => {
     if (!pendingClose) return;
-    closeTab(pendingClose.groupId, pendingClose.tabId);
-    clearPendingClose();
+    confirmPendingClose();
   };
 
   const saveAndClose = async () => {
-    if (!pendingClose || !tab) return;
+    if (!pendingClose || pendingTabs.length === 0) return;
     setSaving(true);
     setProjectSaving(true);
     try {
-      if (dirty?.draftDirty) {
-        const applied = await runDraftActions(selectDraftEntriesForTab({ entriesByKey: useDraftDirtyStore.getState().entriesByKey }, tab.id), 'apply');
-        if (!applied) {
-          const message = 'Apply the local draft before saving, or discard it.';
-          setProjectSaveError(message);
-          setStatusMessage(message);
-          return;
+      for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
+        if (dirtyState.draftDirty) {
+          const applied = await runDraftActions(selectDraftEntriesForTab({ entriesByKey: useDraftDirtyStore.getState().entriesByKey }, dirtyTab.id), 'apply');
+          if (!applied) {
+            const message = 'Apply the local draft before saving, or discard it.';
+            setProjectSaveError(message);
+            setStatusMessage(message);
+            return;
+          }
         }
       }
       const latestProject = useProjectStore.getState().document;
@@ -75,7 +87,7 @@ export function DirtyCloseDialog() {
       const message = `Saved ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
       setStatusMessage(message);
       addTimelineEntry({ source: 'command', message, detail: result });
-      closeApprovedTab();
+      closeApprovedTabs();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Save failed.';
       setProjectSaveError(message);
@@ -87,29 +99,36 @@ export function DirtyCloseDialog() {
   };
 
   const discardAndClose = () => {
-    if (!pendingClose || !tab) return;
-    if (dirty?.draftDirty) {
-      const discarded = runDraftActions(selectDraftEntriesForTab({ entriesByKey: useDraftDirtyStore.getState().entriesByKey }, tab.id), 'discard');
-      void discarded.then((ok) => { if (!ok) clearDraftDirtyForTab(tab.id); });
-      clearDraftDirtyForTab(tab.id);
+    if (!pendingClose || pendingTabs.length === 0) return;
+    for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
+      if (!dirtyState.draftDirty) continue;
+      const discarded = runDraftActions(selectDraftEntriesForTab({ entriesByKey: useDraftDirtyStore.getState().entriesByKey }, dirtyTab.id), 'discard');
+      void discarded.then((ok) => { if (!ok) clearDraftDirtyForTab(dirtyTab.id); });
+      clearDraftDirtyForTab(dirtyTab.id);
     }
-    const patches = restoreResourcePatchesFromSaved(tab.resource, project, savedDocument);
+    const patches = dirtyTabStates.flatMap(({ tab: dirtyTab }) => restoreResourcePatchesFromSaved(dirtyTab.resource, project, savedDocument));
     if (patches.length > 0) {
       executeCommand({
         type: 'project.applyPatch',
-        label: `Discard changes to ${tab.title}`,
+        label: dirtyTabStates.length === 1 && primaryDirtyTab ? `Discard changes to ${primaryDirtyTab.title}` : `Discard changes to ${dirtyTabStates.length} tabs`,
         payload: patches,
       });
     }
-    closeApprovedTab();
+    closeApprovedTabs();
   };
 
-  const hasPersistentDirty = Boolean(dirty?.persistentDirty);
-  const hasDraftDirty = Boolean(dirty?.draftDirty);
-  const title = tab ? `Close ${tab.title}?` : 'Close modified tab?';
-  const description = hasDraftDirty
-    ? 'This tab has unapplied local edits. Save will apply the draft and save the project; Discard closes the tab and drops the local edits.'
-    : 'This tab has unsaved project changes. Save the project, discard the changes for this record, or cancel.';
+  const hasPersistentDirty = dirtyTabStates.some((entry) => entry.dirty.persistentDirty);
+  const hasDraftDirty = dirtyTabStates.some((entry) => entry.dirty.draftDirty);
+  const title = closeCount > 1
+    ? `Close ${closeCount} tabs?`
+    : primaryDirtyTab
+      ? `Close ${primaryDirtyTab.title}?`
+      : 'Close modified tab?';
+  const description = closeCount > 1
+    ? `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves the project; Discard closes all requested tabs and drops dirty changes.`
+    : hasDraftDirty
+      ? 'This tab has unapplied local edits. Save will apply the draft and save the project; Discard closes the tab and drops the local edits.'
+      : 'This tab has unsaved project changes. Save the project, discard the changes for this record, or cancel.';
 
   return (
     <Dialog open={pendingClose !== null} onOpenChange={(open) => { if (!open) clearPendingClose(); }}>
@@ -118,8 +137,8 @@ export function DirtyCloseDialog() {
         <DialogDescription>{description}</DialogDescription>
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={clearPendingClose} disabled={saving}>Cancel</Button>
-          <Button size="sm" variant="destructive" onClick={discardAndClose} disabled={!tab || saving}>Discard</Button>
-          <Button size="sm" onClick={() => void saveAndClose()} disabled={!tab || saving || (!hasPersistentDirty && !hasDraftDirty)}>
+          <Button size="sm" variant="destructive" onClick={discardAndClose} disabled={pendingTabs.length === 0 || saving}>Discard</Button>
+          <Button size="sm" onClick={() => void saveAndClose()} disabled={pendingTabs.length === 0 || saving || (!hasPersistentDirty && !hasDraftDirty)}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </div>

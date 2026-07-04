@@ -71,6 +71,7 @@ export interface SplitWorkbenchGroupOptions {
   sourceGroupId: string;
   tabId?: string;
   moveTab?: boolean;
+  placement?: 'before' | 'after';
 }
 
 export interface MoveWorkbenchTabOptions {
