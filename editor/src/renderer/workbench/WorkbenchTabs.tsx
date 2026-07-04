@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { ArrowDownToLine, ArrowRightToLine, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { defaultEditorRegistry } from './default-editors';
 import { renderEditorToolbar } from './editor-registry';
 import { buildPrimaryPreviewTab } from './editor-registry';
@@ -10,7 +10,7 @@ import { useCloseGuardStore } from './close-guard-store';
 import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
 import { getTabDirtyState } from './dirty-state';
 import { useWorkbenchStore } from './workbench-store';
-import { WorkbenchTabContextMenu, type WorkbenchTabContextMenuState } from './WorkbenchTabContextMenu';
+import { WorkbenchTabContextMenu } from './WorkbenchTabContextMenu';
 import { workbenchTabGroupDndId } from './WorkbenchTabDndContext';
 import { WorkbenchTabItem } from './WorkbenchTabItem';
 import type { WorkbenchGroup, WorkbenchTab } from './workbench-types';
@@ -21,7 +21,6 @@ interface WorkbenchTabsProps {
 }
 
 export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
-  const [contextMenu, setContextMenu] = useState<WorkbenchTabContextMenuState | null>(null);
   const recentlyClosedTabs = useWorkbenchStore((state) => state.recentlyClosedTabs);
   const activateTab = useWorkbenchStore((state) => state.activateTab);
   const requestCloseTab = useCloseGuardStore((state) => state.requestCloseTab);
@@ -54,21 +53,23 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
           const active = tab.id === activeTabId;
           const dirty = getTabDirtyState(tab, project, savedDocument, draftDirtyByTabId).dirty;
           return (
-            <WorkbenchTabItem
-              key={tab.id}
-              groupId={group.id}
-              tab={tab}
-              active={active}
-              dirty={dirty}
-              index={index}
-              onActivate={() => activateTab(group.id, tab.id)}
-              onRequestClose={() => requestCloseTab(group.id, tab.id)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                activateTab(group.id, tab.id);
-                setContextMenu({ groupId: group.id, tabId: tab.id, x: event.clientX, y: event.clientY });
-              }}
-            />
+            <ContextMenu key={tab.id}>
+              <ContextMenuTrigger
+                className="contents"
+                onContextMenuCapture={() => activateTab(group.id, tab.id)}
+              >
+                <WorkbenchTabItem
+                  groupId={group.id}
+                  tab={tab}
+                  active={active}
+                  dirty={dirty}
+                  index={index}
+                  onActivate={() => activateTab(group.id, tab.id)}
+                  onRequestClose={() => requestCloseTab(group.id, tab.id)}
+                />
+              </ContextMenuTrigger>
+              <WorkbenchTabContextMenu group={group} tab={tab} />
+            </ContextMenu>
           );
         })}
         <div className="min-w-3 flex-1 border-b" />
@@ -97,7 +98,6 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
           </Button>
         ) : null}
       </div>
-      <WorkbenchTabContextMenu state={contextMenu} group={group} tabs={tabs} onClose={() => setContextMenu(null)} />
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { X } from 'lucide-react';
-import type { MouseEvent } from 'react';
 import { editorIconClassNameForTab, editorIconForType } from './editor-registry';
 import { workbenchTabDndId } from './WorkbenchTabDndContext';
 import type { WorkbenchTab } from './workbench-types';
@@ -13,7 +12,6 @@ interface WorkbenchTabItemProps {
   index: number;
   onActivate: () => void;
   onRequestClose: () => void;
-  onContextMenu: (event: MouseEvent) => void;
 }
 
 export function WorkbenchTabItem({
@@ -24,7 +22,6 @@ export function WorkbenchTabItem({
   index,
   onActivate,
   onRequestClose,
-  onContextMenu,
 }: WorkbenchTabItemProps) {
   const Icon = editorIconForType(tab.editorType);
   const activeChrome = index === 0
@@ -62,7 +59,6 @@ export function WorkbenchTabItem({
       style={{
         ...(active ? { boxShadow: activeChrome } : {}),
       }}
-      onContextMenu={onContextMenu}
     >
       <button
         type="button"

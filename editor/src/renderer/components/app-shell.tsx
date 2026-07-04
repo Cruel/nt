@@ -1,6 +1,7 @@
 import { useCallback, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { AppMenuBar } from './app-menu-bar';
 import { AppSidebar } from './app-sidebar';
+import { ResizeSeparatorOverlay } from './resize-separator';
 import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
@@ -64,13 +65,14 @@ export function AppShell({ children }: AppShellProps) {
             <AppSidebar />
           </Sidebar>
           {sidebarExpanded && (
-            <div
+            <ResizeSeparatorOverlay
+              orientation="horizontal"
               aria-label="Resize sidebar"
               role="separator"
               aria-orientation="vertical"
-              className="fixed z-30 w-1.5 cursor-col-resize bg-transparent transition-colors hover:bg-primary/40"
+              className="fixed z-30"
               style={{
-                left: activeSidebarWidth - 3,
+                left: activeSidebarWidth - 1,
                 top: SIDEBAR_TOP_OFFSET,
                 height: `calc(100svh - ${SIDEBAR_TOP_OFFSET}px)`,
               }}

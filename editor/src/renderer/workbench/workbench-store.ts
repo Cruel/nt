@@ -5,6 +5,7 @@ import {
   closeAllWorkbenchTabsInGroup,
   closeOtherWorkbenchTabs,
   closeProjectWorkbenchTabs,
+  dockWorkbenchTabToGroupEdge,
   closeWorkbenchTab,
   closeWorkbenchTabs,
   closeWorkbenchTabsToRight,
@@ -22,6 +23,7 @@ import {
   splitWorkbenchGroup,
 } from './workbench-model';
 import type {
+  DockWorkbenchTabOptions,
   MoveWorkbenchTabOptions,
   OpenWorkbenchTabOptions,
   SplitWorkbenchGroupOptions,
@@ -41,6 +43,7 @@ interface WorkbenchStore extends WorkbenchState {
   closeAllTabsInGroup: (groupId: string) => void;
   splitGroup: (options: SplitWorkbenchGroupOptions) => void;
   setSplitSizesByChild: (splitId: string, sizesByChild: Record<string, number>) => void;
+  dockTabToGroupEdge: (options: DockWorkbenchTabOptions) => void;
   moveTab: (options: MoveWorkbenchTabOptions) => void;
   moveTabWithinGroup: (groupId: string, tabId: string, toIndex: number) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
@@ -83,6 +86,7 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   closeAllTabsInGroup: (groupId) => set((state) => toStoreState(closeAllWorkbenchTabsInGroup(state, groupId))),
   splitGroup: (options) => set((state) => toStoreState(splitWorkbenchGroup(state, options, createId))),
   setSplitSizesByChild: (splitId, sizesByChild) => set((state) => toStoreState(setWorkbenchSplitSizesByChild(state, splitId, sizesByChild))),
+  dockTabToGroupEdge: (options) => set((state) => toStoreState(dockWorkbenchTabToGroupEdge(state, options, createId))),
   moveTab: (options) => set((state) => toStoreState(moveWorkbenchTab(state, options))),
   moveTabWithinGroup: (groupId, tabId, toIndex) => set((state) => toStoreState(moveWorkbenchTabWithinGroup(state, groupId, tabId, toIndex))),
   setTabDirty: (tabId, dirty) => set((state) => toStoreState(setWorkbenchTabDirty(state, tabId, dirty))),

@@ -1,5 +1,7 @@
 export type WorkbenchSplitDirection = 'horizontal' | 'vertical';
 
+export type WorkbenchDockEdge = 'left' | 'right' | 'top' | 'bottom';
+
 export type WorkbenchResourceKind = 'record' | 'preview' | 'tool' | 'project' | 'raw';
 
 export interface WorkbenchResource {
@@ -80,4 +82,11 @@ export interface MoveWorkbenchTabOptions {
   toGroupId: string;
   toIndex?: number;
   activate?: boolean;
+}
+
+export interface DockWorkbenchTabOptions {
+  tabId: string;
+  fromGroupId: string;
+  targetGroupId: string;
+  edge: WorkbenchDockEdge;
 }

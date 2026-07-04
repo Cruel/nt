@@ -59,13 +59,52 @@ describe('workbench tabs', () => {
     expect(useCloseGuardStore.getState().pendingClose).toBeNull();
   });
 
+  it('runs close against only the clicked tab through the context menu', async () => {
+    const user = userEvent.setup();
+    useWorkbenchStore.getState().openTab(rawTab('foyer'));
+    useWorkbenchStore.getState().openTab(rawTab('kitchen'));
+    renderRootTabs();
+
+    fireEvent.contextMenu(screen.getByText('kitchen'));
+    await user.click(screen.getByText('Close'));
+
+    expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
+  });
+
+  it('runs close to the right against the clicked tab group', async () => {
+    const user = userEvent.setup();
+    useWorkbenchStore.getState().openTab(rawTab('foyer'));
+    useWorkbenchStore.getState().openTab(rawTab('kitchen'));
+    useWorkbenchStore.getState().openTab(rawTab('assets'));
+    renderRootTabs();
+
+    fireEvent.contextMenu(screen.getByText('foyer'));
+    await user.click(screen.getByText('Close to the Right'));
+
+    expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
+  });
+
+  it('runs close all against the clicked tab group', async () => {
+    const user = userEvent.setup();
+    useWorkbenchStore.getState().openTab(rawTab('foyer'));
+    useWorkbenchStore.getState().openTab(rawTab('kitchen'));
+    renderRootTabs();
+
+    fireEvent.contextMenu(screen.getByText('foyer'));
+    await user.click(screen.getByText('Close All'));
+
+    expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([]);
+  });
+
   it('runs split actions against the clicked tab and requested placement', async () => {
     const user = userEvent.setup();
     useWorkbenchStore.getState().openTab(rawTab('foyer'));
     renderRootTabs();
 
     fireEvent.contextMenu(screen.getByText('foyer'));
-    await user.click(screen.getByText('Split Left'));
+    await user.hover(screen.getByText('Split'));
+    const splitLeft = await screen.findByText('Split Left');
+    fireEvent.click(splitLeft);
 
     const workbench = useWorkbenchStore.getState();
     const groupOrder = groupIdsInLayoutOrder(workbench.layout);

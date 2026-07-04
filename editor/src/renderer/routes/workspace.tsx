@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
+import { Group, Panel } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import { PanelResizeSeparator } from '@/components/resize-separator';
 import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
 import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
@@ -727,9 +728,9 @@ export function WorkspacePage() {
             </Panel>
             {showBottomPanel
               ? [
-                  <ResizeSeparator
+                  <PanelResizeSeparator
                     key="bottom-panel-resize"
-                    className="h-1.5 cursor-row-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/50"
+                    orientation="vertical"
                   />,
                   <Panel id="workspace-bottom-panel" key="bottom-panel" defaultSize={bottomPanelSizePercent} minSize="180px" maxSize="70%">
                     <BottomPanel />

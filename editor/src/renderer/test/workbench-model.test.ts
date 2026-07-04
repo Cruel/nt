@@ -9,6 +9,7 @@ import {
   closeWorkbenchTabs,
   closeWorkbenchTabsToRight,
   createInitialWorkbenchState,
+  dockWorkbenchTabToGroupEdge,
   moveWorkbenchTab,
   moveWorkbenchTabWithinGroup,
   openWorkbenchTab,
@@ -129,6 +130,55 @@ describe('workbench model', () => {
     );
     const lowerGroupId = state.activeGroupId;
     expect(groupIdsInLayoutOrder(state.layout)).toEqual([leftGroupId, ROOT_GROUP_ID, lowerGroupId]);
+  });
+
+  it('docks a tab from its own group into a new edge split', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = openWorkbenchTab(state, rawTab('kitchen'));
+
+    state = dockWorkbenchTabToGroupEdge(
+      state,
+      { tabId: 'tab:kitchen', fromGroupId: ROOT_GROUP_ID, targetGroupId: ROOT_GROUP_ID, edge: 'left' },
+      createTestId,
+    );
+
+    const groupOrder = groupIdsInLayoutOrder(state.layout);
+    expect(groupOrder).toHaveLength(2);
+    const dockGroupId = groupOrder[0];
+    expect(dockGroupId).not.toBe(ROOT_GROUP_ID);
+    expect(state.layout.kind).toBe('split');
+    if (state.layout.kind === 'split') expect(state.layout.direction).toBe('horizontal');
+    expect(state.groupsById[dockGroupId]?.tabIds).toEqual(['tab:kitchen']);
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
+    expect(state.activeGroupId).toBe(dockGroupId);
+  });
+
+  it('docks a tab from another group against the target group edge', () => {
+    let state = createInitialWorkbenchState();
+    state = openWorkbenchTab(state, rawTab('foyer'));
+    state = splitWorkbenchGroup(
+      state,
+      { sourceGroupId: ROOT_GROUP_ID, direction: 'horizontal', placement: 'after' },
+      createTestId,
+    );
+    const rightGroupId = state.activeGroupId;
+    state = openWorkbenchTab(state, rawTab('kitchen'), { groupId: rightGroupId });
+
+    state = dockWorkbenchTabToGroupEdge(
+      state,
+      { tabId: 'tab:foyer', fromGroupId: ROOT_GROUP_ID, targetGroupId: rightGroupId, edge: 'bottom' },
+      createTestId,
+    );
+
+    const groupOrder = groupIdsInLayoutOrder(state.layout);
+    const dockGroupId = groupOrder.at(-1)!;
+    expect(dockGroupId).not.toBe(rightGroupId);
+    expect(dockGroupId).not.toBe(ROOT_GROUP_ID);
+    expect(state.groupsById[ROOT_GROUP_ID]).toBeUndefined();
+    expect(state.groupsById[rightGroupId]?.tabIds).toEqual(['tab:kitchen']);
+    expect(state.groupsById[dockGroupId]?.tabIds).toEqual(['tab:foyer']);
+    expect(state.groupsById[dockGroupId]?.activeTabId).toBe('tab:foyer');
   });
 
   it('allocates collision-free group and split ids when splitting restored layouts', () => {

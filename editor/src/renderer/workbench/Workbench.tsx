@@ -1,4 +1,5 @@
-import { Group, Panel, Separator } from 'react-resizable-panels';
+import { Group, Panel } from 'react-resizable-panels';
+import { PanelResizeSeparator } from '@/components/resize-separator';
 import { DirtyCloseDialog } from './DirtyCloseDialog';
 import { WorkbenchGroup } from './WorkbenchGroup';
 import { WorkbenchTabDndContext } from './WorkbenchTabDndContext';
@@ -17,11 +18,7 @@ function currentSplitSizesByChild(node: Extract<WorkbenchLayoutNode, { kind: 'sp
 }
 
 function ResizeHandle({ orientation }: { orientation: 'horizontal' | 'vertical' }) {
-  return (
-    <Separator
-      className={`${orientation === 'horizontal' ? 'w-1.5 cursor-col-resize' : 'h-1.5 cursor-row-resize'} bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/50`}
-    />
-  );
+  return <PanelResizeSeparator orientation={orientation} />;
 }
 
 function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayoutNode; path?: string }) {

@@ -1,8 +1,10 @@
 import type { SerializedWorkbenchState } from '../../shared/project-schema/editor-project-state';
 import type {
+  DockWorkbenchTabOptions,
   MoveWorkbenchTabOptions,
   OpenWorkbenchTabOptions,
   SplitWorkbenchGroupOptions,
+  WorkbenchDockEdge,
   WorkbenchGroup,
   WorkbenchIdFactory,
   WorkbenchLayoutNode,
@@ -795,6 +797,46 @@ export function moveWorkbenchTab(state: WorkbenchState, options: MoveWorkbenchTa
   }
 
   return normalizeWorkbenchState(next);
+}
+
+function splitDirectionForDockEdge(edge: WorkbenchDockEdge): SplitWorkbenchGroupOptions['direction'] {
+  return edge === 'left' || edge === 'right' ? 'horizontal' : 'vertical';
+}
+
+function splitPlacementForDockEdge(edge: WorkbenchDockEdge): NonNullable<SplitWorkbenchGroupOptions['placement']> {
+  return edge === 'left' || edge === 'top' ? 'before' : 'after';
+}
+
+export function dockWorkbenchTabToGroupEdge(
+  state: WorkbenchState,
+  options: DockWorkbenchTabOptions,
+  createId: WorkbenchIdFactory,
+): WorkbenchState {
+  if (options.fromGroupId === options.targetGroupId) {
+    return splitWorkbenchGroup(state, {
+      sourceGroupId: options.targetGroupId,
+      tabId: options.tabId,
+      moveTab: true,
+      direction: splitDirectionForDockEdge(options.edge),
+      placement: splitPlacementForDockEdge(options.edge),
+    }, createId);
+  }
+
+  const moved = moveWorkbenchTab(state, {
+    tabId: options.tabId,
+    fromGroupId: options.fromGroupId,
+    toGroupId: options.targetGroupId,
+    activate: false,
+  });
+  if (!moved.groupsById[options.targetGroupId]?.tabIds.includes(options.tabId)) return moved;
+
+  return splitWorkbenchGroup(moved, {
+    sourceGroupId: options.targetGroupId,
+    tabId: options.tabId,
+    moveTab: true,
+    direction: splitDirectionForDockEdge(options.edge),
+    placement: splitPlacementForDockEdge(options.edge),
+  }, createId);
 }
 
 export function setWorkbenchTabDirty(
