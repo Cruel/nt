@@ -307,7 +307,7 @@ const chapterDeleteSchema = z.object({ chapterId: entityIdSchema });
 const chapterColorSchema = z.object({ chapterId: entityIdSchema, color: z.string().nullable() });
 const assignChaptersSchema = z.object({ collection: z.string().min(1), entityId: entityIdSchema, chapterIds: z.array(entityIdSchema) });
 const hiddenCollectionsSchema = z.object({ hiddenCollectionKeys: z.array(z.string().min(1)) });
-const explorerOptionsSchema = z.object({ followActiveTab: z.boolean().optional(), organizeByChapter: z.boolean().optional(), groupUnassignedItems: z.boolean().optional() });
+const explorerOptionsSchema = z.object({ followActiveTab: z.boolean().optional(), organizeByChapter: z.boolean().optional(), groupUnassignedItems: z.boolean().optional(), showInfoOnHover: z.boolean().optional() });
 const variableSetTypeSchema = z.object({
   variableId: entityIdSchema,
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),

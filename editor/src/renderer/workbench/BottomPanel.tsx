@@ -136,8 +136,17 @@ export function BottomPanel() {
   const visible = useBottomPanelStore((state) => state.visible);
   const activePanelId = useBottomPanelStore((state) => state.activePanelId);
   const setActivePanelId = useBottomPanelStore((state) => state.setActivePanelId);
+  const setVisible = useBottomPanelStore((state) => state.setVisible);
   const toggleVisible = useBottomPanelStore((state) => state.toggleVisible);
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+
+  function selectPanel(panelId: BottomPanelId) {
+    if (visible && activePanelId === panelId) {
+      setVisible(false);
+      return;
+    }
+    setActivePanelId(panelId);
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col border-t bg-background">
@@ -146,7 +155,7 @@ export function BottomPanel() {
           <button
             key={panel.id}
             type="button"
-            onClick={() => setActivePanelId(panel.id)}
+            onClick={() => selectPanel(panel.id)}
             className={`rounded px-2 py-1 text-xs transition-colors hover:bg-accent ${
               activePanelId === panel.id ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
             }`}

@@ -37,29 +37,67 @@ export function ReferencesPanel() {
       <div className="flex items-center gap-2">
         <Badge variant="outline">References</Badge>
         <span className="font-mono">{referenceTargetLabel(result.target)}</span>
-        <span className="text-muted-foreground">{referenceUsageSummary(result.usages)}</span>
+        <span className="text-muted-foreground">
+          {result.usageRows.length === 0 ? referenceUsageSummary([]) : `${result.usageRows.length} usage${result.usageRows.length === 1 ? '' : 's'} found.`}
+        </span>
         <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clearUsages}>
           Clear
         </Button>
       </div>
-      {result.usages.length === 0 ? (
-        <p className="rounded border p-3 text-muted-foreground">No references point to this record.</p>
-      ) : (
+      {result.searchResults?.length ? (
         <div className="space-y-2">
-          {result.usages.map((usage, index) => (
-            <div key={`${usage.path}-${index}`} className="rounded border p-2">
+          {result.searchResults.map((searchResult) => (
+            <div key={searchResult.document.id} className="rounded border p-2">
               <div className="flex items-center gap-2">
-                <Badge variant="secondary">{usage.kind}</Badge>
+                <Badge variant="secondary">usage</Badge>
                 <span className="font-mono text-muted-foreground">
-                  {usage.sourceCollection}/{usage.sourceId}
+                  {searchResult.document.collection}/{searchResult.document.entityId}
                 </span>
-                {usageSourceIsRecord(usage.sourceCollection) ? (
+                {searchResult.document.collection && searchResult.document.entityId ? (
                   <Button
                     size="sm"
                     variant="ghost"
                     className="ml-auto h-6 px-2 text-[11px]"
                     onClick={() => {
-                      const tab = buildDefaultRecordTab(nodeForUsage(usage.sourceCollection, usage.sourceId));
+                      const tab = buildDefaultRecordTab(nodeForUsage(searchResult.document.collection!, searchResult.document.entityId!));
+                      if (tab) openTab(tab);
+                    }}
+                  >
+                    Open source
+                  </Button>
+                ) : null}
+              </div>
+              <div className="mt-1 space-y-1">
+                {searchResult.matches.filter((match) => match.mode === 'reference').map((match, index) => (
+                  <div key={`${match.path}-${index}`} className="truncate font-mono text-[10px] text-muted-foreground">
+                    {match.fieldLabel}: {match.path}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : result.usageRows.length === 0 ? (
+        <p className="rounded border p-3 text-muted-foreground">No references point to this record.</p>
+      ) : (
+        <div className="space-y-2">
+          {result.usageRows.map((row, index) => {
+            const usage = row.usage;
+            const sourceCollection = usage.sourceCollection;
+            const sourceId = usage.sourceId;
+            return <div key={`${usage.path}-${index}`} className="rounded border p-2">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{row.kind === 'asset-alias' ? 'asset-alias' : usage.kind}</Badge>
+                <span className="font-mono text-muted-foreground">
+                  {sourceCollection}/{sourceId}
+                </span>
+                {usageSourceIsRecord(sourceCollection) ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto h-6 px-2 text-[11px]"
+                    onClick={() => {
+                      const tab = buildDefaultRecordTab(nodeForUsage(sourceCollection, sourceId));
                       if (tab) openTab(tab);
                     }}
                   >
@@ -68,10 +106,10 @@ export function ReferencesPanel() {
                 ) : null}
               </div>
               <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-                {usage.path}
+                {row.kind === 'asset-alias' ? `${row.usage.alias}: ${row.usage.path}` : usage.path}
               </div>
-            </div>
-          ))}
+            </div>;
+          })}
         </div>
       )}
     </div>

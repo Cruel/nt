@@ -53,6 +53,26 @@ describe('project explorer tree', () => {
     })?.node.id).toBe('record:characters:anna:chapter:prologue');
   });
 
+
+
+  it('filters records by project search result keys while preserving chapter structure', () => {
+    const chapters = {
+      records: { prologue: { id: 'prologue', label: 'Prologue', color: null } },
+      assignments: { 'characters:anna': ['prologue'] },
+    };
+    const tree = buildProjectExplorerTree(project(), {
+      explorer: emptyEditorExplorerState(),
+      chapters,
+      visibleRecordKeys: new Set(['characters:anna', 'rooms:cafe']),
+    });
+
+    expect(tree.find((node) => node.collection === 'assets')).toBeUndefined();
+    expect(tree.find((node) => node.collection === 'characters')?.count).toBe(1);
+    expect(tree.find((node) => node.collection === 'rooms')?.count).toBe(1);
+    expect(tree.find((node) => node.collection === 'characters')?.children?.map((node) => node.label)).toEqual(['Prologue', 'All']);
+    expect(tree.find((node) => node.collection === 'characters')?.children?.find((node) => node.label === 'Prologue')?.children?.map((node) => node.label)).toEqual(['Anna']);
+  });
+
   it('groups non-collective records by chapters, All, and Unassigned', () => {
     const chapters = {
       records: { prologue: { id: 'prologue', label: 'Prologue', color: null } },

@@ -115,7 +115,7 @@ function normalizeGroupActiveTab(group: WorkbenchGroup): WorkbenchGroup {
 }
 
 function isProjectScopedUtilityEditorType(editorType: string): boolean {
-  return ['asset-library', 'test-suite', 'variables', 'project-settings', 'image-generation'].includes(editorType);
+  return ['asset-library', 'test-suite', 'variables', 'project-settings', 'project-chapters', 'project-tags', 'image-generation'].includes(editorType);
 }
 
 function isGlobalToolTab(tab: WorkbenchTab): boolean {

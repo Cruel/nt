@@ -190,7 +190,7 @@ export function AppMenuBar() {
               Zoom Out<MenubarShortcut>Ctrl+-</MenubarShortcut>
             </MenubarItem>
             <MenubarSeparator />
-            <MenubarItem disabled>Command Palette…<MenubarShortcut>Ctrl+Shift+P</MenubarShortcut></MenubarItem>
+            <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('command-palette')}>Command Palette…<MenubarShortcut>Ctrl+Shift+P</MenubarShortcut></MenubarItem>
             <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('toggle-bottom-panel')}>Toggle Bottom Panel<MenubarShortcut>Ctrl+J</MenubarShortcut></MenubarItem>
           </MenubarContent>
         </MenubarMenu>

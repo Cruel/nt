@@ -15,7 +15,8 @@ export type WorkspaceToolbarCommand =
   | 'redo'
   | 'save'
   | 'save-as'
-  | 'toggle-bottom-panel';
+  | 'toggle-bottom-panel'
+  | 'command-palette';
 
 export type WorkspaceToolbarCommandDetail =
   | WorkspaceToolbarCommand

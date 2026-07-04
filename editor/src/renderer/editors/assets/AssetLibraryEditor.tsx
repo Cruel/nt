@@ -11,7 +11,9 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildAssetDetailTabForRecord, buildImageGenerationTab } from '@/workbench/editor-registry';
 import { parseAssetData, type AssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
-import { collectProjectTags, normalizeTagKey } from '../../../shared/project-schema/authoring-tags';
+import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
+import { buildProjectSearchIndex } from '../../../shared/project-search/project-search-index';
+import { searchProjectIndex } from '../../../shared/project-search/project-search';
 import { AssetPreview } from './AssetPreview';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
@@ -94,14 +96,26 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
       .map(([id, record]) => ({ id, record, data: parseAssetData(record.data), label: record.label || id }))
       .sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
   }, [project]);
-  const selectedTagKeys = useMemo(() => new Set(selectedTags.map(normalizeTagKey)), [selectedTags]);
+  const searchIndex = useMemo(() => project ? buildProjectSearchIndex(project) : null, [project]);
   const assets = useMemo(() => {
-    const queryText = query.trim().toLowerCase();
-    return allAssets
-      .filter((asset) => kind === 'all' || asset.data?.kind === kind)
-      .filter((asset) => selectedTagKeys.size === 0 || asset.record.tags?.some((tag) => selectedTagKeys.has(normalizeTagKey(tag))))
-      .filter((asset) => !queryText || `${asset.id} ${asset.label} ${asset.data?.kind ?? ''} ${(asset.record.tags ?? []).join(' ')}`.toLowerCase().includes(queryText));
-  }, [allAssets, kind, query, selectedTagKeys]);
+    if (!project || !searchIndex) return [];
+    const response = searchProjectIndex(searchIndex, {
+      text: query,
+      collections: ['assets'],
+      assetTypes: kind === 'all' ? undefined : [kind],
+      tags: selectedTags,
+      tagMode: 'all',
+      tokenMode: 'all',
+      sort: { kind: 'label' },
+    });
+    return response.results.flatMap((result) => {
+      const id = result.document.entityId;
+      if (!id) return [];
+      const record = project.assets[id];
+      if (!record) return [];
+      return [{ id, record, data: parseAssetData(record.data), label: record.label || id }];
+    });
+  }, [kind, project, query, searchIndex, selectedTags]);
   const kinds = useMemo(() => [...new Set(allAssets.map((asset) => asset.data?.kind).filter(Boolean))].sort(), [allAssets]);
   const tagSuggestions = useMemo(() => project ? collectProjectTags(project, selectedTags) : [], [project, selectedTags]);
 
@@ -120,7 +134,7 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
           <option value="all">All types</option>
           {kinds.map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
-        <TagInput className="min-w-64 max-w-sm flex-1" value={selectedTags} onChange={setSelectedTags} suggestions={tagSuggestions} placeholder="Filter by tag" />
+        <TagInput className="min-w-64 max-w-sm flex-1" value={selectedTags} onChange={setSelectedTags} suggestions={tagSuggestions} placeholder="Filter by tag" allowCreate={false} />
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {assets.map((asset) => (

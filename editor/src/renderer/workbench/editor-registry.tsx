@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User, Wrench } from 'lucide-react';
+import { BookOpen, Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, Tags, User, Wrench } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import type { WorkbenchTab } from './workbench-types';
@@ -286,6 +286,33 @@ export function buildProjectSettingsTab(): WorkbenchTab {
   };
 }
 
+export function buildProjectChaptersTab(target?: { collection: string; entityId: string; label?: string }): WorkbenchTab {
+  const suffix = target ? `:${target.collection}:${target.entityId}` : '';
+  return {
+    id: target ? `tab:project-chapters${suffix}` : 'tab:project-chapters',
+    title: target ? `Chapters: ${target.label ?? target.entityId}` : 'Chapters',
+    editorType: 'project-chapters',
+    resource: {
+      kind: 'project',
+      stableId: target ? `project:chapters${suffix}` : 'project:chapters',
+      collection: target?.collection,
+      entityId: target?.entityId,
+    },
+  };
+}
+
+export function buildProjectTagsTab(): WorkbenchTab {
+  return {
+    id: 'tab:project-tags',
+    title: 'Tags',
+    editorType: 'project-tags',
+    resource: {
+      kind: 'project',
+      stableId: 'project:tags',
+    },
+  };
+}
+
 export function buildPrimaryPreviewTab(): WorkbenchTab {
   return {
     id: 'tab:primary-preview',
@@ -319,6 +346,8 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'components') return Puzzle;
   if (editorType === 'settings') return Settings;
   if (editorType === 'project-settings') return Wrench;
+  if (editorType === 'project-chapters') return BookOpen;
+  if (editorType === 'project-tags') return Tags;
   return FileCode;
 }
 

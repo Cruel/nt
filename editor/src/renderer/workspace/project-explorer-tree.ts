@@ -37,6 +37,7 @@ export interface ProjectExplorerNode {
 export interface BuildProjectExplorerTreeOptions {
   explorer: EditorExplorerState;
   chapters: EditorChaptersState;
+  visibleRecordKeys?: Set<string> | null;
 }
 
 function compareLabels(left: { label: string; id?: string }, right: { label: string; id?: string }) {
@@ -49,8 +50,9 @@ function sortedCollections(collections: AuthoringCollectionKey[]) {
   return [...collections].sort((left, right) => compareLabels(authoringCollectionMetadata[left], authoringCollectionMetadata[right]));
 }
 
-function sortedRecords(records: Record<string, AuthoringRecordBase>) {
+function sortedRecords(collection: AuthoringCollectionKey, records: Record<string, AuthoringRecordBase>, visibleRecordKeys?: Set<string> | null) {
   return Object.entries(records)
+    .filter(([id]) => !visibleRecordKeys || visibleRecordKeys.has(recordTargetKey(collection, id)))
     .map(([id, record]) => ({ id, record, label: record.label || id }))
     .sort(compareLabels);
 }
@@ -86,17 +88,21 @@ function buildCollectionChildren(
   explorer: EditorExplorerState,
   chapters: EditorChaptersState,
   dimmed: boolean,
+  visibleRecordKeys?: Set<string> | null,
 ): ProjectExplorerNode[] {
-  const records = sortedRecords(project[collection]);
+  const records = sortedRecords(collection, project[collection], undefined);
+  const visibleRecords = sortedRecords(collection, project[collection], visibleRecordKeys);
+  const scopedRecords = visibleRecordKeys ? visibleRecords : records;
+  if (scopedRecords.length === 0) return [];
   if (collectiveCollectionSet.has(collection)) return [];
   if (!explorer.organizeByChapter) {
-    return records.map(({ id, record }) => ({ ...recordNode(collection, id, record), dimmed }));
+    return scopedRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record), dimmed }));
   }
 
   const children: ProjectExplorerNode[] = [];
   const usedChapterIds = new Set<string>();
   for (const chapter of sortedChapterEntries(chapters)) {
-    const chapterRecords = records.filter(({ id }) => isAssignedTo(chapters, collection, id, chapter.id));
+    const chapterRecords = scopedRecords.filter(({ id }) => isAssignedTo(chapters, collection, id, chapter.id));
     if (chapterRecords.length === 0) continue;
     usedChapterIds.add(chapter.id);
     children.push({
@@ -112,9 +118,9 @@ function buildCollectionChildren(
     });
   }
 
-  const hasAnyAssignedRecord = records.some(({ id }) => assignmentCount(chapters, collection, id) > 0);
+  const hasAnyAssignedRecord = scopedRecords.some(({ id }) => assignmentCount(chapters, collection, id) > 0);
   if (explorer.groupUnassignedItems && hasAnyAssignedRecord) {
-    const unassigned = records.filter(({ id }) => assignmentCount(chapters, collection, id) === 0);
+    const unassigned = scopedRecords.filter(({ id }) => assignmentCount(chapters, collection, id) === 0);
     children.push({
       id: `all:${collection}`,
       label: 'All',
@@ -122,37 +128,41 @@ function buildCollectionChildren(
       collection,
       dimmed,
       expandable: true,
-      count: records.length,
-      children: records.map(({ id, record }) => ({ ...recordNode(collection, id, record, 'all'), dimmed })),
+      count: scopedRecords.length,
+      children: scopedRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record, 'all'), dimmed })),
     });
-    children.push({
-      id: `unassigned:${collection}`,
-      label: 'Unassigned',
-      kind: 'unassigned-folder',
-      collection,
-      dimmed,
-      expandable: true,
-      count: unassigned.length,
-      children: unassigned.map(({ id, record }) => ({ ...recordNode(collection, id, record, 'unassigned'), dimmed })),
-    });
+    if (unassigned.length > 0) {
+      children.push({
+        id: `unassigned:${collection}`,
+        label: 'Unassigned',
+        kind: 'unassigned-folder',
+        collection,
+        dimmed,
+        expandable: true,
+        count: unassigned.length,
+        children: unassigned.map(({ id, record }) => ({ ...recordNode(collection, id, record, 'unassigned'), dimmed })),
+      });
+    }
     return children;
   }
 
   const chapteredIds = new Set<string>();
   if (explorer.groupUnassignedItems) {
     for (const chapterId of usedChapterIds) {
-      for (const { id } of records) if (isAssignedTo(chapters, collection, id, chapterId)) chapteredIds.add(id);
+      for (const { id } of scopedRecords) if (isAssignedTo(chapters, collection, id, chapterId)) chapteredIds.add(id);
     }
   }
-  const directRecords = explorer.groupUnassignedItems ? records.filter(({ id }) => !chapteredIds.has(id)) : records;
+  const directRecords = explorer.groupUnassignedItems ? scopedRecords.filter(({ id }) => !chapteredIds.has(id)) : scopedRecords;
   children.push(...directRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record), dimmed })));
   return children;
 }
 
-function collectionNode(project: AuthoringProject, collection: AuthoringCollectionKey, options: BuildProjectExplorerTreeOptions, dimmed = false): ProjectExplorerNode {
+function collectionNode(project: AuthoringProject, collection: AuthoringCollectionKey, options: BuildProjectExplorerTreeOptions, dimmed = false): ProjectExplorerNode | null {
   const metadata = authoringCollectionMetadata[collection];
   const collective = collectiveCollectionSet.has(collection);
-  const children = buildCollectionChildren(project, collection, options.explorer, options.chapters, dimmed);
+  const children = buildCollectionChildren(project, collection, options.explorer, options.chapters, dimmed, options.visibleRecordKeys);
+  const records = sortedRecords(collection, project[collection], options.visibleRecordKeys);
+  if (options.visibleRecordKeys && records.length === 0) return null;
   return {
     id: `${dimmed ? 'hidden:' : ''}collection:${collection}`,
     label: metadata.label,
@@ -160,7 +170,7 @@ function collectionNode(project: AuthoringProject, collection: AuthoringCollecti
     collection,
     dimmed,
     expandable: !collective,
-    count: Object.keys(project[collection]).length,
+    count: records.length,
     children,
   };
 }
@@ -169,16 +179,24 @@ export function buildProjectExplorerTree(project: AuthoringProject, options: Bui
   const hidden = new Set(options.explorer.hiddenCollectionKeys);
   const visibleCollections = sortedCollections(authoringCollectionKeys.filter((collection) => !hidden.has(collection)));
   const hiddenCollections = sortedCollections(authoringCollectionKeys.filter((collection) => hidden.has(collection)));
-  const nodes = visibleCollections.map((collection) => collectionNode(project, collection, options));
+  const nodes = visibleCollections.flatMap((collection) => {
+    const node = collectionNode(project, collection, options);
+    return node ? [node] : [];
+  });
   if (hiddenCollections.length > 0) {
+    const hiddenChildren = hiddenCollections.flatMap((collection) => {
+      const node = collectionNode(project, collection, options, true);
+      return node ? [node] : [];
+    });
+    if (hiddenChildren.length === 0) return nodes;
     nodes.push({
       id: 'hidden-root',
       label: 'Hidden',
       kind: 'hidden-root',
       dimmed: true,
       expandable: true,
-      count: hiddenCollections.length,
-      children: hiddenCollections.map((collection) => collectionNode(project, collection, options, true)),
+      count: hiddenChildren.length,
+      children: hiddenChildren,
     });
   }
   return nodes;

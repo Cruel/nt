@@ -4,6 +4,7 @@ import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-pane
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
+import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
 import { bestComfyUiErrorMessage, cancelComfyUiJob, editComfyUiImage, generateComfyUiImage, subscribeComfyUiProgress } from '@/comfyui/comfyui-service';
@@ -58,6 +59,7 @@ export function WorkspacePage() {
   const [, setBusy] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const [packageExportOpen, setPackageExportOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [untrackedAssetFiles, setUntrackedAssetFiles] = useState<ProjectAssetAuditFile[]>([]);
   const [untrackedAssetDialogOpen, setUntrackedAssetDialogOpen] = useState(false);
   const lastObservedCommandId = useRef<string | null>(null);
@@ -420,6 +422,9 @@ export function WorkspacePage() {
       } else if (event.shiftKey && event.key.toLowerCase() === 't') {
         event.preventDefault();
         useWorkbenchStore.getState().reopenLastClosedTab();
+      } else if (event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        setCommandPaletteOpen(true);
       }
       const target = event.target as HTMLElement | null;
       const isTextInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
@@ -693,6 +698,9 @@ export function WorkspacePage() {
         case 'toggle-bottom-panel':
           if (project) setBottomPanelVisible(!bottomPanelVisible);
           break;
+        case 'command-palette':
+          setCommandPaletteOpen(true);
+          break;
       }
     }
 
@@ -732,6 +740,7 @@ export function WorkspacePage() {
         </div>
       </div>
       {showCollapsedBottomPanel ? <div className="h-9 shrink-0 overflow-hidden"><BottomPanel /></div> : null}
+      <CommandPaletteDialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} project={isAuthoringProject(project) ? project : null} onOpenTab={openWorkbenchTab} />
       <PackageExportDialog
         open={packageExportOpen}
         onOpenChange={setPackageExportOpen}

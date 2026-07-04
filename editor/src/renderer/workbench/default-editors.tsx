@@ -1,4 +1,21 @@
-import { Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, User } from 'lucide-react';
+import {
+  BookOpen,
+  Clapperboard,
+  DoorOpen,
+  FileCode,
+  Image,
+  Images,
+  Layers,
+  ListChecks,
+  MessageSquareText,
+  MonitorPlay,
+  Palette,
+  Puzzle,
+  Settings,
+  SlidersHorizontal,
+  Tags,
+  User,
+} from 'lucide-react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
@@ -11,7 +28,9 @@ import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
 import { TestSuiteEditor } from '@/editors/tests/TestSuiteEditor';
 import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
+import { ChaptersEditor } from '@/editors/project/ChaptersEditor';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
+import { TagsEditor } from '@/editors/project/TagsEditor';
 import { ShaderEditor } from '@/editors/shaders/ShaderEditor';
 import { ComponentsTabEditor } from '@/editors/utility/ComponentsTabEditor';
 import { SettingsTabEditor } from '@/editors/utility/SettingsTabEditor';
@@ -120,6 +139,18 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Project Settings',
     icon: Settings,
     component: ProjectSettingsEditor,
+  },
+  {
+    type: 'project-chapters',
+    label: 'Chapters',
+    icon: BookOpen,
+    component: ChaptersEditor,
+  },
+  {
+    type: 'project-tags',
+    label: 'Tags',
+    icon: Tags,
+    component: TagsEditor,
   },
 ];
 

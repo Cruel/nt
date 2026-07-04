@@ -21,6 +21,11 @@ interface ProjectExplorerStore {
   followActiveTab: boolean;
   organizeByChapter: boolean;
   groupUnassignedItems: boolean;
+  showInfoOnHover: boolean;
+  searchQuery: string;
+  filterTags: string[];
+  showTagFilter: boolean;
+  exactMatch: boolean;
   activeNodeId: string | null;
   followExpandedNodeIds: string[];
   followSuppressedNodeIds: string[];
@@ -36,6 +41,11 @@ interface ProjectExplorerStore {
   setFollowActiveTab: (enabled: boolean) => void;
   setOrganizeByChapter: (enabled: boolean) => void;
   setGroupUnassignedItems: (enabled: boolean) => void;
+  setShowInfoOnHover: (enabled: boolean) => void;
+  setSearchQuery: (query: string) => void;
+  setFilterTags: (tags: string[]) => void;
+  setShowTagFilter: (visible: boolean) => void;
+  setExactMatch: (enabled: boolean) => void;
   setActiveNodeId: (nodeId: string | null) => void;
   setFollowExpandedNodeIds: (nodeIds: string[]) => void;
   suppressFollowNodeId: (nodeId: string) => void;
@@ -49,6 +59,11 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   followActiveTab: true,
   organizeByChapter: true,
   groupUnassignedItems: true,
+  showInfoOnHover: true,
+  searchQuery: '',
+  filterTags: [],
+  showTagFilter: false,
+  exactMatch: false,
   activeNodeId: null,
   followExpandedNodeIds: [],
   followSuppressedNodeIds: [],
@@ -63,6 +78,11 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
       followActiveTab: nextExplorer.followActiveTab ?? true,
       organizeByChapter: nextExplorer.organizeByChapter ?? true,
       groupUnassignedItems: nextExplorer.groupUnassignedItems ?? true,
+      showInfoOnHover: nextExplorer.showInfoOnHover ?? true,
+      searchQuery: nextExplorer.searchQuery ?? '',
+      filterTags: unique(nextExplorer.filterTags ?? []),
+      showTagFilter: nextExplorer.showTagFilter ?? false,
+      exactMatch: nextExplorer.exactMatch ?? false,
       activeNodeId: null,
       followExpandedNodeIds: [],
       followSuppressedNodeIds: [],
@@ -82,6 +102,11 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
       followActiveTab: state.followActiveTab,
       organizeByChapter: state.organizeByChapter,
       groupUnassignedItems: state.groupUnassignedItems,
+      showInfoOnHover: state.showInfoOnHover,
+      searchQuery: state.searchQuery,
+      filterTags: unique(state.filterTags),
+      showTagFilter: state.showTagFilter,
+      exactMatch: state.exactMatch,
     };
   },
   serializeChapters: () => {
@@ -109,6 +134,11 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   setFollowActiveTab: (followActiveTab) => set({ followActiveTab }),
   setOrganizeByChapter: (organizeByChapter) => set({ organizeByChapter }),
   setGroupUnassignedItems: (groupUnassignedItems) => set({ groupUnassignedItems }),
+  setShowInfoOnHover: (showInfoOnHover) => set({ showInfoOnHover }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setFilterTags: (filterTags) => set({ filterTags: unique(filterTags) }),
+  setShowTagFilter: (showTagFilter) => set({ showTagFilter }),
+  setExactMatch: (exactMatch) => set({ exactMatch }),
   setActiveNodeId: (activeNodeId) => set({ activeNodeId }),
   setFollowExpandedNodeIds: (nodeIds) => set({ followExpandedNodeIds: unique(nodeIds) }),
   suppressFollowNodeId: (nodeId) => set((state) => ({

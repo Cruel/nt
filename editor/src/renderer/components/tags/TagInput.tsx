@@ -19,6 +19,7 @@ interface TagInputProps {
   disabled?: boolean;
   autoFocus?: boolean;
   className?: string;
+  allowCreate?: boolean;
 }
 
 function sortSuggestions(query: string, suggestions: ProjectTagSummary[]) {
@@ -34,7 +35,7 @@ function sortSuggestions(query: string, suggestions: ProjectTagSummary[]) {
   });
 }
 
-export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add tag', disabled = false, autoFocus = false, className }: TagInputProps) {
+export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add tag', disabled = false, autoFocus = false, className, allowCreate = true }: TagInputProps) {
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -139,7 +140,7 @@ export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add 
               <span className="text-[10px] text-muted-foreground">{tag.count}</span>
             </button>
           ))}
-          {!exactSuggestion ? (
+          {!exactSuggestion && allowCreate ? (
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"

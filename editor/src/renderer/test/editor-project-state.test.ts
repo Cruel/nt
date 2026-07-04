@@ -15,6 +15,11 @@ describe('editor project state defaults', () => {
       followActiveTab: true,
       organizeByChapter: true,
       groupUnassignedItems: true,
+      showInfoOnHover: true,
+      searchQuery: '',
+      filterTags: [],
+      showTagFilter: false,
+      exactMatch: false,
     });
     expect(parsed.chapters).toEqual({ records: {}, assignments: {} });
     expect(parsed.bottomPanel).toEqual({ visible: true, activePanelId: 'problems', sizePercent: 30 });

@@ -79,6 +79,11 @@ export const editorExplorerStateSchema = z.object({
   followActiveTab: z.boolean().default(true),
   organizeByChapter: z.boolean().default(true),
   groupUnassignedItems: z.boolean().default(true),
+  showInfoOnHover: z.boolean().default(true),
+  searchQuery: z.string().default(''),
+  filterTags: z.array(z.string()).default([]),
+  showTagFilter: z.boolean().default(false),
+  exactMatch: z.boolean().default(false),
 });
 
 export const editorChapterRecordSchema = z.object({
@@ -123,7 +128,7 @@ export const editorProjectStateSchema = z.object({
   schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
   schemaVersion: z.literal(EDITOR_PROJECT_STATE_SCHEMA_VERSION),
   workbench: editorWorkbenchStateSchema.optional(),
-  explorer: editorExplorerStateSchema.default({ expandedNodeIds: [], hiddenCollectionKeys: [], followActiveTab: true, organizeByChapter: true, groupUnassignedItems: true }),
+  explorer: editorExplorerStateSchema.default({ expandedNodeIds: [], hiddenCollectionKeys: [], followActiveTab: true, organizeByChapter: true, groupUnassignedItems: true, showInfoOnHover: true, searchQuery: '', filterTags: [], showTagFilter: false, exactMatch: false }),
   chapters: editorChaptersStateSchema.default({ records: {}, assignments: {} }),
   tags: editorTagsStateSchema.default({ records: {} }),
   bottomPanel: editorBottomPanelStateSchema.default({ visible: true, activePanelId: 'problems', sizePercent: 30 }),
@@ -148,6 +153,11 @@ export function emptyEditorExplorerState(): EditorExplorerState {
     followActiveTab: true,
     organizeByChapter: true,
     groupUnassignedItems: true,
+    showInfoOnHover: true,
+    searchQuery: '',
+    filterTags: [],
+    showTagFilter: false,
+    exactMatch: false,
   };
 }
 

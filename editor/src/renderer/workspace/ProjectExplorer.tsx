@@ -9,13 +9,16 @@ import {
   FolderOpen,
   MoreHorizontal,
   Palette,
-  Plus,
   Search,
   Settings,
+  Tags,
   Trash2,
+  WholeWord,
+  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { TagBadge } from '@/components/tags/TagBadge';
 import { TagInput } from '@/components/tags/TagInput';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -33,17 +36,22 @@ import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { deleteEntityRecordPreflight, referenceTargetFromEntity } from '@/project/entity-operations';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
-import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { authoringCollectionMetadata, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
-import { collectProjectTags } from '../../shared/project-schema/authoring-tags';
+import { collectProjectTags, normalizeTagKey } from '../../shared/project-schema/authoring-tags';
+import { buildProjectSearchIndex } from '../../shared/project-search/project-search-index';
+import { searchProjectIndex } from '../../shared/project-search/project-search';
+import { searchReferences } from '../../shared/project-search/project-search-helpers';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import {
   buildAssetsEditorTab,
   buildDefaultRecordTab,
   buildImageGenerationTab,
+  buildProjectChaptersTab,
   buildProjectSettingsTab,
+  buildProjectTagsTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
@@ -56,17 +64,10 @@ import { recordTargetKey, useProjectExplorerStore } from './project-explorer-sto
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
 type EntityAction = 'create' | 'rename' | 'duplicate' | 'delete' | 'metadata';
-type ChapterAction = 'manage' | 'assign';
 
 interface EntityDialogState {
   action: EntityAction;
   collection: AuthoringCollectionKey;
-  entityId?: string;
-}
-
-interface ChapterDialogState {
-  action: ChapterAction;
-  collection?: AuthoringCollectionKey;
   entityId?: string;
 }
 
@@ -76,6 +77,12 @@ interface ExplorerAlert {
 }
 
 interface ContextMenuState {
+  node: ProjectExplorerNode;
+  x: number;
+  y: number;
+}
+
+interface HoverDetailsState {
   node: ProjectExplorerNode;
   x: number;
   y: number;
@@ -265,116 +272,24 @@ function EntityOperationDialog({
   );
 }
 
-function ChapterDialog({ state, project, onClose }: { state: ChapterDialogState | null; project: AuthoringProject | null; onClose: () => void }) {
-  const executeCommand = useCommandStore((store) => store.executeCommand);
-  const [chapterId, setChapterId] = useState('');
-  const [label, setLabel] = useState('');
-  const [color, setColor] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [message, setMessage] = useState<string | null>(null);
-  const chapters = project ? editorProjectStateFromProject(project).chapters : { records: {}, assignments: {} };
-  const chapterEntries = Object.entries(chapters.records).sort(([, left], [, right]) => (left.label || left.id).localeCompare(right.label || right.id));
-
-  useEffect(() => {
-    setMessage(null);
-    if (!state) return;
-    setChapterId(''); setLabel(''); setColor('');
-    if (state.action === 'assign' && state.collection && state.entityId) {
-      setSelected(new Set(chapters.assignments[recordTargetKey(state.collection, state.entityId)] ?? []));
-    } else setSelected(new Set());
-  }, [chapters.assignments, state]);
-
-  if (!state || !project) return null;
-  const activeState = state;
-
-  function run(command: Parameters<typeof executeCommand>[0]) {
-    const result = executeCommand(command);
-    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    setMessage(failure?.message ?? null);
-    return result.ok && !failure;
-  }
-
-  function createChapter() {
-    if (run({ type: 'project.createChapter', label: 'Create chapter', payload: { chapterId: chapterId.trim(), label: label.trim(), color: color.trim() || null } })) {
-      setChapterId(''); setLabel(''); setColor('');
-    }
-  }
-
-  function deleteChapter(id: string) {
-    run({ type: 'project.deleteChapter', label: `Delete chapter ${id}`, payload: { chapterId: id } });
-  }
-
-  function renameChapter(id: string, nextLabel: string) {
-    run({ type: 'project.renameChapter', label: `Rename chapter ${id}`, payload: { chapterId: id, label: nextLabel } });
-  }
-
-  function setChapterColor(id: string, nextColor: string) {
-    run({ type: 'project.setChapterColor', label: `Set chapter color ${id}`, payload: { chapterId: id, color: nextColor.trim() || null } });
-  }
-
-  function applyAssignment() {
-    if (!activeState.collection || !activeState.entityId) return;
-    if (run({ type: 'project.assignChapters', label: `Assign chapters to ${activeState.collection}/${activeState.entityId}`, payload: { collection: activeState.collection, entityId: activeState.entityId, chapterIds: [...selected] } })) onClose();
-  }
-
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogPopup className="max-w-xl">
-        <DialogTitle>{state.action === 'assign' ? 'Assign Chapters' : 'Manage Chapters'}</DialogTitle>
-        <DialogDescription>{state.action === 'assign' ? 'Choose every chapter this record belongs to.' : 'Create, rename, color, and delete editor-only chapters.'}</DialogDescription>
-        {message ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{message}</div> : null}
-        {state.action === 'assign' ? (
-          <div className="max-h-72 space-y-2 overflow-auto">
-            {chapterEntries.length === 0 ? <p className="text-sm text-muted-foreground">No chapters exist yet.</p> : chapterEntries.map(([id, chapter]) => (
-              <label key={id} className="flex items-center gap-2 rounded border p-2 text-sm">
-                <input type="checkbox" checked={selected.has(id)} onChange={(event) => setSelected((current) => { const next = new Set(current); if (event.currentTarget.checked) next.add(id); else next.delete(id); return next; })} />
-                <span className="h-2.5 w-2.5 rounded-full border" style={{ backgroundColor: chapter.color ?? 'transparent' }} />
-                <span>{chapter.label}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">{id}</span>
-              </label>
-            ))}
-            <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={applyAssignment}>Apply</Button></div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid gap-2 md:grid-cols-[1fr_1fr_96px_auto]">
-              <Input value={chapterId} onChange={(event) => setChapterId(event.currentTarget.value)} placeholder="chapter-id" />
-              <Input value={label} onChange={(event) => setLabel(event.currentTarget.value)} placeholder="Chapter label" />
-              <Input value={color} onChange={(event) => setColor(event.currentTarget.value)} placeholder="#8b5cf6" />
-              <Button size="sm" onClick={createChapter}><Plus className="h-3.5 w-3.5" /> Create</Button>
-            </div>
-            <div className="max-h-72 space-y-2 overflow-auto">
-              {chapterEntries.length === 0 ? <p className="text-sm text-muted-foreground">No chapters exist yet.</p> : chapterEntries.map(([id, chapter]) => (
-                <div key={id} className="grid items-center gap-2 rounded border p-2 md:grid-cols-[1fr_96px_auto]">
-                  <Input defaultValue={chapter.label} onBlur={(event) => renameChapter(id, event.currentTarget.value)} />
-                  <Input defaultValue={chapter.color ?? ''} onBlur={(event) => setChapterColor(id, event.currentTarget.value)} />
-                  <Button size="sm" variant="destructive" onClick={() => deleteChapter(id)}><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end"><Button onClick={onClose}>Done</Button></div>
-          </div>
-        )}
-      </DialogPopup>
-    </Dialog>
-  );
-}
-
-function ProjectHeading({ projectName, onManageChapters }: { projectName: string; onManageChapters: () => void }) {
+function ProjectHeading({ projectName }: { projectName: string }) {
   const openTab = useWorkbenchStore((state) => state.openTab);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
   const organizeByChapter = useProjectExplorerStore((state) => state.organizeByChapter);
   const groupUnassignedItems = useProjectExplorerStore((state) => state.groupUnassignedItems);
+  const showInfoOnHover = useProjectExplorerStore((state) => state.showInfoOnHover);
   const setFollowActiveTab = useProjectExplorerStore((state) => state.setFollowActiveTab);
   const setOrganizeByChapter = useProjectExplorerStore((state) => state.setOrganizeByChapter);
   const setGroupUnassignedItems = useProjectExplorerStore((state) => state.setGroupUnassignedItems);
+  const setShowInfoOnHover = useProjectExplorerStore((state) => state.setShowInfoOnHover);
   const executeCommand = useCommandStore((state) => state.executeCommand);
 
-  function setOption(payload: { followActiveTab?: boolean; organizeByChapter?: boolean; groupUnassignedItems?: boolean }) {
+  function setOption(payload: { followActiveTab?: boolean; organizeByChapter?: boolean; groupUnassignedItems?: boolean; showInfoOnHover?: boolean }) {
     executeCommand({ type: 'project.setExplorerOptions', label: 'Update explorer options', payload });
     if (payload.followActiveTab !== undefined) setFollowActiveTab(payload.followActiveTab);
     if (payload.organizeByChapter !== undefined) setOrganizeByChapter(payload.organizeByChapter);
     if (payload.groupUnassignedItems !== undefined) setGroupUnassignedItems(payload.groupUnassignedItems);
+    if (payload.showInfoOnHover !== undefined) setShowInfoOnHover(payload.showInfoOnHover);
   }
 
   return (
@@ -384,7 +299,10 @@ function ProjectHeading({ projectName, onManageChapters }: { projectName: string
         <MenuTrigger className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent" aria-label="Project explorer menu"><MoreHorizontal className="h-3.5 w-3.5" /></MenuTrigger>
         <MenuPopup className="w-auto min-w-56">
           <MenuItem className="whitespace-nowrap" onClick={() => openTab(buildProjectSettingsTab())}><Settings /> Project Settings…</MenuItem>
-          <MenuItem className="whitespace-nowrap" onClick={onManageChapters}><FolderOpen /> Manage Chapters…</MenuItem>
+          <MenuItem className="whitespace-nowrap" onClick={() => openTab(buildProjectChaptersTab())}><FolderOpen /> Manage Chapters…</MenuItem>
+          <MenuItem className="whitespace-nowrap" onClick={() => openTab(buildProjectTagsTab())}><Tags /> Manage Tags…</MenuItem>
+          <MenuSeparator />
+          <DropdownMenuCheckboxItem className="whitespace-nowrap" checked={showInfoOnHover} onCheckedChange={(checked) => setOption({ showInfoOnHover: Boolean(checked) })}>Show Info on Hover</DropdownMenuCheckboxItem>
           <MenuSeparator />
           <DropdownMenuCheckboxItem className="whitespace-nowrap" checked={followActiveTab} onCheckedChange={(checked) => setOption({ followActiveTab: Boolean(checked) })}>Follow Active Tab</DropdownMenuCheckboxItem>
           <MenuSeparator />
@@ -396,23 +314,64 @@ function ProjectHeading({ projectName, onManageChapters }: { projectName: string
   );
 }
 
+function ProjectExplorerHoverDetails({ state, project }: { state: HoverDetailsState | null; project: AuthoringProject | null }) {
+  if (!state || !project) return null;
+  const node = state.node;
+  const record = recordForNode(project, node);
+  const collection = node.collection;
+  const tagByKey = new Map(collectProjectTags(project, record?.tags ?? []).map((tag) => [tag.key, tag]));
+  const alignedTop = state.y - 4;
+  const top = typeof window === 'undefined' ? alignedTop : Math.max(48, Math.min(alignedTop, window.innerHeight - 220));
+  return (
+    <div
+      className="pointer-events-none fixed z-50 w-72 rounded-r-md border bg-popover p-2 text-xs text-popover-foreground shadow-lg"
+      style={{ left: state.x + 1, top }}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{node.label}</div>
+        <div className="mt-1 font-mono text-[10px] text-muted-foreground">{node.id}</div>
+      </div>
+      {collection ? (
+        <div className="mt-3 grid grid-cols-[4rem_1fr] gap-x-2 gap-y-1">
+          <div className="text-muted-foreground">Type</div>
+          <div>{authoringCollectionMetadata[collection as AuthoringCollectionKey]?.singularLabel ?? collection}</div>
+          {node.entityId ? <><div className="text-muted-foreground">ID</div><div className="truncate font-mono">{node.entityId}</div></> : null}
+        </div>
+      ) : null}
+      {record?.description ? <div className="mt-3 line-clamp-3 text-muted-foreground">{record.description}</div> : null}
+      {record ? (
+        <div className="mt-3">
+          <div className="mb-1 text-muted-foreground">Tags</div>
+          {record.tags?.length ? (
+            <div className="flex flex-wrap gap-1">
+              {record.tags.map((tag) => {
+                const summary = tagByKey.get(normalizeTagKey(tag));
+                return <TagBadge key={tag} name={tag} color={summary?.color ?? 'tag-slate'} className="text-[10px]" />;
+              })}
+            </div>
+          ) : <div className="text-muted-foreground">No tags</div>}
+        </div>
+      ) : null}
+      {node.count !== undefined ? <div className="mt-3 text-muted-foreground">{node.count} item{node.count === 1 ? '' : 's'}</div> : null}
+    </div>
+  );
+}
+
 function ExplorerContextMenu({
   state,
   project,
   onClose,
   openDialog,
-  openChapterDialog,
   showAlert,
 }: {
   state: ContextMenuState | null;
   project: AuthoringProject | null;
   onClose: () => void;
   openDialog: (state: EntityDialogState) => void;
-  openChapterDialog: (state: ChapterDialogState) => void;
   showAlert: (alert: ExplorerAlert) => void;
 }) {
   const openTab = useWorkbenchStore((store) => store.openTab);
-  const setUsages = useEntityUsagesStore((store) => store.setUsages);
+  const setSearchResults = useEntityUsagesStore((store) => store.setSearchResults);
   const setActiveBottomPanel = useBottomPanelStore((store) => store.setActivePanelId);
   const setStatusMessage = useWorkspaceStore((store) => store.setStatusMessage);
   const setActiveNodeId = useProjectExplorerStore((store) => store.setActiveNodeId);
@@ -484,7 +443,9 @@ function ExplorerContextMenu({
   function findNodeUsages() {
     if (!node.entityId) return;
     const target = referenceTargetFromEntity({ collection, entityId: node.entityId });
-    setUsages(target, findUsages(buildReferenceIndex(activeProject), target));
+    const record = activeProject[collection][node.entityId];
+    const aliases = collection === 'assets' && record ? parseAssetData(record.data)?.aliases : undefined;
+    setSearchResults(target, searchReferences(activeProject, { referencesTo: [target], aliases }).results);
     setActiveBottomPanel('references');
   }
 
@@ -497,14 +458,17 @@ function ExplorerContextMenu({
           <button className={itemClass} onClick={() => { if (node.entityId) openDialog({ action: 'metadata', collection, entityId: node.entityId }); onClose(); }}><Palette className="h-3.5 w-3.5" /> Edit Metadata</button>
           <button className={itemClass} onClick={() => { if (node.entityId) openDialog({ action: 'rename', collection, entityId: node.entityId }); onClose(); }}><FileCode className="h-3.5 w-3.5" /> Rename ID</button>
           <button className={itemClass} onClick={() => { if (node.entityId) openDialog({ action: 'duplicate', collection, entityId: node.entityId }); onClose(); }}><Copy className="h-3.5 w-3.5" /> Duplicate</button>
-          <button className={itemClass} disabled={assignDisabled} onClick={() => { if (node.entityId) openChapterDialog({ action: 'assign', collection, entityId: node.entityId }); onClose(); }}><FolderOpen className="h-3.5 w-3.5" /> Assign Chapters…</button>
+          <button className={itemClass} disabled={assignDisabled} onClick={() => {
+            if (node.entityId) openTab(buildProjectChaptersTab({ collection, entityId: node.entityId, label: node.label }));
+            onClose();
+          }}><FolderOpen className="h-3.5 w-3.5" /> Assign Chapters…</button>
           <button className={itemClass} onClick={() => { findNodeUsages(); onClose(); }}><Search className="h-3.5 w-3.5" /> Find Usages</button>
           <div className="my-1 h-px bg-border" />
           <button className={`${itemClass} text-destructive`} onClick={() => { if (node.entityId) openDialog({ action: 'delete', collection, entityId: node.entityId }); onClose(); }}><Trash2 className="h-3.5 w-3.5" /> Delete</button>
         </>
       ) : node.kind === 'chapter-folder' && node.chapterId ? (
         <>
-          <button className={itemClass} onClick={() => { openChapterDialog({ action: 'manage' }); onClose(); }}><FolderOpen className="h-3.5 w-3.5" /> Manage Chapters…</button>
+          <button className={itemClass} onClick={() => { openTab(buildProjectChaptersTab()); onClose(); }}><FolderOpen className="h-3.5 w-3.5" /> Manage Chapters…</button>
         </>
       ) : (
         <>
@@ -520,7 +484,21 @@ function ExplorerContextMenu({
   );
 }
 
-function ProjectExplorerItem({ node, project, depth = 0, onContextMenu }: { node: ProjectExplorerNode; project: AuthoringProject | null; depth?: number; onContextMenu: (state: ContextMenuState) => void }) {
+function ProjectExplorerItem({
+  node,
+  project,
+  depth = 0,
+  onContextMenu,
+  onHoverDetails,
+  getHoverDetailsX,
+}: {
+  node: ProjectExplorerNode;
+  project: AuthoringProject | null;
+  depth?: number;
+  onContextMenu: (state: ContextMenuState) => void;
+  onHoverDetails: (state: HoverDetailsState | null) => void;
+  getHoverDetailsX: () => number | null;
+}) {
   const selectedId = useWorkspaceStore((state) => state.selectedAssetId);
   const setSelectedId = useWorkspaceStore((state) => state.setSelectedAssetId);
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
@@ -579,6 +557,12 @@ function ProjectExplorerItem({ node, project, depth = 0, onContextMenu }: { node
         className={`group flex w-full min-w-0 items-center gap-1 rounded-sm px-2 py-1 text-left text-sm transition-colors hover:bg-accent ${cursorClass} ${selected ? 'bg-accent text-accent-foreground' : ''} ${inertClass} ${dimClass}`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         onClick={openNode}
+        onMouseEnter={(event) => {
+          if (!project) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          onHoverDetails({ node, x: getHoverDetailsX() ?? rect.right, y: rect.top });
+        }}
+        onMouseLeave={() => onHoverDetails(null)}
         onContextMenu={(event) => { event.preventDefault(); onContextMenu({ node, x: event.clientX, y: event.clientY }); }}
       >
         {canExpand ? expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <span className="w-3.5 shrink-0" />}
@@ -589,21 +573,31 @@ function ProjectExplorerItem({ node, project, depth = 0, onContextMenu }: { node
         {record?.tags?.length ? <Badge variant="outline" className="ml-1 h-4 px-1 text-[9px]">{record.tags.length}</Badge> : null}
         {node.count !== undefined ? <span className={`ml-auto font-mono text-[10px] ${inert && !node.dimmed ? 'text-muted-foreground/70' : 'text-muted-foreground'}`}>{node.count}</span> : null}
       </button>
-      {canExpand && expanded ? node.children?.map((child) => <ProjectExplorerItem key={child.id} node={child} project={project} depth={depth + 1} onContextMenu={onContextMenu} />) : null}
+      {canExpand && expanded ? node.children?.map((child) => <ProjectExplorerItem key={child.id} node={child} project={project} depth={depth + 1} onContextMenu={onContextMenu} onHoverDetails={onHoverDetails} getHoverDetailsX={getHoverDetailsX} />) : null}
     </div>
   );
 }
 
 export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
+  const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
   const hiddenCollectionKeys = useProjectExplorerStore((state) => state.hiddenCollectionKeys);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
   const organizeByChapter = useProjectExplorerStore((state) => state.organizeByChapter);
   const groupUnassignedItems = useProjectExplorerStore((state) => state.groupUnassignedItems);
+  const showInfoOnHover = useProjectExplorerStore((state) => state.showInfoOnHover);
+  const searchQuery = useProjectExplorerStore((state) => state.searchQuery);
+  const filterTags = useProjectExplorerStore((state) => state.filterTags);
+  const showTagFilter = useProjectExplorerStore((state) => state.showTagFilter);
+  const exactMatch = useProjectExplorerStore((state) => state.exactMatch);
   const chapters = useProjectExplorerStore((state) => state.chapters);
   const hydrateExplorer = useProjectExplorerStore((state) => state.hydrate);
+  const setSearchQuery = useProjectExplorerStore((state) => state.setSearchQuery);
+  const setFilterTags = useProjectExplorerStore((state) => state.setFilterTags);
+  const setShowTagFilter = useProjectExplorerStore((state) => state.setShowTagFilter);
+  const setExactMatch = useProjectExplorerStore((state) => state.setExactMatch);
   const activeNodeId = useProjectExplorerStore((state) => state.activeNodeId);
   const setActiveNodeId = useProjectExplorerStore((state) => state.setActiveNodeId);
   const followSuppressedNodeIds = useProjectExplorerStore((state) => state.followSuppressedNodeIds);
@@ -614,9 +608,14 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const tabsById = useWorkbenchStore((state) => state.tabsById);
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const [dialogState, setDialogState] = useState<EntityDialogState | null>(null);
-  const [chapterDialogState, setChapterDialogState] = useState<ChapterDialogState | null>(null);
   const [alert, setAlert] = useState<ExplorerAlert | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [hoverDetails, setHoverDetails] = useState<HoverDetailsState | null>(null);
+  const lastProjectKey = useRef<string | null>(null);
+
+  function hoverDetailsX() {
+    return treeScrollRef.current?.getBoundingClientRect().right ?? null;
+  }
 
   useEffect(() => {
     if (!project) return;
@@ -624,8 +623,45 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     hydrateExplorer(editorState.explorer, editorState.chapters);
   }, [hydrateExplorer, project]);
 
-  const explorer = useMemo(() => ({ expandedNodeIds, hiddenCollectionKeys, followActiveTab, organizeByChapter, groupUnassignedItems }), [expandedNodeIds, followActiveTab, groupUnassignedItems, hiddenCollectionKeys, organizeByChapter]);
-  const tree = useMemo(() => project ? buildProjectExplorerTree(project, { explorer, chapters }) : [], [chapters, explorer, project]);
+  useEffect(() => {
+    const projectKey = project ? (projectFilePath ?? project.project.id) : null;
+    if (projectKey === lastProjectKey.current) return;
+    lastProjectKey.current = projectKey;
+    if (!project) hydrateExplorer(undefined, undefined);
+  }, [project, projectFilePath]);
+
+  const explorer = useMemo(() => ({
+    expandedNodeIds,
+    hiddenCollectionKeys,
+    followActiveTab,
+    organizeByChapter,
+    groupUnassignedItems,
+    showInfoOnHover,
+    searchQuery,
+    filterTags,
+    showTagFilter,
+    exactMatch,
+  }), [expandedNodeIds, exactMatch, filterTags, followActiveTab, groupUnassignedItems, hiddenCollectionKeys, organizeByChapter, searchQuery, showInfoOnHover, showTagFilter]);
+  const searchIndex = useMemo(() => project ? buildProjectSearchIndex(project) : null, [project]);
+  const activeFilterTags = showTagFilter ? filterTags : [];
+  const isFiltering = Boolean(searchQuery.trim()) || activeFilterTags.length > 0;
+  const searchResponse = useMemo(() => {
+    if (!searchIndex || !isFiltering) return null;
+    return searchProjectIndex(searchIndex, {
+      text: searchQuery,
+      tags: activeFilterTags,
+      tagMode: 'all',
+      tokenMode: 'all',
+      threshold: exactMatch ? 0 : undefined,
+      sort: { kind: 'label' },
+    });
+  }, [activeFilterTags, exactMatch, isFiltering, searchIndex, searchQuery]);
+  const visibleRecordKeys = useMemo(() => {
+    if (!searchResponse) return null;
+    return new Set(searchResponse.results.flatMap((result) => result.document.collection && result.document.entityId ? [recordTargetKey(result.document.collection, result.document.entityId)] : []));
+  }, [searchResponse]);
+  const tagSuggestions = useMemo(() => project ? collectProjectTags(project, filterTags) : [], [filterTags, project]);
+  const tree = useMemo(() => project ? buildProjectExplorerTree(project, { explorer, chapters, visibleRecordKeys }) : [], [chapters, explorer, project, visibleRecordKeys]);
   const activeTabId = groupsById[activeGroupId]?.activeTabId ?? null;
   const activeTab = useMemo(() => activeTabId ? tabsById[activeTabId] ?? null : null, [activeTabId, tabsById]);
 
@@ -668,13 +704,53 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ProjectHeading projectName={project.project.name.trim() || 'Project'} onManageChapters={() => setChapterDialogState({ action: 'manage' })} />
-      <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto p-1">
-        {tree.map((node) => <ProjectExplorerItem key={node.id} node={node} project={project} onContextMenu={setContextMenu} />)}
+      <ProjectHeading projectName={project.project.name.trim() || 'Project'} />
+      <div className="border-b">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-8 rounded-none border-0 border-b bg-transparent pl-7 pr-24 text-xs focus-visible:ring-0" value={searchQuery} onChange={(event) => setSearchQuery(event.currentTarget.value)} placeholder="Search project" />
+          {searchQuery ? (
+            <button
+              type="button"
+              className="absolute right-13 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              aria-label="Clear project search"
+              title="Clear search"
+              onClick={() => setSearchQuery('')}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={`absolute right-7 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${exactMatch ? 'bg-accent text-accent-foreground' : ''}`}
+            aria-pressed={exactMatch}
+            aria-label="Toggle exact match"
+            title="Exact match"
+            onClick={() => setExactMatch(!exactMatch)}
+          >
+            <WholeWord className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className={`absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${showTagFilter ? 'bg-accent text-accent-foreground' : ''}`}
+            aria-pressed={showTagFilter}
+            aria-label="Toggle tag filter"
+            title="Toggle tag filter"
+            onClick={() => setShowTagFilter(!showTagFilter)}
+          >
+            <Tags className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {showTagFilter ? <TagInput className="text-xs [&>div:first-child]:min-h-8 [&>div:first-child]:rounded-none [&>div:first-child]:border-0 [&>div:first-child]:bg-transparent [&>div:first-child]:px-2 [&>div:first-child]:py-0 [&>div:first-child]:focus-within:ring-0" value={filterTags} onChange={setFilterTags} suggestions={tagSuggestions} placeholder="Filter by tag" allowCreate={false} /> : null}
+        {searchResponse?.diagnostics.length ? <div className="text-xs text-destructive">{searchResponse.diagnostics[0]?.message}</div> : null}
       </div>
-      <ExplorerContextMenu state={contextMenu} project={project} onClose={() => setContextMenu(null)} openDialog={setDialogState} openChapterDialog={setChapterDialogState} showAlert={setAlert} />
+      <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto p-1">
+        {tree.map((node) => <ProjectExplorerItem key={node.id} node={node} project={project} onContextMenu={setContextMenu} onHoverDetails={showInfoOnHover ? setHoverDetails : () => undefined} getHoverDetailsX={hoverDetailsX} />)}
+        {tree.length === 0 && isFiltering ? <div className="p-3 text-xs text-muted-foreground">No project records match the current search.</div> : null}
+      </div>
+      {showInfoOnHover ? <ProjectExplorerHoverDetails state={hoverDetails} project={project} /> : null}
+      <ExplorerContextMenu state={contextMenu} project={project} onClose={() => setContextMenu(null)} openDialog={setDialogState} showAlert={setAlert} />
       <EntityOperationDialog state={dialogState} project={project} onClose={() => setDialogState(null)} />
-      <ChapterDialog state={chapterDialogState} project={project} onClose={() => setChapterDialogState(null)} />
       <Dialog open={alert !== null} onOpenChange={(open) => { if (!open) setAlert(null); }}>
         <DialogPopup>
           <DialogTitle>{alert?.title ?? 'Project explorer warning'}</DialogTitle>
