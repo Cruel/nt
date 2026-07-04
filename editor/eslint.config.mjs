@@ -3,7 +3,19 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-  { ignores: ['dist', 'out', '.vite', 'node_modules', 'src/renderer/routeTree.gen.ts'] },
+  {
+    ignores: [
+      'coverage',
+      'dist',
+      'out',
+      '.vite',
+      'node_modules',
+      'src/renderer/routeTree.gen.ts',
+    ],
+    linterOptions: {
+      reportUnusedDisableDirectives: 'warn',
+    },
+  },
   {
     extends: [tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
@@ -19,7 +31,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+        destructuredArrayIgnorePattern: '^_',
+        ignoreRestSiblings: true,
+        varsIgnorePattern: '^_',
+      }],
     },
   },
 );

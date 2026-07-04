@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Field, FieldLabel } from '@/components/ui/field';
+import { FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -170,10 +170,6 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       setFeedback(false);
       timerRef.current = null;
     }, 1000);
-  }
-
-  function setMountedMessage(next: string) {
-    if (mounted.current) setMessage(next);
   }
 
   useEffect(() => {
@@ -377,6 +373,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {workflowMessage ? <div className="mb-4 rounded border p-2 text-xs text-muted-foreground">{workflowMessage}</div> : null}
+        {message ? <div className="mb-4 rounded border p-2 text-xs text-muted-foreground">{message}</div> : null}
         <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-h-0 rounded border bg-muted/20 p-3">
           <div className="group relative flex min-h-[420px] items-center justify-center overflow-hidden rounded border bg-background">

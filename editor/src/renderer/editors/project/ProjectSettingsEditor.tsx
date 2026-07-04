@@ -10,7 +10,6 @@ import { useCommandStore } from '@/commands/command-store';
 import { installComfyUiStarterWorkflows, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
-import { useWorkspaceStore } from '@/stores/workspace-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { getDefaultLayoutSetting } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';

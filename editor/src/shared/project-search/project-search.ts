@@ -1,13 +1,11 @@
 import Fuse, { type FuseResult, type FuseResultMatch } from 'fuse.js';
 import { normalizeTagKey } from '../project-schema/authoring-tags';
 import { referenceTargetKey } from '../project-schema/authoring-references';
-import type { ReferenceTarget } from '../project-schema/authoring-project';
 import { buildProjectSearchIndex, referenceTargetKeys, type ProjectSearchIndex } from './project-search-index';
 import type {
   ProjectSearchDiagnostic,
   ProjectSearchDocument,
   ProjectSearchField,
-  ProjectSearchFieldKind,
   ProjectSearchMatch,
   ProjectSearchQuery,
   ProjectSearchResponse,
@@ -32,10 +30,6 @@ function selectableFields(document: ProjectSearchDocument, query: ProjectSearchQ
 
 function compareText(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: 'base' });
-}
-
-function normalize(value: string, caseSensitive = false) {
-  return caseSensitive ? value : value.toLocaleLowerCase();
 }
 
 function rangeTuples(indices: readonly (readonly [number, number])[] | undefined): Array<{ start: number; end: number }> | undefined {

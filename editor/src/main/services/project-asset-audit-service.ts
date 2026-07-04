@@ -6,7 +6,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from '../../shared/project-asset-audit';
-import { assetDataFromImportMetadata, inferAssetKindFromExtension, parseAssetData } from '../../shared/project-schema/authoring-assets';
+import { inferAssetKindFromExtension, parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 interface ActiveWatcher {

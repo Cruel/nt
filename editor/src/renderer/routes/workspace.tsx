@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
@@ -202,6 +202,24 @@ export function WorkspacePage() {
     clearComfyUiRevisions();
   }
 
+  const runAssetAudit = useCallback(async (projectOverride: unknown = useProjectStore.getState().document) => {
+    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    if (!latestProjectFilePath || !projectOverride) return;
+    const result = await window.noveltea.auditProjectAssets(latestProjectFilePath, projectOverride);
+    if (!result.success) {
+      const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset audit failed.';
+      setStatusMessage(message);
+      return;
+    }
+    if (latestProjectFilePath !== latestProjectFilePathRef.current || !useProjectStore.getState().document) return;
+    const visibleFiles = result.untrackedFiles.filter((file) => !ignoredUntrackedAssetPaths.current.has(file.projectRelativePath));
+    setUntrackedAssetFiles(visibleFiles);
+    if (visibleFiles.length > 0) {
+      setUntrackedAssetDialogOpen(true);
+      setStatusMessage(`Detected ${visibleFiles.length} untracked asset file${visibleFiles.length === 1 ? '' : 's'}`);
+    }
+  }, [setStatusMessage]);
+
   async function closeProject() {
     await dirtySaveProjectState('close-project');
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
@@ -320,7 +338,7 @@ export function WorkspacePage() {
     void window.noveltea.startProjectAssetWatcher(projectFilePath);
     void runAssetAudit(project);
     return () => { void window.noveltea.stopProjectAssetWatcher(); };
-  }, [projectFilePath]);
+  }, [project, projectFilePath, runAssetAudit]);
 
   useEffect(() => window.noveltea.onProjectAssetAuditChanged((event) => {
     const latestProject = useProjectStore.getState().document;
@@ -465,7 +483,7 @@ export function WorkspacePage() {
         else setStatusMessage(result.error ?? result.diagnostics[0]?.message ?? 'Failed to restore asset file.');
       });
     }
-  }, [deletedAssetTrash, forgetDeletedAsset, project, projectFilePath]);
+  }, [deletedAssetTrash, forgetDeletedAsset, project, projectFilePath, setStatusMessage]);
 
   useEffect(() => {
     if (!project) {
@@ -498,24 +516,6 @@ export function WorkspacePage() {
       message: authoringValidationSucceeded(diagnostics) ? 'Authoring validation passed' : 'Authoring validation reported issues',
       detail: diagnostics,
     });
-  }
-
-  async function runAssetAudit(projectOverride: unknown = useProjectStore.getState().document) {
-    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-    if (!latestProjectFilePath || !projectOverride) return;
-    const result = await window.noveltea.auditProjectAssets(latestProjectFilePath, projectOverride);
-    if (!result.success) {
-      const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset audit failed.';
-      setStatusMessage(message);
-      return;
-    }
-    if (latestProjectFilePath !== latestProjectFilePathRef.current || !useProjectStore.getState().document) return;
-    const visibleFiles = result.untrackedFiles.filter((file) => !ignoredUntrackedAssetPaths.current.has(file.projectRelativePath));
-    setUntrackedAssetFiles(visibleFiles);
-    if (visibleFiles.length > 0) {
-      setUntrackedAssetDialogOpen(true);
-      setStatusMessage(`Detected ${visibleFiles.length} untracked asset file${visibleFiles.length === 1 ? '' : 's'}`);
-    }
   }
 
   async function importUntrackedAssets(projectRelativePaths: string[]) {

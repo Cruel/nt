@@ -25,10 +25,7 @@ import {
 } from '@/components/ui/menubar';
 import { useCommandStore } from '@/commands/command-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
-import { useWorkspaceStore } from '@/stores/workspace-store';
-import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { recentProjectKey, useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import type { AppInfo } from '../../shared/electron-api';

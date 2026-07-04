@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
@@ -139,19 +139,21 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     const materialData = parseMaterialData(material.data);
     return { id, label: material.label, detail: materialData?.role ?? null };
   }) : [], [project]);
+  const revision = project && layoutId ? layoutPreviewRevision(project, layoutId) : null;
+  const previewDocument = useMemo(() => {
+    if (!project || !layoutId || !revision) return null;
+    return {
+      kind: 'layout-preview' as const,
+      recordId: layoutId,
+      revision,
+      data: buildLayoutPreviewDocumentData(project, layoutId),
+    };
+  }, [layoutId, project, revision]);
 
-  if (!layoutId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Layout record not found.</div>;
+  if (!layoutId || !record || !project || !previewDocument) return <div className="p-4 text-sm text-muted-foreground">Layout record not found.</div>;
   const activeLayoutId: string = layoutId;
   const activeRecord = record;
   const activeProject: AuthoringProject = project;
-
-  const revision = layoutPreviewRevision(activeProject, activeLayoutId);
-  const previewDocument = useMemo(() => ({
-    kind: 'layout-preview' as const,
-    recordId: activeLayoutId,
-    revision,
-    data: buildLayoutPreviewDocumentData(activeProject, activeLayoutId),
-  }), [activeLayoutId, activeProject, revision]);
   function commit(next: LayoutData, label = 'Update layout') {
     const result = updateLayout(activeLayoutId, next, label);
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { authoringCollectionMetadata, isAuthoringCollectionKey, type AuthoringCollectionKey } from '../../../shared/project-schema/authoring-collections';
+import { authoringCollectionMetadata, isAuthoringCollectionKey } from '../../../shared/project-schema/authoring-collections';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import { recordTargetKey } from '@/workspace/project-explorer-store';

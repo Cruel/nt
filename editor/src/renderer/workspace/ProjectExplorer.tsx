@@ -628,7 +628,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     if (projectKey === lastProjectKey.current) return;
     lastProjectKey.current = projectKey;
     if (!project) hydrateExplorer(undefined, undefined);
-  }, [project, projectFilePath]);
+  }, [hydrateExplorer, project, projectFilePath]);
 
   const explorer = useMemo(() => ({
     expandedNodeIds,
@@ -643,7 +643,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     exactMatch,
   }), [expandedNodeIds, exactMatch, filterTags, followActiveTab, groupUnassignedItems, hiddenCollectionKeys, organizeByChapter, searchQuery, showInfoOnHover, showTagFilter]);
   const searchIndex = useMemo(() => project ? buildProjectSearchIndex(project) : null, [project]);
-  const activeFilterTags = showTagFilter ? filterTags : [];
+  const activeFilterTags = useMemo(() => showTagFilter ? filterTags : [], [filterTags, showTagFilter]);
   const isFiltering = Boolean(searchQuery.trim()) || activeFilterTags.length > 0;
   const searchResponse = useMemo(() => {
     if (!searchIndex || !isFiltering) return null;
