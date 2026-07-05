@@ -678,18 +678,51 @@ bool RuntimeUI::load_document(const std::string& id, const std::string& path, bo
 }
 
 bool RuntimeUI::load_document_from_memory(const std::string& id, const std::string& rml,
-                                           const std::string& source_url, bool show)
+                                          const std::string& source_url, bool show)
 {
     if (!m_state || !m_state->context || id.empty() || rml.empty())
         return false;
-    unload_document(id);
     Rml::ElementDocument* doc = m_state->context->LoadDocumentFromMemory(rml, source_url);
     if (!doc)
         return false;
+    Rml::ElementDocument* old_doc = nullptr;
+    if (const auto old = m_state->documents.find(id); old != m_state->documents.end())
+        old_doc = old->second;
     m_state->documents[id] = doc;
     if (show)
         doc->Show();
+    if (old_doc && old_doc != doc) {
+        if (old_doc->IsVisible())
+            old_doc->Hide();
+        for (auto listener = m_state->listeners.begin(); listener != m_state->listeners.end();) {
+            if (listener->second.element &&
+                listener->second.element->GetOwnerDocument() == old_doc) {
+                listener->second.element->RemoveEventListener(listener->second.event,
+                                                              listener->second.listener.get());
+                listener = m_state->listeners.erase(listener);
+            } else {
+                ++listener;
+            }
+        }
+        old_doc->Close();
+        if (old_doc == m_state->demo_document)
+            m_state->demo_document = nullptr;
+    }
     return true;
+}
+
+void RuntimeUI::set_preview_virtual_file(std::string path, std::string contents)
+{
+    if (!m_state || !m_state->file_interface)
+        return;
+    m_state->file_interface->set_virtual_file(std::move(path), std::move(contents));
+}
+
+void RuntimeUI::clear_preview_virtual_files()
+{
+    if (!m_state || !m_state->file_interface)
+        return;
+    m_state->file_interface->clear_virtual_files();
 }
 
 bool RuntimeUI::unload_document(const std::string& id)

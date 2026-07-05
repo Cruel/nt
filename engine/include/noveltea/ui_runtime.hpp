@@ -48,6 +48,8 @@ public:
     bool load_document_from_memory(const std::string& id, const std::string& rml,
                                    const std::string& source_url = "preview://document.rml",
                                    bool show = true);
+    void set_preview_virtual_file(std::string path, std::string contents);
+    void clear_preview_virtual_files();
     bool unload_document(const std::string& id);
     bool show_document(const std::string& id);
     bool hide_document(const std::string& id);

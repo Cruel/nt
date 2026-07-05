@@ -65,6 +65,7 @@ public:
     void set_preview_running(bool running);
     bool load_preview_rml_document(const std::string& rml);
     bool execute_preview_lua_script(const std::string& source);
+    bool apply_editor_preview_document(const std::string& kind, const std::string& data_json);
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                     float pitch = 1.0f);
     AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,

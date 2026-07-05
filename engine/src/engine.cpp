@@ -12,9 +12,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -33,6 +35,267 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
     if (selected == DemoMode::None)
         return false;
     return selected == DemoMode::All || selected == queried;
+}
+
+constexpr const char* kEditorPreviewDocumentId = "editor_preview";
+
+constexpr const char* kPreviewLayoutCurrentRml = "preview://layout/current.rml";
+constexpr const char* kPreviewLayoutCurrentRcss = "preview://layout/current.rcss";
+constexpr const char* kPreviewLayoutCurrentLua = "preview://layout/current.lua";
+constexpr const char* kPreviewLayoutFragmentHostRcss =
+    "preview://templates/layout-fragment-host.rcss";
+constexpr const char* kPreviewShaderSquareRml = "preview://templates/shader-square-preview.rml";
+constexpr const char* kPreviewShaderSquareRcss = "preview://templates/shader-square-preview.rcss";
+
+constexpr const char* kPreviewBaseStyle = R"rcss(body, div,
+h1, h2, h3, h4,
+h5, h6, p,
+hr, pre,
+tabset tabs {
+  display: block;
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  color: #f8fafc;
+  font-family: Liberation Sans;
+}
+
+h1 { font-size: 2em; margin: .67em 0; }
+h2 { font-size: 1.5em; margin: .75em 0; }
+h3 { font-size: 1.17em; margin: .83em 0; }
+h4, p { margin: 1.12em 0; }
+h5 { font-size: .83em; margin: 1.5em 0; }
+h6 { font-size: .75em; margin: 1.67em 0; }
+h1, h2, h3, h4, h5, h6, strong { font-weight: bold; }
+em { font-style: italic; }
+pre { white-space: pre; }
+hr { border-width: 1px; }
+
+button {
+  display: inline-block;
+  margin: 4px 0;
+  padding: 8px 12px;
+  min-width: 96px;
+  color: #f8fafc;
+  background-color: #334155;
+  border-width: 1px;
+  border-color: #64748b;
+  border-radius: 4px;
+  font-family: Liberation Sans;
+  font-size: 14px;
+  text-align: center;
+}
+
+button:hover { background-color: #475569; border-color: #94a3b8; }
+button:active { background-color: #1e293b; }
+table { box-sizing: border-box; display: table; }
+tr { box-sizing: border-box; display: table-row; }
+td { box-sizing: border-box; display: table-cell; }
+col { box-sizing: border-box; display: table-column; }
+colgroup { display: table-column-group; }
+thead, tbody, tfoot { display: table-row-group; }
+)rcss";
+
+constexpr const char* kLayoutFragmentHostRml = R"rml(<rml>
+<head>
+    <title>NovelTea Layout Fragment Preview</title>
+    <link type="text/rcss" href="layout-fragment-host.rcss" />
+</head>
+<body>
+    <div id="nt-layout-preview-root">
+        <div id="nt-layout-preview-mount"></div>
+    </div>
+</body>
+</rml>
+)rml";
+
+constexpr const char* kLayoutFragmentHostRcss = R"rcss(body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    font-family: Liberation Sans;
+}
+
+#nt-layout-preview-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+#nt-layout-preview-mount {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+)rcss";
+
+constexpr const char* kShaderSquareRml = R"rml(<rml>
+<head>
+    <title>NovelTea Shader Preview</title>
+    <link type="text/rcss" href="preview://templates/shader-square-preview.rcss" />
+</head>
+<body>
+    <div id="nt-shader-preview-stage">
+        <div id="nt-shader-preview-square" data-preview-material="__NT_PREVIEW_MATERIAL_ID__"></div>
+    </div>
+</body>
+</rml>
+)rml";
+
+constexpr const char* kShaderSquareRcss = R"rcss(body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0f172a;
+    font-family: Liberation Sans;
+}
+
+#nt-shader-preview-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #0f172a;
+}
+
+#nt-shader-preview-square {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 256px;
+    height: 256px;
+    margin-left: -128px;
+    margin-top: -128px;
+    background-color: #1e293b;
+    border: 1px #94a3b8;
+    decorator: shader("__NT_PREVIEW_MATERIAL_ID__");
+}
+)rcss";
+
+std::string lower_ascii(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return value;
+}
+
+void replace_all(std::string& value, std::string_view needle, std::string_view replacement)
+{
+    if (needle.empty())
+        return;
+    std::size_t pos = 0;
+    while ((pos = value.find(needle, pos)) != std::string::npos) {
+        value.replace(pos, needle.size(), replacement);
+        pos += replacement.size();
+    }
+}
+
+std::string inject_head_content(std::string rml, std::string_view content)
+{
+    if (content.empty())
+        return rml;
+    const std::string lowered = lower_ascii(rml);
+    if (const std::size_t head_end = lowered.find("</head>"); head_end != std::string::npos) {
+        rml.insert(head_end, std::string(content) + "\n");
+        return rml;
+    }
+    if (const std::size_t rml_start = lowered.find("<rml"); rml_start != std::string::npos) {
+        if (const std::size_t tag_end = lowered.find('>', rml_start);
+            tag_end != std::string::npos) {
+            rml.insert(tag_end + 1, "\n<head>\n" + std::string(content) + "\n</head>");
+            return rml;
+        }
+    }
+    return "<rml>\n<head>\n" + std::string(content) + "\n</head>\n<body>\n" + rml +
+           "\n</body>\n</rml>\n";
+}
+
+std::optional<std::string> inline_source_text(const nlohmann::json& data, std::string_view key)
+{
+    const auto found = data.find(std::string(key));
+    if (found == data.end() || !found->is_object())
+        return std::string{};
+    const auto mode = found->value("sourceMode", "inline");
+    if (mode != "inline")
+        return std::nullopt;
+    return found->value("sourceText", "");
+}
+
+std::string preview_template_text(const nlohmann::json& data, std::string_view key,
+                                  std::string_view fallback)
+{
+    const auto templates = data.find("templateTexts");
+    if (templates != data.end() && templates->is_object()) {
+        const auto value = templates->find(std::string(key));
+        if (value != templates->end() && value->is_string() && !value->get<std::string>().empty())
+            return value->get<std::string>();
+    }
+    return std::string(fallback);
+}
+
+bool layout_script_enabled(const nlohmann::json& data)
+{
+    const auto script = data.find("script");
+    if (script == data.end() || !script->is_object())
+        return true;
+    return script->value("enabled", true);
+}
+
+std::string layout_fragment_host_rml(std::string host_template, const std::string& fragment)
+{
+    replace_all(host_template, "href=\"layout-fragment-host.rcss\"",
+                "href=\"preview://templates/layout-fragment-host.rcss\"");
+    replace_all(host_template, "href='layout-fragment-host.rcss'",
+                "href='preview://templates/layout-fragment-host.rcss'");
+    host_template =
+        inject_head_content(std::move(host_template),
+                            "<link type=\"text/rcss\" href=\"preview://layout/current.rcss\" />");
+
+    constexpr std::string_view empty_mount = "<div id=\"nt-layout-preview-mount\"></div>";
+    if (const std::size_t pos = host_template.find(empty_mount); pos != std::string::npos) {
+        host_template.replace(pos, empty_mount.size(),
+                              "<div id=\"nt-layout-preview-mount\">\n" + fragment + "\n</div>");
+        return host_template;
+    }
+    constexpr std::string_view indented_empty_mount =
+        "<div id=\"nt-layout-preview-mount\">\n        </div>";
+    if (const std::size_t pos = host_template.find(indented_empty_mount);
+        pos != std::string::npos) {
+        host_template.replace(pos, indented_empty_mount.size(),
+                              "<div id=\"nt-layout-preview-mount\">\n" + fragment + "\n</div>");
+        return host_template;
+    }
+    return inject_head_content(
+        "<rml>\n<head><title>NovelTea Layout Fragment Preview</title></head>\n<body>\n"
+        "<div id=\"nt-layout-preview-root\"><div id=\"nt-layout-preview-mount\">\n" +
+            fragment + "\n</div></div>\n</body>\n</rml>\n",
+        "<link type=\"text/rcss\" href=\"preview://templates/layout-fragment-host.rcss\" />\n"
+        "<link type=\"text/rcss\" href=\"preview://layout/current.rcss\" />");
+}
+
+void upsert_preview_material(ShaderMaterialProject& project, std::string material_id,
+                             std::string shader_id)
+{
+    project.materials.erase(std::remove_if(project.materials.begin(), project.materials.end(),
+                                           [&](const MaterialDefinition& material) {
+                                               return material.id.value() == material_id;
+                                           }),
+                            project.materials.end());
+    MaterialDefinition material;
+    material.id = MaterialId(std::move(material_id));
+    material.role = ShaderRole::RmlUiDecorator;
+    material.shader = ShaderId(std::move(shader_id));
+    material.display_name = "Editor Preview Shader Material";
+    project.materials.push_back(std::move(material));
 }
 
 ShaderMaterialProject make_demo_shader_materials()
@@ -597,7 +860,8 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     m_runtime_ui.resize(m_platform.surface());
     const bool should_load_runtime_document = !run_config.preview_widget &&
-        run_config.runtime_ui_document.empty() && run_config.demo_mode == DemoMode::None;
+                                              run_config.runtime_ui_document.empty() &&
+                                              run_config.demo_mode == DemoMode::None;
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
                                  &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
@@ -1001,8 +1265,8 @@ bool Engine::load_preview_rml_document(const std::string& rml)
     m_runtime_ui.hide_document("demo");
     m_runtime_ui.hide_document("runtime_game");
     m_runtime_ui.hide_document("runtime-acceptance");
-    return m_runtime_ui.load_document_from_memory("editor_preview", rml,
-                                                  "preview://editor-preview.rml", true);
+    return m_runtime_ui.load_document_from_memory(kEditorPreviewDocumentId, rml,
+                                                  kPreviewLayoutCurrentRml, true);
 }
 
 bool Engine::execute_preview_lua_script(const std::string& source)
@@ -1012,11 +1276,129 @@ bool Engine::execute_preview_lua_script(const std::string& source)
     auto result = m_scripts.execute(source, "editor_preview.lua");
     if (!result) {
         const auto& error = *result.error;
-        std::fprintf(stderr, "[engine] editor preview Lua failed: %s\n%s\n",
-                     error.message.c_str(), error.traceback.c_str());
+        std::fprintf(stderr, "[engine] editor preview Lua failed: %s\n%s\n", error.message.c_str(),
+                     error.traceback.c_str());
+        const std::string message =
+            error.traceback.empty() ? error.message : error.message + "\n" + error.traceback;
+        preview_bridge::emit_diagnostic("error", "lua", "/lua", message.c_str(),
+                                        kPreviewLayoutCurrentLua);
         return false;
     }
     return true;
+}
+
+bool Engine::apply_editor_preview_document(const std::string& kind, const std::string& data_json)
+{
+    if (!m_runtime_ui.is_initialized())
+        return false;
+
+    nlohmann::json data;
+    try {
+        data = nlohmann::json::parse(data_json.empty() ? "{}" : data_json);
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "[engine] editor preview JSON failed to parse: %s\n", error.what());
+        preview_bridge::emit_diagnostic("error", "preview-json", "", error.what());
+        return false;
+    }
+
+    if (kind == "layout-preview") {
+        const auto rml_source = inline_source_text(data, "rml");
+        const auto rcss_source = inline_source_text(data, "rcss");
+        const auto lua_source = inline_source_text(data, "lua");
+        if (!rml_source || !rcss_source || !lua_source) {
+            std::fprintf(
+                stderr, "[engine] editor layout preview asset-mode sources are not resolved yet\n");
+            preview_bridge::emit_diagnostic(
+                "error", "layout-preview-source", "/rml|/rcss|/lua",
+                "Editor layout preview asset-mode sources are not resolved yet.");
+            return false;
+        }
+
+        m_runtime_ui.set_preview_virtual_file(kPreviewLayoutCurrentRcss,
+                                              std::string(kPreviewBaseStyle) + "\n" + *rcss_source);
+        m_runtime_ui.set_preview_virtual_file(kPreviewLayoutCurrentLua, *lua_source);
+        const std::string fragment_host_rml =
+            preview_template_text(data, "layoutFragmentHostRml", kLayoutFragmentHostRml);
+        m_runtime_ui.set_preview_virtual_file(
+            kPreviewLayoutFragmentHostRcss,
+            preview_template_text(data, "layoutFragmentHostRcss", kLayoutFragmentHostRcss));
+
+        const bool enabled = layout_script_enabled(data);
+        if (enabled && !lua_source->empty() && !execute_preview_lua_script(*lua_source))
+            return false;
+
+        std::string rml;
+        if (data.value("layoutKind", std::string("document")) == "fragment") {
+            rml = layout_fragment_host_rml(fragment_host_rml, *rml_source);
+        } else {
+            const std::string source =
+                rml_source->empty()
+                    ? "<rml><head><title>Empty Layout Preview</title></head><body></body></rml>"
+                    : *rml_source;
+            rml = inject_head_content(
+                source, "<link type=\"text/rcss\" href=\"preview://layout/current.rcss\" />");
+        }
+        m_runtime_ui.set_preview_virtual_file(kPreviewLayoutCurrentRml, rml);
+        if (!load_preview_rml_document(rml)) {
+            preview_bridge::emit_diagnostic("error", "rmlui-document", "/rml",
+                                            "RmlUi failed to load the layout preview document.",
+                                            kPreviewLayoutCurrentRml);
+            return false;
+        }
+        return true;
+    }
+
+    if (kind == "shader-preview") {
+        const auto shader_materials = data.find("shaderMaterials");
+        if (shader_materials != data.end() && shader_materials->is_object()) {
+            auto parsed = parse_shader_material_project_json_value(*shader_materials);
+            for (const auto& diagnostic : parsed.diagnostics) {
+                std::fprintf(stderr, "[engine] shader preview material diagnostic: %s: %s\n",
+                             diagnostic.path.c_str(), diagnostic.message.c_str());
+                const std::string severity(to_string(diagnostic.severity));
+                preview_bridge::emit_diagnostic(severity.c_str(), "shader-material-preview",
+                                                diagnostic.path.c_str(),
+                                                diagnostic.message.c_str());
+            }
+            if (!parsed.project || parsed.has_errors()) {
+                preview_bridge::emit_diagnostic("error", "shader-material-preview",
+                                                "/shaderMaterials",
+                                                "Shader preview material project contains errors.");
+                return false;
+            }
+            m_shader_materials = std::move(*parsed.project);
+            upsert_preview_material(
+                m_shader_materials,
+                data.value("previewMaterialId", std::string("editor/preview/shader/current")),
+                data.value("shaderId", std::string{}));
+            m_renderer.set_shader_material_project(&m_shader_materials);
+        }
+
+        std::string rml = preview_template_text(data, "shaderSquareRml", kShaderSquareRml);
+        std::string rcss = preview_template_text(data, "shaderSquareRcss", kShaderSquareRcss);
+        const std::string material_id =
+            data.value("previewMaterialId", std::string("ui/noise_panel"));
+        replace_all(rml, "href=\"shader-square-preview.rcss\"",
+                    "href=\"preview://templates/shader-square-preview.rcss\"");
+        replace_all(rml, "href='shader-square-preview.rcss'",
+                    "href='preview://templates/shader-square-preview.rcss'");
+        replace_all(rml, "__NT_PREVIEW_MATERIAL_ID__", material_id);
+        replace_all(rcss, "__NT_PREVIEW_MATERIAL_ID__", material_id);
+        m_runtime_ui.set_preview_virtual_file(kPreviewShaderSquareRml, rml);
+        m_runtime_ui.set_preview_virtual_file(kPreviewShaderSquareRcss, rcss);
+        if (!load_preview_rml_document(rml)) {
+            preview_bridge::emit_diagnostic("error", "rmlui-document", "/template",
+                                            "RmlUi failed to load the shader preview document.",
+                                            kPreviewShaderSquareRml);
+            return false;
+        }
+        return true;
+    }
+
+    std::fprintf(stderr, "[engine] unsupported editor preview document kind '%s'\n", kind.c_str());
+    preview_bridge::emit_diagnostic("error", "preview-kind", "",
+                                    "Unsupported editor preview kind.");
+    return false;
 }
 
 AudioVoiceHandle Engine::play_audio_sfx(const std::string& path, float volume, float pitch)

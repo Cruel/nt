@@ -258,12 +258,13 @@ int App::run_resize_readback_fixture()
     while (m_engine.is_running()) {
         if (resize_index < m_options.resize_sequence.size()) {
             if (countdown == 0) {
-                SurfaceMetrics scheduled = sanitize_surface_metrics(m_options.resize_sequence[resize_index++]);
-                std::printf(
-                    "[app] applying resize-readback fixture resize %zu/%zu: logical=%dx%d framebuffer=%dx%d\n",
-                    resize_index, m_options.resize_sequence.size(), scheduled.logical_width,
-                    scheduled.logical_height, scheduled.framebuffer_width,
-                    scheduled.framebuffer_height);
+                SurfaceMetrics scheduled =
+                    sanitize_surface_metrics(m_options.resize_sequence[resize_index++]);
+                std::printf("[app] applying resize-readback fixture resize %zu/%zu: logical=%dx%d "
+                            "framebuffer=%dx%d\n",
+                            resize_index, m_options.resize_sequence.size(), scheduled.logical_width,
+                            scheduled.logical_height, scheduled.framebuffer_width,
+                            scheduled.framebuffer_height);
                 m_engine.resize(scheduled);
                 countdown = interval - 1u;
             } else {
@@ -343,6 +344,17 @@ int noveltea_preview_execute_lua_script(const char* source)
         return 0;
     }
     return noveltea::g_preview_engine->execute_preview_lua_script(source) ? 1 : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_preview_show_editor_document(const char* kind, const char* data_json)
+{
+    if (!noveltea::g_preview_engine || !kind || !data_json) {
+        return 0;
+    }
+    return noveltea::g_preview_engine->apply_editor_preview_document(kind, data_json) ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)

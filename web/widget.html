@@ -26,6 +26,7 @@
     let appliedResizeKey = '';
     let resizeScheduled = false;
     let previewMode = 'runtime';
+    let drainingCommands = false;
 
     const rmlUiBaseStyle = `body, div,
 h1, h2, h3, h4,
@@ -156,10 +157,15 @@ thead, tbody, tfoot {
       if (port) port.postMessage(message);
     }
 
-    function failCommand(message, reason) {
+    function failCommand(message, reason, diagnostic = {}) {
       showFailure(reason);
-      send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: reason } });
+      send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: reason, ...diagnostic } });
       send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: false, error: reason });
+    }
+
+    function emitDiagnostic(message, diagnostic) {
+      send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic });
+      if (message && message.requestId && diagnostic && diagnostic.severity === 'error') showFailure(diagnostic.message);
     }
 
     function sourceText(source) {
@@ -358,13 +364,83 @@ thead, tbody, tfoot {
       }
     }
 
-    function applyPreviewDocument(message) {
+    function unsupportedSourceMode(source) {
+      return source && source.sourceMode && source.sourceMode !== 'inline' ? source.sourceMode : '';
+    }
+
+    async function fetchPreviewText(url) {
+      if (typeof url !== 'string' || url.length === 0) return '';
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`${url}: ${response.status} ${response.statusText}`);
+      return response.text();
+    }
+
+    async function resolvePreviewTemplates(data) {
+      const next = { ...(data || {}) };
+      if (next.layoutKind === 'fragment' && next.internalTemplates) {
+        next.templateTexts = {
+          ...(next.templateTexts || {}),
+          layoutFragmentHostRml: await fetchPreviewText(next.internalTemplates.hostRml),
+          layoutFragmentHostRcss: await fetchPreviewText(next.internalTemplates.hostRcss),
+        };
+      }
+      if (next.template) {
+        next.templateTexts = {
+          ...(next.templateTexts || {}),
+          shaderSquareRml: await fetchPreviewText(next.template.rml),
+          shaderSquareRcss: await fetchPreviewText(next.template.rcss),
+        };
+      }
+      return next;
+    }
+
+    async function showEnginePreviewDocument(message, document) {
+      if (typeof Module._noveltea_preview_show_editor_document !== 'function') {
+        failCommand(message, 'Preview widget build does not export noveltea_preview_show_editor_document. Rebuild the editor preview.');
+        return;
+      }
+      let data = document && document.data ? document.data : {};
+      if (document.kind === 'layout-preview') {
+        const unsupportedSources = [
+          ['rml', data.rml],
+          ['rcss', data.rcss],
+          ['lua', data.lua],
+        ].filter(([, source]) => unsupportedSourceMode(source));
+        if (unsupportedSources.length > 0) {
+          for (const [key, source] of unsupportedSources) {
+            emitDiagnostic(message, {
+              severity: 'error',
+              category: 'layout-preview-source',
+              path: `/${key}/sourceMode`,
+              message: `Asset-mode ${key.toUpperCase()} preview source is not resolved yet (${unsupportedSourceMode(source)}).`,
+              sourceUrl: source && source.sourceAsset && source.sourceAsset.path ? `project:/${source.sourceAsset.path}` : undefined,
+            });
+          }
+          failCommand(message, 'Asset-mode layout preview sources are not resolved by the preview widget yet. Use inline RML/RCSS/Lua for live preview.', { category: 'layout-preview-source' });
+          return;
+        }
+      }
+      try {
+        data = await resolvePreviewTemplates(data);
+      } catch (error) {
+        failCommand(message, `Failed to load preview template: ${error && error.message ? error.message : String(error)}`, { category: 'preview-template' });
+        return;
+      }
+      const ok = Module.ccall('noveltea_preview_show_editor_document', 'number', ['string', 'string'], [document.kind, JSON.stringify(data)]);
+      if (ok) {
+        hideFailure();
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      } else {
+        failCommand(message, `${document.kind} failed in the engine preview bridge. Check Preview Diagnostics and engine logs.`);
+      }
+    }
+
+    async function applyPreviewDocument(message) {
       const document = message.document;
       const kind = document && document.kind ? document.kind : 'unknown';
       const data = document && document.data ? document.data : {};
       emitDocumentDiagnostics(document);
-      if (kind === 'layout-preview') applyPreviewRml(message, buildLayoutPreviewRml(data), sourceText(data && data.lua));
-      else if (kind === 'shader-preview') applyPreviewRml(message, buildShaderPreviewRml(data));
+      if (kind === 'layout-preview' || kind === 'shader-preview') await showEnginePreviewDocument(message, document);
       else if (kind === 'material-preview') applyPreviewRml(message, buildMaterialPreviewRml(data));
       else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
       else if (kind === 'room-preview') applyPreviewRml(message, buildRoomPreviewRml(data));
@@ -373,7 +449,7 @@ thead, tbody, tfoot {
       else failCommand(message, `Preview widget cannot render document '${kind}'.`);
     }
 
-    function runCommand(message) {
+    async function runCommand(message) {
       try {
         if (!runtimeReady || !engineReady) {
           commandQueue.push(message);
@@ -384,7 +460,7 @@ thead, tbody, tfoot {
           previewMode = message.mode || 'runtime';
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'load-preview-document' || message.type === 'update-preview-document') {
-          applyPreviewDocument(message);
+          await applyPreviewDocument(message);
         } else if (message.type === 'request-preview-state') {
           send({ version: protocolVersion, type: 'preview-state', state: { mode: previewMode, ready: engineReady && runtimeReady } });
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
@@ -398,9 +474,15 @@ thead, tbody, tfoot {
       }
     }
 
-    function drainCommands() {
+    async function drainCommands() {
       if (!runtimeReady || !engineReady) return;
-      while (commandQueue.length > 0) runCommand(commandQueue.shift());
+      if (drainingCommands) return;
+      drainingCommands = true;
+      try {
+        while (commandQueue.length > 0) await runCommand(commandQueue.shift());
+      } finally {
+        drainingCommands = false;
+      }
     }
 
     function sendPreviewInteraction(interaction) {
@@ -419,7 +501,7 @@ thead, tbody, tfoot {
         type: 'ready',
         capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1'],
       });
-      drainCommands();
+      void drainCommands();
     }
 
     globalThis.NovelTeaPreviewBridge = {
@@ -427,15 +509,18 @@ thead, tbody, tfoot {
       setPort(nextPort) {
         if (port) port.close();
         port = nextPort;
-        port.onmessage = (event) => runCommand(event.data);
+        port.onmessage = function(event) {
+          commandQueue.push(event.data);
+          void drainCommands();
+        };
         if (typeof port.start === 'function') port.start();
         sendReadySnapshot();
-        drainCommands();
+        void drainCommands();
       },
       markEngineReady(position, running) {
         engineReady = true;
         sendReadySnapshot();
-        drainCommands();
+        void drainCommands();
       }
     };
 
@@ -505,7 +590,7 @@ thead, tbody, tfoot {
       runtimeReady = true;
       resizeCanvas();
       scheduleResizeApply();
-      drainCommands();
+      void drainCommands();
     };
   })();
 

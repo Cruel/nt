@@ -35,6 +35,23 @@ EM_JS(void, nt_preview_emit_object_clicked,
         });
     }
 });
+
+EM_JS(void, nt_preview_emit_diagnostic,
+      (const char* severity, const char* category, const char* path, const char* message,
+       const char* source_url), {
+    const bridge = globalThis.NovelTeaPreviewBridge;
+    if (bridge && typeof bridge.send === 'function') {
+        const diagnostic = {
+            severity: UTF8ToString(severity),
+            category: UTF8ToString(category),
+            path: UTF8ToString(path),
+            message: UTF8ToString(message)
+        };
+        const sourceUrl = UTF8ToString(source_url);
+        if (sourceUrl.length > 0) diagnostic.sourceUrl = sourceUrl;
+        bridge.send({version: 1, type: 'preview-diagnostic', diagnostic});
+    }
+});
 #endif
 // clang-format on
 
@@ -68,6 +85,22 @@ void emit_object_clicked(const char* object_id, NormalizedPosition object_positi
     (void)object_id;
     (void)object_position;
     (void)pointer_position;
+#endif
+}
+
+void emit_diagnostic(const char* severity, const char* category, const char* path,
+                     const char* message, const char* source_url)
+{
+#if defined(__EMSCRIPTEN__)
+    nt_preview_emit_diagnostic(severity ? severity : "warning", category ? category : "runtime",
+                               path ? path : "", message ? message : "",
+                               source_url ? source_url : "");
+#else
+    (void)severity;
+    (void)category;
+    (void)path;
+    (void)message;
+    (void)source_url;
 #endif
 }
 
