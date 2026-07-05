@@ -52,6 +52,22 @@ EM_JS(void, nt_preview_emit_diagnostic,
         bridge.send({version: 1, type: 'preview-diagnostic', diagnostic});
     }
 });
+
+EM_JS(void, nt_preview_emit_fps, (float fps, float frame_time_ms, int fps_cap), {
+    const bridge = globalThis.NovelTeaPreviewBridge;
+    if (bridge && typeof bridge.setFpsCounter === 'function') {
+        bridge.setFpsCounter(fps, frame_time_ms, fps_cap);
+    }
+    if (bridge && typeof bridge.send === 'function') {
+        bridge.send({
+            version: 1,
+            type: 'fps-counter',
+            fps,
+            frameTimeMs: frame_time_ms,
+            fpsCap: fps_cap
+        });
+    }
+});
 #endif
 // clang-format on
 
@@ -101,6 +117,17 @@ void emit_diagnostic(const char* severity, const char* category, const char* pat
     (void)path;
     (void)message;
     (void)source_url;
+#endif
+}
+
+void emit_fps(float fps, float frame_time_ms, int fps_cap)
+{
+#if defined(__EMSCRIPTEN__)
+    nt_preview_emit_fps(fps, frame_time_ms, fps_cap);
+#else
+    (void)fps;
+    (void)frame_time_ms;
+    (void)fps_cap;
 #endif
 }
 

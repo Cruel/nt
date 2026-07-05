@@ -29,6 +29,12 @@
     "description": "Preferências do editor",
     "title": "Configurações"
   },
+  "preview": {
+    "description": "Diagnósticos e sobreposições da pré-visualização de runtime",
+    "showFpsCounter": "Mostrar contador de FPS",
+    "showFpsCounterDescription": "Exibe a sobreposição de taxa de quadros do motor nos widgets de pré-visualização do editor. A pré-visualização acompanha o ritmo da tela, a menos que um limite de FPS do motor seja menor.",
+    "title": "Pré-visualização"
+  },
   "theme": {
     "description": "Escolha sua aparência preferida",
     "options": {

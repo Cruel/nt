@@ -8,14 +8,17 @@
   body { margin: 0; overflow: hidden; background: #111; color: #ddd; font-family: sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; background: #181820; }
   #status { position: fixed; left: 16px; top: 16px; color: #ddd; font-size: 14px; line-height: 1.4; }
+  #fps-counter { display: none; position: fixed; left: 16px; bottom: 16px; z-index: 9; padding: 4px 6px; border-radius: 4px; background: rgba(15, 23, 42, 0.84); color: #cbd5e1; font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events: none; }
 </style>
 </head>
 <body>
 <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
 <div id="status">NovelTea Web Sandbox<br>Engine loading...</div>
+<div id="fps-counter"></div>
 <script>
   (function() {
     const params = new URLSearchParams(window.location.search);
+    const showFps = params.get('showFps') === '1' || params.get('showFps') === 'true';
     let runtimeReady = false;
     let pendingResize = null;
     let appliedResizeKey = '';
@@ -30,6 +33,18 @@
       send() {},
       markEngineReady() {
         hideStatus();
+      },
+      setFpsCounter(fps, frameTimeMs, cap) {
+        const counter = document.getElementById('fps-counter');
+        if (!counter) return;
+        if (!showFps || !Number.isFinite(fps) || fps <= 0) {
+          counter.style.display = 'none';
+          counter.textContent = '';
+          return;
+        }
+        const capText = cap > 0 ? ` engine cap ${cap}, display paced` : ' display paced';
+        counter.textContent = fps.toFixed(1) + ' fps · ' + frameTimeMs.toFixed(2) + ' ms ·' + capText;
+        counter.style.display = 'block';
       }
     };
 
@@ -108,6 +123,10 @@
       if (validDemos.has(demo)) args.push('--demo', demo);
       const frames = params.get('frames');
       if (frames) args.push('--frames', frames);
+      const showFps = (params.get('showFps') || '').toLowerCase();
+      if (showFps === '1' || showFps === 'true' || showFps === 'yes') args.push('--show-fps');
+      const fpsCap = Number.parseInt(params.get('fpsCap') || '0', 10) || 0;
+      if (fpsCap > 0) args.push('--fps-cap', String(Math.min(1000, fpsCap)));
       const rmluiDocument = params.get('rmlui-document') || params.get('rmluiDocument');
       if (rmluiDocument) args.push('--rmlui-document', rmluiDocument);
       const noImgui = (params.get('noImgui') || '').toLowerCase();

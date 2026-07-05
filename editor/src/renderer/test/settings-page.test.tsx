@@ -17,6 +17,7 @@ describe('SettingsPage code editor theme selector', () => {
       language: 'system',
       codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
+      showPreviewFpsCounter: false,
       lastProjectPath: null,
     });
   });
@@ -51,5 +52,12 @@ describe('SettingsPage code editor theme selector', () => {
     fireEvent.click(screen.getByRole('combobox'));
     expect(screen.getByRole('option', { name: 'Pseudo-localized' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Portuguese (Brazil)' })).toBeInTheDocument();
+  });
+
+  it('toggles the preview FPS counter preference', () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Show FPS counter' }));
+    expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
   });
 });

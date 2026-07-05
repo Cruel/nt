@@ -8,11 +8,13 @@
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #111318; color: #cbd5e1; font-family: sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; background: #111318; }
   #status { display: none; position: fixed; left: 10px; top: 10px; right: 10px; z-index: 10; padding: 8px 10px; border-radius: 4px; background: rgba(127, 29, 29, 240); color: #fee2e2; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events: none; white-space: pre-wrap; }
+  #fps-counter { display: none; position: fixed; left: 10px; bottom: 10px; z-index: 9; padding: 4px 6px; border-radius: 4px; background: rgba(15, 23, 42, 0.84); color: #cbd5e1; font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events: none; }
 </style>
 </head>
 <body>
 <canvas id="canvas" tabindex="-1"></canvas>
 <div id="status"></div>
+<div id="fps-counter"></div>
 <script>
   (function() {
     const protocolVersion = 1;
@@ -27,6 +29,8 @@
     let resizeScheduled = false;
     let previewMode = 'runtime';
     let drainingCommands = false;
+    let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
+    let fpsCap = Math.max(0, Math.min(1000, Number.parseInt(params.get('fpsCap') || '0', 10) || 0));
 
     const rmlUiBaseStyle = `body, div,
 h1, h2, h3, h4,
@@ -166,6 +170,37 @@ thead, tbody, tfoot {
     function emitDiagnostic(message, diagnostic) {
       send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic });
       if (message && message.requestId && diagnostic && diagnostic.severity === 'error') showFailure(diagnostic.message);
+    }
+
+    function setFpsCounterText(fps, frameTimeMs, cap) {
+      const counter = document.getElementById('fps-counter');
+      if (!counter) return;
+      if (!showFpsCounter || !Number.isFinite(fps) || fps <= 0) {
+        counter.style.display = 'none';
+        counter.textContent = '';
+        return;
+      }
+      const capText = cap > 0 ? ` engine cap ${cap}, display paced` : ' display paced';
+      counter.textContent = `${fps.toFixed(1)} fps · ${frameTimeMs.toFixed(2)} ms ·${capText}`;
+      counter.style.display = 'block';
+    }
+
+    function applyEngineSettings(settings = {}) {
+      if (typeof settings.showFpsCounter === 'boolean') {
+        showFpsCounter = settings.showFpsCounter;
+      }
+      if (typeof settings.fpsCap === 'number' && Number.isFinite(settings.fpsCap)) {
+        fpsCap = Math.max(0, Math.min(1000, Math.trunc(settings.fpsCap)));
+      }
+      if (!showFpsCounter) setFpsCounterText(0, 0, fpsCap);
+      if (typeof Module !== 'undefined') {
+        if (typeof Module._noveltea_engine_set_show_fps_counter === 'function') {
+          Module._noveltea_engine_set_show_fps_counter(showFpsCounter ? 1 : 0);
+        }
+        if (typeof Module._noveltea_engine_set_fps_cap === 'function') {
+          Module._noveltea_engine_set_fps_cap(fpsCap);
+        }
+      }
     }
 
     function sourceText(source) {
@@ -464,6 +499,9 @@ thead, tbody, tfoot {
         } else if (message.type === 'request-preview-state') {
           send({ version: protocolVersion, type: 'preview-state', state: { mode: previewMode, ready: engineReady && runtimeReady } });
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+        } else if (message.type === 'set-engine-settings') {
+          applyEngineSettings(message.settings);
+          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'request-preview-snapshot') {
           failCommand(message, 'Preview snapshots are not implemented by the editor widget yet.');
         } else {
@@ -499,7 +537,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1'],
       });
       void drainCommands();
     }
@@ -519,8 +557,12 @@ thead, tbody, tfoot {
       },
       markEngineReady(position, running) {
         engineReady = true;
+        applyEngineSettings({ showFpsCounter, fpsCap });
         sendReadySnapshot();
         void drainCommands();
+      },
+      setFpsCounter(fps, frameTimeMs, cap) {
+        setFpsCounterText(fps, frameTimeMs, cap);
       }
     };
 
@@ -596,7 +638,15 @@ thead, tbody, tfoot {
 
   var Module = {
     canvas: document.getElementById('canvas'),
-    arguments: ['--preview-widget', '--demo', 'none', '--no-imgui'],
+    arguments: (function() {
+      const args = ['--preview-widget', '--demo', 'none', '--no-imgui'];
+      const params = new URLSearchParams(window.location.search);
+      const showFps = (params.get('showFps') || '').toLowerCase();
+      const fpsCap = Number.parseInt(params.get('fpsCap') || '0', 10) || 0;
+      if (showFps === '1' || showFps === 'true' || showFps === 'yes') args.push('--show-fps');
+      if (fpsCap > 0) args.push('--fps-cap', String(Math.min(1000, fpsCap)));
+      return args;
+    })(),
     onRuntimeInitialized: function() {
       if (typeof globalThis.NovelTeaPreviewRuntimeReady === 'function') globalThis.NovelTeaPreviewRuntimeReady();
     },

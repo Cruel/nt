@@ -29,6 +29,12 @@
     "description": "⟦Editor preferences⟧",
     "title": "⟦Settings⟧"
   },
+  "preview": {
+    "description": "⟦Runtime preview diagnostics and overlays⟧",
+    "showFpsCounter": "⟦Show FPS counter⟧",
+    "showFpsCounterDescription": "⟦Displays the engine frame rate overlay in editor preview widgets. Preview is display-paced unless an engine FPS cap is lower.⟧",
+    "title": "⟦Preview⟧"
+  },
   "theme": {
     "description": "⟦Choose your preferred appearance⟧",
     "options": {

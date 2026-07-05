@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { useEnginePreview } from '@/hooks/use-engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { PreviewDocument, PreviewMode, PreviewPosition, PreviewToEditorMessage } from '../../shared/preview-protocol';
@@ -53,6 +54,10 @@ function appendSessionParams(url: string, params: Record<string, string | number
   return next.toString();
 }
 
+function sanitizeFpsCap(value: number) {
+  return Number.isFinite(value) ? Math.min(1000, Math.max(0, Math.trunc(value))) : 0;
+}
+
 interface EnginePreviewProps {
   chrome?: 'runtime' | 'minimal';
   previewDocument?: PreviewDocument;
@@ -72,6 +77,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   const recordPreviewDiagnostic = usePreviewManagerStore((s) => s.recordPreviewDiagnostic);
   const replayDocuments = usePreviewManagerStore((s) => s.replay.documentsBySessionId);
   const replayModes = usePreviewManagerStore((s) => s.replay.modeBySessionId);
+  const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const previewPosition = useWorkspaceStore((s) => s.previewPosition);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setPreviewPosition = useWorkspaceStore((s) => s.setPreviewPosition);
@@ -83,6 +89,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   const activateGroup = useWorkbenchStore((s) => s.activateGroup);
   const previewHostRef = useRef<HTMLDivElement | null>(null);
   const [localConnectionState, setLocalConnectionState] = useState<'loading' | 'connecting' | 'ready' | 'missing' | 'error'>('loading');
+  const [fpsCap, setFpsCap] = useState(0);
   const connectionState = embedded ? localConnectionState : globalConnectionState;
   const setConnectionState = useCallback((next: typeof localConnectionState) => {
     if (embedded) setLocalConnectionState(next);
@@ -166,6 +173,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     runRuntimeAction,
     loadPreviewDocument,
     setPreviewMode,
+    setEngineSettings,
     play: sendPlay,
     stop: sendStop,
   } = controller;
@@ -203,6 +211,11 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
         if (!embedded) setStatusMessage(message);
       });
   }, [embedded, ensurePrimaryRuntimeSession, loadSession, recordPreviewDiagnostic, sessionId, setConnectionState, setPrimaryRuntimeReplay, setPrimaryTransport, setSessionStatus, setStatusMessage]);
+
+  useEffect(() => {
+    if (connectionState !== 'ready') return;
+    void setEngineSettings({ showFpsCounter: showPreviewFpsCounter, fpsCap }).catch((error: Error) => recordTransportError(error.message));
+  }, [connectionState, fpsCap, recordTransportError, setEngineSettings, showPreviewFpsCounter]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
@@ -318,6 +331,10 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
             Action
           </Button>
           <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+            Cap
+            <Input className="h-7 w-16" type="number" min="0" max="1000" step="1" value={fpsCap} onChange={(event) => setFpsCap(sanitizeFpsCap(Number(event.target.value)))} />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
             Demo X
             <Input className="h-7 w-16" type="number" min="0" max="1" step="0.01" value={previewPosition.x.toFixed(2)} onChange={(event) => updatePosition({ x: Number(event.target.value), y: previewPosition.y })} />
           </label>

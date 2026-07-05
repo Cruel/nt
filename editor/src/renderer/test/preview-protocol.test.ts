@@ -42,6 +42,8 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2d', mode: 'dialogue' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2s', mode: 'scene' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'request-preview-snapshot', requestId: 'r3', snapshotId: 's1' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r4', settings: { showFpsCounter: true, fpsCap: 60 } })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r5', settings: { fpsCap: -1 } })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document: { kind: 'unknown' } })).toBe(false);
     const legacyLayoutMode = `ui-${'layout'}`;
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: legacyLayoutMode })).toBe(false);
@@ -53,6 +55,7 @@ describe('preview protocol validation', () => {
       diagnostic: { severity: 'warning', message: 'Unsupported preview mode' },
     })).toBe(true);
     expect(isPreviewToEditorMessage({ version: 1, type: 'preview-snapshot', snapshotId: 's1', dataUrl: 'data:image/png;base64,test' })).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'fps-counter', fps: 59.9, frameTimeMs: 16.69, fpsCap: 60 })).toBe(true);
   });
 
   it('rejects handshakes from the wrong source, origin, or token', () => {

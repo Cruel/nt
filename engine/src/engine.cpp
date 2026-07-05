@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <memory>
@@ -35,6 +36,14 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
     if (selected == DemoMode::None)
         return false;
     return selected == DemoMode::All || selected == queried;
+}
+
+constexpr uint32_t kMaxFpsCap = 1000;
+constexpr uint32_t kPreviewDisplayPaceCap = 60;
+
+uint32_t sanitize_fps_cap(uint32_t frames_per_second)
+{
+    return std::min(frames_per_second, kMaxFpsCap);
 }
 
 constexpr const char* kEditorPreviewDocumentId = "editor_preview";
@@ -749,11 +758,17 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 {
     SDL_Log("[engine] initializing...");
     m_frame_limit = run_config.frame_limit;
+    m_fps_cap = sanitize_fps_cap(run_config.fps_cap);
+    m_next_frame_counter = 0;
     m_demo_mode = run_config.demo_mode;
     m_screenshot_path = run_config.screenshot_path;
     m_audio_enabled = run_config.enable_audio;
     m_debug_ui_enabled = run_config.enable_debug_ui;
     m_render_perf_logging = run_config.render_perf_logging;
+    m_preview_widget = run_config.preview_widget;
+    m_show_fps_counter = run_config.show_fps_counter;
+    m_fps_sample_frames = 0;
+    m_fps_sample_start_counter = 0;
     bool platform_initialized = false;
     bool renderer_initialized = false;
     bool audio_bound = false;
@@ -961,9 +976,14 @@ bool Engine::tick()
     if (!m_running)
         return false;
 
+    if (throttle_frame_start()) {
+        return true;
+    }
+
     handle_events();
     update(m_platform.delta_time());
     render();
+    finish_frame_timing_sample();
 
     if (m_platform.should_quit()) {
         m_running = false;
@@ -975,6 +995,105 @@ bool Engine::tick()
     }
 
     return m_running;
+}
+
+bool Engine::throttle_frame_start()
+{
+    const uint32_t pace_cap = effective_frame_pace_cap();
+    if (pace_cap == 0) {
+        m_next_frame_counter = 0;
+        return false;
+    }
+
+    const uint64_t frequency = SDL_GetPerformanceFrequency();
+    if (frequency == 0) {
+        return false;
+    }
+
+    if (m_next_frame_counter == 0) {
+        m_next_frame_counter = SDL_GetPerformanceCounter();
+        return false;
+    }
+
+    const uint64_t now = SDL_GetPerformanceCounter();
+    const uint64_t frame_interval = std::max<uint64_t>(1u, frequency / pace_cap);
+    const uint64_t slack =
+        std::max<uint64_t>(1u, std::min<uint64_t>(frequency / 1000u, frame_interval / 4u));
+    if (now >= m_next_frame_counter || m_next_frame_counter - now <= slack) {
+        return false;
+    }
+
+#if defined(__EMSCRIPTEN__)
+    // The browser owns the actual main-loop cadence. Skip update/render callbacks until the
+    // next frame boundary instead of blocking the event loop. Editor preview widgets also use
+    // this path for display pacing when no explicit engine FPS cap is set, since split preview
+    // iframes can otherwise multiply RAF callbacks in the shared renderer process.
+    return true;
+#else
+    const uint64_t remaining = m_next_frame_counter - now;
+    const uint64_t milliseconds = remaining * 1000u / frequency;
+    if (milliseconds > 0) {
+        SDL_Delay(static_cast<Uint32>(std::min<uint64_t>(milliseconds, 1000u)));
+    }
+    return false;
+#endif
+}
+
+uint32_t Engine::effective_frame_pace_cap() const
+{
+    if (m_fps_cap > 0) {
+        return m_fps_cap;
+    }
+#if defined(__EMSCRIPTEN__)
+    if (m_preview_widget) {
+        return kPreviewDisplayPaceCap;
+    }
+#endif
+    return 0;
+}
+
+void Engine::finish_frame_timing_sample()
+{
+    if (const uint32_t pace_cap = effective_frame_pace_cap(); pace_cap > 0) {
+        const uint64_t frequency = SDL_GetPerformanceFrequency();
+        const uint64_t now = SDL_GetPerformanceCounter();
+        if (frequency > 0) {
+            const uint64_t frame_interval = std::max<uint64_t>(1u, frequency / pace_cap);
+            if (m_next_frame_counter == 0 || now > m_next_frame_counter + frame_interval * 4u) {
+                m_next_frame_counter = now + frame_interval;
+            } else {
+                m_next_frame_counter += frame_interval;
+            }
+        }
+    }
+
+    if (!m_show_fps_counter) {
+        return;
+    }
+
+    const uint64_t frequency = SDL_GetPerformanceFrequency();
+    const uint64_t now = SDL_GetPerformanceCounter();
+    if (frequency == 0) {
+        return;
+    }
+    if (m_fps_sample_start_counter == 0) {
+        m_fps_sample_start_counter = now;
+        m_fps_sample_frames = 0;
+    }
+
+    ++m_fps_sample_frames;
+    const double elapsed_seconds =
+        static_cast<double>(now - m_fps_sample_start_counter) / static_cast<double>(frequency);
+    if (elapsed_seconds < 0.25) {
+        return;
+    }
+
+    const float fps =
+        static_cast<float>(static_cast<double>(m_fps_sample_frames) / elapsed_seconds);
+    const float frame_time_ms = fps > 0.0f ? 1000.0f / fps : 0.0f;
+    preview_bridge::emit_fps(fps, frame_time_ms, static_cast<int>(m_fps_cap));
+    m_fps_sample_frames = 0;
+    m_fps_sample_start_counter = now;
 }
 
 void Engine::resize(const SurfaceMetrics& surface)
@@ -1256,6 +1375,24 @@ void Engine::set_preview_running(bool running)
 {
     m_preview_running = running;
     preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
+}
+
+void Engine::set_show_fps_counter(bool show)
+{
+    m_show_fps_counter = show;
+    m_fps_sample_frames = 0;
+    m_fps_sample_start_counter = 0;
+    if (!m_show_fps_counter) {
+        preview_bridge::emit_fps(0.0f, 0.0f, static_cast<int>(m_fps_cap));
+    }
+}
+
+void Engine::set_fps_cap(uint32_t frames_per_second)
+{
+    m_fps_cap = sanitize_fps_cap(frames_per_second);
+    m_next_frame_counter = 0;
+    m_fps_sample_frames = 0;
+    m_fps_sample_start_counter = 0;
 }
 
 bool Engine::load_preview_rml_document(const std::string& rml)

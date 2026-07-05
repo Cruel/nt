@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   PREVIEW_PROTOCOL_VERSION,
   type EditorToPreviewMessage,
+  type EnginePreviewSettings,
   type EnginePreviewSession,
   type PreviewDocument,
   type PreviewMode,
@@ -158,6 +159,7 @@ export function useEnginePreview({
     loadPreviewDocument: (document: PreviewDocument) => send({ type: 'load-preview-document', document }),
     updatePreviewDocument: (document: PreviewDocument) => send({ type: 'update-preview-document', document }),
     setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
+    setEngineSettings: (settings: EnginePreviewSettings) => send({ type: 'set-engine-settings', settings }),
     requestPreviewState: () => send({ type: 'request-preview-state' }),
     requestPreviewSnapshot: (snapshotId: string) => send({ type: 'request-preview-snapshot', snapshotId }),
   }), [cleanupPort, iframeKey, loadSession, send, session]);

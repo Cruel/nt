@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { EnginePreview } from '@/components/engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
@@ -37,14 +38,15 @@ beforeEach(() => {
   });
   usePreviewManagerStore.getState().resetPreviewManager();
   useWorkbenchStore.getState().resetWorkbench();
-  useWorkspaceStore.setState({
-    previewPosition: { x: 0.5, y: 0.5 },
-    previewRunning: true,
+    useWorkspaceStore.setState({
+      previewPosition: { x: 0.5, y: 0.5 },
+      previewRunning: true,
     previewConnectionState: 'disconnected',
     selectedRuntimeObjectId: null,
-    lastPreviewEvent: null,
-    statusMessage: 'Preview disconnected',
-  });
+      lastPreviewEvent: null,
+      statusMessage: 'Preview disconnected',
+    });
+    usePreferencesStore.setState({ showPreviewFpsCounter: false });
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -151,6 +153,21 @@ describe('EnginePreview', () => {
       version: 1,
       type: 'runtime-continue',
       requestId: expect.any(String),
+    });
+  });
+
+  it('sends engine FPS settings from editor preferences and the cap toolbar', async () => {
+    const user = userEvent.setup();
+    usePreferencesStore.setState({ showPreviewFpsCounter: true });
+    const { editorPort } = await renderConnectedPreview();
+    const capInput = screen.getByLabelText('Cap') as HTMLInputElement;
+    await user.clear(capInput);
+    await user.type(capInput, '30');
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-engine-settings',
+      requestId: expect.any(String),
+      settings: { showFpsCounter: true, fpsCap: 30 },
     });
   });
 

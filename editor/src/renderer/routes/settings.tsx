@@ -168,10 +168,12 @@ export function SettingsPage() {
   const language = usePreferencesStore((s) => s.language);
   const codeEditorTheme = usePreferencesStore((s) => s.codeEditorTheme);
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
+  const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
+  const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
   const [nativeFrame, setNativeFrame] = useState(false);
   const [nativeFrameDefault, setNativeFrameDefault] = useState(false);
   const [nativeFrameSaved, setNativeFrameSaved] = useState(false);
@@ -346,6 +348,30 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('settings:preview.title')}</CardTitle>
+            <CardDescription>
+              {t('settings:preview.description')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="show-preview-fps-counter">{t('settings:preview.showFpsCounter')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:preview.showFpsCounterDescription')}
+                </p>
+              </div>
+              <Switch
+                id="show-preview-fps-counter"
+                checked={showPreviewFpsCounter}
+                onCheckedChange={setShowPreviewFpsCounter}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="flex justify-end">
           <Button
             variant="outline"
@@ -354,6 +380,7 @@ export function SettingsPage() {
               setLanguage('system');
               setCodeEditorTheme('noveltea');
               setRestoreLastProjectOnStart(true);
+              setShowPreviewFpsCounter(false);
               updateNativeFrame(nativeFrameDefault);
             }}
           >

@@ -8,6 +8,7 @@ describe('preferences-store', () => {
       language: 'system',
       codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
+      showPreviewFpsCounter: false,
       lastProjectPath: null,
     });
   });
@@ -18,6 +19,7 @@ describe('preferences-store', () => {
     expect(state.language).toBe('system');
     expect(state.codeEditorTheme).toBe('noveltea');
     expect(state.restoreLastProjectOnStart).toBe(true);
+    expect(state.showPreviewFpsCounter).toBe(false);
     expect(state.lastProjectPath).toBe(null);
   });
 
@@ -34,6 +36,11 @@ describe('preferences-store', () => {
   it('toggles restoring the last project on startup', () => {
     usePreferencesStore.getState().setRestoreLastProjectOnStart(false);
     expect(usePreferencesStore.getState().restoreLastProjectOnStart).toBe(false);
+  });
+
+  it('toggles the preview FPS counter', () => {
+    usePreferencesStore.getState().setShowPreviewFpsCounter(true);
+    expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
   });
 
   it('updates the code editor theme', () => {

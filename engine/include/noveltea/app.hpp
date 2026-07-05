@@ -18,6 +18,7 @@ public:
 private:
     struct Options {
         uint32_t frame_limit = 0;
+        uint32_t fps_cap = 0;
         DemoMode demo_mode = DemoMode::None;
         std::filesystem::path system_asset_root;
         std::filesystem::path project_asset_root;
@@ -33,6 +34,7 @@ private:
         bool perf_logging = false;
         bool rmlui_base_direct_compat = false;
         bool no_audio = false;
+        bool show_fps_counter = false;
         std::vector<std::string> audio_sfx_paths;
         std::vector<std::string> audio_track_specs;
     };

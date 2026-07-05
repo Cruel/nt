@@ -1,6 +1,7 @@
 #include "noveltea/app.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -79,6 +80,14 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.frame_limit = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (std::strcmp(arg, "--fps-cap") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --fps-cap requires a number\n");
+                return false;
+            }
+            options.fps_cap = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (std::strcmp(arg, "--show-fps") == 0) {
+            options.show_fps_counter = true;
         } else if (std::strcmp(arg, "--demo") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "[app] --demo requires none, render2d, rmlui, text, or all\n");
@@ -198,6 +207,7 @@ bool App::initialize(int argc, char* argv[])
 
     EngineRunConfig run_config;
     run_config.frame_limit = options.frame_limit;
+    run_config.fps_cap = options.fps_cap;
     run_config.demo_mode = options.demo_mode;
     run_config.system_asset_root = options.system_asset_root;
     run_config.project_asset_root = options.project_asset_root;
@@ -218,6 +228,7 @@ bool App::initialize(int argc, char* argv[])
     run_config.render_perf_logging = options.perf_logging;
     run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
     run_config.enable_audio = !options.no_audio;
+    run_config.show_fps_counter = options.show_fps_counter;
     run_config.audio_sfx_paths = options.audio_sfx_paths;
     run_config.audio_track_specs = options.audio_track_specs;
 
@@ -321,6 +332,27 @@ void noveltea_preview_set_running(int running)
 {
     if (noveltea::g_preview_engine) {
         noveltea::g_preview_engine->set_preview_running(running != 0);
+    }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_engine_set_show_fps_counter(int show)
+{
+    if (noveltea::g_preview_engine) {
+        noveltea::g_preview_engine->set_show_fps_counter(show != 0);
+    }
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+void noveltea_engine_set_fps_cap(int frames_per_second)
+{
+    if (noveltea::g_preview_engine) {
+        noveltea::g_preview_engine->set_fps_cap(
+            frames_per_second > 0 ? static_cast<uint32_t>(frames_per_second) : 0u);
     }
 }
 

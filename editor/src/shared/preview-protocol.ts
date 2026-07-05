@@ -51,6 +51,11 @@ export interface PreviewStateSnapshot {
   detail?: Record<string, unknown>;
 }
 
+export interface EnginePreviewSettings {
+  showFpsCounter?: boolean;
+  fpsCap?: number;
+}
+
 export type EditorToPreviewMessage =
   | { version: 1; type: 'set-demo-position'; requestId: string; position: PreviewPosition }
   | { version: 1; type: 'reset-demo'; requestId: string }
@@ -68,6 +73,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'update-preview-document'; requestId: string; document: PreviewDocument }
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
   | { version: 1; type: 'request-preview-state'; requestId: string }
+  | { version: 1; type: 'set-engine-settings'; requestId: string; settings: EnginePreviewSettings }
   | { version: 1; type: 'request-preview-snapshot'; requestId: string; snapshotId: string };
 
 export type PreviewToEditorMessage =
@@ -81,6 +87,7 @@ export type PreviewToEditorMessage =
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }
+  | { version: 1; type: 'fps-counter'; fps: number; frameTimeMs: number; fpsCap: number }
   | {
       version: 1;
       type: 'object-clicked';
@@ -159,6 +166,14 @@ function isPreviewStateSnapshot(value: unknown): value is PreviewStateSnapshot {
   );
 }
 
+function isEnginePreviewSettings(value: unknown): value is EnginePreviewSettings {
+  if (!isRecord(value)) return false;
+  return (
+    (value.showFpsCounter === undefined || typeof value.showFpsCounter === 'boolean') &&
+    (value.fpsCap === undefined || (typeof value.fpsCap === 'number' && Number.isFinite(value.fpsCap) && value.fpsCap >= 0 && value.fpsCap <= 1000))
+  );
+}
+
 export function isEditorToPreviewMessage(value: unknown): value is EditorToPreviewMessage {
   if (!isRecord(value) || value.version !== PREVIEW_PROTOCOL_VERSION || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
     return false;
@@ -188,6 +203,8 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return isPreviewDocument(value.document);
     case 'set-preview-mode':
       return isPreviewMode(value.mode);
+    case 'set-engine-settings':
+      return isEnginePreviewSettings(value.settings);
     case 'request-preview-snapshot':
       return typeof value.snapshotId === 'string';
     default:
@@ -231,6 +248,19 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return typeof value.objectId === 'string' && (value.position === undefined || isPosition(value.position));
     case 'preview-interacted':
       return value.interaction === 'pointer' || value.interaction === 'focus';
+    case 'fps-counter':
+      return (
+        typeof value.fps === 'number' &&
+        Number.isFinite(value.fps) &&
+        value.fps >= 0 &&
+        typeof value.frameTimeMs === 'number' &&
+        Number.isFinite(value.frameTimeMs) &&
+        value.frameTimeMs >= 0 &&
+        typeof value.fpsCap === 'number' &&
+        Number.isFinite(value.fpsCap) &&
+        value.fpsCap >= 0 &&
+        value.fpsCap <= 1000
+      );
     case 'object-clicked':
       return typeof value.objectId === 'string' && isPosition(value.position) && isPosition(value.pointerPosition);
     case 'runtime-error':

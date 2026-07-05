@@ -13,5 +13,6 @@ void emit_object_clicked(const char* object_id, NormalizedPosition object_positi
                          NormalizedPosition pointer_position);
 void emit_diagnostic(const char* severity, const char* category, const char* path,
                      const char* message, const char* source_url = "");
+void emit_fps(float fps, float frame_time_ms, int fps_cap);
 
 } // namespace noveltea::preview_bridge

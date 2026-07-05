@@ -30,6 +30,7 @@ enum class DemoMode {
 
 struct EngineRunConfig {
     uint32_t frame_limit = 0;
+    uint32_t fps_cap = 0;
     DemoMode demo_mode = DemoMode::None;
     std::filesystem::path system_asset_root;
     std::filesystem::path project_asset_root;
@@ -42,6 +43,7 @@ struct EngineRunConfig {
     bool render_perf_logging = false;
     bool rmlui_base_direct_compat = false;
     bool enable_audio = true;
+    bool show_fps_counter = false;
     std::vector<std::string> audio_sfx_paths;
     std::vector<std::string> audio_track_specs;
 };
@@ -63,6 +65,10 @@ public:
     void set_demo_position(float normalized_x, float normalized_y);
     void reset_demo_position();
     void set_preview_running(bool running);
+    void set_show_fps_counter(bool show);
+    void set_fps_cap(uint32_t frames_per_second);
+    bool show_fps_counter() const { return m_show_fps_counter; }
+    uint32_t fps_cap() const { return m_fps_cap; }
     bool load_preview_rml_document(const std::string& rml);
     bool execute_preview_lua_script(const std::string& source);
     bool apply_editor_preview_document(const std::string& kind, const std::string& data_json);
@@ -78,6 +84,9 @@ public:
 
 private:
     void handle_events();
+    bool throttle_frame_start();
+    void finish_frame_timing_sample();
+    uint32_t effective_frame_pace_cap() const;
     void handle_mouse_down(float x, float y, uint8_t button);
     void update(float dt);
     void render();
@@ -101,6 +110,8 @@ private:
     bool m_running = false;
     uint32_t m_frame_count = 0;
     uint32_t m_frame_limit = 0;
+    uint32_t m_fps_cap = 0;
+    uint64_t m_next_frame_counter = 0;
     std::string m_screenshot_path;
     DemoMode m_demo_mode = DemoMode::None;
     float m_elapsed_seconds = 0.0f;
@@ -111,6 +122,10 @@ private:
     bool m_debug_ui_enabled = true;
     bool m_render_perf_logging = false;
     bool m_audio_enabled = true;
+    bool m_preview_widget = false;
+    bool m_show_fps_counter = false;
+    uint32_t m_fps_sample_frames = 0;
+    uint64_t m_fps_sample_start_counter = 0;
 };
 
 } // namespace noveltea
