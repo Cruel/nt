@@ -252,16 +252,17 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'variables') return buildVariablesEditorTab(node.entityId);
   if (node.collection === 'assets' && !node.entityId) return buildAssetsEditorTab();
   if (node.collection === 'tests' && !node.entityId) return buildTestsEditorTab();
-  if (node.collection === 'assets' && node.entityId) return buildAssetDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'shaders' && node.entityId) return buildShaderDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'materials' && node.entityId) return buildMaterialDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'layouts' && node.entityId) return buildLayoutDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'characters' && node.entityId) return buildCharacterDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'rooms' && node.entityId) return buildRoomDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'dialogues' && node.entityId) return buildDialogueDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'scenes' && node.entityId) return buildSceneDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection === 'tests' && node.entityId) return buildTestDetailTabForRecord(node.entityId, node.entityId);
-  if (node.collection && node.entityId) return buildPlaceholderEntityTabForRecord(node.collection, node.entityId, node.entityId);
+  const title = node.label || node.entityId;
+  if (node.collection === 'assets' && node.entityId) return buildAssetDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'shaders' && node.entityId) return buildShaderDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'materials' && node.entityId) return buildMaterialDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'layouts' && node.entityId) return buildLayoutDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'characters' && node.entityId) return buildCharacterDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'rooms' && node.entityId) return buildRoomDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'dialogues' && node.entityId) return buildDialogueDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'scenes' && node.entityId) return buildSceneDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'tests' && node.entityId) return buildTestDetailTabForRecord(node.entityId, title);
+  if (node.collection && node.entityId) return buildPlaceholderEntityTabForRecord(node.collection, node.entityId, title);
   return null;
 }
 

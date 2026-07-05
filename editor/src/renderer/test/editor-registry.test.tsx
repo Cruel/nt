@@ -34,6 +34,7 @@ describe('editor registry', () => {
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
       id: 'tab:room-detail:rooms:foyer',
+      title: 'Foyer',
       editorType: 'room-detail',
       resource: { collection: 'rooms', entityId: 'foyer' },
     });
@@ -49,6 +50,7 @@ describe('editor registry', () => {
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
       id: 'tab:dialogue-detail:dialogues:intro',
+      title: 'Intro',
       editorType: 'dialogue-detail',
       resource: { collection: 'dialogues', entityId: 'intro' },
     });
@@ -64,6 +66,7 @@ describe('editor registry', () => {
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
       id: 'tab:scene-detail:scenes:opening',
+      title: 'Opening',
       editorType: 'scene-detail',
       resource: { collection: 'scenes', entityId: 'opening' },
     });
@@ -79,6 +82,7 @@ describe('editor registry', () => {
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
       id: 'tab:test-detail:tests:smoke',
+      title: 'Smoke',
       editorType: 'test-detail',
       resource: { collection: 'tests', entityId: 'smoke' },
     });
@@ -94,6 +98,7 @@ describe('editor registry', () => {
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
       id: 'tab:layout-detail:layouts:main',
+      title: 'Main UI',
       editorType: 'layout-detail',
       resource: { collection: 'layouts', entityId: 'main' },
     });
@@ -109,6 +114,7 @@ describe('editor registry', () => {
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
       id: 'tab:character-detail:characters:iris',
+      title: 'Iris',
       editorType: 'character-detail',
       resource: { collection: 'characters', entityId: 'iris' },
     });
@@ -124,6 +130,7 @@ describe('editor registry', () => {
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
       id: 'tab:placeholder:objects:key',
+      title: 'Key',
       editorType: 'placeholder-entity',
       resource: { collection: 'objects', entityId: 'key' },
     });
