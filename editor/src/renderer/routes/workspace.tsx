@@ -432,7 +432,14 @@ export function WorkspacePage() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!(event.ctrlKey || event.metaKey)) return;
-      if (event.key.toLowerCase() === 's') {
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        if (isAuthoringProject(useProjectStore.getState().document)) {
+          window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'new-entity' }));
+        } else {
+          createNewProject();
+        }
+      } else if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         void saveProject(event.shiftKey);
       } else if (event.key.toLowerCase() === 'w') {
@@ -657,6 +664,9 @@ export function WorkspacePage() {
       switch (command) {
         case 'new-project':
           createNewProject();
+          break;
+        case 'new-entity':
+          if (isAuthoringProject(project)) window.dispatchEvent(new CustomEvent('noveltea-open-new-entity-wizard'));
           break;
         case 'open-project':
           void openProject(typeof detail === 'string' ? undefined : detail.projectPath);

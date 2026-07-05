@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -103,8 +104,9 @@ export function CommandPaletteDialog({
   onOpenChange: (open: boolean) => void;
   onOpenTab: (tab: WorkbenchTab) => void;
 }) {
+  const { t, i18n } = useTranslation('workspace');
   const [query, setQuery] = useState('');
-  const items = useMemo(() => buildCommandPaletteItems(project), [project]);
+  const items = useMemo(() => buildCommandPaletteItems(project, t), [i18n.language, project, t]);
   const results = useMemo(() => searchCommandPaletteItems(items, query), [items, query]);
 
   function choose(item: CommandPaletteItem) {
@@ -124,7 +126,7 @@ export function CommandPaletteDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogPopup className="top-[5vh] max-w-2xl translate-y-0 gap-0 p-0 data-[state=open]:slide-in-from-top-2 sm:top-[5vh] sm:translate-y-0">
         <div className="border-b px-3 pb-1.5 pt-2.5">
-          <DialogTitle>Command Palette</DialogTitle>
+          <DialogTitle>{t('commandPalette.title')}</DialogTitle>
           <Input
             autoFocus
             className="mt-1.5 h-8"
@@ -136,7 +138,7 @@ export function CommandPaletteDialog({
                 choose(results[0].item);
               }
             }}
-            placeholder="Type a command or record name"
+            placeholder={t('commandPalette.placeholder')}
           />
         </div>
         <div className="max-h-[55vh] overflow-y-auto px-1 py-0.5">
@@ -161,7 +163,7 @@ export function CommandPaletteDialog({
               </button>
             );
           })}
-          {results.length === 0 ? <div className="p-3 text-xs text-muted-foreground">No commands or records match.</div> : null}
+          {results.length === 0 ? <div className="p-3 text-xs text-muted-foreground">{t('commandPalette.empty')}</div> : null}
         </div>
       </DialogPopup>
     </Dialog>

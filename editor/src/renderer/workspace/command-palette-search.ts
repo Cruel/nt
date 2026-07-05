@@ -1,5 +1,7 @@
 import { Settings } from 'lucide-react';
 import type { ComponentType } from 'react';
+import type { TFunction } from 'i18next';
+import { editorI18n } from '@/i18n';
 import { authoringCollectionMetadata } from '../../shared/project-schema/authoring-collections';
 import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -50,15 +52,30 @@ function actionItem(item: Omit<CommandPaletteItem, 'kind' | 'tags' | 'collection
   };
 }
 
-const baseActions: CommandPaletteItem[] = [
-  actionItem({ id: 'action:project-settings', title: 'Project Settings', subtitle: 'Open project settings', action: 'project-settings', search: ['settings', 'project settings', 'preferences'] }),
-  actionItem({ id: 'action:assets', title: 'Assets', subtitle: 'Open asset browser', action: 'assets', search: ['assets', 'asset browser', 'images audio fonts'] }),
-  actionItem({ id: 'action:variables', title: 'Variables', subtitle: 'Open variables editor', action: 'variables', search: ['variables', 'state flags'] }),
-  actionItem({ id: 'action:tests', title: 'Tests', subtitle: 'Open playback tests', action: 'tests', search: ['tests', 'playback tests', 'smoke tests'] }),
-];
+const actionDefinitions = [
+  { id: 'action:project-settings', action: 'project-settings', key: 'projectSettings' },
+  { id: 'action:assets', action: 'assets', key: 'assets' },
+  { id: 'action:variables', action: 'variables', key: 'variables' },
+  { id: 'action:tests', action: 'tests', key: 'tests' },
+] as const;
 
-export function buildCommandPaletteItems(project: AuthoringProject | null): CommandPaletteItem[] {
-  const items = [...baseActions];
+function translatedSearchTerms(t: TFunction, key: string): string[] {
+  const value = t(key, { returnObjects: true });
+  return Array.isArray(value) ? value.map(String) : [String(value)].filter(Boolean);
+}
+
+function baseActions(t: TFunction): CommandPaletteItem[] {
+  return actionDefinitions.map((definition) => actionItem({
+    id: definition.id,
+    title: t(`workspace:commandPalette.actions.${definition.key}.title`),
+    subtitle: t(`workspace:commandPalette.actions.${definition.key}.subtitle`),
+    action: definition.action,
+    search: translatedSearchTerms(t, `workspace:commandPalette.actions.${definition.key}.search`),
+  }));
+}
+
+export function buildCommandPaletteItems(project: AuthoringProject | null, t: TFunction = editorI18n.t.bind(editorI18n)): CommandPaletteItem[] {
+  const items = [...baseActions(t)];
   if (!project) return items;
   for (const [collection, metadata] of Object.entries(authoringCollectionMetadata) as Array<[AuthoringCollectionKey, (typeof authoringCollectionMetadata)[AuthoringCollectionKey]]>) {
     const visual = visualForCollection(collection);
@@ -84,11 +101,11 @@ export function buildCommandPaletteItems(project: AuthoringProject | null): Comm
 
 function itemToSearchDocument(item: CommandPaletteItem): ProjectSearchDocument {
   const fields = [
-    { kind: 'title' as const, label: 'Name', value: item.title, path: `/${item.id}/title`, weight: 4, defaultSearchable: true },
-    ...(item.entityId ? [{ kind: 'id' as const, label: 'ID', value: item.entityId, path: `/${item.id}/id`, weight: 3.5, defaultSearchable: true }] : []),
-    ...item.tags.map((tag, index) => ({ kind: 'tag' as const, label: 'Tag', value: tag, path: `/${item.id}/tags/${index}`, weight: 2.75, defaultSearchable: true })),
-    ...item.actionTerms.map((term, index) => ({ kind: 'action' as const, label: 'Action', value: term, path: `/${item.id}/actionTerms/${index}`, weight: 2, defaultSearchable: true })),
-    ...item.collectionTerms.map((term, index) => ({ kind: 'collection' as const, label: 'Collection', value: term, path: `/${item.id}/collectionTerms/${index}`, weight: 1, defaultSearchable: true })),
+    { kind: 'title' as const, label: editorI18n.t('common:fields.name'), value: item.title, path: `/${item.id}/title`, weight: 4, defaultSearchable: true },
+    ...(item.entityId ? [{ kind: 'id' as const, label: editorI18n.t('common:fields.id'), value: item.entityId, path: `/${item.id}/id`, weight: 3.5, defaultSearchable: true }] : []),
+    ...item.tags.map((tag, index) => ({ kind: 'tag' as const, label: editorI18n.t('common:fields.tag'), value: tag, path: `/${item.id}/tags/${index}`, weight: 2.75, defaultSearchable: true })),
+    ...item.actionTerms.map((term, index) => ({ kind: 'action' as const, label: editorI18n.t('common:fields.action'), value: term, path: `/${item.id}/actionTerms/${index}`, weight: 2, defaultSearchable: true })),
+    ...item.collectionTerms.map((term, index) => ({ kind: 'collection' as const, label: editorI18n.t('common:fields.collection'), value: term, path: `/${item.id}/collectionTerms/${index}`, weight: 1, defaultSearchable: true })),
   ];
   return {
     id: item.id,

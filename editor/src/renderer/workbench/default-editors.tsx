@@ -23,6 +23,7 @@ import { ImageGenerationEditor } from '@/editors/comfyui/ImageGenerationEditor';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
+import { PlaceholderEntityEditor } from '@/editors/placeholder/PlaceholderEntityEditor';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
@@ -115,6 +116,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Test Detail',
     icon: ListChecks,
     component: TestsEditor,
+  },
+  {
+    type: 'placeholder-entity',
+    label: 'Placeholder Entity',
+    icon: Puzzle,
+    component: PlaceholderEntityEditor,
   },
   {
     type: 'variables',

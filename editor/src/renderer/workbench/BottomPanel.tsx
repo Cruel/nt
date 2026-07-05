@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCommandStore } from '@/commands/command-store';
@@ -26,9 +27,10 @@ function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
 }
 
 function ProblemsPanel() {
+  const { t } = useTranslation('workspace');
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
   if (diagnostics.length === 0) {
-    return <p className="p-3 text-xs text-muted-foreground">No validation diagnostics.</p>;
+    return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.problems')}</p>;
   }
   return (
     <div className="space-y-2 p-3">
@@ -48,9 +50,10 @@ function ProblemsPanel() {
 }
 
 function OutputPanel() {
+  const { t } = useTranslation('workspace');
   const timeline = useWorkspaceStore((state) => state.timeline);
   if (timeline.length === 0) {
-    return <p className="p-3 text-xs text-muted-foreground">No output entries yet.</p>;
+    return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.output')}</p>;
   }
   return (
     <div className="space-y-2 p-3">
@@ -67,21 +70,23 @@ function OutputPanel() {
 }
 
 function PreviewEventsPanel() {
+  const { t } = useTranslation('workspace');
   const lastPreviewEvent = useWorkspaceStore((state) => state.lastPreviewEvent);
-  return <JsonBlock value={lastPreviewEvent} empty="No preview events yet." />;
+  return <JsonBlock value={lastPreviewEvent} empty={t('bottomPanel.empty.previewEvents')} />;
 }
 
 function CommandHistoryPanel() {
+  const { t } = useTranslation('workspace');
   const history = useCommandStore((state) => state.history);
   const lastDiagnostics = useCommandStore((state) => state.lastDiagnostics);
   if (history.entries.length === 0 && lastDiagnostics.length === 0) {
-    return <p className="p-3 text-xs text-muted-foreground">No project commands yet.</p>;
+    return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.commandHistory')}</p>;
   }
   return (
     <div className="space-y-2 p-3">
       {lastDiagnostics.length > 0 ? (
         <div className="rounded border p-2 text-xs">
-          <div className="mb-1 font-medium">Last command diagnostics</div>
+          <div className="mb-1 font-medium">{t('bottomPanel.lastCommandDiagnostics')}</div>
           {lastDiagnostics.map((diagnostic, index) => (
             <div key={`${diagnostic.message}-${index}`} className="flex gap-2">
               <Badge variant={diagnostic.severity === 'error' ? 'destructive' : 'secondary'}>
@@ -133,6 +138,7 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
 }
 
 export function BottomPanel() {
+  const { t } = useTranslation('workspace');
   const visible = useBottomPanelStore((state) => state.visible);
   const activePanelId = useBottomPanelStore((state) => state.activePanelId);
   const setActivePanelId = useBottomPanelStore((state) => state.setActivePanelId);
@@ -160,7 +166,7 @@ export function BottomPanel() {
               activePanelId === panel.id ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
             }`}
           >
-            {panel.label}
+            {t(panel.labelKey)}
             {panel.id === 'problems' && diagnostics.length > 0 ? (
               <span className="ml-1 rounded bg-muted px-1 font-mono text-[10px]">
                 {diagnostics.length}
@@ -168,7 +174,7 @@ export function BottomPanel() {
             ) : null}
           </button>
         ))}
-        <Button size="sm" variant="ghost" className="ml-auto h-7 w-7 p-0" onClick={toggleVisible}>
+        <Button size="sm" variant="ghost" className="ml-auto h-7 w-7 p-0" onClick={toggleVisible} title={t('bottomPanel.toggle')}>
           {visible ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
         </Button>
       </div>

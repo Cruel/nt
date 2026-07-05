@@ -6,6 +6,8 @@ export interface AppInfo {
   packaged: boolean;
   frameless: boolean;
   nativeFrame: boolean;
+  preferredSystemLanguages: string[];
+  systemLocale: string;
 }
 
 export interface NovelTeaElectronApi {

@@ -6,6 +6,7 @@ import type { AssetNode } from '@/stores/workspace-store';
 describe('editor registry', () => {
   it('resolves default editor registrations', () => {
     expect(defaultEditorRegistry.resolve('engine-preview')?.label).toBe('Engine Preview');
+    expect(defaultEditorRegistry.resolve('placeholder-entity')?.label).toBe('Placeholder Entity');
     expect(defaultEditorRegistry.resolve('raw-json')).toBeNull();
   });
 
@@ -110,6 +111,21 @@ describe('editor registry', () => {
       id: 'tab:character-detail:characters:iris',
       editorType: 'character-detail',
       resource: { collection: 'characters', entityId: 'iris' },
+    });
+  });
+
+  it('routes schema-pending records to the placeholder editor', () => {
+    const node: AssetNode = {
+      id: 'objects:key',
+      label: 'Key',
+      type: 'object',
+      collection: 'objects',
+      entityId: 'key',
+    };
+    expect(buildDefaultRecordTab(node)).toMatchObject({
+      id: 'tab:placeholder:objects:key',
+      editorType: 'placeholder-entity',
+      resource: { collection: 'objects', entityId: 'key' },
     });
   });
 });

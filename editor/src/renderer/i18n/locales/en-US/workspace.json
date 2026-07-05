@@ -1,0 +1,54 @@
+{
+  "bottomPanel": {
+    "empty": {
+      "commandHistory": "No project commands yet.",
+      "output": "No output entries yet.",
+      "previewEvents": "No preview events yet.",
+      "problems": "No validation diagnostics."
+    },
+    "labels": {
+      "commandHistory": "Command History",
+      "output": "Output",
+      "packageExport": "Package Export",
+      "previewDiagnostics": "Preview Diagnostics",
+      "previewEvents": "Preview Events",
+      "problems": "Problems",
+      "references": "References",
+      "shaderCompile": "Shader Compile",
+      "testPlayback": "Test Playback"
+    },
+    "lastCommandDiagnostics": "Last command diagnostics",
+    "toggle": "Toggle Bottom Panel"
+  },
+  "commandPalette": {
+    "actions": {
+      "assets": {
+        "search": ["assets", "asset browser", "images audio fonts"],
+        "subtitle": "Open asset browser",
+        "title": "Assets"
+      },
+      "projectSettings": {
+        "search": ["settings", "project settings", "preferences"],
+        "subtitle": "Open project settings",
+        "title": "Project Settings"
+      },
+      "tests": {
+        "search": ["tests", "playback tests", "smoke tests"],
+        "subtitle": "Open playback tests",
+        "title": "Tests"
+      },
+      "variables": {
+        "search": ["variables", "state flags"],
+        "subtitle": "Open variables editor",
+        "title": "Variables"
+      }
+    },
+    "empty": "No commands or records match.",
+    "placeholder": "Type a command or record name",
+    "title": "Command Palette"
+  },
+  "sidebar": {
+    "components": "Components",
+    "settings": "Settings"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "actions": {
+    "applyTheme": "Aplicar tema",
+    "cancel": "Cancelar",
+    "close": "Fechar",
+    "copy": "Copiar",
+    "cut": "Recortar",
+    "paste": "Colar",
+    "redo": "Refazer",
+    "resetToDefaults": "Restaurar padrões",
+    "save": "Salvar",
+    "saveAs": "Salvar como…",
+    "undo": "Desfazer"
+  },
+  "booleans": {
+    "no": "Não",
+    "yes": "Sim"
+  },
+  "fields": {
+    "action": "Ação",
+    "collection": "Coleção",
+    "id": "ID",
+    "name": "Nome",
+    "tag": "Tag"
+  },
+  "loading": {
+    "applicationInfo": "Carregando informações do aplicativo…"
+  },
+  "project": {
+    "unsaved": "Projeto não salvo"
+  }
+}

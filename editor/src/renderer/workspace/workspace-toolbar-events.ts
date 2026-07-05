@@ -2,6 +2,7 @@ export const WORKSPACE_TOOLBAR_COMMAND_EVENT = 'noveltea-workspace-toolbar-comma
 
 export type WorkspaceToolbarCommand =
   | 'new-project'
+  | 'new-entity'
   | 'open-project'
   | 'close-project'
   | 'validate'

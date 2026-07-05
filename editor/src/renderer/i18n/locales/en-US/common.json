@@ -1,0 +1,32 @@
+{
+  "actions": {
+    "applyTheme": "Apply Theme",
+    "cancel": "Cancel",
+    "close": "Close",
+    "copy": "Copy",
+    "cut": "Cut",
+    "paste": "Paste",
+    "redo": "Redo",
+    "resetToDefaults": "Reset to Defaults",
+    "save": "Save",
+    "saveAs": "Save As…",
+    "undo": "Undo"
+  },
+  "booleans": {
+    "no": "No",
+    "yes": "Yes"
+  },
+  "fields": {
+    "action": "Action",
+    "collection": "Collection",
+    "id": "ID",
+    "name": "Name",
+    "tag": "Tag"
+  },
+  "loading": {
+    "applicationInfo": "Loading application info…"
+  },
+  "project": {
+    "unsaved": "Unsaved project"
+  }
+}

@@ -175,6 +175,20 @@ export function buildTestDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
+export function buildPlaceholderEntityTabForRecord(collection: string, entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:placeholder:${collection}:${entityId}`,
+    title,
+    editorType: 'placeholder-entity',
+    resource: {
+      kind: 'record',
+      stableId: `record:${collection}:${entityId}`,
+      collection,
+      entityId,
+    },
+  };
+}
+
 export function buildImageGenerationTab(options: { sourceAssetId?: string; sourceProjectRelativePath?: string; mode?: 'generate' | 'edit' } = {}): WorkbenchTab {
   const suffix = options.sourceAssetId ? `:${options.sourceAssetId}` : '';
   return {
@@ -247,6 +261,7 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'dialogues' && node.entityId) return buildDialogueDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'scenes' && node.entityId) return buildSceneDetailTabForRecord(node.entityId, node.entityId);
   if (node.collection === 'tests' && node.entityId) return buildTestDetailTabForRecord(node.entityId, node.entityId);
+  if (node.collection && node.entityId) return buildPlaceholderEntityTabForRecord(node.collection, node.entityId, node.entityId);
   return null;
 }
 
@@ -341,6 +356,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'room-detail') return DoorOpen;
   if (editorType === 'dialogue-detail') return MessageSquareText;
   if (editorType === 'scene-detail') return Clapperboard;
+  if (editorType === 'placeholder-entity') return Puzzle;
   if (editorType === 'test-detail' || editorType === 'test-suite') return ListChecks;
   if (editorType === 'variables') return SlidersHorizontal;
   if (editorType === 'components') return Puzzle;

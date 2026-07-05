@@ -5,6 +5,7 @@ describe('preferences-store', () => {
   beforeEach(() => {
     usePreferencesStore.setState({
       theme: 'system',
+      language: 'system',
       codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
       lastProjectPath: null,
@@ -14,6 +15,7 @@ describe('preferences-store', () => {
   it('has default values', () => {
     const state = usePreferencesStore.getState();
     expect(state.theme).toBe('system');
+    expect(state.language).toBe('system');
     expect(state.codeEditorTheme).toBe('noveltea');
     expect(state.restoreLastProjectOnStart).toBe(true);
     expect(state.lastProjectPath).toBe(null);
@@ -22,6 +24,11 @@ describe('preferences-store', () => {
   it('updates theme', () => {
     usePreferencesStore.getState().setTheme('dark');
     expect(usePreferencesStore.getState().theme).toBe('dark');
+  });
+
+  it('updates language', () => {
+    usePreferencesStore.getState().setLanguage('pseudo');
+    expect(usePreferencesStore.getState().language).toBe('pseudo');
   });
 
   it('toggles restoring the last project on startup', () => {

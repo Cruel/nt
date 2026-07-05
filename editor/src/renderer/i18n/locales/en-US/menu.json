@@ -1,0 +1,44 @@
+{
+  "about": {
+    "architecture": "Architecture",
+    "description": "Runtime environment and platform details.",
+    "electron": "Electron",
+    "packaged": "Packaged",
+    "platform": "Platform",
+    "title": "About NovelTea",
+    "version": "Version"
+  },
+  "aria": {
+    "applicationMenu": "Application menu",
+    "closeWindow": "Close window",
+    "maximizeWindow": "Maximize window",
+    "minimizeWindow": "Minimize window"
+  },
+  "items": {
+    "aboutNovelTea": "About NovelTea",
+    "actualSize": "Actual Size",
+    "closeProject": "Close Project",
+    "commandPalette": "Command Palette…",
+    "documentation": "NovelTea Documentation",
+    "newEntity": "New Entity",
+    "newProject": "New Project",
+    "noRecentProjects": "No recent projects",
+    "openProject": "Open Project…",
+    "packageExport": "Package Export…",
+    "projectSettings": "Project Settings…",
+    "recentProjects": "Recent Projects",
+    "toggleBottomPanel": "Toggle Bottom Panel",
+    "toggleMaximize": "Toggle Maximize",
+    "validateProject": "Validate Project",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out"
+  },
+  "menus": {
+    "edit": "Edit",
+    "file": "File",
+    "help": "Help",
+    "project": "Project",
+    "view": "View",
+    "window": "Window"
+  }
+}

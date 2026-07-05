@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Puzzle, Settings } from 'lucide-react';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/project/project-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import {
@@ -17,11 +18,12 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 
 const utilityItems = [
-  { tab: buildComponentsTab, label: 'Components', icon: Puzzle },
-  { tab: buildSettingsTab, label: 'Settings', icon: Settings },
+  { tab: buildComponentsTab, labelKey: 'workspace:sidebar.components', icon: Puzzle },
+  { tab: buildSettingsTab, labelKey: 'workspace:sidebar.settings', icon: Settings },
 ];
 
 export function AppSidebar() {
+  const { t } = useTranslation('workspace');
   const project = useProjectStore((state) => state.document);
   const tests = useWorkspaceStore((state) => state.playbackTests);
   const openTab = useWorkbenchStore((state) => state.openTab);
@@ -42,17 +44,18 @@ export function AppSidebar() {
             {utilityItems.map((item) => {
               const Icon = item.icon;
               const tab = item.tab();
+              const label = t(item.labelKey);
               const active = activeTabId ? tabsById[activeTabId]?.resource?.stableId === tab.resource?.stableId : false;
               return (
-                <SidebarMenuItem key={item.label}>
+                <SidebarMenuItem key={item.labelKey}>
                   <SidebarMenuButton
                     isActive={active}
-                    tooltip={item.label}
+                    tooltip={label}
                     className="h-8 w-8 justify-center p-0"
                     onClick={() => openTab(tab)}
                   >
                     <Icon className="h-4 w-4" />
-                    <span className="sr-only">{item.label}</span>
+                    <span className="sr-only">{label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );

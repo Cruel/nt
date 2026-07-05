@@ -14,6 +14,7 @@ describe('SettingsPage code editor theme selector', () => {
     vi.spyOn(window.noveltea, 'getAppInfo').mockReturnValue(new Promise(() => {}) as ReturnType<typeof window.noveltea.getAppInfo>);
     usePreferencesStore.setState({
       theme: 'system',
+      language: 'system',
       codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
       lastProjectPath: null,
@@ -42,5 +43,13 @@ describe('SettingsPage code editor theme selector', () => {
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
 
     expect(usePreferencesStore.getState().codeEditorTheme).toBe('noveltea');
+  });
+
+  it('renders the editor language selector options', () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getByRole('combobox'));
+    expect(screen.getByRole('option', { name: 'Pseudo-localized' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Portuguese (Brazil)' })).toBeInTheDocument();
   });
 });

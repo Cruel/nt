@@ -13,19 +13,19 @@ export type BottomPanelId =
 
 export interface BottomPanelDefinition {
   id: BottomPanelId;
-  label: string;
+  labelKey: string;
 }
 
 export const bottomPanelDefinitions: BottomPanelDefinition[] = [
-  { id: 'problems', label: 'Problems' },
-  { id: 'output', label: 'Output' },
-  { id: 'preview-events', label: 'Preview Events' },
-  { id: 'preview-diagnostics', label: 'Preview Diagnostics' },
-  { id: 'test-playback', label: 'Test Playback' },
-  { id: 'references', label: 'References' },
-  { id: 'shader-compile', label: 'Shader Compile' },
-  { id: 'package-export', label: 'Package Export' },
-  { id: 'command-history', label: 'Command History' },
+  { id: 'problems', labelKey: 'bottomPanel.labels.problems' },
+  { id: 'output', labelKey: 'bottomPanel.labels.output' },
+  { id: 'preview-events', labelKey: 'bottomPanel.labels.previewEvents' },
+  { id: 'preview-diagnostics', labelKey: 'bottomPanel.labels.previewDiagnostics' },
+  { id: 'test-playback', labelKey: 'bottomPanel.labels.testPlayback' },
+  { id: 'references', labelKey: 'bottomPanel.labels.references' },
+  { id: 'shader-compile', labelKey: 'bottomPanel.labels.shaderCompile' },
+  { id: 'package-export', labelKey: 'bottomPanel.labels.packageExport' },
+  { id: 'command-history', labelKey: 'bottomPanel.labels.commandHistory' },
 ];
 
 interface BottomPanelStore {

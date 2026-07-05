@@ -1,0 +1,54 @@
+{
+  "codeEditor": {
+    "description": "Source editor theme and preview",
+    "dialog": {
+      "description": "Choose the syntax editor palette used by source, script, and shader editors.",
+      "nextTheme": "Next editor theme",
+      "position": "{{current}} of {{total}}",
+      "previousTheme": "Previous editor theme",
+      "title": "Code Editor Theme"
+    },
+    "editorTheme": "Editor theme",
+    "editorThemeDescription": "Applies to RML, RCSS, Lua, shader, and JSON source editors.",
+    "selectTheme": "Theme",
+    "title": "Code Editor"
+  },
+  "language": {
+    "description": "Controls the editor interface language.",
+    "effective": "System currently resolves to {{language}}.",
+    "label": "Language",
+    "options": {
+      "en-US": "English (United States)",
+      "pt-BR": "Portuguese (Brazil)",
+      "pseudo": "Pseudo-localized",
+      "system": "System"
+    },
+    "title": "Language"
+  },
+  "page": {
+    "description": "Editor preferences",
+    "title": "Settings"
+  },
+  "theme": {
+    "description": "Choose your preferred appearance",
+    "options": {
+      "dark": "Dark",
+      "light": "Light",
+      "system": "System"
+    },
+    "title": "Theme"
+  },
+  "window": {
+    "description": "Native frame and custom chrome behavior",
+    "nativeFrame": "Use native window frame",
+    "nativeFrameDescription": "Uses the operating system title bar and window controls. Restart the editor to apply this change.",
+    "nativeFrameSaved": "Saved. Restart the editor for the frame mode change to take effect.",
+    "title": "Window"
+  },
+  "workspace": {
+    "description": "Editor layout defaults",
+    "restoreLastProject": "Restore last open project on startup",
+    "restoreLastProjectDescription": "Automatically reopen the last project file when the editor starts.",
+    "title": "Workspace"
+  }
+}

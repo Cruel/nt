@@ -48,6 +48,12 @@ The previous 11-phase backend-neutral core migration is complete for the current
 
 The Electron editor should use shadcn Base UI components whenever an appropriate shadcn component exists. Do not create custom editor UI primitives or wrappers unless shadcn Base does not provide the needed primitive or the user explicitly asks for a custom component.
 
+For stable user-facing editor text, use the editor i18n resources under `editor/src/renderer/i18n/locales/` rather than scattering hard-coded English through components. Keep `en-US` as the maintained source copy, keep other real locales key-compatible with `en-US`, and update `docs/editor/EDITOR_TRANSLATIONS.md` when locale status or namespace coverage changes. Fast-moving experimental surfaces may stay inline English until their UI settles.
+
+Use whole-message i18n keys with interpolation for dynamic user-facing values; do not assemble translated sentences by concatenating fragments. Use i18next plural suffixes such as `_one` and `_other` for count-based text. Use the `editor/src/renderer/i18n/formatting.ts` helpers for locale-aware dates, times, relative time, numbers, percentages, and file sizes instead of manual formatting in components.
+
+The editor owns its application menu in renderer chrome. Do not add or restore a native Electron application menu on any platform.
+
 When adding or updating editor UI components, use the `shadcn add` workflow for the Base UI registry and reference the official shadcn Base documentation for the intended composition and state attributes before wiring usage code. Keep generated component files close to the upstream shadcn output; prefer adapting usage code over rewriting generated components.
 
 For editor pages, compose official component parts as documented. For example, use `SelectTrigger`, `SelectValue`, and `SelectContent` with `Select`; use the documented dialog, dropdown menu, tooltip, menubar, sidebar, and sheet component structure instead of relying on locally invented shortcut APIs.

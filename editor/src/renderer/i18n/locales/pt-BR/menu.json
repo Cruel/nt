@@ -1,0 +1,44 @@
+{
+  "about": {
+    "architecture": "Arquitetura",
+    "description": "Detalhes do ambiente de execução e da plataforma.",
+    "electron": "Electron",
+    "packaged": "Empacotado",
+    "platform": "Plataforma",
+    "title": "Sobre o NovelTea",
+    "version": "Versão"
+  },
+  "aria": {
+    "applicationMenu": "Menu do aplicativo",
+    "closeWindow": "Fechar janela",
+    "maximizeWindow": "Maximizar janela",
+    "minimizeWindow": "Minimizar janela"
+  },
+  "items": {
+    "aboutNovelTea": "Sobre o NovelTea",
+    "actualSize": "Tamanho real",
+    "closeProject": "Fechar projeto",
+    "commandPalette": "Paleta de comandos…",
+    "documentation": "Documentação do NovelTea",
+    "newEntity": "Nova entidade",
+    "newProject": "Novo projeto",
+    "noRecentProjects": "Nenhum projeto recente",
+    "openProject": "Abrir projeto…",
+    "packageExport": "Exportar pacote…",
+    "projectSettings": "Configurações do projeto…",
+    "recentProjects": "Projetos recentes",
+    "toggleBottomPanel": "Alternar painel inferior",
+    "toggleMaximize": "Alternar maximização",
+    "validateProject": "Validar projeto",
+    "zoomIn": "Aumentar zoom",
+    "zoomOut": "Diminuir zoom"
+  },
+  "menus": {
+    "edit": "Editar",
+    "file": "Arquivo",
+    "help": "Ajuda",
+    "project": "Projeto",
+    "view": "Exibir",
+    "window": "Janela"
+  }
+}

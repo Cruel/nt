@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { AppShell } from '@/components/app-shell';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+import { editorI18n } from '@/i18n';
 
 vi.mock('@tanstack/react-router', () => ({
   useLocation: () => ({ pathname: '/' }),
@@ -46,5 +47,15 @@ describe('AppShell', () => {
       </AppShell>,
     );
     expect(screen.getByLabelText('Application menu')).toBeInTheDocument();
+  });
+
+  it('renders translated chrome labels after a language switch', async () => {
+    await editorI18n.changeLanguage('pt-BR');
+    renderWithProviders(
+      <AppShell>
+        <div />
+      </AppShell>,
+    );
+    expect(screen.getByLabelText('Menu do aplicativo')).toBeInTheDocument();
   });
 });

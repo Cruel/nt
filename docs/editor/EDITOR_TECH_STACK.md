@@ -355,6 +355,27 @@ Rules:
   data.
 - Keep preview protocol messages typed and validated.
 
+## Editor Localization
+
+Use `i18next` and `react-i18next` for editor UI localization when the editor
+starts supporting multiple interface languages. Follow
+`docs/editor/EDITOR_LOCALIZATION_IMPLEMENTATION_PLAN.md` for the implementation
+order, resource layout, language preference model, and separation between editor
+UI localization and future game-content localization.
+
+Localization scope:
+
+- Editor menus, settings, workbench labels, command palette metadata, dialogs,
+  validation prose, and other user-facing UI text.
+- The selected editor interface language belongs in editor preferences, not in
+  project documents.
+- Game/runtime content localization is a separate project-schema and engine
+  feature and should not be mixed into the editor UI translation files.
+
+Avoid adding browser language-detector or HTTP backend packages in the initial
+localization slice. The editor can use Electron's preferred system languages and
+bundle JSON resources through Vite.
+
 ## Testing Standards
 
 Use Vitest and Testing Library for renderer/editor TypeScript tests.
@@ -391,6 +412,7 @@ Add when the first matching editor needs them:
 @tanstack/react-form
 CodeMirror 6 packages / local CodeMirror wrapper
 @xyflow/react
+i18next / react-i18next
 ```
 
 Optional later:

@@ -1,8 +1,19 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { beforeEach, vi } from 'vitest';
+import { DEFAULT_EDITOR_LANGUAGE, editorI18n, initEditorI18n } from '@/i18n';
+
+await initEditorI18n({ language: DEFAULT_EDITOR_LANGUAGE });
+
+beforeEach(() => {
+  void editorI18n.changeLanguage(DEFAULT_EDITOR_LANGUAGE);
+});
 
 if (!window.PointerEvent) {
   Object.defineProperty(window, 'PointerEvent', { value: MouseEvent, writable: true, configurable: true });
+}
+
+if (!HTMLElement.prototype.scrollIntoView) {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: vi.fn(), writable: true, configurable: true });
 }
 
 Object.defineProperty(window, 'matchMedia', {
@@ -30,6 +41,8 @@ Object.defineProperty(window, 'noveltea', {
       packaged: false,
       frameless: false,
       nativeFrame: true,
+      preferredSystemLanguages: ['en-US'],
+      systemLocale: 'en-US',
     }),
     selectProjectDirectory: vi.fn().mockResolvedValue('/mock/project'),
     selectPackageOutputPath: vi.fn().mockResolvedValue('/mock/project/export.ntpkg'),
@@ -53,6 +66,8 @@ Object.defineProperty(window, 'noveltea', {
       packaged: false,
       frameless: !nativeFrame,
       nativeFrame,
+      preferredSystemLanguages: ['en-US'],
+      systemLocale: 'en-US',
     })),
     getEnginePreviewSession: vi.fn().mockResolvedValue({
       url: 'http://127.0.0.1:5000/?sessionToken=test-token',

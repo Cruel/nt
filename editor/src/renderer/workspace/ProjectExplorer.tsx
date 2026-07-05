@@ -58,18 +58,24 @@ import {
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { dispatchWorkspaceToolbarCommand } from './workspace-toolbar-events';
+import { WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from './workspace-toolbar-events';
 import { visualForCollection, chapterVisual, hiddenVisual } from './collection-visuals';
 import { buildProjectExplorerTree, collectiveCollectionSet, findProjectExplorerPlacementForTab, type ProjectExplorerNode } from './project-explorer-tree';
 import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
 import { RecentProjectsList } from './WorkspaceDashboard';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
 
-type EntityAction = 'create' | 'rename' | 'duplicate' | 'delete' | 'metadata';
+type EntityAction = 'rename' | 'duplicate' | 'delete' | 'metadata';
 
 interface EntityDialogState {
   action: EntityAction;
   collection: AuthoringCollectionKey;
   entityId?: string;
+}
+
+interface NewEntityWizardState {
+  collection?: AuthoringCollectionKey;
 }
 
 interface ExplorerAlert {
@@ -154,9 +160,7 @@ function EntityOperationDialog({
     setForceDelete(false);
     if (!state) return;
     const record = project && state.entityId ? project[state.collection][state.entityId] : null;
-    if (state.action === 'create') {
-      setId(''); setLabel(''); setDescription(''); setTags([]); setColor(''); setParentId(null);
-    } else if (state.action === 'duplicate') {
+    if (state.action === 'duplicate') {
       setId(defaultDuplicateId(state.entityId ?? 'record'));
       setLabel(record ? `${record.label} Copy` : 'Copy');
       setDescription(''); setTags([]); setColor(''); setParentId(null);
@@ -192,13 +196,7 @@ function EntityOperationDialog({
 
   function submit() {
     const state = activeState;
-    if (state.action === 'create') {
-      const entityId = id.trim();
-      finish(executeCommand({ type: 'entity.createRecord', label: `Create ${metadata.singularLabel}`, payload: { collection: state.collection, entityId, label: label.trim() || undefined } }), () => {
-        const tab = tabFor(state.collection, entityId, label.trim() || entityId);
-        if (tab) openTab(tab);
-      });
-    } else if (state.action === 'rename' && state.entityId) {
+    if (state.action === 'rename' && state.entityId) {
       const toId = id.trim();
       finish(executeCommand({ type: 'entity.renameId', label: `Rename ${state.collection}/${state.entityId}`, payload: { collection: state.collection, fromId: state.entityId, toId, label: label.trim() || undefined } }), () => {
         const tab = tabFor(state.collection, toId, label.trim() || toId);
@@ -220,10 +218,8 @@ function EntityOperationDialog({
     }
   }
 
-  const title = state.action === 'create'
-    ? `Create ${metadata.singularLabel}`
-    : state.action === 'rename'
-      ? `Rename ${state.entityId}`
+  const title = state.action === 'rename'
+    ? `Rename ${state.entityId}`
       : state.action === 'duplicate'
         ? `Duplicate ${state.entityId}`
         : state.action === 'delete'
@@ -273,7 +269,7 @@ function EntityOperationDialog({
   );
 }
 
-function ProjectHeading({ projectName }: { projectName: string }) {
+function ProjectHeading({ projectName, onCreate }: { projectName: string; onCreate: () => void }) {
   const openTab = useWorkbenchStore((state) => state.openTab);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
   const organizeByChapter = useProjectExplorerStore((state) => state.organizeByChapter);
@@ -296,6 +292,7 @@ function ProjectHeading({ projectName }: { projectName: string }) {
   return (
     <div className="flex items-center gap-2 border-b px-2 py-2">
       <div className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground" title={projectName}>{projectName}</div>
+      <Button className="h-6 gap-1 px-2 text-xs" size="sm" variant="ghost" onClick={onCreate}><FilePlus2 className="h-3.5 w-3.5" />New</Button>
       <Menu>
         <MenuTrigger className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent" aria-label="Project explorer menu"><MoreHorizontal className="h-3.5 w-3.5" /></MenuTrigger>
         <MenuPopup className="w-auto min-w-56">
@@ -363,12 +360,14 @@ function ExplorerContextMenu({
   project,
   onClose,
   openDialog,
+  openCreateWizard,
   showAlert,
 }: {
   state: ContextMenuState | null;
   project: AuthoringProject | null;
   onClose: () => void;
   openDialog: (state: EntityDialogState) => void;
+  openCreateWizard: (state: NewEntityWizardState) => void;
   showAlert: (alert: ExplorerAlert) => void;
 }) {
   const openTab = useWorkbenchStore((store) => store.openTab);
@@ -476,7 +475,7 @@ function ExplorerContextMenu({
           {collective ? <button className={itemClass} onClick={() => { openNode(); onClose(); }}><File className="h-3.5 w-3.5" /> Open</button> : null}
           {collection === 'assets' ? <button className={itemClass} onClick={() => { openTab(buildImageGenerationTab()); onClose(); }}><FilePlus2 className="h-3.5 w-3.5" /> Generate Image</button> : null}
           {collection === 'assets' ? <button className={itemClass} onClick={() => { void importAssetsFromFolder(); onClose(); }}><FilePlus2 className="h-3.5 w-3.5" /> Import Assets</button> : null}
-          {!collective ? <button className={itemClass} onClick={() => { openDialog({ action: 'create', collection }); onClose(); }}><FilePlus2 className="h-3.5 w-3.5" /> Create {authoringCollectionMetadata[collection].singularLabel}</button> : null}
+          {!collective ? <button className={itemClass} onClick={() => { openCreateWizard({ collection }); onClose(); }}><FilePlus2 className="h-3.5 w-3.5" /> Create {authoringCollectionMetadata[collection].singularLabel}</button> : null}
           <div className="my-1 h-px bg-border" />
           <button className={itemClass} onClick={() => { hideCollection(!isHidden); onClose(); }}>{isHidden ? 'Unhide Category' : 'Hide Category'}</button>
         </>
@@ -609,6 +608,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const tabsById = useWorkbenchStore((state) => state.tabsById);
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const [dialogState, setDialogState] = useState<EntityDialogState | null>(null);
+  const [newEntityWizard, setNewEntityWizard] = useState<NewEntityWizardState | null>(null);
   const [alert, setAlert] = useState<ExplorerAlert | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [hoverDetails, setHoverDetails] = useState<HoverDetailsState | null>(null);
@@ -694,6 +694,22 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     return () => window.cancelAnimationFrame(frame);
   }, [activeNodeId, followActiveTab, tree]);
 
+  useEffect(() => {
+    if (!project) return;
+    function openWizard(event: Event) {
+      const detail = (event as CustomEvent<WorkspaceToolbarCommandDetail>).detail;
+      const command = typeof detail === 'string' ? detail : detail?.command;
+      if (event.type === 'noveltea-open-new-entity-wizard') setNewEntityWizard({});
+      if (command === 'new-entity') setNewEntityWizard({});
+    }
+    window.addEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, openWizard);
+    window.addEventListener('noveltea-open-new-entity-wizard', openWizard);
+    return () => {
+      window.removeEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, openWizard);
+      window.removeEventListener('noveltea-open-new-entity-wizard', openWizard);
+    };
+  }, [project]);
+
   if (!project) {
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -710,7 +726,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ProjectHeading projectName={project.project.name.trim() || 'Project'} />
+      <ProjectHeading projectName={project.project.name.trim() || 'Project'} onCreate={() => setNewEntityWizard({})} />
       <div className="border-b">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -755,8 +771,9 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
         {tree.length === 0 && isFiltering ? <div className="p-3 text-xs text-muted-foreground">No project records match the current search.</div> : null}
       </div>
       {showInfoOnHover ? <ProjectExplorerHoverDetails state={hoverDetails} project={project} /> : null}
-      <ExplorerContextMenu state={contextMenu} project={project} onClose={() => setContextMenu(null)} openDialog={setDialogState} showAlert={setAlert} />
+      <ExplorerContextMenu state={contextMenu} project={project} onClose={() => setContextMenu(null)} openDialog={setDialogState} openCreateWizard={setNewEntityWizard} showAlert={setAlert} />
       <EntityOperationDialog state={dialogState} project={project} onClose={() => setDialogState(null)} />
+      <NewEntityWizardDialog open={newEntityWizard !== null} project={project} initialCollection={newEntityWizard?.collection ?? null} onOpenChange={(open) => { if (!open) setNewEntityWizard(null); }} />
       <Dialog open={alert !== null} onOpenChange={(open) => { if (!open) setAlert(null); }}>
         <DialogPopup>
           <DialogTitle>{alert?.title ?? 'Project explorer warning'}</DialogTitle>

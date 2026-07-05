@@ -1,0 +1,54 @@
+{
+  "bottomPanel": {
+    "empty": {
+      "commandHistory": "Ainda não há comandos de projeto.",
+      "output": "Ainda não há entradas de saída.",
+      "previewEvents": "Ainda não há eventos de visualização.",
+      "problems": "Nenhum diagnóstico de validação."
+    },
+    "labels": {
+      "commandHistory": "Histórico de comandos",
+      "output": "Saída",
+      "packageExport": "Exportação de pacote",
+      "previewDiagnostics": "Diagnósticos da visualização",
+      "previewEvents": "Eventos da visualização",
+      "problems": "Problemas",
+      "references": "Referências",
+      "shaderCompile": "Compilação de shaders",
+      "testPlayback": "Reprodução de testes"
+    },
+    "lastCommandDiagnostics": "Diagnósticos do último comando",
+    "toggle": "Alternar painel inferior"
+  },
+  "commandPalette": {
+    "actions": {
+      "assets": {
+        "search": ["recursos", "navegador de recursos", "imagens áudio fontes", "assets", "asset browser", "images audio fonts"],
+        "subtitle": "Abrir navegador de recursos",
+        "title": "Recursos"
+      },
+      "projectSettings": {
+        "search": ["configurações", "configurações do projeto", "preferências", "settings", "project settings", "preferences"],
+        "subtitle": "Abrir configurações do projeto",
+        "title": "Configurações do projeto"
+      },
+      "tests": {
+        "search": ["testes", "testes de reprodução", "testes smoke", "tests", "playback tests", "smoke tests"],
+        "subtitle": "Abrir testes de reprodução",
+        "title": "Testes"
+      },
+      "variables": {
+        "search": ["variáveis", "estado flags", "variables", "state flags"],
+        "subtitle": "Abrir editor de variáveis",
+        "title": "Variáveis"
+      }
+    },
+    "empty": "Nenhum comando ou registro corresponde à busca.",
+    "placeholder": "Digite um comando ou nome de registro",
+    "title": "Paleta de comandos"
+  },
+  "sidebar": {
+    "components": "Componentes",
+    "settings": "Configurações"
+  }
+}

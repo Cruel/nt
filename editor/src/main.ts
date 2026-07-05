@@ -115,6 +115,8 @@ function getAppInfoPayload() {
     packaged: app.isPackaged,
     frameless: currentFramelessWindow,
     nativeFrame: currentNativeWindowFrame,
+    preferredSystemLanguages: app.getPreferredSystemLanguages(),
+    systemLocale: app.getSystemLocale(),
   };
 }
 
@@ -173,54 +175,9 @@ function installWindowShortcuts(window: BrowserWindow) {
 }
 
 function installApplicationMenu() {
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'File',
-      submenu: [
-        { role: 'close' },
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        ...(isDev ? [
-          { role: 'forceReload' as const },
-          { role: 'toggleDevTools' as const },
-          { type: 'separator' as const },
-        ] : []),
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'close' },
-      ],
-    },
-  ];
-
-  Menu.setApplicationMenu(
-    process.platform === 'darwin' ? Menu.buildFromTemplate(template) : null,
-  );
+  // NovelTea uses the renderer-owned app menu/chrome. Do not expose a native
+  // Electron application menu on any platform.
+  Menu.setApplicationMenu(null);
 }
 
 function createWindow() {

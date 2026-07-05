@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { PageHeader } from '@/components/page-header';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { codeEditorThemeLabel, codeEditorThemeOptions } from '@/components/source/source-editor-themes';
 import type { CodeEditorThemeId } from '@/components/source/source-editor-theme-types';
+import { SUPPORTED_EDITOR_LANGUAGES, languageLabel, resolveEditorLanguage, type EditorLanguage } from '@/i18n';
 import {
   usePreferencesStore,
   type Theme,
@@ -72,6 +74,7 @@ function CodeEditorThemeDialog({
   currentTheme: CodeEditorThemeId;
   onApply: (theme: CodeEditorThemeId) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   const [open, setOpen] = useState(false);
   const [draftTheme, setDraftTheme] = useState<CodeEditorThemeId>(currentTheme);
   const currentIndex = Math.max(0, codeEditorThemeOptions.findIndex((option) => option.id === draftTheme));
@@ -101,15 +104,15 @@ function CodeEditorThemeDialog({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="!max-w-[min(960px,calc(100vw-2rem))] gap-4 p-5">
           <DialogHeader>
-            <DialogTitle>Code Editor Theme</DialogTitle>
+            <DialogTitle>{t('settings:codeEditor.dialog.title')}</DialogTitle>
             <DialogDescription>
-              Choose the syntax editor palette used by source, script, and shader editors.
+              {t('settings:codeEditor.dialog.description')}
             </DialogDescription>
           </DialogHeader>
           <div className="grid min-h-0 gap-4">
             <div className="grid gap-3 md:grid-cols-[minmax(220px,320px)_1fr] md:items-end">
               <div className="space-y-1">
-                <Label>Theme</Label>
+                <Label>{t('settings:codeEditor.selectTheme')}</Label>
                 <Select value={draftTheme} onValueChange={(value) => setDraftTheme(value as CodeEditorThemeId)}>
                   <SelectTrigger className="w-full">
                     <SelectValue>{draftOption.label}</SelectValue>
@@ -127,13 +130,13 @@ function CodeEditorThemeDialog({
               <div className="flex min-w-0 items-center gap-2">
                 <div className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2">
                   <div className="truncate text-xs font-medium">{draftOption.label}</div>
-                  <div className="shrink-0 text-[11px] text-muted-foreground">{currentIndex + 1} of {codeEditorThemeOptions.length}</div>
+                  <div className="shrink-0 text-[11px] text-muted-foreground">{t('settings:codeEditor.dialog.position', { current: currentIndex + 1, total: codeEditorThemeOptions.length })}</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button type="button" variant="outline" size="icon-sm" onClick={() => cycle(-1)} aria-label="Previous editor theme">
+                  <Button type="button" variant="outline" size="icon-sm" onClick={() => cycle(-1)} aria-label={t('settings:codeEditor.dialog.previousTheme')}>
                     <ChevronLeft />
                   </Button>
-                  <Button type="button" variant="outline" size="icon-sm" onClick={() => cycle(1)} aria-label="Next editor theme">
+                  <Button type="button" variant="outline" size="icon-sm" onClick={() => cycle(1)} aria-label={t('settings:codeEditor.dialog.nextTheme')}>
                     <ChevronRight />
                   </Button>
                 </div>
@@ -150,8 +153,8 @@ function CodeEditorThemeDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="button" onClick={applyTheme}>Apply Theme</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>{t('common:actions.cancel')}</Button>
+            <Button type="button" onClick={applyTheme}>{t('common:actions.applyTheme')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -160,15 +163,20 @@ function CodeEditorThemeDialog({
 }
 
 export function SettingsPage() {
+  const { t } = useTranslation(['settings', 'common']);
   const theme = usePreferencesStore((s) => s.theme);
+  const language = usePreferencesStore((s) => s.language);
   const codeEditorTheme = usePreferencesStore((s) => s.codeEditorTheme);
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const setTheme = usePreferencesStore((s) => s.setTheme);
+  const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const [nativeFrame, setNativeFrame] = useState(false);
   const [nativeFrameDefault, setNativeFrameDefault] = useState(false);
   const [nativeFrameSaved, setNativeFrameSaved] = useState(false);
+  const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
+  const effectiveLanguage = resolveEditorLanguage(language, preferredSystemLanguages);
 
   useEffect(() => {
     let mounted = true;
@@ -176,6 +184,7 @@ export function SettingsPage() {
       if (!mounted) return;
       setNativeFrame(info.nativeFrame);
       setNativeFrameDefault(info.platform === 'linux');
+      setPreferredSystemLanguages(info.preferredSystemLanguages);
     });
     return () => {
       mounted = false;
@@ -194,36 +203,36 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader
-        title="Settings"
-        description="Editor preferences"
+        title={t('settings:page.title')}
+        description={t('settings:page.description')}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 [&>*]:shrink-0">
         <Card>
           <CardHeader>
-            <CardTitle>Theme</CardTitle>
+            <CardTitle>{t('settings:theme.title')}</CardTitle>
             <CardDescription>
-              Choose your preferred appearance
+              {t('settings:theme.description')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex gap-3">
               <ThemeOption
                 value="system"
-                label="System"
+                label={t('settings:theme.options.system')}
                 icon={Monitor}
                 current={theme}
                 onSelect={setTheme}
               />
               <ThemeOption
                 value="light"
-                label="Light"
+                label={t('settings:theme.options.light')}
                 icon={Sun}
                 current={theme}
                 onSelect={setTheme}
               />
               <ThemeOption
                 value="dark"
-                label="Dark"
+                label={t('settings:theme.options.dark')}
                 icon={Moon}
                 current={theme}
                 onSelect={setTheme}
@@ -234,17 +243,17 @@ export function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Code Editor</CardTitle>
+            <CardTitle>{t('settings:codeEditor.title')}</CardTitle>
             <CardDescription>
-              Source editor theme and preview
+              {t('settings:codeEditor.description')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between gap-6">
               <div>
-                <Label>Editor theme</Label>
+                <Label>{t('settings:codeEditor.editorTheme')}</Label>
                 <p className="text-xs text-muted-foreground">
-                  Applies to RML, RCSS, Lua, shader, and JSON source editors.
+                  {t('settings:codeEditor.editorThemeDescription')}
                 </p>
               </div>
               <CodeEditorThemeDialog currentTheme={codeEditorTheme} onApply={setCodeEditorTheme} />
@@ -254,21 +263,53 @@ export function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Window</CardTitle>
+            <CardTitle>{t('settings:language.title')}</CardTitle>
+            <CardDescription>{t('settings:language.description')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label>{t('settings:language.label')}</Label>
+                {language === 'system' ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:language.effective', { language: languageLabel(effectiveLanguage) })}
+                  </p>
+                ) : null}
+              </div>
+              <Select value={language} onValueChange={(value) => setLanguage(value as EditorLanguage)}>
+                <SelectTrigger className="min-w-56">
+                  <SelectValue>{t(`settings:language.options.${language}`)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="system">{t('settings:language.options.system')}</SelectItem>
+                  {SUPPORTED_EDITOR_LANGUAGES.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {t(`settings:language.options.${option.value}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('settings:window.title')}</CardTitle>
             <CardDescription>
-              Native frame and custom chrome behavior
+              {t('settings:window.description')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between gap-6">
               <div>
-                <Label htmlFor="native-window-frame">Use native window frame</Label>
+                <Label htmlFor="native-window-frame">{t('settings:window.nativeFrame')}</Label>
                 <p className="text-xs text-muted-foreground">
-                  Uses the operating system title bar and window controls. Restart the editor to apply this change.
+                  {t('settings:window.nativeFrameDescription')}
                 </p>
                 {nativeFrameSaved && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Saved. Restart the editor for the frame mode change to take effect.
+                    {t('settings:window.nativeFrameSaved')}
                   </p>
                 )}
               </div>
@@ -283,17 +324,17 @@ export function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Workspace</CardTitle>
+            <CardTitle>{t('settings:workspace.title')}</CardTitle>
             <CardDescription>
-              Editor layout defaults
+              {t('settings:workspace.description')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                <Label htmlFor="restore-last-project">Restore last open project on startup</Label>
+                <Label htmlFor="restore-last-project">{t('settings:workspace.restoreLastProject')}</Label>
                 <p className="text-xs text-muted-foreground">
-                  Automatically reopen the last project file when the editor starts.
+                  {t('settings:workspace.restoreLastProjectDescription')}
                 </p>
               </div>
               <Switch
@@ -310,12 +351,13 @@ export function SettingsPage() {
             variant="outline"
             onClick={() => {
               setTheme('system');
+              setLanguage('system');
               setCodeEditorTheme('noveltea');
               setRestoreLastProjectOnStart(true);
               updateNativeFrame(nativeFrameDefault);
             }}
           >
-            Reset to Defaults
+            {t('common:actions.resetToDefaults')}
           </Button>
         </div>
       </div>

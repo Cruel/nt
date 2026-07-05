@@ -1,0 +1,54 @@
+{
+  "codeEditor": {
+    "description": "Tema e visualização do editor de código",
+    "dialog": {
+      "description": "Escolha a paleta do editor de sintaxe usada por editores de código, scripts e shaders.",
+      "nextTheme": "Próximo tema do editor",
+      "position": "{{current}} de {{total}}",
+      "previousTheme": "Tema anterior do editor",
+      "title": "Tema do editor de código"
+    },
+    "editorTheme": "Tema do editor",
+    "editorThemeDescription": "Aplica-se aos editores de código RML, RCSS, Lua, shader e JSON.",
+    "selectTheme": "Tema",
+    "title": "Editor de código"
+  },
+  "language": {
+    "description": "Controla o idioma da interface do editor.",
+    "effective": "No momento, o sistema resolve para {{language}}.",
+    "label": "Idioma",
+    "options": {
+      "en-US": "Inglês (Estados Unidos)",
+      "pt-BR": "Português (Brasil)",
+      "pseudo": "Pseudo-localizado",
+      "system": "Sistema"
+    },
+    "title": "Idioma"
+  },
+  "page": {
+    "description": "Preferências do editor",
+    "title": "Configurações"
+  },
+  "theme": {
+    "description": "Escolha sua aparência preferida",
+    "options": {
+      "dark": "Escuro",
+      "light": "Claro",
+      "system": "Sistema"
+    },
+    "title": "Tema"
+  },
+  "window": {
+    "description": "Comportamento da moldura nativa e do chrome personalizado",
+    "nativeFrame": "Usar moldura nativa da janela",
+    "nativeFrameDescription": "Usa a barra de título e os controles de janela do sistema operacional. Reinicie o editor para aplicar esta alteração.",
+    "nativeFrameSaved": "Salvo. Reinicie o editor para que a alteração do modo da moldura entre em vigor.",
+    "title": "Janela"
+  },
+  "workspace": {
+    "description": "Padrões de layout do editor",
+    "restoreLastProject": "Restaurar o último projeto aberto ao iniciar",
+    "restoreLastProjectDescription": "Reabre automaticamente o último arquivo de projeto quando o editor inicia.",
+    "title": "Área de trabalho"
+  }
+}
