@@ -69,9 +69,10 @@ interface EnginePreviewProps {
   previewDocument?: PreviewDocument;
   previewMode?: PreviewMode;
   renderControls?: (context: EnginePreviewControlsContext) => ReactNode;
+  onPreviewMessage?: (message: PreviewToEditorMessage) => void;
 }
 
-export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode = 'runtime', renderControls }: EnginePreviewProps) {
+export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode = 'runtime', renderControls, onPreviewMessage }: EnginePreviewProps) {
   const embedded = chrome === 'minimal';
   const sessionId = embedded && previewDocument && previewDocument.kind !== 'symbolic'
     ? `${previewDocument.kind}:${previewDocument.recordId}`
@@ -120,6 +121,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   }, [embedded, recordPreviewDiagnostic, sessionId, setConnectionState, setSessionStatus, setStatusMessage]);
 
   const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
+    onPreviewMessage?.(message);
     if (!embedded) setLastPreviewEvent(message);
     if (message.type === 'ready' || message.type === 'capabilities') {
       setSessionCapabilities(sessionId, message.capabilities);
@@ -147,7 +149,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
       recordPreviewDiagnostic({ sessionId, severity: 'error', source: 'runtime', message: message.message });
       if (!embedded) setStatusMessage(message.message);
     }
-  }, [activateContainingWorkbenchGroup, embedded, recordPreviewDiagnostic, sessionId, setConnectionState, setLastPreviewEvent, setSelectedRuntimeObjectId, setSessionCapabilities, setSessionStatus, setStatusMessage]);
+  }, [activateContainingWorkbenchGroup, embedded, onPreviewMessage, recordPreviewDiagnostic, sessionId, setConnectionState, setLastPreviewEvent, setSelectedRuntimeObjectId, setSessionCapabilities, setSessionStatus, setStatusMessage]);
 
   const controller = useEnginePreview({
     onReady: () => {

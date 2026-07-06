@@ -156,6 +156,7 @@ export function useEnginePreview({
     selectRuntimeObject: (objectId: string) => send({ type: 'runtime-select-object', objectId }),
     clearRuntimeObjectSelection: () => send({ type: 'runtime-clear-object-selection' }),
     runRuntimeAction: (verbId: string, objectIds: string[]) => send({ type: 'runtime-run-action', verbId, objectIds }),
+    requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
     play: () => send({ type: 'play' }),
     stop: () => send({ type: 'stop' }),
     requestState: () => send({ type: 'request-state' }),

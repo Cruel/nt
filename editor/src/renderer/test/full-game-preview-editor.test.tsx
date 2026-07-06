@@ -6,6 +6,8 @@ import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useProjectStore } from '@/project/project-store';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 class FakePort {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -159,5 +161,71 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort } = await renderConnectedPreview();
     await user.click(screen.getByLabelText('Reload engine preview'));
     expect(editorPort.closed).toBe(true);
+  });
+
+  it('requests a runtime debug snapshot after ready and completed runtime commands', async () => {
+    const user = userEvent.setup();
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() => expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-request-debug-snapshot',
+      requestId: expect.any(String),
+    }));
+
+    const initialSnapshotRequests = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot').length;
+    await user.click(screen.getByText('Continue'));
+    const continueRequest = editorPort.sent.find((message) => (message as { type?: string }).type === 'runtime-continue') as { requestId: string };
+    await act(async () => {
+      previewPort.postMessage({ version: 1, type: 'command-result', requestId: continueRequest.requestId, ok: true });
+    });
+
+    await waitFor(() => {
+      const snapshotRequests = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot');
+      expect(snapshotRequests.length).toBeGreaterThan(initialSnapshotRequests);
+    });
+  });
+
+  it('renders runtime debug snapshots with authoring metadata labels', async () => {
+    const project = createAuthoringProject();
+    project.variables.flag = { id: 'flag', label: 'Has Key', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' }, tags: [] };
+    project.rooms.foyer = { id: 'foyer', label: 'Grand Foyer', data: {}, tags: [] };
+    project.objects.key = { id: 'key', label: 'Brass Key', data: {}, tags: [] };
+    project.verbs.look = { id: 'look', label: 'Inspect', data: {}, tags: [] };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { previewPort } = await renderConnectedPreview();
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'runtime-debug-snapshot',
+        snapshot: {
+          loaded: true,
+          running: true,
+          shellMode: 'gameplay',
+          runtimeMode: 'room',
+          currentRoomId: 'foyer',
+          waiting: { kind: 'action', canContinue: false, reason: 'object action available' },
+          availableInputs: {
+            continue: false,
+            dialogueOptions: [],
+            navigation: [],
+            actions: [{ verbId: 'look', label: 'look', objectCount: 1, selectedCount: 1, enabled: true }],
+            selectedObjects: ['key'],
+            clickableTargets: [],
+        },
+          variables: [{ id: 'flag', label: 'flag', type: 'boolean', value: true, defaultValue: false, dirty: true }],
+          inventory: [{ id: 'key', label: 'key', selected: true }],
+        selectedObjects: ['key'],
+          diagnostics: [],
+          saveSnapshot: { variables: { flag: true }, inventory: ['key'] },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getAllByText('Grand Foyer').length).toBeGreaterThan(0));
+    expect(screen.getByText('Has Key')).toBeInTheDocument();
+    expect(screen.getAllByText('Brass Key').length).toBeGreaterThan(0);
+    expect(screen.getByText('Inspect (1/1)')).toBeInTheDocument();
+    expect(screen.getByText('Runtime snapshot refreshed')).toBeInTheDocument();
   });
 });
