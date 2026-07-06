@@ -80,6 +80,18 @@ async function renderConnectedPreview() {
   return { iframe, editorPort: ports[0]!, previewPort: ports[1]! };
 }
 
+function latestRequest(editorPort: FakePort, type: string) {
+  return [...editorPort.sent].reverse().find((message) => (message as { type?: string }).type === type) as { requestId: string } | undefined;
+}
+
+async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: string) {
+  const request = latestRequest(editorPort, type);
+  expect(request).toBeDefined();
+  await act(async () => {
+    previewPort.postMessage({ version: 1, type: 'command-result', requestId: request!.requestId, ok: true });
+  });
+}
+
 describe('FullGamePreviewEditor', () => {
   it('owns the runtime transport controls and sends runtime commands', async () => {
     const user = userEvent.setup();
@@ -275,5 +287,75 @@ describe('FullGamePreviewEditor', () => {
     expect(screen.getAllByText('Brass Key').length).toBeGreaterThan(0);
     expect(screen.getByText('Inspect (1/1)')).toBeInTheDocument();
     expect(screen.getByText('Runtime snapshot refreshed')).toBeInTheDocument();
+  });
+
+  it('records semantic runtime inputs and keeps trace events separate', async () => {
+    const user = userEvent.setup();
+    const { editorPort, previewPort } = await renderConnectedPreview();
+
+    await user.click(screen.getByText('Recording'));
+    await user.click(screen.getByText('Start Recording'));
+    await user.click(screen.getByText('Continue'));
+
+    await waitFor(() => expect(screen.getByText('1. Continue')).toBeInTheDocument());
+    expect(screen.getAllByText(/"type": "continue"/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Recorded Continue')).toBeInTheDocument();
+
+    await act(async () => {
+      previewPort.postMessage({ version: 1, type: 'command-result', requestId: latestRequest(editorPort, 'runtime-continue')!.requestId, ok: true });
+      previewPort.postMessage({ version: 1, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: 'trace-only warning' } });
+    });
+
+    await waitFor(() => expect(screen.getAllByText('trace-only warning').length).toBeGreaterThan(0));
+    expect(screen.queryByText(/ui-click/i)).toBeInTheDocument();
+  });
+
+  it('undoes the last recorded action by reset and replaying the remaining actions', async () => {
+    const user = userEvent.setup();
+    const { editorPort, previewPort } = await renderConnectedPreview();
+
+    await user.click(screen.getByText('Recording'));
+    await user.click(screen.getByText('Start Recording'));
+    await user.click(screen.getByText('Continue'));
+    await user.click(screen.getByText('Nav 0'));
+    await waitFor(() => expect(screen.getByText('2. Navigate 0')).toBeInTheDocument());
+
+    await user.click(screen.getByText('Undo Last'));
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-reset')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-reset');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-continue')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-continue');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
+
+    await waitFor(() => expect(screen.queryByText('2. Navigate 0')).not.toBeInTheDocument());
+    expect(screen.getByText('1. Continue')).toBeInTheDocument();
+    expect(screen.getByText('Undo last recorded action')).toBeInTheDocument();
+    const resetCount = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-reset').length;
+    expect(resetCount).toBeGreaterThan(0);
+  });
+
+  it('replays the current draft without persisting authoring tests', async () => {
+    const user = userEvent.setup();
+    const { editorPort, previewPort } = await renderConnectedPreview();
+
+    await user.click(screen.getByText('Recording'));
+    await user.click(screen.getByText('Start Recording'));
+    await user.click(screen.getByText('Choice 0'));
+    await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
+    await user.click(screen.getByText('Stop'));
+
+    expect(screen.getByText('Save as New Test')).toBeDisabled();
+    expect(screen.getByText('Apply to Existing Test')).toBeDisabled();
+
+    await user.click(screen.getByText('Replay'));
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-reset')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-reset');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-dialogue-option')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-dialogue-option');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
+
+    expect(screen.getByText('Replaying 1 recorded action')).toBeInTheDocument();
   });
 });

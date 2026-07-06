@@ -4,6 +4,7 @@ import {
   Clipboard,
   Database,
   FastForward,
+  FilePlus2,
   MousePointer2,
   PackagePlus,
   Play,
@@ -26,6 +27,43 @@ import { parseVariableData, parseVariableDefaultText, variableDefaultValueToText
 import type { RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage, RuntimeFastForwardResult } from '../../../shared/preview-protocol';
 
 type FullGamePreviewMode = 'debug' | 'recording';
+type RecordedRuntimeInputKind = 'continue' | 'dialogue-option' | 'navigate' | 'select-object' | 'clear-object-selection' | 'run-action';
+type RuntimeCommandFactory = () => Promise<void | RuntimeFastForwardResult>;
+
+interface RecordedRuntimeAction {
+  id: string;
+  kind: RecordedRuntimeInputKind;
+  label: string;
+  recordedAt: string;
+  input: {
+    type: RecordedRuntimeInputKind;
+    optionIndex?: number;
+    direction?: number;
+    objectId?: string;
+    verbId?: string;
+    objectIds?: string[];
+  };
+}
+
+interface RecorderTraceEvent {
+  id: string;
+  label: string;
+  detail?: string;
+  severity: RuntimeLogEntry['severity'];
+  capturedAt: string;
+}
+
+interface RecordedTestDraft {
+  mode: 'idle' | 'recording' | 'replaying' | 'failed';
+  actions: RecordedRuntimeAction[];
+  traceEvents: RecorderTraceEvent[];
+  replayError?: string;
+}
+
+interface RuntimeCommandOptions {
+  running?: boolean;
+  recordedAction?: RecordedRuntimeAction;
+}
 
 interface RuntimeLogEntry {
   id: string;
@@ -86,6 +124,10 @@ function addLogEntry(entries: RuntimeLogEntry[], entry: Omit<RuntimeLogEntry, 'i
   return [{ ...entry, id: `${Date.now()}-${entries.length}` }, ...entries].slice(0, 80);
 }
 
+function addTraceEvent(events: RecorderTraceEvent[], entry: Omit<RecorderTraceEvent, 'id' | 'capturedAt'>): RecorderTraceEvent[] {
+  return [{ ...entry, id: crypto.randomUUID(), capturedAt: new Date().toISOString() }, ...events].slice(0, 120);
+}
+
 function fastForwardDetail(result: RuntimeFastForwardResult) {
   const parts = [
     `reason=${result.reason}`,
@@ -126,6 +168,46 @@ function previewMessageLabel(message: PreviewToEditorMessage): Omit<RuntimeLogEn
   if (message.type === 'fps-counter') return null;
   if (message.type === 'command-result') return null;
   return null;
+}
+
+function recordedActionLabel(action: RecordedRuntimeAction) {
+  switch (action.kind) {
+    case 'continue':
+      return 'Continue';
+    case 'dialogue-option':
+      return `Choice ${action.input.optionIndex ?? '—'}`;
+    case 'navigate':
+      return `Navigate ${action.input.direction ?? '—'}`;
+    case 'select-object':
+      return `Select object ${action.input.objectId ?? '—'}`;
+    case 'clear-object-selection':
+      return 'Clear object selection';
+    case 'run-action':
+      return `Run ${action.input.verbId ?? 'action'}`;
+    default:
+      return action.label;
+  }
+}
+
+function createRecordedAction(kind: RecordedRuntimeInputKind, label: string, input: RecordedRuntimeAction['input']): RecordedRuntimeAction {
+  return { id: crypto.randomUUID(), kind, label, input, recordedAt: new Date().toISOString() };
+}
+
+function executeRecordedAction(action: RecordedRuntimeAction, context: EnginePreviewControlsContext) {
+  switch (action.input.type) {
+    case 'continue':
+      return context.controller.continueRuntime();
+    case 'dialogue-option':
+      return context.controller.selectDialogueOption(action.input.optionIndex ?? 0);
+    case 'navigate':
+      return context.controller.navigateRuntime(action.input.direction ?? 0);
+    case 'select-object':
+      return context.controller.selectRuntimeObject(action.input.objectId ?? '');
+    case 'clear-object-selection':
+      return context.controller.clearRuntimeObjectSelection();
+    case 'run-action':
+      return context.controller.runRuntimeAction(action.input.verbId ?? '', action.input.objectIds ?? []);
+  }
 }
 
 function InfoRow({ label, value }: { label: string; value: string | number | boolean | undefined | null }) {
@@ -172,7 +254,7 @@ function RuntimeSummaryPanel({ snapshot, project }: { snapshot: RuntimeDebugSnap
   );
 }
 
-function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; onCommand: (command: Promise<void>, label: string) => void }) {
+function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const controller = controlsContext?.controller ?? null;
   const inputs = snapshot?.availableInputs;
   return (
@@ -184,17 +266,29 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
         <Badge variant="outline">Actions {inputs?.actions.length ?? 0}</Badge>
       </div>
       {inputs?.dialogueOptions.slice(0, 4).map((option) => (
-        <Button key={option.index} size="sm" variant="outline" className="w-full justify-start" disabled={!option.enabled || !controller} onClick={() => controller && onCommand(controller.selectDialogueOption(option.index), `Dialogue option ${option.index} sent`)}>
+        <Button key={option.index} size="sm" variant="outline" className="w-full justify-start" disabled={!option.enabled || !controller} onClick={() => controller && onCommand(
+          () => controller.selectDialogueOption(option.index),
+          `Dialogue option ${option.index} sent`,
+          { recordedAction: createRecordedAction('dialogue-option', option.label, { type: 'dialogue-option', optionIndex: option.index }) },
+        )}>
           Choice {option.index}: {option.label}
         </Button>
       ))}
       {inputs?.navigation.slice(0, 4).map((direction) => (
-        <Button key={direction.index} size="sm" variant="outline" className="w-full justify-start" disabled={!direction.enabled || !controller} onClick={() => controller && onCommand(controller.navigateRuntime(direction.index), `Navigate ${direction.index} sent`)}>
+        <Button key={direction.index} size="sm" variant="outline" className="w-full justify-start" disabled={!direction.enabled || !controller} onClick={() => controller && onCommand(
+          () => controller.navigateRuntime(direction.index),
+          `Navigate ${direction.index} sent`,
+          { recordedAction: createRecordedAction('navigate', direction.label, { type: 'navigate', direction: direction.index }) },
+        )}>
           Navigate {direction.index}: {direction.label}
         </Button>
       ))}
       {inputs?.actions.slice(0, 4).map((action) => (
-        <Button key={action.verbId} size="sm" variant="outline" className="w-full justify-start" disabled={!action.enabled || !controller} onClick={() => controller && onCommand(controller.runRuntimeAction(action.verbId, inputs.selectedObjects), `Action ${action.verbId} sent`)}>
+        <Button key={action.verbId} size="sm" variant="outline" className="w-full justify-start" disabled={!action.enabled || !controller} onClick={() => controller && onCommand(
+          () => controller.runRuntimeAction(action.verbId, inputs.selectedObjects),
+          `Action ${action.verbId} sent`,
+          { recordedAction: createRecordedAction('run-action', action.label || action.verbId, { type: 'run-action', verbId: action.verbId, objectIds: inputs.selectedObjects }) },
+        )}>
           {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
         </Button>
       ))}
@@ -224,7 +318,7 @@ function VariableDebugRow({
   project: AuthoringProject | null;
   controlsContext: EnginePreviewControlsContext | null;
   mutationDisabled: boolean;
-  onCommand: (command: Promise<void>, label: string) => void;
+  onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void;
 }) {
   const record = recordFor(project, 'variables', variable.id);
   const data = record ? parseVariableData(record.data) : null;
@@ -247,14 +341,14 @@ function VariableDebugRow({
       <Input className="mt-2 h-7 font-mono text-xs" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`Debug variable ${variable.id} value`} />
       {!parsed.ok ? <div className="mt-1 text-[11px] text-destructive">{parsed.message}</div> : null}
       <div className="mt-2 flex gap-2">
-        <Button size="sm" variant="secondary" disabled={disabled || !parsed.ok} onClick={() => controller && parsed.ok && onCommand(controller.setRuntimeVariable(variable.id, parsed.value), `Debug set ${variable.id}`)}>Debug set</Button>
-        <Button size="sm" variant="ghost" disabled={disabled} onClick={() => controller && onCommand(controller.resetRuntimeVariable(variable.id), `Debug reset ${variable.id}`)}>Debug reset</Button>
+        <Button size="sm" variant="secondary" disabled={disabled || !parsed.ok} onClick={() => controller && parsed.ok && onCommand(() => controller.setRuntimeVariable(variable.id, parsed.value), `Debug set ${variable.id}`)}>Debug set</Button>
+        <Button size="sm" variant="ghost" disabled={disabled} onClick={() => controller && onCommand(() => controller.resetRuntimeVariable(variable.id), `Debug reset ${variable.id}`)}>Debug reset</Button>
       </div>
     </div>
   );
 }
 
-function VariablesPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: Promise<void>, label: string) => void }) {
+function VariablesPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const variables = snapshot?.variables ?? [];
   return (
     <Panel title="Variables" icon={<Database className="h-3.5 w-3.5" />}>
@@ -264,7 +358,7 @@ function VariablesPanel({ snapshot, project, controlsContext, mutationDisabled, 
   );
 }
 
-function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: Promise<void>, label: string) => void }) {
+function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const inventory = snapshot?.inventory ?? [];
   const objectIds = useMemo(() => project ? Object.keys(project.objects) : [], [project]);
   const [selectedObjectId, setSelectedObjectId] = useState('');
@@ -280,7 +374,7 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
         <select className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs" value={selectedObjectId} onChange={(event) => setSelectedObjectId(event.target.value)} aria-label="Debug object to give">
           {objectIds.map((id) => <option key={id} value={id}>{labelById(project, 'objects', id)} ({id})</option>)}
         </select>
-        <Button size="sm" variant="secondary" disabled={disabled || !selectedObjectId} onClick={() => controller && onCommand(controller.giveRuntimeObject(selectedObjectId), `Debug give ${selectedObjectId}`)}>Debug give</Button>
+        <Button size="sm" variant="secondary" disabled={disabled || !selectedObjectId} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(selectedObjectId), `Debug give ${selectedObjectId}`)}>Debug give</Button>
       </div>
       <div className="text-[11px] text-muted-foreground">Debug-only inventory mutations are disabled while recording.</div>
       {inventory.length === 0 ? <div className="text-xs text-muted-foreground">Inventory is empty in the latest snapshot.</div> : null}
@@ -293,8 +387,12 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
           <div className="mt-1 font-mono text-[11px] text-muted-foreground">{item.id}</div>
           <InfoRow label="Location" value={labelEntity(project, item.location)} />
           <div className="mt-2 flex gap-2">
-            <Button size="sm" variant="outline" disabled={disabled} onClick={() => controller && onCommand(controller.removeRuntimeInventoryObject(item.id), `Debug remove ${item.id}`)}>Debug remove</Button>
-            <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(controller.selectRuntimeObject(item.id), `Selected ${item.id}`)}>Select</Button>
+            <Button size="sm" variant="outline" disabled={disabled} onClick={() => controller && onCommand(() => controller.removeRuntimeInventoryObject(item.id), `Debug remove ${item.id}`)}>Debug remove</Button>
+            <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(
+              () => controller.selectRuntimeObject(item.id),
+              `Selected ${item.id}`,
+              { recordedAction: createRecordedAction('select-object', `Select ${item.id}`, { type: 'select-object', objectId: item.id }) },
+            )}>Select</Button>
           </div>
         </div>
       ))}
@@ -302,7 +400,7 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
   );
 }
 
-function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: Promise<void>, label: string) => void }) {
+function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const rooms = project ? Object.entries(project.rooms).slice(0, 6) : [];
   const objects = project ? Object.entries(project.objects).slice(0, 6) : [];
   const controller = controlsContext?.controller ?? null;
@@ -312,13 +410,17 @@ function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisa
       <InfoRow label="Current room" value={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : undefined} />
       <div className="text-xs font-medium">Debug-only teleport</div>
       <div className="grid grid-cols-2 gap-1">
-        {rooms.map(([id, room]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(controller.teleportRuntimeRoom(id), `Debug teleport ${id}`)}>{room.label || id}</Button>)}
+        {rooms.map(([id, room]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(() => controller.teleportRuntimeRoom(id), `Debug teleport ${id}`)}>{room.label || id}</Button>)}
       </div>
       <div className="text-xs font-medium">Object helpers</div>
       <div className="grid grid-cols-2 gap-1">
-        {objects.map(([id, object]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(controller.giveRuntimeObject(id), `Debug give ${id}`)}>{object.label || id}</Button>)}
+        {objects.map(([id, object]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(id), `Debug give ${id}`)}>{object.label || id}</Button>)}
       </div>
-      <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(controller.clearRuntimeObjectSelection(), 'Object selection cleared')}>Clear object selection</Button>
+      <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(
+        () => controller.clearRuntimeObjectSelection(),
+        'Object selection cleared',
+        { recordedAction: createRecordedAction('clear-object-selection', 'Clear object selection', { type: 'clear-object-selection' }) },
+      )}>Clear object selection</Button>
       <div className="text-[11px] text-muted-foreground">Controls labeled Debug mutate runtime save state only for previewing and testing.</div>
     </Panel>
   );
@@ -361,7 +463,73 @@ function EventLogPanel({ entries, diagnostics }: { entries: RuntimeLogEntry[]; d
   );
 }
 
-function RuntimeInspector({ state, project, controlsContext, mode, onModeChange, onCommand }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mode: FullGamePreviewMode; onModeChange: (mode: FullGamePreviewMode) => void; onCommand: (command: Promise<void>, label: string) => void }) {
+function RecorderPanel({
+  draft,
+  onStart,
+  onStop,
+  onClear,
+  onUndoLast,
+  onReplay,
+}: {
+  draft: RecordedTestDraft;
+  onStart: () => void;
+  onStop: () => void;
+  onClear: () => void;
+  onUndoLast: () => void;
+  onReplay: () => void;
+}) {
+  const isRecording = draft.mode === 'recording';
+  const isReplaying = draft.mode === 'replaying';
+  return (
+    <Panel title="Recorder" icon={<FilePlus2 className="h-3.5 w-3.5" />}>
+      <div className="flex flex-wrap gap-1">
+        <Badge variant={isRecording ? 'default' : draft.mode === 'failed' ? 'destructive' : 'secondary'}>{draft.mode}</Badge>
+        <Badge variant="outline">{draft.actions.length} action{draft.actions.length === 1 ? '' : 's'}</Badge>
+        <Badge variant="outline">{draft.traceEvents.length} trace</Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        <Button size="sm" variant="secondary" disabled={isRecording || isReplaying} onClick={onStart}>Start Recording</Button>
+        <Button size="sm" variant="outline" disabled={!isRecording} onClick={onStop}>Stop</Button>
+        <Button size="sm" variant="ghost" disabled={isReplaying || (draft.actions.length === 0 && draft.traceEvents.length === 0)} onClick={onClear}>Clear</Button>
+        <Button size="sm" variant="ghost" disabled={isReplaying || draft.actions.length === 0} onClick={onUndoLast}>Undo Last</Button>
+        <Button size="sm" variant="outline" disabled={isRecording || isReplaying || draft.actions.length === 0} onClick={onReplay}>Replay</Button>
+        <Button size="sm" variant="outline" disabled title="Placeholder only; Phase H will persist authoring tests.">Save as New Test</Button>
+        <Button size="sm" variant="outline" disabled title="Placeholder only; Phase H will persist authoring tests.">Apply to Existing Test</Button>
+      </div>
+      <div className="rounded-md border bg-muted/40 p-2 text-[11px] text-muted-foreground">
+        Recording captures runtime semantic inputs from this preview tab. UI-click recording is not runnable yet and is intentionally not emitted as a test step in this phase.
+      </div>
+      {draft.replayError ? <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">{draft.replayError}</div> : null}
+      <div className="space-y-1">
+        <div className="text-xs font-medium">Actions</div>
+        {draft.actions.length === 0 ? <div className="text-xs text-muted-foreground">No recorded player actions yet.</div> : null}
+        {draft.actions.map((action, index) => (
+          <div key={action.id} className="rounded-md border p-2 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span>{index + 1}. {recordedActionLabel(action)}</span>
+              <Badge variant="outline">runtime-input</Badge>
+            </div>
+            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{stringifyValue(action.input)}</div>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-1">
+        <div className="text-xs font-medium">Trace events</div>
+        {draft.traceEvents.slice(0, 6).map((event) => (
+          <div key={event.id} className="rounded-md border p-2 text-xs">
+            <div className="flex items-center gap-2">
+              <Badge variant={event.severity === 'error' ? 'destructive' : event.severity === 'warning' ? 'secondary' : 'outline'}>{event.severity}</Badge>
+              <span>{event.label}</span>
+            </div>
+            {event.detail ? <div className="mt-1 font-mono text-[11px] text-muted-foreground">{event.detail}</div> : null}
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function RuntimeInspector({ state, project, controlsContext, mode, recorderDraft, onModeChange, onCommand, onRecorderStart, onRecorderStop, onRecorderClear, onRecorderUndoLast, onRecorderReplay }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mode: FullGamePreviewMode; recorderDraft: RecordedTestDraft; onModeChange: (mode: FullGamePreviewMode) => void; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void; onRecorderStart: () => void; onRecorderStop: () => void; onRecorderClear: () => void; onRecorderUndoLast: () => void; onRecorderReplay: () => void }) {
   const mutationDisabled = mode === 'recording';
   return (
     <aside className="flex w-[360px] min-w-[320px] max-w-[420px] shrink-0 flex-col overflow-auto border-l bg-background">
@@ -373,6 +541,7 @@ function RuntimeInspector({ state, project, controlsContext, mode, onModeChange,
         </div>
       </div>
       <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">Debug-only mutation controls directly alter preview runtime state. Recording mode disables them by default.</div>
+      <RecorderPanel draft={recorderDraft} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} />
       <RuntimeSummaryPanel snapshot={state.snapshot} project={project} />
       <InputAvailabilityPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} onCommand={onCommand} />
       <VariablesPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
@@ -384,7 +553,7 @@ function RuntimeInspector({ state, project, controlsContext, mode, onModeChange,
   );
 }
 
-function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: EnginePreviewControlsContext; onRuntimeCommand: (command: Promise<void | RuntimeFastForwardResult>, label: string, running?: boolean) => void }) {
+function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: EnginePreviewControlsContext; onRuntimeCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const runtimeDisabled = context.connectionState !== 'ready';
 
   return (
@@ -392,34 +561,58 @@ function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: E
       <Button size="sm" variant="ghost" onClick={context.reload} aria-label="Reload engine preview">
         <RefreshCw className="h-4 w-4" />
       </Button>
-      <Button size="sm" variant="ghost" onClick={() => onRuntimeCommand(context.controller.runtimeReset(), 'Runtime reset')} disabled={runtimeDisabled} aria-label="Reset runtime">
+      <Button size="sm" variant="ghost" onClick={() => onRuntimeCommand(() => context.controller.runtimeReset(), 'Runtime reset')} disabled={runtimeDisabled} aria-label="Reset runtime">
         <RotateCcw className="h-4 w-4" />
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.startRuntime(), 'Runtime started', true)} disabled={runtimeDisabled} aria-label="Start runtime">
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.startRuntime(), 'Runtime started', { running: true })} disabled={runtimeDisabled} aria-label="Start runtime">
         <Play className="h-4 w-4" />
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.stopRuntime(), 'Runtime stopped', false)} disabled={runtimeDisabled} aria-label="Stop runtime">
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.stopRuntime(), 'Runtime stopped', { running: false })} disabled={runtimeDisabled} aria-label="Stop runtime">
         <Square className="h-4 w-4" />
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.stepRuntime(), 'Runtime stepped')} disabled={runtimeDisabled} aria-label="Step runtime">
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.stepRuntime(), 'Runtime stepped')} disabled={runtimeDisabled} aria-label="Step runtime">
         <StepForward className="h-4 w-4" />
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.continueRuntime(), 'Continue input sent')} disabled={runtimeDisabled}>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
+        () => context.controller.continueRuntime(),
+        'Continue input sent',
+        { recordedAction: createRecordedAction('continue', 'Continue', { type: 'continue' }) },
+      )} disabled={runtimeDisabled}>
         <StepForward className="h-4 w-4" />
         Continue
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.fastForwardRuntimeToInput(), 'Fast-forward requested')} disabled={runtimeDisabled}>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.fastForwardRuntimeToInput(), 'Fast-forward requested')} disabled={runtimeDisabled}>
         <FastForward className="h-4 w-4" />
         Fast-forward
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.navigateRuntime(0), 'Navigate 0 sent')} disabled={runtimeDisabled}>Nav 0</Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.selectDialogueOption(0), 'Dialogue option 0 sent')} disabled={runtimeDisabled}>Choice 0</Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.selectRuntimeObject('lamp'), 'Object selection sent')} disabled={runtimeDisabled}>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
+        () => context.controller.navigateRuntime(0),
+        'Navigate 0 sent',
+        { recordedAction: createRecordedAction('navigate', 'Navigate 0', { type: 'navigate', direction: 0 }) },
+      )} disabled={runtimeDisabled}>Nav 0</Button>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
+        () => context.controller.selectDialogueOption(0),
+        'Dialogue option 0 sent',
+        { recordedAction: createRecordedAction('dialogue-option', 'Choice 0', { type: 'dialogue-option', optionIndex: 0 }) },
+      )} disabled={runtimeDisabled}>Choice 0</Button>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
+        () => context.controller.selectRuntimeObject('lamp'),
+        'Object selection sent',
+        { recordedAction: createRecordedAction('select-object', 'Select lamp', { type: 'select-object', objectId: 'lamp' }) },
+      )} disabled={runtimeDisabled}>
         <MousePointer2 className="h-4 w-4" />
         Select
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.clearRuntimeObjectSelection(), 'Object selection cleared')} disabled={runtimeDisabled}>Clear</Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.runRuntimeAction('look', []), 'Action input sent')} disabled={runtimeDisabled}>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
+        () => context.controller.clearRuntimeObjectSelection(),
+        'Object selection cleared',
+        { recordedAction: createRecordedAction('clear-object-selection', 'Clear object selection', { type: 'clear-object-selection' }) },
+      )} disabled={runtimeDisabled}>Clear</Button>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
+        () => context.controller.runRuntimeAction('look', []),
+        'Action input sent',
+        { recordedAction: createRecordedAction('run-action', 'Run look', { type: 'run-action', verbId: 'look', objectIds: [] }) },
+      )} disabled={runtimeDisabled}>
         <MousePointer2 className="h-4 w-4" />
         Action
       </Button>
@@ -438,6 +631,7 @@ export function FullGamePreviewEditor() {
   const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
   const [mode, setMode] = useState<FullGamePreviewMode>('debug');
+  const [recorderDraft, setRecorderDraft] = useState<RecordedTestDraft>({ mode: 'idle', actions: [], traceEvents: [] });
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
 
   const requestDebugSnapshot = useCallback((context: EnginePreviewControlsContext | null) => {
@@ -450,17 +644,64 @@ export function FullGamePreviewEditor() {
     });
   }, []);
 
-  const handleRuntimeCommand = useCallback((command: Promise<void | RuntimeFastForwardResult>, label: string, running?: boolean) => {
-    if (running !== undefined) {
-      setPreviewRunning(running);
+  const replayActions = useCallback((actions: RecordedRuntimeAction[], successMode: RecordedTestDraft['mode'] = 'idle') => {
+    const context = controlsRef.current;
+    if (!context) {
+      setRecorderDraft((current) => ({ ...current, mode: 'failed', replayError: 'Engine preview is not connected.' }));
+      return;
+    }
+
+    const replay = async () => {
+      await context.controller.runtimeReset();
+      for (const action of actions) {
+        await executeRecordedAction(action, context);
+      }
+      await context.controller.requestRuntimeDebugSnapshot();
+    };
+
+    setRecorderDraft((current) => ({ ...current, mode: 'replaying', replayError: undefined }));
+    setState((current) => ({ ...current, eventLog: addLogEntry(current.eventLog, { label: `Replaying ${actions.length} recorded action${actions.length === 1 ? '' : 's'}`, severity: 'info' }) }));
+    context.sendRuntimeCommand(
+      replay()
+        .then(() => {
+          setRecorderDraft((current) => ({ ...current, mode: successMode, replayError: undefined }));
+        })
+        .catch((error: Error) => {
+          setRecorderDraft((current) => ({
+            ...current,
+            mode: 'failed',
+            replayError: error.message,
+            traceEvents: addTraceEvent(current.traceEvents, { label: 'Replay failed', detail: error.message, severity: 'error' }),
+          }));
+          throw error;
+        }),
+      'Replay recorded actions',
+    );
+  }, []);
+
+  const handleRuntimeCommand = useCallback((command: RuntimeCommandFactory, label: string, options: RuntimeCommandOptions = {}) => {
+    if (options.running !== undefined) {
+      setPreviewRunning(options.running);
       setPrimaryRuntimeReplay({
         position: useWorkspaceStore.getState().previewPosition,
-        running,
+        running: options.running,
       });
     }
     setState((current) => ({ ...current, eventLog: addLogEntry(current.eventLog, { label, severity: 'info' }) }));
+    const recordedAction = options.recordedAction;
+    if (recordedAction) {
+      setRecorderDraft((current) => {
+        if (current.mode !== 'recording') return current;
+        return {
+          ...current,
+          actions: [...current.actions, recordedAction],
+          replayError: undefined,
+          traceEvents: addTraceEvent(current.traceEvents, { label: `Recorded ${recordedActionLabel(recordedAction)}`, detail: stringifyValue(recordedAction.input), severity: 'info' }),
+        };
+      });
+    }
     controlsRef.current?.sendRuntimeCommand(
-      command.then(() => requestDebugSnapshot(controlsRef.current)),
+      command().then(() => requestDebugSnapshot(controlsRef.current)),
       label,
     );
   }, [requestDebugSnapshot, setPreviewRunning, setPrimaryRuntimeReplay]);
@@ -471,10 +712,52 @@ export function FullGamePreviewEditor() {
       snapshot: message.type === 'runtime-debug-snapshot' ? message.snapshot : message.type === 'runtime-fast-forward-result' ? message.result.finalSnapshot : current.snapshot,
       eventLog: logEntry ? addLogEntry(current.eventLog, logEntry) : current.eventLog,
     }));
+    if (logEntry) {
+      setRecorderDraft((current) => {
+        if (current.mode === 'idle' && current.actions.length === 0) return current;
+        return { ...current, traceEvents: addTraceEvent(current.traceEvents, logEntry) };
+      });
+    }
     if (message.type === 'ready' || message.type === 'preview-interacted' || message.type === 'object-clicked' || message.type === 'preview-object-selected') {
       requestDebugSnapshot(controlsRef.current);
     }
   }, [requestDebugSnapshot]);
+
+  const startRecording = useCallback(() => {
+    setMode('recording');
+    setRecorderDraft((current) => ({
+      mode: 'recording',
+      actions: current.mode === 'idle' ? [] : current.actions,
+      traceEvents: addTraceEvent(current.traceEvents, { label: 'Recording started', severity: 'info' }),
+      replayError: undefined,
+    }));
+    requestDebugSnapshot(controlsRef.current);
+  }, [requestDebugSnapshot]);
+
+  const stopRecording = useCallback(() => {
+    setRecorderDraft((current) => ({ ...current, mode: 'idle', traceEvents: addTraceEvent(current.traceEvents, { label: 'Recording stopped', severity: 'info' }) }));
+  }, []);
+
+  const clearRecording = useCallback(() => {
+    setRecorderDraft({ mode: 'idle', actions: [], traceEvents: [] });
+  }, []);
+
+  const undoLastRecordedAction = useCallback(() => {
+    const actions = recorderDraft.actions.slice(0, -1);
+    setRecorderDraft((current) => {
+      return {
+        ...current,
+        actions,
+        traceEvents: addTraceEvent(current.traceEvents, { label: 'Undo last recorded action', detail: `${actions.length} action${actions.length === 1 ? '' : 's'} remain`, severity: 'info' }),
+        replayError: undefined,
+      };
+    });
+    replayActions(actions, recorderDraft.mode === 'recording' ? 'recording' : 'idle');
+  }, [recorderDraft.actions, recorderDraft.mode, replayActions]);
+
+  const replayRecording = useCallback(() => {
+    replayActions(recorderDraft.actions, 'idle');
+  }, [recorderDraft.actions, replayActions]);
 
   return (
     <div className="flex h-full min-h-0 bg-background">
@@ -487,7 +770,20 @@ export function FullGamePreviewEditor() {
           }}
         />
       </div>
-      <RuntimeInspector state={state} project={project} controlsContext={controlsRef.current} mode={mode} onModeChange={setMode} onCommand={handleRuntimeCommand} />
+      <RuntimeInspector
+        state={state}
+        project={project}
+        controlsContext={controlsRef.current}
+        mode={mode}
+        recorderDraft={recorderDraft}
+        onModeChange={setMode}
+        onCommand={handleRuntimeCommand}
+        onRecorderStart={startRecording}
+        onRecorderStop={stopRecording}
+        onRecorderClear={clearRecording}
+        onRecorderUndoLast={undoLastRecordedAction}
+        onRecorderReplay={replayRecording}
+      />
     </div>
   );
 }
