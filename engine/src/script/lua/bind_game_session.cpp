@@ -533,6 +533,8 @@ struct GameBinding {
         return dispatch("runtime.start-room", {{"room_id", std::move(room_id)}});
     }
 
+    bool go_to_room(std::string room_id) const { return start_room(std::move(room_id)); }
+
     bool start_dialogue(std::string dialogue_id) const
     {
         return dispatch("runtime.start-dialogue", {{"dialogue_id", std::move(dialogue_id)}});
@@ -767,6 +769,9 @@ void build_game_table(lua_State* L, core::GameSession* session, core::RuntimeSes
     });
     game.set_function("start_room", [binding](std::string room_id) mutable {
         return binding.start_room(std::move(room_id));
+    });
+    game.set_function("go_to_room", [binding](std::string room_id) mutable {
+        return binding.go_to_room(std::move(room_id));
     });
     game.set_function("start_dialogue", [binding](std::string dialogue_id) mutable {
         return binding.start_dialogue(std::move(dialogue_id));

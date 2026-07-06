@@ -78,9 +78,12 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
     }
     if (auto* prompt = find_element(doc, "rt_prompt", m_logged_missing)) {
         if (state.page_break) {
-            prompt->SetInnerRML("<button class=\"continue\" nt-continue=\"1\">Page break</button>");
+            prompt->SetInnerRML(
+                "<button class=\"continue\" nt-continue=\"1\" onclick=\"Game.continue()\">Page "
+                "break</button>");
         } else if (state.awaiting_continue) {
-            prompt->SetInnerRML("<button class=\"continue\" nt-continue=\"1\">Continue</button>");
+            prompt->SetInnerRML("<button class=\"continue\" nt-continue=\"1\" "
+                                "onclick=\"Game.continue()\">Continue</button>");
         } else {
             prompt->SetInnerRML("");
         }
@@ -92,7 +95,7 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
             out << "<button class=\"option";
             if (!opt.enabled)
                 out << " disabled";
-            out << "\" nt-option=\"" << i << "\"";
+            out << "\" nt-option=\"" << i << "\" onclick=\"Game.choose(" << i << ")\"";
             if (!opt.enabled)
                 out << " disabled";
             out << ">" << escape_rml(opt.text) << "</button>";

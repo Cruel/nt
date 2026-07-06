@@ -56,9 +56,19 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   Layout roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`,
   `settings-menu`, `modal`, and `debug-overlay`) with built-in fallbacks. Runtime export and
   consumption of project-authored system Layouts are still deferred.
-- Runtime entity start commands (`Game.start_room`, `Game.start_dialogue`, `Game.start_scene`, and
-  `Game.run_script`) currently dispatch but return clear not-implemented diagnostics until those
-  runtime flows are wired.
+- Runtime Script entrypoints, `Game.run_script`, and `Game.start_room`/`Game.go_to_room` now route
+  through `RuntimeCommandDispatcher` into `RuntimeSessionHost`/`RuntimeController`.
+- Runtime Dialogue export/start/progression is implemented for the current safe subset: authoring
+  Dialogue records export to runtime-compatible dialogue arrays, Dialogue entrypoints load, and
+  `Game.start_dialogue` routes through the dispatcher into `RuntimeSessionHost`/`RuntimeController`.
+  Continue and choice selection work through Lua-first generated controls while preserving temporary
+  compatibility attributes.
+- Runtime Scene V0 export/start/progression is implemented through the existing cutscene-style
+  runtime controller path. Authoring Scene records export to runtime `cutscene` records, Scene
+  entrypoints load as `EntityType::Cutscene`, and `Game.start_scene` routes through the dispatcher
+  into `RuntimeSessionHost`/`RuntimeController`. The supported subset is text-like scene steps,
+  continue/page-break waits, dispatcher-backed dialogue/layout hooks, and simple next targets;
+  unsupported step types emit export diagnostics.
 - Save/load/settings/text-log screens, return-to-title, quit flow, platform-specific save
   persistence, and user-facing autosave feedback remain incomplete.
 - Lua-evaluated map visibility is deferred because `noveltea_core` must stay Lua-free; implement this
@@ -126,4 +136,40 @@ cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure -R "RuntimeShell|Game bindings"
 cmake --preset web-debug
 cmake --build --preset web-debug
+```
+
+Latest Phase 8 script-entrypoint slice verification:
+
+```sh
+./node_modules/.bin/vitest run src/renderer/test/authoring-runtime-export.test.ts
+clang-format --dry-run --Werror <touched C++ files>
+git diff --check
+```
+
+The focused native targets `noveltea_runtime_shell_tests` and `noveltea_script_tests` could not
+build in `build/linux-debug` because CMake re-ran FetchContent for `rmlui_bgfx` and failed while
+rebasing the generated dependency checkout under `build/linux-debug/_deps/rmlui_bgfx-src`.
+
+Latest Phase 8 dialogue runtime/export slice verification:
+
+```sh
+cmake --preset linux-debug-local-rmlui-bgfx
+cmake --build --preset linux-debug-local-rmlui-bgfx --target noveltea_runtime_shell_tests noveltea_script_tests
+./build/linux-debug/tests/noveltea_runtime_shell_tests
+./build/linux-debug/tests/noveltea_script_tests
+./node_modules/.bin/vitest run src/renderer/test/authoring-runtime-export.test.ts
+clang-format --dry-run --Werror <touched C++ files>
+git diff --check
+```
+
+Latest Phase 8 scene runtime V0 slice verification:
+
+```sh
+cmake --build --preset linux-debug-local-rmlui-bgfx --target noveltea_runtime_shell_tests noveltea_script_tests
+./build/linux-debug/tests/noveltea_runtime_shell_tests
+./build/linux-debug/tests/noveltea_script_tests "Game bindings: dispatcher-backed gameplay helpers build valid payloads"
+ctest --test-dir build/linux-debug -R "RuntimeShell start_game supports a scene entrypoint|RuntimeCommandDispatcher starts and progresses scenes" --output-on-failure
+./node_modules/.bin/vitest run src/renderer/test/authoring-runtime-export.test.ts
+clang-format --dry-run --Werror <touched C++ files>
+git diff --check
 ```

@@ -4,11 +4,13 @@
 #include <noveltea/core/editor_api.hpp>
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/core/runtime_session_host.hpp>
+#include <noveltea/runtime_shell.hpp>
 #include <noveltea/script/runtime_script_executor.hpp>
 #include <noveltea/script/script_runtime.hpp>
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace noveltea;
@@ -34,6 +36,9 @@ core::ProjectDocument make_base_project(core::EntityType entry_type = core::Enti
         {"foyer",
          nlohmann::json::array({"foyer", "", props(), "A quiet foyer.", "", "", "", "",
                                 nlohmann::json::array(), nlohmann::json::array(), "Foyer"})},
+        {"kitchen",
+         nlohmann::json::array({"kitchen", "", props(), "A bright kitchen.", "", "", "", "",
+                                nlohmann::json::array(), nlohmann::json::array(), "Kitchen"})},
     });
     root[core::project_ids::map] = nlohmann::json::object();
     root[core::project_ids::dialogue] = nlohmann::json::object();
@@ -80,6 +85,30 @@ struct RuntimeScriptFixture {
     }
 };
 
+struct ShellRuntimeScriptFixture {
+    std::shared_ptr<assets::MemoryAssetSource> memory =
+        std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    script::ScriptRuntime scripts;
+    RuntimeShell shell;
+    script::RuntimeScriptExecutor executor;
+
+    ShellRuntimeScriptFixture()
+    {
+        assets.mount("project", memory);
+        REQUIRE(scripts.initialize({&assets}));
+    }
+
+    ~ShellRuntimeScriptFixture() { executor.shutdown(); }
+
+    void load(core::ProjectDocument project)
+    {
+        REQUIRE(shell.load_project(std::move(project)).success);
+        executor.initialize(&scripts, &shell.host());
+        scripts.bind_runtime_command_dispatcher(&shell.dispatcher());
+    }
+};
+
 bool has_output(const std::vector<core::RuntimeOutput>& outputs, core::RuntimeOutputType type)
 {
     for (const auto& output : outputs) {
@@ -119,6 +148,47 @@ TEST_CASE("RuntimeScriptExecutor executes script requests and mutates Game prope
     CHECK(has_output(result.outputs, core::RuntimeOutputType::ScriptRequest));
     CHECK(has_output(result.outputs, core::RuntimeOutputType::ScriptResult));
     CHECK(f.host.session().property("phase2_value") == "ok");
+}
+
+TEST_CASE("RuntimeScriptExecutor lets a script entrypoint start a room through Game flow APIs")
+{
+    auto project = make_base_project(core::EntityType::Script, "bootstrap");
+    project.root()[core::project_ids::script] = nlohmann::json::object({
+        {"bootstrap",
+         nlohmann::json::array({"bootstrap", "", props(), false, "Game.go_to_room('kitchen')"})},
+    });
+
+    ShellRuntimeScriptFixture f;
+    f.load(std::move(project));
+
+    auto result = f.shell.start_game();
+    f.executor.process(result);
+
+    CHECK(has_output(result.outputs, core::RuntimeOutputType::ScriptRequest));
+    CHECK(has_output(result.outputs, core::RuntimeOutputType::ScriptResult));
+    CHECK(f.shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(f.shell.host().view_state().title == "Kitchen");
+}
+
+TEST_CASE("RuntimeScriptExecutor runs dispatcher-requested Script entities")
+{
+    auto project = make_base_project();
+    project.root()[core::project_ids::script] = nlohmann::json::object({
+        {"bootstrap", nlohmann::json::array({"bootstrap", "", props(), false,
+                                             "Game.set_prop('dispatcher_script', 'ran')"})},
+    });
+
+    RuntimeScriptFixture f;
+    f.load(std::move(project));
+    REQUIRE(f.tick().handled);
+
+    auto result = f.host.run_script("bootstrap");
+    f.executor.process(result);
+
+    CHECK(result.handled);
+    CHECK(has_output(result.outputs, core::RuntimeOutputType::ScriptRequest));
+    CHECK(has_output(result.outputs, core::RuntimeOutputType::ScriptResult));
+    CHECK(f.host.session().property("dispatcher_script") == "ran");
 }
 
 TEST_CASE("RuntimeScriptExecutor records Lua errors as runtime diagnostics")

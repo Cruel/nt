@@ -284,14 +284,14 @@ void CutsceneController::advance_to_segment(size_t index)
         if (rec.is_array() && rec.size() > 1)
             text = rec[1].get<std::string>();
 
-        if (!text.empty()) {
-            emit_cutscene_text(text);
-        }
-
         if (rec.is_array() && rec.size() > 2)
             m_waiting_for_click = rec[2].get<bool>();
         else
             m_waiting_for_click = true;
+
+        if (!text.empty()) {
+            emit_cutscene_text(text);
+        }
 
         if (rec.is_array() && rec.size() > 5) {
             double delay = rec[5].get<double>() / 1000.0;

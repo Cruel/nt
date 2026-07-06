@@ -285,6 +285,7 @@ TEST_CASE("Game bindings: dispatcher-backed gameplay helpers build valid payload
         clear_ok = Game.clear_selection()
         action_ok = Game.run_action("look", { "coin" })
         room_ok = Game.start_room("foyer")
+        go_room_ok = Game.go_to_room("kitchen")
         dialogue_ok = Game.start_dialogue("intro")
         scene_ok = Game.start_scene("opening")
         script_ok = Game.run_script("bootstrap")
@@ -298,9 +299,11 @@ TEST_CASE("Game bindings: dispatcher-backed gameplay helpers build valid payload
     CHECK(*f.runtime.evaluate_bool("clear_ok", "clear_ok").value);
     CHECK_FALSE(*f.runtime.evaluate_bool("action_ok", "action_ok").value);
     CHECK(*f.runtime.evaluate_bool("room_ok", "room_ok").value);
-    CHECK(*f.runtime.evaluate_bool("dialogue_ok", "dialogue_ok").value);
-    CHECK(*f.runtime.evaluate_bool("scene_ok", "scene_ok").value);
-    CHECK(*f.runtime.evaluate_bool("script_ok", "script_ok").value);
+    CHECK(*f.runtime.evaluate_bool("go_room_ok", "go_room_ok").value);
+    CHECK(f.shell.host().view_state().title == "Kitchen");
+    CHECK_FALSE(*f.runtime.evaluate_bool("dialogue_ok", "dialogue_ok").value);
+    CHECK_FALSE(*f.runtime.evaluate_bool("scene_ok", "scene_ok").value);
+    CHECK_FALSE(*f.runtime.evaluate_bool("script_ok", "script_ok").value);
 }
 
 TEST_CASE("Game bindings: layout layer helper dispatches through RuntimeShell")

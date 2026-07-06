@@ -63,6 +63,10 @@ public:
     [[nodiscard]] int visit_count(const std::string& room_id) const;
 
     void navigate_path(int direction);
+    bool start_room(const std::string& room_id);
+    bool start_dialogue(const std::string& dialogue_id);
+    bool start_scene(const std::string& scene_id);
+    bool start_script(const std::string& script_id);
     bool process_action(const std::string& verb_id, const std::vector<std::string>& object_ids);
 
     // Dialogue control

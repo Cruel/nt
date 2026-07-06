@@ -243,14 +243,65 @@ RuntimeCommandResult RuntimeCommandDispatcher::dispatch(RuntimeCommand command)
         result.handled = true;
         return finish(std::move(result));
     }
-    if (command.name == "runtime.start-room" || command.name == "runtime.start-dialogue" ||
-        command.name == "runtime.start-scene" || command.name == "runtime.run-script") {
-        append_diagnostic(result, make_warning(command, command.name + " is not implemented yet"),
-                          {{"source", to_string(command.source)},
-                           {"domain", to_string(command.domain)},
-                           {"name", command.name},
-                           {"payload", command.payload}});
-        result.handled = true;
+    if (command.name == "runtime.start-room") {
+        const auto room_id = string_payload(command.payload, "room_id");
+        if (!room_id || room_id->empty()) {
+            append_diagnostic(
+                result, make_warning(command, "runtime.start-room requires a non-empty room_id"),
+                {{"source", to_string(command.source)},
+                 {"domain", to_string(command.domain)},
+                 {"name", command.name},
+                 {"payload", command.payload}});
+            return finish(std::move(result));
+        }
+        append_input_result(result,
+                            m_shell->host().start_room(*room_id, command.playback_step_index));
+        return finish(std::move(result));
+    }
+    if (command.name == "runtime.run-script") {
+        const auto script_id = string_payload(command.payload, "script_id");
+        if (!script_id || script_id->empty()) {
+            append_diagnostic(
+                result, make_warning(command, "runtime.run-script requires a non-empty script_id"),
+                {{"source", to_string(command.source)},
+                 {"domain", to_string(command.domain)},
+                 {"name", command.name},
+                 {"payload", command.payload}});
+            return finish(std::move(result));
+        }
+        append_input_result(result,
+                            m_shell->host().run_script(*script_id, command.playback_step_index));
+        return finish(std::move(result));
+    }
+    if (command.name == "runtime.start-dialogue") {
+        const auto dialogue_id = string_payload(command.payload, "dialogue_id");
+        if (!dialogue_id || dialogue_id->empty()) {
+            append_diagnostic(
+                result,
+                make_warning(command, "runtime.start-dialogue requires a non-empty dialogue_id"),
+                {{"source", to_string(command.source)},
+                 {"domain", to_string(command.domain)},
+                 {"name", command.name},
+                 {"payload", command.payload}});
+            return finish(std::move(result));
+        }
+        append_input_result(
+            result, m_shell->host().start_dialogue(*dialogue_id, command.playback_step_index));
+        return finish(std::move(result));
+    }
+    if (command.name == "runtime.start-scene") {
+        const auto scene_id = string_payload(command.payload, "scene_id");
+        if (!scene_id || scene_id->empty()) {
+            append_diagnostic(
+                result, make_warning(command, "runtime.start-scene requires a non-empty scene_id"),
+                {{"source", to_string(command.source)},
+                 {"domain", to_string(command.domain)},
+                 {"name", command.name},
+                 {"payload", command.payload}});
+            return finish(std::move(result));
+        }
+        append_input_result(result,
+                            m_shell->host().start_scene(*scene_id, command.playback_step_index));
         return finish(std::move(result));
     }
 

@@ -139,6 +139,7 @@ void RuntimeController::drain_next()
             "dialogue",
             {{"entering", true}},
         });
+        process_dialogue_commands();
         break;
     case EntityType::Cutscene:
         m_cutscene_controller->start(ref->id);
@@ -150,6 +151,7 @@ void RuntimeController::drain_next()
             "cutscene",
             {{"entering", true}},
         });
+        process_cutscene_commands();
         break;
     case EntityType::Script:
     case EntityType::CustomScript:
@@ -243,13 +245,16 @@ void RuntimeController::dialogue_continue()
 {
     if (m_mode == Mode::Dialogue) {
         m_dialogue_controller->continue_to_next();
+        process_dialogue_commands();
     }
 }
 
 bool RuntimeController::dialogue_select_option(int option_index)
 {
     if (m_mode == Mode::Dialogue) {
-        return m_dialogue_controller->select_option(option_index);
+        const bool selected = m_dialogue_controller->select_option(option_index);
+        process_dialogue_commands();
+        return selected;
     }
     return false;
 }
@@ -258,14 +263,17 @@ void RuntimeController::cutscene_click()
 {
     if (m_mode == Mode::Cutscene) {
         m_cutscene_controller->click();
+        process_cutscene_commands();
     }
 }
 
 void RuntimeController::process_dialogue_commands()
 {
     auto commands = m_dialogue_controller->take_commands();
+    bool completed = false;
     for (auto& cmd : commands) {
         if (cmd.type == ControllerCommandType::DialogueComplete) {
+            completed = true;
             if (cmd.data.contains("next_entity_type") && cmd.data.contains("next_entity_id")) {
                 auto type_opt = entity_type_from_integer(cmd.data["next_entity_type"].get<int>());
                 if (type_opt.has_value()) {
@@ -276,22 +284,23 @@ void RuntimeController::process_dialogue_commands()
                     }
                 }
             }
-            m_commands.push_back(std::move(cmd));
         }
+        m_commands.push_back(std::move(cmd));
     }
 
-    if (m_mode == Mode::Dialogue) {
+    if (completed && m_mode == Mode::Dialogue) {
         exit_current_mode();
+        drain_next();
     }
-
-    drain_next();
 }
 
 void RuntimeController::process_cutscene_commands()
 {
     auto commands = m_cutscene_controller->take_commands();
+    bool completed = false;
     for (auto& cmd : commands) {
         if (cmd.type == ControllerCommandType::CutsceneComplete) {
+            completed = true;
             if (cmd.data.contains("next_entity_type") && cmd.data.contains("next_entity_id")) {
                 auto type_opt = entity_type_from_integer(cmd.data["next_entity_type"].get<int>());
                 if (type_opt.has_value()) {
@@ -302,15 +311,14 @@ void RuntimeController::process_cutscene_commands()
                     }
                 }
             }
-            m_commands.push_back(std::move(cmd));
         }
+        m_commands.push_back(std::move(cmd));
     }
 
-    if (m_mode == Mode::Cutscene) {
+    if (completed && m_mode == Mode::Cutscene) {
         exit_current_mode();
+        drain_next();
     }
-
-    drain_next();
 }
 
 void RuntimeController::exit_current_mode()
@@ -498,6 +506,65 @@ void RuntimeController::navigate_path(int direction)
 
     m_session->queue_entity(*path.target);
     exit_current_mode();
+}
+
+bool RuntimeController::start_room(const std::string& room_id)
+{
+    if (!m_session || !m_session->project() || !m_session->project()->rooms().contains(room_id)) {
+        return false;
+    }
+
+    if (m_mode != Mode::None) {
+        exit_current_mode();
+    }
+    m_session->queue_entity(EntityRef{EntityType::Room, room_id});
+    drain_next();
+    return m_mode == Mode::Room && m_mode_entity_id == room_id;
+}
+
+bool RuntimeController::start_dialogue(const std::string& dialogue_id)
+{
+    if (!m_session || !m_session->project() ||
+        !m_session->project()->dialogues().contains(dialogue_id)) {
+        return false;
+    }
+
+    if (m_mode != Mode::None) {
+        exit_current_mode();
+    }
+    m_session->queue_entity(EntityRef{EntityType::Dialogue, dialogue_id});
+    drain_next();
+    process_dialogue_commands();
+    return m_mode == Mode::Dialogue && m_mode_entity_id == dialogue_id;
+}
+
+bool RuntimeController::start_scene(const std::string& scene_id)
+{
+    if (!m_session || !m_session->project() ||
+        !m_session->project()->cutscenes().contains(scene_id)) {
+        return false;
+    }
+
+    if (m_mode != Mode::None) {
+        exit_current_mode();
+    }
+    m_session->queue_entity(EntityRef{EntityType::Cutscene, scene_id});
+    drain_next();
+    return m_mode == Mode::Cutscene && m_mode_entity_id == scene_id;
+}
+
+bool RuntimeController::start_script(const std::string& script_id)
+{
+    if (!m_session || !m_session->project() ||
+        !m_session->project()->scripts().contains(script_id)) {
+        return false;
+    }
+
+    if (m_mode != Mode::None) {
+        exit_current_mode();
+    }
+    process_script_entity(EntityRef{EntityType::Script, script_id});
+    return true;
 }
 
 bool RuntimeController::process_action(const std::string& verb_id,

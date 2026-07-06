@@ -61,6 +61,14 @@ public:
                                std::optional<std::uint64_t> step_index = std::nullopt);
 
     bool navigate_path(int direction);
+    RuntimeInputResult start_room(const std::string& room_id,
+                                  std::optional<std::uint64_t> step_index = std::nullopt);
+    RuntimeInputResult start_dialogue(const std::string& dialogue_id,
+                                      std::optional<std::uint64_t> step_index = std::nullopt);
+    RuntimeInputResult start_scene(const std::string& scene_id,
+                                   std::optional<std::uint64_t> step_index = std::nullopt);
+    RuntimeInputResult run_script(const std::string& script_id,
+                                  std::optional<std::uint64_t> step_index = std::nullopt);
     bool select_dialogue_option(int option_index);
     bool continue_active();
     bool process_action(const std::string& verb_id, const std::vector<std::string>& object_ids);

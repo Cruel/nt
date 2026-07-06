@@ -50,6 +50,63 @@ ProjectDocument make_room_project()
     return project;
 }
 
+ProjectDocument make_script_flow_project()
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::entrypoint_entity] = ref(EntityType::Script, "bootstrap");
+    root[project_ids::script] = nlohmann::json::object({
+        {"bootstrap",
+         nlohmann::json::array({"bootstrap", "", props(), false, "Game.start_room('kitchen')"})},
+    });
+    return project;
+}
+
+ProjectDocument make_dialogue_flow_project()
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::entrypoint_entity] = ref(EntityType::Dialogue, "intro");
+
+    auto root_segment = nlohmann::json::array(
+        {0, -1, false, false, false, false, false, false, "", "", "", nlohmann::json::array({1})});
+    auto text_segment =
+        nlohmann::json::array({1, -1, false, false, false, false, false, true, "", "",
+                               "[Guide]Welcome.\n[Guide]Ready?", nlohmann::json::array({2})});
+    auto option_segment = nlohmann::json::array({2, -1, false, false, false, false, false, true, "",
+                                                 "", "Go on", nlohmann::json::array({3})});
+    auto reply_segment =
+        nlohmann::json::array({1, -1, false, false, false, false, false, true, "", "",
+                               "[Guide]The kitchen is open.", nlohmann::json::array()});
+
+    root[project_ids::dialogue] = nlohmann::json::object({
+        {"intro",
+         nlohmann::json::array(
+             {"intro", "", props(), "Guide", ref(EntityType::Room, "kitchen"), 0, false, true, 1,
+              nlohmann::json::array({root_segment, text_segment, option_segment, reply_segment})})},
+    });
+    return project;
+}
+
+ProjectDocument make_scene_flow_project()
+{
+    auto project = make_room_project();
+    auto& root = project.root();
+    root[project_ids::entrypoint_entity] = ref(EntityType::Cutscene, "opening");
+
+    auto text1 =
+        nlohmann::json::array({0, "The lights come up.", true, true, 0, 1000, 0, 0, 0, true, ""});
+    auto text2 =
+        nlohmann::json::array({0, "The kettle sings.", true, true, 0, 1000, 0, 0, 0, true, ""});
+
+    root[project_ids::cutscene] = nlohmann::json::object({
+        {"opening", nlohmann::json::array({"opening", "", props(), true, true, 1.0,
+                                           ref(EntityType::Room, "kitchen"),
+                                           nlohmann::json::array({text1, text2})})},
+    });
+    return project;
+}
+
 bool has_output(const std::vector<RuntimeOutput>& outputs, RuntimeOutputType type)
 {
     for (const auto& output : outputs) {
@@ -125,6 +182,62 @@ TEST_CASE("RuntimeShell start_game drains the loaded room entrypoint")
     CHECK(shell.host().view_state().body == "A quiet foyer.");
     CHECK(has_output(result.outputs, RuntimeOutputType::ModeChanged));
     CHECK(has_output(result.outputs, RuntimeOutputType::ViewUpdated));
+}
+
+TEST_CASE("RuntimeShell start_game launches a script entrypoint request")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_script_flow_project()).success);
+
+    auto result = shell.start_game();
+
+    CHECK(result.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+    CHECK(has_output(result.outputs, RuntimeOutputType::ScriptRequest));
+    CHECK(shell.host().current_mode_name() == std::string_view("none"));
+}
+
+TEST_CASE("RuntimeCommandDispatcher emits script requests for Script flow commands")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_script_flow_project()).success);
+
+    auto result =
+        shell.dispatcher().dispatch(command("runtime.run-script", {{"script_id", "bootstrap"}}));
+
+    CHECK(result.handled);
+    CHECK(has_output(result.outputs, RuntimeOutputType::ScriptRequest));
+    CHECK(has_diagnostic_containing(result.diagnostics, "name=runtime.run-script"));
+}
+
+TEST_CASE("RuntimeShell start_game supports a dialogue entrypoint")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_dialogue_flow_project()).success);
+
+    auto result = shell.start_game();
+
+    CHECK(result.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+    CHECK(shell.host().current_mode_name() == std::string_view("dialogue"));
+    CHECK(result.view.mode == "dialogue");
+    CHECK(result.view.title == "Guide");
+    CHECK(result.view.body == "Welcome.");
+}
+
+TEST_CASE("RuntimeShell start_game supports a scene entrypoint")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_scene_flow_project()).success);
+
+    auto result = shell.start_game();
+
+    CHECK(result.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+    CHECK(shell.host().current_mode_name() == std::string_view("cutscene"));
+    CHECK(result.view.mode == "cutscene");
+    CHECK(result.view.body == "The lights come up.");
+    CHECK(result.view.awaiting_continue);
 }
 
 TEST_CASE("RuntimeShell pause suppresses updates and resume keeps loaded gameplay")
@@ -294,32 +407,78 @@ TEST_CASE("RuntimeCommandDispatcher routes gameplay commands through session hos
     CHECK(shell.host().view_state().title == "Kitchen");
 }
 
-TEST_CASE("RuntimeCommandDispatcher reports stubbed entity start command diagnostics")
+TEST_CASE("RuntimeCommandDispatcher starts rooms and reports entity flow diagnostics")
 {
     RuntimeShell shell;
     REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.dispatcher().dispatch(command("game.start")).handled);
 
     auto room = shell.dispatcher().dispatch(command("runtime.start-room", {{"room_id", "foyer"}}));
     CHECK(room.handled);
-    CHECK(has_diagnostic_containing(room.diagnostics, "runtime.start-room is not implemented yet"));
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().title == "Foyer");
 
-    auto dialogue =
-        shell.dispatcher().dispatch(command("runtime.start-dialogue", {{"dialogue_id", "intro"}}));
-    CHECK(dialogue.handled);
-    CHECK(has_diagnostic_containing(dialogue.diagnostics,
-                                    "runtime.start-dialogue is not implemented yet"));
-
-    auto scene =
-        shell.dispatcher().dispatch(command("runtime.start-scene", {{"scene_id", "opening"}}));
-    CHECK(scene.handled);
-    CHECK(
-        has_diagnostic_containing(scene.diagnostics, "runtime.start-scene is not implemented yet"));
+    auto missing_room =
+        shell.dispatcher().dispatch(command("runtime.start-room", {{"room_id", "nowhere"}}));
+    CHECK_FALSE(missing_room.handled);
+    CHECK(has_diagnostic_containing(missing_room.diagnostics, "room 'nowhere' does not exist"));
 
     auto script =
         shell.dispatcher().dispatch(command("runtime.run-script", {{"script_id", "bootstrap"}}));
-    CHECK(script.handled);
-    CHECK(
-        has_diagnostic_containing(script.diagnostics, "runtime.run-script is not implemented yet"));
+    CHECK_FALSE(script.handled);
+    CHECK(has_diagnostic_containing(script.diagnostics, "script 'bootstrap' does not exist"));
+}
+
+TEST_CASE("RuntimeCommandDispatcher starts and progresses scenes")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_scene_flow_project()).success);
+    REQUIRE(shell.dispatcher().dispatch(command("game.start")).handled);
+
+    auto restart =
+        shell.dispatcher().dispatch(command("runtime.start-scene", {{"scene_id", "opening"}}));
+    CHECK(restart.handled);
+    CHECK(shell.host().current_mode_name() == std::string_view("cutscene"));
+    CHECK(shell.host().view_state().body == "The lights come up.");
+    CHECK(shell.host().view_state().awaiting_continue);
+
+    auto continued = shell.dispatcher().dispatch(command("runtime.continue"));
+    CHECK(continued.handled);
+    CHECK(shell.host().view_state().body == "The kettle sings.");
+
+    auto completed = shell.dispatcher().dispatch(command("runtime.continue"));
+    CHECK(completed.handled);
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().title == "Kitchen");
+
+    auto missing =
+        shell.dispatcher().dispatch(command("runtime.start-scene", {{"scene_id", "missing"}}));
+    CHECK_FALSE(missing.handled);
+    CHECK(has_diagnostic_containing(missing.diagnostics, "scene 'missing' does not exist"));
+}
+
+TEST_CASE("RuntimeCommandDispatcher starts and progresses dialogue")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_dialogue_flow_project()).success);
+    REQUIRE(shell.dispatcher().dispatch(command("game.start")).handled);
+
+    auto restart =
+        shell.dispatcher().dispatch(command("runtime.start-dialogue", {{"dialogue_id", "intro"}}));
+    CHECK(restart.handled);
+    CHECK(shell.host().current_mode_name() == std::string_view("dialogue"));
+    CHECK(shell.host().view_state().body == "Welcome.");
+    CHECK(shell.host().view_state().awaiting_continue);
+
+    auto continued = shell.dispatcher().dispatch(command("runtime.continue"));
+    CHECK(continued.handled);
+    CHECK(shell.host().view_state().body == "Ready?");
+    REQUIRE(shell.host().view_state().dialogue_options.size() == 1);
+    CHECK(shell.host().view_state().dialogue_options.front().text == "Go on");
+
+    auto selected = shell.dispatcher().dispatch(command("runtime.dialogue-option", {{"index", 0}}));
+    CHECK(selected.handled);
+    CHECK(shell.host().view_state().body == "The kitchen is open.");
 }
 
 TEST_CASE("RuntimeCommandDispatcher accepts gameplay layout layer commands")

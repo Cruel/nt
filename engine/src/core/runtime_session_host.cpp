@@ -100,6 +100,175 @@ bool RuntimeSessionHost::navigate_path(int direction)
     return apply_input(input).handled;
 }
 
+RuntimeInputResult RuntimeSessionHost::start_room(const std::string& room_id,
+                                                  std::optional<std::uint64_t> step_index)
+{
+    if (!m_controller) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(false, {}, {make_warning(input, "runtime session is not loaded")},
+                           step_index);
+    }
+    if (room_id.empty()) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(false, {},
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "start-room requires a non-empty room_id")},
+                           step_index);
+    }
+    if (!m_session.project() || !m_session.project()->rooms().contains(room_id)) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Room, room_id};
+        input.step_index = step_index;
+        return make_result(
+            false, {},
+            {make_input_diagnostic(input, "runtime-flow", "room '" + room_id + "' does not exist")},
+            step_index);
+    }
+
+    const bool started = m_controller->start_room(room_id);
+    auto commands = m_controller->take_commands();
+    if (!started) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Room, room_id};
+        input.step_index = step_index;
+        return make_result(false, std::move(commands),
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "failed to start room '" + room_id + "'")},
+                           step_index);
+    }
+    m_selected_object_ids.clear();
+    return make_result(true, std::move(commands), {}, step_index);
+}
+
+RuntimeInputResult RuntimeSessionHost::start_dialogue(const std::string& dialogue_id,
+                                                      std::optional<std::uint64_t> step_index)
+{
+    if (!m_controller) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(false, {}, {make_warning(input, "runtime session is not loaded")},
+                           step_index);
+    }
+    if (dialogue_id.empty()) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(
+            false, {},
+            {make_input_diagnostic(input, "runtime-flow",
+                                   "start-dialogue requires a non-empty dialogue_id")},
+            step_index);
+    }
+    if (!m_session.project() || !m_session.project()->dialogues().contains(dialogue_id)) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Dialogue, dialogue_id};
+        input.step_index = step_index;
+        return make_result(false, {},
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "dialogue '" + dialogue_id + "' does not exist")},
+                           step_index);
+    }
+
+    const bool started = m_controller->start_dialogue(dialogue_id);
+    auto commands = m_controller->take_commands();
+    if (!started) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Dialogue, dialogue_id};
+        input.step_index = step_index;
+        return make_result(
+            false, std::move(commands),
+            {make_input_diagnostic(input, "runtime-flow",
+                                   "failed to start dialogue '" + dialogue_id + "'")},
+            step_index);
+    }
+    m_selected_object_ids.clear();
+    return make_result(true, std::move(commands), {}, step_index);
+}
+
+RuntimeInputResult RuntimeSessionHost::start_scene(const std::string& scene_id,
+                                                   std::optional<std::uint64_t> step_index)
+{
+    if (!m_controller) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(false, {}, {make_warning(input, "runtime session is not loaded")},
+                           step_index);
+    }
+    if (scene_id.empty()) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(false, {},
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "start-scene requires a non-empty scene_id")},
+                           step_index);
+    }
+    if (!m_session.project() || !m_session.project()->cutscenes().contains(scene_id)) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Cutscene, scene_id};
+        input.step_index = step_index;
+        return make_result(false, {},
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "scene '" + scene_id + "' does not exist")},
+                           step_index);
+    }
+
+    const bool started = m_controller->start_scene(scene_id);
+    auto commands = m_controller->take_commands();
+    if (!started) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Cutscene, scene_id};
+        input.step_index = step_index;
+        return make_result(false, std::move(commands),
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "failed to start scene '" + scene_id + "'")},
+                           step_index);
+    }
+    m_selected_object_ids.clear();
+    return make_result(true, std::move(commands), {}, step_index);
+}
+
+RuntimeInputResult RuntimeSessionHost::run_script(const std::string& script_id,
+                                                  std::optional<std::uint64_t> step_index)
+{
+    if (!m_controller) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(false, {}, {make_warning(input, "runtime session is not loaded")},
+                           step_index);
+    }
+    if (script_id.empty()) {
+        RuntimeInput input;
+        input.step_index = step_index;
+        return make_result(false, {},
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "run-script requires a non-empty script_id")},
+                           step_index);
+    }
+    if (!m_session.project() || !m_session.project()->scripts().contains(script_id)) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Script, script_id};
+        input.step_index = step_index;
+        return make_result(false, {},
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "script '" + script_id + "' does not exist")},
+                           step_index);
+    }
+
+    const bool started = m_controller->start_script(script_id);
+    auto commands = m_controller->take_commands();
+    if (!started) {
+        RuntimeInput input;
+        input.entity_ref = EntityRef{EntityType::Script, script_id};
+        input.step_index = step_index;
+        return make_result(false, std::move(commands),
+                           {make_input_diagnostic(input, "runtime-flow",
+                                                  "failed to run script '" + script_id + "'")},
+                           step_index);
+    }
+    return make_result(true, std::move(commands), {}, step_index);
+}
+
 bool RuntimeSessionHost::select_dialogue_option(int option_index)
 {
     RuntimeInput input;
