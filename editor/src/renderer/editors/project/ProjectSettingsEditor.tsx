@@ -14,7 +14,7 @@ import { useProjectStore } from '@/project/project-store';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { getDefaultLayoutSetting } from '../../../shared/project-schema/authoring-layouts';
+import { getSystemLayoutSetting, systemLayoutRoleValues, type SystemLayoutRole } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject, validateTypedProjectSettings } from '../../../shared/project-schema/authoring-project-settings';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
@@ -22,6 +22,10 @@ import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
 function valueOrNone(value: string | null | undefined) {
   return value ?? '__built_in__';
+}
+
+function systemLayoutSelectedId(role: SystemLayoutRole, layoutId: string | null | undefined) {
+  return layoutId ? `record:layouts:${layoutId}` : `system-layout-built-in:${role}`;
 }
 
 function nullableValue(value: string) {
@@ -32,13 +36,22 @@ function runProjectCommand(type: string, payload: unknown, label: string) {
   return useCommandStore.getState().executeCommand({ type, label, payload });
 }
 
+const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
+  title: 'Title screen',
+  'game-hud': 'Game HUD',
+  'pause-menu': 'Pause menu',
+  'load-menu': 'Load menu',
+  'settings-menu': 'Settings menu',
+  modal: 'Modal dialog',
+  'debug-overlay': 'Debug overlay',
+};
+
 export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
   const { t, i18n } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const settings = project ? projectSettingsFromProject(project) : null;
-  const defaultLayout = project ? getDefaultLayoutSetting(project) : null;
   const diagnostics = useMemo(() => project ? validateAuthoringProject(project) : [], [project]);
   const projectSettingsDiagnostics = useMemo(() => project ? validateTypedProjectSettings(project) : [], [project]);
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [i18n.language, project, t]);
@@ -48,6 +61,7 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
+  const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(null);
   const comfyUiSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -76,7 +90,7 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
 
   const comfyUiSettings = settings.comfyui;
   const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label || id }));
-  const layoutEntries = Object.entries(project.layouts).map(([id, layout]) => ({ id, label: layout.label || id }));
+  const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
   const imageAssets = Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
@@ -96,8 +110,8 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
     runProjectCommand('project.setEntrypoint', { target }, 'Set project entrypoint');
   }
 
-  function setDefaultLayout(layoutId: string | null) {
-    runProjectCommand('project.setRuntimeDefaultLayout', { layoutId }, 'Set project default layout');
+  function setSystemLayout(role: SystemLayoutRole, layoutId: string | null) {
+    runProjectCommand('project.setSystemLayout', { role, layoutId }, 'Set project system layout');
   }
 
   function setDefaultFont(assetId: string | null) {
@@ -216,17 +230,29 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
               <CardDescription>Built-in fallback resources are used when no project resource is selected.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="default-layout">Default layout</Label>
-                <select
-                  id="default-layout"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={valueOrNone(defaultLayout?.$ref.id)}
-                  onChange={(event) => setDefaultLayout(nullableValue(event.currentTarget.value))}
-                >
-                  <option value="__built_in__">Built-in default layout</option>
-                  {layoutEntries.map((layout) => <option key={layout.id} value={layout.id}>{layout.label} ({layout.id})</option>)}
-                </select>
+              <div className="space-y-2 md:col-span-2">
+                <div>
+                  <Label>System layouts</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">Override individual engine UI roles. Leaving a role built-in keeps the engine-provided layout for that role.</p>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {systemLayoutRoleValues.map((role) => {
+                    const selected = project ? getSystemLayoutSetting(project, role) : null;
+                    const selectedLayoutId = selected?.$ref.id ?? null;
+                    const selectedLayout = selectedLayoutId ? project.layouts[selectedLayoutId] : null;
+                    return (
+                      <div key={role} className="space-y-1">
+                        <Label>{systemLayoutRoleLabels[role]}</Label>
+                        <div className="flex gap-2">
+                          <Button type="button" variant="outline" className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal" onClick={() => setSystemLayoutSelectorRole(role)}>
+                            <span className="truncate">{selectedLayoutId ? `${selectedLayout?.label || selectedLayoutId} (${selectedLayoutId})` : `Built-in ${systemLayoutRoleLabels[role].toLowerCase()}`}</span>
+                          </Button>
+                          {selectedLayoutId ? <Button type="button" size="sm" variant="outline" onClick={() => setSystemLayout(role, null)}>{t('selectors.clear')}</Button> : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="default-font">Default font</Label>
@@ -368,7 +394,7 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">built-in fallback</Badge>
-                <span>Default layout and font can use built-in resources.</span>
+                <span>System layouts and font can use built-in resources.</span>
               </div>
             </CardContent>
           </Card>
@@ -404,6 +430,19 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
           setEntrypoint({ collection: item.collection, id: item.entityId });
         }}
         onOpenChange={setEntrypointSelectorOpen}
+      />
+      <SearchSelectorDialog
+        open={!!systemLayoutSelectorRole}
+        title={systemLayoutSelectorRole ? `Choose ${systemLayoutRoleLabels[systemLayoutSelectorRole]}` : 'Choose system layout'}
+        placeholder="Search layouts..."
+        emptyMessage="No layouts found."
+        items={layoutItems}
+        selectedId={systemLayoutSelectorRole ? systemLayoutSelectedId(systemLayoutSelectorRole, getSystemLayoutSetting(project, systemLayoutSelectorRole)?.$ref.id) : null}
+        onSelect={(item) => {
+          if (!systemLayoutSelectorRole || !item.entityId) return;
+          setSystemLayout(systemLayoutSelectorRole, item.entityId);
+        }}
+        onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
       />
     </div>
   );

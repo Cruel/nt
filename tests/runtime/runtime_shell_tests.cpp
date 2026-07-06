@@ -274,3 +274,21 @@ TEST_CASE("RuntimeCommandDispatcher reports stubbed entity start command diagnos
     CHECK(
         has_diagnostic_containing(script.diagnostics, "runtime.run-script is not implemented yet"));
 }
+
+TEST_CASE("RuntimeCommandDispatcher accepts gameplay layout layer commands")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+
+    auto missing_ui = shell.dispatcher().dispatch(
+        command("layout.add-layer", {{"layout_id", "corner_button"}, {"z_index", 20}}));
+
+    CHECK_FALSE(missing_ui.handled);
+    CHECK(has_diagnostic_containing(missing_ui.diagnostics,
+                                    "failed to mount gameplay layout: corner_button"));
+
+    auto invalid = shell.dispatcher().dispatch(command("layout.add-layer"));
+    CHECK_FALSE(invalid.handled);
+    CHECK(has_diagnostic_containing(invalid.diagnostics,
+                                    "layout.add-layer requires a non-empty layout_id"));
+}

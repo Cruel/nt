@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
-import { defaultLayoutSettingSchema } from './authoring-layouts';
+import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
 
 const assetRecordRefSchema = z.object({
   $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
@@ -57,7 +57,7 @@ export const projectComfyUiSettingsSchema = z.object({
 
 export const typedProjectSettingsSchema = z.object({
   startup: projectStartupSettingsSchema.default({ initScript: '' }),
-  ui: z.object({ defaultLayout: defaultLayoutSettingSchema.default(null) }).default({ defaultLayout: null }),
+  ui: z.object({ systemLayouts: systemLayoutSettingsSchema }).default({ systemLayouts: {} }),
   text: projectTextSettingsSchema.default({ defaultFont: null }),
   titleScreen: projectTitleScreenSettingsSchema.default({
     titleImage: null,
@@ -147,8 +147,11 @@ export function validateTypedProjectSettings(project: AuthoringProject): Project
   if (settings.startup.initScript !== undefined && typeof settings.startup.initScript !== 'string') {
     diagnostics.push(diagnostic('/settings/startup/initScript', 'Startup init script must be a string.'));
   }
-  if (settings.ui.defaultLayout && !project.layouts[settings.ui.defaultLayout.$ref.id]) {
-    diagnostics.push(diagnostic('/settings/ui/defaultLayout/$ref', `Missing default layout '${settings.ui.defaultLayout.$ref.id}'.`));
+  for (const role of systemLayoutRoleValues) {
+    const ref = settings.ui.systemLayouts[role];
+    if (ref && !project.layouts[ref.$ref.id]) {
+      diagnostics.push(diagnostic(`/settings/ui/systemLayouts/${role}/$ref`, `Missing ${role} system layout '${ref.$ref.id}'.`));
+    }
   }
   validateAssetRef(project, settings.text.defaultFont, '/settings/text/defaultFont', 'font', diagnostics);
   validateAssetRef(project, settings.titleScreen.titleImage, '/settings/titleScreen/titleImage', 'image', diagnostics);

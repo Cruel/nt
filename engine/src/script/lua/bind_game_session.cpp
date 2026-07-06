@@ -547,6 +547,15 @@ struct GameBinding {
     {
         return dispatch("runtime.run-script", {{"script_id", std::move(script_id)}});
     }
+
+    bool add_layer(std::string layout_id, sol::optional<int> z_index) const
+    {
+        nlohmann::json payload = {{"layout_id", std::move(layout_id)}};
+        if (z_index) {
+            payload["z_index"] = *z_index;
+        }
+        return dispatch("layout.add-layer", std::move(payload));
+    }
 };
 
 // -------------------------------------------------------------------
@@ -768,6 +777,10 @@ void build_game_table(lua_State* L, core::GameSession* session, core::RuntimeSes
     game.set_function("run_script", [binding](std::string script_id) mutable {
         return binding.run_script(std::move(script_id));
     });
+    game.set_function("add_layer",
+                      [binding](std::string layout_id, sol::optional<int> z_index) mutable {
+                          return binding.add_layer(std::move(layout_id), z_index);
+                      });
 
     game.set_function("push_next", [binding](int type, std::string id) mutable {
         binding.push_next(type, std::move(id));

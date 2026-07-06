@@ -150,7 +150,7 @@ Layouts can reference:
 - stylesheet/text assets;
 - script assets;
 - material records;
-- other layout records through project settings such as `settings.ui.defaultLayout`.
+- other layout records through project settings such as `settings.ui.systemLayouts.title` or `settings.ui.systemLayouts.game-hud`.
 
 Layout refs use:
 
@@ -200,7 +200,7 @@ Layout validation checks:
 Layout-specific commands include:
 
 - `layout.replaceData` for validated full data replacement;
-- `project.setDefaultLayout` for setting or clearing `settings.ui.defaultLayout`.
+- `project.setSystemLayout` for setting or clearing named engine UI roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`, `settings-menu`, `modal`, and `debug-overlay`).
 
 Generic entity commands handle creation, rename, deletion, metadata, duplication, parent assignment, and inheritance fields.
 

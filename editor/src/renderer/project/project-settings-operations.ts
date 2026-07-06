@@ -1,6 +1,6 @@
 import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { toJsonValue, type JsonValue } from '@/project/json-value';
-import { defaultLayoutRef } from '../../shared/project-schema/authoring-layouts';
+import { layoutRecordRef, systemLayoutRoleValues, type SystemLayoutRole } from '../../shared/project-schema/authoring-layouts';
 import { assetRef, roomEntrypointRef } from '../../shared/project-schema/authoring-project-settings';
 import { isAuthoringProject, type ReferenceTarget } from '../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
@@ -24,7 +24,8 @@ export interface SetProjectStartupPayload {
   initScript: string;
 }
 
-export interface SetProjectDefaultLayoutPayload {
+export interface SetProjectSystemLayoutPayload {
+  role: SystemLayoutRole;
   layoutId: string | null;
 }
 
@@ -145,16 +146,21 @@ export function setProjectStartupPatches(document: unknown, payload: SetProjectS
   return { patches, affectedPaths: ['/settings/startup/initScript'] };
 }
 
-export function setProjectDefaultLayoutPatches(document: unknown, payload: SetProjectDefaultLayoutPayload): EntityOperationResult {
+export function setProjectSystemLayoutPatches(document: unknown, payload: SetProjectSystemLayoutPayload): EntityOperationResult {
   if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!systemLayoutRoleValues.includes(payload.role)) {
+    return { patches: [], diagnostics: [error('Unknown system layout role.', '/settings/ui/systemLayouts')] };
+  }
   if (payload.layoutId !== null && !document.layouts[payload.layoutId]) {
-    return { patches: [], diagnostics: [error('Default layout record does not exist.', buildJsonPointer(['layouts', payload.layoutId]))] };
+    return { patches: [], diagnostics: [error('System layout record does not exist.', buildJsonPointer(['layouts', payload.layoutId]))] };
   }
   const patches: JsonPatchOperation[] = [];
   const documentValue = toJsonValue(document);
   ensureSettingsObject(patches, documentValue, '/settings/ui');
-  patches.push(patchValue(documentValue, '/settings/ui/defaultLayout', payload.layoutId === null ? null : defaultLayoutRef(payload.layoutId)));
-  return { patches, affectedPaths: ['/settings/ui/defaultLayout'] };
+  ensureSettingsObject(patches, documentValue, '/settings/ui/systemLayouts');
+  const path = buildJsonPointer(['settings', 'ui', 'systemLayouts', payload.role]);
+  patches.push(patchValue(documentValue, path, payload.layoutId === null ? null : layoutRecordRef(payload.layoutId)));
+  return { patches, affectedPaths: [path] };
 }
 
 export function setProjectDefaultFontPatches(document: unknown, payload: SetProjectDefaultFontPayload): EntityOperationResult {

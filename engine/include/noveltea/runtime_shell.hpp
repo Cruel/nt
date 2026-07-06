@@ -5,6 +5,7 @@
 #include "noveltea/core/runtime_session_host.hpp"
 #include "noveltea/core/save_document.hpp"
 #include "noveltea/runtime_command.hpp"
+#include "noveltea/runtime_layout_manager.hpp"
 
 #include <vector>
 #include <string>
@@ -34,6 +35,8 @@ public:
     {
         return m_dispatcher;
     }
+    [[nodiscard]] RuntimeLayoutManager& layouts() noexcept { return m_layouts; }
+    [[nodiscard]] const RuntimeLayoutManager& layouts() const noexcept { return m_layouts; }
     [[nodiscard]] const std::vector<core::RuntimeDiagnostic>& last_diagnostics() const noexcept
     {
         return m_last_diagnostics;
@@ -43,6 +46,11 @@ public:
     load_project(core::ProjectDocument project,
                  core::SaveDocument save = core::SaveDocument::new_save());
     void reset();
+    void bind_runtime_ui(RuntimeUI* ui) noexcept;
+    [[nodiscard]] RuntimeLayoutInstanceId mount_title_layout();
+    [[nodiscard]] RuntimeLayoutInstanceId mount_gameplay_layout();
+    [[nodiscard]] RuntimeLayoutInstanceId
+    mount_gameplay_layout(std::string layout_id, std::optional<int> z_index = std::nullopt);
     void pause();
     void resume();
     [[nodiscard]] core::RuntimeInputResult start_game();
@@ -56,6 +64,7 @@ private:
 
     core::RuntimeSessionHost m_host;
     RuntimeCommandDispatcher m_dispatcher;
+    RuntimeLayoutManager m_layouts;
     RuntimeShellMode m_mode = RuntimeShellMode::Boot;
     std::vector<core::RuntimeDiagnostic> m_last_diagnostics;
 };

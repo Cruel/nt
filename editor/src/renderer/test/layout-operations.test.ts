@@ -28,24 +28,4 @@ describe('layout commands', () => {
     state = valid.state;
     expect(undoCommand(state).document).toMatchObject({ layouts: { main: { data: { target: 'default-ui' } } } });
   });
-
-  it('sets and clears the default layout setting', () => {
-    const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
-    const state = createInitialCommandBusState(toJsonValue(project));
-
-    const set = executeCommand(state, {
-      type: 'project.setDefaultLayout',
-      payload: { layoutId: 'main' },
-    });
-    expect(set.ok).toBe(true);
-    expect(set.document).toMatchObject({ settings: { ui: { defaultLayout: { $ref: { collection: 'layouts', id: 'main' } } } } });
-
-    const clear = executeCommand(set.state, {
-      type: 'project.setDefaultLayout',
-      payload: { layoutId: null },
-    });
-    expect(clear.ok).toBe(true);
-    expect(clear.document).toMatchObject({ settings: { ui: { defaultLayout: null } } });
-  });
 });

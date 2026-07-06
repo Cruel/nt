@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
-import { defaultLayoutData, defaultLayoutRef, validateLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultLayoutData, layoutRecordRef, validateLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { buildLayoutPreviewDocumentData, layoutPreviewRevision } from '../../shared/project-schema/layout-project';
 
 describe('authoring layouts schema', () => {
@@ -42,14 +42,14 @@ describe('authoring layouts schema', () => {
     ]));
   });
 
-  it('validates default layout references and indexes settings usage', () => {
+  it('validates system layout references and indexes settings usage', () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
-    project.settings.ui = { defaultLayout: defaultLayoutRef('main') };
+    project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
 
     expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'authoring-layouts')).toEqual([]);
     expect(findUsages(buildReferenceIndex(project), { collection: 'layouts', id: 'main' })).toEqual([
-      expect.objectContaining({ sourceCollection: 'project', sourceId: 'settings', path: '/settings/ui/defaultLayout/$ref' }),
+      expect.objectContaining({ sourceCollection: 'project', sourceId: 'settings', path: '/settings/ui/systemLayouts/title/$ref' }),
     ]);
   });
 

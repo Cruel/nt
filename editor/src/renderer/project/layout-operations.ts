@@ -1,8 +1,7 @@
-import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
+import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue, type JsonValue } from '@/project/json-value';
-import { defaultLayoutRef, parseLayoutData, validateLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { parseLayoutData, validateLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
 export interface ReplaceLayoutDataPayload {
@@ -10,9 +9,6 @@ export interface ReplaceLayoutDataPayload {
   data: unknown;
 }
 
-export interface SetDefaultLayoutPayload {
-  layoutId: string | null;
-}
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
   return { severity: 'error', message, path };
@@ -48,28 +44,4 @@ export function replaceLayoutDataPatches(
     patches: [{ op: 'replace', path: pathForLayoutData(payload.layoutId), value: toJsonValue(data) }],
     affectedPaths: [pathForLayoutData(payload.layoutId)],
   };
-}
-
-export function setDefaultLayoutPatches(
-  document: JsonValue | unknown,
-  payload: SetDefaultLayoutPayload,
-): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
-  const patches: JsonPatchOperation[] = [];
-
-  if (payload.layoutId !== null && !document.layouts[payload.layoutId]) {
-    return { patches: [], diagnostics: [error('Default layout record does not exist.', pathForLayout(payload.layoutId))] };
-  }
-
-  const documentValue = toJsonValue(document);
-  if (!hasJsonAtPointer(documentValue, '/settings/ui')) {
-    patches.push({ op: 'add', path: '/settings/ui', value: {} });
-  }
-
-  const path = '/settings/ui/defaultLayout';
-  const exists = hasJsonAtPointer(documentValue, path);
-  const value = payload.layoutId === null ? null : toJsonValue(defaultLayoutRef(payload.layoutId));
-  patches.push({ op: exists ? 'replace' : 'add', path, value });
-
-  return { patches, affectedPaths: ['/settings/ui/defaultLayout'] };
 }

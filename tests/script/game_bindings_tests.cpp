@@ -301,6 +301,20 @@ TEST_CASE("Game bindings: dispatcher-backed gameplay helpers build valid payload
     CHECK(*f.runtime.evaluate_bool("script_ok", "script_ok").value);
 }
 
+TEST_CASE("Game bindings: layout layer helper dispatches through RuntimeShell")
+{
+    GameCommandBindingsFixture f;
+
+    auto helpers = f.runtime.execute(R"(
+        corner_ok = Game.add_layer("corner_button", 20)
+        top_ok = Game.add_layer("bottom_nav")
+    )",
+                                     "layout_helpers");
+    REQUIRE(helpers);
+    CHECK_FALSE(*f.runtime.evaluate_bool("corner_ok", "corner_ok").value);
+    CHECK_FALSE(*f.runtime.evaluate_bool("top_ok", "top_ok").value);
+}
+
 TEST_CASE("Game bindings: Script.rand and Script.seed produce deterministic sequence")
 {
     GameBindingsFixture f;

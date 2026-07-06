@@ -182,6 +182,31 @@ RuntimeCommandResult RuntimeCommandDispatcher::dispatch(RuntimeCommand command)
         result.handled = true;
         return finish(std::move(result));
     }
+    if (command.name == "layout.add-layer") {
+        const auto layout_id = string_payload(command.payload, "layout_id");
+        if (!layout_id || layout_id->empty()) {
+            append_diagnostic(
+                result, make_warning(command, "layout.add-layer requires a non-empty layout_id"),
+                {{"source", to_string(command.source)},
+                 {"domain", to_string(command.domain)},
+                 {"name", command.name},
+                 {"payload", command.payload}});
+            return finish(std::move(result));
+        }
+        const auto instance_id =
+            m_shell->mount_gameplay_layout(*layout_id, int_payload(command.payload, "z_index"));
+        if (instance_id == 0) {
+            append_diagnostic(
+                result, make_warning(command, "failed to mount gameplay layout: " + *layout_id),
+                {{"source", to_string(command.source)},
+                 {"domain", to_string(command.domain)},
+                 {"name", command.name},
+                 {"payload", command.payload}});
+            return finish(std::move(result));
+        }
+        result.handled = true;
+        return finish(std::move(result));
+    }
     if (command.name == "runtime.start-room" || command.name == "runtime.start-dialogue" ||
         command.name == "runtime.start-scene" || command.name == "runtime.run-script") {
         append_diagnostic(result, make_warning(command, command.name + " is not implemented yet"),

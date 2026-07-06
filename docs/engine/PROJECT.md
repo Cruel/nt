@@ -99,7 +99,7 @@ Transient editor state lives in renderer stores and workbench services. It shoul
 
 `project` stores human-facing project metadata: ID, name, version, author, and description.
 
-`settings` is a namespaced settings bag. Current typed project settings include `settings.startup.initScript`, `settings.ui.defaultLayout`, `settings.text.defaultFont`, `settings.titleScreen`, and `settings.app.icon`. Default layout and default font may be null or absent, which means the built-in fallback resource is used.
+`settings` is a namespaced settings bag. Current typed project settings include `settings.startup.initScript`, `settings.ui.systemLayouts`, `settings.text.defaultFont`, `settings.titleScreen`, and `settings.app.icon`. System layout role refs and default font may be null or absent, which means the built-in fallback resource is used.
 
 `entrypoint` is the intended startup target. It can reference any known authoring collection structurally, but runtime export currently accepts room entrypoints only.
 
@@ -224,7 +224,7 @@ Project Settings exposes `settings.startup.initScript` as the authoring project-
 
 Project owns every authoring collection. Assets, variables, shaders, materials, layouts, characters, rooms, dialogues, scenes, and tests have typed V1 docs or will receive them. Objects, verbs, actions, maps, and scripts are collection-level placeholders until their dedicated new authoring schemas are implemented.
 
-Default layout configuration belongs to project settings and either references a layout record or uses the built-in fallback. Default font similarly either references a font asset or uses the built-in fallback.
+System layout role configuration belongs to project settings and either references layout records or uses built-in fallbacks per role. Default font similarly either references a font asset or uses the built-in fallback.
 
 Startup behavior belongs to the project entrypoint and optional startup init script, but export support still depends on the referenced entrypoint type.
 

@@ -19,13 +19,21 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   commands. It currently handles `game.start`, `game.pause`, `game.resume`, `menu.close`, gameplay
   input commands, Load/Settings placeholder diagnostics, trace diagnostics, and unknown-command
   diagnostics.
+- `RuntimeLayoutManager` V0 is shell-owned and wraps RuntimeUI document load/show/hide/unload for
+  mounted Layout metadata. Initial layers are Title, GameHud, MenuOverlay, Modal, and Debug. The
+  built-in title Layout mounts as Title, `runtime_game` mounts as GameHud, and additional gameplay
+  Layouts can be stacked in GameHud with explicit `z_index` metadata or default top insertion.
+  `game.start` removes the Title layer while keeping gameplay available below future overlays.
+- Lua can request stacked gameplay Layouts with `Game.add_layer(layout_id, z_index?)`, which routes
+  through the dispatcher as `layout.add-layer`. Until runtime Layout manifests are implemented, V0
+  resolves non-path IDs to project layout RML files under `project:/layouts/`.
 - RmlUi Layout activation uses ordinary Lua `onclick` handlers and dispatcher-backed `Game.*`
   helpers. Existing built-in gameplay attributes (`nt-option`, `nt-nav`, `nt-continue`,
   `nt-object`, `nt-action`, `nt-clear-selection`) are preserved only as temporary compatibility for
   the current gameplay document/custom component output.
 - Built-in title Layout startup is implemented. Loading a runtime project mounts
-  `system:/ui/title/default-title.rml`, binds the project title and Start label fallback, and defers
-  loading `runtime_game` until `game.start`.
+  `system:/ui/title/default-title.rml` through the shell layout manager, binds the project title and
+  Start label fallback, and defers loading `runtime_game` until `game.start`.
 - Runtime UI has C++-backed RmlUi components for ActiveText, MapView, and TextLog. ActiveText is
   rendered by the engine text/bgfx path after RmlUi layout provides bounds and input routing.
 - Runtime project/package export, playback specs, editor preview/tooling, typed assets, audio, shader
@@ -40,8 +48,10 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   [`../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md`](../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md):
   default/title Layout startup, menu overlays, pause UI, transitions, Layout-aware preview/playback,
   and command bridges from Lua/editor/test surfaces.
-- Runtime Layout export/manifest support is still incomplete. `settings.ui.defaultLayout` is authored
-  but not consumed, and project-authored title/default Layout export is deferred.
+- Runtime Layout export/manifest support is still incomplete. The editor now authors named system
+  Layout roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`,
+  `settings-menu`, `modal`, and `debug-overlay`) with built-in fallbacks. Runtime export and
+  consumption of project-authored system Layouts are still deferred.
 - Runtime entity start commands (`Game.start_room`, `Game.start_dialogue`, `Game.start_scene`, and
   `Game.run_script`) currently dispatch but return clear not-implemented diagnostics until those
   runtime flows are wired.
@@ -92,13 +102,13 @@ ctest --test-dir build/linux-debug --output-on-failure
 `format-check` currently reports unrelated formatting debt in `engine/src/render/bgfx/` and
 `tests/core/`. Keep touched C/C++ files clang-format clean even if the global target is not clean.
 
-Latest runtime title slice verification:
+Latest runtime layout/title slice verification:
 
 ```sh
-cmake --preset linux-debug
-cmake --build --preset linux-debug
-ctest --test-dir build/linux-debug --output-on-failure
-./build/linux-debug/apps/sandbox/noveltea-sandbox --runtime-project project:/projects/runtime_phase9_package/game --frames 120 --no-imgui
+cmake --build --preset linux-debug --target noveltea_runtime_shell_tests
+cmake --build --preset linux-debug --target noveltea_script_tests
+ctest --test-dir build/linux-debug -R "RuntimeShell|Game bindings: dispatcher|built-in title" --output-on-failure
+ctest --test-dir build/linux-debug -R "layout layer" --output-on-failure
 ```
 
 `format-check` was rerun after formatting touched files and now fails only on the pre-existing

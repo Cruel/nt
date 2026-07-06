@@ -95,7 +95,9 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock', projectFilePath: '/mock/project.json' });
     render(<ProjectSettingsEditor tab={tab} />);
 
-    fireEvent.change(screen.getByLabelText('Default layout'), { target: { value: 'main' } });
+    fireEvent.click(screen.getByText('Built-in title screen'));
+    expect(await screen.findByText('Choose Title screen')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Main Layout'));
     fireEvent.change(screen.getByLabelText('Default font'), { target: { value: 'main-font' } });
     fireEvent.change(screen.getByLabelText('Title image'), { target: { value: 'logo' } });
     fireEvent.change(screen.getByLabelText('Project icon'), { target: { value: 'logo' } });
@@ -103,7 +105,7 @@ describe('ProjectSettingsEditor', () => {
 
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
       settings: {
-        ui: { defaultLayout: { $ref: { collection: 'layouts', id: 'main' } } },
+        ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } },
         text: { defaultFont: { $ref: { collection: 'assets', id: 'main-font' } } },
         titleScreen: { titleImage: { $ref: { collection: 'assets', id: 'logo' } }, startLabel: 'Begin' },
         app: { icon: { $ref: { collection: 'assets', id: 'logo' } } },

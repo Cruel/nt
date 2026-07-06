@@ -33,18 +33,19 @@ import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
 import { replaceTestDataPatches } from '@/project/test-operations';
-import { replaceLayoutDataPatches, setDefaultLayoutPatches } from '@/project/layout-operations';
+import { replaceLayoutDataPatches } from '@/project/layout-operations';
 import {
   setProjectComfyUiPatches,
   setProjectDefaultFontPatches,
-  setProjectDefaultLayoutPatches,
   setProjectEntrypointPatches,
   setProjectIconPatches,
   setProjectStartupPatches,
+  setProjectSystemLayoutPatches,
   setProjectTagColorPatches,
   setProjectTitleScreenPatches,
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
+import { systemLayoutRoleValues } from '../../shared/project-schema/authoring-layouts';
 import {
   assignChaptersPatches,
   createChapterPatches,
@@ -280,7 +281,10 @@ const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown
 const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
 const testReplaceDataSchema = z.object({ testId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
-const setDefaultLayoutSchema = z.object({ layoutId: entityIdSchema.nullable() });
+const setSystemLayoutSchema = z.object({
+  role: z.enum(systemLayoutRoleValues),
+  layoutId: entityIdSchema.nullable(),
+});
 const projectMetadataSchema = z.object({ name: z.string().optional(), version: z.string().optional(), author: z.string().optional(), description: z.string().optional() });
 const projectEntrypointSchema = z.object({ target: z.object({ collection: z.string().min(1), id: entityIdSchema }).nullable() });
 const projectStartupSchema = z.object({ initScript: z.string() });
@@ -391,9 +395,6 @@ export const sceneReplaceDataCommand: CommandHandler = ({ document, payload }) =
 export const testReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(testReplaceDataSchema, payload, (parsed) => replaceTestDataPatches(document, parsed));
 
-export const projectSetDefaultLayoutCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(setDefaultLayoutSchema, payload, (parsed) => setDefaultLayoutPatches(document, parsed));
-
 export const projectUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectMetadataSchema, payload, (parsed) => updateProjectMetadataPatches(document, parsed));
 
@@ -403,8 +404,8 @@ export const projectSetEntrypointCommand: CommandHandler = ({ document, payload 
 export const projectSetStartupCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectStartupSchema, payload, (parsed) => setProjectStartupPatches(document, parsed));
 
-export const projectSetRuntimeDefaultLayoutCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(setDefaultLayoutSchema, payload, (parsed) => setProjectDefaultLayoutPatches(document, parsed));
+export const projectSetSystemLayoutCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(setSystemLayoutSchema, payload, (parsed) => setProjectSystemLayoutPatches(document, parsed));
 
 export const projectSetDefaultFontCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectDefaultFontSchema, payload, (parsed) => setProjectDefaultFontPatches(document, parsed));
@@ -474,11 +475,10 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.replaceData': roomReplaceDataCommand,
     'scene.replaceData': sceneReplaceDataCommand,
     'test.replaceData': testReplaceDataCommand,
-    'project.setDefaultLayout': projectSetDefaultLayoutCommand,
     'project.updateMetadata': projectUpdateMetadataCommand,
     'project.setEntrypoint': projectSetEntrypointCommand,
     'project.setStartup': projectSetStartupCommand,
-    'project.setRuntimeDefaultLayout': projectSetRuntimeDefaultLayoutCommand,
+    'project.setSystemLayout': projectSetSystemLayoutCommand,
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
     'project.setIcon': projectSetIconCommand,
@@ -526,11 +526,10 @@ export function labelForCommand(type: string): string {
     case 'room.replaceData': return 'Update room';
     case 'scene.replaceData': return 'Update scene';
     case 'test.replaceData': return 'Update test';
-    case 'project.setDefaultLayout': return 'Set default layout';
     case 'project.updateMetadata': return 'Update project metadata';
     case 'project.setEntrypoint': return 'Set project entrypoint';
     case 'project.setStartup': return 'Update project startup';
-    case 'project.setRuntimeDefaultLayout': return 'Set project default layout';
+    case 'project.setSystemLayout': return 'Set project system layout';
     case 'project.setDefaultFont': return 'Set project default font';
     case 'project.setTitleScreen': return 'Update title screen settings';
     case 'project.setIcon': return 'Set project icon';

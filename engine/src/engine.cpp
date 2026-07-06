@@ -779,10 +779,11 @@ bool Engine::load_runtime_project(const std::string& logical_path)
     m_runtime_ui.bind_runtime_host(m_runtime_shell.loaded() ? &m_runtime_shell.host() : nullptr);
     m_runtime_ui.bind_runtime_command_dispatcher(
         m_runtime_shell.loaded() ? &m_runtime_shell.dispatcher() : nullptr);
+    m_runtime_shell.bind_runtime_ui(m_runtime_shell.loaded() ? &m_runtime_ui : nullptr);
     m_scripts.bind_runtime_command_dispatcher(
         m_runtime_shell.loaded() ? &m_runtime_shell.dispatcher() : nullptr);
     if (m_runtime_shell.loaded()) {
-        if (m_runtime_ui.load_title_document()) {
+        if (m_runtime_shell.mount_title_layout() != 0) {
             m_runtime_ui.bind_title_document(project_title, "", start_label);
         }
     }
@@ -1178,6 +1179,29 @@ void Engine::handle_events()
             if (ui_consumed)
                 break;
             if (event.key.key == SDLK_ESCAPE) {
+                if (m_runtime_shell.layouts().close_top_escape_layout()) {
+                    break;
+                }
+                if (m_runtime_shell.mode() == RuntimeShellMode::Game) {
+                    RuntimeCommand command;
+                    command.source = RuntimeCommandSource::Platform;
+                    command.domain = RuntimeCommandDomain::Shell;
+                    command.name = "game.pause";
+                    auto result = m_runtime_shell.dispatch_command(std::move(command));
+                    core::RuntimeInputResult input_result = std::move(result.input_result);
+                    process_runtime_result(input_result);
+                    break;
+                }
+                if (m_runtime_shell.mode() == RuntimeShellMode::Paused) {
+                    RuntimeCommand command;
+                    command.source = RuntimeCommandSource::Platform;
+                    command.domain = RuntimeCommandDomain::Shell;
+                    command.name = "menu.close";
+                    auto result = m_runtime_shell.dispatch_command(std::move(command));
+                    core::RuntimeInputResult input_result = std::move(result.input_result);
+                    process_runtime_result(input_result);
+                    break;
+                }
                 m_platform.request_quit();
             }
             std::printf("[input] key_down: scancode=%d\n", event.key.scancode);
@@ -1192,7 +1216,9 @@ void Engine::handle_events()
                 "[input] mouse_down: button=%d logical=(%.2f,%.2f) surface=%dx%d scale=%.3fx%.3f\n",
                 event.button.button, event.button.x, event.button.y, m_platform.logical_width(),
                 m_platform.logical_height(), m_platform.scale_x(), m_platform.scale_y());
-            handle_mouse_down(event.button.x, event.button.y, event.button.button);
+            if (!m_runtime_shell.layouts().blocks_game_input()) {
+                handle_mouse_down(event.button.x, event.button.y, event.button.button);
+            }
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -1315,11 +1341,9 @@ void Engine::process_runtime_result(core::RuntimeInputResult& result)
 
     auto& runtime_host = m_runtime_shell.host();
     if (m_runtime_shell.mode() == RuntimeShellMode::Game) {
-        m_runtime_ui.hide_document("runtime_title");
-        if (!m_runtime_ui.document("runtime_game")) {
-            m_runtime_ui.load_runtime_document();
-        } else {
-            m_runtime_ui.show_document("runtime_game");
+        (void)m_runtime_shell.layouts().unmount_layer(RuntimeLayoutLayer::Title);
+        if (!m_runtime_shell.layouts().find_document("runtime_game")) {
+            (void)m_runtime_shell.mount_gameplay_layout();
         }
     }
     m_runtime_ui.apply_controller_commands(runtime_host.last_commands());

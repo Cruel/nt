@@ -879,6 +879,7 @@ bool RuntimeUI::load_runtime_document()
     m_state->load_runtime_document();
     if (auto* doc = static_cast<Rml::ElementDocument*>(document(kRuntimeGameDocumentId))) {
         doc->Show();
+        m_state->refresh_runtime_document();
         return true;
     }
     return false;

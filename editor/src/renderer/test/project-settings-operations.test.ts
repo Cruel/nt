@@ -25,12 +25,12 @@ function projectWithSettingsTargets() {
 }
 
 describe('project settings operations', () => {
-  it('updates metadata, entrypoint, startup, default layout, and default font through undoable commands', () => {
+  it('updates metadata, entrypoint, startup, system layout, and default font through undoable commands', () => {
     let state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     state = executeCommand(state, { type: 'project.updateMetadata', payload: { name: 'Demo', version: '1.2.3', author: 'Author' } }).state;
     state = executeCommand(state, { type: 'project.setEntrypoint', payload: { target: { collection: 'rooms', id: 'foyer' } } }).state;
     state = executeCommand(state, { type: 'project.setStartup', payload: { initScript: 'game.start()' } }).state;
-    state = executeCommand(state, { type: 'project.setRuntimeDefaultLayout', payload: { layoutId: 'main' } }).state;
+    state = executeCommand(state, { type: 'project.setSystemLayout', payload: { role: 'title', layoutId: 'main' } }).state;
     const font = executeCommand(state, { type: 'project.setDefaultFont', payload: { assetId: 'main-font' } });
     expect(font.ok).toBe(true);
     expect(font.state.document).toMatchObject({
@@ -38,7 +38,7 @@ describe('project settings operations', () => {
       entrypoint: { collection: 'rooms', id: 'foyer' },
       settings: {
         startup: { initScript: 'game.start()' },
-        ui: { defaultLayout: { $ref: { collection: 'layouts', id: 'main' } } },
+        ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } },
         text: { defaultFont: { $ref: { collection: 'assets', id: 'main-font' } } },
       },
     });
@@ -51,6 +51,15 @@ describe('project settings operations', () => {
     expect(executeCommand(state, { type: 'project.setEntrypoint', payload: { target: { collection: 'rooms', id: 'missing' } } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setDefaultFont', payload: { assetId: 'logo' } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setIcon', payload: { assetId: 'main-font' } }).ok).toBe(false);
+    expect(executeCommand(state, { type: 'project.setSystemLayout', payload: { role: 'title', layoutId: 'missing' } }).ok).toBe(false);
+  });
+
+  it('clears individual system layout roles back to built-in fallbacks', () => {
+    let state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
+    state = executeCommand(state, { type: 'project.setSystemLayout', payload: { role: 'game-hud', layoutId: 'main' } }).state;
+    const clear = executeCommand(state, { type: 'project.setSystemLayout', payload: { role: 'game-hud', layoutId: null } });
+    expect(clear.ok).toBe(true);
+    expect(clear.state.document).toMatchObject({ settings: { ui: { systemLayouts: { 'game-hud': null } } } });
   });
 
   it('allows blank project titles so validation can report the invalid project state', () => {

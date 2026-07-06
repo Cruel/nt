@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { assetRef, projectSettingsFromProject, validateTypedProjectSettings } from '../../shared/project-schema/authoring-project-settings';
-import { defaultLayoutData, defaultLayoutRef } from '../../shared/project-schema/authoring-layouts';
+import { defaultLayoutData, layoutRecordRef } from '../../shared/project-schema/authoring-layouts';
 
 function addAssets(project: ReturnType<typeof createAuthoringProject>) {
   project.assets['main-font'] = {
@@ -22,7 +22,7 @@ describe('authoring project settings', () => {
   it('normalizes absent settings to built-in fallbacks', () => {
     const project = createAuthoringProject();
     const settings = projectSettingsFromProject(project);
-    expect(settings.ui.defaultLayout).toBeNull();
+    expect(settings.ui.systemLayouts).toEqual({});
     expect(settings.text.defaultFont).toBeNull();
     expect(settings.titleScreen).toMatchObject({ showProjectTitle: true, showAuthor: false, startLabel: 'Start' });
     expect(settings.startup.initScript).toBe('');
@@ -41,7 +41,7 @@ describe('authoring project settings', () => {
     const project = createAuthoringProject();
     addAssets(project);
     project.layouts.main = { id: 'main', label: 'Main Layout', tags: [], data: defaultLayoutData('Main Layout') };
-    project.settings.ui = { defaultLayout: defaultLayoutRef('main') };
+    project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
     project.settings.text = { defaultFont: assetRef('main-font') };
     project.settings.titleScreen = { titleImage: assetRef('logo'), showProjectTitle: true, showAuthor: true, subtitle: '', startLabel: 'Begin' };
     project.settings.app = { icon: assetRef('logo') };

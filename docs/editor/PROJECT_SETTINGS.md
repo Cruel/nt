@@ -34,7 +34,13 @@ settings.startup.initScript
 Runtime defaults use:
 
 ```ts
-settings.ui.defaultLayout
+settings.ui.systemLayouts.title
+settings.ui.systemLayouts.game-hud
+settings.ui.systemLayouts.pause-menu
+settings.ui.systemLayouts.load-menu
+settings.ui.systemLayouts.settings-menu
+settings.ui.systemLayouts.modal
+settings.ui.systemLayouts.debug-overlay
 settings.text.defaultFont
 ```
 
@@ -51,14 +57,18 @@ settings.app.icon
 
 ## Built-In Fallbacks
 
-Default layout and default font support built-in fallback behavior. In V1, `null` or an absent setting means the built-in default resource is used.
+System layout roles and default font support built-in fallback behavior. In V1, `null` or an
+absent system layout role means the built-in engine layout for that role is used. This keeps
+built-in title/menu/HUD documents compatible with project-authored replacements.
 
 ```ts
-settings.ui.defaultLayout = null      // built-in default layout
-settings.text.defaultFont = null      // built-in default font
+settings.ui.systemLayouts.title = null       // built-in title layout
+settings.ui.systemLayouts.game-hud = null    // built-in gameplay HUD layout
+settings.ui.systemLayouts.pause-menu = null  // built-in pause menu layout
+settings.text.defaultFont = null             // built-in default font
 ```
 
-Project layout/font records can override those fallbacks.
+Project layout/font records can override those fallbacks. The editor writes only `settings.ui.systemLayouts` for engine UI role overrides.
 
 ## Entrypoint Limitation
 
@@ -73,7 +83,7 @@ Project Settings adds typed validation for:
 - project title;
 - semver-like project version warnings;
 - startup init script shape;
-- default layout refs;
+- system layout role refs;
 - default font refs, which must point to font assets;
 - title image refs, which must point to image assets;
 - project icon refs, which must point to image assets.

@@ -15,11 +15,21 @@ export const layoutTargetValues = [
 
 export const layoutSourceModeValues = ['inline', 'asset'] as const;
 export const layoutPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
+export const systemLayoutRoleValues = [
+  'title',
+  'game-hud',
+  'pause-menu',
+  'load-menu',
+  'settings-menu',
+  'modal',
+  'debug-overlay',
+] as const;
 
 export type LayoutKind = (typeof layoutKindValues)[number];
 export type LayoutTarget = (typeof layoutTargetValues)[number];
 export type LayoutSourceMode = (typeof layoutSourceModeValues)[number];
 export type LayoutPreviewBackground = (typeof layoutPreviewBackgroundValues)[number];
+export type SystemLayoutRole = (typeof systemLayoutRoleValues)[number];
 
 export const layoutAssetRefSchema = z.object({
   $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
@@ -82,7 +92,15 @@ export const layoutDataSchema = z.object({
   }).default({ width: 1280, height: 720, background: 'dark' }),
 });
 
-export const defaultLayoutSettingSchema = layoutRecordRefSchema.nullable();
+export const systemLayoutSettingsSchema = z.object({
+  title: layoutRecordRefSchema.nullable().optional(),
+  'game-hud': layoutRecordRefSchema.nullable().optional(),
+  'pause-menu': layoutRecordRefSchema.nullable().optional(),
+  'load-menu': layoutRecordRefSchema.nullable().optional(),
+  'settings-menu': layoutRecordRefSchema.nullable().optional(),
+  modal: layoutRecordRefSchema.nullable().optional(),
+  'debug-overlay': layoutRecordRefSchema.nullable().optional(),
+}).strict().default({});
 
 export type LayoutAssetRef = z.infer<typeof layoutAssetRefSchema>;
 export type LayoutMaterialRef = z.infer<typeof layoutMaterialRefSchema>;
@@ -92,6 +110,7 @@ export type LayoutDependencyData = z.infer<typeof layoutDependencyDataSchema>;
 export type LayoutScriptData = z.infer<typeof layoutScriptDataSchema>;
 export type LayoutMountData = z.infer<typeof layoutMountDataSchema>;
 export type LayoutData = z.infer<typeof layoutDataSchema>;
+export type SystemLayoutSettings = z.infer<typeof systemLayoutSettingsSchema>;
 
 export interface LayoutSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -326,36 +345,41 @@ export function validateLayoutData(
   return diagnostics;
 }
 
-export function defaultLayoutRef(layoutId: string): LayoutRecordRef {
+export function layoutRecordRef(layoutId: string): LayoutRecordRef {
   return { $ref: { collection: 'layouts', id: layoutId } };
 }
 
-export function parseDefaultLayoutSetting(value: unknown): LayoutRecordRef | null | undefined {
-  if (value === undefined) return undefined;
-  const parsed = defaultLayoutSettingSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
-
-export function getDefaultLayoutSetting(project: AuthoringProject): LayoutRecordRef | null {
+export function getSystemLayoutSetting(project: AuthoringProject, role: SystemLayoutRole): LayoutRecordRef | null {
   const ui = project.settings.ui;
   if (typeof ui !== 'object' || ui === null || Array.isArray(ui)) return null;
-  const parsed = defaultLayoutSettingSchema.safeParse((ui as Record<string, unknown>).defaultLayout);
-  return parsed.success ? parsed.data : null;
+  const systemLayouts = (ui as Record<string, unknown>).systemLayouts;
+  if (typeof systemLayouts === 'object' && systemLayouts !== null && !Array.isArray(systemLayouts)) {
+    const parsed = layoutRecordRefSchema.nullable().safeParse((systemLayouts as Record<string, unknown>)[role]);
+    if (parsed.success && parsed.data) return parsed.data;
+  }
+  return null;
 }
 
-export function validateDefaultLayoutSetting(project: AuthoringProject): LayoutSchemaDiagnostic[] {
+export function validateSystemLayoutSettings(project: AuthoringProject): LayoutSchemaDiagnostic[] {
   const ui = project.settings.ui;
   if (ui === undefined) return [];
   if (typeof ui !== 'object' || ui === null || Array.isArray(ui)) {
     return [diagnostic('/settings/ui', 'UI settings must be an object.')];
   }
-  const value = (ui as Record<string, unknown>).defaultLayout;
-  if (value === undefined || value === null) return [];
-  const parsed = layoutRecordRefSchema.safeParse(value);
+  const systemLayouts = (ui as Record<string, unknown>).systemLayouts;
+  if (systemLayouts === undefined || systemLayouts === null) return [];
+  const parsed = systemLayoutSettingsSchema.safeParse(systemLayouts);
   if (!parsed.success) {
-    return [diagnostic('/settings/ui/defaultLayout', 'Default layout must be a layout reference or null.')];
+    return [diagnostic('/settings/ui/systemLayouts', 'System layouts must be a map of system role keys to layout references or null.')];
   }
-  const id = parsed.data.$ref.id;
-  if (!project.layouts[id]) return [diagnostic('/settings/ui/defaultLayout/$ref', `Missing default layout '${id}'.`)];
-  return [];
+  const diagnostics: LayoutSchemaDiagnostic[] = [];
+  for (const role of systemLayoutRoleValues) {
+    const ref = parsed.data[role];
+    if (!ref) continue;
+    const id = ref.$ref.id;
+    if (!project.layouts[id]) {
+      diagnostics.push(diagnostic(`/settings/ui/systemLayouts/${role}/$ref`, `Missing ${role} system layout '${id}'.`));
+    }
+  }
+  return diagnostics;
 }

@@ -3,7 +3,7 @@ import { authoringCollectionKeys, isAuthoringCollectionKey, type AuthoringCollec
 import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './authoring-assets';
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
-import { validateDefaultLayoutSetting, validateLayoutData } from './authoring-layouts';
+import { validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
 import { validateRoomData } from './authoring-rooms';
 import { validateTypedProjectSettings } from './authoring-project-settings';
@@ -146,7 +146,6 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   }
 
   validateAssets(project, diagnostics);
-  diagnostics.push(...validateDefaultLayoutSetting(project));
   diagnostics.push(...validateTypedProjectSettings(project));
 
   for (const [id, record] of Object.entries(project.layouts)) {

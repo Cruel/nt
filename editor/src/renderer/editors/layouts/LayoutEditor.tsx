@@ -14,7 +14,7 @@ import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   defaultLayoutData,
-  getDefaultLayoutSetting,
+  getSystemLayoutSetting,
   layoutKindValues,
   layoutPreviewBackgroundValues,
   layoutSourceModeValues,
@@ -128,8 +128,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   }, [layoutId, sampleStateText]);
 
   const validationDiagnostics = useMemo(() => project && record && layoutId ? validateLayoutData(project, layoutId, record) : [], [layoutId, project, record]);
-  const defaultLayout = project ? getDefaultLayoutSetting(project) : null;
-  const isDefaultLayout = !!layoutId && defaultLayout?.$ref.id === layoutId;
+  const titleLayout = project ? getSystemLayoutSetting(project, 'title') : null;
+  const isTitleLayout = !!layoutId && titleLayout?.$ref.id === layoutId;
   const sourceAssetOptions = useMemo(() => project ? selectableAssets(project, (kind, extension) => kind === 'text' || kind === 'data' || kind === 'script' || ['.rml', 'rml', '.rcss', 'rcss', '.css', 'css', '.lua', 'lua'].includes(extension ?? '')) : [], [project]);
   const imageAssets = useMemo(() => project ? selectableAssets(project, (kind) => kind === 'image') : [], [project]);
   const fontAssets = useMemo(() => project ? selectableAssets(project, (kind) => kind === 'font') : [], [project]);
@@ -185,11 +185,11 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     commit({ ...data, sampleState: parsed.value }, 'Update layout sample state');
   }
 
-  function setDefaultLayout(layoutId: string | null) {
+  function setTitleSystemLayout(layoutId: string | null) {
     const result = executeCommand({
-      type: 'project.setDefaultLayout',
-      label: layoutId ? `Set default layout ${layoutId}` : 'Clear default layout',
-      payload: { layoutId },
+      type: 'project.setSystemLayout',
+      label: layoutId ? `Set title system layout ${layoutId}` : 'Clear title system layout',
+      payload: { role: 'title', layoutId },
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     setMessage(failure?.message ?? null);
@@ -217,14 +217,14 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             <h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2>
             <Badge variant="outline">{activeLayoutId}</Badge>
             <Badge variant="secondary">{data.layoutKind}</Badge>
-            {isDefaultLayout ? <Badge>Default UI</Badge> : null}
+            {isTitleLayout ? <Badge>Title UI</Badge> : null}
             <Badge variant={validationDiagnostics.some((item) => item.severity === 'error') ? 'destructive' : 'secondary'}>
               {validationDiagnostics.length} diagnostic{validationDiagnostics.length === 1 ? '' : 's'}
             </Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Source-first RmlUi layout authoring with RML, RCSS, Lua behavior, explicit dependencies, and live preview.</p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setDefaultLayout(isDefaultLayout ? null : activeLayoutId)}>{isDefaultLayout ? 'Clear Default' : 'Set Default'}</Button>
+        <Button size="sm" variant="outline" onClick={() => setTitleSystemLayout(isTitleLayout ? null : activeLayoutId)}>{isTitleLayout ? 'Clear Title UI' : 'Set as Title UI'}</Button>
       </div>
 
       {!parsedData ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Layout data was invalid; showing editable defaults until you apply a change.</div> : null}
@@ -246,9 +246,9 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Default layout</Label>
-              <Select value={defaultLayout?.$ref.id ?? '__none__'} onValueChange={(value) => setDefaultLayout(value === '__none__' ? null : String(value))}>
-                <SelectItem value="__none__">No default</SelectItem>
+              <Label>Title system layout</Label>
+              <Select value={titleLayout?.$ref.id ?? '__none__'} onValueChange={(value) => setTitleSystemLayout(value === '__none__' ? null : String(value))}>
+                <SelectItem value="__none__">Built-in title UI</SelectItem>
                 {Object.entries(activeProject.layouts).map(([id, layout]) => <SelectItem key={id} value={id}>{layout.label} ({id})</SelectItem>)}
               </Select>
             </div>

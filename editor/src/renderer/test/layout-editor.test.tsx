@@ -81,7 +81,7 @@ describe('LayoutEditor', () => {
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('layout.replaceData');
   });
 
-  it('sets the current layout as the default layout through commands', async () => {
+  it('sets the current layout as the title system layout through commands', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
@@ -89,11 +89,11 @@ describe('LayoutEditor', () => {
 
     render(<LayoutEditor tab={tab} />);
 
-    await user.click(screen.getByText('Set Default'));
+    await user.click(screen.getByText('Set as Title UI'));
 
     expect(useProjectStore.getState().document).toMatchObject({
-      settings: { ui: { defaultLayout: { $ref: { collection: 'layouts', id: 'main' } } } },
+      settings: { ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } } },
     });
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setDefaultLayout');
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setSystemLayout');
   });
 });
