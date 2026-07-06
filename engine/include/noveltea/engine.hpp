@@ -84,6 +84,12 @@ public:
     bool runtime_preview_clear_object_selection();
     bool runtime_preview_run_action(const std::string& verb_id,
                                     const std::vector<std::string>& object_ids);
+    std::string runtime_preview_set_variable(const std::string& variable_id,
+                                             const std::string& value_json);
+    std::string runtime_preview_reset_variable(const std::string& variable_id);
+    std::string runtime_preview_give_object(const std::string& object_id);
+    std::string runtime_preview_remove_inventory_object(const std::string& object_id);
+    std::string runtime_preview_teleport_room(const std::string& room_id);
     std::string runtime_preview_debug_snapshot() const;
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                     float pitch = 1.0f);

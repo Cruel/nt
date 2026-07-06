@@ -9,6 +9,7 @@ import {
 } from './authoring-dialogues';
 import { parseRoomData } from './authoring-rooms';
 import { parseSceneData, type SceneData, type SceneStepData } from './authoring-scenes';
+import { parseVariableData } from './authoring-variables';
 import { buildShaderMaterialProject } from './shader-material-project';
 import type { PackageExportOptions, ToolDiagnostic } from '../editor-tooling';
 
@@ -542,6 +543,20 @@ function requiredShaderBinaryPaths(shaderMaterialMetadata: unknown, variants: re
   return [...required].sort();
 }
 
+function buildVariableDefaults(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
+  const properties: Record<string, unknown> = {};
+  for (const [variableId, record] of Object.entries(project.variables)) {
+    const data = parseVariableData(record.data);
+    if (!data) {
+      diagnostics.push(diagnostic(`/variables/${variableId}/data`, `Variable '${variableId}' has invalid variable data.`, 'warning'));
+      continue;
+    }
+    const runtimeId = data.runtimeName?.trim() || variableId;
+    properties[runtimeId] = data.defaultValue;
+  }
+  return properties;
+}
+
 export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
   return Object.keys(project.shaders).length > 0 || Object.keys(project.materials).length > 0;
 }
@@ -564,6 +579,7 @@ export function buildAuthoringRuntimeExport(
     dialogue: buildDialogues(project, diagnostics),
     cutscene: buildScenes(project, diagnostics),
     script: buildScripts(project),
+    properties: buildVariableDefaults(project, diagnostics),
     startInv: [],
   };
 

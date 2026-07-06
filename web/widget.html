@@ -552,6 +552,29 @@ thead, tbody, tfoot {
       return true;
     }
 
+    function finishRuntimeDebugMutation(message, exportName, argTypes, args, failureMessage) {
+      if (!nativeExportAvailable(exportName)) {
+        failCommand(message, `Preview widget build does not export ${exportName}. Rebuild the editor preview.`, { category: 'preview-export' });
+        return;
+      }
+      const eventJson = Module.ccall(exportName, 'string', argTypes, args);
+      if (typeof eventJson !== 'string' || eventJson.length === 0) {
+        failCommand(message, failureMessage, { category: 'runtime-debug-mutation' });
+        return;
+      }
+      let event;
+      try {
+        event = JSON.parse(eventJson);
+      } catch (error) {
+        failCommand(message, `Runtime debug mutation event JSON could not be parsed: ${error && error.message ? error.message : String(error)}`, { category: 'runtime-debug-mutation' });
+        return;
+      }
+      event.requestId = message.requestId;
+      send({ version: protocolVersion, type: 'runtime-debug-event', requestId: message.requestId, event });
+      emitRuntimeDebugSnapshot(message);
+      send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+    }
+
     function handleRuntimeCommand(message) {
       const finishRuntimeCommand = (exportName, returnType, argTypes, args, failureMessage) => {
         const ok = invokeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage);
@@ -594,6 +617,21 @@ thead, tbody, tfoot {
           if (emitRuntimeDebugSnapshot(message, { failOnError: true })) {
             send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
           }
+          return true;
+        case 'runtime-set-variable':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_set_variable', ['string', 'string'], [message.variableId, JSON.stringify(message.value)], `Runtime variable '${message.variableId}' could not be set. The id may not exist in the loaded project.`);
+          return true;
+        case 'runtime-reset-variable':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_reset_variable', ['string'], [message.variableId], `Runtime variable '${message.variableId}' could not be reset. The id may not exist in the loaded project.`);
+          return true;
+        case 'runtime-give-object':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_give_object', ['string'], [message.objectId], `Runtime object '${message.objectId}' could not be given. The id may not exist in the loaded project.`);
+          return true;
+        case 'runtime-remove-inventory-object':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_remove_inventory_object', ['string'], [message.objectId], `Runtime inventory object '${message.objectId}' could not be removed. The id may not exist in the loaded project.`);
+          return true;
+        case 'runtime-teleport-room':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_teleport_room', ['string'], [message.roomId], `Runtime room '${message.roomId}' could not be teleported to. The id may not exist in the loaded project.`);
           return true;
         default:
           return false;
@@ -667,7 +705,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1'],
       });
       void drainCommands();
     }

@@ -59,6 +59,7 @@ public:
     flush_pending_outputs(std::optional<std::uint64_t> step_index = std::nullopt);
     void enqueue_audio_command(nlohmann::json payload,
                                std::optional<std::uint64_t> step_index = std::nullopt);
+    void refresh_interactions();
 
     bool navigate_path(int direction);
     RuntimeInputResult start_room(const std::string& room_id,

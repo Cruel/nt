@@ -512,6 +512,76 @@ int noveltea_runtime_run_action(const char* verb_id, const char* object_ids_json
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
+const char* noveltea_runtime_set_variable(const char* variable_id, const char* value_json)
+{
+    static std::string event_json;
+    event_json.clear();
+    if (!noveltea::g_preview_engine || !variable_id || !value_json) {
+        return event_json.c_str();
+    }
+    event_json = noveltea::g_preview_engine->runtime_preview_set_variable(variable_id, value_json);
+    return event_json.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+const char* noveltea_runtime_reset_variable(const char* variable_id)
+{
+    static std::string event_json;
+    event_json.clear();
+    if (!noveltea::g_preview_engine || !variable_id) {
+        return event_json.c_str();
+    }
+    event_json = noveltea::g_preview_engine->runtime_preview_reset_variable(variable_id);
+    return event_json.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+const char* noveltea_runtime_give_object(const char* object_id)
+{
+    static std::string event_json;
+    event_json.clear();
+    if (!noveltea::g_preview_engine || !object_id) {
+        return event_json.c_str();
+    }
+    event_json = noveltea::g_preview_engine->runtime_preview_give_object(object_id);
+    return event_json.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+const char* noveltea_runtime_remove_inventory_object(const char* object_id)
+{
+    static std::string event_json;
+    event_json.clear();
+    if (!noveltea::g_preview_engine || !object_id) {
+        return event_json.c_str();
+    }
+    event_json = noveltea::g_preview_engine->runtime_preview_remove_inventory_object(object_id);
+    return event_json.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+const char* noveltea_runtime_teleport_room(const char* room_id)
+{
+    static std::string event_json;
+    event_json.clear();
+    if (!noveltea::g_preview_engine || !room_id) {
+        return event_json.c_str();
+    }
+    event_json = noveltea::g_preview_engine->runtime_preview_teleport_room(room_id);
+    return event_json.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
 const char* noveltea_runtime_debug_snapshot()
 {
     static std::string snapshot;

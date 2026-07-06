@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -747,6 +748,47 @@ std::string json_value_type(const nlohmann::json& value)
     if (value.is_null())
         return "null";
     return "unknown";
+}
+
+nlohmann::json debug_variable_ref(const std::string& variable_id)
+{
+    return {{"type", "variable"},
+            {"id", variable_id},
+            {"collection", "variables"},
+            {"label", variable_id}};
+}
+
+bool has_property_id(const nlohmann::json& root, const std::string& property_id)
+{
+    const auto properties = root.find(std::string(core::project_ids::properties));
+    return properties != root.end() && properties->is_object() &&
+           properties->find(property_id) != properties->end();
+}
+
+bool runtime_property_known(const core::ProjectModel* project, const nlohmann::json& save_root,
+                            const std::string& property_id)
+{
+    if (property_id.empty())
+        return false;
+    if (has_property_id(save_root, property_id))
+        return true;
+    return project && has_property_id(project->document_root(), property_id);
+}
+
+nlohmann::json make_runtime_debug_event(std::string kind, std::string label,
+                                        nlohmann::json target, nlohmann::json old_value,
+                                        nlohmann::json new_value, std::string message = {})
+{
+    nlohmann::json event = {{"kind", std::move(kind)},
+                            {"debugOnly", true},
+                            {"label", std::move(label)},
+                            {"target", std::move(target)},
+                            {"oldValue", std::move(old_value)},
+                            {"newValue", std::move(new_value)}};
+    if (!message.empty()) {
+        event["message"] = std::move(message);
+    }
+    return event;
 }
 
 nlohmann::json runtime_diagnostic_snapshot(const core::RuntimeDiagnostic& diagnostic,
@@ -1738,6 +1780,166 @@ bool Engine::runtime_preview_run_action(const std::string& verb_id,
     return apply_runtime_preview_input(std::move(input));
 }
 
+std::string Engine::runtime_preview_set_variable(const std::string& variable_id,
+                                                 const std::string& value_json)
+{
+    if (!m_runtime_shell.loaded() || variable_id.empty()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot set debug variable without a loaded runtime project");
+        return {};
+    }
+    auto& host = m_runtime_shell.host();
+    auto& session = host.session();
+    const auto* project = session.project();
+    const auto save_snapshot = host.snapshot_save().root();
+    if (!runtime_property_known(project, save_snapshot, variable_id)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] debug variable id does not exist in loaded project: %s",
+                    variable_id.c_str());
+        return {};
+    }
+
+    nlohmann::json value;
+    try {
+        value = nlohmann::json::parse(value_json);
+    } catch (const std::exception& error) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] debug variable value JSON parse failed: %s",
+                    error.what());
+        return {};
+    }
+
+    const auto old_value = session.property(variable_id);
+    session.set_property(variable_id, value);
+    host.refresh_interactions();
+    return make_runtime_debug_event("variable-set", "Debug set variable",
+                                    debug_variable_ref(variable_id), old_value,
+                                    session.property(variable_id),
+                                    "debug-only variable override").dump();
+}
+
+std::string Engine::runtime_preview_reset_variable(const std::string& variable_id)
+{
+    if (!m_runtime_shell.loaded() || variable_id.empty()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot reset debug variable without a loaded runtime project");
+        return {};
+    }
+    auto& host = m_runtime_shell.host();
+    auto& session = host.session();
+    const auto* project = session.project();
+    const auto save_snapshot = host.snapshot_save().root();
+    if (!runtime_property_known(project, save_snapshot, variable_id)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] debug variable id does not exist in loaded project: %s",
+                    variable_id.c_str());
+        return {};
+    }
+
+    const auto old_value = session.property(variable_id);
+    session.unset_property(variable_id);
+    host.refresh_interactions();
+    return make_runtime_debug_event("variable-reset", "Debug reset variable",
+                                    debug_variable_ref(variable_id), old_value,
+                                    session.property(variable_id),
+                                    "debug-only variable override removed").dump();
+}
+
+std::string Engine::runtime_preview_give_object(const std::string& object_id)
+{
+    if (!m_runtime_shell.loaded() || object_id.empty()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot give debug object without a loaded runtime project");
+        return {};
+    }
+    auto& host = m_runtime_shell.host();
+    auto& session = host.session();
+    const auto* project = session.project();
+    if (!project || !project->objects().contains(object_id)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] debug object id does not exist in loaded project: %s",
+                    object_id.c_str());
+        return {};
+    }
+
+    const auto old_location = session.effective_object_location(object_id);
+    const core::EntityRef player_ref{core::EntityType::CustomScript,
+                                     std::string(core::project_ids::player)};
+    session.set_object_location(object_id, player_ref);
+    host.refresh_interactions();
+    return make_runtime_debug_event(
+               "inventory-give", "Debug give inventory object",
+               debug_entity_ref(core::EntityRef{core::EntityType::Object, object_id}, project),
+               old_location ? debug_entity_ref(*old_location, project) : nlohmann::json(nullptr),
+               debug_entity_ref(player_ref, project), "debug-only inventory mutation")
+        .dump();
+}
+
+std::string Engine::runtime_preview_remove_inventory_object(const std::string& object_id)
+{
+    if (!m_runtime_shell.loaded() || object_id.empty()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot remove debug inventory object without a loaded runtime project");
+        return {};
+    }
+    auto& host = m_runtime_shell.host();
+    auto& session = host.session();
+    const auto* project = session.project();
+    if (!project || !project->objects().contains(object_id)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] debug object id does not exist in loaded project: %s",
+                    object_id.c_str());
+        return {};
+    }
+
+    const auto old_location = session.effective_object_location(object_id);
+    const core::EntityRef removed_ref{core::EntityType::CustomScript, "__debug_removed"};
+    session.set_object_location(object_id, removed_ref);
+    host.refresh_interactions();
+    return make_runtime_debug_event(
+               "inventory-remove", "Debug remove inventory object",
+               debug_entity_ref(core::EntityRef{core::EntityType::Object, object_id}, project),
+               old_location ? debug_entity_ref(*old_location, project) : nlohmann::json(nullptr),
+               debug_entity_ref(removed_ref, project), "debug-only inventory mutation")
+        .dump();
+}
+
+std::string Engine::runtime_preview_teleport_room(const std::string& room_id)
+{
+    if (!m_runtime_shell.loaded() || room_id.empty()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot teleport without a loaded runtime project");
+        return {};
+    }
+    auto& host = m_runtime_shell.host();
+    auto& session = host.session();
+    const auto* project = session.project();
+    if (!project || !project->rooms().contains(room_id)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] debug room id does not exist in loaded project: %s",
+                    room_id.c_str());
+        return {};
+    }
+
+    const nlohmann::json old_room = session.current_room_id()
+                                      ? nlohmann::json(*session.current_room_id())
+                                      : nlohmann::json(nullptr);
+    auto result = host.start_room(room_id);
+    if (!result.handled) {
+        process_runtime_result(result);
+        return {};
+    }
+    process_runtime_result(result);
+    host.refresh_interactions();
+    const nlohmann::json new_room = session.current_room_id()
+                                      ? nlohmann::json(*session.current_room_id())
+                                      : nlohmann::json(nullptr);
+    return make_runtime_debug_event("room-teleport", "Debug teleport to room",
+                                    debug_entity_ref(
+                                        core::EntityRef{core::EntityType::Room, room_id}, project),
+                                    old_room, new_room, "debug-only teleport").dump();
+}
+
 std::string Engine::runtime_preview_debug_snapshot() const
 {
     const auto& host = m_runtime_shell.host();
@@ -1759,15 +1961,48 @@ std::string Engine::runtime_preview_debug_snapshot() const
         }
     }
 
+    std::map<std::string, nlohmann::json> default_properties;
+    if (project) {
+        if (const auto properties = project->document_root().find(
+                std::string(core::project_ids::properties));
+            properties != project->document_root().end() && properties->is_object()) {
+            for (const auto& [id, value] : properties->items()) {
+                default_properties.emplace(id, value);
+                variables.push_back({{"id", id},
+                                     {"label", id},
+                                     {"type", json_value_type(value)},
+                                     {"value", value},
+                                     {"defaultValue", value},
+                                     {"dirty", false},
+                                     {"overridden", false}});
+            }
+        }
+    }
+
     if (const auto properties = save_snapshot.find(std::string(core::project_ids::properties));
         properties != save_snapshot.end() && properties->is_object()) {
         for (const auto& [id, value] : properties->items()) {
-            variables.push_back({{"id", id},
-                                 {"label", id},
-                                 {"type", json_value_type(value)},
-                                 {"value", value},
-                                 {"dirty", true},
-                                 {"overridden", true}});
+            const auto default_it = default_properties.find(id);
+            auto existing = std::find_if(variables.begin(), variables.end(),
+                                         [&](const nlohmann::json& variable) {
+                                             return variable.is_object() &&
+                                                    variable.value("id", std::string()) == id;
+                                         });
+            nlohmann::json variable = {{"id", id},
+                                       {"label", id},
+                                       {"type", json_value_type(value)},
+                                       {"value", value},
+                                       {"dirty", default_it == default_properties.end() ||
+                                                     default_it->second != value},
+                                       {"overridden", true}};
+            if (default_it != default_properties.end()) {
+                variable["defaultValue"] = default_it->second;
+            }
+            if (existing != variables.end()) {
+                *existing = std::move(variable);
+            } else {
+                variables.push_back(std::move(variable));
+            }
         }
     }
 

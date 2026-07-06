@@ -270,6 +270,39 @@ TEST_CASE("RuntimePreviewSession controls runtime and captures emitted commands"
     CHECK(preview.inspect_state().view.title == "Kitchen");
 }
 
+TEST_CASE("RuntimePreviewSession exposes debug-only state mutation helpers")
+{
+    RuntimePreviewSession preview;
+    auto project = make_preview_project();
+    project.root()[project_ids::properties] = nlohmann::json::object({{"flag", false}});
+    auto load = preview.load(std::move(project));
+    REQUIRE(load.success);
+    preview.start();
+
+    REQUIRE(preview.debug_set_variable("flag", true));
+    CHECK(preview.inspect_state().save_snapshot[project_ids::properties]["flag"] == true);
+    REQUIRE(preview.debug_reset_variable("flag"));
+    CHECK_FALSE(preview.inspect_state().save_snapshot[project_ids::properties].contains("flag"));
+
+    REQUIRE(preview.debug_give_object("lamp"));
+    CHECK(preview.inspect_state().save_snapshot[project_ids::object_locations]["lamp"] ==
+          ref(EntityType::CustomScript, std::string(project_ids::player)));
+    CHECK(preview.inspect_state().view.objects.front().in_inventory);
+
+    REQUIRE(preview.debug_remove_inventory_object("lamp"));
+    auto state = preview.inspect_state();
+    CHECK(state.save_snapshot[project_ids::object_locations]["lamp"] ==
+          ref(EntityType::CustomScript, "__debug_removed"));
+    CHECK(std::none_of(state.view.objects.begin(), state.view.objects.end(), [](const auto& object) {
+                           return object.id == "lamp" && object.in_inventory;
+                       }));
+
+    REQUIRE(preview.debug_teleport_room("kitchen"));
+    CHECK(preview.inspect_state().view.title == "Kitchen");
+    CHECK_FALSE(preview.debug_give_object("missing"));
+    CHECK_FALSE(preview.debug_teleport_room("missing"));
+}
+
 TEST_CASE("RuntimePlaybackSession runs headless steps and exports report JSON")
 {
     RuntimePlaybackSpec spec;

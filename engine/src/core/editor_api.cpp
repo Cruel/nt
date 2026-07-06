@@ -1133,4 +1133,64 @@ bool RuntimePreviewSession::inject_action(const std::string& verb_id,
     return result.handled;
 }
 
+bool RuntimePreviewSession::debug_set_variable(const std::string& variable_id,
+                                               nlohmann::json value)
+{
+    if (!m_host.loaded() || variable_id.empty())
+        return false;
+    m_host.session().set_property(variable_id, std::move(value));
+    m_host.refresh_interactions();
+    return true;
+}
+
+bool RuntimePreviewSession::debug_reset_variable(const std::string& variable_id)
+{
+    if (!m_host.loaded() || variable_id.empty())
+        return false;
+    m_host.session().unset_property(variable_id);
+    m_host.refresh_interactions();
+    return true;
+}
+
+bool RuntimePreviewSession::debug_give_object(const std::string& object_id)
+{
+    if (!m_host.loaded() || object_id.empty())
+        return false;
+    const auto* project = m_host.session().project();
+    if (!project || !project->objects().contains(object_id))
+        return false;
+    m_host.session().set_object_location(object_id,
+                                         EntityRef{EntityType::CustomScript,
+                                                   std::string(project_ids::player)});
+    m_host.refresh_interactions();
+    return true;
+}
+
+bool RuntimePreviewSession::debug_remove_inventory_object(const std::string& object_id)
+{
+    if (!m_host.loaded() || object_id.empty())
+        return false;
+    const auto* project = m_host.session().project();
+    if (!project || !project->objects().contains(object_id))
+        return false;
+    m_host.session().set_object_location(
+        object_id, EntityRef{EntityType::CustomScript, "__debug_removed"});
+    m_host.refresh_interactions();
+    return true;
+}
+
+bool RuntimePreviewSession::debug_teleport_room(const std::string& room_id)
+{
+    if (!m_host.loaded() || room_id.empty())
+        return false;
+    const auto* project = m_host.session().project();
+    if (!project || !project->rooms().contains(room_id))
+        return false;
+    auto result = m_host.start_room(room_id);
+    if (result.handled) {
+        capture_output_commands(result, m_captured_commands);
+    }
+    return result.handled;
+}
+
 } // namespace noveltea::core::editor

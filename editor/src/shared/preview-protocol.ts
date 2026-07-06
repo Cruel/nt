@@ -150,6 +150,29 @@ export interface RuntimeDebugSnapshot {
   controllerState?: Record<string, unknown>;
 }
 
+export type RuntimeDebugEventKind =
+  | 'variable-set'
+  | 'variable-reset'
+  | 'inventory-give'
+  | 'inventory-remove'
+  | 'room-teleport'
+  | 'object-select'
+  | 'object-clear-selection'
+  | 'action-run';
+
+export interface RuntimeDebugEvent {
+  requestId?: string;
+  kind: RuntimeDebugEventKind;
+  debugOnly: true;
+  label: string;
+  message?: string;
+  target?: RuntimeDebugEntityRef;
+  secondaryTargets?: RuntimeDebugEntityRef[];
+  oldValue?: unknown;
+  newValue?: unknown;
+  rejected?: boolean;
+}
+
 export type EditorToPreviewMessage =
   | { version: 1; type: 'set-demo-position'; requestId: string; position: PreviewPosition }
   | { version: 1; type: 'reset-demo'; requestId: string }
@@ -167,6 +190,11 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-clear-object-selection'; requestId: string }
   | { version: 1; type: 'runtime-run-action'; requestId: string; verbId: string; objectIds: string[] }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
+  | { version: 1; type: 'runtime-set-variable'; requestId: string; variableId: string; value: unknown }
+  | { version: 1; type: 'runtime-reset-variable'; requestId: string; variableId: string }
+  | { version: 1; type: 'runtime-give-object'; requestId: string; objectId: string }
+  | { version: 1; type: 'runtime-remove-inventory-object'; requestId: string; objectId: string }
+  | { version: 1; type: 'runtime-teleport-room'; requestId: string; roomId: string }
   | { version: 1; type: 'load-preview-document'; requestId: string; document: PreviewDocument }
   | { version: 1; type: 'update-preview-document'; requestId: string; document: PreviewDocument }
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
@@ -182,6 +210,7 @@ export type PreviewToEditorMessage =
   | { version: 1; type: 'preview-state'; state: PreviewStateSnapshot }
   | { version: 1; type: 'preview-snapshot'; snapshotId: string; dataUrl: string }
   | { version: 1; type: 'runtime-debug-snapshot'; requestId?: string; snapshot: RuntimeDebugSnapshot }
+  | { version: 1; type: 'runtime-debug-event'; requestId?: string; event: RuntimeDebugEvent }
   | { version: 1; type: 'preview-diagnostic'; diagnostic: PreviewDiagnosticMessage }
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
@@ -398,6 +427,34 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
   );
 }
 
+function isRuntimeDebugEventKind(value: unknown): value is RuntimeDebugEventKind {
+  return [
+    'variable-set',
+    'variable-reset',
+    'inventory-give',
+    'inventory-remove',
+    'room-teleport',
+    'object-select',
+    'object-clear-selection',
+    'action-run',
+  ].includes(String(value));
+}
+
+function isRuntimeDebugEvent(value: unknown): value is RuntimeDebugEvent {
+  if (!isRecord(value)) return false;
+  return (
+    (value.requestId === undefined || typeof value.requestId === 'string') &&
+    isRuntimeDebugEventKind(value.kind) &&
+    value.debugOnly === true &&
+    typeof value.label === 'string' &&
+    (value.message === undefined || typeof value.message === 'string') &&
+    (value.target === undefined || isRuntimeDebugEntityRef(value.target)) &&
+    (value.secondaryTargets === undefined ||
+      (Array.isArray(value.secondaryTargets) && value.secondaryTargets.every(isRuntimeDebugEntityRef))) &&
+    (value.rejected === undefined || typeof value.rejected === 'boolean')
+  );
+}
+
 export function isEditorToPreviewMessage(value: unknown): value is EditorToPreviewMessage {
   if (!isRecord(value) || value.version !== PREVIEW_PROTOCOL_VERSION || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
     return false;
@@ -427,6 +484,15 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return typeof value.objectId === 'string';
     case 'runtime-run-action':
       return typeof value.verbId === 'string' && Array.isArray(value.objectIds) && value.objectIds.every((item) => typeof item === 'string');
+    case 'runtime-set-variable':
+      return typeof value.variableId === 'string' && value.variableId.length > 0 && 'value' in value && value.value !== undefined;
+    case 'runtime-reset-variable':
+      return typeof value.variableId === 'string' && value.variableId.length > 0;
+    case 'runtime-give-object':
+    case 'runtime-remove-inventory-object':
+      return typeof value.objectId === 'string' && value.objectId.length > 0;
+    case 'runtime-teleport-room':
+      return typeof value.roomId === 'string' && value.roomId.length > 0;
     case 'load-preview-document':
     case 'update-preview-document':
       return isPreviewDocument(value.document);
@@ -475,6 +541,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return typeof value.snapshotId === 'string' && typeof value.dataUrl === 'string';
     case 'runtime-debug-snapshot':
       return (value.requestId === undefined || typeof value.requestId === 'string') && isRuntimeDebugSnapshot(value.snapshot);
+    case 'runtime-debug-event':
+      return (value.requestId === undefined || typeof value.requestId === 'string') && isRuntimeDebugEvent(value.event);
     case 'preview-diagnostic':
       return isPreviewDiagnosticMessage(value.diagnostic);
     case 'preview-object-selected':

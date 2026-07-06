@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bug,
   Clipboard,
@@ -22,8 +22,10 @@ import { useProjectStore } from '@/project/project-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
-import { parseVariableData } from '../../../shared/project-schema/authoring-variables';
+import { parseVariableData, parseVariableDefaultText, variableDefaultValueToText } from '../../../shared/project-schema/authoring-variables';
 import type { RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage } from '../../../shared/preview-protocol';
+
+type FullGamePreviewMode = 'debug' | 'recording';
 
 interface RuntimeLogEntry {
   id: string;
@@ -87,6 +89,12 @@ function addLogEntry(entries: RuntimeLogEntry[], entry: Omit<RuntimeLogEntry, 'i
 function previewMessageLabel(message: PreviewToEditorMessage): Omit<RuntimeLogEntry, 'id'> | null {
   if (message.type === 'runtime-debug-snapshot') {
     return { label: 'Runtime snapshot refreshed', detail: message.snapshot.waiting.reason ?? message.snapshot.waiting.kind, severity: 'info' };
+  }
+  if (message.type === 'runtime-debug-event') {
+    const detail = [message.event.kind, message.event.target?.id, `old=${stringifyValue(message.event.oldValue)}`, `new=${stringifyValue(message.event.newValue)}`]
+      .filter(Boolean)
+      .join(' · ');
+    return { label: `Debug-only mutation: ${message.event.label}`, detail, severity: message.event.rejected ? 'warning' : 'info' };
   }
   if (message.type === 'preview-diagnostic') {
     return { label: message.diagnostic.message, detail: message.diagnostic.path, severity: message.diagnostic.severity };
@@ -174,45 +182,87 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
   );
 }
 
-function VariablesPanel({ snapshot, project }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null }) {
+function parseDebugVariableDraft(type: string | undefined, text: string, enumValues?: readonly string[]) {
+  if (type === 'boolean' || type === 'integer' || type === 'number' || type === 'string' || type === 'enum') {
+    return parseVariableDefaultText(type, text, enumValues);
+  }
+  try {
+    return { ok: true as const, value: JSON.parse(text) };
+  } catch {
+    return { ok: true as const, value: text };
+  }
+}
+
+function VariableDebugRow({
+  variable,
+  project,
+  controlsContext,
+  mutationDisabled,
+  onCommand,
+}: {
+  variable: RuntimeDebugSnapshot['variables'][number];
+  project: AuthoringProject | null;
+  controlsContext: EnginePreviewControlsContext | null;
+  mutationDisabled: boolean;
+  onCommand: (command: Promise<void>, label: string) => void;
+}) {
+  const record = recordFor(project, 'variables', variable.id);
+  const data = record ? parseVariableData(record.data) : null;
+  const [draft, setDraft] = useState(variableDefaultValueToText(variable.value));
+  useEffect(() => setDraft(variableDefaultValueToText(variable.value)), [variable.value]);
+  const parsed = parseDebugVariableDraft(data?.type ?? variable.type, draft, data?.enumValues);
+  const controller = controlsContext?.controller ?? null;
+  const disabled = mutationDisabled || !controller;
+  return (
+    <div className="rounded-md border p-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{fallbackLabel(variable.id, record?.label ?? variable.label)}</span>
+        <Badge variant={variable.dirty || variable.overridden ? 'default' : 'secondary'}>{variable.dirty || variable.overridden ? 'changed' : 'clean'}</Badge>
+      </div>
+      <div className="mt-1 font-mono text-[11px] text-muted-foreground">{variable.id}</div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <InfoRow label="Type" value={data?.type ?? variable.type} />
+        <InfoRow label="Default" value={stringifyValue(data?.defaultValue ?? variable.defaultValue)} />
+      </div>
+      <Input className="mt-2 h-7 font-mono text-xs" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`Debug variable ${variable.id} value`} />
+      {!parsed.ok ? <div className="mt-1 text-[11px] text-destructive">{parsed.message}</div> : null}
+      <div className="mt-2 flex gap-2">
+        <Button size="sm" variant="secondary" disabled={disabled || !parsed.ok} onClick={() => controller && parsed.ok && onCommand(controller.setRuntimeVariable(variable.id, parsed.value), `Debug set ${variable.id}`)}>Debug set</Button>
+        <Button size="sm" variant="ghost" disabled={disabled} onClick={() => controller && onCommand(controller.resetRuntimeVariable(variable.id), `Debug reset ${variable.id}`)}>Debug reset</Button>
+      </div>
+    </div>
+  );
+}
+
+function VariablesPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: Promise<void>, label: string) => void }) {
   const variables = snapshot?.variables ?? [];
   return (
     <Panel title="Variables" icon={<Database className="h-3.5 w-3.5" />}>
       {variables.length === 0 ? <div className="text-xs text-muted-foreground">No runtime variables in the latest snapshot.</div> : null}
-      {variables.map((variable) => {
-        const record = recordFor(project, 'variables', variable.id);
-        const data = record ? parseVariableData(record.data) : null;
-        return (
-          <div key={variable.id} className="rounded-md border p-2 text-xs">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{fallbackLabel(variable.id, record?.label ?? variable.label)}</span>
-              <Badge variant={variable.dirty || variable.overridden ? 'default' : 'secondary'}>{variable.dirty || variable.overridden ? 'changed' : 'clean'}</Badge>
-            </div>
-            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{variable.id}</div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <InfoRow label="Type" value={data?.type ?? variable.type} />
-              <InfoRow label="Default" value={stringifyValue(data?.defaultValue ?? variable.defaultValue)} />
-            </div>
-            <Input className="mt-2 h-7 font-mono text-xs" readOnly value={stringifyValue(variable.value)} aria-label={`Variable ${variable.id} value`} />
-            <div className="mt-2 flex gap-2">
-              <Button size="sm" variant="secondary" disabled>Set value</Button>
-              <Button size="sm" variant="ghost" disabled>Reset</Button>
-            </div>
-          </div>
-        );
-      })}
+      {variables.map((variable) => <VariableDebugRow key={variable.id} variable={variable} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />)}
     </Panel>
   );
 }
 
-function InventoryPanel({ snapshot, project }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null }) {
+function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: Promise<void>, label: string) => void }) {
   const inventory = snapshot?.inventory ?? [];
+  const objectIds = useMemo(() => project ? Object.keys(project.objects) : [], [project]);
+  const [selectedObjectId, setSelectedObjectId] = useState('');
+  useEffect(() => {
+    if (!selectedObjectId && objectIds[0]) setSelectedObjectId(objectIds[0]);
+    else if (selectedObjectId && !objectIds.includes(selectedObjectId)) setSelectedObjectId(objectIds[0] ?? '');
+  }, [objectIds, selectedObjectId]);
+  const controller = controlsContext?.controller ?? null;
+  const disabled = mutationDisabled || !controller;
   return (
     <Panel title="Inventory" icon={<PackagePlus className="h-3.5 w-3.5" />}>
       <div className="flex gap-2">
-        <Input className="h-7 text-xs" placeholder="Filter objects" readOnly />
-        <Button size="sm" variant="secondary" disabled>Add</Button>
+        <select className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs" value={selectedObjectId} onChange={(event) => setSelectedObjectId(event.target.value)} aria-label="Debug object to give">
+          {objectIds.map((id) => <option key={id} value={id}>{labelById(project, 'objects', id)} ({id})</option>)}
+        </select>
+        <Button size="sm" variant="secondary" disabled={disabled || !selectedObjectId} onClick={() => controller && onCommand(controller.giveRuntimeObject(selectedObjectId), `Debug give ${selectedObjectId}`)}>Debug give</Button>
       </div>
+      <div className="text-[11px] text-muted-foreground">Debug-only inventory mutations are disabled while recording.</div>
       {inventory.length === 0 ? <div className="text-xs text-muted-foreground">Inventory is empty in the latest snapshot.</div> : null}
       {inventory.map((item) => (
         <div key={item.id} className="rounded-md border p-2 text-xs">
@@ -223,8 +273,8 @@ function InventoryPanel({ snapshot, project }: { snapshot: RuntimeDebugSnapshot 
           <div className="mt-1 font-mono text-[11px] text-muted-foreground">{item.id}</div>
           <InfoRow label="Location" value={labelEntity(project, item.location)} />
           <div className="mt-2 flex gap-2">
-            <Button size="sm" variant="outline" disabled>Remove</Button>
-            <Button size="sm" variant="ghost" disabled>Move</Button>
+            <Button size="sm" variant="outline" disabled={disabled} onClick={() => controller && onCommand(controller.removeRuntimeInventoryObject(item.id), `Debug remove ${item.id}`)}>Debug remove</Button>
+            <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(controller.selectRuntimeObject(item.id), `Selected ${item.id}`)}>Select</Button>
           </div>
         </div>
       ))}
@@ -232,21 +282,24 @@ function InventoryPanel({ snapshot, project }: { snapshot: RuntimeDebugSnapshot 
   );
 }
 
-function RoomObjectToolsPanel({ snapshot, project }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null }) {
+function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: Promise<void>, label: string) => void }) {
   const rooms = project ? Object.entries(project.rooms).slice(0, 6) : [];
   const objects = project ? Object.entries(project.objects).slice(0, 6) : [];
+  const controller = controlsContext?.controller ?? null;
+  const debugDisabled = mutationDisabled || !controller;
   return (
     <Panel title="Room and object tools" icon={<MousePointer2 className="h-3.5 w-3.5" />}>
       <InfoRow label="Current room" value={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : undefined} />
-      <div className="text-xs font-medium">Teleport placeholders</div>
+      <div className="text-xs font-medium">Debug-only teleport</div>
       <div className="grid grid-cols-2 gap-1">
-        {rooms.map(([id, room]) => <Button key={id} size="sm" variant="outline" disabled>{room.label || id}</Button>)}
+        {rooms.map(([id, room]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(controller.teleportRuntimeRoom(id), `Debug teleport ${id}`)}>{room.label || id}</Button>)}
       </div>
-      <div className="text-xs font-medium">Object giver placeholders</div>
+      <div className="text-xs font-medium">Object helpers</div>
       <div className="grid grid-cols-2 gap-1">
-        {objects.map(([id, object]) => <Button key={id} size="sm" variant="outline" disabled>{object.label || id}</Button>)}
+        {objects.map(([id, object]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(controller.giveRuntimeObject(id), `Debug give ${id}`)}>{object.label || id}</Button>)}
       </div>
-      <div className="text-[11px] text-muted-foreground">Mutation controls are placeholders until typed debug mutation commands land in the bridge.</div>
+      <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(controller.clearRuntimeObjectSelection(), 'Object selection cleared')}>Clear object selection</Button>
+      <div className="text-[11px] text-muted-foreground">Controls labeled Debug mutate runtime save state only for previewing and testing.</div>
     </Panel>
   );
 }
@@ -288,18 +341,23 @@ function EventLogPanel({ entries, diagnostics }: { entries: RuntimeLogEntry[]; d
   );
 }
 
-function RuntimeInspector({ state, project, controlsContext, onCommand }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; onCommand: (command: Promise<void>, label: string) => void }) {
+function RuntimeInspector({ state, project, controlsContext, mode, onModeChange, onCommand }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mode: FullGamePreviewMode; onModeChange: (mode: FullGamePreviewMode) => void; onCommand: (command: Promise<void>, label: string) => void }) {
+  const mutationDisabled = mode === 'recording';
   return (
     <aside className="flex w-[360px] min-w-[320px] max-w-[420px] shrink-0 flex-col overflow-auto border-l bg-background">
-      <div className="flex h-10 items-center justify-between border-b px-3">
+      <div className="flex min-h-10 items-center justify-between gap-2 border-b px-3 py-2">
         <div className="text-sm font-semibold">Runtime Inspector</div>
-        <Badge variant="outline">Debug</Badge>
+        <div className="flex gap-1">
+          <Button size="sm" variant={mode === 'debug' ? 'secondary' : 'ghost'} onClick={() => onModeChange('debug')}>Debug</Button>
+          <Button size="sm" variant={mode === 'recording' ? 'secondary' : 'ghost'} onClick={() => onModeChange('recording')}>Recording</Button>
+        </div>
       </div>
+      <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">Debug-only mutation controls directly alter preview runtime state. Recording mode disables them by default.</div>
       <RuntimeSummaryPanel snapshot={state.snapshot} project={project} />
       <InputAvailabilityPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} onCommand={onCommand} />
-      <VariablesPanel snapshot={state.snapshot} project={project} />
-      <InventoryPanel snapshot={state.snapshot} project={project} />
-      <RoomObjectToolsPanel snapshot={state.snapshot} project={project} />
+      <VariablesPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
+      <InventoryPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
+      <RoomObjectToolsPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
       <SaveSnapshotPanel snapshot={state.snapshot} />
       <EventLogPanel entries={state.eventLog} diagnostics={state.snapshot?.diagnostics ?? []} />
     </aside>
@@ -359,6 +417,7 @@ export function FullGamePreviewEditor() {
   const setPreviewRunning = useWorkspaceStore((s) => s.setPreviewRunning);
   const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
+  const [mode, setMode] = useState<FullGamePreviewMode>('debug');
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
 
   const requestDebugSnapshot = useCallback((context: EnginePreviewControlsContext | null) => {
@@ -408,7 +467,7 @@ export function FullGamePreviewEditor() {
           }}
         />
       </div>
-      <RuntimeInspector state={state} project={project} controlsContext={controlsRef.current} onCommand={handleRuntimeCommand} />
+      <RuntimeInspector state={state} project={project} controlsContext={controlsRef.current} mode={mode} onModeChange={setMode} onCommand={handleRuntimeCommand} />
     </div>
   );
 }

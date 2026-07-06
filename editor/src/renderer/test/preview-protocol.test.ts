@@ -53,6 +53,12 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action', verbId: 'look', objectIds: ['lamp'] })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action-bad', verbId: 'look', objectIds: [1] })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-request-debug-snapshot', requestId: 'runtime-debug' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-set-variable', requestId: 'runtime-set-variable', variableId: 'flag', value: true })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-set-variable', requestId: 'runtime-set-variable-bad', variableId: 'flag' })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-reset-variable', requestId: 'runtime-reset-variable', variableId: 'flag' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-give-object', requestId: 'runtime-give-object', objectId: 'lamp' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-remove-inventory-object', requestId: 'runtime-remove-object', objectId: 'lamp' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-teleport-room', requestId: 'runtime-teleport-room', roomId: 'foyer' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document: { kind: 'unknown' } })).toBe(false);
     const legacyLayoutMode = `ui-${'layout'}`;
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: legacyLayoutMode })).toBe(false);
@@ -65,6 +71,13 @@ describe('preview protocol validation', () => {
     })).toBe(true);
     expect(isPreviewToEditorMessage({ version: 1, type: 'command-result', requestId: 'runtime-debug', ok: true })).toBe(true);
     expect(isPreviewToEditorMessage({ version: 1, type: 'command-result', requestId: 'runtime-debug', ok: true, snapshot: {} })).toBe(false);
+    expect(isPreviewToEditorMessage({
+      version: 1,
+      type: 'runtime-debug-event',
+      requestId: 'runtime-set-variable',
+      event: { kind: 'variable-set', debugOnly: true, label: 'Debug set variable', target: { type: 'variable', id: 'flag', collection: 'variables' }, oldValue: false, newValue: true },
+    })).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-debug-event', event: { kind: 'variable-set', debugOnly: false, label: 'bad' } })).toBe(false);
     expect(isPreviewToEditorMessage({ version: 1, type: 'preview-snapshot', snapshotId: 's1', dataUrl: 'data:image/png;base64,test' })).toBe(true);
     expect(isPreviewToEditorMessage({ version: 1, type: 'fps-counter', fps: 59.9, frameTimeMs: 16.69, fpsCap: 60 })).toBe(true);
   });

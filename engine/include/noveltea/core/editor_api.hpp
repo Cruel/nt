@@ -211,6 +211,11 @@ public:
     bool inject_object_selection(const std::string& object_id);
     bool clear_object_selection();
     bool inject_action(const std::string& verb_id, const std::vector<std::string>& object_ids);
+    bool debug_set_variable(const std::string& variable_id, nlohmann::json value);
+    bool debug_reset_variable(const std::string& variable_id);
+    bool debug_give_object(const std::string& object_id);
+    bool debug_remove_inventory_object(const std::string& object_id);
+    bool debug_teleport_room(const std::string& room_id);
 
 private:
     RuntimeSessionHost m_host;

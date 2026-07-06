@@ -100,6 +100,8 @@ bool RuntimeSessionHost::navigate_path(int direction)
     return apply_input(input).handled;
 }
 
+void RuntimeSessionHost::refresh_interactions() { sync_room_interactions(); }
+
 RuntimeInputResult RuntimeSessionHost::start_room(const std::string& room_id,
                                                   std::optional<std::uint64_t> step_index)
 {
