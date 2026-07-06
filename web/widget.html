@@ -28,6 +28,8 @@
     let appliedResizeKey = '';
     let resizeScheduled = false;
     let previewMode = 'runtime';
+    let currentPosition = { x: 0.5, y: 0.5 };
+    let currentRunning = true;
     let drainingCommands = false;
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
     let fpsCap = Math.max(0, Math.min(1000, Number.parseInt(params.get('fpsCap') || '0', 10) || 0));
@@ -484,6 +486,69 @@ thead, tbody, tfoot {
       else failCommand(message, `Preview widget cannot render document '${kind}'.`);
     }
 
+    function nativeExportAvailable(exportName) {
+      return typeof Module !== 'undefined' && typeof Module[`_${exportName}`] === 'function';
+    }
+
+    function completeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage) {
+      if (!nativeExportAvailable(exportName)) {
+        failCommand(message, `Preview widget build does not export ${exportName}. Rebuild the editor preview.`, { category: 'preview-export' });
+        return;
+      }
+      const ok = Module.ccall(exportName, returnType, argTypes, args);
+      if (returnType === null || returnType === 'void' || ok) {
+        hideFailure();
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      } else {
+        failCommand(message, failureMessage, { category: 'runtime-command' });
+      }
+    }
+
+    function completeDemoCommand(message, exportName, argTypes, args, failureMessage, nextState) {
+      completeNativeCommand(message, exportName, null, argTypes, args, failureMessage);
+      if (nextState) {
+        if (nextState.position) currentPosition = nextState.position;
+        if (typeof nextState.running === 'boolean') currentRunning = nextState.running;
+      }
+    }
+
+    function handleRuntimeCommand(message) {
+      switch (message.type) {
+        case 'runtime-reset':
+          completeNativeCommand(message, 'noveltea_runtime_reset', 'number', [], [], 'Runtime reset was not handled. No runtime project may be loaded.');
+          return true;
+        case 'runtime-start':
+          completeNativeCommand(message, 'noveltea_runtime_start', 'number', [], [], 'Runtime start was not handled in the current runtime mode.');
+          return true;
+        case 'runtime-stop':
+          completeNativeCommand(message, 'noveltea_runtime_stop', 'number', [], [], 'Runtime stop was not handled. No runtime project may be loaded.');
+          return true;
+        case 'runtime-step':
+          completeNativeCommand(message, 'noveltea_runtime_step', 'number', ['number'], [Math.max(0, Number(message.deltaSeconds || 0))], 'Runtime step was not handled in the current runtime mode.');
+          return true;
+        case 'runtime-continue':
+          completeNativeCommand(message, 'noveltea_runtime_continue', 'number', [], [], 'Runtime continue was not handled in the current runtime mode.');
+          return true;
+        case 'runtime-dialogue-option':
+          completeNativeCommand(message, 'noveltea_runtime_dialogue_option', 'number', ['number'], [message.optionIndex], `Runtime dialogue option ${message.optionIndex} was not handled in the current runtime mode.`);
+          return true;
+        case 'runtime-navigate':
+          completeNativeCommand(message, 'noveltea_runtime_navigate', 'number', ['number'], [message.direction], `Runtime navigation ${message.direction} was not handled in the current runtime mode.`);
+          return true;
+        case 'runtime-select-object':
+          completeNativeCommand(message, 'noveltea_runtime_select_object', 'number', ['string'], [message.objectId], `Runtime object selection '${message.objectId}' was not handled in the current runtime mode.`);
+          return true;
+        case 'runtime-clear-object-selection':
+          completeNativeCommand(message, 'noveltea_runtime_clear_object_selection', 'number', [], [], 'Runtime clear selection was not handled in the current runtime mode.');
+          return true;
+        case 'runtime-run-action':
+          completeNativeCommand(message, 'noveltea_runtime_run_action', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.objectIds || [])], `Runtime action '${message.verbId}' was not handled in the current runtime mode.`);
+          return true;
+        default:
+          return false;
+      }
+    }
+
     async function runCommand(message) {
       try {
         if (!runtimeReady || !engineReady) {
@@ -491,7 +556,21 @@ thead, tbody, tfoot {
           return;
         }
         if (message.version !== protocolVersion || typeof message.requestId !== 'string') return;
-        if (message.type === 'set-preview-mode') {
+        if (handleRuntimeCommand(message)) {
+          return;
+        }
+        if (message.type === 'set-demo-position') {
+          completeDemoCommand(message, 'noveltea_preview_set_demo_position', ['number', 'number'], [message.position.x, message.position.y], 'Demo position update failed.', { position: message.position });
+        } else if (message.type === 'reset-demo') {
+          completeDemoCommand(message, 'noveltea_preview_reset_demo', [], [], 'Demo reset failed.', { position: { x: 0.5, y: 0.5 } });
+        } else if (message.type === 'play') {
+          completeDemoCommand(message, 'noveltea_preview_set_running', ['number'], [1], 'Preview play failed.', { running: true });
+        } else if (message.type === 'stop') {
+          completeDemoCommand(message, 'noveltea_preview_set_running', ['number'], [0], 'Preview stop failed.', { running: false });
+        } else if (message.type === 'request-state') {
+          send({ version: protocolVersion, type: 'state', position: currentPosition, running: currentRunning });
+          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+        } else if (message.type === 'set-preview-mode') {
           previewMode = message.mode || 'runtime';
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'load-preview-document' || message.type === 'update-preview-document') {
@@ -505,7 +584,7 @@ thead, tbody, tfoot {
         } else if (message.type === 'request-preview-snapshot') {
           failCommand(message, 'Preview snapshots are not implemented by the editor widget yet.');
         } else {
-          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: false, error: 'Unsupported editor preview widget command' });
+          failCommand(message, `Unsupported editor preview widget command '${message.type}'.`, { category: 'preview-command' });
         }
       } catch (error) {
         send({ version: protocolVersion, type: 'command-result', requestId: message.requestId || '', ok: false, error: String(error && error.message ? error.message : error) });
@@ -537,7 +616,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1'],
       });
       void drainCommands();
     }
@@ -557,6 +636,8 @@ thead, tbody, tfoot {
       },
       markEngineReady(position, running) {
         engineReady = true;
+        currentPosition = position;
+        currentRunning = running;
         applyEngineSettings({ showFpsCounter, fpsCap });
         sendReadySnapshot();
         void drainCommands();

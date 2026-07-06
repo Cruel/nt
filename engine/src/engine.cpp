@@ -20,6 +20,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -788,6 +789,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         }
     }
     SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
+    m_runtime_project_path = logical_path;
     return true;
 }
 
@@ -1448,6 +1450,117 @@ void Engine::set_preview_running(bool running)
 {
     m_preview_running = running;
     preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
+}
+
+bool Engine::apply_runtime_preview_input(core::RuntimeInput input)
+{
+    if (!m_runtime_shell.loaded()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] runtime project is not loaded");
+        return false;
+    }
+    auto result = m_runtime_shell.host().apply_input(std::move(input));
+    const bool handled = result.handled;
+    process_runtime_result(result);
+    return handled;
+}
+
+bool Engine::runtime_preview_reset()
+{
+    if (m_runtime_project_path.empty()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot reset without a loaded runtime project");
+        return false;
+    }
+    return load_runtime_project(m_runtime_project_path);
+}
+
+bool Engine::runtime_preview_start()
+{
+    if (!m_runtime_shell.loaded()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot start without a loaded runtime project");
+        return false;
+    }
+    m_preview_running = true;
+    auto result = m_runtime_shell.start_game();
+    const bool handled = result.handled;
+    process_runtime_result(result);
+    preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
+    return handled;
+}
+
+bool Engine::runtime_preview_stop()
+{
+    if (!m_runtime_shell.loaded()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot stop without a loaded runtime project");
+        return false;
+    }
+    m_preview_running = false;
+    preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
+    return true;
+}
+
+bool Engine::runtime_preview_step(double delta_seconds)
+{
+    if (!m_runtime_shell.loaded()) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[runtime-preview] cannot step without a loaded runtime project");
+        return false;
+    }
+    auto result = m_runtime_shell.update(std::max(0.0, delta_seconds));
+    const bool handled = result.handled;
+    process_runtime_result(result);
+    return handled;
+}
+
+bool Engine::runtime_preview_continue()
+{
+    core::RuntimeInput input;
+    input.type = core::RuntimeInputType::Continue;
+    return apply_runtime_preview_input(std::move(input));
+}
+
+bool Engine::runtime_preview_dialogue_option(int option_index)
+{
+    core::RuntimeInput input;
+    input.type = core::RuntimeInputType::SelectDialogueOption;
+    input.index = option_index;
+    return apply_runtime_preview_input(std::move(input));
+}
+
+bool Engine::runtime_preview_navigate(int direction)
+{
+    core::RuntimeInput input;
+    input.type = core::RuntimeInputType::Navigate;
+    input.direction = direction;
+    return apply_runtime_preview_input(std::move(input));
+}
+
+bool Engine::runtime_preview_select_object(const std::string& object_id)
+{
+    core::RuntimeInput input;
+    input.type = core::RuntimeInputType::SelectObject;
+    input.object_ids = {object_id};
+    return apply_runtime_preview_input(std::move(input));
+}
+
+bool Engine::runtime_preview_clear_object_selection()
+{
+    core::RuntimeInput input;
+    input.type = core::RuntimeInputType::ClearObjectSelection;
+    return apply_runtime_preview_input(std::move(input));
+}
+
+bool Engine::runtime_preview_run_action(const std::string& verb_id,
+                                        const std::vector<std::string>& object_ids)
+{
+    core::RuntimeInput input;
+    input.type = core::RuntimeInputType::RunAction;
+    input.verb_id = verb_id;
+    input.object_ids = object_ids;
+    return apply_runtime_preview_input(std::move(input));
 }
 
 void Engine::set_show_fps_counter(bool show)

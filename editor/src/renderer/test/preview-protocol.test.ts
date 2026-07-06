@@ -44,6 +44,13 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'request-preview-snapshot', requestId: 'r3', snapshotId: 's1' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r4', settings: { showFpsCounter: true, fpsCap: 60 } })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r5', settings: { fpsCap: -1 } })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-start', requestId: 'runtime-start' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-stop', requestId: 'runtime-stop' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step-delta', deltaSeconds: 0.016 })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step-bad', deltaSeconds: -1 })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action', verbId: 'look', objectIds: ['lamp'] })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action-bad', verbId: 'look', objectIds: [1] })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document: { kind: 'unknown' } })).toBe(false);
     const legacyLayoutMode = `ui-${'layout'}`;
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: legacyLayoutMode })).toBe(false);

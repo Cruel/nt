@@ -63,6 +63,9 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'stop'; requestId: string }
   | { version: 1; type: 'request-state'; requestId: string }
   | { version: 1; type: 'runtime-reset'; requestId: string }
+  | { version: 1; type: 'runtime-start'; requestId: string }
+  | { version: 1; type: 'runtime-stop'; requestId: string }
+  | { version: 1; type: 'runtime-step'; requestId: string; deltaSeconds?: number }
   | { version: 1; type: 'runtime-continue'; requestId: string }
   | { version: 1; type: 'runtime-dialogue-option'; requestId: string; optionIndex: number }
   | { version: 1; type: 'runtime-navigate'; requestId: string; direction: number }
@@ -186,10 +189,14 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'stop':
     case 'request-state':
     case 'runtime-reset':
+    case 'runtime-start':
+    case 'runtime-stop':
     case 'runtime-continue':
     case 'runtime-clear-object-selection':
     case 'request-preview-state':
       return true;
+    case 'runtime-step':
+      return value.deltaSeconds === undefined || (typeof value.deltaSeconds === 'number' && Number.isFinite(value.deltaSeconds) && value.deltaSeconds >= 0);
     case 'runtime-dialogue-option':
       return typeof value.optionIndex === 'number' && Number.isInteger(value.optionIndex);
     case 'runtime-navigate':

@@ -73,6 +73,17 @@ public:
     bool load_preview_rml_document(const std::string& rml);
     bool execute_preview_lua_script(const std::string& source);
     bool apply_editor_preview_document(const std::string& kind, const std::string& data_json);
+    bool runtime_preview_reset();
+    bool runtime_preview_start();
+    bool runtime_preview_stop();
+    bool runtime_preview_step(double delta_seconds);
+    bool runtime_preview_continue();
+    bool runtime_preview_dialogue_option(int option_index);
+    bool runtime_preview_navigate(int direction);
+    bool runtime_preview_select_object(const std::string& object_id);
+    bool runtime_preview_clear_object_selection();
+    bool runtime_preview_run_action(const std::string& verb_id,
+                                    const std::vector<std::string>& object_ids);
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                     float pitch = 1.0f);
     AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,
@@ -94,6 +105,7 @@ private:
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
     bool load_runtime_project(const std::string& logical_path);
+    bool apply_runtime_preview_input(core::RuntimeInput input);
     void process_runtime_result(core::RuntimeInputResult& result);
     void process_audio_outputs(const std::vector<core::RuntimeOutput>& outputs);
 
@@ -128,6 +140,7 @@ private:
     bool m_show_fps_counter = false;
     uint32_t m_fps_sample_frames = 0;
     uint64_t m_fps_sample_start_counter = 0;
+    std::string m_runtime_project_path;
 };
 
 } // namespace noveltea

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MousePointer2, Play, RefreshCw, RotateCcw, StepForward } from 'lucide-react';
+import { MousePointer2, Play, RefreshCw, RotateCcw, Square, StepForward } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useEnginePreview } from '@/hooks/use-engine-preview';
@@ -165,6 +165,9 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     loadSession,
     setPosition,
     runtimeReset,
+    startRuntime,
+    stopRuntime,
+    stepRuntime,
     continueRuntime,
     selectDialogueOption,
     navigateRuntime,
@@ -174,8 +177,6 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     loadPreviewDocument,
     setPreviewMode,
     setEngineSettings,
-    play: sendPlay,
-    stop: sendStop,
   } = controller;
 
   useEffect(() => {
@@ -254,12 +255,12 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     const handlePlay = () => {
       setPreviewRunning(true);
       setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition, running: true });
-      void sendPlay().catch((error: Error) => recordTransportError(error.message));
+      void startRuntime().catch((error: Error) => recordTransportError(error.message));
     };
     const handleStop = () => {
       setPreviewRunning(false);
       setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition, running: false });
-      void sendStop().catch((error: Error) => recordTransportError(error.message));
+      void stopRuntime().catch((error: Error) => recordTransportError(error.message));
     };
     window.addEventListener('noveltea-preview-toolbar-play', handlePlay);
     window.addEventListener('noveltea-preview-toolbar-stop', handleStop);
@@ -267,7 +268,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
       window.removeEventListener('noveltea-preview-toolbar-play', handlePlay);
       window.removeEventListener('noveltea-preview-toolbar-stop', handleStop);
     };
-  }, [embedded, recordTransportError, sendPlay, sendStop, setPreviewRunning, setPrimaryRuntimeReplay]);
+  }, [embedded, recordTransportError, startRuntime, stopRuntime, setPreviewRunning, setPrimaryRuntimeReplay]);
 
   const updatePosition = useCallback((position: PreviewPosition) => {
     const next = { x: clamp01(position.x), y: clamp01(position.y) };
@@ -315,6 +316,15 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
           <Button size="sm" variant="ghost" onClick={() => sendRuntimeCommand(runtimeReset(), 'Runtime reset')} aria-label="Reset runtime">
             <RotateCcw className="h-4 w-4" />
           </Button>
+          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(startRuntime(), 'Runtime started')} aria-label="Start runtime">
+            <Play className="h-4 w-4" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(stopRuntime(), 'Runtime stopped')} aria-label="Stop runtime">
+            <Square className="h-4 w-4" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(stepRuntime(), 'Runtime stepped')} aria-label="Step runtime">
+            <StepForward className="h-4 w-4" />
+          </Button>
           <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(continueRuntime(), 'Continue input sent')}>
             <StepForward className="h-4 w-4" />
             Continue
@@ -327,7 +337,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
           </Button>
           <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(clearRuntimeObjectSelection(), 'Object selection cleared')}>Clear</Button>
           <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(runRuntimeAction('look', []), 'Action input sent')}>
-            <Play className="h-4 w-4" />
+            <MousePointer2 className="h-4 w-4" />
             Action
           </Button>
           <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">

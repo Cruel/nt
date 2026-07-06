@@ -5,7 +5,11 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -387,6 +391,122 @@ int noveltea_preview_show_editor_document(const char* kind, const char* data_jso
         return 0;
     }
     return noveltea::g_preview_engine->apply_editor_preview_document(kind, data_json) ? 1 : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_reset()
+{
+    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_reset() ? 1
+                                                                                             : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_start()
+{
+    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_start() ? 1
+                                                                                             : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_stop()
+{
+    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_stop() ? 1 : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_step(double delta_seconds)
+{
+    return noveltea::g_preview_engine &&
+                   noveltea::g_preview_engine->runtime_preview_step(delta_seconds)
+               ? 1
+               : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_continue()
+{
+    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_continue() ? 1
+                                                                                                : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_dialogue_option(int option_index)
+{
+    return noveltea::g_preview_engine &&
+                   noveltea::g_preview_engine->runtime_preview_dialogue_option(option_index)
+               ? 1
+               : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_navigate(int direction)
+{
+    return noveltea::g_preview_engine &&
+                   noveltea::g_preview_engine->runtime_preview_navigate(direction)
+               ? 1
+               : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_select_object(const char* object_id)
+{
+    return noveltea::g_preview_engine && object_id &&
+                   noveltea::g_preview_engine->runtime_preview_select_object(object_id)
+               ? 1
+               : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_clear_object_selection()
+{
+    return noveltea::g_preview_engine &&
+                   noveltea::g_preview_engine->runtime_preview_clear_object_selection()
+               ? 1
+               : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_runtime_run_action(const char* verb_id, const char* object_ids_json)
+{
+    if (!noveltea::g_preview_engine || !verb_id || !object_ids_json) {
+        return 0;
+    }
+    std::vector<std::string> object_ids;
+    try {
+        const auto parsed = nlohmann::json::parse(object_ids_json);
+        if (!parsed.is_array()) {
+            return 0;
+        }
+        for (const auto& value : parsed) {
+            if (!value.is_string()) {
+                return 0;
+            }
+            object_ids.push_back(value.get<std::string>());
+        }
+    } catch (const std::exception&) {
+        return 0;
+    }
+    return noveltea::g_preview_engine->runtime_preview_run_action(verb_id, object_ids) ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)

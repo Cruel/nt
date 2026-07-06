@@ -148,10 +148,44 @@ describe('EnginePreview', () => {
   it('runtime controls send runtime input commands', async () => {
     const user = userEvent.setup();
     const { editorPort } = await renderConnectedPreview();
+    await user.click(screen.getByLabelText('Start runtime'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-start',
+      requestId: expect.any(String),
+    });
+    await user.click(screen.getByLabelText('Stop runtime'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-stop',
+      requestId: expect.any(String),
+    });
+    await user.click(screen.getByLabelText('Step runtime'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-step',
+      requestId: expect.any(String),
+    });
     await user.click(screen.getByText('Continue'));
     expect(editorPort.sent).toContainEqual({
       version: 1,
       type: 'runtime-continue',
+      requestId: expect.any(String),
+    });
+  });
+
+  it('toolbar play and stop dispatch runtime start and stop commands', async () => {
+    const { editorPort } = await renderConnectedPreview();
+    act(() => window.dispatchEvent(new Event('noveltea-preview-toolbar-play')));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-start',
+      requestId: expect.any(String),
+    });
+    act(() => window.dispatchEvent(new Event('noveltea-preview-toolbar-stop')));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-stop',
       requestId: expect.any(String),
     });
   });
