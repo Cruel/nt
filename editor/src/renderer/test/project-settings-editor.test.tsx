@@ -25,6 +25,9 @@ const tab: WorkbenchTab = {
 function project() {
   const next = createAuthoringProject({ name: 'Old Title' });
   next.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+  next.scenes.opening = { id: 'opening', label: 'Opening Scene', tags: [], data: {} };
+  next.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', tags: [], data: {} };
+  next.scripts.boot = { id: 'boot', label: 'Boot Script', tags: [], data: { language: 'lua', source: '' } };
   next.layouts.main = { id: 'main', label: 'Main Layout', tags: [], data: defaultLayoutData('Main Layout') };
   next.assets['main-font'] = {
     id: 'main-font',
@@ -60,12 +63,32 @@ describe('ProjectSettingsEditor', () => {
     fireEvent.change(screen.getByDisplayValue('New Title'), { target: { value: '' } });
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ project: { name: '' } }));
 
-    fireEvent.change(screen.getByLabelText('Entrypoint room'), { target: { value: 'foyer' } });
+    fireEvent.click(screen.getByText('No entrypoint'));
+    expect(await screen.findByText('Choose a project entrypoint')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Foyer'));
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: { collection: 'rooms', id: 'foyer' } }));
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setEntrypoint');
 
     fireEvent.change(screen.getByLabelText('source-editor'), { target: { value: 'game.start()' } });
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ settings: { startup: { initScript: 'game.start()' } } }));
+  });
+
+  it('chooses non-room project entrypoints and clears them through the selector', async () => {
+    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    render(<ProjectSettingsEditor tab={tab} />);
+
+    fireEvent.click(screen.getByText('No entrypoint'));
+    expect(await screen.findByText('Choose a project entrypoint')).toBeInTheDocument();
+    expect(screen.getByText('Opening Scene')).toBeInTheDocument();
+    expect(screen.getByText('Intro Dialogue')).toBeInTheDocument();
+    expect(screen.getByText('Boot Script')).toBeInTheDocument();
+    expect(screen.queryByText('Logo')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Opening Scene'));
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: { collection: 'scenes', id: 'opening' } }));
+
+    fireEvent.click(screen.getByText('Clear'));
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: null }));
   });
 
   it('updates runtime defaults, title screen, and icon settings', async () => {

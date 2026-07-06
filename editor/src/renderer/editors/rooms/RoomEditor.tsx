@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { EnginePreview } from '@/components/engine-preview';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +10,8 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
-import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import {
   defaultRoomData,
   parseRoomData,
@@ -65,6 +67,8 @@ function sortPaths(paths: RoomPathData[]) {
 }
 
 export function RoomEditor({ tab }: WorkbenchEditorProps) {
+  const { t, i18n } = useTranslation('workspace');
+  const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
   const projectDocument = useProjectStore((state) => state.document);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -72,9 +76,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseRoomData(record?.data);
   const data = parsedData ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
   const diagnostics = useMemo(() => project && record && roomId ? validateRoomData(project, roomId, record) : [], [project, record, roomId]);
-  const imageAssets = project ? Object.entries(project.assets)
-    .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
-    .map(([id, asset]) => ({ id, label: asset.label })) : [];
+  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [i18n.language, project, t]);
+  const backgroundImageItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['assets'], assetKinds: ['image'], includeActions: false }), [selectorItems]);
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
   const targetRooms = project ? Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label })) : [];
   const objects = project ? Object.entries(project.objects).map(([id, object]) => ({ id, label: object.label })) : [];
@@ -94,6 +97,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const selectedHotspot = data.preview.selectedHotspotId
     ? data.hotspots.find((hotspot) => hotspot.id === data.preview.selectedHotspotId) ?? null
     : data.hotspots[0] ?? null;
+  const selectedBackgroundAssetId = data.background.asset?.$ref.id ?? null;
+  const selectedBackgroundAsset = selectedBackgroundAssetId ? activeProject.assets[selectedBackgroundAssetId] : null;
 
   function commit(next: RoomData, label = 'Update room') {
     commitRoom(activeRoomId, next, label);
@@ -187,10 +192,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           <section className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1">
               <Label>Background image</Label>
-              <Select value={refValue(data.background.asset)} onValueChange={(value) => patchBackground({ asset: value === '__none__' ? null : roomAssetRef(String(value)) })}>
-                <SelectItem value="__none__">No image</SelectItem>
-                {imageAssets.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.label} ({asset.id})</SelectItem>)}
-              </Select>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal" onClick={() => setBackgroundSelectorOpen(true)}>
+                  <span className="truncate">{selectedBackgroundAsset ? `${selectedBackgroundAsset.label || selectedBackgroundAssetId} (${selectedBackgroundAssetId})` : t('selectors.none.backgroundImage')}</span>
+                </Button>
+                {selectedBackgroundAssetId ? <Button type="button" size="sm" variant="outline" onClick={() => patchBackground({ asset: null })}>{t('selectors.clear')}</Button> : null}
+              </div>
             </div>
             <div className="space-y-1">
               <Label>Background material</Label>
@@ -381,6 +388,21 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           <div className="overflow-hidden font-mono text-[10px] text-muted-foreground">revision {revision.slice(0, 80)}</div>
         </aside>
       </div>
+      <SearchSelectorDialog
+        open={backgroundSelectorOpen}
+        title={t('selectors.backgroundImage.title')}
+        placeholder={t('selectors.backgroundImage.placeholder')}
+        emptyMessage={t('selectors.backgroundImage.empty')}
+        items={backgroundImageItems}
+        selectedId={selectedBackgroundAssetId ? `record:assets:${selectedBackgroundAssetId}` : null}
+        limit={12}
+        leadingMediaSize={{ width: '6rem', height: '4.5rem' }}
+        onSelect={(item) => {
+          if (!item.entityId) return;
+          patchBackground({ asset: roomAssetRef(item.entityId) });
+        }}
+        onOpenChange={setBackgroundSelectorOpen}
+      />
     </div>
   );
 }

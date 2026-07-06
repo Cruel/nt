@@ -47,6 +47,28 @@
     "placeholder": "Digite um comando ou nome de registro",
     "title": "Paleta de comandos"
   },
+  "selectors": {
+    "backgroundImage": {
+      "empty": "Nenhum recurso de imagem corresponde à busca.",
+      "placeholder": "Digite um nome, ID ou tag de imagem",
+      "title": "Escolher imagem de fundo"
+    },
+    "clear": "Limpar",
+    "entrypoint": {
+      "description": "Escolha o ponto de entrada de autoria. A exportação de runtime atualmente aceita apenas pontos de entrada de sala.",
+      "empty": "Nenhum registro de ponto de entrada corresponde à busca.",
+      "placeholder": "Digite o nome de uma sala, cena, diálogo ou script",
+      "title": "Escolher ponto de entrada do projeto"
+    },
+    "none": {
+      "backgroundImage": "Nenhuma imagem",
+      "entrypoint": "Nenhum ponto de entrada"
+    },
+    "viewAll": {
+      "showAll": "Ver todos os resultados",
+      "showLimited": "Mostrar menos resultados"
+    }
+  },
   "sidebar": {
     "components": "Componentes",
     "settings": "Configurações"

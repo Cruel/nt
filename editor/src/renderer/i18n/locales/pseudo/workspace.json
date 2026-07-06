@@ -47,6 +47,28 @@
     "placeholder": "⟦Type a command or record name⟧",
     "title": "⟦Command Palette⟧"
   },
+  "selectors": {
+    "backgroundImage": {
+      "empty": "⟦No image assets match.⟧",
+      "placeholder": "⟦Type an image name, ID, or tag⟧",
+      "title": "⟦Choose a background image⟧"
+    },
+    "clear": "⟦Clear⟧",
+    "entrypoint": {
+      "description": "⟦Choose the authoring entrypoint. Runtime export currently supports Room entrypoints only.⟧",
+      "empty": "⟦No entrypoint records match.⟧",
+      "placeholder": "⟦Type a room, scene, dialogue, or script name⟧",
+      "title": "⟦Choose a project entrypoint⟧"
+    },
+    "none": {
+      "backgroundImage": "⟦No image⟧",
+      "entrypoint": "⟦No entrypoint⟧"
+    },
+    "viewAll": {
+      "showAll": "⟦View all results⟧",
+      "showLimited": "⟦Show limited results⟧"
+    }
+  },
   "sidebar": {
     "components": "⟦Components⟧",
     "settings": "⟦Settings⟧"

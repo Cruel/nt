@@ -5,20 +5,31 @@ import { editorI18n } from '@/i18n';
 import { authoringCollectionMetadata } from '../../shared/project-schema/authoring-collections';
 import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseAssetData, type AssetData } from '../../shared/project-schema/authoring-assets';
 import { searchDocuments } from '../../shared/project-search/project-search';
 import type { ProjectSearchDocument, ProjectSearchFieldKind, ProjectSearchMatch } from '../../shared/project-search/project-search-types';
 import { visualForCollection } from './collection-visuals';
 
 export type CommandPaletteItemKind = 'action' | 'record';
 export type CommandPaletteFieldKind = 'title' | 'id' | 'tag' | 'collection' | 'action';
+export type SelectorItemKind = CommandPaletteItemKind;
+export type SelectorFieldKind = CommandPaletteFieldKind;
 
-export interface CommandPaletteItem {
+export interface SelectorPreview {
+  kind: 'image';
+  label: string;
+  sourcePath: string;
+}
+
+export interface SelectorItem {
   id: string;
-  kind: CommandPaletteItemKind;
+  kind: SelectorItemKind;
   title: string;
   subtitle?: string;
   collection?: AuthoringCollectionKey;
   entityId?: string;
+  assetKind?: AssetData['kind'];
+  preview?: SelectorPreview;
   action?: 'project-settings' | 'assets' | 'variables' | 'tests';
   tags: string[];
   collectionTerms: string[];
@@ -27,20 +38,32 @@ export interface CommandPaletteItem {
   iconClassName?: string;
 }
 
-export interface CommandPaletteMatch {
-  fieldKind: CommandPaletteFieldKind;
+export type CommandPaletteItem = SelectorItem;
+
+export interface SelectorMatch {
+  fieldKind: SelectorFieldKind;
   fieldLabel: string;
   value: string;
   indices: readonly (readonly [number, number])[];
 }
 
-export interface CommandPaletteSearchResult {
-  item: CommandPaletteItem;
+export type CommandPaletteMatch = SelectorMatch;
+
+export interface SelectorSearchResult {
+  item: SelectorItem;
   score: number;
-  matches: CommandPaletteMatch[];
+  matches: SelectorMatch[];
 }
 
-function actionItem(item: Omit<CommandPaletteItem, 'kind' | 'tags' | 'collectionTerms' | 'actionTerms' | 'icon' | 'iconClassName'> & { search: string[] }): CommandPaletteItem {
+export type CommandPaletteSearchResult = SelectorSearchResult;
+
+export interface SelectorItemFilter {
+  collections?: readonly AuthoringCollectionKey[];
+  assetKinds?: readonly AssetData['kind'][];
+  includeActions?: boolean;
+}
+
+function actionItem(item: Omit<SelectorItem, 'kind' | 'tags' | 'collectionTerms' | 'actionTerms' | 'icon' | 'iconClassName'> & { search: string[] }): SelectorItem {
   return {
     ...item,
     kind: 'action',
@@ -64,7 +87,7 @@ function translatedSearchTerms(t: TFunction, key: string): string[] {
   return Array.isArray(value) ? value.map(String) : [String(value)].filter(Boolean);
 }
 
-function baseActions(t: TFunction): CommandPaletteItem[] {
+function baseActions(t: TFunction): SelectorItem[] {
   return actionDefinitions.map((definition) => actionItem({
     id: definition.id,
     title: t(`workspace:commandPalette.actions.${definition.key}.title`),
@@ -74,13 +97,14 @@ function baseActions(t: TFunction): CommandPaletteItem[] {
   }));
 }
 
-export function buildCommandPaletteItems(project: AuthoringProject | null, t: TFunction = editorI18n.t.bind(editorI18n)): CommandPaletteItem[] {
+export function buildCommandPaletteItems(project: AuthoringProject | null, t: TFunction = editorI18n.t.bind(editorI18n)): SelectorItem[] {
   const items = [...baseActions(t)];
   if (!project) return items;
   for (const [collection, metadata] of Object.entries(authoringCollectionMetadata) as Array<[AuthoringCollectionKey, (typeof authoringCollectionMetadata)[AuthoringCollectionKey]]>) {
     const visual = visualForCollection(collection);
     for (const [entityId, record] of Object.entries(project[collection])) {
       const title = record.label || entityId;
+      const assetData = collection === 'assets' ? parseAssetData(record.data) : null;
       items.push({
         id: `record:${collection}:${entityId}`,
         kind: 'record',
@@ -88,6 +112,8 @@ export function buildCommandPaletteItems(project: AuthoringProject | null, t: TF
         subtitle: metadata.label,
         collection,
         entityId,
+        assetKind: assetData?.kind,
+        preview: assetData?.kind === 'image' ? { kind: 'image', label: title, sourcePath: assetData.source.path } : undefined,
         tags: record.tags ?? [],
         collectionTerms: [metadata.label, metadata.singularLabel],
         actionTerms: [],
@@ -99,7 +125,20 @@ export function buildCommandPaletteItems(project: AuthoringProject | null, t: TF
   return items;
 }
 
-function itemToSearchDocument(item: CommandPaletteItem): ProjectSearchDocument {
+export function filterSelectorItems(items: readonly SelectorItem[], filter: SelectorItemFilter = {}): SelectorItem[] {
+  const collections = filter.collections ? new Set(filter.collections) : null;
+  const assetKinds = filter.assetKinds ? new Set(filter.assetKinds) : null;
+  const includeActions = filter.includeActions ?? true;
+  return items.filter((item) => {
+    if (item.kind === 'action') return includeActions && !collections && !assetKinds;
+    if (collections && (!item.collection || !collections.has(item.collection))) return false;
+    if (assetKinds && item.assetKind && !assetKinds.has(item.assetKind)) return false;
+    if (assetKinds && !item.assetKind) return false;
+    return true;
+  });
+}
+
+function itemToSearchDocument(item: SelectorItem): ProjectSearchDocument {
   const fields = [
     { kind: 'title' as const, label: editorI18n.t('common:fields.name'), value: item.title, path: `/${item.id}/title`, weight: 4, defaultSearchable: true },
     ...(item.entityId ? [{ kind: 'id' as const, label: editorI18n.t('common:fields.id'), value: item.entityId, path: `/${item.id}/id`, weight: 3.5, defaultSearchable: true }] : []),
@@ -127,7 +166,7 @@ function commandFieldKind(fieldKind: ProjectSearchFieldKind): CommandPaletteFiel
   return null;
 }
 
-function matchForProjectSearchMatch(match: ProjectSearchMatch): CommandPaletteMatch | null {
+function matchForProjectSearchMatch(match: ProjectSearchMatch): SelectorMatch | null {
   const fieldKind = commandFieldKind(match.fieldKind);
   if (!fieldKind) return null;
   return {
@@ -139,7 +178,7 @@ function matchForProjectSearchMatch(match: ProjectSearchMatch): CommandPaletteMa
 }
 
 
-function matchPriority(match: CommandPaletteMatch): number {
+function matchPriority(match: SelectorMatch): number {
   if (match.fieldKind === 'title') return 5;
   if (match.fieldKind === 'id') return 4;
   if (match.fieldKind === 'tag') return 3;
@@ -147,7 +186,7 @@ function matchPriority(match: CommandPaletteMatch): number {
   return 1;
 }
 
-export function searchCommandPaletteItems(items: CommandPaletteItem[], query: string, limit = 12): CommandPaletteSearchResult[] {
+export function searchSelectorItems(items: readonly SelectorItem[], query: string, limit = 12): SelectorSearchResult[] {
   const text = query.trim();
   if (!text) return items.slice(0, limit).map((item) => ({ item, score: 0, matches: [] }));
   const itemsById = new Map(items.map((item) => [item.id, item]));
@@ -160,4 +199,8 @@ export function searchCommandPaletteItems(items: CommandPaletteItem[], query: st
     }).sort((left, right) => matchPriority(right) - matchPriority(left));
     return [{ item, score: result.score, matches }];
   });
+}
+
+export function searchCommandPaletteItems(items: readonly SelectorItem[], query: string, limit = 12): SelectorSearchResult[] {
+  return searchSelectorItems(items, query, limit);
 }

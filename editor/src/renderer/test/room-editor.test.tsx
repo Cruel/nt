@@ -71,4 +71,40 @@ describe('RoomEditor', () => {
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('room.replaceData');
   });
+
+  it('chooses and clears a background image through the selector', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      tags: [],
+      data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+    };
+    project.assets.theme = {
+      id: 'theme',
+      label: 'Theme',
+      tags: [],
+      data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/theme.ogg' }, aliases: [], extension: '.ogg' },
+    };
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+
+    render(<RoomEditor tab={tab} />);
+
+    fireEvent.click(screen.getByText('No image'));
+    expect(await screen.findByText('Choose a background image')).toBeInTheDocument();
+    expect(screen.getByText('Logo')).toBeInTheDocument();
+    expect(screen.queryByText('Theme')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Logo'));
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { data: { background: { asset: { $ref: { collection: 'assets', id: 'logo' } } } } } },
+    }));
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('room.replaceData');
+
+    fireEvent.click(screen.getByText('Clear'));
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { data: { background: { asset: null } } } },
+    }));
+  });
 });

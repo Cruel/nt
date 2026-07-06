@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,8 @@ import { useCommandStore } from '@/commands/command-store';
 import { installComfyUiStarterWorkflows, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { getDefaultLayoutSetting } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -30,6 +33,7 @@ function runProjectCommand(type: string, payload: unknown, label: string) {
 }
 
 export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
+  const { t, i18n } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -37,10 +41,13 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
   const defaultLayout = project ? getDefaultLayoutSetting(project) : null;
   const diagnostics = useMemo(() => project ? validateAuthoringProject(project) : [], [project]);
   const projectSettingsDiagnostics = useMemo(() => project ? validateTypedProjectSettings(project) : [], [project]);
+  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [i18n.language, project, t]);
+  const entrypointItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['rooms', 'scenes', 'dialogues', 'scripts'], includeActions: false }), [selectorItems]);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
   const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
+  const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const comfyUiSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -77,6 +84,7 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'font')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
   const entrypointIsRoom = project.entrypoint?.collection === 'rooms' ? project.entrypoint.id : null;
+  const entrypointRecord = project.entrypoint ? project[project.entrypoint.collection]?.[project.entrypoint.id] : null;
   const entrypointDiagnostics = diagnostics.filter((diagnostic) => diagnostic.path.startsWith('/entrypoint'));
   const relevantDiagnostics = [...entrypointDiagnostics, ...projectSettingsDiagnostics];
 
@@ -84,8 +92,8 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
     runProjectCommand('project.updateMetadata', patch, 'Update project metadata');
   }
 
-  function setEntrypoint(roomId: string | null) {
-    runProjectCommand('project.setEntrypoint', { target: roomId ? { collection: 'rooms', id: roomId } : null }, 'Set project entrypoint');
+  function setEntrypoint(target: { collection: string; id: string } | null) {
+    runProjectCommand('project.setEntrypoint', { target }, 'Set project entrypoint');
   }
 
   function setDefaultLayout(layoutId: string | null) {
@@ -178,22 +186,20 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
           <Card>
             <CardHeader>
               <CardTitle>Startup</CardTitle>
-              <CardDescription>Runtime export currently supports room entrypoints only.</CardDescription>
+              <CardDescription>{t('selectors.entrypoint.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                <Label htmlFor="project-entrypoint">Entrypoint room</Label>
+                <Label>Project entrypoint</Label>
                 <div className="flex flex-wrap gap-2">
-                  <select
-                    id="project-entrypoint"
-                    className="h-8 min-w-64 rounded-md border border-input bg-background px-2 text-xs"
-                    value={entrypointIsRoom ?? '__none__'}
-                    onChange={(event) => setEntrypoint(nullableValue(event.currentTarget.value))}
-                  >
-                    <option value="__none__">No entrypoint</option>
-                    {roomEntries.map((room) => <option key={room.id} value={room.id}>{room.label} ({room.id})</option>)}
-                  </select>
-                  {entrypointIsRoom ? <Button size="sm" variant="outline" onClick={() => setEntrypoint(null)}>Clear</Button> : null}
+                  <Button type="button" variant="outline" className="h-8 min-w-64 justify-start px-2 text-left text-xs font-normal" onClick={() => setEntrypointSelectorOpen(true)}>
+                    <span className="truncate">
+                      {project.entrypoint && entrypointRecord
+                        ? `${entrypointRecord.label || project.entrypoint.id} (${project.entrypoint.collection}/${project.entrypoint.id})`
+                        : t('selectors.none.entrypoint')}
+                    </span>
+                  </Button>
+                  {project.entrypoint ? <Button size="sm" variant="outline" onClick={() => setEntrypoint(null)}>{t('selectors.clear')}</Button> : null}
                 </div>
                 {roomEntries.length === 0 ? <p className="text-xs text-muted-foreground">Create a room before choosing a runtime-exportable entrypoint.</p> : null}
               </div>
@@ -386,6 +392,19 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
           </Card>
         </div>
       </div>
+      <SearchSelectorDialog
+        open={entrypointSelectorOpen}
+        title={t('selectors.entrypoint.title')}
+        placeholder={t('selectors.entrypoint.placeholder')}
+        emptyMessage={t('selectors.entrypoint.empty')}
+        items={entrypointItems}
+        selectedId={project.entrypoint ? `record:${project.entrypoint.collection}:${project.entrypoint.id}` : null}
+        onSelect={(item) => {
+          if (!item.collection || !item.entityId) return;
+          setEntrypoint({ collection: item.collection, id: item.entityId });
+        }}
+        onOpenChange={setEntrypointSelectorOpen}
+      />
     </div>
   );
 }
