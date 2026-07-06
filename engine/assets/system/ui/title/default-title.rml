@@ -1,0 +1,21 @@
+<rml>
+<head>
+    <title>NovelTea Title</title>
+    <link type="text/rcss" href="system|/ui/title/default-title.rcss"/>
+</head>
+<body>
+    <main id="nt-title-root">
+        <section id="nt-title-panel">
+            <p id="nt-title-kicker">NovelTea</p>
+            <h1 id="nt-title-project">NovelTea</h1>
+            <p id="nt-title-subtitle"></p>
+            <nav id="nt-title-actions">
+                <button id="nt-title-start" onclick="Game.start()">Start</button>
+                <button id="nt-title-load" onclick="Game.open_load_menu()">Load</button>
+                <button id="nt-title-settings" onclick="Game.open_settings_menu()">Settings</button>
+            </nav>
+            <p id="nt-title-diagnostic"></p>
+        </section>
+    </main>
+</body>
+</rml>

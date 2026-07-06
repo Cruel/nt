@@ -19,3 +19,29 @@ Lua errors do not crash the engine. A failed chunk records the message, chunk/co
 Lua scripts can mutate save-backed global properties, entity property overrides, object locations, text log entries, notifications, timers, and save slots through explicit `Game`, entity, `Log`, `toast`, and `Timer` APIs. `Game.save(slot)`, `Game.load(slot)`, and `Game.autosave()` route through the active host and require a bound `SaveSlotStore`.
 
 Autosave currently writes the reserved autosave slot. Platform-specific persistence is intentionally outside the Lua layer and core runtime.
+
+## Runtime Command API
+
+RmlUi Layout event handlers and Layout script files should route player-visible actions through the
+dispatcher-backed `Game` command helpers:
+
+```lua
+Game.start()
+Game.pause()
+Game.resume()
+Game.open_load_menu()
+Game.open_settings_menu()
+Game.close_menu()
+Game.continue()
+Game.navigate(0)
+Game.choose(1)
+Game.select_object("lamp")
+Game.clear_selection()
+Game.run_action("look", { "lamp" })
+Game.command("runtime.navigate", { direction = 0 })
+```
+
+These helpers dispatch the same runtime commands used by shell/UI/test paths and return `true` when
+the dispatcher handled the command. `Game.start_room(id)`, `Game.start_dialogue(id)`,
+`Game.start_scene(id)`, and `Game.run_script(id)` are present but currently report clear
+not-implemented diagnostics until those runtime flows are wired.

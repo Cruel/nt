@@ -164,6 +164,34 @@ RuntimeCommandResult RuntimeCommandDispatcher::dispatch(RuntimeCommand command)
         result.handled = true;
         return finish(std::move(result));
     }
+    if (command.name == "menu.load") {
+        append_diagnostic(result, make_warning(command, "Load menu is not implemented yet"),
+                          {{"source", to_string(command.source)},
+                           {"domain", to_string(command.domain)},
+                           {"name", command.name},
+                           {"payload", command.payload}});
+        result.handled = true;
+        return finish(std::move(result));
+    }
+    if (command.name == "menu.settings") {
+        append_diagnostic(result, make_warning(command, "Settings menu is not implemented yet"),
+                          {{"source", to_string(command.source)},
+                           {"domain", to_string(command.domain)},
+                           {"name", command.name},
+                           {"payload", command.payload}});
+        result.handled = true;
+        return finish(std::move(result));
+    }
+    if (command.name == "runtime.start-room" || command.name == "runtime.start-dialogue" ||
+        command.name == "runtime.start-scene" || command.name == "runtime.run-script") {
+        append_diagnostic(result, make_warning(command, command.name + " is not implemented yet"),
+                          {{"source", to_string(command.source)},
+                           {"domain", to_string(command.domain)},
+                           {"name", command.name},
+                           {"payload", command.payload}});
+        result.handled = true;
+        return finish(std::move(result));
+    }
 
     core::RuntimeInput input;
     input.step_index = command.playback_step_index;
@@ -194,6 +222,7 @@ RuntimeCommandResult RuntimeCommandDispatcher::dispatch(RuntimeCommand command)
         input.type = core::RuntimeInputType::RunAction;
         if (const auto verb_id = string_payload(command.payload, "verb_id")) {
             input.verb_id = *verb_id;
+            input.object_ids = object_ids_payload(command.payload);
         } else {
             valid_gameplay_input = false;
         }

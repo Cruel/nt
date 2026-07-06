@@ -259,6 +259,29 @@ bool layout_script_enabled(const nlohmann::json& data)
     return script->value("enabled", true);
 }
 
+std::string json_string_or_empty(const nlohmann::json& object, std::string_view key)
+{
+    if (!object.is_object())
+        return {};
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_string())
+        return {};
+    return found->get<std::string>();
+}
+
+std::string title_start_label(const nlohmann::json& root)
+{
+    if (!root.is_object())
+        return {};
+    const auto settings = root.find("settings");
+    if (settings == root.end() || !settings->is_object())
+        return {};
+    const auto title_screen = settings->find("titleScreen");
+    if (title_screen == settings->end() || !title_screen->is_object())
+        return {};
+    return json_string_or_empty(*title_screen, "startLabel");
+}
+
 std::string layout_fragment_host_rml(std::string host_template, const std::string& fragment)
 {
     replace_all(host_template, "href=\"layout-fragment-host.rcss\"",
@@ -649,7 +672,11 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         return false;
     }
 
+    std::string project_title;
+    std::string start_label;
     auto load_document = [&](core::ProjectDocument document) {
+        project_title = json_string_or_empty(document.root(), core::project_ids::project_name);
+        start_label = title_start_label(document.root());
         assets::FontAssetConfig font_config;
         if (document.root().contains(core::project_ids::project_font_default) &&
             document.root()[core::project_ids::project_font_default].is_string()) {
@@ -752,6 +779,13 @@ bool Engine::load_runtime_project(const std::string& logical_path)
     m_runtime_ui.bind_runtime_host(m_runtime_shell.loaded() ? &m_runtime_shell.host() : nullptr);
     m_runtime_ui.bind_runtime_command_dispatcher(
         m_runtime_shell.loaded() ? &m_runtime_shell.dispatcher() : nullptr);
+    m_scripts.bind_runtime_command_dispatcher(
+        m_runtime_shell.loaded() ? &m_runtime_shell.dispatcher() : nullptr);
+    if (m_runtime_shell.loaded()) {
+        if (m_runtime_ui.load_title_document()) {
+            m_runtime_ui.bind_title_document(project_title, "", start_label);
+        }
+    }
     SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
     return true;
 }
@@ -876,9 +910,6 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
 
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     m_runtime_ui.resize(m_platform.surface());
-    const bool should_load_runtime_document = !run_config.preview_widget &&
-                                              run_config.runtime_ui_document.empty() &&
-                                              run_config.demo_mode == DemoMode::None;
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
                                  &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
@@ -902,9 +933,6 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
                 return false;
             }
         } else {
-            if (should_load_runtime_document) {
-                m_runtime_ui.load_runtime_document();
-            }
             m_runtime_ui.bind_tween_service(&m_tweens);
             runtime_ui_initialized = true;
         }
@@ -1286,6 +1314,14 @@ void Engine::process_runtime_result(core::RuntimeInputResult& result)
     }
 
     auto& runtime_host = m_runtime_shell.host();
+    if (m_runtime_shell.mode() == RuntimeShellMode::Game) {
+        m_runtime_ui.hide_document("runtime_title");
+        if (!m_runtime_ui.document("runtime_game")) {
+            m_runtime_ui.load_runtime_document();
+        } else {
+            m_runtime_ui.show_document("runtime_game");
+        }
+    }
     m_runtime_ui.apply_controller_commands(runtime_host.last_commands());
     bool has_script_request = false;
     for (const auto& output : result.outputs) {

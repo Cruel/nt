@@ -129,6 +129,7 @@ add_executable(noveltea_ui_tests
     ui/rmlui_event_disposition_tests.cpp
     ui/rmlui_file_interface_tests.cpp
     ui/rmlui_template_resolver_tests.cpp
+    ui/title_layout_asset_tests.cpp
 )
 target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

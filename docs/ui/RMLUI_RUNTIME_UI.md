@@ -50,9 +50,26 @@ The binder tolerates missing optional slots by logging a one-time warning per sl
 ordinary elements with the same IDs; the binder will populate them with the same safe
 fallback RML.
 
-## Event Attributes
+## Authored Event Handling
 
-UI actions must route through `RuntimeInput` attributes, not inline event handlers:
+Author-authored runtime Layouts should use ordinary RmlUi events and Lua handlers. Inline handlers
+may call `Game.*` directly for simple controls:
+
+```xml
+<button onclick="Game.start()">Start</button>
+<button onclick="Game.continue()">Continue</button>
+<button onclick="Game.navigate(0)">North</button>
+<button onclick="Game.run_action('look', { 'lamp' })">Look</button>
+```
+
+More complex Layouts should route through a namespaced Lua function in a script file, then call the
+same `Game.*` dispatcher-backed API from that function.
+
+## Temporary Built-In Gameplay Attributes
+
+The system fallback gameplay document and current custom component fallback output still emit a
+narrow set of `nt-*` attributes. These are temporary compatibility for built-in gameplay UI, not the
+preferred authoring API for project Layouts:
 
 | Attribute | Maps To | Value |
 |---|---|---|

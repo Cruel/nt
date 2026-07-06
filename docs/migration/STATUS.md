@@ -17,10 +17,15 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   explicit shell start path.
 - `RuntimeCommandDispatcher` is the shared semantic command path for UI/Lua/preview/playback-facing
   commands. It currently handles `game.start`, `game.pause`, `game.resume`, `menu.close`, gameplay
-  input commands, trace diagnostics, and unknown-command diagnostics.
-- `RuntimeUI` routes RmlUi `nt-command` clicks through the dispatcher. Existing gameplay attributes
-  (`nt-option`, `nt-nav`, `nt-continue`, `nt-object`, `nt-action`, `nt-clear-selection`) are preserved
-  by mapping them to semantic runtime commands.
+  input commands, Load/Settings placeholder diagnostics, trace diagnostics, and unknown-command
+  diagnostics.
+- RmlUi Layout activation uses ordinary Lua `onclick` handlers and dispatcher-backed `Game.*`
+  helpers. Existing built-in gameplay attributes (`nt-option`, `nt-nav`, `nt-continue`,
+  `nt-object`, `nt-action`, `nt-clear-selection`) are preserved only as temporary compatibility for
+  the current gameplay document/custom component output.
+- Built-in title Layout startup is implemented. Loading a runtime project mounts
+  `system:/ui/title/default-title.rml`, binds the project title and Start label fallback, and defers
+  loading `runtime_game` until `game.start`.
 - Runtime UI has C++-backed RmlUi components for ActiveText, MapView, and TextLog. ActiveText is
   rendered by the engine text/bgfx path after RmlUi layout provides bounds and input routing.
 - Runtime project/package export, playback specs, editor preview/tooling, typed assets, audio, shader
@@ -35,10 +40,11 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   [`../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md`](../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md):
   default/title Layout startup, menu overlays, pause UI, transitions, Layout-aware preview/playback,
   and command bridges from Lua/editor/test surfaces.
-- Runtime Layout export/manifest support is still incomplete. `settings.ui.defaultLayout` and
-  `settings.titleScreen` are authored settings but are not yet a complete runtime startup flow.
-- `NT.command(...)` is not wired yet. The C++ dispatcher API is ready; Lua binding needs a clean
-  script-runtime ownership pass.
+- Runtime Layout export/manifest support is still incomplete. `settings.ui.defaultLayout` is authored
+  but not consumed, and project-authored title/default Layout export is deferred.
+- Runtime entity start commands (`Game.start_room`, `Game.start_dialogue`, `Game.start_scene`, and
+  `Game.run_script`) currently dispatch but return clear not-implemented diagnostics until those
+  runtime flows are wired.
 - Save/load screens, platform-specific save persistence, and user-facing autosave feedback remain
   incomplete.
 - Lua-evaluated map visibility is deferred because `noveltea_core` must stay Lua-free; implement this
@@ -85,3 +91,15 @@ ctest --test-dir build/linux-debug --output-on-failure
 
 `format-check` currently reports unrelated formatting debt in `engine/src/render/bgfx/` and
 `tests/core/`. Keep touched C/C++ files clang-format clean even if the global target is not clean.
+
+Latest runtime title slice verification:
+
+```sh
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+ctest --test-dir build/linux-debug --output-on-failure
+./build/linux-debug/apps/sandbox/noveltea-sandbox --runtime-project project:/projects/runtime_phase9_package/game --frames 120 --no-imgui
+```
+
+`format-check` was rerun after formatting touched files and now fails only on the pre-existing
+unrelated files listed above.

@@ -6,6 +6,7 @@
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/script/script_runtime.hpp>
+#include <noveltea/runtime_shell.hpp>
 #include "script/lua/script_runtime_internal.hpp"
 
 #include <lua.hpp>
@@ -80,6 +81,26 @@ struct GameBindingsFixture {
     }
 
     ~GameBindingsFixture() { runtime.clear_game_bindings(); }
+};
+
+struct GameCommandBindingsFixture {
+    std::shared_ptr<assets::MemoryAssetSource> memory =
+        std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    script::ScriptRuntime runtime;
+    RuntimeShell shell;
+
+    GameCommandBindingsFixture()
+    {
+        assets.mount("project", memory);
+        auto initialized = runtime.initialize({&assets});
+        REQUIRE(initialized);
+        REQUIRE(shell.load_project(make_test_project()).success);
+        runtime.bind_runtime_host(&shell.host());
+        runtime.bind_runtime_command_dispatcher(&shell.dispatcher());
+    }
+
+    ~GameCommandBindingsFixture() { runtime.clear_game_bindings(); }
 };
 
 } // namespace
@@ -210,6 +231,74 @@ TEST_CASE("Game bindings: Game.load_script and ScriptEntity properties")
     REQUIRE(content);
     REQUIRE(content.value);
     CHECK(content.value->find("Hello") != std::string::npos);
+}
+
+TEST_CASE("Game bindings: dispatcher-backed shell commands route through RuntimeShell")
+{
+    GameCommandBindingsFixture f;
+
+    auto command_start = f.runtime.execute("started = Game.command('game.start')", "command_start");
+    REQUIRE(command_start);
+    CHECK(f.shell.mode() == RuntimeShellMode::Game);
+    auto started = f.runtime.evaluate_bool("started", "started");
+    REQUIRE(started);
+    CHECK(*started.value);
+
+    auto pause = f.runtime.execute("paused = Game.pause()", "pause");
+    REQUIRE(pause);
+    CHECK(f.shell.mode() == RuntimeShellMode::Paused);
+    auto paused = f.runtime.evaluate_bool("paused", "paused");
+    REQUIRE(paused);
+    CHECK(*paused.value);
+
+    auto resume = f.runtime.execute("resumed = Game.resume()", "resume");
+    REQUIRE(resume);
+    CHECK(f.shell.mode() == RuntimeShellMode::Game);
+    auto resumed = f.runtime.evaluate_bool("resumed", "resumed");
+    REQUIRE(resumed);
+    CHECK(*resumed.value);
+
+    auto menu = f.runtime.execute(R"(
+        load_ok = Game.open_load_menu()
+        settings_ok = Game.open_settings_menu()
+        close_ok = Game.close_menu()
+    )",
+                                  "menus");
+    REQUIRE(menu);
+    CHECK(*f.runtime.evaluate_bool("load_ok", "load_ok").value);
+    CHECK(*f.runtime.evaluate_bool("settings_ok", "settings_ok").value);
+    CHECK(*f.runtime.evaluate_bool("close_ok", "close_ok").value);
+}
+
+TEST_CASE("Game bindings: dispatcher-backed gameplay helpers build valid payloads")
+{
+    GameCommandBindingsFixture f;
+    REQUIRE(f.runtime.execute("Game.start()", "start"));
+
+    auto helpers = f.runtime.execute(R"(
+        continue_ok = Game.continue()
+        navigate_ok = Game.navigate(0)
+        choose_ok = Game.choose(0)
+        select_ok = Game.select_object("coin")
+        clear_ok = Game.clear_selection()
+        action_ok = Game.run_action("look", { "coin" })
+        room_ok = Game.start_room("foyer")
+        dialogue_ok = Game.start_dialogue("intro")
+        scene_ok = Game.start_scene("opening")
+        script_ok = Game.run_script("bootstrap")
+    )",
+                                     "helpers");
+    REQUIRE(helpers);
+    CHECK_FALSE(*f.runtime.evaluate_bool("continue_ok", "continue_ok").value);
+    CHECK(*f.runtime.evaluate_bool("navigate_ok", "navigate_ok").value);
+    CHECK_FALSE(*f.runtime.evaluate_bool("choose_ok", "choose_ok").value);
+    CHECK_FALSE(*f.runtime.evaluate_bool("select_ok", "select_ok").value);
+    CHECK(*f.runtime.evaluate_bool("clear_ok", "clear_ok").value);
+    CHECK_FALSE(*f.runtime.evaluate_bool("action_ok", "action_ok").value);
+    CHECK(*f.runtime.evaluate_bool("room_ok", "room_ok").value);
+    CHECK(*f.runtime.evaluate_bool("dialogue_ok", "dialogue_ok").value);
+    CHECK(*f.runtime.evaluate_bool("scene_ok", "scene_ok").value);
+    CHECK(*f.runtime.evaluate_bool("script_ok", "script_ok").value);
 }
 
 TEST_CASE("Game bindings: Script.rand and Script.seed produce deterministic sequence")

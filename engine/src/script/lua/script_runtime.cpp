@@ -290,6 +290,13 @@ void ScriptRuntime::bind_runtime_host(core::RuntimeSessionHost* host)
     ::noveltea::script::bind_audio_runtime_host(m_impl->lua.lua_state(), host);
 }
 
+void ScriptRuntime::bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher)
+{
+    if (!is_initialized())
+        return;
+    noveltea::script::bind_runtime_command_dispatcher(m_impl->lua.lua_state(), dispatcher);
+}
+
 void ScriptRuntime::bind_audio(AudioSystem* audio)
 {
     if (!is_initialized())

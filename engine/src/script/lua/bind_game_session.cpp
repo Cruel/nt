@@ -4,6 +4,7 @@
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/core/project_model.hpp>
 #include <noveltea/core/runtime_session_host.hpp>
+#include <noveltea/runtime_command.hpp>
 
 #include <SDL3/SDL_log.h>
 
@@ -26,6 +27,7 @@ namespace {
 struct ScriptBridge {
     core::GameSession* session = nullptr;
     core::RuntimeSessionHost* host = nullptr;
+    RuntimeCommandDispatcher* dispatcher = nullptr;
     std::mt19937_64 rng;
     std::uniform_real_distribution<double> dist; // [0, 1)
 };
@@ -322,6 +324,23 @@ struct ScriptEntityLua {
 struct GameBinding {
     core::GameSession* session = nullptr;
     core::RuntimeSessionHost* host = nullptr;
+    RuntimeCommandDispatcher* dispatcher = nullptr;
+
+    bool dispatch(std::string name, nlohmann::json payload = nlohmann::json::object()) const
+    {
+        if (!dispatcher) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "[lua] Game.command(%s) ignored: runtime dispatcher is not bound",
+                        name.c_str());
+            return false;
+        }
+        RuntimeCommand command;
+        command.source = RuntimeCommandSource::LayoutLua;
+        command.domain = domain_from_command_name(name);
+        command.name = std::move(name);
+        command.payload = std::move(payload);
+        return dispatcher->dispatch(std::move(command)).handled;
+    }
 
     sol::object get_room(sol::this_state L) const
     {
@@ -470,6 +489,63 @@ struct GameBinding {
         if (session) {
             session->clear_object_location(object_id);
         }
+    }
+
+    bool command(std::string name, sol::optional<sol::object> payload) const
+    {
+        return dispatch(std::move(name),
+                        payload ? sol_to_json(*payload) : nlohmann::json::object());
+    }
+
+    bool start() const { return dispatch("game.start"); }
+    bool pause() const { return dispatch("game.pause"); }
+    bool resume() const { return dispatch("game.resume"); }
+    bool open_load_menu() const { return dispatch("menu.load"); }
+    bool open_settings_menu() const { return dispatch("menu.settings"); }
+    bool close_menu() const { return dispatch("menu.close"); }
+    bool continue_game() const { return dispatch("runtime.continue"); }
+
+    bool navigate(int direction) const
+    {
+        return dispatch("runtime.navigate", {{"direction", direction}});
+    }
+
+    bool choose(int index) const { return dispatch("runtime.dialogue-option", {{"index", index}}); }
+
+    bool select_object(std::string object_id) const
+    {
+        return dispatch("runtime.select-object", {{"object_id", std::move(object_id)}});
+    }
+
+    bool clear_selection() const { return dispatch("runtime.clear-selection"); }
+
+    bool run_action(std::string verb_id, sol::optional<sol::object> object_ids) const
+    {
+        nlohmann::json payload = {{"verb_id", std::move(verb_id)}};
+        if (object_ids) {
+            payload["object_ids"] = sol_to_json(*object_ids);
+        }
+        return dispatch("runtime.run-action", std::move(payload));
+    }
+
+    bool start_room(std::string room_id) const
+    {
+        return dispatch("runtime.start-room", {{"room_id", std::move(room_id)}});
+    }
+
+    bool start_dialogue(std::string dialogue_id) const
+    {
+        return dispatch("runtime.start-dialogue", {{"dialogue_id", std::move(dialogue_id)}});
+    }
+
+    bool start_scene(std::string scene_id) const
+    {
+        return dispatch("runtime.start-scene", {{"scene_id", std::move(scene_id)}});
+    }
+
+    bool run_script(std::string script_id) const
+    {
+        return dispatch("runtime.run-script", {{"script_id", std::move(script_id)}});
     }
 };
 
@@ -650,11 +726,48 @@ struct SaveBinding {
 // -------------------------------------------------------------------
 // Builder for Game table
 // -------------------------------------------------------------------
-void build_game_table(lua_State* L, core::GameSession* session, core::RuntimeSessionHost* host)
+void build_game_table(lua_State* L, core::GameSession* session, core::RuntimeSessionHost* host,
+                      RuntimeCommandDispatcher* dispatcher)
 {
     sol::state_view lua(L);
-    GameBinding binding{session, host};
+    GameBinding binding{session, host, dispatcher};
     sol::table game = lua.create_table();
+
+    game.set_function("command",
+                      [binding](std::string name, sol::optional<sol::object> payload) mutable {
+                          return binding.command(std::move(name), payload);
+                      });
+    game.set_function("start", [binding]() mutable { return binding.start(); });
+    game.set_function("pause", [binding]() mutable { return binding.pause(); });
+    game.set_function("resume", [binding]() mutable { return binding.resume(); });
+    game.set_function("open_load_menu", [binding]() mutable { return binding.open_load_menu(); });
+    game.set_function("open_settings_menu",
+                      [binding]() mutable { return binding.open_settings_menu(); });
+    game.set_function("close_menu", [binding]() mutable { return binding.close_menu(); });
+    game.set_function("continue", [binding]() mutable { return binding.continue_game(); });
+    game.set_function("navigate",
+                      [binding](int direction) mutable { return binding.navigate(direction); });
+    game.set_function("choose", [binding](int index) mutable { return binding.choose(index); });
+    game.set_function("select_object", [binding](std::string object_id) mutable {
+        return binding.select_object(std::move(object_id));
+    });
+    game.set_function("clear_selection", [binding]() mutable { return binding.clear_selection(); });
+    game.set_function("run_action", [binding](std::string verb_id,
+                                              sol::optional<sol::object> object_ids) mutable {
+        return binding.run_action(std::move(verb_id), object_ids);
+    });
+    game.set_function("start_room", [binding](std::string room_id) mutable {
+        return binding.start_room(std::move(room_id));
+    });
+    game.set_function("start_dialogue", [binding](std::string dialogue_id) mutable {
+        return binding.start_dialogue(std::move(dialogue_id));
+    });
+    game.set_function("start_scene", [binding](std::string scene_id) mutable {
+        return binding.start_scene(std::move(scene_id));
+    });
+    game.set_function("run_script", [binding](std::string script_id) mutable {
+        return binding.run_script(std::move(script_id));
+    });
 
     game.set_function("push_next", [binding](int type, std::string id) mutable {
         binding.push_next(type, std::move(id));
@@ -870,7 +983,7 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
     }
 
     // Recreate global tables each bind — captures current session pointer
-    build_game_table(L, session, nullptr);
+    build_game_table(L, session, nullptr, bridge->dispatcher);
     build_script_table(L);
     build_log_table(L, session);
     build_timer_table(L, session);
@@ -907,7 +1020,20 @@ void bind_runtime_host(lua_State* L, noveltea::core::RuntimeSessionHost* host)
     if (bridge) {
         bridge->host = host;
     }
-    build_game_table(L, host ? &host->session() : nullptr, host);
+    build_game_table(L, host ? &host->session() : nullptr, host,
+                     bridge ? bridge->dispatcher : nullptr);
+}
+
+void bind_runtime_command_dispatcher(lua_State* L, noveltea::RuntimeCommandDispatcher* dispatcher)
+{
+    sol::state_view lua(L);
+    auto* bridge = lua.registry().get<ScriptBridge*>(kBridgeKey);
+    if (!bridge) {
+        bridge = new ScriptBridge();
+        lua.registry().set(kBridgeKey, bridge);
+    }
+    bridge->dispatcher = dispatcher;
+    build_game_table(L, bridge->session, bridge->host, dispatcher);
 }
 
 // -------------------------------------------------------------------
@@ -920,6 +1046,7 @@ void clear_game_bindings(lua_State* L)
     if (bridge) {
         bridge->session = nullptr;
         bridge->host = nullptr;
+        bridge->dispatcher = nullptr;
     }
 
     lua["Game"] = sol::lua_nil;

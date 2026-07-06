@@ -46,6 +46,9 @@ namespace {
 constexpr const char* kRuntimeUiFontAsset = "project:/rmlui/LiberationSans.ttf";
 constexpr const char* kRuntimeUiSystemFontAsset = "system:/fonts/LiberationSans.ttf";
 constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
+constexpr const char* kRuntimeTitleDocumentId = "runtime_title";
+constexpr const char* kRuntimeGameDocumentId = "runtime_game";
+constexpr const char* kRuntimeTitleDocumentAsset = "system:/ui/title/default-title.rml";
 constexpr float kActiveTextRevealGlyphsPerSecond = 32.0f;
 
 void validate_visual_asset(const assets::AssetManager& assets, core::RuntimeUIViewState& state,
@@ -99,6 +102,11 @@ Rml::Element* find_ancestor_tag(Rml::Element* element, const char* tag)
         }
     }
     return nullptr;
+}
+
+std::string stable_label(std::string value, std::string fallback)
+{
+    return value.empty() ? std::move(fallback) : std::move(value);
 }
 
 Rect content_rect(Rml::Element& element)
@@ -167,6 +175,9 @@ struct RuntimeUI::State {
     void refresh_runtime_document();
     void refresh_active_text_layout();
     void load_runtime_document();
+    void add_runtime_input_listener(Rml::ElementDocument& doc);
+    void show_game_document();
+    void show_title_diagnostic(const std::vector<core::RuntimeDiagnostic>& diagnostics);
     struct RuntimeInputListener final : Rml::EventListener {
         explicit RuntimeInputListener(State& owner_state) : owner(owner_state) {}
         void ProcessEvent(Rml::Event& event) override;
@@ -232,14 +243,57 @@ void RuntimeUI::State::load_runtime_document()
         return;
     }
     runtime_document_path = path;
-    documents["runtime_game"] = doc;
+    documents[kRuntimeGameDocumentId] = doc;
     doc->Hide();
+    add_runtime_input_listener(*doc);
     std::printf("[runtime_ui] loaded runtime document: %s\n", path.c_str());
+}
+
+void RuntimeUI::State::add_runtime_input_listener(Rml::ElementDocument& doc)
+{
+    if (!runtime_input_listener) {
+        runtime_input_listener = std::make_unique<RuntimeInputListener>(*this);
+    }
+    doc.AddEventListener("click", runtime_input_listener.get());
+}
+
+void RuntimeUI::State::show_game_document()
+{
+    if (auto title = documents.find(kRuntimeTitleDocumentId); title != documents.end()) {
+        title->second->Hide();
+    }
+    auto game = documents.find(kRuntimeGameDocumentId);
+    if (game == documents.end()) {
+        load_runtime_document();
+        game = documents.find(kRuntimeGameDocumentId);
+    }
+    if (game != documents.end()) {
+        game->second->Show();
+        refresh_runtime_document();
+    }
+}
+
+void RuntimeUI::State::show_title_diagnostic(
+    const std::vector<core::RuntimeDiagnostic>& diagnostics)
+{
+    auto title = documents.find(kRuntimeTitleDocumentId);
+    if (title == documents.end())
+        return;
+    auto* element = title->second->GetElementById("nt-title-diagnostic");
+    if (!element)
+        return;
+    for (auto it = diagnostics.rbegin(); it != diagnostics.rend(); ++it) {
+        if (it->severity == core::RuntimeDiagnosticSeverity::Warning ||
+            it->severity == core::RuntimeDiagnosticSeverity::Error) {
+            element->SetInnerRML(ui::rmlui::escape_rml(it->message));
+            return;
+        }
+    }
 }
 
 void RuntimeUI::State::refresh_runtime_document()
 {
-    auto doc_it = documents.find("runtime_game");
+    auto doc_it = documents.find(kRuntimeGameDocumentId);
     auto* doc = doc_it == documents.end() ? nullptr : doc_it->second;
     if (!doc || !document_binder)
         return;
@@ -260,7 +314,7 @@ void RuntimeUI::State::refresh_runtime_document()
 
 void RuntimeUI::State::refresh_active_text_layout()
 {
-    auto doc_it = documents.find("runtime_game");
+    auto doc_it = documents.find(kRuntimeGameDocumentId);
     auto* doc = doc_it == documents.end() ? nullptr : doc_it->second;
     if (!doc) {
         active_text_layout = {};
@@ -327,7 +381,12 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
         return;
 
     auto submit = [this](RuntimeCommand command) {
+        const std::string command_name = command.name;
         auto result = owner.runtime_command_dispatcher->dispatch(std::move(command));
+        if (result.handled && command_name == "game.start") {
+            owner.show_game_document();
+        }
+        owner.show_title_diagnostic(result.diagnostics);
         owner.runtime_view.apply(owner.runtime_host->last_commands());
         if (!result.outputs.empty() || result.handled || !result.diagnostics.empty()) {
             owner.refresh_runtime_document();
@@ -344,25 +403,6 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
     };
 
     auto attribute_command = [&]() -> std::optional<RuntimeCommand> {
-        if (target->HasAttribute("nt-command")) {
-            const auto name = target->GetAttribute<Rml::String>("nt-command", "");
-            if (!name.empty()) {
-                nlohmann::json payload = nlohmann::json::object();
-                if (target->HasAttribute("nt-option")) {
-                    payload["index"] = target->GetAttribute<int>("nt-option", -1);
-                }
-                if (target->HasAttribute("nt-nav")) {
-                    payload["direction"] = target->GetAttribute<int>("nt-nav", -1);
-                }
-                if (target->HasAttribute("nt-object")) {
-                    payload["object_id"] = target->GetAttribute<Rml::String>("nt-object", "");
-                }
-                if (target->HasAttribute("nt-action")) {
-                    payload["verb_id"] = target->GetAttribute<Rml::String>("nt-action", "");
-                }
-                return make_command(name, std::move(payload));
-            }
-        }
         if (target->HasAttribute("nt-option")) {
             const int index = target->GetAttribute<int>("nt-option", -1);
             if (index >= 0) {
@@ -756,7 +796,8 @@ bool RuntimeUI::unload_document(const std::string& id)
     if (it == m_state->documents.end())
         return false;
 
-    if (id == "runtime_game" && m_state->runtime_input_listener) {
+    if ((id == kRuntimeGameDocumentId || id == kRuntimeTitleDocumentId) &&
+        m_state->runtime_input_listener) {
         it->second->RemoveEventListener("click", m_state->runtime_input_listener.get());
     }
 
@@ -795,13 +836,48 @@ bool RuntimeUI::hide_document(const std::string& id)
     return false;
 }
 
+bool RuntimeUI::load_title_document()
+{
+    if (!m_state || !m_state->context)
+        return false;
+    unload_document(kRuntimeTitleDocumentId);
+    Rml::ElementDocument* doc = m_state->context->LoadDocument(kRuntimeTitleDocumentAsset);
+    if (!doc) {
+        std::fprintf(stderr, "[runtime_ui] failed to load title document: %s\n",
+                     kRuntimeTitleDocumentAsset);
+        return false;
+    }
+    m_state->documents[kRuntimeTitleDocumentId] = doc;
+    m_state->add_runtime_input_listener(*doc);
+    doc->Show();
+    std::printf("[runtime_ui] loaded title document: %s\n", kRuntimeTitleDocumentAsset);
+    return true;
+}
+
+void RuntimeUI::bind_title_document(const std::string& project_title, const std::string& subtitle,
+                                    const std::string& start_label)
+{
+    auto* doc = static_cast<Rml::ElementDocument*>(document(kRuntimeTitleDocumentId));
+    if (!doc)
+        return;
+    if (auto* title = doc->GetElementById("nt-title-project")) {
+        title->SetInnerRML(ui::rmlui::escape_rml(stable_label(project_title, "NovelTea")));
+    }
+    if (auto* subtitle_el = doc->GetElementById("nt-title-subtitle")) {
+        subtitle_el->SetInnerRML(ui::rmlui::escape_rml(subtitle));
+    }
+    if (auto* start = doc->GetElementById("nt-title-start")) {
+        start->SetInnerRML(ui::rmlui::escape_rml(stable_label(start_label, "Start")));
+    }
+}
+
 bool RuntimeUI::load_runtime_document()
 {
     if (!m_state || !m_state->context)
         return false;
-    unload_document("runtime_game");
+    unload_document(kRuntimeGameDocumentId);
     m_state->load_runtime_document();
-    if (auto* doc = static_cast<Rml::ElementDocument*>(document("runtime_game"))) {
+    if (auto* doc = static_cast<Rml::ElementDocument*>(document(kRuntimeGameDocumentId))) {
         doc->Show();
         return true;
     }
@@ -827,8 +903,10 @@ bool RuntimeUI::reload_documents_and_styles()
     if (!m_state || !m_state->context)
         return false;
 
+    const bool had_title_doc =
+        m_state->documents.find(kRuntimeTitleDocumentId) != m_state->documents.end();
     const bool had_runtime_doc =
-        m_state->documents.find("runtime_game") != m_state->documents.end();
+        m_state->documents.find(kRuntimeGameDocumentId) != m_state->documents.end();
     const bool had_demo_doc = m_state->demo_document != nullptr;
 
     m_state->runtime_input_listener.reset();
@@ -852,10 +930,13 @@ bool RuntimeUI::reload_documents_and_styles()
 
     if (had_runtime_doc) {
         m_state->load_runtime_document();
-        show_document("runtime_game");
+        show_document(kRuntimeGameDocumentId);
         if (m_state->runtime_host) {
             bind_runtime_host(m_state->runtime_host);
         }
+    }
+    if (had_title_doc) {
+        ok = load_title_document() && ok;
     }
 
     return ok;
@@ -906,13 +987,6 @@ void RuntimeUI::bind_runtime_host(core::RuntimeSessionHost* host)
     m_state->runtime_host = host;
     if (!host)
         return;
-    auto* doc = static_cast<Rml::ElementDocument*>(document("runtime_game"));
-    if (!doc)
-        return;
-    if (!m_state->runtime_input_listener) {
-        m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
-        doc->AddEventListener("click", m_state->runtime_input_listener.get());
-    }
 }
 
 void RuntimeUI::bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher)

@@ -4,6 +4,7 @@ struct lua_State;
 
 namespace noveltea {
 class AudioSystem;
+class RuntimeCommandDispatcher;
 namespace core {
 class GameSession;
 class RuntimeSessionHost;
@@ -33,6 +34,8 @@ namespace noveltea::script {
 
 void bind_game_session(lua_State* state, noveltea::core::GameSession* session);
 void bind_runtime_host(lua_State* state, noveltea::core::RuntimeSessionHost* host);
+void bind_runtime_command_dispatcher(lua_State* state,
+                                     noveltea::RuntimeCommandDispatcher* dispatcher);
 void clear_game_bindings(lua_State* state);
 
 } // namespace noveltea::script

@@ -54,6 +54,9 @@ public:
     bool unload_document(const std::string& id);
     bool show_document(const std::string& id);
     bool hide_document(const std::string& id);
+    bool load_title_document();
+    void bind_title_document(const std::string& project_title, const std::string& subtitle = "",
+                             const std::string& start_label = "Start");
     bool load_runtime_document();
     void* document(const std::string& id) const;
     void* element(const std::string& document_id, const std::string& element_id) const;

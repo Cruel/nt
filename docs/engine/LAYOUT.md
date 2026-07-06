@@ -253,7 +253,10 @@ Shader/material metadata can be exported independently and may support layout ma
 
 ## Scripting Status
 
-Layouts can carry Lua source as inline text or an asset reference. The sample default Lua script demonstrates an RmlUi button click handler.
+Layouts can carry Lua source as inline text or an asset reference. Runtime interaction should use
+ordinary RmlUi events such as `onclick` and Lua handlers that call dispatcher-backed `Game.*`
+methods, for example `onclick="Game.start()"` or a namespaced handler that calls
+`Game.navigate(direction)`.
 
 Lua is the only runtime scripting target. Layout script execution is controlled by `script.enabled`, and namespace metadata is available for future runtime binding discipline.
 

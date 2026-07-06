@@ -212,6 +212,24 @@ TEST_CASE("RuntimeCommandDispatcher reports unknown command diagnostics")
     CHECK(has_diagnostic_containing(result.diagnostics, "unknown runtime command: menu.nope"));
 }
 
+TEST_CASE("RuntimeCommandDispatcher handles title placeholder menu commands")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+
+    auto load = shell.dispatcher().dispatch(command("menu.load"));
+    CHECK(load.handled);
+    CHECK(has_output(load.outputs, RuntimeOutputType::Diagnostic));
+    CHECK(has_diagnostic_containing(load.diagnostics, "Load menu is not implemented yet"));
+    CHECK(shell.mode() == RuntimeShellMode::Title);
+
+    auto settings = shell.dispatcher().dispatch(command("menu.settings"));
+    CHECK(settings.handled);
+    CHECK(has_output(settings.outputs, RuntimeOutputType::Diagnostic));
+    CHECK(has_diagnostic_containing(settings.diagnostics, "Settings menu is not implemented yet"));
+    CHECK(shell.mode() == RuntimeShellMode::Title);
+}
+
 TEST_CASE("RuntimeCommandDispatcher routes gameplay commands through session host")
 {
     RuntimeShell shell;
@@ -227,4 +245,32 @@ TEST_CASE("RuntimeCommandDispatcher routes gameplay commands through session hos
     CHECK(tick.handled);
     CHECK(shell.host().current_mode_name() == std::string_view("room"));
     CHECK(shell.host().view_state().title == "Kitchen");
+}
+
+TEST_CASE("RuntimeCommandDispatcher reports stubbed entity start command diagnostics")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+
+    auto room = shell.dispatcher().dispatch(command("runtime.start-room", {{"room_id", "foyer"}}));
+    CHECK(room.handled);
+    CHECK(has_diagnostic_containing(room.diagnostics, "runtime.start-room is not implemented yet"));
+
+    auto dialogue =
+        shell.dispatcher().dispatch(command("runtime.start-dialogue", {{"dialogue_id", "intro"}}));
+    CHECK(dialogue.handled);
+    CHECK(has_diagnostic_containing(dialogue.diagnostics,
+                                    "runtime.start-dialogue is not implemented yet"));
+
+    auto scene =
+        shell.dispatcher().dispatch(command("runtime.start-scene", {{"scene_id", "opening"}}));
+    CHECK(scene.handled);
+    CHECK(
+        has_diagnostic_containing(scene.diagnostics, "runtime.start-scene is not implemented yet"));
+
+    auto script =
+        shell.dispatcher().dispatch(command("runtime.run-script", {{"script_id", "bootstrap"}}));
+    CHECK(script.handled);
+    CHECK(
+        has_diagnostic_containing(script.diagnostics, "runtime.run-script is not implemented yet"));
 }
