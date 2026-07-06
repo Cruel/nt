@@ -40,6 +40,7 @@ core::GameSessionLoadResult RuntimeShell::load_project(core::ProjectDocument pro
 void RuntimeShell::reset()
 {
     m_layouts.reset();
+    m_transitions.reset();
     m_host.reset();
     m_dispatcher.bind(this);
     m_pause_tokens.clear();
@@ -114,19 +115,43 @@ core::RuntimeInputResult RuntimeShell::start_game()
     m_last_diagnostics = result.diagnostics;
     if (result.handled) {
         m_mode = RuntimeShellMode::Game;
-        (void)m_layouts.unmount_layer(RuntimeLayoutLayer::Title);
         if (!m_layouts.find_document("runtime_game")) {
             (void)mount_gameplay_layout();
         } else if (const auto* mounted = m_layouts.find_document("runtime_game");
                    mounted && !mounted->visible) {
             (void)m_layouts.show(mounted->instance_id);
         }
+        RuntimeTransitionRequest transition;
+        transition.kind = RuntimeTransitionKind::BlackFade;
+        transition.duration_seconds = 1.0;
+        transition.label = "title-to-game";
+        transition.on_midpoint = [this] {
+            (void)m_layouts.unmount_layer(RuntimeLayoutLayer::Title);
+        };
+        m_transitions.start(std::move(transition));
+    }
+    return result;
+}
+
+core::RuntimeInputResult RuntimeShell::start_room(std::string room_id,
+                                                  std::optional<std::uint64_t> playback_step_index)
+{
+    auto result = m_host.start_room(std::move(room_id), playback_step_index);
+    m_last_diagnostics = result.diagnostics;
+    if (result.handled) {
+        RuntimeTransitionRequest transition;
+        transition.kind = RuntimeTransitionKind::BlackFade;
+        transition.duration_seconds = 1.0;
+        transition.label = "room-to-room";
+        m_transitions.start(std::move(transition));
     }
     return result;
 }
 
 core::RuntimeInputResult RuntimeShell::update(double delta_seconds)
 {
+    m_transitions.update(delta_seconds);
+
     if (m_mode != RuntimeShellMode::Game || paused() || m_layouts.pauses_gameplay() ||
         !m_host.loaded()) {
         return {};

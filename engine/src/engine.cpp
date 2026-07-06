@@ -1393,6 +1393,10 @@ void Engine::render()
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
+    const float transition_opacity = m_runtime_shell.transitions().black_opacity();
+    if (transition_opacity > 0.0f) {
+        m_renderer.draw_fullscreen_color(Color{0.0f, 0.0f, 0.0f, transition_opacity});
+    }
     if (m_debug_ui_enabled) {
         m_debug_ui.end_frame();
     }

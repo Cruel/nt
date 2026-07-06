@@ -254,8 +254,7 @@ RuntimeCommandResult RuntimeCommandDispatcher::dispatch(RuntimeCommand command)
                  {"payload", command.payload}});
             return finish(std::move(result));
         }
-        append_input_result(result,
-                            m_shell->host().start_room(*room_id, command.playback_step_index));
+        append_input_result(result, m_shell->start_room(*room_id, command.playback_step_index));
         return finish(std::move(result));
     }
     if (command.name == "runtime.run-script") {

@@ -1,5 +1,7 @@
 #include <noveltea/runtime_shell.hpp>
+#include <noveltea/runtime_transition_manager.hpp>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
@@ -149,6 +151,59 @@ TEST_CASE("RuntimeShell starts in boot mode")
     CHECK_FALSE(shell.paused());
 }
 
+TEST_CASE("RuntimeTransitionManager cut completes immediately")
+{
+    RuntimeTransitionManager transitions;
+    int midpoint_count = 0;
+
+    transitions.start(RuntimeTransitionRequest{
+        .kind = RuntimeTransitionKind::Cut,
+        .duration_seconds = 1.0,
+        .label = "test-cut",
+        .on_midpoint = [&] { ++midpoint_count; },
+    });
+
+    CHECK_FALSE(transitions.active());
+    CHECK(transitions.opacity() == Catch::Approx(0.0f));
+    CHECK(transitions.state().midpoint_reached);
+    CHECK(midpoint_count == 1);
+}
+
+TEST_CASE("RuntimeTransitionManager black fade progresses deterministically")
+{
+    RuntimeTransitionManager transitions;
+    transitions.set_timed_transitions_enabled(true);
+    int midpoint_count = 0;
+
+    transitions.start(RuntimeTransitionRequest{
+        .kind = RuntimeTransitionKind::BlackFade,
+        .duration_seconds = 1.0,
+        .label = "test-fade",
+        .on_midpoint = [&] { ++midpoint_count; },
+    });
+
+    REQUIRE(transitions.active());
+    transitions.update(0.25);
+    CHECK(transitions.active());
+    CHECK(transitions.opacity() == Catch::Approx(0.5f));
+    CHECK(midpoint_count == 0);
+
+    transitions.update(0.25);
+    CHECK(transitions.active());
+    CHECK(transitions.opacity() == Catch::Approx(1.0f));
+    CHECK(transitions.state().phase == RuntimeTransitionPhase::FadeIn);
+    CHECK(midpoint_count == 1);
+
+    transitions.update(0.25);
+    CHECK(transitions.active());
+    CHECK(transitions.opacity() == Catch::Approx(0.5f));
+
+    transitions.update(0.25);
+    CHECK_FALSE(transitions.active());
+    CHECK(transitions.opacity() == Catch::Approx(0.0f));
+    CHECK(midpoint_count == 1);
+}
+
 TEST_CASE("RuntimeShell loads project into title without ticking gameplay")
 {
     RuntimeShell shell;
@@ -182,6 +237,40 @@ TEST_CASE("RuntimeShell start_game drains the loaded room entrypoint")
     CHECK(shell.host().view_state().body == "A quiet foyer.");
     CHECK(has_output(result.outputs, RuntimeOutputType::ModeChanged));
     CHECK(has_output(result.outputs, RuntimeOutputType::ViewUpdated));
+    CHECK_FALSE(shell.transitions().active());
+    CHECK(shell.transitions().state().label == "title-to-game");
+}
+
+TEST_CASE("RuntimeShell timed title-to-game transition does not restart gameplay")
+{
+    RuntimeShell shell;
+    shell.transitions().set_timed_transitions_enabled(true);
+    REQUIRE(shell.load_project(make_room_project()).success);
+
+    auto result = shell.start_game();
+
+    REQUIRE(result.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().title == "Foyer");
+    REQUIRE(shell.transitions().active());
+    CHECK(shell.transitions().state().label == "title-to-game");
+
+    const auto body = shell.host().view_state().body;
+    auto update = shell.update(0.25);
+
+    CHECK(update.handled);
+    CHECK(shell.transitions().active());
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().title == "Foyer");
+    CHECK(shell.host().view_state().body == body);
+
+    (void)shell.update(0.25);
+    CHECK(shell.transitions().state().midpoint_reached);
+    (void)shell.update(0.5);
+    CHECK_FALSE(shell.transitions().active());
+    CHECK(shell.host().view_state().title == "Foyer");
+    CHECK(shell.host().view_state().body == body);
 }
 
 TEST_CASE("RuntimeShell start_game launches a script entrypoint request")
@@ -404,6 +493,45 @@ TEST_CASE("RuntimeCommandDispatcher routes gameplay commands through session hos
     auto tick = shell.update(0.0);
     CHECK(tick.handled);
     CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().title == "Kitchen");
+}
+
+TEST_CASE("RuntimeCommandDispatcher starts room through shell transition path")
+{
+    RuntimeShell shell;
+    shell.transitions().set_timed_transitions_enabled(true);
+    REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.dispatcher().dispatch(command("game.start")).handled);
+    shell.transitions().complete_immediately();
+
+    auto result =
+        shell.dispatcher().dispatch(command("runtime.start-room", {{"room_id", "kitchen"}}));
+
+    CHECK(result.handled);
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().title == "Kitchen");
+    REQUIRE(shell.transitions().active());
+    CHECK(shell.transitions().state().label == "room-to-room");
+}
+
+TEST_CASE("RuntimeShell updates transitions while gameplay is paused")
+{
+    RuntimeShell shell;
+    shell.transitions().set_timed_transitions_enabled(true);
+    REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.start_game().handled);
+    shell.transitions().complete_immediately();
+    REQUIRE(shell.start_room("kitchen").handled);
+
+    shell.pause();
+    CHECK(shell.mode() == RuntimeShellMode::Paused);
+    REQUIRE(shell.transitions().active());
+
+    auto result = shell.update(0.25);
+
+    CHECK_FALSE(result.handled);
+    CHECK(shell.transitions().active());
+    CHECK(shell.transitions().opacity() == Catch::Approx(0.5f));
     CHECK(shell.host().view_state().title == "Kitchen");
 }
 

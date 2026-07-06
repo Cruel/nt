@@ -83,6 +83,7 @@ add_library(engine STATIC
     src/runtime_command.cpp
     src/runtime_layout_manager.cpp
     src/runtime_shell.cpp
+    src/runtime_transition_manager.cpp
     src/surface.cpp
     src/text/text_asset_loader.cpp
     src/text/text_breaks.cpp

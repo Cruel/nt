@@ -6,10 +6,13 @@
 #include "noveltea/core/save_document.hpp"
 #include "noveltea/runtime_command.hpp"
 #include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/runtime_transition_manager.hpp"
 
-#include <vector>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace noveltea {
 
@@ -41,6 +44,11 @@ public:
     }
     [[nodiscard]] RuntimeLayoutManager& layouts() noexcept { return m_layouts; }
     [[nodiscard]] const RuntimeLayoutManager& layouts() const noexcept { return m_layouts; }
+    [[nodiscard]] RuntimeTransitionManager& transitions() noexcept { return m_transitions; }
+    [[nodiscard]] const RuntimeTransitionManager& transitions() const noexcept
+    {
+        return m_transitions;
+    }
     [[nodiscard]] const std::vector<core::RuntimeDiagnostic>& last_diagnostics() const noexcept
     {
         return m_last_diagnostics;
@@ -59,6 +67,9 @@ public:
     void pause();
     void resume();
     [[nodiscard]] core::RuntimeInputResult start_game();
+    [[nodiscard]] core::RuntimeInputResult
+    start_room(std::string room_id,
+               std::optional<std::uint64_t> playback_step_index = std::nullopt);
     [[nodiscard]] core::RuntimeInputResult update(double delta_seconds);
     [[nodiscard]] RuntimeCommandResult dispatch_command(RuntimeCommand command);
 
@@ -70,6 +81,7 @@ private:
     core::RuntimeSessionHost m_host;
     RuntimeCommandDispatcher m_dispatcher;
     RuntimeLayoutManager m_layouts;
+    RuntimeTransitionManager m_transitions;
     RuntimeShellMode m_mode = RuntimeShellMode::Boot;
     std::unordered_set<std::string> m_pause_tokens;
     std::vector<core::RuntimeDiagnostic> m_last_diagnostics;

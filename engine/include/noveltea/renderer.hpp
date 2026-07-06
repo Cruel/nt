@@ -56,6 +56,7 @@ public:
     void draw_demo_text(float time_seconds);
     void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
+    void draw_fullscreen_color(Color color);
     void set_shader_material_project(const ShaderMaterialProject* project);
     void set_shader_standard_inputs(const ShaderStandardInputs& inputs);
     FontHandle load_font(const FontDesc& desc);
