@@ -1,12 +1,18 @@
 #include <noveltea/runtime_shell.hpp>
 #include <noveltea/runtime_transition_manager.hpp>
+#include <noveltea/runtime_ui_playback.hpp>
+#include <noveltea/ui_runtime.hpp>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <noveltea/assets/asset_manager.hpp>
+#include <noveltea/assets/asset_source.hpp>
 #include <noveltea/core/project_ids.hpp>
+#include <noveltea/script/script_runtime.hpp>
 
+#include <memory>
 #include <string_view>
 #include <utility>
 
@@ -138,6 +144,41 @@ bool has_diagnostic_containing(const std::vector<RuntimeDiagnostic>& diagnostics
         }
     }
     return false;
+}
+
+std::shared_ptr<assets::MemoryAssetSource> make_ui_memory_source(std::string rcss)
+{
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    rcss = "body { font-family: Liberation Sans; } " + std::move(rcss);
+    assets::AssetBytes bytes(rcss.begin(), rcss.end());
+    source->add("project:/test.rcss", std::move(bytes));
+    return source;
+}
+
+struct HeadlessUiFixture {
+    explicit HeadlessUiFixture(std::string rcss)
+    {
+#ifdef NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT
+        assets.mount_directory("project", NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT);
+#endif
+        assets.mount("project", make_ui_memory_source(std::move(rcss)));
+#ifdef NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT
+        assets.mount_directory("system", NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT);
+#endif
+        REQUIRE(script_runtime.initialize(script::ScriptRuntimeConfig{.assets = &assets}));
+        REQUIRE(ui.initialize(&assets, nullptr, false, &script_runtime, nullptr, true));
+    }
+
+    assets::AssetManager assets;
+    script::ScriptRuntime script_runtime;
+    RuntimeUI ui;
+};
+
+std::string rml_with_body(std::string body)
+{
+    return "<rml><head><title>test</title><link type=\"text/rcss\" "
+           "href=\"project:/test.rcss\"/></head><body>" +
+           std::move(body) + "</body></rml>";
 }
 
 } // namespace
@@ -625,4 +666,105 @@ TEST_CASE("RuntimeCommandDispatcher accepts gameplay layout layer commands")
     CHECK_FALSE(invalid.handled);
     CHECK(has_diagnostic_containing(invalid.diagnostics,
                                     "layout.add-layer requires a non-empty layout_id"));
+}
+
+TEST_CASE("RuntimeUI playback click rejects hidden documents")
+{
+    HeadlessUiFixture fixture("#target { position: absolute; left: 10px; top: 10px; width: "
+                              "100px; height: 40px; }");
+    REQUIRE(fixture.ui.load_document_from_memory(
+        "doc", rml_with_body("<button id=\"target\" onclick=\"Game.start()\">Go</button>"),
+        "memory://test.rml", false));
+
+    auto result = fixture.ui.playback_click({.document_id = "doc", .selector = "#target"});
+    CHECK(result.status == RuntimeUiPlaybackClickStatus::DocumentHidden);
+    CHECK_FALSE(result.dispatched);
+}
+
+TEST_CASE("RuntimeUI playback click rejects disabled targets")
+{
+    HeadlessUiFixture fixture("#target { position: absolute; left: 10px; top: 10px; width: "
+                              "100px; height: 40px; }");
+    REQUIRE(fixture.ui.load_document_from_memory(
+        "doc", rml_with_body("<button id=\"target\" disabled onclick=\"Game.start()\">Go</button>"),
+        "memory://test.rml", true));
+    fixture.ui.begin_frame(0.0f);
+
+    auto result = fixture.ui.playback_click({.document_id = "doc", .selector = "#target"});
+    CHECK(result.status == RuntimeUiPlaybackClickStatus::TargetDisabled);
+    CHECK_FALSE(result.dispatched);
+}
+
+TEST_CASE("RuntimeUI playback click rejects blocked targets")
+{
+    HeadlessUiFixture fixture(
+        "#target, #blocker { position: absolute; left: 10px; top: 10px; width: 100px; "
+        "height: 40px; } #target { z-index: 1; } #blocker { z-index: 2; }");
+    REQUIRE(fixture.ui.load_document_from_memory(
+        "doc",
+        rml_with_body("<button id=\"target\" onclick=\"Game.start()\">Go</button><button "
+                      "id=\"blocker\" onclick=\"Game.start()\">Block</button>"),
+        "memory://test.rml", true));
+    fixture.ui.begin_frame(0.0f);
+
+    auto result = fixture.ui.playback_click({.document_id = "doc", .selector = "#target"});
+    CHECK(result.status == RuntimeUiPlaybackClickStatus::TargetBlocked);
+    CHECK_FALSE(result.dispatched);
+}
+
+TEST_CASE("RuntimeUiPlaybackSession clicks title Start through RmlUi Lua")
+{
+    RuntimeUiPlaybackSpec spec;
+    spec.id = "title-start";
+    spec.steps.push_back(RuntimeUiPlaybackStep{
+        .input = RuntimeUiPlaybackInputType::UiClick,
+        .document_id = "runtime_title",
+        .target = "#nt-title-start",
+    });
+
+    RuntimeUiPlaybackSession playback;
+    auto report = playback.run(make_room_project(), spec);
+
+    if (!report.diagnostics.empty()) {
+        INFO(report.diagnostics.front().message);
+    }
+    CHECK(report.passed);
+    CHECK(report.shell_mode == RuntimeShellMode::Game);
+    CHECK(report.final_view.mode == "room");
+    REQUIRE(report.final_current_room_id.has_value());
+    CHECK(*report.final_current_room_id == "foyer");
+
+    bool saw_click = false;
+    bool saw_lua_game_call = false;
+    bool saw_command = false;
+    bool saw_output = false;
+    for (const auto& trace : report.trace) {
+        saw_click = saw_click || trace.type == "ui-click";
+        saw_lua_game_call = saw_lua_game_call || trace.type == "lua-game-call";
+        saw_command = saw_command || trace.type == "runtime-command";
+        saw_output = saw_output || trace.type == "runtime-output";
+    }
+    CHECK(saw_click);
+    CHECK(saw_lua_game_call);
+    CHECK(saw_command);
+    CHECK(saw_output);
+}
+
+TEST_CASE("RuntimeUiPlaybackSession reports missing ui-click target")
+{
+    RuntimeUiPlaybackSpec spec;
+    spec.id = "missing-target";
+    spec.steps.push_back(RuntimeUiPlaybackStep{
+        .input = RuntimeUiPlaybackInputType::UiClick,
+        .document_id = "runtime_title",
+        .target = "#does-not-exist",
+    });
+
+    RuntimeUiPlaybackSession playback;
+    auto report = playback.run(make_room_project(), spec);
+
+    CHECK_FALSE(report.passed);
+    REQUIRE_FALSE(report.diagnostics.empty());
+    CHECK(report.diagnostics.front().category == "ui-playback");
+    CHECK(report.diagnostics.front().message.find("target not found") != std::string::npos);
 }

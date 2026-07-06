@@ -31,6 +31,10 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   helpers. Existing built-in gameplay attributes (`nt-option`, `nt-nav`, `nt-continue`,
   `nt-object`, `nt-action`, `nt-clear-selection`) are preserved only as temporary compatibility for
   the current gameplay document/custom component output.
+- Layout-aware runtime UI playback V0 is implemented in the engine layer. `RuntimeUiPlaybackSession`
+  can mount the shell title Layout, replay `ui-click` steps by stable selector, dispatch real RmlUi
+  click events into Layout Lua/`Game.*`, drain host/script/UI work, and report click, Lua command,
+  runtime command, and runtime output traces.
 - Built-in title Layout startup is implemented. Loading a runtime project mounts
   `system:/ui/title/default-title.rml` through the shell layout manager, binds the project title and
   Start label fallback, and defers loading `runtime_game` until `game.start`.
@@ -52,6 +56,8 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   [`../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md`](../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md):
   default/title Layout startup, menu overlays, pause UI, transitions, Layout-aware preview/playback,
   and command bridges from Lua/editor/test surfaces.
+- Preview recording remains incomplete. Runtime UI playback now provides the replay foundation, but
+  live preview still does not record user-visible `ui-click` steps.
 - Runtime Layout export/manifest support is still incomplete. The editor now authors named system
   Layout roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`,
   `settings-menu`, `modal`, and `debug-overlay`) with built-in fallbacks. Runtime export and
@@ -137,6 +143,20 @@ ctest --test-dir build/linux-debug --output-on-failure -R "RuntimeShell|Game bin
 cmake --preset web-debug
 cmake --build --preset web-debug
 ```
+
+Latest Phase 10 UI playback foundation verification:
+
+```sh
+cmake --build --preset linux-debug --target noveltea_runtime_shell_tests
+./build/linux-debug/tests/noveltea_runtime_shell_tests "RuntimeUI playback click*","RuntimeUiPlaybackSession*"
+ctest --test-dir build/linux-debug --output-on-failure -R "runtime_shell|ui"
+cmake --build --preset linux-debug --target format-check
+```
+
+The focused playback build/tests and filtered runtime/UI CTest pass. `format-check` still fails only
+on pre-existing unrelated formatting debt in `engine/src/render/bgfx/bgfx_typed_asset_loader.cpp`,
+`tests/core/editor_api_tests.cpp`, and `tests/core/project_document_tests.cpp`; touched files were
+formatted with clang-format.
 
 Latest Phase 8 script-entrypoint slice verification:
 

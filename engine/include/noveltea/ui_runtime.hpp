@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,40 @@ class ScriptRuntime;
 struct ShaderMaterialProject;
 class TweenService;
 
+enum class RuntimeUiPlaybackClickStatus {
+    Dispatched,
+    UiNotInitialized,
+    DocumentNotFound,
+    DocumentHidden,
+    TargetNotFound,
+    TargetHidden,
+    TargetEmptyBounds,
+    TargetDisabled,
+    TargetBlocked,
+    TargetNotInteractive,
+};
+
+struct RuntimeUiPlaybackClickRequest {
+    std::string document_id;
+    std::string selector;
+};
+
+struct RuntimeUiPlaybackClickResult {
+    RuntimeUiPlaybackClickStatus status = RuntimeUiPlaybackClickStatus::UiNotInitialized;
+    std::string message;
+    std::string document_id;
+    std::string selector;
+    std::string target_id;
+    std::string target_tag;
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    bool dispatched = false;
+};
+
+[[nodiscard]] const char* to_string(RuntimeUiPlaybackClickStatus status) noexcept;
+
 class RuntimeUI {
 public:
     RuntimeUI();
@@ -35,7 +70,8 @@ public:
 
     bool initialize(const assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr,
                     bool load_demo_document = true, script::ScriptRuntime* scripts = nullptr,
-                    const ShaderMaterialProject* shader_materials = nullptr);
+                    const ShaderMaterialProject* shader_materials = nullptr,
+                    bool headless_render = false);
     bool process_event(const SDL_Event& event);
     void resize(const SurfaceMetrics& surface);
     void begin_frame(float delta_time);
@@ -73,6 +109,8 @@ public:
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
                                       const std::string& event, std::function<void()> callback);
     bool remove_event_listener(std::uintptr_t listener_id);
+    [[nodiscard]] RuntimeUiPlaybackClickResult
+    playback_click(const RuntimeUiPlaybackClickRequest& request);
     void* create_data_model(const std::string& name);
     void* data_model(const std::string& name) const;
     bool remove_data_model(const std::string& name);

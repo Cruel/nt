@@ -11,6 +11,7 @@
 #include "text/text_engine.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -118,6 +119,98 @@ Rect content_rect(Rml::Element& element)
     return {offset.x, offset.y, size.x, size.y};
 }
 
+Rml::Element* resolve_playback_target(Rml::ElementDocument& doc, const std::string& selector)
+{
+    if (selector.empty()) {
+        return nullptr;
+    }
+    if (selector.front() == '#') {
+        return selector.size() > 1 ? doc.GetElementById(selector.substr(1)) : nullptr;
+    }
+
+    Rml::ElementList elements;
+    if (selector.front() == '.') {
+        if (selector.size() <= 1) {
+            return nullptr;
+        }
+        doc.GetElementsByClassName(elements, selector.substr(1));
+    } else {
+        doc.GetElementsByTagName(elements, selector);
+    }
+    return elements.empty() ? nullptr : elements.front();
+}
+
+bool has_disabled_ancestor(Rml::Element* element)
+{
+    for (auto* current = element; current; current = current->GetParentNode()) {
+        if (current->HasAttribute("disabled")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_descendant_or_self(Rml::Element* candidate, Rml::Element* ancestor)
+{
+    for (auto* current = candidate; current; current = current->GetParentNode()) {
+        if (current == ancestor) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void fill_target_metadata(RuntimeUiPlaybackClickResult& result, Rml::Element& target)
+{
+    result.target_id = target.GetId();
+    result.target_tag = target.GetTagName();
+    const Rml::Vector2f offset = target.GetAbsoluteOffset(Rml::BoxArea::Content);
+    const Rml::Vector2f size = target.GetBox().GetSize(Rml::BoxArea::Content);
+    result.x = offset.x + size.x * 0.5f;
+    result.y = offset.y + size.y * 0.5f;
+    result.width = size.x;
+    result.height = size.y;
+}
+
+RuntimeUiPlaybackClickResult make_click_result(RuntimeUiPlaybackClickStatus status,
+                                               const RuntimeUiPlaybackClickRequest& request,
+                                               std::string message)
+{
+    RuntimeUiPlaybackClickResult result;
+    result.status = status;
+    result.message = std::move(message);
+    result.document_id = request.document_id;
+    result.selector = request.selector;
+    return result;
+}
+
+class HeadlessRenderInterface final : public Rml::RenderInterface {
+public:
+    Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex>,
+                                                Rml::Span<const int>) override
+    {
+        return ++m_next_geometry;
+    }
+    void RenderGeometry(Rml::CompiledGeometryHandle, Rml::Vector2f, Rml::TextureHandle) override {}
+    void ReleaseGeometry(Rml::CompiledGeometryHandle) override {}
+    Rml::TextureHandle LoadTexture(Rml::Vector2i& texture_dimensions, const Rml::String&) override
+    {
+        texture_dimensions = {0, 0};
+        return 0;
+    }
+    Rml::TextureHandle GenerateTexture(Rml::Span<const Rml::byte>, Rml::Vector2i) override
+    {
+        return ++m_next_texture;
+    }
+    void ReleaseTexture(Rml::TextureHandle) override {}
+    void EnableScissorRegion(bool) override {}
+    void SetScissorRegion(Rml::Rectanglei) override {}
+
+private:
+    Rml::CompiledGeometryHandle m_next_geometry = 0;
+    Rml::TextureHandle m_next_texture = 0;
+};
+
 Color element_text_color(Rml::Element& element)
 {
     if (const auto* property = element.GetProperty(Rml::PropertyId::Color)) {
@@ -195,7 +288,7 @@ struct RuntimeUI::State {
     SDL_Window* window = nullptr;
     ui::rmlui::AssetRmlFileInterface* file_interface = nullptr;
     ui::rmlui::SdlSystemInterface* system_interface = nullptr;
-    ui::rmlui::BgfxRenderInterface* render_interface = nullptr;
+    Rml::RenderInterface* render_interface = nullptr;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiDocumentBinder* document_binder = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
@@ -512,7 +605,7 @@ void RuntimeUI::cleanup_state()
 
 bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window,
                            bool load_demo_document, script::ScriptRuntime* scripts,
-                           const ShaderMaterialProject* shader_materials)
+                           const ShaderMaterialProject* shader_materials, bool headless_render)
 {
     if (m_initialized)
         return true;
@@ -566,9 +659,15 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     script::install_host_print(script::detail::ScriptRuntimeAccess::state(*scripts));
 
     m_surface = sanitize_surface_metrics(m_surface);
-    m_state->render_interface =
-        new ui::rmlui::BgfxRenderInterface(m_surface, *assets, shader_materials);
-    if (!*m_state->render_interface) {
+    if (headless_render) {
+        m_state->render_interface = new HeadlessRenderInterface;
+    } else {
+        m_state->render_interface =
+            new ui::rmlui::BgfxRenderInterface(m_surface, *assets, shader_materials);
+    }
+    auto* bgfx_render_interface =
+        dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface);
+    if (bgfx_render_interface && !*bgfx_render_interface) {
         std::fprintf(stderr, "[runtime_ui] bgfx RmlUi renderer failed to initialize\n");
         cleanup_state();
         return false;
@@ -613,15 +712,21 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
 
 void RuntimeUI::enable_render_perf_logging(bool enabled)
 {
-    if (m_state && m_state->render_interface) {
-        m_state->render_interface->set_perf_logging_enabled(enabled);
+    if (m_state) {
+        if (auto* render =
+                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+            render->set_perf_logging_enabled(enabled);
+        }
     }
 }
 
 void RuntimeUI::set_rmlui_base_direct_compatibility(bool enabled)
 {
-    if (m_state && m_state->render_interface) {
-        m_state->render_interface->set_base_direct_compatibility(enabled);
+    if (m_state) {
+        if (auto* render =
+                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+            render->set_base_direct_compatibility(enabled);
+        }
     }
 }
 
@@ -643,8 +748,9 @@ void RuntimeUI::resize(const SurfaceMetrics& surface)
         m_state->context->SetDimensions(
             Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
         m_state->context->SetDensityIndependentPixelRatio(m_surface.scale_x);
-        if (m_state->render_interface) {
-            m_state->render_interface->resize(m_surface);
+        if (auto* render =
+                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+            render->resize(m_surface);
         }
     }
 }
@@ -652,8 +758,10 @@ void RuntimeUI::resize(const SurfaceMetrics& surface)
 void RuntimeUI::begin_frame(float delta_time)
 {
     if (m_state && m_state->context) {
-        if (m_state->render_interface)
-            m_state->render_interface->begin_frame();
+        if (auto* render =
+                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+            render->begin_frame();
+        }
         const auto& source_state = m_state->runtime_host ? m_state->runtime_host->view_state()
                                                          : m_state->runtime_view.state();
         const auto previous_instance = m_state->active_text_playback.instance_id;
@@ -713,8 +821,10 @@ void RuntimeUI::end_frame()
 {
     if (m_state && m_state->context) {
         m_state->context->Render();
-        if (m_state->render_interface)
-            m_state->render_interface->end_frame();
+        if (auto* render =
+                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+            render->end_frame();
+        }
     }
 }
 
@@ -1069,6 +1179,88 @@ bool RuntimeUI::remove_event_listener(std::uintptr_t listener_id)
     return true;
 }
 
+RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackClickRequest& request)
+{
+    if (!m_state || !m_state->context) {
+        return make_click_result(RuntimeUiPlaybackClickStatus::UiNotInitialized, request,
+                                 "runtime UI is not initialized");
+    }
+
+    auto* doc = static_cast<Rml::ElementDocument*>(document(request.document_id));
+    if (!doc) {
+        return make_click_result(RuntimeUiPlaybackClickStatus::DocumentNotFound, request,
+                                 "document is not loaded: " + request.document_id);
+    }
+    if (!doc->IsVisible()) {
+        return make_click_result(RuntimeUiPlaybackClickStatus::DocumentHidden, request,
+                                 "document is hidden: " + request.document_id);
+    }
+
+    Rml::Element* target = resolve_playback_target(*doc, request.selector);
+    if (!target) {
+        return make_click_result(RuntimeUiPlaybackClickStatus::TargetNotFound, request,
+                                 "target not found: " + request.selector);
+    }
+
+    auto result = make_click_result(RuntimeUiPlaybackClickStatus::Dispatched, request, {});
+    fill_target_metadata(result, *target);
+
+    if (!target->IsVisible(true)) {
+        result.status = RuntimeUiPlaybackClickStatus::TargetHidden;
+        result.message = "target or ancestor is hidden: " + request.selector;
+        return result;
+    }
+    if (result.width <= 0.0f || result.height <= 0.0f || !std::isfinite(result.width) ||
+        !std::isfinite(result.height)) {
+        result.status = RuntimeUiPlaybackClickStatus::TargetEmptyBounds;
+        result.message = "target has empty bounds: " + request.selector;
+        return result;
+    }
+    if (has_disabled_ancestor(target)) {
+        result.status = RuntimeUiPlaybackClickStatus::TargetDisabled;
+        result.message = "target or ancestor is disabled: " + request.selector;
+        return result;
+    }
+
+    Rml::Element* hit = m_state->context->GetElementAtPoint({result.x, result.y});
+    if (!is_descendant_or_self(hit, target)) {
+        result.status = RuntimeUiPlaybackClickStatus::TargetBlocked;
+        result.message = "target is not hittable at click point: " + request.selector;
+        if (hit) {
+            result.message += " hit=";
+            result.message += hit->GetTagName();
+            if (!hit->GetId().empty()) {
+                result.message += "#";
+                result.message += hit->GetId();
+            }
+        }
+        return result;
+    }
+
+    bool has_click_listener = target->HasAttribute("onclick");
+    for (const auto& [id, record] : m_state->listeners) {
+        (void)id;
+        if (record.element == target && record.event == "click") {
+            has_click_listener = true;
+            break;
+        }
+    }
+    if (!has_click_listener) {
+        result.status = RuntimeUiPlaybackClickStatus::TargetNotInteractive;
+        result.message = "target has no onclick or bound click listener: " + request.selector;
+        return result;
+    }
+
+    const int x = static_cast<int>(std::lround(result.x));
+    const int y = static_cast<int>(std::lround(result.y));
+    m_state->context->ProcessMouseMove(x, y, 0);
+    m_state->context->ProcessMouseButtonDown(0, 0);
+    m_state->context->ProcessMouseButtonUp(0, 0);
+    result.dispatched = true;
+    result.message = "dispatched ui-click";
+    return result;
+}
+
 void* RuntimeUI::create_data_model(const std::string& name)
 {
     if (!m_state || !m_state->context || name.empty())
@@ -1098,6 +1290,33 @@ bool RuntimeUI::remove_data_model(const std::string& name)
 }
 
 const char* RuntimeUI::backend_name() const { return "RmlUi (bgfx)"; }
+
+const char* to_string(RuntimeUiPlaybackClickStatus status) noexcept
+{
+    switch (status) {
+    case RuntimeUiPlaybackClickStatus::Dispatched:
+        return "dispatched";
+    case RuntimeUiPlaybackClickStatus::UiNotInitialized:
+        return "ui-not-initialized";
+    case RuntimeUiPlaybackClickStatus::DocumentNotFound:
+        return "document-not-found";
+    case RuntimeUiPlaybackClickStatus::DocumentHidden:
+        return "document-hidden";
+    case RuntimeUiPlaybackClickStatus::TargetNotFound:
+        return "target-not-found";
+    case RuntimeUiPlaybackClickStatus::TargetHidden:
+        return "target-hidden";
+    case RuntimeUiPlaybackClickStatus::TargetEmptyBounds:
+        return "target-empty-bounds";
+    case RuntimeUiPlaybackClickStatus::TargetDisabled:
+        return "target-disabled";
+    case RuntimeUiPlaybackClickStatus::TargetBlocked:
+        return "target-blocked";
+    case RuntimeUiPlaybackClickStatus::TargetNotInteractive:
+        return "target-not-interactive";
+    }
+    return "unknown";
+}
 
 const char* RuntimeUI::status_text() const
 {
