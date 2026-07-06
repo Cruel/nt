@@ -44,6 +44,8 @@ Object.defineProperty(window, 'noveltea', {
       preferredSystemLanguages: ['en-US'],
       systemLocale: 'en-US',
     }),
+    getDefaultProjectDirectory: vi.fn().mockResolvedValue('/home/test/Documents/NovelTea'),
+    selectDirectory: vi.fn().mockResolvedValue('/home/test/Documents/NovelTea/custom-project'),
     selectProjectDirectory: vi.fn().mockResolvedValue('/mock/project'),
     selectPackageOutputPath: vi.fn().mockResolvedValue('/mock/project/export.ntpkg'),
     showItemInFolder: vi.fn().mockResolvedValue(undefined),
@@ -79,6 +81,7 @@ Object.defineProperty(window, 'noveltea', {
       origin: 'http://127.0.0.1:5001',
       sessionToken: 'test-token-2',
     }),
+    createProject: vi.fn().mockResolvedValue({ ok: true, success: true, projectPath: '/home/test/Documents/NovelTea/new-project', projectFilePath: '/home/test/Documents/NovelTea/new-project/project.json' }),
     openProject: vi.fn().mockResolvedValue({
       ok: true,
       success: true,

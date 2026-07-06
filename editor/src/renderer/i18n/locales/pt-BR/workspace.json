@@ -27,6 +27,21 @@
         "subtitle": "Abrir navegador de recursos",
         "title": "Recursos"
       },
+      "newProject": {
+        "search": ["novo projeto", "criar projeto", "criar projeto noveltea"],
+        "subtitle": "Criar um novo projeto NovelTea",
+        "title": "Novo Projeto"
+      },
+      "openProject": {
+        "search": ["abrir projeto", "abrir projeto existente", "projetos recentes"],
+        "subtitle": "Abrir um projeto existente",
+        "title": "Abrir Projeto"
+      },
+      "settings": {
+        "search": ["configurações", "preferências", "configurações do editor"],
+        "subtitle": "Abrir configurações do editor",
+        "title": "Configurações"
+      },
       "projectSettings": {
         "search": ["configurações", "configurações do projeto", "preferências", "settings", "project settings", "preferences"],
         "subtitle": "Abrir configurações do projeto",

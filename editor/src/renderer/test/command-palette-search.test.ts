@@ -18,7 +18,14 @@ function project() {
 describe('command palette search', () => {
   it('builds action and project record items', () => {
     const items = buildCommandPaletteItems(project());
-    expect(items.map((item) => item.id)).toEqual(expect.arrayContaining(['action:project-settings', 'record:assets:logo', 'record:rooms:classroom']));
+    expect(items.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'action:settings',
+      'action:new-project',
+      'action:open-project',
+      'action:project-settings',
+      'record:assets:logo',
+      'record:rooms:classroom',
+    ]));
   });
 
   it('uses fuzzy search for quick-open style project records', () => {
@@ -35,9 +42,10 @@ describe('command palette search', () => {
     expect(results[0]?.matches).toEqual(expect.arrayContaining([expect.objectContaining({ fieldKind: 'tag', fieldLabel: 'Tag', value: 'cool' })]));
   });
 
-  it('searches common actions without project data', () => {
-    const results = searchCommandPaletteItems(buildCommandPaletteItems(null), 'settings');
-    expect(results[0]?.item.id).toBe('action:project-settings');
+  it('does not show project actions without project data', () => {
+    const items = buildCommandPaletteItems(null);
+    expect(items.map((item) => item.id)).toEqual(['action:settings', 'action:new-project', 'action:open-project']);
+    expect(searchCommandPaletteItems(items, 'settings')).toEqual([]);
   });
 
   it('filters selector items by image asset kind', () => {

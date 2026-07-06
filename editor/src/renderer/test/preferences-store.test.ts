@@ -10,6 +10,7 @@ describe('preferences-store', () => {
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
       lastProjectPath: null,
+      defaultProjectDirectory: null,
     });
   });
 
@@ -21,6 +22,7 @@ describe('preferences-store', () => {
     expect(state.restoreLastProjectOnStart).toBe(true);
     expect(state.showPreviewFpsCounter).toBe(false);
     expect(state.lastProjectPath).toBe(null);
+    expect(state.defaultProjectDirectory).toBe(null);
   });
 
   it('updates theme', () => {
@@ -51,6 +53,13 @@ describe('preferences-store', () => {
   it('updates the last project path', () => {
     usePreferencesStore.getState().setLastProjectPath('/tmp/project.ntp');
     expect(usePreferencesStore.getState().lastProjectPath).toBe('/tmp/project.ntp');
+  });
+
+  it('updates the default project directory', () => {
+    usePreferencesStore.getState().setDefaultProjectDirectory('/tmp/NovelTea');
+    expect(usePreferencesStore.getState().defaultProjectDirectory).toBe('/tmp/NovelTea');
+    usePreferencesStore.getState().setDefaultProjectDirectory(null);
+    expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
   it('persists to localStorage', () => {

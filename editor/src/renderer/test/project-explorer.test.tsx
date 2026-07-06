@@ -37,7 +37,7 @@ describe('ProjectExplorer', () => {
 
     render(<ProjectExplorer nodes={[]} />);
 
-    expect(screen.getByText('New Project')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^new$/i })).not.toBeInTheDocument();
     expect(screen.getByText('Open Project')).toBeInTheDocument();
     expect(screen.getByText('Recent Projects')).toBeInTheDocument();
     expect(screen.getByText('Demo Project')).toBeInTheDocument();

@@ -12,12 +12,14 @@ interface PreferencesState {
   restoreLastProjectOnStart: boolean;
   showPreviewFpsCounter: boolean;
   lastProjectPath: string | null;
+  defaultProjectDirectory: string | null;
   setTheme: (theme: Theme) => void;
   setLanguage: (language: EditorLanguage) => void;
   setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
   setRestoreLastProjectOnStart: (restore: boolean) => void;
   setShowPreviewFpsCounter: (show: boolean) => void;
   setLastProjectPath: (projectPath: string | null) => void;
+  setDefaultProjectDirectory: (projectDirectory: string | null) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -29,12 +31,14 @@ export const usePreferencesStore = create<PreferencesState>()(
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
       lastProjectPath: null,
+      defaultProjectDirectory: null,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
       setRestoreLastProjectOnStart: (restore) => set({ restoreLastProjectOnStart: restore }),
       setShowPreviewFpsCounter: (show) => set({ showPreviewFpsCounter: show }),
       setLastProjectPath: (lastProjectPath) => set({ lastProjectPath }),
+      setDefaultProjectDirectory: (defaultProjectDirectory) => set({ defaultProjectDirectory }),
     }),
     {
       name: 'noveltea-preferences',

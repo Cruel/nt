@@ -56,9 +56,9 @@ function HighlightedMatch({ match }: { match: SelectorMatch | undefined }) {
   );
 }
 
-function DefaultPreview({ item }: { item: SelectorItem }) {
+function DefaultPreview({ item, className }: { item: SelectorItem; className?: string }) {
   if (item.preview?.kind === 'image') {
-    return <AssetImageThumbnail label={item.preview.label} sourcePath={item.preview.sourcePath} />;
+    return <AssetImageThumbnail label={item.preview.label} sourcePath={item.preview.sourcePath} className={className} />;
   }
   return null;
 }
@@ -167,6 +167,7 @@ export function SearchSelectorDialog({
             const sideMatch = result.matches.find((match) => match.fieldKind !== 'title');
             const selected = selectedId === result.item.id;
             const gridTemplateColumns = `${leadingMediaWidth} minmax(22rem,3fr) minmax(0,1fr)`;
+            const preview = renderPreview ? renderPreview(result.item) : <DefaultPreview item={result.item} className={leadingMediaSize ? 'h-full w-full' : undefined} />;
             return (
               <button
                 key={result.item.id}
@@ -177,9 +178,7 @@ export function SearchSelectorDialog({
                 onClick={() => choose(result.item)}
               >
                 <span className="relative flex items-center justify-center overflow-visible" style={{ width: leadingMediaWidth, height: leadingMediaHeight }}>
-                  {result.item.preview?.kind === 'image'
-                    ? <AssetImageThumbnail label={result.item.preview.label} sourcePath={result.item.preview.sourcePath} className="h-full w-full" />
-                    : Icon ? <Icon className={`h-4 w-4 shrink-0 ${result.item.iconClassName ?? 'text-muted-foreground'}`} /> : null}
+                  {preview ?? (Icon ? <Icon className={`h-4 w-4 shrink-0 ${result.item.iconClassName ?? 'text-muted-foreground'}`} /> : null)}
                   {selected ? <Check className="absolute left-0 top-1/2 h-3.5 w-3.5 -translate-x-1/3 -translate-y-1/2 shrink-0 rounded-full bg-emerald-500 text-black" aria-hidden="true" /> : null}
                 </span>
                 <span className="min-w-0 truncate text-sm font-medium">

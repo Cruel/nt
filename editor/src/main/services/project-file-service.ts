@@ -1,9 +1,9 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
-import type { SaveProjectResponse, ToolDiagnostic } from '../../shared/editor-tooling';
+import type { CreateProjectRequest, SaveProjectResponse, ToolDiagnostic } from '../../shared/editor-tooling';
 import { isSafeProjectAssetPath, parseAssetData } from '../../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 
 function jsonText(project: unknown): string {
@@ -35,6 +35,24 @@ function safeFileStem(value: unknown): string | null {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return stem.length > 0 ? stem : null;
+}
+
+export function safeProjectSlug(value: string): string | null {
+  return safeFileStem(value);
+}
+
+function hasSpacePathSegment(value: string): boolean {
+  return path.resolve(value).split(path.sep).some((segment) => /\s/.test(segment));
+}
+
+async function directoryEntries(directory: string): Promise<string[]> {
+  try {
+    return await fs.readdir(directory);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return [];
+    throw error;
+  }
 }
 
 function defaultProjectFileName(project: unknown): string {
@@ -185,4 +203,34 @@ export async function saveProjectAs(
     : [];
   const saveResult = await saveProject(project, absolute);
   return diagnostics.length > 0 ? { ...saveResult, diagnostics } : saveResult;
+}
+
+export async function createProject(request: CreateProjectRequest): Promise<SaveProjectResponse> {
+  const projectName = typeof request.projectName === 'string' ? request.projectName.trim() : '';
+  const projectDirectory = typeof request.projectDirectory === 'string' ? request.projectDirectory.trim() : '';
+  if (!projectName) return { ok: false, success: false, error: 'Project name is required.' };
+  if (!projectDirectory) return { ok: false, success: false, error: 'Project directory is required.' };
+  const projectId = safeProjectSlug(projectName);
+  if (!projectId) {
+    return { ok: false, success: false, error: 'Project name must contain at least one letter or number.' };
+  }
+  const absoluteDirectory = path.resolve(projectDirectory);
+  const projectFilePath = path.join(absoluteDirectory, 'project.json');
+  if (hasSpacePathSegment(absoluteDirectory) || hasSpacePathSegment(projectFilePath)) {
+    return { ok: false, success: false, error: 'Project paths must not contain spaces.' };
+  }
+  try {
+    const entries = await directoryEntries(absoluteDirectory);
+    if (entries.length > 0) {
+      return { ok: false, success: false, error: 'Project directory already exists and is not empty.' };
+    }
+    const project = createAuthoringProject({ id: projectId, name: projectName });
+    return await saveProject(project, projectFilePath);
+  } catch (error) {
+    return {
+      ok: false,
+      success: false,
+      error: error instanceof Error ? error.message : 'Project creation failed.',
+    };
+  }
 }

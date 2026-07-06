@@ -30,7 +30,7 @@ export interface SelectorItem {
   entityId?: string;
   assetKind?: AssetData['kind'];
   preview?: SelectorPreview;
-  action?: 'project-settings' | 'assets' | 'variables' | 'tests';
+  action?: 'settings' | 'new-project' | 'open-project' | 'project-settings' | 'assets' | 'variables' | 'tests';
   tags: string[];
   collectionTerms: string[];
   actionTerms: string[];
@@ -76,10 +76,13 @@ function actionItem(item: Omit<SelectorItem, 'kind' | 'tags' | 'collectionTerms'
 }
 
 const actionDefinitions = [
-  { id: 'action:project-settings', action: 'project-settings', key: 'projectSettings' },
-  { id: 'action:assets', action: 'assets', key: 'assets' },
-  { id: 'action:variables', action: 'variables', key: 'variables' },
-  { id: 'action:tests', action: 'tests', key: 'tests' },
+  { id: 'action:settings', action: 'settings', key: 'settings', projectOnly: false },
+  { id: 'action:new-project', action: 'new-project', key: 'newProject', projectOnly: false },
+  { id: 'action:open-project', action: 'open-project', key: 'openProject', projectOnly: false },
+  { id: 'action:project-settings', action: 'project-settings', key: 'projectSettings', projectOnly: true },
+  { id: 'action:assets', action: 'assets', key: 'assets', projectOnly: true },
+  { id: 'action:variables', action: 'variables', key: 'variables', projectOnly: true },
+  { id: 'action:tests', action: 'tests', key: 'tests', projectOnly: true },
 ] as const;
 
 function translatedSearchTerms(t: TFunction, key: string): string[] {
@@ -88,7 +91,7 @@ function translatedSearchTerms(t: TFunction, key: string): string[] {
 }
 
 function baseActions(t: TFunction): SelectorItem[] {
-  return actionDefinitions.map((definition) => actionItem({
+  return actionDefinitions.filter((definition) => !definition.projectOnly).map((definition) => actionItem({
     id: definition.id,
     title: t(`workspace:commandPalette.actions.${definition.key}.title`),
     subtitle: t(`workspace:commandPalette.actions.${definition.key}.subtitle`),
@@ -100,6 +103,13 @@ function baseActions(t: TFunction): SelectorItem[] {
 export function buildCommandPaletteItems(project: AuthoringProject | null, t: TFunction = editorI18n.t.bind(editorI18n)): SelectorItem[] {
   const items = [...baseActions(t)];
   if (!project) return items;
+  items.push(...actionDefinitions.filter((definition) => definition.projectOnly).map((definition) => actionItem({
+    id: definition.id,
+    title: t(`workspace:commandPalette.actions.${definition.key}.title`),
+    subtitle: t(`workspace:commandPalette.actions.${definition.key}.subtitle`),
+    action: definition.action,
+    search: translatedSearchTerms(t, `workspace:commandPalette.actions.${definition.key}.search`),
+  })));
   for (const [collection, metadata] of Object.entries(authoringCollectionMetadata) as Array<[AuthoringCollectionKey, (typeof authoringCollectionMetadata)[AuthoringCollectionKey]]>) {
     const visual = visualForCollection(collection);
     for (const [entityId, record] of Object.entries(project[collection])) {

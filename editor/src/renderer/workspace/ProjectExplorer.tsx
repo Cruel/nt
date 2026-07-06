@@ -269,7 +269,7 @@ function EntityOperationDialog({
   );
 }
 
-function ProjectHeading({ projectName, onCreate }: { projectName: string; onCreate: () => void }) {
+function ProjectHeading({ projectName }: { projectName: string }) {
   const openTab = useWorkbenchStore((state) => state.openTab);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
   const organizeByChapter = useProjectExplorerStore((state) => state.organizeByChapter);
@@ -292,7 +292,6 @@ function ProjectHeading({ projectName, onCreate }: { projectName: string; onCrea
   return (
     <div className="flex items-center gap-2 border-b px-2 py-2">
       <div className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground" title={projectName}>{projectName}</div>
-      <Button className="h-6 gap-1 px-2 text-xs" size="sm" variant="ghost" onClick={onCreate}><FilePlus2 className="h-3.5 w-3.5" />New</Button>
       <Menu>
         <MenuTrigger className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent" aria-label="Project explorer menu"><MoreHorizontal className="h-3.5 w-3.5" /></MenuTrigger>
         <MenuPopup className="w-auto min-w-56">
@@ -726,7 +725,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ProjectHeading projectName={project.project.name.trim() || 'Project'} onCreate={() => setNewEntityWizard({})} />
+      <ProjectHeading projectName={project.project.name.trim() || 'Project'} />
       <div className="border-b">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

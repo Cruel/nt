@@ -1,5 +1,7 @@
 export const IPC_CHANNELS = {
   GET_APP_INFO: 'noveltea:get-app-info',
+  GET_DEFAULT_PROJECT_DIRECTORY: 'noveltea:get-default-project-directory',
+  SELECT_DIRECTORY: 'noveltea:select-directory',
   SELECT_PROJECT_DIRECTORY: 'noveltea:select-project-directory',
   SELECT_PACKAGE_OUTPUT_PATH: 'noveltea:select-package-output-path',
   SHOW_ITEM_IN_FOLDER: 'noveltea:show-item-in-folder',
@@ -18,6 +20,7 @@ export const IPC_CHANNELS = {
   GET_ENGINE_PREVIEW_SESSION: 'noveltea:get-engine-preview-session',
   RELOAD_ENGINE_PREVIEW: 'noveltea:reload-engine-preview',
   OPEN_PROJECT: 'noveltea:open-project',
+  CREATE_PROJECT: 'noveltea:create-project',
   IMPORT_LEGACY_GAME: 'noveltea:import-legacy-game',
   VALIDATE_PROJECT: 'noveltea:validate-project',
   LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',

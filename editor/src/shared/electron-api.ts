@@ -12,6 +12,8 @@ export interface AppInfo {
 
 export interface NovelTeaElectronApi {
   getAppInfo(): Promise<AppInfo>;
+  getDefaultProjectDirectory(): Promise<string>;
+  selectDirectory(options?: { title?: string; defaultPath?: string | null }): Promise<string | null>;
   selectProjectDirectory(): Promise<string | null>;
   selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>;
   showItemInFolder(path: string): Promise<void>;
@@ -29,6 +31,7 @@ export interface NovelTeaElectronApi {
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
   getEnginePreviewSession(): Promise<EnginePreviewSession>;
   reloadEnginePreview(): Promise<EnginePreviewSession>;
+  createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   importLegacyGame(source: string): Promise<ProjectLoadResponse>;
   validateProject(project: unknown): Promise<ValidationResponse>;
@@ -83,6 +86,7 @@ import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAs
 import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {
   EntityEditResponse,
+  CreateProjectRequest,
   OpenProjectResponse,
   PackageExportOptions,
   PackageExportResponse,

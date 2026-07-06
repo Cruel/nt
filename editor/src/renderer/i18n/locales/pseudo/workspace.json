@@ -27,6 +27,21 @@
         "subtitle": "⟦Open asset browser⟧",
         "title": "⟦Assets⟧"
       },
+      "newProject": {
+        "search": ["new project", "create project", "create noveltea project"],
+        "subtitle": "⟦Create a new NovelTea project⟧",
+        "title": "⟦New Project⟧"
+      },
+      "openProject": {
+        "search": ["open project", "open existing project", "browse projects"],
+        "subtitle": "⟦Open an existing project⟧",
+        "title": "⟦Open Project⟧"
+      },
+      "settings": {
+        "search": ["settings", "preferences", "editor settings"],
+        "subtitle": "⟦Open editor settings⟧",
+        "title": "⟦Settings⟧"
+      },
       "projectSettings": {
         "search": ["settings", "project settings", "preferences"],
         "subtitle": "⟦Open project settings⟧",

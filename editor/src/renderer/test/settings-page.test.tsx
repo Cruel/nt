@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from '@/routes/settings';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -19,7 +19,10 @@ describe('SettingsPage code editor theme selector', () => {
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
       lastProjectPath: null,
+      defaultProjectDirectory: null,
     });
+    vi.spyOn(window.noveltea, 'getDefaultProjectDirectory').mockResolvedValue('/home/test/Documents/NovelTea');
+    vi.spyOn(window.noveltea, 'selectDirectory').mockResolvedValue('/tmp/NovelTea');
   });
 
   it('opens a preview dialog and applies the cycled theme', () => {
@@ -59,5 +62,36 @@ describe('SettingsPage code editor theme selector', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: 'Show FPS counter' }));
     expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
+  });
+
+  it('shows and changes the default project directory preference', async () => {
+    render(<SettingsPage />);
+
+    await waitFor(() => expect(screen.getByLabelText('Default project directory')).toHaveValue('/home/test/Documents/NovelTea'));
+    fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
+
+    await waitFor(() => expect(usePreferencesStore.getState().defaultProjectDirectory).toBe('/tmp/NovelTea'));
+    expect(screen.getByLabelText('Default project directory')).toHaveValue('/tmp/NovelTea');
+  });
+
+  it('resets the default project directory to the app default', async () => {
+    usePreferencesStore.getState().setDefaultProjectDirectory('/tmp/NovelTea');
+    render(<SettingsPage />);
+
+    expect(screen.getByLabelText('Default project directory')).toHaveValue('/tmp/NovelTea');
+    fireEvent.click(screen.getByRole('button', { name: 'Reset default project directory' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Default project directory')).toHaveValue('/home/test/Documents/NovelTea'));
+    expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
+  });
+
+  it('rejects default project directories containing spaces', async () => {
+    vi.mocked(window.noveltea.selectDirectory).mockResolvedValue('/tmp/NovelTea Projects');
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
+
+    expect(await screen.findByText('Project directory paths must not contain spaces.')).toBeInTheDocument();
+    expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 });

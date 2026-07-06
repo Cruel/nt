@@ -135,6 +135,11 @@ export interface SaveProjectResponse {
   error?: string;
 }
 
+export interface CreateProjectRequest {
+  projectName: string;
+  projectDirectory: string;
+}
+
 export interface OpenProjectResponse extends ProjectLoadResponse {
   projectPath: string;
   projectFilePath: string;

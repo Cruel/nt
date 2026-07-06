@@ -4,6 +4,10 @@ import { IPC_CHANNELS } from './shared/ipc-channels';
 
 const api: NovelTeaElectronApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.GET_APP_INFO),
+  getDefaultProjectDirectory: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY),
+  selectDirectory: (options = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SELECT_DIRECTORY, options),
   selectProjectDirectory: () =>
     ipcRenderer.invoke(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
   selectPackageOutputPath: (defaultPath: string | null = null) =>
@@ -34,6 +38,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION),
   reloadEnginePreview: () =>
     ipcRenderer.invoke(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW),
+  createProject: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CREATE_PROJECT, request),
   openProject: (projectPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   importLegacyGame: (source: string) =>

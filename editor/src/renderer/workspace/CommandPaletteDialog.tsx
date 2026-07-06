@@ -6,10 +6,12 @@ import {
   buildAssetsEditorTab,
   buildDefaultRecordTab,
   buildProjectSettingsTab,
+  buildSettingsTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import { SearchSelectorDialog } from './SearchSelectorDialog';
 import { buildCommandPaletteItems, type CommandPaletteItem } from './command-palette-search';
 
@@ -36,6 +38,7 @@ function tabForItem(item: CommandPaletteItem): WorkbenchTab | null {
     const node = nodeForRecord(item);
     return node ? buildDefaultRecordTab(node) : null;
   }
+  if (item.action === 'settings') return buildSettingsTab();
   if (item.action === 'project-settings') return buildProjectSettingsTab();
   if (item.action === 'assets') return buildAssetsEditorTab();
   if (item.action === 'variables') return buildVariablesEditorTab();
@@ -59,9 +62,16 @@ export function CommandPaletteDialog({
 
   function choose(item: CommandPaletteItem) {
     const tab = tabForItem(item);
-    if (!tab) return;
-    onOpenTab(tab);
-    onOpenChange(false);
+    if (tab) {
+      onOpenTab(tab);
+      onOpenChange(false);
+      return;
+    }
+    if (item.kind === 'action' && item.action) {
+      dispatchWorkspaceToolbarCommand(item.action);
+      onOpenChange(false);
+      return;
+    }
   }
 
   return (

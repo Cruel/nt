@@ -29,6 +29,7 @@ import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { recentProjectKey, useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { AppInfo } from '../../shared/electron-api';
 
 async function runMenuAction(action: () => Promise<unknown>) {
@@ -42,15 +43,9 @@ async function runMenuAction(action: () => Promise<unknown>) {
 const dragStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
 
-function projectFileName(projectFilePath: string | null, unsavedLabel: string) {
-  if (!projectFilePath) return unsavedLabel;
-  return projectFilePath.split(/[\\/]/).pop() || projectFilePath;
-}
-
 function WorkspaceTopToolbar() {
   const { t } = useTranslation('common');
   const project = useProjectStore((state) => state.document);
-  const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectDirty = useProjectStore(selectProjectDirty);
   const isSaving = useProjectStore((state) => state.isSaving);
   const commandHistory = useCommandStore((state) => state.history);
@@ -63,8 +58,8 @@ function WorkspaceTopToolbar() {
 
   return (
     <div className="flex min-w-0 items-center gap-1" style={noDragStyle}>
-      <span className="mr-2 max-w-48 truncate font-mono text-[11px] text-muted-foreground" title={projectFilePath ?? t('project.unsaved')}>
-        {projectFileName(projectFilePath, t('project.unsaved'))}
+      <span className="mr-2 max-w-64 truncate font-mono text-[11px] text-muted-foreground" title="NovelTea">
+        NovelTea
       </span>
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('undo')} disabled={!canUndo} title={t('actions.undo')}>
         <Undo2 className="h-3.5 w-3.5" />

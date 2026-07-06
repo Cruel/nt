@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,7 +17,7 @@ import {
   usePreferencesStore,
   type Theme,
 } from '@/stores/preferences-store';
-import { ChevronLeft, ChevronRight, Code2, Monitor, Moon, Sun } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Code2, FolderOpen, Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -169,16 +170,21 @@ export function SettingsPage() {
   const codeEditorTheme = usePreferencesStore((s) => s.codeEditorTheme);
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
+  const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
+  const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
   const [nativeFrame, setNativeFrame] = useState(false);
   const [nativeFrameDefault, setNativeFrameDefault] = useState(false);
   const [nativeFrameSaved, setNativeFrameSaved] = useState(false);
+  const [appDefaultProjectDirectory, setAppDefaultProjectDirectory] = useState('');
+  const [defaultProjectDirectoryError, setDefaultProjectDirectoryError] = useState<string | null>(null);
   const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
   const effectiveLanguage = resolveEditorLanguage(language, preferredSystemLanguages);
+  const effectiveProjectDirectory = defaultProjectDirectory ?? appDefaultProjectDirectory;
 
   useEffect(() => {
     let mounted = true;
@@ -187,6 +193,10 @@ export function SettingsPage() {
       setNativeFrame(info.nativeFrame);
       setNativeFrameDefault(info.platform === 'linux');
       setPreferredSystemLanguages(info.preferredSystemLanguages);
+    });
+    void window.noveltea.getDefaultProjectDirectory().then((directory) => {
+      if (!mounted) return;
+      setAppDefaultProjectDirectory(directory);
     });
     return () => {
       mounted = false;
@@ -200,6 +210,20 @@ export function SettingsPage() {
       setNativeFrame(info.nativeFrame);
       setNativeFrameSaved(true);
     });
+  }
+
+  async function chooseDefaultProjectDirectory() {
+    const directory = await window.noveltea.selectDirectory({
+      title: t('settings:workspace.defaultProjectDirectoryDialogTitle'),
+      defaultPath: effectiveProjectDirectory || null,
+    });
+    if (!directory) return;
+    if (/\s/.test(directory)) {
+      setDefaultProjectDirectoryError(t('settings:workspace.defaultProjectDirectoryNoSpaces'));
+      return;
+    }
+    setDefaultProjectDirectoryError(null);
+    setDefaultProjectDirectory(directory);
   }
 
   return (
@@ -332,18 +356,44 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="restore-last-project">{t('settings:workspace.restoreLastProject')}</Label>
-                <p className="text-xs text-muted-foreground">
-                  {t('settings:workspace.restoreLastProjectDescription')}
-                </p>
+            <div className="grid gap-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="restore-last-project">{t('settings:workspace.restoreLastProject')}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:workspace.restoreLastProjectDescription')}
+                  </p>
+                </div>
+                <Switch
+                  id="restore-last-project"
+                  checked={restoreLastProjectOnStart}
+                  onCheckedChange={setRestoreLastProjectOnStart}
+                />
               </div>
-              <Switch
-                id="restore-last-project"
-                checked={restoreLastProjectOnStart}
-                onCheckedChange={setRestoreLastProjectOnStart}
-              />
+              <div className="grid gap-2">
+                <div>
+                  <Label htmlFor="default-project-directory">{t('settings:workspace.defaultProjectDirectory')}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:workspace.defaultProjectDirectoryDescription')}
+                  </p>
+                </div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Input
+                    id="default-project-directory"
+                    className="font-mono text-[11px]"
+                    value={effectiveProjectDirectory}
+                    readOnly
+                  />
+                  <Button type="button" variant="outline" onClick={chooseDefaultProjectDirectory}>
+                    <FolderOpen />
+                    {t('settings:workspace.changeDefaultProjectDirectory')}
+                  </Button>
+                  <Button type="button" variant="outline" size="icon" onClick={() => { setDefaultProjectDirectoryError(null); setDefaultProjectDirectory(null); }} aria-label={t('settings:workspace.resetDefaultProjectDirectory')}>
+                    <RotateCcw />
+                  </Button>
+                </div>
+                {defaultProjectDirectoryError ? <p className="text-[11px] text-destructive">{defaultProjectDirectoryError}</p> : null}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -381,6 +431,8 @@ export function SettingsPage() {
               setCodeEditorTheme('noveltea');
               setRestoreLastProjectOnStart(true);
               setShowPreviewFpsCounter(false);
+              setDefaultProjectDirectoryError(null);
+              setDefaultProjectDirectory(null);
               updateNativeFrame(nativeFrameDefault);
             }}
           >

@@ -52,7 +52,13 @@
     "title": "Window"
   },
   "workspace": {
+    "changeDefaultProjectDirectory": "Change…",
+    "defaultProjectDirectory": "Default project directory",
+    "defaultProjectDirectoryDescription": "New projects are created in their own folder under this directory.",
+    "defaultProjectDirectoryDialogTitle": "Select Default Project Directory",
+    "defaultProjectDirectoryNoSpaces": "Project directory paths must not contain spaces.",
     "description": "Editor layout defaults",
+    "resetDefaultProjectDirectory": "Reset default project directory",
     "restoreLastProject": "Restore last open project on startup",
     "restoreLastProjectDescription": "Automatically reopen the last project file when the editor starts.",
     "title": "Workspace"

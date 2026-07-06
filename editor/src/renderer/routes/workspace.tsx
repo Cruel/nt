@@ -2,7 +2,9 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogDescription, DialogFooter, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
 import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
@@ -27,7 +29,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
-import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { authoringValidationSucceeded, validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
@@ -51,6 +53,24 @@ function commandTouchedTests(paths: string[]) {
   return paths.some((path) => path === '/tests' || path.startsWith('/tests/'));
 }
 
+function projectSlug(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : null;
+}
+
+function joinProjectPath(parent: string, child: string) {
+  const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/';
+  return `${parent.replace(/[\\/]+$/, '')}${separator}${child}`;
+}
+
+function pathContainsSpaces(value: string) {
+  return /\s/.test(value);
+}
+
 interface WorkspaceAlert {
   title: string;
   message: string;
@@ -61,6 +81,13 @@ export function WorkspacePage() {
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const [packageExportOpen, setPackageExportOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('New Project');
+  const [newProjectDirectory, setNewProjectDirectory] = useState('');
+  const [newProjectDirectoryEdited, setNewProjectDirectoryEdited] = useState(false);
+  const [newProjectDefaultDirectory, setNewProjectDefaultDirectory] = useState('');
+  const [newProjectCreating, setNewProjectCreating] = useState(false);
+  const [newProjectError, setNewProjectError] = useState<string | null>(null);
   const [untrackedAssetFiles, setUntrackedAssetFiles] = useState<ProjectAssetAuditFile[]>([]);
   const [untrackedAssetDialogOpen, setUntrackedAssetDialogOpen] = useState(false);
   const lastObservedCommandId = useRef<string | null>(null);
@@ -73,7 +100,6 @@ export function WorkspacePage() {
   const bottomPanelSizePercent = useBottomPanelStore((state) => state.sizePercent);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
   const setBottomPanelSizePercent = useBottomPanelStore((state) => state.setSizePercent);
-  const hydrateBottomPanel = useBottomPanelStore((state) => state.hydrate);
   const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
   const hydrateComfyUi = useComfyUiStore((state) => state.hydrateFromProject);
   const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
@@ -100,7 +126,6 @@ export function WorkspacePage() {
   const saveDirty = projectDirty || hasDraftDirty;
   const isSaving = useProjectStore((state) => state.isSaving);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
-  const loadUnsavedProjectDocument = useProjectStore((state) => state.loadUnsavedProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
   const markProjectSaved = useProjectStore((state) => state.markSaved);
   const setProjectSaving = useProjectStore((state) => state.setSaving);
@@ -119,6 +144,7 @@ export function WorkspacePage() {
   const removeRecentProject = useRecentProjectsStore((state) => state.removeRecentProject);
   const restoreLastProjectOnStart = usePreferencesStore((state) => state.restoreLastProjectOnStart);
   const lastProjectPath = usePreferencesStore((state) => state.lastProjectPath);
+  const defaultProjectDirectory = usePreferencesStore((state) => state.defaultProjectDirectory);
   const setLastProjectPath = usePreferencesStore((state) => state.setLastProjectPath);
   const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
   const closeProjectTabs = useWorkbenchStore((state) => state.closeProjectTabs);
@@ -135,6 +161,27 @@ export function WorkspacePage() {
   useEffect(() => {
     latestProjectFilePathRef.current = projectFilePath;
   }, [projectFilePath]);
+
+  useEffect(() => {
+    if (defaultProjectDirectory) {
+      setNewProjectDefaultDirectory(defaultProjectDirectory);
+      return;
+    }
+    let mounted = true;
+    void window.noveltea.getDefaultProjectDirectory().then((directory) => {
+      if (mounted) setNewProjectDefaultDirectory(directory);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [defaultProjectDirectory]);
+
+  useEffect(() => {
+    if (newProjectDirectoryEdited) return;
+    const slug = projectSlug(newProjectName);
+    if (!slug || !newProjectDefaultDirectory) return;
+    setNewProjectDirectory(joinProjectPath(newProjectDefaultDirectory, slug));
+  }, [newProjectDefaultDirectory, newProjectDirectoryEdited, newProjectName]);
 
   function loadAuthoringDocument(document: unknown, projectPathValue: string | null, projectFilePathValue: string | null) {
     setProjectPath(projectPathValue);
@@ -160,18 +207,73 @@ export function WorkspacePage() {
     });
   }
 
-  function createNewProject() {
-    const next = createAuthoringProject();
-    setProjectPath(null);
-    setProjectFilePath(null);
-    setProject(next);
-    loadUnsavedProjectDocument(next);
-    resetCommandHistory();
-    setPlaybackTests([]);
-    setDiagnostics(validateAuthoringProject(next));
-    hydrateBottomPanel();
-    setStatusMessage('Created unsaved authoring project');
-    addTimelineEntry({ source: 'command', message: 'Created unsaved authoring project', detail: next });
+  async function resolveNewProjectParentDirectory() {
+    if (defaultProjectDirectory) return defaultProjectDirectory;
+    if (newProjectDefaultDirectory) return newProjectDefaultDirectory;
+    const directory = await window.noveltea.getDefaultProjectDirectory();
+    setNewProjectDefaultDirectory(directory);
+    return directory;
+  }
+
+  async function openNewProjectDialog() {
+    const projectName = 'New Project';
+    const parentDirectory = await resolveNewProjectParentDirectory();
+    const slug = projectSlug(projectName) ?? 'new-project';
+    setNewProjectName(projectName);
+    setNewProjectDirectory(joinProjectPath(parentDirectory, slug));
+    setNewProjectDirectoryEdited(false);
+    setNewProjectError(null);
+    setNewProjectOpen(true);
+  }
+
+  async function browseNewProjectDirectory() {
+    const directory = await window.noveltea.selectDirectory({
+      title: 'Select New Project Directory',
+      defaultPath: newProjectDirectory || await resolveNewProjectParentDirectory(),
+    });
+    if (!directory) return;
+    setNewProjectDirectory(directory);
+    setNewProjectDirectoryEdited(true);
+    setNewProjectError(null);
+  }
+
+  async function createNewProject() {
+    const name = newProjectName.trim();
+    const directory = newProjectDirectory.trim();
+    const slug = projectSlug(name);
+    if (!name) {
+      setNewProjectError('Project name is required.');
+      return;
+    }
+    if (!slug) {
+      setNewProjectError('Project name must contain at least one letter or number.');
+      return;
+    }
+    if (!directory) {
+      setNewProjectError('Project directory is required.');
+      return;
+    }
+    if (pathContainsSpaces(directory)) {
+      setNewProjectError('Project paths must not contain spaces.');
+      return;
+    }
+    setNewProjectCreating(true);
+    setNewProjectError(null);
+    try {
+      const result = await window.noveltea.createProject({ projectName: name, projectDirectory: directory });
+      if (!result.success || !result.projectFilePath) {
+        setNewProjectError(result.error ?? 'Project creation failed.');
+        return;
+      }
+      setNewProjectOpen(false);
+      await openProject(result.projectFilePath);
+      setStatusMessage(`Created project ${name}`);
+      addTimelineEntry({ source: 'command', message: `Created project ${name}`, detail: result });
+    } catch (error) {
+      setNewProjectError(error instanceof Error ? error.message : 'Project creation failed.');
+    } finally {
+      setNewProjectCreating(false);
+    }
   }
 
   async function dirtySaveProjectState(reason: 'close-project' | 'window-close') {
@@ -437,7 +539,7 @@ export function WorkspacePage() {
         if (isAuthoringProject(useProjectStore.getState().document)) {
           window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'new-entity' }));
         } else {
-          createNewProject();
+          void openNewProjectDialog();
         }
       } else if (event.key.toLowerCase() === 's') {
         event.preventDefault();
@@ -663,7 +765,7 @@ export function WorkspacePage() {
       const command = typeof detail === 'string' ? detail : detail.command;
       switch (command) {
         case 'new-project':
-          createNewProject();
+          void openNewProjectDialog();
           break;
         case 'new-entity':
           if (isAuthoringProject(project)) window.dispatchEvent(new CustomEvent('noveltea-open-new-entity-wizard'));
@@ -724,6 +826,19 @@ export function WorkspacePage() {
     return () => window.removeEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, onToolbarCommand);
   });
 
+  const trimmedNewProjectName = newProjectName.trim();
+  const newProjectSlug = projectSlug(trimmedNewProjectName);
+  const newProjectNameIssue = !trimmedNewProjectName
+    ? 'Project name is required.'
+    : !newProjectSlug
+      ? 'Project name must contain at least one letter or number.'
+      : null;
+  const newProjectDirectoryIssue = !newProjectDirectory.trim()
+    ? 'Project directory is required.'
+    : pathContainsSpaces(newProjectDirectory)
+      ? 'Project paths must not contain spaces.'
+      : null;
+  const canCreateNewProject = !newProjectNameIssue && !newProjectDirectoryIssue && !newProjectCreating;
   const showBottomPanel = project !== null && bottomPanelVisible;
   const showCollapsedBottomPanel = project !== null && !bottomPanelVisible;
 
@@ -756,6 +871,62 @@ export function WorkspacePage() {
         </div>
       </div>
       {showCollapsedBottomPanel ? <div className="h-9 shrink-0 overflow-hidden"><BottomPanel /></div> : null}
+      <Dialog open={newProjectOpen} onOpenChange={(open) => { if (!newProjectCreating) setNewProjectOpen(open); }}>
+        <DialogPopup className="sm:max-w-lg">
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (canCreateNewProject) void createNewProject();
+            }}
+          >
+            <div className="grid gap-1">
+              <DialogTitle>Create NovelTea Project</DialogTitle>
+            </div>
+            <div className="grid gap-3">
+              <div className="grid gap-1">
+                <Label htmlFor="new-project-name">Project name</Label>
+                <Input
+                  id="new-project-name"
+                  value={newProjectName}
+                  onChange={(event) => {
+                    setNewProjectName(event.currentTarget.value);
+                    setNewProjectError(null);
+                  }}
+                  aria-invalid={newProjectNameIssue ? true : undefined}
+                  autoFocus
+                />
+                {newProjectNameIssue ? <p className="text-[11px] text-destructive">{newProjectNameIssue}</p> : null}
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="new-project-directory">Project directory</Label>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Input
+                    id="new-project-directory"
+                    className="font-mono text-[11px]"
+                    value={newProjectDirectory}
+                    onChange={(event) => {
+                      setNewProjectDirectory(event.currentTarget.value);
+                      setNewProjectDirectoryEdited(true);
+                      setNewProjectError(null);
+                    }}
+                    aria-invalid={newProjectDirectoryIssue ? true : undefined}
+                  />
+                  <Button type="button" variant="outline" onClick={() => void browseNewProjectDirectory()} disabled={newProjectCreating}>
+                    Browse…
+                  </Button>
+                </div>
+                {newProjectDirectoryIssue ? <p className="text-[11px] text-destructive">{newProjectDirectoryIssue}</p> : null}
+              </div>
+              {newProjectError ? <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">{newProjectError}</p> : null}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNewProjectOpen(false)} disabled={newProjectCreating}>Cancel</Button>
+              <Button type="submit" disabled={!canCreateNewProject}>{newProjectCreating ? 'Creating…' : 'Create Project'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogPopup>
+      </Dialog>
       <CommandPaletteDialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} project={isAuthoringProject(project) ? project : null} onOpenTab={openWorkbenchTab} />
       <PackageExportDialog
         open={packageExportOpen}

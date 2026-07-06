@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { buildSettingsTab } from '@/workbench/editor-registry';
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
@@ -25,5 +26,14 @@ describe('CommandPaletteDialog', () => {
     expect(screen.getByText('Logo')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByAltText('Logo')).toBeInTheDocument());
     expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith('/mock/project.json', 'assets/images/logo.png');
+  });
+
+  it('opens settings as a workbench tab', async () => {
+    const onOpenTab = vi.fn();
+    render(<CommandPaletteDialog open project={null} onOpenChange={vi.fn()} onOpenTab={onOpenTab} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(onOpenTab).toHaveBeenCalledWith(buildSettingsTab());
   });
 });

@@ -17,7 +17,8 @@ describe('pt-BR editor localization', () => {
   it('uses localized command palette metadata while keeping English aliases searchable', async () => {
     const i18n = await createTestI18n('pt-BR');
     const items = buildCommandPaletteItems(null, i18n.t.bind(i18n));
-    expect(items.find((item) => item.id === 'action:project-settings')?.title).toBe('Configurações do projeto');
-    expect(searchCommandPaletteItems(items, 'settings')[0]?.item.id).toBe('action:project-settings');
+    expect(items.map((item) => item.id)).toEqual(['action:settings', 'action:new-project', 'action:open-project']);
+    expect(items.find((item) => item.id === 'action:settings')?.title).toBe('Configurações');
+    expect(searchCommandPaletteItems(items, 'settings')[0]?.item.id).toBe('action:settings');
   });
 });

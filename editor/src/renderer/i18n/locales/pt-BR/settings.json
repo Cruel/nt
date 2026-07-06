@@ -52,7 +52,13 @@
     "title": "Janela"
   },
   "workspace": {
+    "changeDefaultProjectDirectory": "Alterar…",
+    "defaultProjectDirectory": "Diretório padrão de projetos",
+    "defaultProjectDirectoryDescription": "Novos projetos são criados em sua própria pasta dentro deste diretório.",
+    "defaultProjectDirectoryDialogTitle": "Selecionar diretório padrão de projetos",
+    "defaultProjectDirectoryNoSpaces": "Caminhos de diretórios de projeto não podem conter espaços.",
     "description": "Padrões de layout do editor",
+    "resetDefaultProjectDirectory": "Redefinir diretório padrão de projetos",
     "restoreLastProject": "Restaurar o último projeto aberto ao iniciar",
     "restoreLastProjectDescription": "Reabre automaticamente o último arquivo de projeto quando o editor inicia.",
     "title": "Área de trabalho"

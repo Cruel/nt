@@ -20,11 +20,11 @@ import {
   setEntityRecord,
   validateProject,
 } from './main/services/editor-tool-service';
-import { saveProject, saveProjectAs } from './main/services/project-file-service';
+import { createProject, saveProject, saveProjectAs } from './main/services/project-file-service';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
-import type { PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
+import type { CreateProjectRequest, PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
 
 if (started) {
   app.quit();
@@ -118,6 +118,10 @@ function getAppInfoPayload() {
     preferredSystemLanguages: app.getPreferredSystemLanguages(),
     systemLocale: app.getSystemLocale(),
   };
+}
+
+function getDefaultProjectDirectory() {
+  return path.join(app.getPath('documents'), 'NovelTea');
 }
 
 function clampZoomFactor(value: number) {
@@ -253,6 +257,18 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.GET_APP_INFO, () => getAppInfoPayload());
 
+  ipcMain.handle(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY, () => getDefaultProjectDirectory());
+
+  ipcMain.handle(IPC_CHANNELS.SELECT_DIRECTORY, async (_event: Electron.IpcMainInvokeEvent, options: { title?: string; defaultPath?: string | null } = {}) => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: options.title ?? 'Select Directory',
+      defaultPath: options.defaultPath ?? undefined,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
   ipcMain.handle(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY, async () => {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -369,6 +385,12 @@ app.whenReady().then(() => {
     IPC_CHANNELS.OPEN_PROJECT,
     (_event: Electron.IpcMainInvokeEvent, projectPath: string) =>
       openProject(projectPath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CREATE_PROJECT,
+    (_event: Electron.IpcMainInvokeEvent, request: CreateProjectRequest) =>
+      createProject(request),
   );
 
   ipcMain.handle(
