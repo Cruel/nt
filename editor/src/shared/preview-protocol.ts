@@ -56,6 +56,100 @@ export interface EnginePreviewSettings {
   fpsCap?: number;
 }
 
+export interface RuntimeDebugEntityRef {
+  type: string;
+  id: string;
+  legacyType?: number;
+  collection?: string;
+  label?: string;
+}
+
+export interface RuntimeDebugWaitingState {
+  kind: 'unloaded' | 'none' | 'continue' | 'choice' | 'navigation' | 'action' | 'title' | 'paused' | 'error' | 'unknown';
+  canContinue: boolean;
+  reason?: string;
+}
+
+export interface RuntimeDebugVariableSnapshot {
+  id: string;
+  label: string;
+  type: string;
+  value: unknown;
+  defaultValue?: unknown;
+  dirty?: boolean;
+  overridden?: boolean;
+}
+
+export interface RuntimeDebugInventoryItemSnapshot {
+  id: string;
+  label: string;
+  selected?: boolean;
+  enabled?: boolean;
+  location?: RuntimeDebugEntityRef;
+}
+
+export interface RuntimeDebugDialogueOptionSnapshot {
+  index: number;
+  label: string;
+  enabled: boolean;
+}
+
+export interface RuntimeDebugNavigationSnapshot {
+  index: number;
+  label: string;
+  enabled: boolean;
+}
+
+export interface RuntimeDebugActionSnapshot {
+  verbId: string;
+  label: string;
+  objectCount: number;
+  selectedCount: number;
+  enabled: boolean;
+  reason?: string;
+}
+
+export interface RuntimeDebugAvailableInputsSnapshot {
+  continue: boolean;
+  dialogueOptions: RuntimeDebugDialogueOptionSnapshot[];
+  navigation: RuntimeDebugNavigationSnapshot[];
+  actions: RuntimeDebugActionSnapshot[];
+  selectedObjects: string[];
+  clickableTargets: unknown[];
+}
+
+export interface RuntimeDebugDiagnosticSnapshot {
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  category?: string;
+  path?: string;
+  source?: RuntimeDebugEntityRef;
+  scriptContext?: string;
+  hookContext?: string;
+  luaTraceback?: string;
+}
+
+export interface RuntimeDebugSnapshot {
+  requestId?: string;
+  loaded: boolean;
+  running: boolean;
+  shellMode?: string;
+  runtimeMode?: string;
+  entrypoint?: RuntimeDebugEntityRef;
+  currentEntity?: RuntimeDebugEntityRef;
+  currentRoomId?: string;
+  currentMapId?: string;
+  currentDialogueId?: string;
+  waiting: RuntimeDebugWaitingState;
+  availableInputs: RuntimeDebugAvailableInputsSnapshot;
+  variables: RuntimeDebugVariableSnapshot[];
+  inventory: RuntimeDebugInventoryItemSnapshot[];
+  selectedObjects: string[];
+  diagnostics: RuntimeDebugDiagnosticSnapshot[];
+  saveSnapshot: Record<string, unknown>;
+  controllerState?: Record<string, unknown>;
+}
+
 export type EditorToPreviewMessage =
   | { version: 1; type: 'set-demo-position'; requestId: string; position: PreviewPosition }
   | { version: 1; type: 'reset-demo'; requestId: string }
@@ -72,6 +166,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-select-object'; requestId: string; objectId: string }
   | { version: 1; type: 'runtime-clear-object-selection'; requestId: string }
   | { version: 1; type: 'runtime-run-action'; requestId: string; verbId: string; objectIds: string[] }
+  | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | { version: 1; type: 'load-preview-document'; requestId: string; document: PreviewDocument }
   | { version: 1; type: 'update-preview-document'; requestId: string; document: PreviewDocument }
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
@@ -86,6 +181,7 @@ export type PreviewToEditorMessage =
   | { version: 1; type: 'state'; position: PreviewPosition; running: boolean }
   | { version: 1; type: 'preview-state'; state: PreviewStateSnapshot }
   | { version: 1; type: 'preview-snapshot'; snapshotId: string; dataUrl: string }
+  | { version: 1; type: 'runtime-debug-snapshot'; requestId?: string; snapshot: RuntimeDebugSnapshot }
   | { version: 1; type: 'preview-diagnostic'; diagnostic: PreviewDiagnosticMessage }
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
@@ -177,6 +273,131 @@ function isEnginePreviewSettings(value: unknown): value is EnginePreviewSettings
   );
 }
 
+function isRuntimeDebugEntityRef(value: unknown): value is RuntimeDebugEntityRef {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.type === 'string' &&
+    typeof value.id === 'string' &&
+    (value.legacyType === undefined || (typeof value.legacyType === 'number' && Number.isInteger(value.legacyType))) &&
+    (value.collection === undefined || typeof value.collection === 'string') &&
+    (value.label === undefined || typeof value.label === 'string')
+  );
+}
+
+function isRuntimeDebugWaitingState(value: unknown): value is RuntimeDebugWaitingState {
+  if (!isRecord(value)) return false;
+  return (
+    ['unloaded', 'none', 'continue', 'choice', 'navigation', 'action', 'title', 'paused', 'error', 'unknown'].includes(String(value.kind)) &&
+    typeof value.canContinue === 'boolean' &&
+    (value.reason === undefined || typeof value.reason === 'string')
+  );
+}
+
+function isRuntimeDebugVariableSnapshot(value: unknown): value is RuntimeDebugVariableSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    typeof value.label === 'string' &&
+    typeof value.type === 'string' &&
+    'value' in value &&
+    (value.dirty === undefined || typeof value.dirty === 'boolean') &&
+    (value.overridden === undefined || typeof value.overridden === 'boolean')
+  );
+}
+
+function isRuntimeDebugInventoryItemSnapshot(value: unknown): value is RuntimeDebugInventoryItemSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    typeof value.label === 'string' &&
+    (value.selected === undefined || typeof value.selected === 'boolean') &&
+    (value.enabled === undefined || typeof value.enabled === 'boolean') &&
+    (value.location === undefined || isRuntimeDebugEntityRef(value.location))
+  );
+}
+
+function isRuntimeDebugDialogueOptionSnapshot(value: unknown): value is RuntimeDebugDialogueOptionSnapshot {
+  if (!isRecord(value)) return false;
+  return typeof value.index === 'number' && Number.isInteger(value.index) && typeof value.label === 'string' && typeof value.enabled === 'boolean';
+}
+
+function isRuntimeDebugNavigationSnapshot(value: unknown): value is RuntimeDebugNavigationSnapshot {
+  if (!isRecord(value)) return false;
+  return typeof value.index === 'number' && Number.isInteger(value.index) && typeof value.label === 'string' && typeof value.enabled === 'boolean';
+}
+
+function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActionSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.verbId === 'string' &&
+    typeof value.label === 'string' &&
+    typeof value.objectCount === 'number' &&
+    Number.isInteger(value.objectCount) &&
+    typeof value.selectedCount === 'number' &&
+    Number.isInteger(value.selectedCount) &&
+    typeof value.enabled === 'boolean' &&
+    (value.reason === undefined || typeof value.reason === 'string')
+  );
+}
+
+function isRuntimeDebugAvailableInputsSnapshot(value: unknown): value is RuntimeDebugAvailableInputsSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.continue === 'boolean' &&
+    Array.isArray(value.dialogueOptions) &&
+    value.dialogueOptions.every(isRuntimeDebugDialogueOptionSnapshot) &&
+    Array.isArray(value.navigation) &&
+    value.navigation.every(isRuntimeDebugNavigationSnapshot) &&
+    Array.isArray(value.actions) &&
+    value.actions.every(isRuntimeDebugActionSnapshot) &&
+    Array.isArray(value.selectedObjects) &&
+    value.selectedObjects.every((item) => typeof item === 'string') &&
+    Array.isArray(value.clickableTargets)
+  );
+}
+
+function isRuntimeDebugDiagnosticSnapshot(value: unknown): value is RuntimeDebugDiagnosticSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    ['info', 'warning', 'error'].includes(String(value.severity)) &&
+    typeof value.message === 'string' &&
+    (value.category === undefined || typeof value.category === 'string') &&
+    (value.path === undefined || typeof value.path === 'string') &&
+    (value.source === undefined || isRuntimeDebugEntityRef(value.source)) &&
+    (value.scriptContext === undefined || typeof value.scriptContext === 'string') &&
+    (value.hookContext === undefined || typeof value.hookContext === 'string') &&
+    (value.luaTraceback === undefined || typeof value.luaTraceback === 'string')
+  );
+}
+
+export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    (value.requestId === undefined || typeof value.requestId === 'string') &&
+    typeof value.loaded === 'boolean' &&
+    typeof value.running === 'boolean' &&
+    (value.shellMode === undefined || typeof value.shellMode === 'string') &&
+    (value.runtimeMode === undefined || typeof value.runtimeMode === 'string') &&
+    (value.entrypoint === undefined || isRuntimeDebugEntityRef(value.entrypoint)) &&
+    (value.currentEntity === undefined || isRuntimeDebugEntityRef(value.currentEntity)) &&
+    (value.currentRoomId === undefined || typeof value.currentRoomId === 'string') &&
+    (value.currentMapId === undefined || typeof value.currentMapId === 'string') &&
+    (value.currentDialogueId === undefined || typeof value.currentDialogueId === 'string') &&
+    isRuntimeDebugWaitingState(value.waiting) &&
+    isRuntimeDebugAvailableInputsSnapshot(value.availableInputs) &&
+    Array.isArray(value.variables) &&
+    value.variables.every(isRuntimeDebugVariableSnapshot) &&
+    Array.isArray(value.inventory) &&
+    value.inventory.every(isRuntimeDebugInventoryItemSnapshot) &&
+    Array.isArray(value.selectedObjects) &&
+    value.selectedObjects.every((item) => typeof item === 'string') &&
+    Array.isArray(value.diagnostics) &&
+    value.diagnostics.every(isRuntimeDebugDiagnosticSnapshot) &&
+    isRecord(value.saveSnapshot) &&
+    (value.controllerState === undefined || isRecord(value.controllerState))
+  );
+}
+
 export function isEditorToPreviewMessage(value: unknown): value is EditorToPreviewMessage {
   if (!isRecord(value) || value.version !== PREVIEW_PROTOCOL_VERSION || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
     return false;
@@ -193,6 +414,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-stop':
     case 'runtime-continue':
     case 'runtime-clear-object-selection':
+    case 'runtime-request-debug-snapshot':
     case 'request-preview-state':
       return true;
     case 'runtime-step':
@@ -240,7 +462,10 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return (
         typeof value.requestId === 'string' &&
         typeof value.ok === 'boolean' &&
-        (value.error === undefined || typeof value.error === 'string')
+        (value.error === undefined || typeof value.error === 'string') &&
+        value.snapshot === undefined &&
+        value.payload === undefined &&
+        value.state === undefined
       );
     case 'state':
       return isPosition(value.position) && typeof value.running === 'boolean';
@@ -248,6 +473,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return isPreviewStateSnapshot(value.state);
     case 'preview-snapshot':
       return typeof value.snapshotId === 'string' && typeof value.dataUrl === 'string';
+    case 'runtime-debug-snapshot':
+      return (value.requestId === undefined || typeof value.requestId === 'string') && isRuntimeDebugSnapshot(value.snapshot);
     case 'preview-diagnostic':
       return isPreviewDiagnosticMessage(value.diagnostic);
     case 'preview-object-selected':

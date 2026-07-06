@@ -3,6 +3,7 @@ import {
   isEditorToPreviewMessage,
   isPreviewDocument,
   isPreviewToEditorMessage,
+  isRuntimeDebugSnapshot,
   validatePreviewHandshake,
   type EnginePreviewSession,
 } from '../../shared/preview-protocol';
@@ -51,6 +52,7 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step-bad', deltaSeconds: -1 })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action', verbId: 'look', objectIds: ['lamp'] })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action-bad', verbId: 'look', objectIds: [1] })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-request-debug-snapshot', requestId: 'runtime-debug' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document: { kind: 'unknown' } })).toBe(false);
     const legacyLayoutMode = `ui-${'layout'}`;
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: legacyLayoutMode })).toBe(false);
@@ -61,8 +63,45 @@ describe('preview protocol validation', () => {
       type: 'preview-diagnostic',
       diagnostic: { severity: 'warning', message: 'Unsupported preview mode' },
     })).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'command-result', requestId: 'runtime-debug', ok: true })).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'command-result', requestId: 'runtime-debug', ok: true, snapshot: {} })).toBe(false);
     expect(isPreviewToEditorMessage({ version: 1, type: 'preview-snapshot', snapshotId: 's1', dataUrl: 'data:image/png;base64,test' })).toBe(true);
     expect(isPreviewToEditorMessage({ version: 1, type: 'fps-counter', fps: 59.9, frameTimeMs: 16.69, fpsCap: 60 })).toBe(true);
+  });
+
+  it('accepts typed runtime debug snapshots and rejects malformed snapshots', () => {
+    const snapshot = {
+      requestId: 'runtime-debug',
+      loaded: true,
+      running: true,
+      shellMode: 'game',
+      runtimeMode: 'dialogue',
+      entrypoint: { type: 'room', id: 'foyer', legacyType: 3, collection: 'rooms', label: 'Foyer' },
+      currentEntity: { type: 'dialogue', id: 'intro', legacyType: 5, collection: 'dialogues', label: 'Intro' },
+      currentRoomId: 'foyer',
+      currentDialogueId: 'intro',
+      waiting: { kind: 'choice', canContinue: false, reason: 'dialogue choices are available' },
+      availableInputs: {
+        continue: false,
+        dialogueOptions: [{ index: 0, label: 'Ask about the house', enabled: true }],
+        navigation: [{ index: 1, label: 'east', enabled: true }],
+        actions: [{ verbId: 'look', label: 'Look', objectCount: 1, selectedCount: 1, enabled: true }],
+        selectedObjects: ['lamp'],
+        clickableTargets: [],
+      },
+      variables: [{ id: 'route', label: 'Route', type: 'string', value: 'main', dirty: true, overridden: true }],
+      inventory: [{ id: 'lamp', label: 'Lamp', selected: true, enabled: true, location: { type: 'custom_script', id: 'player', legacyType: 0, collection: 'scripts' } }],
+      selectedObjects: ['lamp'],
+      diagnostics: [{ severity: 'warning', category: 'runtime', message: 'Example diagnostic' }],
+      saveSnapshot: { properties: { route: 'main' } },
+      controllerState: { mode: 'dialogue' },
+    };
+
+    expect(isRuntimeDebugSnapshot(snapshot)).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-debug-snapshot', requestId: 'runtime-debug', snapshot })).toBe(true);
+    expect(isRuntimeDebugSnapshot({ ...snapshot, waiting: { kind: 'blocked', canContinue: false } })).toBe(false);
+    expect(isRuntimeDebugSnapshot({ ...snapshot, saveSnapshot: [] })).toBe(false);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-debug-snapshot', snapshot: { ...snapshot, diagnostics: [{ severity: 'fatal', message: 'bad' }] } })).toBe(false);
   });
 
   it('rejects handshakes from the wrong source, origin, or token', () => {

@@ -490,18 +490,25 @@ thead, tbody, tfoot {
       return typeof Module !== 'undefined' && typeof Module[`_${exportName}`] === 'function';
     }
 
-    function completeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage) {
+    function invokeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage) {
       if (!nativeExportAvailable(exportName)) {
         failCommand(message, `Preview widget build does not export ${exportName}. Rebuild the editor preview.`, { category: 'preview-export' });
-        return;
+        return false;
       }
       const ok = Module.ccall(exportName, returnType, argTypes, args);
       if (returnType === null || returnType === 'void' || ok) {
         hideFailure();
-        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+        return true;
       } else {
         failCommand(message, failureMessage, { category: 'runtime-command' });
+        return false;
       }
+    }
+
+    function completeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage) {
+      const ok = invokeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage);
+      if (ok) send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      return ok;
     }
 
     function completeDemoCommand(message, exportName, argTypes, args, failureMessage, nextState) {
@@ -512,37 +519,81 @@ thead, tbody, tfoot {
       }
     }
 
+    function readRuntimeDebugSnapshot(message, failOnError) {
+      if (!nativeExportAvailable('noveltea_runtime_debug_snapshot')) {
+        const reason = 'Preview widget build does not export noveltea_runtime_debug_snapshot. Rebuild the editor preview.';
+        if (failOnError) failCommand(message, reason, { category: 'preview-export' });
+        else emitDiagnostic(message, { severity: 'warning', category: 'preview-export', message: reason });
+        return null;
+      }
+      const json = Module.ccall('noveltea_runtime_debug_snapshot', 'string', [], []);
+      if (typeof json !== 'string' || json.length === 0) {
+        const reason = 'Runtime debug snapshot is unavailable for the current preview session.';
+        if (failOnError) failCommand(message, reason, { category: 'runtime-debug-snapshot' });
+        else emitDiagnostic(message, { severity: 'warning', category: 'runtime-debug-snapshot', message: reason });
+        return null;
+      }
+      try {
+        const snapshot = JSON.parse(json);
+        if (message && typeof message.requestId === 'string') snapshot.requestId = message.requestId;
+        return snapshot;
+      } catch (error) {
+        const reason = `Runtime debug snapshot JSON could not be parsed: ${error && error.message ? error.message : String(error)}`;
+        if (failOnError) failCommand(message, reason, { category: 'runtime-debug-snapshot' });
+        else emitDiagnostic(message, { severity: 'warning', category: 'runtime-debug-snapshot', message: reason });
+        return null;
+      }
+    }
+
+    function emitRuntimeDebugSnapshot(message, options = {}) {
+      const snapshot = readRuntimeDebugSnapshot(message, options.failOnError === true);
+      if (!snapshot) return false;
+      send({ version: protocolVersion, type: 'runtime-debug-snapshot', requestId: message.requestId, snapshot });
+      return true;
+    }
+
     function handleRuntimeCommand(message) {
+      const finishRuntimeCommand = (exportName, returnType, argTypes, args, failureMessage) => {
+        const ok = invokeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage);
+        if (!ok) return;
+        emitRuntimeDebugSnapshot(message);
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      };
       switch (message.type) {
         case 'runtime-reset':
-          completeNativeCommand(message, 'noveltea_runtime_reset', 'number', [], [], 'Runtime reset was not handled. No runtime project may be loaded.');
+          finishRuntimeCommand('noveltea_runtime_reset', 'number', [], [], 'Runtime reset was not handled. No runtime project may be loaded.');
           return true;
         case 'runtime-start':
-          completeNativeCommand(message, 'noveltea_runtime_start', 'number', [], [], 'Runtime start was not handled in the current runtime mode.');
+          finishRuntimeCommand('noveltea_runtime_start', 'number', [], [], 'Runtime start was not handled in the current runtime mode.');
           return true;
         case 'runtime-stop':
-          completeNativeCommand(message, 'noveltea_runtime_stop', 'number', [], [], 'Runtime stop was not handled. No runtime project may be loaded.');
+          finishRuntimeCommand('noveltea_runtime_stop', 'number', [], [], 'Runtime stop was not handled. No runtime project may be loaded.');
           return true;
         case 'runtime-step':
-          completeNativeCommand(message, 'noveltea_runtime_step', 'number', ['number'], [Math.max(0, Number(message.deltaSeconds || 0))], 'Runtime step was not handled in the current runtime mode.');
+          finishRuntimeCommand('noveltea_runtime_step', 'number', ['number'], [Math.max(0, Number(message.deltaSeconds || 0))], 'Runtime step was not handled in the current runtime mode.');
           return true;
         case 'runtime-continue':
-          completeNativeCommand(message, 'noveltea_runtime_continue', 'number', [], [], 'Runtime continue was not handled in the current runtime mode.');
+          finishRuntimeCommand('noveltea_runtime_continue', 'number', [], [], 'Runtime continue was not handled in the current runtime mode.');
           return true;
         case 'runtime-dialogue-option':
-          completeNativeCommand(message, 'noveltea_runtime_dialogue_option', 'number', ['number'], [message.optionIndex], `Runtime dialogue option ${message.optionIndex} was not handled in the current runtime mode.`);
+          finishRuntimeCommand('noveltea_runtime_dialogue_option', 'number', ['number'], [message.optionIndex], `Runtime dialogue option ${message.optionIndex} was not handled in the current runtime mode.`);
           return true;
         case 'runtime-navigate':
-          completeNativeCommand(message, 'noveltea_runtime_navigate', 'number', ['number'], [message.direction], `Runtime navigation ${message.direction} was not handled in the current runtime mode.`);
+          finishRuntimeCommand('noveltea_runtime_navigate', 'number', ['number'], [message.direction], `Runtime navigation ${message.direction} was not handled in the current runtime mode.`);
           return true;
         case 'runtime-select-object':
-          completeNativeCommand(message, 'noveltea_runtime_select_object', 'number', ['string'], [message.objectId], `Runtime object selection '${message.objectId}' was not handled in the current runtime mode.`);
+          finishRuntimeCommand('noveltea_runtime_select_object', 'number', ['string'], [message.objectId], `Runtime object selection '${message.objectId}' was not handled in the current runtime mode.`);
           return true;
         case 'runtime-clear-object-selection':
-          completeNativeCommand(message, 'noveltea_runtime_clear_object_selection', 'number', [], [], 'Runtime clear selection was not handled in the current runtime mode.');
+          finishRuntimeCommand('noveltea_runtime_clear_object_selection', 'number', [], [], 'Runtime clear selection was not handled in the current runtime mode.');
           return true;
         case 'runtime-run-action':
-          completeNativeCommand(message, 'noveltea_runtime_run_action', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.objectIds || [])], `Runtime action '${message.verbId}' was not handled in the current runtime mode.`);
+          finishRuntimeCommand('noveltea_runtime_run_action', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.objectIds || [])], `Runtime action '${message.verbId}' was not handled in the current runtime mode.`);
+          return true;
+        case 'runtime-request-debug-snapshot':
+          if (emitRuntimeDebugSnapshot(message, { failOnError: true })) {
+            send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+          }
           return true;
         default:
           return false;
@@ -616,7 +667,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1'],
       });
       void drainCommands();
     }

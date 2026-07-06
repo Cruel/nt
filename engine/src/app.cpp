@@ -512,6 +512,20 @@ int noveltea_runtime_run_action(const char* verb_id, const char* object_ids_json
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
+const char* noveltea_runtime_debug_snapshot()
+{
+    static std::string snapshot;
+    if (!noveltea::g_preview_engine) {
+        snapshot.clear();
+        return snapshot.c_str();
+    }
+    snapshot = noveltea::g_preview_engine->runtime_preview_debug_snapshot();
+    return snapshot.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
 void noveltea_preview_resize(int logical_width, int logical_height, int framebuffer_width,
                              int framebuffer_height, float scale_x, float scale_y)
 {
