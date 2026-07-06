@@ -67,7 +67,7 @@ function sortPaths(paths: RoomPathData[]) {
 }
 
 export function RoomEditor({ tab }: WorkbenchEditorProps) {
-  const { t, i18n } = useTranslation('workspace');
+  const { t } = useTranslation('workspace');
   const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
   const projectDocument = useProjectStore((state) => state.document);
   const roomId = tab.resource?.entityId;
@@ -76,7 +76,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseRoomData(record?.data);
   const data = parsedData ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
   const diagnostics = useMemo(() => project && record && roomId ? validateRoomData(project, roomId, record) : [], [project, record, roomId]);
-  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [i18n.language, project, t]);
+  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const backgroundImageItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['assets'], assetKinds: ['image'], includeActions: false }), [selectorItems]);
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
   const targetRooms = project ? Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label })) : [];

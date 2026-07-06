@@ -47,15 +47,16 @@ const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
 };
 
 export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
-  const { t, i18n } = useTranslation('workspace');
+  const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const settings = project ? projectSettingsFromProject(project) : null;
   const diagnostics = useMemo(() => project ? validateAuthoringProject(project) : [], [project]);
   const projectSettingsDiagnostics = useMemo(() => project ? validateTypedProjectSettings(project) : [], [project]);
-  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [i18n.language, project, t]);
+  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const entrypointItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['rooms', 'scenes', 'dialogues', 'scripts'], includeActions: false }), [selectorItems]);
+  const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
   const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
@@ -90,7 +91,6 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
 
   const comfyUiSettings = settings.comfyui;
   const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label || id }));
-  const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
   const imageAssets = Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
     .map(([id, asset]) => ({ id, label: asset.label || id }));

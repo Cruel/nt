@@ -5,6 +5,7 @@ import { editorI18n, resolveEditorLanguage } from '@/i18n';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 function RootLayout() {
   const theme = usePreferencesStore((s) => s.theme);
@@ -46,7 +47,7 @@ function RootLayout() {
   }, [language]);
 
   useEffect(() => {
-    const projectName = project?.project.name.trim();
+    const projectName = project && isAuthoringProject(project) ? project.project.name.trim() : null;
     const parts = [activeTabTitle, projectName, 'NovelTea'].filter((part): part is string => Boolean(part));
     document.title = parts.join(' - ');
   }, [activeTabTitle, project]);

@@ -29,7 +29,6 @@ import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { recentProjectKey, useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { AppInfo } from '../../shared/electron-api';
 
 async function runMenuAction(action: () => Promise<unknown>) {

@@ -57,8 +57,8 @@ export function CommandPaletteDialog({
   onOpenChange: (open: boolean) => void;
   onOpenTab: (tab: WorkbenchTab) => void;
 }) {
-  const { t, i18n } = useTranslation('workspace');
-  const items = useMemo(() => buildCommandPaletteItems(project, t), [i18n.language, project, t]);
+  const { t } = useTranslation('workspace');
+  const items = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
 
   function choose(item: CommandPaletteItem) {
     const tab = tabForItem(item);
@@ -67,7 +67,7 @@ export function CommandPaletteDialog({
       onOpenChange(false);
       return;
     }
-    if (item.kind === 'action' && item.action) {
+    if (item.kind === 'action' && (item.action === 'new-project' || item.action === 'open-project')) {
       dispatchWorkspaceToolbarCommand(item.action);
       onOpenChange(false);
       return;

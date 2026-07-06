@@ -42,10 +42,10 @@ describe('command palette search', () => {
     expect(results[0]?.matches).toEqual(expect.arrayContaining([expect.objectContaining({ fieldKind: 'tag', fieldLabel: 'Tag', value: 'cool' })]));
   });
 
-  it('does not show project actions without project data', () => {
+  it('shows only non-project actions without project data', () => {
     const items = buildCommandPaletteItems(null);
     expect(items.map((item) => item.id)).toEqual(['action:settings', 'action:new-project', 'action:open-project']);
-    expect(searchCommandPaletteItems(items, 'settings')).toEqual([]);
+    expect(searchCommandPaletteItems(items, 'settings')[0]?.item.id).toBe('action:settings');
   });
 
   it('filters selector items by image asset kind', () => {

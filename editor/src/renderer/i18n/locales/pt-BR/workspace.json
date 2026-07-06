@@ -38,7 +38,7 @@
         "title": "Abrir Projeto"
       },
       "settings": {
-        "search": ["configurações", "preferências", "configurações do editor"],
+        "search": ["configurações", "preferências", "configurações do editor", "settings", "editor settings", "preferences"],
         "subtitle": "Abrir configurações do editor",
         "title": "Configurações"
       },
