@@ -1179,6 +1179,16 @@ void Engine::handle_events()
             if (ui_consumed)
                 break;
             if (event.key.key == SDLK_ESCAPE) {
+                if (m_runtime_shell.mode() == RuntimeShellMode::Paused) {
+                    RuntimeCommand command;
+                    command.source = RuntimeCommandSource::Platform;
+                    command.domain = RuntimeCommandDomain::Shell;
+                    command.name = "menu.close";
+                    auto result = m_runtime_shell.dispatch_command(std::move(command));
+                    core::RuntimeInputResult input_result = std::move(result.input_result);
+                    process_runtime_result(input_result);
+                    break;
+                }
                 if (m_runtime_shell.layouts().close_top_escape_layout()) {
                     break;
                 }
@@ -1187,16 +1197,6 @@ void Engine::handle_events()
                     command.source = RuntimeCommandSource::Platform;
                     command.domain = RuntimeCommandDomain::Shell;
                     command.name = "game.pause";
-                    auto result = m_runtime_shell.dispatch_command(std::move(command));
-                    core::RuntimeInputResult input_result = std::move(result.input_result);
-                    process_runtime_result(input_result);
-                    break;
-                }
-                if (m_runtime_shell.mode() == RuntimeShellMode::Paused) {
-                    RuntimeCommand command;
-                    command.source = RuntimeCommandSource::Platform;
-                    command.domain = RuntimeCommandDomain::Shell;
-                    command.name = "menu.close";
                     auto result = m_runtime_shell.dispatch_command(std::move(command));
                     core::RuntimeInputResult input_result = std::move(result.input_result);
                     process_runtime_result(input_result);

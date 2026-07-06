@@ -182,6 +182,42 @@ RuntimeCommandResult RuntimeCommandDispatcher::dispatch(RuntimeCommand command)
         result.handled = true;
         return finish(std::move(result));
     }
+    if (command.name == "menu.save") {
+        append_diagnostic(result, make_warning(command, "Save menu is not implemented yet"),
+                          {{"source", to_string(command.source)},
+                           {"domain", to_string(command.domain)},
+                           {"name", command.name},
+                           {"payload", command.payload}});
+        result.handled = true;
+        return finish(std::move(result));
+    }
+    if (command.name == "menu.text-log") {
+        append_diagnostic(result, make_warning(command, "Text log menu is not implemented yet"),
+                          {{"source", to_string(command.source)},
+                           {"domain", to_string(command.domain)},
+                           {"name", command.name},
+                           {"payload", command.payload}});
+        result.handled = true;
+        return finish(std::move(result));
+    }
+    if (command.name == "game.return-to-title") {
+        append_diagnostic(result, make_warning(command, "Return to title is not implemented yet"),
+                          {{"source", to_string(command.source)},
+                           {"domain", to_string(command.domain)},
+                           {"name", command.name},
+                           {"payload", command.payload}});
+        result.handled = true;
+        return finish(std::move(result));
+    }
+    if (command.name == "game.quit") {
+        append_diagnostic(result, make_warning(command, "Quit command is not implemented yet"),
+                          {{"source", to_string(command.source)},
+                           {"domain", to_string(command.domain)},
+                           {"name", command.name},
+                           {"payload", command.payload}});
+        result.handled = true;
+        return finish(std::move(result));
+    }
     if (command.name == "layout.add-layer") {
         const auto layout_id = string_payload(command.payload, "layout_id");
         if (!layout_id || layout_id->empty()) {

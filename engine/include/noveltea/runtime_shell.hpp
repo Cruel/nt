@@ -9,6 +9,7 @@
 
 #include <vector>
 #include <string>
+#include <unordered_set>
 
 namespace noveltea {
 
@@ -26,7 +27,10 @@ public:
 
     [[nodiscard]] RuntimeShellMode mode() const noexcept { return m_mode; }
     [[nodiscard]] bool loaded() const noexcept { return m_host.loaded(); }
-    [[nodiscard]] bool paused() const noexcept { return m_mode == RuntimeShellMode::Paused; }
+    [[nodiscard]] bool paused() const noexcept
+    {
+        return m_mode == RuntimeShellMode::Paused || !m_pause_tokens.empty();
+    }
 
     [[nodiscard]] core::RuntimeSessionHost& host() noexcept { return m_host; }
     [[nodiscard]] const core::RuntimeSessionHost& host() const noexcept { return m_host; }
@@ -51,6 +55,7 @@ public:
     [[nodiscard]] RuntimeLayoutInstanceId mount_gameplay_layout();
     [[nodiscard]] RuntimeLayoutInstanceId
     mount_gameplay_layout(std::string layout_id, std::optional<int> z_index = std::nullopt);
+    [[nodiscard]] RuntimeLayoutInstanceId mount_pause_menu_layout();
     void pause();
     void resume();
     [[nodiscard]] core::RuntimeInputResult start_game();
@@ -66,6 +71,7 @@ private:
     RuntimeCommandDispatcher m_dispatcher;
     RuntimeLayoutManager m_layouts;
     RuntimeShellMode m_mode = RuntimeShellMode::Boot;
+    std::unordered_set<std::string> m_pause_tokens;
     std::vector<core::RuntimeDiagnostic> m_last_diagnostics;
 };
 

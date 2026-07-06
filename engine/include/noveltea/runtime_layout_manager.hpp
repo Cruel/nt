@@ -23,6 +23,7 @@ enum class RuntimeLayoutBuiltinDocument {
     None,
     Title,
     GameHud,
+    PauseMenu,
 };
 
 struct RuntimeMountedLayout {
@@ -60,6 +61,7 @@ public:
     [[nodiscard]] RuntimeLayoutInstanceId mount(RuntimeLayoutMountRequest request);
     [[nodiscard]] RuntimeLayoutInstanceId mount_builtin_title(bool visible = true);
     [[nodiscard]] RuntimeLayoutInstanceId mount_builtin_game_hud(bool visible = true);
+    [[nodiscard]] RuntimeLayoutInstanceId mount_builtin_pause_menu(bool visible = true);
     [[nodiscard]] RuntimeLayoutInstanceId
     mount_game_hud_layout(std::string layout_id, std::optional<int> z_index = std::nullopt);
 

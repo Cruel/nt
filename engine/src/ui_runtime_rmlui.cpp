@@ -48,7 +48,9 @@ constexpr const char* kRuntimeUiSystemFontAsset = "system:/fonts/LiberationSans.
 constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
 constexpr const char* kRuntimeTitleDocumentId = "runtime_title";
 constexpr const char* kRuntimeGameDocumentId = "runtime_game";
+constexpr const char* kRuntimePauseMenuDocumentId = "runtime_pause_menu";
 constexpr const char* kRuntimeTitleDocumentAsset = "system:/ui/title/default-title.rml";
+constexpr const char* kRuntimePauseMenuDocumentAsset = "system:/ui/menu/pause-menu.rml";
 constexpr float kActiveTextRevealGlyphsPerSecond = 32.0f;
 
 void validate_visual_asset(const assets::AssetManager& assets, core::RuntimeUIViewState& state,
@@ -796,7 +798,8 @@ bool RuntimeUI::unload_document(const std::string& id)
     if (it == m_state->documents.end())
         return false;
 
-    if ((id == kRuntimeGameDocumentId || id == kRuntimeTitleDocumentId) &&
+    if ((id == kRuntimeGameDocumentId || id == kRuntimeTitleDocumentId ||
+         id == kRuntimePauseMenuDocumentId) &&
         m_state->runtime_input_listener) {
         it->second->RemoveEventListener("click", m_state->runtime_input_listener.get());
     }
@@ -885,6 +888,24 @@ bool RuntimeUI::load_runtime_document()
     return false;
 }
 
+bool RuntimeUI::load_pause_menu_document()
+{
+    if (!m_state || !m_state->context)
+        return false;
+    unload_document(kRuntimePauseMenuDocumentId);
+    Rml::ElementDocument* doc = m_state->context->LoadDocument(kRuntimePauseMenuDocumentAsset);
+    if (!doc) {
+        std::fprintf(stderr, "[runtime_ui] failed to load pause menu document: %s\n",
+                     kRuntimePauseMenuDocumentAsset);
+        return false;
+    }
+    m_state->documents[kRuntimePauseMenuDocumentId] = doc;
+    m_state->add_runtime_input_listener(*doc);
+    doc->Show();
+    std::printf("[runtime_ui] loaded pause menu document: %s\n", kRuntimePauseMenuDocumentAsset);
+    return true;
+}
+
 void* RuntimeUI::document(const std::string& id) const
 {
     if (!m_state)
@@ -908,6 +929,8 @@ bool RuntimeUI::reload_documents_and_styles()
         m_state->documents.find(kRuntimeTitleDocumentId) != m_state->documents.end();
     const bool had_runtime_doc =
         m_state->documents.find(kRuntimeGameDocumentId) != m_state->documents.end();
+    const bool had_pause_menu_doc =
+        m_state->documents.find(kRuntimePauseMenuDocumentId) != m_state->documents.end();
     const bool had_demo_doc = m_state->demo_document != nullptr;
 
     m_state->runtime_input_listener.reset();
@@ -938,6 +961,9 @@ bool RuntimeUI::reload_documents_and_styles()
     }
     if (had_title_doc) {
         ok = load_title_document() && ok;
+    }
+    if (had_pause_menu_doc) {
+        ok = load_pause_menu_document() && ok;
     }
 
     return ok;

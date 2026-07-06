@@ -261,12 +261,14 @@ TEST_CASE("Game bindings: dispatcher-backed shell commands route through Runtime
     auto menu = f.runtime.execute(R"(
         load_ok = Game.open_load_menu()
         settings_ok = Game.open_settings_menu()
+        save_ok = Game.command("menu.save")
         close_ok = Game.close_menu()
     )",
                                   "menus");
     REQUIRE(menu);
     CHECK(*f.runtime.evaluate_bool("load_ok", "load_ok").value);
     CHECK(*f.runtime.evaluate_bool("settings_ok", "settings_ok").value);
+    CHECK(*f.runtime.evaluate_bool("save_ok", "save_ok").value);
     CHECK(*f.runtime.evaluate_bool("close_ok", "close_ok").value);
 }
 

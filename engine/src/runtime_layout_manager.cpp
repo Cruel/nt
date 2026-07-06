@@ -11,8 +11,10 @@ namespace {
 
 constexpr const char* kRuntimeTitleDocumentId = "runtime_title";
 constexpr const char* kRuntimeGameDocumentId = "runtime_game";
+constexpr const char* kRuntimePauseMenuDocumentId = "runtime_pause_menu";
 constexpr const char* kBuiltinTitleLayoutId = "builtin:title";
 constexpr const char* kBuiltinGameHudLayoutId = "builtin:runtime_game";
+constexpr const char* kBuiltinPauseMenuLayoutId = "builtin:pause-menu";
 
 std::string sanitize_document_id(std::string value)
 {
@@ -81,6 +83,18 @@ void apply_default_document_ids(RuntimeLayoutMountRequest& request)
         request.blocks_game_input = false;
         request.pauses_gameplay = false;
         request.close_on_escape = false;
+    } else if (request.builtin_document == RuntimeLayoutBuiltinDocument::PauseMenu) {
+        if (request.layout_id.empty()) {
+            request.layout_id = kBuiltinPauseMenuLayoutId;
+        }
+        if (request.document_id.empty()) {
+            request.document_id = kRuntimePauseMenuDocumentId;
+        }
+        request.layer = RuntimeLayoutLayer::MenuOverlay;
+        request.modal = true;
+        request.blocks_game_input = true;
+        request.pauses_gameplay = true;
+        request.close_on_escape = true;
     }
     if (request.layout_id.empty()) {
         request.layout_id = request.document_id;
@@ -116,6 +130,9 @@ RuntimeLayoutInstanceId RuntimeLayoutManager::mount(RuntimeLayoutMountRequest re
         break;
     case RuntimeLayoutBuiltinDocument::GameHud:
         loaded = m_ui->load_runtime_document();
+        break;
+    case RuntimeLayoutBuiltinDocument::PauseMenu:
+        loaded = m_ui->load_pause_menu_document();
         break;
     case RuntimeLayoutBuiltinDocument::None:
         if (!request.asset_path.empty()) {
@@ -162,6 +179,15 @@ RuntimeLayoutInstanceId RuntimeLayoutManager::mount_builtin_game_hud(bool visibl
 {
     RuntimeLayoutMountRequest request;
     request.builtin_document = RuntimeLayoutBuiltinDocument::GameHud;
+    request.z_index = 0;
+    request.visible = visible;
+    return mount(std::move(request));
+}
+
+RuntimeLayoutInstanceId RuntimeLayoutManager::mount_builtin_pause_menu(bool visible)
+{
+    RuntimeLayoutMountRequest request;
+    request.builtin_document = RuntimeLayoutBuiltinDocument::PauseMenu;
     request.z_index = 0;
     request.visible = visible;
     return mount(std::move(request));

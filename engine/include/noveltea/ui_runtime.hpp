@@ -58,6 +58,7 @@ public:
     void bind_title_document(const std::string& project_title, const std::string& subtitle = "",
                              const std::string& start_label = "Start");
     bool load_runtime_document();
+    bool load_pause_menu_document();
     void* document(const std::string& id) const;
     void* element(const std::string& document_id, const std::string& element_id) const;
     bool reload_documents_and_styles();

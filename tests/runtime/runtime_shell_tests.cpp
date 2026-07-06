@@ -151,6 +151,28 @@ TEST_CASE("RuntimeShell pause suppresses updates and resume keeps loaded gamepla
     CHECK(shell.host().current_mode_name() == std::string_view("room"));
 }
 
+TEST_CASE("RuntimeShell pause and resume are idempotent and keep gameplay state")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.start_game().handled);
+    const auto body = shell.host().view_state().body;
+
+    shell.pause();
+    shell.pause();
+    CHECK(shell.mode() == RuntimeShellMode::Paused);
+    CHECK(shell.paused());
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().body == body);
+
+    shell.resume();
+    shell.resume();
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+    CHECK_FALSE(shell.paused());
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().body == body);
+}
+
 TEST_CASE("RuntimeShell enters error mode when project load fails")
 {
     RuntimeShell shell;
@@ -198,6 +220,7 @@ TEST_CASE("RuntimeCommandDispatcher controls pause resume and menu close")
     auto close = shell.dispatcher().dispatch(command("menu.close"));
     CHECK(close.handled);
     CHECK(shell.mode() == RuntimeShellMode::Game);
+    CHECK_FALSE(shell.paused());
 }
 
 TEST_CASE("RuntimeCommandDispatcher reports unknown command diagnostics")
@@ -228,6 +251,30 @@ TEST_CASE("RuntimeCommandDispatcher handles title placeholder menu commands")
     CHECK(has_output(settings.outputs, RuntimeOutputType::Diagnostic));
     CHECK(has_diagnostic_containing(settings.diagnostics, "Settings menu is not implemented yet"));
     CHECK(shell.mode() == RuntimeShellMode::Title);
+}
+
+TEST_CASE("RuntimeCommandDispatcher handles pause menu placeholder commands")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.dispatcher().dispatch(command("game.start")).handled);
+    REQUIRE(shell.dispatcher().dispatch(command("game.pause")).handled);
+
+    auto save = shell.dispatcher().dispatch(command("menu.save"));
+    CHECK(save.handled);
+    CHECK(has_output(save.outputs, RuntimeOutputType::Diagnostic));
+    CHECK(has_diagnostic_containing(save.diagnostics, "Save menu is not implemented yet"));
+    CHECK(shell.mode() == RuntimeShellMode::Paused);
+
+    auto title = shell.dispatcher().dispatch(command("game.return-to-title"));
+    CHECK(title.handled);
+    CHECK(has_diagnostic_containing(title.diagnostics, "Return to title is not implemented yet"));
+    CHECK(shell.mode() == RuntimeShellMode::Paused);
+
+    auto quit = shell.dispatcher().dispatch(command("game.quit"));
+    CHECK(quit.handled);
+    CHECK(has_diagnostic_containing(quit.diagnostics, "Quit command is not implemented yet"));
+    CHECK(shell.mode() == RuntimeShellMode::Paused);
 }
 
 TEST_CASE("RuntimeCommandDispatcher routes gameplay commands through session host")

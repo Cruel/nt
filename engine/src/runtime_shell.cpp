@@ -3,6 +3,10 @@
 #include <utility>
 
 namespace noveltea {
+namespace {
+constexpr const char* kPauseMenuToken = "pause-menu";
+constexpr const char* kRuntimePauseMenuDocumentId = "runtime_pause_menu";
+} // namespace
 
 RuntimeShell::RuntimeShell() : m_dispatcher(*this) {}
 
@@ -38,6 +42,7 @@ void RuntimeShell::reset()
     m_layouts.reset();
     m_host.reset();
     m_dispatcher.bind(this);
+    m_pause_tokens.clear();
     m_last_diagnostics.clear();
     m_mode = RuntimeShellMode::Boot;
 }
@@ -63,16 +68,32 @@ RuntimeLayoutInstanceId RuntimeShell::mount_gameplay_layout(std::string layout_i
     return m_layouts.mount_game_hud_layout(std::move(layout_id), z_index);
 }
 
+RuntimeLayoutInstanceId RuntimeShell::mount_pause_menu_layout()
+{
+    if (const auto* mounted = m_layouts.find_document(kRuntimePauseMenuDocumentId)) {
+        if (!mounted->visible) {
+            (void)m_layouts.show(mounted->instance_id);
+        }
+        return mounted->instance_id;
+    }
+    return m_layouts.mount_builtin_pause_menu(true);
+}
+
 void RuntimeShell::pause()
 {
     if (m_mode == RuntimeShellMode::Game) {
+        m_pause_tokens.insert(kPauseMenuToken);
+        (void)mount_pause_menu_layout();
         m_mode = RuntimeShellMode::Paused;
     }
 }
 
 void RuntimeShell::resume()
 {
-    if (m_mode == RuntimeShellMode::Paused) {
+    const bool was_paused = paused();
+    m_pause_tokens.erase(kPauseMenuToken);
+    (void)m_layouts.unmount_document(kRuntimePauseMenuDocumentId);
+    if (was_paused) {
         m_mode = RuntimeShellMode::Game;
     }
 }
@@ -106,7 +127,8 @@ core::RuntimeInputResult RuntimeShell::start_game()
 
 core::RuntimeInputResult RuntimeShell::update(double delta_seconds)
 {
-    if (m_mode != RuntimeShellMode::Game || m_layouts.pauses_gameplay() || !m_host.loaded()) {
+    if (m_mode != RuntimeShellMode::Game || paused() || m_layouts.pauses_gameplay() ||
+        !m_host.loaded()) {
         return {};
     }
 

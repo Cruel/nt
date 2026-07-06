@@ -1,0 +1,22 @@
+<rml>
+<head>
+    <title>NovelTea Pause Menu</title>
+    <link type="text/rcss" href="system|/ui/menu/pause-menu.rcss"/>
+</head>
+<body>
+    <main id="nt-pause-root">
+        <section id="nt-pause-panel">
+            <p id="nt-pause-kicker">Paused</p>
+            <h1 id="nt-pause-title">Game Menu</h1>
+            <nav id="nt-pause-actions">
+                <button id="nt-pause-resume" onclick="Game.resume()">Resume</button>
+                <button id="nt-pause-save" onclick="Game.command('menu.save')">Save</button>
+                <button id="nt-pause-load" onclick="Game.open_load_menu()">Load</button>
+                <button id="nt-pause-settings" onclick="Game.open_settings_menu()">Settings</button>
+                <button id="nt-pause-title-screen" onclick="Game.command('game.return-to-title')">Title</button>
+                <button id="nt-pause-quit" onclick="Game.command('game.quit')">Quit</button>
+            </nav>
+        </section>
+    </main>
+</body>
+</rml>

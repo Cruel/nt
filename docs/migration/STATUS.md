@@ -17,8 +17,8 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   explicit shell start path.
 - `RuntimeCommandDispatcher` is the shared semantic command path for UI/Lua/preview/playback-facing
   commands. It currently handles `game.start`, `game.pause`, `game.resume`, `menu.close`, gameplay
-  input commands, Load/Settings placeholder diagnostics, trace diagnostics, and unknown-command
-  diagnostics.
+  input commands, Load/Settings/Save/TextLog/Return-to-title/Quit placeholder diagnostics, trace
+  diagnostics, and unknown-command diagnostics.
 - `RuntimeLayoutManager` V0 is shell-owned and wraps RuntimeUI document load/show/hide/unload for
   mounted Layout metadata. Initial layers are Title, GameHud, MenuOverlay, Modal, and Debug. The
   built-in title Layout mounts as Title, `runtime_game` mounts as GameHud, and additional gameplay
@@ -34,6 +34,10 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
 - Built-in title Layout startup is implemented. Loading a runtime project mounts
   `system:/ui/title/default-title.rml` through the shell layout manager, binds the project title and
   Start label fallback, and defers loading `runtime_game` until `game.start`.
+- Built-in pause menu overlay is implemented at `system:/ui/menu/pause-menu.rml`. `game.pause`
+  mounts it as a modal MenuOverlay, adds the shell pause token, and gates gameplay `Tick` without
+  unloading gameplay state. `game.resume`, `menu.close`, Resume, and Escape while paused remove the
+  overlay and return to Game mode.
 - Runtime UI has C++-backed RmlUi components for ActiveText, MapView, and TextLog. ActiveText is
   rendered by the engine text/bgfx path after RmlUi layout provides bounds and input routing.
 - Runtime project/package export, playback specs, editor preview/tooling, typed assets, audio, shader
@@ -55,8 +59,8 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
 - Runtime entity start commands (`Game.start_room`, `Game.start_dialogue`, `Game.start_scene`, and
   `Game.run_script`) currently dispatch but return clear not-implemented diagnostics until those
   runtime flows are wired.
-- Save/load screens, platform-specific save persistence, and user-facing autosave feedback remain
-  incomplete.
+- Save/load/settings/text-log screens, return-to-title, quit flow, platform-specific save
+  persistence, and user-facing autosave feedback remain incomplete.
 - Lua-evaluated map visibility is deferred because `noveltea_core` must stay Lua-free; implement this
   through an engine-layer evaluation/result contract.
 - ActiveText/MapView presentation hardening remains: richer font-family fallback, higher-quality glow,
@@ -113,3 +117,13 @@ ctest --test-dir build/linux-debug -R "layout layer" --output-on-failure
 
 `format-check` was rerun after formatting touched files and now fails only on the pre-existing
 unrelated files listed above.
+
+Latest pause menu slice verification:
+
+```sh
+cmake --build --preset linux-debug
+./build/linux-debug/tests/noveltea_runtime_shell_tests
+ctest --test-dir build/linux-debug --output-on-failure -R "RuntimeShell|Game bindings"
+cmake --preset web-debug
+cmake --build --preset web-debug
+```
