@@ -1,0 +1,163 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { FullGamePreviewEditor } from '@/editors/preview/FullGamePreviewEditor';
+import { usePreviewManagerStore } from '@/preview/preview-manager-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+
+class FakePort {
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  closed = false;
+  sent: unknown[] = [];
+  peer: FakePort | null = null;
+  postMessage(message: unknown) {
+    this.sent.push(message);
+    this.peer?.onmessage?.({ data: message } as MessageEvent);
+  }
+  start() {}
+  close() {
+    this.closed = true;
+  }
+}
+
+const ports: FakePort[] = [];
+
+beforeEach(() => {
+  ports.length = 0;
+  vi.stubGlobal('MessageChannel', class {
+    port1 = new FakePort();
+    port2 = new FakePort();
+    constructor() {
+      this.port1.peer = this.port2;
+      this.port2.peer = this.port1;
+      ports.push(this.port1, this.port2);
+    }
+  });
+  usePreviewManagerStore.getState().resetPreviewManager();
+  useWorkbenchStore.getState().resetWorkbench();
+  useWorkspaceStore.setState({
+    previewPosition: { x: 0.5, y: 0.5 },
+    previewRunning: true,
+    previewConnectionState: 'disconnected',
+    selectedRuntimeObjectId: null,
+    lastPreviewEvent: null,
+    statusMessage: 'Preview disconnected',
+  });
+  usePreferencesStore.setState({ showPreviewFpsCounter: false });
+  vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
+    url: 'http://127.0.0.1:5000/?sessionToken=test-token',
+    origin: 'http://127.0.0.1:5000',
+    sessionToken: 'test-token',
+  });
+  vi.mocked(window.noveltea.reloadEnginePreview).mockResolvedValue({
+    url: 'http://127.0.0.1:5001/?sessionToken=test-token-2',
+    origin: 'http://127.0.0.1:5001',
+    sessionToken: 'test-token-2',
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+async function renderConnectedPreview() {
+  render(<FullGamePreviewEditor />);
+  const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+  await act(async () => {
+    window.dispatchEvent(new MessageEvent('message', {
+      source: iframe.contentWindow,
+      origin: 'http://127.0.0.1:5000',
+      data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+    }));
+    ports[1]?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+  });
+  await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
+  return { iframe, editorPort: ports[0]!, previewPort: ports[1]! };
+}
+
+describe('FullGamePreviewEditor', () => {
+  it('owns the runtime transport controls and sends runtime commands', async () => {
+    const user = userEvent.setup();
+    const { editorPort } = await renderConnectedPreview();
+    await user.click(screen.getByLabelText('Start runtime'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-start',
+      requestId: expect.any(String),
+    });
+    expect(useWorkspaceStore.getState().previewRunning).toBe(true);
+
+    await user.click(screen.getByLabelText('Stop runtime'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-stop',
+      requestId: expect.any(String),
+    });
+    expect(useWorkspaceStore.getState().previewRunning).toBe(false);
+
+    await user.click(screen.getByLabelText('Step runtime'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-step',
+      requestId: expect.any(String),
+    });
+    await user.click(screen.getByText('Continue'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-continue',
+      requestId: expect.any(String),
+    });
+  });
+
+  it('keeps existing gameplay/debug input probes in the full-game preview tab', async () => {
+    const user = userEvent.setup();
+    const { editorPort } = await renderConnectedPreview();
+    await user.click(screen.getByText('Nav 0'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-navigate',
+      requestId: expect.any(String),
+      direction: 0,
+    });
+    await user.click(screen.getByText('Choice 0'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-dialogue-option',
+      requestId: expect.any(String),
+      optionIndex: 0,
+    });
+    await user.click(screen.getByText('Action'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-run-action',
+      requestId: expect.any(String),
+      verbId: 'look',
+      objectIds: [],
+    });
+  });
+
+  it('sends engine FPS settings from the full-game preview cap input', async () => {
+    const user = userEvent.setup();
+    usePreferencesStore.setState({ showPreviewFpsCounter: true });
+    const { editorPort } = await renderConnectedPreview();
+    const capInput = screen.getByLabelText('Cap') as HTMLInputElement;
+    await user.clear(capInput);
+    await user.type(capInput, '30');
+    await waitFor(() => expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-engine-settings',
+      requestId: expect.any(String),
+      settings: { showFpsCounter: true, fpsCap: 30 },
+    }));
+  });
+
+  it('reload cleanup closes the previous MessagePort', async () => {
+    const user = userEvent.setup();
+    const { editorPort } = await renderConnectedPreview();
+    await user.click(screen.getByLabelText('Reload engine preview'));
+    expect(editorPort.closed).toBe(true);
+  });
+});

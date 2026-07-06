@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Maximize2,
   Minus,
+  Play,
   Redo2,
   Save,
   Square,
@@ -50,16 +51,18 @@ function WorkspaceTopToolbar() {
   const commandHistory = useCommandStore((state) => state.history);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
-  const saveDirty = projectDirty || hasDraftDirty;
-  const canUndo = commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
-  const canRedo = commandHistory.cursor < commandHistory.entries.length - 1 && !commandHistory.activeTransaction;
-  if (!project) return null;
+  const saveDirty = !!project && (projectDirty || hasDraftDirty);
+  const canUndo = !!project && commandHistory.cursor >= 0 && !commandHistory.activeTransaction;
+  const canRedo = !!project && commandHistory.cursor < commandHistory.entries.length - 1 && !commandHistory.activeTransaction;
 
   return (
     <div className="flex min-w-0 items-center gap-1" style={noDragStyle}>
       <span className="mr-2 max-w-64 truncate font-mono text-[11px] text-muted-foreground" title="NovelTea">
         NovelTea
       </span>
+      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('play-game')} disabled={!project} title={t('actions.playDebugGame')}>
+        <Play className="h-3.5 w-3.5" />
+      </Button>
       <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('undo')} disabled={!canUndo} title={t('actions.undo')}>
         <Undo2 className="h-3.5 w-3.5" />
       </Button>

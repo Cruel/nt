@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssetsEditorTab, buildDefaultRecordTab, buildPrimaryPreviewTab, buildTestsEditorTab, buildVariablesEditorTab } from '@/workbench/editor-registry';
+import { buildAssetsEditorTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildPrimaryPreviewTab, buildTestsEditorTab, buildVariablesEditorTab } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
 describe('editor registry', () => {
   it('resolves default editor registrations', () => {
     expect(defaultEditorRegistry.resolve('engine-preview')?.label).toBe('Engine Preview');
+    expect(defaultEditorRegistry.resolve('full-game-preview')?.label).toBe('Play');
     expect(defaultEditorRegistry.resolve('placeholder-entity')?.label).toBe('Placeholder Entity');
     expect(defaultEditorRegistry.resolve('raw-json')).toBeNull();
   });
@@ -15,6 +16,15 @@ describe('editor registry', () => {
       id: 'tab:primary-preview',
       editorType: 'engine-preview',
       resource: { stableId: 'preview:primary' },
+    });
+  });
+
+  it('builds a stable full-game preview tab descriptor', () => {
+    expect(buildFullGamePreviewTab()).toMatchObject({
+      id: 'tab:full-game-preview',
+      title: 'Play',
+      editorType: 'full-game-preview',
+      resource: { stableId: 'preview:full-game' },
     });
   });
 

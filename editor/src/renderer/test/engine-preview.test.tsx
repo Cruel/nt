@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { EnginePreview } from '@/components/engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
@@ -129,79 +128,21 @@ describe('EnginePreview', () => {
     });
   });
 
-  it('demo coordinate input updates Zustand and sends a compatibility command', async () => {
-    const user = userEvent.setup();
-    const { editorPort } = await renderConnectedPreview();
-    const input = screen.getByLabelText('Demo X') as HTMLInputElement;
-    await user.clear(input);
-    await user.type(input, '0.75');
-    expect(useWorkspaceStore.getState().previewPosition.x).toBeCloseTo(0.75);
-    expect(usePreviewManagerStore.getState().replay.primaryRuntime.position.x).toBeCloseTo(0.75);
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'set-demo-position',
-      requestId: expect.any(String),
-      position: { x: 0.75, y: 0.5 },
-    });
+  it('keeps ad-hoc runtime controls out of the generic preview chrome', async () => {
+    await renderConnectedPreview();
+    expect(screen.queryByLabelText('Start runtime')).not.toBeInTheDocument();
+    expect(screen.queryByText('Continue')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Cap')).not.toBeInTheDocument();
   });
 
-  it('runtime controls send runtime input commands', async () => {
-    const user = userEvent.setup();
-    const { editorPort } = await renderConnectedPreview();
-    await user.click(screen.getByLabelText('Start runtime'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-start',
-      requestId: expect.any(String),
-    });
-    await user.click(screen.getByLabelText('Stop runtime'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-stop',
-      requestId: expect.any(String),
-    });
-    await user.click(screen.getByLabelText('Step runtime'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-step',
-      requestId: expect.any(String),
-    });
-    await user.click(screen.getByText('Continue'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-continue',
-      requestId: expect.any(String),
-    });
-  });
-
-  it('toolbar play and stop dispatch runtime start and stop commands', async () => {
-    const { editorPort } = await renderConnectedPreview();
-    act(() => window.dispatchEvent(new Event('noveltea-preview-toolbar-play')));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-start',
-      requestId: expect.any(String),
-    });
-    act(() => window.dispatchEvent(new Event('noveltea-preview-toolbar-stop')));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-stop',
-      requestId: expect.any(String),
-    });
-  });
-
-  it('sends engine FPS settings from editor preferences and the cap toolbar', async () => {
-    const user = userEvent.setup();
+  it('sends engine FPS settings from editor preferences', async () => {
     usePreferencesStore.setState({ showPreviewFpsCounter: true });
     const { editorPort } = await renderConnectedPreview();
-    const capInput = screen.getByLabelText('Cap') as HTMLInputElement;
-    await user.clear(capInput);
-    await user.type(capInput, '30');
     expect(editorPort.sent).toContainEqual({
       version: 1,
       type: 'set-engine-settings',
       requestId: expect.any(String),
-      settings: { showFpsCounter: true, fpsCap: 30 },
+      settings: { showFpsCounter: true, fpsCap: 0 },
     });
   });
 
@@ -227,13 +168,6 @@ describe('EnginePreview', () => {
     });
     const diagnostics = usePreviewManagerStore.getState().diagnosticOrder.map((id) => usePreviewManagerStore.getState().diagnosticsById[id]);
     expect(diagnostics[0]).toMatchObject({ severity: 'error', source: 'runtime', message: 'preview failed' });
-  });
-
-  it('reload cleanup closes the previous MessagePort', async () => {
-    const user = userEvent.setup();
-    const { editorPort } = await renderConnectedPreview();
-    await user.click(screen.getByLabelText('Reload engine preview'));
-    expect(editorPort.closed).toBe(true);
   });
 
   it('missing preview build displays the build instruction', async () => {

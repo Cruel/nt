@@ -6,6 +6,7 @@
     "copy": "Copy",
     "cut": "Cut",
     "paste": "Paste",
+    "playDebugGame": "Play / Debug Game",
     "redo": "Redo",
     "resetToDefaults": "Reset to Defaults",
     "save": "Save",

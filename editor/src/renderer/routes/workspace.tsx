@@ -24,7 +24,7 @@ import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { buildEditorProjectStateSnapshot, clearLocalEditorSessionSnapshot, mergeEditorProjectState, restoreEditorProjectState, restoreNoProjectEditorSession, saveLocalEditorSessionSnapshot } from '@/workbench/project-editor-state';
-import { buildPrimaryPreviewTab, buildProjectSettingsTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import { buildFullGamePreviewTab, buildProjectSettingsTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
@@ -791,15 +791,16 @@ export function WorkspacePage() {
         case 'export-package':
           exportRuntimePackage();
           break;
+        case 'play-game':
+          openWorkbenchTab(buildFullGamePreviewTab());
+          break;
         case 'preview-play':
-          openWorkbenchTab(buildPrimaryPreviewTab());
+          openWorkbenchTab(buildFullGamePreviewTab());
           setPreviewRunning(true);
-          window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-play'));
           break;
         case 'preview-stop':
-          openWorkbenchTab(buildPrimaryPreviewTab());
+          openWorkbenchTab(buildFullGamePreviewTab());
           setPreviewRunning(false);
-          window.dispatchEvent(new CustomEvent('noveltea-preview-toolbar-stop'));
           break;
         case 'undo':
           undoProjectCommand();

@@ -1,20 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MousePointer2, Play, RefreshCw, RotateCcw, Square, StepForward } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useEnginePreview } from '@/hooks/use-engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import type { PreviewDocument, PreviewMode, PreviewPosition, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type { PreviewConnectionState, PreviewDocument, PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 const BUILD_COMMAND = 'pnpm engine:preview:build';
-
-function clamp01(value: number) {
-  return Math.min(1, Math.max(0, value));
-}
 
 function previewDocumentTarget(document: PreviewDocument) {
   if (document.kind === 'symbolic') return document.target;
@@ -54,17 +47,31 @@ function appendSessionParams(url: string, params: Record<string, string | number
   return next.toString();
 }
 
-function sanitizeFpsCap(value: number) {
+export function sanitizePreviewFpsCap(value: number) {
   return Number.isFinite(value) ? Math.min(1000, Math.max(0, Math.trunc(value))) : 0;
+}
+
+export type EnginePreviewController = ReturnType<typeof useEnginePreview>;
+
+export type EnginePreviewConnectionState = PreviewConnectionState;
+
+export interface EnginePreviewControlsContext {
+  controller: EnginePreviewController;
+  connectionState: EnginePreviewConnectionState;
+  fpsCap: number;
+  setFpsCap: (value: number) => void;
+  reload: () => void;
+  sendRuntimeCommand: (command: Promise<void>, label: string) => void;
 }
 
 interface EnginePreviewProps {
   chrome?: 'runtime' | 'minimal';
   previewDocument?: PreviewDocument;
   previewMode?: PreviewMode;
+  renderControls?: (context: EnginePreviewControlsContext) => ReactNode;
 }
 
-export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode = 'runtime' }: EnginePreviewProps) {
+export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode = 'runtime', renderControls }: EnginePreviewProps) {
   const embedded = chrome === 'minimal';
   const sessionId = embedded && previewDocument && previewDocument.kind !== 'symbolic'
     ? `${previewDocument.kind}:${previewDocument.recordId}`
@@ -78,23 +85,21 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   const replayDocuments = usePreviewManagerStore((s) => s.replay.documentsBySessionId);
   const replayModes = usePreviewManagerStore((s) => s.replay.modeBySessionId);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
-  const previewPosition = useWorkspaceStore((s) => s.previewPosition);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
-  const setPreviewPosition = useWorkspaceStore((s) => s.setPreviewPosition);
-  const setPreviewRunning = useWorkspaceStore((s) => s.setPreviewRunning);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
   const setSelectedRuntimeObjectId = useWorkspaceStore((s) => s.setSelectedRuntimeObjectId);
   const setLastPreviewEvent = useWorkspaceStore((s) => s.setLastPreviewEvent);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
   const activateGroup = useWorkbenchStore((s) => s.activateGroup);
   const previewHostRef = useRef<HTMLDivElement | null>(null);
-  const [localConnectionState, setLocalConnectionState] = useState<'loading' | 'connecting' | 'ready' | 'missing' | 'error'>('loading');
+  const [localConnectionState, setLocalConnectionState] = useState<EnginePreviewConnectionState>('loading');
   const [fpsCap, setFpsCap] = useState(0);
   const connectionState = embedded ? localConnectionState : globalConnectionState;
-  const setConnectionState = useCallback((next: typeof localConnectionState) => {
+  const setConnectionState = useCallback((next: EnginePreviewConnectionState) => {
     if (embedded) setLocalConnectionState(next);
     else setGlobalConnectionState(next);
   }, [embedded, setGlobalConnectionState]);
+  const setSanitizedFpsCap = useCallback((value: number) => setFpsCap(sanitizePreviewFpsCap(value)), []);
 
   const activateContainingWorkbenchGroup = useCallback(() => {
     // Iframe focus does not reliably bubble to React, so activate the owning workbench group explicitly.
@@ -163,17 +168,6 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     iframeKey,
     session,
     loadSession,
-    setPosition,
-    runtimeReset,
-    startRuntime,
-    stopRuntime,
-    stepRuntime,
-    continueRuntime,
-    selectDialogueOption,
-    navigateRuntime,
-    selectRuntimeObject,
-    clearRuntimeObjectSelection,
-    runRuntimeAction,
     loadPreviewDocument,
     setPreviewMode,
     setEngineSettings,
@@ -250,34 +244,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
       });
   }, [connectionState, embedded, loadPreviewDocument, previewDocument, previewMode, recordPreviewDiagnostic, replayDocuments, replayModes, sessionId, setPreviewMode]);
 
-  useEffect(() => {
-    if (embedded) return undefined;
-    const handlePlay = () => {
-      setPreviewRunning(true);
-      setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition, running: true });
-      void startRuntime().catch((error: Error) => recordTransportError(error.message));
-    };
-    const handleStop = () => {
-      setPreviewRunning(false);
-      setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition, running: false });
-      void stopRuntime().catch((error: Error) => recordTransportError(error.message));
-    };
-    window.addEventListener('noveltea-preview-toolbar-play', handlePlay);
-    window.addEventListener('noveltea-preview-toolbar-stop', handleStop);
-    return () => {
-      window.removeEventListener('noveltea-preview-toolbar-play', handlePlay);
-      window.removeEventListener('noveltea-preview-toolbar-stop', handleStop);
-    };
-  }, [embedded, recordTransportError, startRuntime, stopRuntime, setPreviewRunning, setPrimaryRuntimeReplay]);
-
-  const updatePosition = useCallback((position: PreviewPosition) => {
-    const next = { x: clamp01(position.x), y: clamp01(position.y) };
-    setPreviewPosition(next);
-    setPrimaryRuntimeReplay({ position: next, running: useWorkspaceStore.getState().previewRunning });
-    void setPosition(next).catch((error: Error) => recordTransportError(error.message));
-  }, [recordTransportError, setPosition, setPreviewPosition, setPrimaryRuntimeReplay]);
-
-  const reload = () => {
+  const reload = useCallback(() => {
     setConnectionState('loading');
     setSessionStatus(sessionId, 'loading');
     void loadSession(true)
@@ -291,13 +258,24 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
         recordPreviewDiagnostic({ sessionId, severity: 'error', source: 'transport', message });
         if (!embedded) setStatusMessage(message);
       });
-  };
+  }, [embedded, loadSession, recordPreviewDiagnostic, sessionId, setConnectionState, setPrimaryTransport, setSessionStatus, setStatusMessage]);
 
-  const sendRuntimeCommand = (command: Promise<void>, label: string) => {
+  const sendRuntimeCommand = useCallback((command: Promise<void>, label: string) => {
     void command
       .then(() => setStatusMessage(label))
       .catch((error: Error) => recordTransportError(error.message));
-  };
+  }, [recordTransportError, setStatusMessage]);
+
+  const controls = !embedded && renderControls
+    ? renderControls({
+        controller,
+        connectionState,
+        fpsCap,
+        setFpsCap: setSanitizedFpsCap,
+        reload,
+        sendRuntimeCommand,
+      })
+    : null;
 
   const iframeSrc = useMemo(() => {
     if (!session) return null;
@@ -308,52 +286,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      {!embedded ? (
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-          <Button size="sm" variant="ghost" onClick={reload} aria-label="Reload engine preview">
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => sendRuntimeCommand(runtimeReset(), 'Runtime reset')} aria-label="Reset runtime">
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(startRuntime(), 'Runtime started')} aria-label="Start runtime">
-            <Play className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(stopRuntime(), 'Runtime stopped')} aria-label="Stop runtime">
-            <Square className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(stepRuntime(), 'Runtime stepped')} aria-label="Step runtime">
-            <StepForward className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(continueRuntime(), 'Continue input sent')}>
-            <StepForward className="h-4 w-4" />
-            Continue
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(navigateRuntime(0), 'Navigate 0 sent')}>Nav 0</Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(selectDialogueOption(0), 'Dialogue option 0 sent')}>Choice 0</Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(selectRuntimeObject('lamp'), 'Object selection sent')}>
-            <MousePointer2 className="h-4 w-4" />
-            Select
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(clearRuntimeObjectSelection(), 'Object selection cleared')}>Clear</Button>
-          <Button size="sm" variant="outline" onClick={() => sendRuntimeCommand(runRuntimeAction('look', []), 'Action input sent')}>
-            <MousePointer2 className="h-4 w-4" />
-            Action
-          </Button>
-          <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-            Cap
-            <Input className="h-7 w-16" type="number" min="0" max="1000" step="1" value={fpsCap} onChange={(event) => setFpsCap(sanitizeFpsCap(Number(event.target.value)))} />
-          </label>
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
-            Demo X
-            <Input className="h-7 w-16" type="number" min="0" max="1" step="0.01" value={previewPosition.x.toFixed(2)} onChange={(event) => updatePosition({ x: Number(event.target.value), y: previewPosition.y })} />
-          </label>
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
-            Y
-            <Input className="h-7 w-16" type="number" min="0" max="1" step="0.01" value={previewPosition.y.toFixed(2)} onChange={(event) => updatePosition({ x: previewPosition.x, y: Number(event.target.value) })} />
-          </label>
-        </div>
-      ) : null}
+      {controls}
       <div ref={previewHostRef} className="relative min-h-0 flex-1 bg-zinc-950">
         {iframeSrc ? (
           <iframe

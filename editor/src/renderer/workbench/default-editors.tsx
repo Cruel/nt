@@ -29,6 +29,7 @@ import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
 import { TestSuiteEditor } from '@/editors/tests/TestSuiteEditor';
 import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
+import { FullGamePreviewEditor } from '@/editors/preview/FullGamePreviewEditor';
 import { ChaptersEditor } from '@/editors/project/ChaptersEditor';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { TagsEditor } from '@/editors/project/TagsEditor';
@@ -44,6 +45,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Engine Preview',
     icon: MonitorPlay,
     component: EnginePreviewEditor,
+  },
+  {
+    type: 'full-game-preview',
+    label: 'Play',
+    icon: MonitorPlay,
+    component: FullGamePreviewEditor,
   },
   {
     type: 'asset-library',

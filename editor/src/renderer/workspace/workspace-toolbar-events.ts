@@ -10,6 +10,7 @@ export type WorkspaceToolbarCommand =
   | 'import-assets'
   | 'run-first-test'
   | 'export-package'
+  | 'play-game'
   | 'preview-play'
   | 'preview-stop'
   | 'undo'

@@ -342,11 +342,25 @@ export function buildPrimaryPreviewTab(): WorkbenchTab {
   };
 }
 
+export function buildFullGamePreviewTab(): WorkbenchTab {
+  return {
+    id: 'tab:full-game-preview',
+    title: 'Play',
+    editorType: 'full-game-preview',
+    preview: true,
+    resource: {
+      kind: 'preview',
+      stableId: 'preview:full-game',
+    },
+  };
+}
+
 export function editorIconClassNameForTab(tab: WorkbenchTab): string {
   return visualForEditorType(tab.editorType, tab.resource?.collection)?.colorClassName ?? '';
 }
 
 export function editorIconForType(editorType: string): ComponentType<{ className?: string }> {
+  if (editorType === 'full-game-preview') return MonitorPlay;
   if (editorType === 'engine-preview') return MonitorPlay;
   if (editorType === 'image-generation') return Images;
   if (editorType === 'asset-detail' || editorType === 'asset-library') return Image;
