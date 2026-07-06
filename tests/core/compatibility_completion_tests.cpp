@@ -314,6 +314,7 @@ TEST_CASE(
     CHECK(preview.inject_continue());
     CHECK(command_golden(preview.take_captured_commands()) ==
           std::vector<std::string>({
+              "cutscene-page-break:1:intro:intro",
               "cutscene-complete:1:intro:intro",
               "mode:1:intro:cutscene",
               "mode:3:foyer:room",
@@ -359,6 +360,7 @@ TEST_CASE(
     CHECK(preview.inject_dialogue_option(0));
     CHECK(command_golden(preview.take_captured_commands()) ==
           std::vector<std::string>({
+              "script-deferred:Continue",
               "dialogue-complete:5:guide:guide",
               "mode:5:guide:dialogue",
               "mode:3:kitchen:room",
