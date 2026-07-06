@@ -5,7 +5,6 @@ import {
   parseDialogueData,
   type DialogueBlockData,
   type DialogueData,
-  type DialogueEdgeData,
   type DialogueSegmentData,
 } from './authoring-dialogues';
 import { parseRoomData } from './authoring-rooms';

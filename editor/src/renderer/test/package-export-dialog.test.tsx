@@ -81,8 +81,8 @@ describe('PackageExportDialog', () => {
 
   it('disables export and shows blocking diagnostics when preflight fails', () => {
     const project = exportableProject();
-    project.entrypoint = { collection: 'scenes', id: 'opening' };
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: {} };
+    project.entrypoint = { collection: 'maps', id: 'overworld' };
+    project.maps.overworld = { id: 'overworld', label: 'Overworld', tags: [], data: {} };
 
     render(
       <PackageExportDialog
@@ -95,7 +95,7 @@ describe('PackageExportDialog', () => {
     );
 
     expect(screen.getByText('Export is blocked')).toBeInTheDocument();
-    expect(screen.getByText(/Entrypoint collection 'scenes' is not runtime-exportable yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Entrypoint collection 'maps' is not runtime-exportable yet/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fix Errors Before Export' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Open Project Settings' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Fix Errors Before Export' }));
