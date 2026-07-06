@@ -5,6 +5,7 @@ import {
   Database,
   FastForward,
   FilePlus2,
+  FolderOpen,
   MousePointer2,
   PackagePlus,
   Play,
@@ -22,12 +23,16 @@ import { Input } from '@/components/ui/input';
 import { useProjectStore } from '@/project/project-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useCommandStore } from '@/commands/command-store';
+import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
+import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import { parseVariableData, parseVariableDefaultText, variableDefaultValueToText } from '../../../shared/project-schema/authoring-variables';
+import { recordedTestDraftToTestData, type RecordedRuntimeInputKind } from '../../../shared/project-schema/recorded-test-draft';
 import type { RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage, RuntimeFastForwardResult } from '../../../shared/preview-protocol';
 
 type FullGamePreviewMode = 'debug' | 'recording';
-type RecordedRuntimeInputKind = 'continue' | 'dialogue-option' | 'navigate' | 'select-object' | 'clear-object-selection' | 'run-action';
 type RuntimeCommandFactory = () => Promise<void | RuntimeFastForwardResult>;
 
 interface RecordedRuntimeAction {
@@ -58,6 +63,8 @@ interface RecordedTestDraft {
   actions: RecordedRuntimeAction[];
   traceEvents: RecorderTraceEvent[];
   replayError?: string;
+  savedTestId?: string;
+  saveError?: string;
 }
 
 interface RuntimeCommandOptions {
@@ -191,6 +198,22 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
 
 function createRecordedAction(kind: RecordedRuntimeInputKind, label: string, input: RecordedRuntimeAction['input']): RecordedRuntimeAction {
   return { id: crypto.randomUUID(), kind, label, input, recordedAt: new Date().toISOString() };
+}
+
+function normalizeTestId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function nextRecordedTestId(project: AuthoringProject | null) {
+  const base = 'recorded-test';
+  if (!project?.tests[base]) return base;
+  let index = 2;
+  while (project.tests[`${base}-${index}`]) index += 1;
+  return `${base}-${index}`;
 }
 
 function executeRecordedAction(action: RecordedRuntimeAction, context: EnginePreviewControlsContext) {
@@ -465,21 +488,32 @@ function EventLogPanel({ entries, diagnostics }: { entries: RuntimeLogEntry[]; d
 
 function RecorderPanel({
   draft,
+  targetTestId,
+  onTargetTestIdChange,
   onStart,
   onStop,
   onClear,
   onUndoLast,
   onReplay,
+  onSaveNew,
+  onApplyExisting,
+  onOpenSavedTest,
 }: {
   draft: RecordedTestDraft;
+  targetTestId: string;
+  onTargetTestIdChange: (value: string) => void;
   onStart: () => void;
   onStop: () => void;
   onClear: () => void;
   onUndoLast: () => void;
   onReplay: () => void;
+  onSaveNew: () => void;
+  onApplyExisting: () => void;
+  onOpenSavedTest: () => void;
 }) {
   const isRecording = draft.mode === 'recording';
   const isReplaying = draft.mode === 'replaying';
+  const canSave = !isRecording && !isReplaying && draft.actions.length > 0;
   return (
     <Panel title="Recorder" icon={<FilePlus2 className="h-3.5 w-3.5" />}>
       <div className="flex flex-wrap gap-1">
@@ -493,13 +527,21 @@ function RecorderPanel({
         <Button size="sm" variant="ghost" disabled={isReplaying || (draft.actions.length === 0 && draft.traceEvents.length === 0)} onClick={onClear}>Clear</Button>
         <Button size="sm" variant="ghost" disabled={isReplaying || draft.actions.length === 0} onClick={onUndoLast}>Undo Last</Button>
         <Button size="sm" variant="outline" disabled={isRecording || isReplaying || draft.actions.length === 0} onClick={onReplay}>Replay</Button>
-        <Button size="sm" variant="outline" disabled title="Placeholder only; Phase H will persist authoring tests.">Save as New Test</Button>
-        <Button size="sm" variant="outline" disabled title="Placeholder only; Phase H will persist authoring tests.">Apply to Existing Test</Button>
+        <Button size="sm" variant="outline" disabled={!canSave} onClick={onSaveNew}>Save as New Test</Button>
+        <Button size="sm" variant="outline" disabled={!canSave || !targetTestId.trim()} onClick={onApplyExisting}>Apply to Existing Test</Button>
+      </div>
+      <div className="flex gap-1">
+        <Input className="h-8 text-xs" value={targetTestId} onChange={(event) => onTargetTestIdChange(event.target.value)} placeholder="Existing test id" />
+        <Button size="sm" variant="ghost" disabled={!draft.savedTestId} onClick={onOpenSavedTest} title="Open saved test">
+          <FolderOpen className="h-4 w-4" />
+        </Button>
       </div>
       <div className="rounded-md border bg-muted/40 p-2 text-[11px] text-muted-foreground">
         Recording captures runtime semantic inputs from this preview tab. UI-click recording is not runnable yet and is intentionally not emitted as a test step in this phase.
       </div>
       {draft.replayError ? <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">{draft.replayError}</div> : null}
+      {draft.saveError ? <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">{draft.saveError}</div> : null}
+      {draft.savedTestId ? <div className="rounded-md border p-2 text-xs text-muted-foreground">Saved test: <span className="font-mono">{draft.savedTestId}</span></div> : null}
       <div className="space-y-1">
         <div className="text-xs font-medium">Actions</div>
         {draft.actions.length === 0 ? <div className="text-xs text-muted-foreground">No recorded player actions yet.</div> : null}
@@ -529,7 +571,7 @@ function RecorderPanel({
   );
 }
 
-function RuntimeInspector({ state, project, controlsContext, mode, recorderDraft, onModeChange, onCommand, onRecorderStart, onRecorderStop, onRecorderClear, onRecorderUndoLast, onRecorderReplay }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mode: FullGamePreviewMode; recorderDraft: RecordedTestDraft; onModeChange: (mode: FullGamePreviewMode) => void; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void; onRecorderStart: () => void; onRecorderStop: () => void; onRecorderClear: () => void; onRecorderUndoLast: () => void; onRecorderReplay: () => void }) {
+function RuntimeInspector({ state, project, controlsContext, mode, recorderDraft, targetTestId, onTargetTestIdChange, onModeChange, onCommand, onRecorderStart, onRecorderStop, onRecorderClear, onRecorderUndoLast, onRecorderReplay, onRecorderSaveNew, onRecorderApplyExisting, onOpenSavedTest }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mode: FullGamePreviewMode; recorderDraft: RecordedTestDraft; targetTestId: string; onTargetTestIdChange: (value: string) => void; onModeChange: (mode: FullGamePreviewMode) => void; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void; onRecorderStart: () => void; onRecorderStop: () => void; onRecorderClear: () => void; onRecorderUndoLast: () => void; onRecorderReplay: () => void; onRecorderSaveNew: () => void; onRecorderApplyExisting: () => void; onOpenSavedTest: () => void }) {
   const mutationDisabled = mode === 'recording';
   return (
     <aside className="flex w-[360px] min-w-[320px] max-w-[420px] shrink-0 flex-col overflow-auto border-l bg-background">
@@ -541,7 +583,7 @@ function RuntimeInspector({ state, project, controlsContext, mode, recorderDraft
         </div>
       </div>
       <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">Debug-only mutation controls directly alter preview runtime state. Recording mode disables them by default.</div>
-      <RecorderPanel draft={recorderDraft} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} />
+      <RecorderPanel draft={recorderDraft} targetTestId={targetTestId} onTargetTestIdChange={onTargetTestIdChange} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} onSaveNew={onRecorderSaveNew} onApplyExisting={onRecorderApplyExisting} onOpenSavedTest={onOpenSavedTest} />
       <RuntimeSummaryPanel snapshot={state.snapshot} project={project} />
       <InputAvailabilityPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} onCommand={onCommand} />
       <VariablesPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
@@ -627,12 +669,19 @@ function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: E
 export function FullGamePreviewEditor() {
   const projectDocument = useProjectStore((state) => state.document);
   const project = useMemo(() => isAuthoringProject(projectDocument) ? projectDocument : null, [projectDocument]);
+  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const openTab = useWorkbenchStore((store) => store.openTab);
   const setPreviewRunning = useWorkspaceStore((s) => s.setPreviewRunning);
   const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
   const [mode, setMode] = useState<FullGamePreviewMode>('debug');
   const [recorderDraft, setRecorderDraft] = useState<RecordedTestDraft>({ mode: 'idle', actions: [], traceEvents: [] });
+  const [targetTestId, setTargetTestId] = useState('');
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
+
+  useEffect(() => {
+    if (!targetTestId.trim() && recorderDraft.savedTestId) setTargetTestId(recorderDraft.savedTestId);
+  }, [recorderDraft.savedTestId, targetTestId]);
 
   const requestDebugSnapshot = useCallback((context: EnginePreviewControlsContext | null) => {
     if (!context) return;
@@ -759,6 +808,88 @@ export function FullGamePreviewEditor() {
     replayActions(recorderDraft.actions, 'idle');
   }, [recorderDraft.actions, replayActions]);
 
+  const saveRecordingAsNewTest = useCallback(() => {
+    const testId = nextRecordedTestId(project);
+    const label = `Recorded Test ${new Date().toLocaleString()}`;
+    const conversion = recordedTestDraftToTestData(recorderDraft, { label });
+    if (!conversion.ok) {
+      const message = conversion.diagnostics[0] ?? 'Recording has no saveable runtime semantic actions.';
+      setRecorderDraft((current) => ({ ...current, saveError: message }));
+      return;
+    }
+    const result = executeCommand({
+      type: 'entity.createRecord',
+      label: `Create recorded test ${testId}`,
+      payload: { collection: 'tests', entityId: testId, label, data: conversion.data },
+    });
+    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+    if (failure) {
+      setRecorderDraft((current) => ({ ...current, saveError: failure.message }));
+      return;
+    }
+    setTargetTestId(testId);
+    setRecorderDraft((current) => ({
+      ...current,
+      savedTestId: testId,
+      saveError: undefined,
+      traceEvents: addTraceEvent(current.traceEvents, {
+        label: `Saved recording as ${testId}`,
+        detail: conversion.diagnostics.join('\n') || undefined,
+        severity: conversion.skippedActionCount > 0 ? 'warning' : 'info',
+      }),
+    }));
+    openTab(buildTestDetailTabForRecord(testId, label));
+  }, [executeCommand, openTab, project, recorderDraft]);
+
+  const applyRecordingToExistingTest = useCallback(() => {
+    const testId = normalizeTestId(targetTestId);
+    if (!testId) {
+      setRecorderDraft((current) => ({ ...current, saveError: 'Enter an existing test id first.' }));
+      return;
+    }
+    const record = project?.tests[testId];
+    if (!record) {
+      setRecorderDraft((current) => ({ ...current, saveError: `Test '${testId}' does not exist.` }));
+      return;
+    }
+    const label = record.label || testId;
+    const conversion = recordedTestDraftToTestData(recorderDraft, { label, base: parseTestData(record.data) ?? undefined });
+    if (!conversion.ok) {
+      const message = conversion.diagnostics[0] ?? 'Recording has no saveable runtime semantic actions.';
+      setRecorderDraft((current) => ({ ...current, saveError: message }));
+      return;
+    }
+    const result = executeCommand({
+      type: 'test.replaceData',
+      label: `Apply recording to ${testId}`,
+      payload: { testId, data: conversion.data },
+    });
+    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+    if (failure) {
+      setRecorderDraft((current) => ({ ...current, saveError: failure.message }));
+      return;
+    }
+    setTargetTestId(testId);
+    setRecorderDraft((current) => ({
+      ...current,
+      savedTestId: testId,
+      saveError: undefined,
+      traceEvents: addTraceEvent(current.traceEvents, {
+        label: `Applied recording to ${testId}`,
+        detail: conversion.diagnostics.join('\n') || undefined,
+        severity: conversion.skippedActionCount > 0 ? 'warning' : 'info',
+      }),
+    }));
+    openTab(buildTestDetailTabForRecord(testId, label));
+  }, [executeCommand, openTab, project, recorderDraft, targetTestId]);
+
+  const openSavedTest = useCallback(() => {
+    const testId = recorderDraft.savedTestId;
+    if (!testId) return;
+    const record = project?.tests[testId];
+    openTab(buildTestDetailTabForRecord(testId, record?.label || testId));
+  }, [openTab, project, recorderDraft.savedTestId]);
+
   return (
     <div className="flex h-full min-h-0 bg-background">
       <div className="min-w-0 flex-1">
@@ -776,6 +907,8 @@ export function FullGamePreviewEditor() {
         controlsContext={controlsRef.current}
         mode={mode}
         recorderDraft={recorderDraft}
+        targetTestId={targetTestId}
+        onTargetTestIdChange={setTargetTestId}
         onModeChange={setMode}
         onCommand={handleRuntimeCommand}
         onRecorderStart={startRecording}
@@ -783,6 +916,9 @@ export function FullGamePreviewEditor() {
         onRecorderClear={clearRecording}
         onRecorderUndoLast={undoLastRecordedAction}
         onRecorderReplay={replayRecording}
+        onRecorderSaveNew={saveRecordingAsNewTest}
+        onRecorderApplyExisting={applyRecordingToExistingTest}
+        onOpenSavedTest={openSavedTest}
       />
     </div>
   );
