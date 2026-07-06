@@ -775,16 +775,13 @@ bool runtime_property_known(const core::ProjectModel* project, const nlohmann::j
     return project && has_property_id(project->document_root(), property_id);
 }
 
-nlohmann::json make_runtime_debug_event(std::string kind, std::string label,
-                                        nlohmann::json target, nlohmann::json old_value,
-                                        nlohmann::json new_value, std::string message = {})
+nlohmann::json make_runtime_debug_event(std::string kind, std::string label, nlohmann::json target,
+                                        nlohmann::json old_value, nlohmann::json new_value,
+                                        std::string message = {})
 {
-    nlohmann::json event = {{"kind", std::move(kind)},
-                            {"debugOnly", true},
-                            {"label", std::move(label)},
-                            {"target", std::move(target)},
-                            {"oldValue", std::move(old_value)},
-                            {"newValue", std::move(new_value)}};
+    nlohmann::json event = {{"kind", std::move(kind)},          {"debugOnly", true},
+                            {"label", std::move(label)},        {"target", std::move(target)},
+                            {"oldValue", std::move(old_value)}, {"newValue", std::move(new_value)}};
     if (!message.empty()) {
         event["message"] = std::move(message);
     }
@@ -1804,8 +1801,7 @@ std::string Engine::runtime_preview_set_variable(const std::string& variable_id,
         value = nlohmann::json::parse(value_json);
     } catch (const std::exception& error) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "[runtime-preview] debug variable value JSON parse failed: %s",
-                    error.what());
+                    "[runtime-preview] debug variable value JSON parse failed: %s", error.what());
         return {};
     }
 
@@ -1814,15 +1810,16 @@ std::string Engine::runtime_preview_set_variable(const std::string& variable_id,
     host.refresh_interactions();
     return make_runtime_debug_event("variable-set", "Debug set variable",
                                     debug_variable_ref(variable_id), old_value,
-                                    session.property(variable_id),
-                                    "debug-only variable override").dump();
+                                    session.property(variable_id), "debug-only variable override")
+        .dump();
 }
 
 std::string Engine::runtime_preview_reset_variable(const std::string& variable_id)
 {
     if (!m_runtime_shell.loaded() || variable_id.empty()) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "[runtime-preview] cannot reset debug variable without a loaded runtime project");
+        SDL_LogWarn(
+            SDL_LOG_CATEGORY_APPLICATION,
+            "[runtime-preview] cannot reset debug variable without a loaded runtime project");
         return {};
     }
     auto& host = m_runtime_shell.host();
@@ -1839,10 +1836,10 @@ std::string Engine::runtime_preview_reset_variable(const std::string& variable_i
     const auto old_value = session.property(variable_id);
     session.unset_property(variable_id);
     host.refresh_interactions();
-    return make_runtime_debug_event("variable-reset", "Debug reset variable",
-                                    debug_variable_ref(variable_id), old_value,
-                                    session.property(variable_id),
-                                    "debug-only variable override removed").dump();
+    return make_runtime_debug_event(
+               "variable-reset", "Debug reset variable", debug_variable_ref(variable_id), old_value,
+               session.property(variable_id), "debug-only variable override removed")
+        .dump();
 }
 
 std::string Engine::runtime_preview_give_object(const std::string& object_id)
@@ -1878,8 +1875,8 @@ std::string Engine::runtime_preview_give_object(const std::string& object_id)
 std::string Engine::runtime_preview_remove_inventory_object(const std::string& object_id)
 {
     if (!m_runtime_shell.loaded() || object_id.empty()) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "[runtime-preview] cannot remove debug inventory object without a loaded runtime project");
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[runtime-preview] cannot remove debug inventory "
+                                                  "object without a loaded runtime project");
         return {};
     }
     auto& host = m_runtime_shell.host();
@@ -1922,8 +1919,8 @@ std::string Engine::runtime_preview_teleport_room(const std::string& room_id)
     }
 
     const nlohmann::json old_room = session.current_room_id()
-                                      ? nlohmann::json(*session.current_room_id())
-                                      : nlohmann::json(nullptr);
+                                        ? nlohmann::json(*session.current_room_id())
+                                        : nlohmann::json(nullptr);
     auto result = host.start_room(room_id);
     if (!result.handled) {
         process_runtime_result(result);
@@ -1932,12 +1929,179 @@ std::string Engine::runtime_preview_teleport_room(const std::string& room_id)
     process_runtime_result(result);
     host.refresh_interactions();
     const nlohmann::json new_room = session.current_room_id()
-                                      ? nlohmann::json(*session.current_room_id())
-                                      : nlohmann::json(nullptr);
-    return make_runtime_debug_event("room-teleport", "Debug teleport to room",
-                                    debug_entity_ref(
-                                        core::EntityRef{core::EntityType::Room, room_id}, project),
-                                    old_room, new_room, "debug-only teleport").dump();
+                                        ? nlohmann::json(*session.current_room_id())
+                                        : nlohmann::json(nullptr);
+    return make_runtime_debug_event(
+               "room-teleport", "Debug teleport to room",
+               debug_entity_ref(core::EntityRef{core::EntityType::Room, room_id}, project),
+               old_room, new_room, "debug-only teleport")
+        .dump();
+}
+
+std::string Engine::runtime_preview_fast_forward_to_input()
+{
+    constexpr int kMaxSemanticInputs = 500;
+    constexpr int kMaxSimulatedTicks = 300;
+    constexpr int kMaxUnchangedTicks = 20;
+    constexpr double kTickSeconds = 1.0 / 60.0;
+
+    auto parse_snapshot = [this]() {
+        try {
+            const auto snapshot_json = runtime_preview_debug_snapshot();
+            if (!snapshot_json.empty()) {
+                return nlohmann::json::parse(snapshot_json);
+            }
+        } catch (const std::exception& error) {
+            return nlohmann::json{
+                {"loaded", false},
+                {"running", false},
+                {"waiting",
+                 {{"kind", "error"},
+                  {"canContinue", false},
+                  {"reason", std::string("runtime debug snapshot parse failed: ") + error.what()}}},
+                {"availableInputs",
+                 {{"continue", false},
+                  {"dialogueOptions", nlohmann::json::array()},
+                  {"navigation", nlohmann::json::array()},
+                  {"actions", nlohmann::json::array()},
+                  {"selectedObjects", nlohmann::json::array()},
+                  {"clickableTargets", nlohmann::json::array()}}},
+                {"variables", nlohmann::json::array()},
+                {"inventory", nlohmann::json::array()},
+                {"selectedObjects", nlohmann::json::array()},
+                {"diagnostics", nlohmann::json::array()},
+                {"saveSnapshot", nlohmann::json::object()},
+                {"controllerState", nlohmann::json::object()}};
+        }
+        return nlohmann::json{{"loaded", false},
+                              {"running", false},
+                              {"waiting",
+                               {{"kind", "unloaded"},
+                                {"canContinue", false},
+                                {"reason", "runtime debug snapshot is unavailable"}}},
+                              {"availableInputs",
+                               {{"continue", false},
+                                {"dialogueOptions", nlohmann::json::array()},
+                                {"navigation", nlohmann::json::array()},
+                                {"actions", nlohmann::json::array()},
+                                {"selectedObjects", nlohmann::json::array()},
+                                {"clickableTargets", nlohmann::json::array()}}},
+                              {"variables", nlohmann::json::array()},
+                              {"inventory", nlohmann::json::array()},
+                              {"selectedObjects", nlohmann::json::array()},
+                              {"diagnostics", nlohmann::json::array()},
+                              {"saveSnapshot", nlohmann::json::object()},
+                              {"controllerState", nlohmann::json::object()}};
+    };
+
+    auto enabled_entries = [](const nlohmann::json& entries) {
+        if (!entries.is_array())
+            return 0;
+        return static_cast<int>(
+            std::count_if(entries.begin(), entries.end(), [](const auto& entry) {
+                return entry.is_object() && entry.value("enabled", true);
+            }));
+    };
+
+    auto classify_stop = [&](const nlohmann::json& snapshot) -> std::string {
+        if (!snapshot.value("loaded", false))
+            return "unloaded";
+        const auto shell_mode = snapshot.value("shellMode", std::string());
+        const auto runtime_mode = snapshot.value("runtimeMode", std::string());
+        const auto waiting = snapshot.value("waiting", nlohmann::json::object());
+        const auto waiting_kind = waiting.value("kind", std::string("unknown"));
+        if (shell_mode == "error" ||
+            diagnostics_have_error(snapshot.value("diagnostics", nlohmann::json::array())) ||
+            waiting_kind == "error")
+            return "error";
+        if (m_runtime_shell.paused() || m_runtime_shell.layouts().pauses_gameplay() ||
+            m_runtime_shell.layouts().blocks_game_input() || shell_mode == "paused" ||
+            shell_mode == "title" || waiting_kind == "paused" || waiting_kind == "title")
+            return "blocking-ui";
+        const auto inputs = snapshot.value("availableInputs", nlohmann::json::object());
+        if (enabled_entries(inputs.value("dialogueOptions", nlohmann::json::array())) > 0 ||
+            waiting_kind == "choice")
+            return "choice-available";
+        if (enabled_entries(inputs.value("navigation", nlohmann::json::array())) > 0 ||
+            waiting_kind == "navigation")
+            return "navigation-available";
+        if (enabled_entries(inputs.value("actions", nlohmann::json::array())) > 0 ||
+            waiting_kind == "action")
+            return "action-available";
+        const auto clickable_targets = inputs.value("clickableTargets", nlohmann::json::array());
+        if (clickable_targets.is_array() && !clickable_targets.empty())
+            return "ui-target-available";
+        if (runtime_mode == "none" && shell_mode == "game")
+            return "game-end";
+        if (waiting_kind == "explicit-input")
+            return "explicit-input";
+        return "auto-progress";
+    };
+
+    int steps_applied = 0;
+    int ticks_applied = 0;
+    int unchanged_ticks = 0;
+    std::string last_input;
+    std::string reason;
+    nlohmann::json final_snapshot = parse_snapshot();
+
+    for (;;) {
+        final_snapshot = parse_snapshot();
+        reason = classify_stop(final_snapshot);
+        if (reason != "auto-progress")
+            break;
+
+        const auto waiting = final_snapshot.value("waiting", nlohmann::json::object());
+        const auto inputs = final_snapshot.value("availableInputs", nlohmann::json::object());
+        if ((waiting.value("kind", std::string()) == "continue" ||
+             waiting.value("canContinue", false)) &&
+            inputs.value("continue", false)) {
+            if (!runtime_preview_continue()) {
+                reason = "stabilization-limit";
+                break;
+            }
+            ++steps_applied;
+            last_input = "continue";
+            unchanged_ticks = 0;
+        } else {
+            const bool handled = runtime_preview_step(kTickSeconds);
+            ++ticks_applied;
+            last_input = "tick";
+            unchanged_ticks = handled ? 0 : unchanged_ticks + 1;
+            if (unchanged_ticks >= kMaxUnchangedTicks) {
+                reason = "stabilization-limit";
+                break;
+            }
+        }
+
+        if (steps_applied >= kMaxSemanticInputs || ticks_applied >= kMaxSimulatedTicks) {
+            reason = "budget-exhausted";
+            break;
+        }
+    }
+
+    final_snapshot = parse_snapshot();
+    nlohmann::json result = {{"reason", reason.empty() ? "stabilization-limit" : reason},
+                             {"stepsApplied", steps_applied},
+                             {"ticksApplied", ticks_applied},
+                             {"semanticInputBudget", kMaxSemanticInputs},
+                             {"simulatedTickBudget", kMaxSimulatedTicks},
+                             {"stabilizationTickBudget", kMaxUnchangedTicks},
+                             {"simulatedSecondsBudget", kMaxSimulatedTicks * kTickSeconds},
+                             {"finalSnapshot", final_snapshot}};
+    if (!last_input.empty()) {
+        result["lastInput"] = last_input;
+    }
+    if (reason == "budget-exhausted") {
+        result["diagnostic"] =
+            "Fast-forward stopped after reaching the semantic input or simulated tick budget.";
+    } else if (reason == "stabilization-limit") {
+        result["diagnostic"] = "Fast-forward stopped because the runtime did not reach a new input "
+                               "state within the stabilization budget.";
+    } else if (reason == "error") {
+        result["diagnostic"] = "Fast-forward stopped because runtime diagnostics contain an error.";
+    }
+    return result.dump();
 }
 
 std::string Engine::runtime_preview_debug_snapshot() const
@@ -1963,8 +2127,8 @@ std::string Engine::runtime_preview_debug_snapshot() const
 
     std::map<std::string, nlohmann::json> default_properties;
     if (project) {
-        if (const auto properties = project->document_root().find(
-                std::string(core::project_ids::properties));
+        if (const auto properties =
+                project->document_root().find(std::string(core::project_ids::properties));
             properties != project->document_root().end() && properties->is_object()) {
             for (const auto& [id, value] : properties->items()) {
                 default_properties.emplace(id, value);
@@ -1983,18 +2147,17 @@ std::string Engine::runtime_preview_debug_snapshot() const
         properties != save_snapshot.end() && properties->is_object()) {
         for (const auto& [id, value] : properties->items()) {
             const auto default_it = default_properties.find(id);
-            auto existing = std::find_if(variables.begin(), variables.end(),
-                                         [&](const nlohmann::json& variable) {
-                                             return variable.is_object() &&
-                                                    variable.value("id", std::string()) == id;
-                                         });
-            nlohmann::json variable = {{"id", id},
-                                       {"label", id},
-                                       {"type", json_value_type(value)},
-                                       {"value", value},
-                                       {"dirty", default_it == default_properties.end() ||
-                                                     default_it->second != value},
-                                       {"overridden", true}};
+            auto existing = std::find_if(
+                variables.begin(), variables.end(), [&](const nlohmann::json& variable) {
+                    return variable.is_object() && variable.value("id", std::string()) == id;
+                });
+            nlohmann::json variable = {
+                {"id", id},
+                {"label", id},
+                {"type", json_value_type(value)},
+                {"value", value},
+                {"dirty", default_it == default_properties.end() || default_it->second != value},
+                {"overridden", true}};
             if (default_it != default_properties.end()) {
                 variable["defaultValue"] = default_it->second;
             }

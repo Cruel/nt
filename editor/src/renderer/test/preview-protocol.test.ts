@@ -53,6 +53,7 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action', verbId: 'look', objectIds: ['lamp'] })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action-bad', verbId: 'look', objectIds: [1] })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-request-debug-snapshot', requestId: 'runtime-debug' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-fast-forward-to-input', requestId: 'runtime-fast-forward' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-set-variable', requestId: 'runtime-set-variable', variableId: 'flag', value: true })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-set-variable', requestId: 'runtime-set-variable-bad', variableId: 'flag' })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-reset-variable', requestId: 'runtime-reset-variable', variableId: 'flag' })).toBe(true);
@@ -78,6 +79,32 @@ describe('preview protocol validation', () => {
       event: { kind: 'variable-set', debugOnly: true, label: 'Debug set variable', target: { type: 'variable', id: 'flag', collection: 'variables' }, oldValue: false, newValue: true },
     })).toBe(true);
     expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-debug-event', event: { kind: 'variable-set', debugOnly: false, label: 'bad' } })).toBe(false);
+    expect(isPreviewToEditorMessage({
+      version: 1,
+      type: 'runtime-fast-forward-result',
+      requestId: 'runtime-fast-forward',
+      result: {
+        reason: 'choice-available',
+        stepsApplied: 12,
+        ticksApplied: 3,
+        lastInput: 'continue',
+        semanticInputBudget: 500,
+        simulatedTickBudget: 300,
+        stabilizationTickBudget: 20,
+        finalSnapshot: {
+          loaded: true,
+          running: true,
+          waiting: { kind: 'choice', canContinue: false },
+          availableInputs: { continue: false, dialogueOptions: [{ index: 0, label: 'Yes', enabled: true }], navigation: [], actions: [], selectedObjects: [], clickableTargets: [] },
+          variables: [],
+          inventory: [],
+          selectedObjects: [],
+          diagnostics: [],
+          saveSnapshot: {},
+        },
+      },
+    })).toBe(true);
+    expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-fast-forward-result', requestId: 'bad', result: { reason: 'continue', stepsApplied: 1, ticksApplied: 0, finalSnapshot: {} } })).toBe(false);
     expect(isPreviewToEditorMessage({ version: 1, type: 'preview-snapshot', snapshotId: 's1', dataUrl: 'data:image/png;base64,test' })).toBe(true);
     expect(isPreviewToEditorMessage({ version: 1, type: 'fps-counter', fps: 59.9, frameTimeMs: 16.69, fpsCap: 60 })).toBe(true);
   });

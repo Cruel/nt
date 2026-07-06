@@ -129,6 +129,20 @@ export interface RuntimeDebugDiagnosticSnapshot {
   luaTraceback?: string;
 }
 
+export type RuntimeFastForwardStopReason =
+  | 'choice-available'
+  | 'navigation-available'
+  | 'action-available'
+  | 'explicit-input'
+  | 'blocking-ui'
+  | 'ui-target-available'
+  | 'error'
+  | 'budget-exhausted'
+  | 'stabilization-limit'
+  | 'game-end'
+  | 'unloaded'
+  | 'unknown';
+
 export interface RuntimeDebugSnapshot {
   requestId?: string;
   loaded: boolean;
@@ -148,6 +162,19 @@ export interface RuntimeDebugSnapshot {
   diagnostics: RuntimeDebugDiagnosticSnapshot[];
   saveSnapshot: Record<string, unknown>;
   controllerState?: Record<string, unknown>;
+}
+
+export interface RuntimeFastForwardResult {
+  reason: RuntimeFastForwardStopReason;
+  stepsApplied: number;
+  ticksApplied: number;
+  lastInput?: 'continue' | 'tick' | string;
+  semanticInputBudget?: number;
+  simulatedTickBudget?: number;
+  stabilizationTickBudget?: number;
+  simulatedSecondsBudget?: number;
+  diagnostic?: string;
+  finalSnapshot: RuntimeDebugSnapshot;
 }
 
 export type RuntimeDebugEventKind =
@@ -184,6 +211,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-stop'; requestId: string }
   | { version: 1; type: 'runtime-step'; requestId: string; deltaSeconds?: number }
   | { version: 1; type: 'runtime-continue'; requestId: string }
+  | { version: 1; type: 'runtime-fast-forward-to-input'; requestId: string }
   | { version: 1; type: 'runtime-dialogue-option'; requestId: string; optionIndex: number }
   | { version: 1; type: 'runtime-navigate'; requestId: string; direction: number }
   | { version: 1; type: 'runtime-select-object'; requestId: string; objectId: string }
@@ -211,6 +239,7 @@ export type PreviewToEditorMessage =
   | { version: 1; type: 'preview-snapshot'; snapshotId: string; dataUrl: string }
   | { version: 1; type: 'runtime-debug-snapshot'; requestId?: string; snapshot: RuntimeDebugSnapshot }
   | { version: 1; type: 'runtime-debug-event'; requestId?: string; event: RuntimeDebugEvent }
+  | { version: 1; type: 'runtime-fast-forward-result'; requestId: string; result: RuntimeFastForwardResult }
   | { version: 1; type: 'preview-diagnostic'; diagnostic: PreviewDiagnosticMessage }
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
@@ -427,6 +456,47 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
   );
 }
 
+function isRuntimeFastForwardStopReason(value: unknown): value is RuntimeFastForwardStopReason {
+  return [
+    'choice-available',
+    'navigation-available',
+    'action-available',
+    'explicit-input',
+    'blocking-ui',
+    'ui-target-available',
+    'error',
+    'budget-exhausted',
+    'stabilization-limit',
+    'game-end',
+    'unloaded',
+    'unknown',
+  ].includes(String(value));
+}
+
+function isRuntimeFastForwardResult(value: unknown): value is RuntimeFastForwardResult {
+  if (!isRecord(value)) return false;
+  return (
+    isRuntimeFastForwardStopReason(value.reason) &&
+    typeof value.stepsApplied === 'number' &&
+    Number.isInteger(value.stepsApplied) &&
+    value.stepsApplied >= 0 &&
+    typeof value.ticksApplied === 'number' &&
+    Number.isInteger(value.ticksApplied) &&
+    value.ticksApplied >= 0 &&
+    (value.lastInput === undefined || typeof value.lastInput === 'string') &&
+    (value.semanticInputBudget === undefined ||
+      (typeof value.semanticInputBudget === 'number' && Number.isInteger(value.semanticInputBudget) && value.semanticInputBudget >= 0)) &&
+    (value.simulatedTickBudget === undefined ||
+      (typeof value.simulatedTickBudget === 'number' && Number.isInteger(value.simulatedTickBudget) && value.simulatedTickBudget >= 0)) &&
+    (value.stabilizationTickBudget === undefined ||
+      (typeof value.stabilizationTickBudget === 'number' && Number.isInteger(value.stabilizationTickBudget) && value.stabilizationTickBudget >= 0)) &&
+    (value.simulatedSecondsBudget === undefined ||
+      (typeof value.simulatedSecondsBudget === 'number' && Number.isFinite(value.simulatedSecondsBudget) && value.simulatedSecondsBudget >= 0)) &&
+    (value.diagnostic === undefined || typeof value.diagnostic === 'string') &&
+    isRuntimeDebugSnapshot(value.finalSnapshot)
+  );
+}
+
 function isRuntimeDebugEventKind(value: unknown): value is RuntimeDebugEventKind {
   return [
     'variable-set',
@@ -470,6 +540,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-start':
     case 'runtime-stop':
     case 'runtime-continue':
+    case 'runtime-fast-forward-to-input':
     case 'runtime-clear-object-selection':
     case 'runtime-request-debug-snapshot':
     case 'request-preview-state':
@@ -543,6 +614,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return (value.requestId === undefined || typeof value.requestId === 'string') && isRuntimeDebugSnapshot(value.snapshot);
     case 'runtime-debug-event':
       return (value.requestId === undefined || typeof value.requestId === 'string') && isRuntimeDebugEvent(value.event);
+    case 'runtime-fast-forward-result':
+      return typeof value.requestId === 'string' && isRuntimeFastForwardResult(value.result);
     case 'preview-diagnostic':
       return isPreviewDiagnosticMessage(value.diagnostic);
     case 'preview-object-selected':

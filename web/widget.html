@@ -552,6 +552,33 @@ thead, tbody, tfoot {
       return true;
     }
 
+    function finishRuntimeFastForward(message) {
+      if (!nativeExportAvailable('noveltea_runtime_fast_forward_to_input')) {
+        failCommand(message, 'Preview widget build does not export noveltea_runtime_fast_forward_to_input. Rebuild the editor preview.', { category: 'preview-export' });
+        return;
+      }
+      const resultJson = Module.ccall('noveltea_runtime_fast_forward_to_input', 'string', [], []);
+      if (typeof resultJson !== 'string' || resultJson.length === 0) {
+        failCommand(message, 'Runtime fast-forward-to-input did not return a result.', { category: 'runtime-fast-forward' });
+        return;
+      }
+      let result;
+      try {
+        result = JSON.parse(resultJson);
+      } catch (error) {
+        failCommand(message, 'Runtime fast-forward result JSON could not be parsed: ' + (error && error.message ? error.message : String(error)), { category: 'runtime-fast-forward' });
+        return;
+      }
+      send({ version: protocolVersion, type: 'runtime-fast-forward-result', requestId: message.requestId, result });
+      if (result && result.finalSnapshot) {
+        const snapshot = result.finalSnapshot;
+        snapshot.requestId = message.requestId;
+        send({ version: protocolVersion, type: 'runtime-debug-snapshot', requestId: message.requestId, snapshot });
+      } else {
+        emitRuntimeDebugSnapshot(message);
+      }
+    }
+
     function finishRuntimeDebugMutation(message, exportName, argTypes, args, failureMessage) {
       if (!nativeExportAvailable(exportName)) {
         failCommand(message, `Preview widget build does not export ${exportName}. Rebuild the editor preview.`, { category: 'preview-export' });
@@ -597,6 +624,9 @@ thead, tbody, tfoot {
           return true;
         case 'runtime-continue':
           finishRuntimeCommand('noveltea_runtime_continue', 'number', [], [], 'Runtime continue was not handled in the current runtime mode.');
+          return true;
+        case 'runtime-fast-forward-to-input':
+          finishRuntimeFastForward(message);
           return true;
         case 'runtime-dialogue-option':
           finishRuntimeCommand('noveltea_runtime_dialogue_option', 'number', ['number'], [message.optionIndex], `Runtime dialogue option ${message.optionIndex} was not handled in the current runtime mode.`);
@@ -705,7 +735,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
       });
       void drainCommands();
     }

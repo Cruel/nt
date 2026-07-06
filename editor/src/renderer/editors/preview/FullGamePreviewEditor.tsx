@@ -23,7 +23,7 @@ import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
 import { parseVariableData, parseVariableDefaultText, variableDefaultValueToText } from '../../../shared/project-schema/authoring-variables';
-import type { RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage } from '../../../shared/preview-protocol';
+import type { RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage, RuntimeFastForwardResult } from '../../../shared/preview-protocol';
 
 type FullGamePreviewMode = 'debug' | 'recording';
 
@@ -86,9 +86,29 @@ function addLogEntry(entries: RuntimeLogEntry[], entry: Omit<RuntimeLogEntry, 'i
   return [{ ...entry, id: `${Date.now()}-${entries.length}` }, ...entries].slice(0, 80);
 }
 
+function fastForwardDetail(result: RuntimeFastForwardResult) {
+  const parts = [
+    `reason=${result.reason}`,
+    `continues=${result.stepsApplied}`,
+    `ticks=${result.ticksApplied}`,
+  ];
+  if (result.lastInput) parts.push(`last=${result.lastInput}`);
+  if (result.diagnostic) parts.push(result.diagnostic);
+  return parts.join(' · ');
+}
+
+function fastForwardSeverity(result: RuntimeFastForwardResult): RuntimeLogEntry['severity'] {
+  if (result.reason === 'error') return 'error';
+  if (result.reason === 'budget-exhausted' || result.reason === 'stabilization-limit') return 'warning';
+  return 'info';
+}
+
 function previewMessageLabel(message: PreviewToEditorMessage): Omit<RuntimeLogEntry, 'id'> | null {
   if (message.type === 'runtime-debug-snapshot') {
     return { label: 'Runtime snapshot refreshed', detail: message.snapshot.waiting.reason ?? message.snapshot.waiting.kind, severity: 'info' };
+  }
+  if (message.type === 'runtime-fast-forward-result') {
+    return { label: 'Fast-forward stopped', detail: fastForwardDetail(message.result), severity: fastForwardSeverity(message.result) };
   }
   if (message.type === 'runtime-debug-event') {
     const detail = [message.event.kind, message.event.target?.id, `old=${stringifyValue(message.event.oldValue)}`, `new=${stringifyValue(message.event.newValue)}`]
@@ -364,7 +384,7 @@ function RuntimeInspector({ state, project, controlsContext, mode, onModeChange,
   );
 }
 
-function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: EnginePreviewControlsContext; onRuntimeCommand: (command: Promise<void>, label: string, running?: boolean) => void }) {
+function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: EnginePreviewControlsContext; onRuntimeCommand: (command: Promise<void | RuntimeFastForwardResult>, label: string, running?: boolean) => void }) {
   const runtimeDisabled = context.connectionState !== 'ready';
 
   return (
@@ -388,7 +408,7 @@ function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: E
         <StepForward className="h-4 w-4" />
         Continue
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.continueRuntime(), 'Fast-forward requested')} disabled={runtimeDisabled}>
+      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(context.controller.fastForwardRuntimeToInput(), 'Fast-forward requested')} disabled={runtimeDisabled}>
         <FastForward className="h-4 w-4" />
         Fast-forward
       </Button>
@@ -430,7 +450,7 @@ export function FullGamePreviewEditor() {
     });
   }, []);
 
-  const handleRuntimeCommand = useCallback((command: Promise<void>, label: string, running?: boolean) => {
+  const handleRuntimeCommand = useCallback((command: Promise<void | RuntimeFastForwardResult>, label: string, running?: boolean) => {
     if (running !== undefined) {
       setPreviewRunning(running);
       setPrimaryRuntimeReplay({
@@ -448,7 +468,7 @@ export function FullGamePreviewEditor() {
   const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
     const logEntry = previewMessageLabel(message);
     setState((current) => ({
-      snapshot: message.type === 'runtime-debug-snapshot' ? message.snapshot : current.snapshot,
+      snapshot: message.type === 'runtime-debug-snapshot' ? message.snapshot : message.type === 'runtime-fast-forward-result' ? message.result.finalSnapshot : current.snapshot,
       eventLog: logEntry ? addLogEntry(current.eventLog, logEntry) : current.eventLog,
     }));
     if (message.type === 'ready' || message.type === 'preview-interacted' || message.type === 'object-clicked' || message.type === 'preview-object-selected') {

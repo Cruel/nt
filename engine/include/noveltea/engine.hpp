@@ -91,6 +91,7 @@ public:
     std::string runtime_preview_remove_inventory_object(const std::string& object_id);
     std::string runtime_preview_teleport_room(const std::string& room_id);
     std::string runtime_preview_debug_snapshot() const;
+    std::string runtime_preview_fast_forward_to_input();
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                     float pitch = 1.0f);
     AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,

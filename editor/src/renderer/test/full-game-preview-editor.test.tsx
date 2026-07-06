@@ -112,6 +112,13 @@ describe('FullGamePreviewEditor', () => {
       type: 'runtime-continue',
       requestId: expect.any(String),
     });
+
+    await user.click(screen.getByText('Fast-forward'));
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'runtime-fast-forward-to-input',
+      requestId: expect.any(String),
+    });
   });
 
   it('keeps existing gameplay/debug input probes in the full-game preview tab', async () => {
@@ -183,6 +190,47 @@ describe('FullGamePreviewEditor', () => {
       const snapshotRequests = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot');
       expect(snapshotRequests.length).toBeGreaterThan(initialSnapshotRequests);
     });
+  });
+
+  it('logs fast-forward stop diagnostics and uses the final snapshot', async () => {
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    const request = editorPort.sent.find((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot') as { requestId: string } | undefined;
+    expect(request).toBeDefined();
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'runtime-fast-forward-result',
+        requestId: 'ff-1',
+        result: {
+          reason: 'budget-exhausted',
+          stepsApplied: 500,
+          ticksApplied: 300,
+          lastInput: 'tick',
+          semanticInputBudget: 500,
+          simulatedTickBudget: 300,
+          stabilizationTickBudget: 20,
+          diagnostic: 'Fast-forward stopped after reaching the semantic input or simulated tick budget.',
+          finalSnapshot: {
+            loaded: true,
+            running: true,
+            shellMode: 'game',
+            runtimeMode: 'dialogue',
+            waiting: { kind: 'continue', canContinue: true, reason: 'runtime is waiting for continue' },
+            availableInputs: { continue: true, dialogueOptions: [], navigation: [], actions: [], selectedObjects: [], clickableTargets: [] },
+            variables: [],
+            inventory: [],
+            selectedObjects: [],
+            diagnostics: [],
+            saveSnapshot: {},
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('Fast-forward stopped')).toBeInTheDocument());
+    expect(screen.getByText(/budget-exhausted/)).toBeInTheDocument();
+    expect(screen.getByText('continue')).toBeInTheDocument();
   });
 
   it('renders runtime debug snapshots with authoring metadata labels', async () => {

@@ -8,6 +8,7 @@ import {
   type PreviewMode,
   type PreviewPosition,
   type PreviewToEditorMessage,
+  type RuntimeFastForwardResult,
   isPreviewToEditorMessage,
   validatePreviewHandshake,
 } from '../../shared/preview-protocol';
@@ -19,7 +20,7 @@ type EditorCommandWithoutRequest = EditorToPreviewMessage extends infer Message
   : never;
 
 interface PendingRequest {
-  resolve: () => void;
+  resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timeout: number;
 }
@@ -89,12 +90,14 @@ export function useEnginePreview({
           onErrorRef.current('Preview sent an unsupported protocol message.');
           return;
         }
-        if (message.type === 'command-result') {
+        if (message.type === 'command-result' || message.type === 'runtime-fast-forward-result') {
           const pending = pendingRef.current.get(message.requestId);
           if (pending) {
             window.clearTimeout(pending.timeout);
             pendingRef.current.delete(message.requestId);
-            if (message.ok) {
+            if (message.type === 'runtime-fast-forward-result') {
+              pending.resolve(message.result);
+            } else if (message.ok) {
               pending.resolve();
             } else {
               pending.reject(new Error(message.error ?? 'Preview command failed.'));
@@ -121,19 +124,19 @@ export function useEnginePreview({
     };
   }, [cleanupPort, session, timeoutMs]);
 
-  const send = useCallback((message: EditorCommandWithoutRequest) => {
+  const send = useCallback(<TResult = void>(message: EditorCommandWithoutRequest) => {
     const port = portRef.current;
     if (!port) {
       return Promise.reject(new Error('Engine preview is not connected.'));
     }
     const requestId = crypto.randomUUID();
     const payload = { ...message, version: PREVIEW_PROTOCOL_VERSION, requestId } as EditorToPreviewMessage;
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<TResult>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         pendingRef.current.delete(requestId);
         reject(new Error(`Preview command timed out: ${payload.type}`));
       }, timeoutMs);
-      pendingRef.current.set(requestId, { resolve, reject, timeout });
+      pendingRef.current.set(requestId, { resolve: resolve as (value?: unknown) => void, reject, timeout });
       port.postMessage(payload);
     });
   }, [timeoutMs]);
@@ -151,6 +154,7 @@ export function useEnginePreview({
     stopRuntime: () => send({ type: 'runtime-stop' }),
     stepRuntime: (deltaSeconds?: number) => send(deltaSeconds === undefined ? { type: 'runtime-step' } : { type: 'runtime-step', deltaSeconds }),
     continueRuntime: () => send({ type: 'runtime-continue' }),
+    fastForwardRuntimeToInput: () => send<RuntimeFastForwardResult>({ type: 'runtime-fast-forward-to-input' }),
     selectDialogueOption: (optionIndex: number) => send({ type: 'runtime-dialogue-option', optionIndex }),
     navigateRuntime: (direction: number) => send({ type: 'runtime-navigate', direction }),
     selectRuntimeObject: (objectId: string) => send({ type: 'runtime-select-object', objectId }),

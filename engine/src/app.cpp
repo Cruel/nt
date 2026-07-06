@@ -596,6 +596,20 @@ const char* noveltea_runtime_debug_snapshot()
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
+const char* noveltea_runtime_fast_forward_to_input()
+{
+    static std::string result_json;
+    if (!noveltea::g_preview_engine) {
+        result_json.clear();
+        return result_json.c_str();
+    }
+    result_json = noveltea::g_preview_engine->runtime_preview_fast_forward_to_input();
+    return result_json.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
 void noveltea_preview_resize(int logical_width, int logical_height, int framebuffer_width,
                              int framebuffer_height, float scale_x, float scale_y)
 {
