@@ -700,7 +700,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         add_font_map(core::project_ids::engine_fonts);
         add_font_map(core::project_ids::project_fonts);
         m_assets.configure_fonts(std::move(font_config));
-        auto result = m_runtime_host.load(std::move(document));
+        auto result = m_runtime_shell.load_project(std::move(document));
         for (const auto& diagnostic : result.diagnostics) {
             const char* severity = "info";
             if (diagnostic.severity == core::SessionDiagnosticSeverity::Warning)
@@ -715,7 +715,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
                          logical_path.c_str());
             return false;
         }
-        m_script_executor.initialize(&m_scripts, &m_runtime_host);
+        m_script_executor.initialize(&m_scripts, &m_runtime_shell.host());
         return true;
     };
 
@@ -749,7 +749,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         SDL_Log("[engine] mounted legacy runtime package assets: %s", logical_path.c_str());
     }
 
-    m_runtime_ui.bind_runtime_host(m_runtime_host.loaded() ? &m_runtime_host : nullptr);
+    m_runtime_ui.bind_runtime_host(m_runtime_shell.loaded() ? &m_runtime_shell.host() : nullptr);
     SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
     return true;
 }
@@ -1271,24 +1271,31 @@ void Engine::update(float dt)
     m_elapsed_seconds += dt;
     m_audio.update(dt);
     m_tweens.advance(dt);
-    if (m_runtime_host.loaded()) {
-        core::RuntimeInput input;
-        input.type = core::RuntimeInputType::Tick;
-        input.delta_seconds = dt;
-        auto result = m_runtime_host.apply_input(input);
-        m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
-        bool has_script_request = false;
-        for (const auto& output : result.outputs) {
-            if (output.type == core::RuntimeOutputType::ScriptRequest) {
-                has_script_request = true;
-                break;
-            }
+    if (m_runtime_shell.loaded()) {
+        auto result = m_runtime_shell.update(dt);
+        process_runtime_result(result);
+    }
+}
+
+void Engine::process_runtime_result(core::RuntimeInputResult& result)
+{
+    if (!result.handled) {
+        return;
+    }
+
+    auto& runtime_host = m_runtime_shell.host();
+    m_runtime_ui.apply_controller_commands(runtime_host.last_commands());
+    bool has_script_request = false;
+    for (const auto& output : result.outputs) {
+        if (output.type == core::RuntimeOutputType::ScriptRequest) {
+            has_script_request = true;
+            break;
         }
-        m_script_executor.process(result);
-        process_audio_outputs(result.outputs);
-        if (has_script_request) {
-            m_runtime_ui.apply_controller_commands(m_runtime_host.last_commands());
-        }
+    }
+    m_script_executor.process(result);
+    process_audio_outputs(result.outputs);
+    if (has_script_request) {
+        m_runtime_ui.apply_controller_commands(runtime_host.last_commands());
     }
 }
 

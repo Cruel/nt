@@ -9,6 +9,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
+#include "noveltea/runtime_shell.hpp"
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/runtime_script_executor.hpp"
@@ -93,6 +94,7 @@ private:
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
     bool load_runtime_project(const std::string& logical_path);
+    void process_runtime_result(core::RuntimeInputResult& result);
     void process_audio_outputs(const std::vector<core::RuntimeOutput>& outputs);
 
     assets::AssetManager m_assets;
@@ -104,7 +106,7 @@ private:
     script::RuntimeScriptExecutor m_script_executor;
     ShaderMaterialProject m_shader_materials;
     RuntimeUI m_runtime_ui;
-    core::RuntimeSessionHost m_runtime_host;
+    RuntimeShell m_runtime_shell;
     DebugUI m_debug_ui;
     bool m_initialized = false;
     bool m_running = false;

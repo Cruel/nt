@@ -75,6 +75,14 @@ add_executable(noveltea_tween_tests
 target_link_libraries(noveltea_tween_tests PRIVATE engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_tween_tests)
 
+# --- Runtime shell tests (engine orchestration, non-rendering) ---
+
+add_executable(noveltea_runtime_shell_tests
+    runtime/runtime_shell_tests.cpp
+)
+target_link_libraries(noveltea_runtime_shell_tests PRIVATE engine Catch2::Catch2WithMain)
+catch_discover_tests(noveltea_runtime_shell_tests)
+
 # --- Script tests (Lua is mandatory) ---
 
 add_executable(noveltea_script_tests
