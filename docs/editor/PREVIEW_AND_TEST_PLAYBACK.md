@@ -116,3 +116,18 @@ The global Test Playback bottom panel now renders structured report data: pass o
 fail status, failures, observations, per-observation diagnostics, report-level
 diagnostics, outputs, final state, and an expandable raw JSON fallback for
 debugging.
+
+## Planned Full Game Preview and Recorder Tab
+
+The detailed implementation plan for the next editor/runtime slice lives in
+`docs/runtime/FULL_GAME_PREVIEW_DEBUGGER_TEST_RECORDER_IMPLEMENTATION_PLAN.md`.
+
+That plan expands the recorder concept into a full-game workbench tab with Debug and Recording modes.
+The tab should reuse the existing editor preview iframe transport, keep `web/widget.html` as the thin
+V0 preview bridge, move runtime controls out of generic entity-preview chrome, add a top-toolbar Play
+button left of undo/redo, expose debugger panels for variables/inventory/rooms/objects/diagnostics,
+support fast-forward-to-input, and record player-visible actions into authoring test drafts.
+
+Until UI playback is wired into the editor test runner, recorded gameplay inputs should lower to the
+existing backend-neutral authoring test step types. True `ui-click` steps should be saved only when
+the UI playback path can replay them through RmlUi, Layout Lua, and the runtime command dispatcher.
