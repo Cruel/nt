@@ -5,6 +5,7 @@
 
 #include <noveltea/core/project_ids.hpp>
 
+#include <string_view>
 #include <utility>
 
 using namespace noveltea;
@@ -53,6 +54,27 @@ bool has_output(const std::vector<RuntimeOutput>& outputs, RuntimeOutputType typ
 {
     for (const auto& output : outputs) {
         if (output.type == type) {
+            return true;
+        }
+    }
+    return false;
+}
+
+RuntimeCommand command(std::string name, nlohmann::json payload = nlohmann::json::object())
+{
+    RuntimeCommand command;
+    command.source = RuntimeCommandSource::RmlUiEvent;
+    command.domain = domain_from_command_name(name);
+    command.name = std::move(name);
+    command.payload = std::move(payload);
+    return command;
+}
+
+bool has_diagnostic_containing(const std::vector<RuntimeDiagnostic>& diagnostics,
+                               std::string_view text)
+{
+    for (const auto& diagnostic : diagnostics) {
+        if (diagnostic.message.find(text) != std::string::npos) {
             return true;
         }
     }
@@ -140,4 +162,69 @@ TEST_CASE("RuntimeShell enters error mode when project load fails")
     CHECK(shell.mode() == RuntimeShellMode::Error);
     CHECK_FALSE(shell.loaded());
     CHECK_FALSE(shell.last_diagnostics().empty());
+}
+
+TEST_CASE("RuntimeCommandDispatcher game.start starts gameplay and traces command")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+
+    auto result = shell.dispatcher().dispatch(command("game.start"));
+
+    CHECK(result.handled);
+    CHECK(result.input_result.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(has_output(result.outputs, RuntimeOutputType::Diagnostic));
+    CHECK(has_diagnostic_containing(result.diagnostics, "name=game.start"));
+    CHECK(has_output(result.input_result.outputs, RuntimeOutputType::ViewUpdated));
+}
+
+TEST_CASE("RuntimeCommandDispatcher controls pause resume and menu close")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.dispatcher().dispatch(command("game.start")).handled);
+
+    auto pause = shell.dispatcher().dispatch(command("game.pause"));
+    CHECK(pause.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Paused);
+
+    auto resume = shell.dispatcher().dispatch(command("game.resume"));
+    CHECK(resume.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+
+    REQUIRE(shell.dispatcher().dispatch(command("game.pause")).handled);
+    auto close = shell.dispatcher().dispatch(command("menu.close"));
+    CHECK(close.handled);
+    CHECK(shell.mode() == RuntimeShellMode::Game);
+}
+
+TEST_CASE("RuntimeCommandDispatcher reports unknown command diagnostics")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+
+    auto result = shell.dispatcher().dispatch(command("menu.nope"));
+
+    CHECK_FALSE(result.handled);
+    CHECK(has_output(result.outputs, RuntimeOutputType::Diagnostic));
+    CHECK(has_diagnostic_containing(result.diagnostics, "unknown runtime command: menu.nope"));
+}
+
+TEST_CASE("RuntimeCommandDispatcher routes gameplay commands through session host")
+{
+    RuntimeShell shell;
+    REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.dispatcher().dispatch(command("game.start")).handled);
+
+    auto result = shell.dispatcher().dispatch(command("runtime.navigate", {{"direction", 0}}));
+
+    CHECK(result.handled);
+    CHECK(has_diagnostic_containing(result.diagnostics, "name=runtime.navigate"));
+
+    auto tick = shell.update(0.0);
+    CHECK(tick.handled);
+    CHECK(shell.host().current_mode_name() == std::string_view("room"));
+    CHECK(shell.host().view_state().title == "Kitchen");
 }

@@ -80,6 +80,7 @@ add_library(engine STATIC
     src/engine.cpp
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
+    src/runtime_command.cpp
     src/runtime_shell.cpp
     src/surface.cpp
     src/text/text_asset_loader.cpp

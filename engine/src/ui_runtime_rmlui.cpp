@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -191,6 +192,7 @@ struct RuntimeUI::State {
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
     core::RuntimeSessionHost* runtime_host = nullptr;
+    RuntimeCommandDispatcher* runtime_command_dispatcher = nullptr;
     TweenService* tweens = nullptr;
     std::uintptr_t next_listener_id = 1;
     std::string runtime_document_path;
@@ -318,68 +320,89 @@ void RuntimeUI::State::refresh_active_text_layout()
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
 {
-    if (!owner.runtime_host)
+    if (!owner.runtime_host || !owner.runtime_command_dispatcher)
         return;
     Rml::Element* target = event.GetTargetElement();
     if (!target)
         return;
 
-    auto submit = [this](core::RuntimeInput input) {
-        auto result = owner.runtime_host->apply_input(input);
+    auto submit = [this](RuntimeCommand command) {
+        auto result = owner.runtime_command_dispatcher->dispatch(std::move(command));
         owner.runtime_view.apply(owner.runtime_host->last_commands());
-        if (!result.outputs.empty() || result.handled) {
+        if (!result.outputs.empty() || result.handled || !result.diagnostics.empty()) {
             owner.refresh_runtime_document();
         }
     };
 
-    if (target->HasAttribute("nt-option")) {
-        const int index = target->GetAttribute<int>("nt-option", -1);
-        if (index >= 0) {
-            core::RuntimeInput input;
-            input.type = core::RuntimeInputType::SelectDialogueOption;
-            input.index = index;
-            submit(std::move(input));
+    auto make_command = [](std::string name, nlohmann::json payload = nlohmann::json::object()) {
+        RuntimeCommand command;
+        command.source = RuntimeCommandSource::RmlUiEvent;
+        command.domain = domain_from_command_name(name);
+        command.name = std::move(name);
+        command.payload = std::move(payload);
+        return command;
+    };
+
+    auto attribute_command = [&]() -> std::optional<RuntimeCommand> {
+        if (target->HasAttribute("nt-command")) {
+            const auto name = target->GetAttribute<Rml::String>("nt-command", "");
+            if (!name.empty()) {
+                nlohmann::json payload = nlohmann::json::object();
+                if (target->HasAttribute("nt-option")) {
+                    payload["index"] = target->GetAttribute<int>("nt-option", -1);
+                }
+                if (target->HasAttribute("nt-nav")) {
+                    payload["direction"] = target->GetAttribute<int>("nt-nav", -1);
+                }
+                if (target->HasAttribute("nt-object")) {
+                    payload["object_id"] = target->GetAttribute<Rml::String>("nt-object", "");
+                }
+                if (target->HasAttribute("nt-action")) {
+                    payload["verb_id"] = target->GetAttribute<Rml::String>("nt-action", "");
+                }
+                return make_command(name, std::move(payload));
+            }
         }
-    } else if (target->HasAttribute("nt-nav")) {
-        const int direction = target->GetAttribute<int>("nt-nav", -1);
-        if (direction >= 0) {
-            core::RuntimeInput input;
-            input.type = core::RuntimeInputType::Navigate;
-            input.direction = direction;
-            submit(std::move(input));
+        if (target->HasAttribute("nt-option")) {
+            const int index = target->GetAttribute<int>("nt-option", -1);
+            if (index >= 0) {
+                return make_command("runtime.dialogue-option", {{"index", index}});
+            }
         }
-    } else if (target->HasAttribute("nt-continue")) {
-        core::RuntimeInput input;
-        input.type = core::RuntimeInputType::Continue;
-        submit(std::move(input));
-    } else if (target->HasAttribute("nt-object")) {
-        const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
-        if (!object_id.empty()) {
-            core::RuntimeInput input;
-            input.type = core::RuntimeInputType::SelectObject;
-            input.object_ids = {object_id};
-            submit(std::move(input));
+        if (target->HasAttribute("nt-nav")) {
+            const int direction = target->GetAttribute<int>("nt-nav", -1);
+            if (direction >= 0) {
+                return make_command("runtime.navigate", {{"direction", direction}});
+            }
         }
-    } else if (target->HasAttribute("nt-action")) {
-        const auto verb_id = target->GetAttribute<Rml::String>("nt-action", "");
-        if (!verb_id.empty()) {
-            core::RuntimeInput input;
-            input.type = core::RuntimeInputType::RunAction;
-            input.verb_id = verb_id;
-            submit(std::move(input));
+        if (target->HasAttribute("nt-continue")) {
+            return make_command("runtime.continue");
         }
-    } else if (target->HasAttribute("nt-clear-selection")) {
-        core::RuntimeInput input;
-        input.type = core::RuntimeInputType::ClearObjectSelection;
-        submit(std::move(input));
+        if (target->HasAttribute("nt-object")) {
+            const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
+            if (!object_id.empty()) {
+                return make_command("runtime.select-object", {{"object_id", object_id}});
+            }
+        }
+        if (target->HasAttribute("nt-action")) {
+            const auto verb_id = target->GetAttribute<Rml::String>("nt-action", "");
+            if (!verb_id.empty()) {
+                return make_command("runtime.run-action", {{"verb_id", verb_id}});
+            }
+        }
+        if (target->HasAttribute("nt-clear-selection")) {
+            return make_command("runtime.clear-selection");
+        }
+        return std::nullopt;
+    };
+
+    if (auto command = attribute_command()) {
+        submit(std::move(*command));
     } else if (find_ancestor_tag(target, "nt-active-text")) {
         const float x = static_cast<float>(event.GetParameter<int>("mouse_x", 0));
         const float y = static_cast<float>(event.GetParameter<int>("mouse_y", 0));
         if (const auto object_id = owner.active_text_layout.object_at({x, y})) {
-            core::RuntimeInput input;
-            input.type = core::RuntimeInputType::SelectObject;
-            input.object_ids = {*object_id};
-            submit(std::move(input));
+            submit(make_command("runtime.select-object", {{"object_id", *object_id}}));
         } else if (owner.active_text_playback.can_skip_reveal) {
             owner.active_text_playback = skip_active_text_reveal(owner.active_text_playback);
             owner.active_text_tween_reveal = 1.0f;
@@ -400,10 +423,10 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
                 owner.refresh_runtime_document();
                 owner.refresh_active_text_layout();
             } else {
-                core::RuntimeInput input;
-                input.type = core::RuntimeInputType::Continue;
-                submit(std::move(input));
+                submit(make_command("runtime.continue"));
             }
+        } else {
+            submit(make_command("runtime.continue"));
         }
     }
 }
@@ -889,6 +912,13 @@ void RuntimeUI::bind_runtime_host(core::RuntimeSessionHost* host)
     if (!m_state->runtime_input_listener) {
         m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
         doc->AddEventListener("click", m_state->runtime_input_listener.get());
+    }
+}
+
+void RuntimeUI::bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher)
+{
+    if (m_state) {
+        m_state->runtime_command_dispatcher = dispatcher;
     }
 }
 

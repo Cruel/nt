@@ -750,6 +750,8 @@ bool Engine::load_runtime_project(const std::string& logical_path)
     }
 
     m_runtime_ui.bind_runtime_host(m_runtime_shell.loaded() ? &m_runtime_shell.host() : nullptr);
+    m_runtime_ui.bind_runtime_command_dispatcher(
+        m_runtime_shell.loaded() ? &m_runtime_shell.dispatcher() : nullptr);
     SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
     return true;
 }

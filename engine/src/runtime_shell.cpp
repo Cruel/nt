@@ -4,7 +4,7 @@
 
 namespace noveltea {
 
-RuntimeShell::RuntimeShell() = default;
+RuntimeShell::RuntimeShell() : m_dispatcher(*this) {}
 
 core::GameSessionLoadResult RuntimeShell::load_project(core::ProjectDocument project,
                                                        core::SaveDocument save)
@@ -36,6 +36,7 @@ core::GameSessionLoadResult RuntimeShell::load_project(core::ProjectDocument pro
 void RuntimeShell::reset()
 {
     m_host.reset();
+    m_dispatcher.bind(this);
     m_last_diagnostics.clear();
     m_mode = RuntimeShellMode::Boot;
 }
@@ -84,6 +85,11 @@ core::RuntimeInputResult RuntimeShell::update(double delta_seconds)
     auto result = m_host.apply_input(input);
     m_last_diagnostics = result.diagnostics;
     return result;
+}
+
+RuntimeCommandResult RuntimeShell::dispatch_command(RuntimeCommand command)
+{
+    return m_dispatcher.dispatch(std::move(command));
 }
 
 core::RuntimeInputResult RuntimeShell::make_unhandled(std::string message)
