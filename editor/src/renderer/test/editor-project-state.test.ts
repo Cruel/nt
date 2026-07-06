@@ -15,6 +15,7 @@ describe('editor project state defaults', () => {
       followActiveTab: true,
       organizeByChapter: true,
       groupUnassignedItems: true,
+      hideEmptyCategories: false,
       showInfoOnHover: true,
       searchQuery: '',
       filterTags: [],
@@ -27,7 +28,7 @@ describe('editor project state defaults', () => {
 
   it('empty editor state includes explorer, chapters, and bottom panel', () => {
     expect(emptyEditorProjectState()).toMatchObject({
-      explorer: { followActiveTab: true, organizeByChapter: true, groupUnassignedItems: true },
+      explorer: { followActiveTab: true, organizeByChapter: true, groupUnassignedItems: true, hideEmptyCategories: false },
       chapters: { records: {}, assignments: {} },
       bottomPanel: { visible: true, activePanelId: 'problems' },
     });

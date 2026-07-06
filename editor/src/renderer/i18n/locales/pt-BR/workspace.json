@@ -84,6 +84,11 @@
       "showLimited": "Mostrar menos resultados"
     }
   },
+  "projectExplorer": {
+    "options": {
+      "hideEmptyCategories": "Ocultar categorias vazias"
+    }
+  },
   "sidebar": {
     "components": "Componentes",
     "settings": "Configurações"

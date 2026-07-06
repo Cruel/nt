@@ -33,7 +33,7 @@ describe('project chapter operations', () => {
   it('stores hidden categories and explorer options', () => {
     let state = createInitialCommandBusState(toJsonValue(project()));
     state = executeCommand(state, { type: 'project.setHiddenCollections', payload: { hiddenCollectionKeys: ['verbs', 'objects'] } }).state;
-    state = executeCommand(state, { type: 'project.setExplorerOptions', payload: { followActiveTab: false, organizeByChapter: false, groupUnassignedItems: true } }).state;
-    expect(state.document).toMatchObject({ editor: { explorer: { hiddenCollectionKeys: ['objects', 'verbs'], followActiveTab: false, organizeByChapter: false, groupUnassignedItems: true } } });
+    state = executeCommand(state, { type: 'project.setExplorerOptions', payload: { followActiveTab: false, organizeByChapter: false, groupUnassignedItems: true, hideEmptyCategories: true } }).state;
+    expect(state.document).toMatchObject({ editor: { explorer: { hiddenCollectionKeys: ['objects', 'verbs'], followActiveTab: false, organizeByChapter: false, groupUnassignedItems: true, hideEmptyCategories: true } } });
   });
 });

@@ -24,6 +24,43 @@ describe('project explorer tree', () => {
     expect(characters?.children?.map((node) => node.label)).toEqual(['Anna', 'Zed']);
   });
 
+  it('keeps empty visible categories at the top level by default', () => {
+    const tree = buildProjectExplorerTree(project(), { explorer: emptyEditorExplorerState(), chapters: emptyEditorChaptersState() });
+    const objects = tree.find((node) => node.collection === 'objects');
+    expect(objects).toMatchObject({ label: 'Objects', count: 0 });
+    expect(tree.find((node) => node.id === 'empty-root')).toBeUndefined();
+  });
+
+  it('groups empty visible categories under Empty Content before Hidden', () => {
+    const explorer = { ...emptyEditorExplorerState(), hideEmptyCategories: true, hiddenCollectionKeys: ['rooms'] };
+    const tree = buildProjectExplorerTree(project(), { explorer, chapters: emptyEditorChaptersState() });
+    const emptyRoot = tree.find((node) => node.id === 'empty-root');
+    expect(emptyRoot).toMatchObject({ label: 'Empty Content', kind: 'empty-root', dimmed: true });
+    expect(emptyRoot?.children?.some((node) => node.collection === 'objects')).toBe(true);
+    expect(tree.findIndex((node) => node.id === 'empty-root')).toBeLessThan(tree.findIndex((node) => node.id === 'hidden-root'));
+  });
+
+  it('keeps hidden empty categories under Hidden instead of Empty Content', () => {
+    const explorer = { ...emptyEditorExplorerState(), hideEmptyCategories: true, hiddenCollectionKeys: ['objects'] };
+    const tree = buildProjectExplorerTree(project(), { explorer, chapters: emptyEditorChaptersState() });
+    const emptyRoot = tree.find((node) => node.id === 'empty-root');
+    const hiddenRoot = tree.find((node) => node.id === 'hidden-root');
+    expect(emptyRoot?.children?.some((node) => node.collection === 'objects')).toBe(false);
+    expect(hiddenRoot?.children?.find((node) => node.collection === 'objects')).toMatchObject({ label: 'Objects', count: 0 });
+  });
+
+  it('does not show Empty Content or Hidden for filtered zero-match categories', () => {
+    const explorer = { ...emptyEditorExplorerState(), hideEmptyCategories: true, hiddenCollectionKeys: ['rooms'] };
+    const tree = buildProjectExplorerTree(project(), {
+      explorer,
+      chapters: emptyEditorChaptersState(),
+      visibleRecordKeys: new Set(['characters:anna']),
+    });
+    expect(tree.find((node) => node.collection === 'characters')).toMatchObject({ count: 1 });
+    expect(tree.find((node) => node.id === 'empty-root')).toBeUndefined();
+    expect(tree.find((node) => node.id === 'hidden-root')).toBeUndefined();
+  });
+
   it('stows hidden categories under a dimmed Hidden node without dropping children', () => {
     const explorer = { ...emptyEditorExplorerState(), hiddenCollectionKeys: ['characters'] };
     const tree = buildProjectExplorerTree(project(), { explorer, chapters: emptyEditorChaptersState() });

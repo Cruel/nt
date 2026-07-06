@@ -12,7 +12,7 @@ export interface DeleteChapterPayload { chapterId: string }
 export interface SetChapterColorPayload { chapterId: string; color: string | null }
 export interface AssignChaptersPayload { collection: AuthoringCollectionKey; entityId: string; chapterIds: string[] }
 export interface SetHiddenCollectionsPayload { hiddenCollectionKeys: AuthoringCollectionKey[] }
-export interface SetExplorerOptionsPayload { followActiveTab?: boolean; organizeByChapter?: boolean; groupUnassignedItems?: boolean; showInfoOnHover?: boolean }
+export interface SetExplorerOptionsPayload { followActiveTab?: boolean; organizeByChapter?: boolean; groupUnassignedItems?: boolean; hideEmptyCategories?: boolean; showInfoOnHover?: boolean }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
   return { severity: 'error', message, path };
@@ -125,6 +125,7 @@ export function setExplorerOptionsPatches(document: unknown, payload: SetExplore
   if (payload.followActiveTab !== undefined) patches.push(addOrReplace(documentValue, '/editor/explorer/followActiveTab', payload.followActiveTab));
   if (payload.organizeByChapter !== undefined) patches.push(addOrReplace(documentValue, '/editor/explorer/organizeByChapter', payload.organizeByChapter));
   if (payload.groupUnassignedItems !== undefined) patches.push(addOrReplace(documentValue, '/editor/explorer/groupUnassignedItems', payload.groupUnassignedItems));
+  if (payload.hideEmptyCategories !== undefined) patches.push(addOrReplace(documentValue, '/editor/explorer/hideEmptyCategories', payload.hideEmptyCategories));
   if (payload.showInfoOnHover !== undefined) patches.push(addOrReplace(documentValue, '/editor/explorer/showInfoOnHover', payload.showInfoOnHover));
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }

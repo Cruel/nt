@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
   ChevronRight,
@@ -269,29 +270,34 @@ function EntityOperationDialog({
   );
 }
 
-function ProjectHeading({ projectName }: { projectName: string }) {
+function ProjectHeading({ projectName, onNewEntity }: { projectName: string; onNewEntity: () => void }) {
   const openTab = useWorkbenchStore((state) => state.openTab);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
   const organizeByChapter = useProjectExplorerStore((state) => state.organizeByChapter);
   const groupUnassignedItems = useProjectExplorerStore((state) => state.groupUnassignedItems);
+  const hideEmptyCategories = useProjectExplorerStore((state) => state.hideEmptyCategories);
   const showInfoOnHover = useProjectExplorerStore((state) => state.showInfoOnHover);
   const setFollowActiveTab = useProjectExplorerStore((state) => state.setFollowActiveTab);
   const setOrganizeByChapter = useProjectExplorerStore((state) => state.setOrganizeByChapter);
   const setGroupUnassignedItems = useProjectExplorerStore((state) => state.setGroupUnassignedItems);
+  const setHideEmptyCategories = useProjectExplorerStore((state) => state.setHideEmptyCategories);
   const setShowInfoOnHover = useProjectExplorerStore((state) => state.setShowInfoOnHover);
   const executeCommand = useCommandStore((state) => state.executeCommand);
+  const { t } = useTranslation('workspace');
 
-  function setOption(payload: { followActiveTab?: boolean; organizeByChapter?: boolean; groupUnassignedItems?: boolean; showInfoOnHover?: boolean }) {
+  function setOption(payload: { followActiveTab?: boolean; organizeByChapter?: boolean; groupUnassignedItems?: boolean; hideEmptyCategories?: boolean; showInfoOnHover?: boolean }) {
     executeCommand({ type: 'project.setExplorerOptions', label: 'Update explorer options', payload });
     if (payload.followActiveTab !== undefined) setFollowActiveTab(payload.followActiveTab);
     if (payload.organizeByChapter !== undefined) setOrganizeByChapter(payload.organizeByChapter);
     if (payload.groupUnassignedItems !== undefined) setGroupUnassignedItems(payload.groupUnassignedItems);
+    if (payload.hideEmptyCategories !== undefined) setHideEmptyCategories(payload.hideEmptyCategories);
     if (payload.showInfoOnHover !== undefined) setShowInfoOnHover(payload.showInfoOnHover);
   }
 
   return (
     <div className="flex items-center gap-2 border-b px-2 py-2">
       <div className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground" title={projectName}>{projectName}</div>
+      <Button className="h-6 gap-1 px-2 text-xs" size="sm" variant="ghost" onClick={onNewEntity}><FilePlus2 className="h-3.5 w-3.5" />New</Button>
       <Menu>
         <MenuTrigger className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent" aria-label="Project explorer menu"><MoreHorizontal className="h-3.5 w-3.5" /></MenuTrigger>
         <MenuPopup className="w-auto min-w-56">
@@ -300,6 +306,7 @@ function ProjectHeading({ projectName }: { projectName: string }) {
           <MenuItem className="whitespace-nowrap" onClick={() => openTab(buildProjectTagsTab())}><Tags /> Manage Tags…</MenuItem>
           <MenuSeparator />
           <DropdownMenuCheckboxItem className="whitespace-nowrap" checked={showInfoOnHover} onCheckedChange={(checked) => setOption({ showInfoOnHover: Boolean(checked) })}>Show Info on Hover</DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem className="whitespace-nowrap" checked={hideEmptyCategories} onCheckedChange={(checked) => setOption({ hideEmptyCategories: Boolean(checked) })}>{t('projectExplorer.options.hideEmptyCategories')}</DropdownMenuCheckboxItem>
           <MenuSeparator />
           <DropdownMenuCheckboxItem className="whitespace-nowrap" checked={followActiveTab} onCheckedChange={(checked) => setOption({ followActiveTab: Boolean(checked) })}>Follow Active Tab</DropdownMenuCheckboxItem>
           <MenuSeparator />
@@ -524,7 +531,7 @@ function ProjectExplorerItem({
   const cursorClass = openable || canExpand ? 'cursor-pointer' : 'cursor-default';
 
   function openNode() {
-    if (node.kind === 'hidden-root' || node.kind === 'collection' || node.kind === 'chapter-folder' || node.kind === 'all-folder' || node.kind === 'unassigned-folder') {
+    if (node.kind === 'empty-root' || node.kind === 'hidden-root' || node.kind === 'collection' || node.kind === 'chapter-folder' || node.kind === 'all-folder' || node.kind === 'unassigned-folder') {
       if (canExpand) {
         if (expanded) suppressFollowNodeId(node.id);
         if (!followExpanded || manuallyExpanded) toggleExpanded(node.id);
@@ -586,6 +593,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
   const organizeByChapter = useProjectExplorerStore((state) => state.organizeByChapter);
   const groupUnassignedItems = useProjectExplorerStore((state) => state.groupUnassignedItems);
+  const hideEmptyCategories = useProjectExplorerStore((state) => state.hideEmptyCategories);
   const showInfoOnHover = useProjectExplorerStore((state) => state.showInfoOnHover);
   const searchQuery = useProjectExplorerStore((state) => state.searchQuery);
   const filterTags = useProjectExplorerStore((state) => state.filterTags);
@@ -618,16 +626,15 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   }
 
   useEffect(() => {
-    if (!project) return;
-    const editorState = editorProjectStateFromProject(project);
-    hydrateExplorer(editorState.explorer, editorState.chapters);
-  }, [hydrateExplorer, project]);
-
-  useEffect(() => {
     const projectKey = project ? (projectFilePath ?? project.project.id) : null;
     if (projectKey === lastProjectKey.current) return;
     lastProjectKey.current = projectKey;
-    if (!project) hydrateExplorer(undefined, undefined);
+    if (!project) {
+      hydrateExplorer(undefined, undefined);
+      return;
+    }
+    const editorState = editorProjectStateFromProject(project);
+    hydrateExplorer(editorState.explorer, editorState.chapters);
   }, [hydrateExplorer, project, projectFilePath]);
 
   const explorer = useMemo(() => ({
@@ -636,12 +643,13 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     followActiveTab,
     organizeByChapter,
     groupUnassignedItems,
+    hideEmptyCategories,
     showInfoOnHover,
     searchQuery,
     filterTags,
     showTagFilter,
     exactMatch,
-  }), [expandedNodeIds, exactMatch, filterTags, followActiveTab, groupUnassignedItems, hiddenCollectionKeys, organizeByChapter, searchQuery, showInfoOnHover, showTagFilter]);
+  }), [expandedNodeIds, exactMatch, filterTags, followActiveTab, groupUnassignedItems, hiddenCollectionKeys, hideEmptyCategories, organizeByChapter, searchQuery, showInfoOnHover, showTagFilter]);
   const searchIndex = useMemo(() => project ? buildProjectSearchIndex(project) : null, [project]);
   const activeFilterTags = useMemo(() => showTagFilter ? filterTags : [], [filterTags, showTagFilter]);
   const isFiltering = Boolean(searchQuery.trim()) || activeFilterTags.length > 0;
@@ -725,7 +733,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ProjectHeading projectName={project.project.name.trim() || 'Project'} />
+      <ProjectHeading projectName={project.project.name.trim() || 'Project'} onNewEntity={() => setNewEntityWizard({})} />
       <div className="border-b">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

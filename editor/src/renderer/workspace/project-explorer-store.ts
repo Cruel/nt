@@ -21,6 +21,7 @@ interface ProjectExplorerStore {
   followActiveTab: boolean;
   organizeByChapter: boolean;
   groupUnassignedItems: boolean;
+  hideEmptyCategories: boolean;
   showInfoOnHover: boolean;
   searchQuery: string;
   filterTags: string[];
@@ -41,6 +42,7 @@ interface ProjectExplorerStore {
   setFollowActiveTab: (enabled: boolean) => void;
   setOrganizeByChapter: (enabled: boolean) => void;
   setGroupUnassignedItems: (enabled: boolean) => void;
+  setHideEmptyCategories: (enabled: boolean) => void;
   setShowInfoOnHover: (enabled: boolean) => void;
   setSearchQuery: (query: string) => void;
   setFilterTags: (tags: string[]) => void;
@@ -59,6 +61,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   followActiveTab: true,
   organizeByChapter: true,
   groupUnassignedItems: true,
+  hideEmptyCategories: false,
   showInfoOnHover: true,
   searchQuery: '',
   filterTags: [],
@@ -70,19 +73,21 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   chapters: emptyEditorChaptersState(),
   hydrate: (explorer, chapters) => {
     const defaults = emptyEditorExplorerState();
+    const hasExplorer = explorer !== undefined && explorer !== null;
     const nextExplorer = { ...defaults, ...(explorer ?? {}) };
     const nextChapters = { ...emptyEditorChaptersState(), ...(chapters ?? {}) };
-    set({
+    set((state) => ({
       expandedNodeIds: unique(nextExplorer.expandedNodeIds ?? []),
       hiddenCollectionKeys: validCollections(nextExplorer.hiddenCollectionKeys ?? []),
       followActiveTab: nextExplorer.followActiveTab ?? true,
       organizeByChapter: nextExplorer.organizeByChapter ?? true,
       groupUnassignedItems: nextExplorer.groupUnassignedItems ?? true,
+      hideEmptyCategories: nextExplorer.hideEmptyCategories ?? false,
       showInfoOnHover: nextExplorer.showInfoOnHover ?? true,
-      searchQuery: nextExplorer.searchQuery ?? '',
-      filterTags: unique(nextExplorer.filterTags ?? []),
-      showTagFilter: nextExplorer.showTagFilter ?? false,
-      exactMatch: nextExplorer.exactMatch ?? false,
+      searchQuery: hasExplorer ? ('searchQuery' in explorer ? nextExplorer.searchQuery : state.searchQuery) : '',
+      filterTags: hasExplorer ? ('filterTags' in explorer ? unique(nextExplorer.filterTags) : state.filterTags) : [],
+      showTagFilter: hasExplorer ? ('showTagFilter' in explorer ? nextExplorer.showTagFilter : state.showTagFilter) : false,
+      exactMatch: hasExplorer ? ('exactMatch' in explorer ? nextExplorer.exactMatch : state.exactMatch) : false,
       activeNodeId: null,
       followExpandedNodeIds: [],
       followSuppressedNodeIds: [],
@@ -92,7 +97,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
           Object.entries(nextChapters.assignments ?? {}).map(([key, values]) => [key, unique(values)]),
         ),
       },
-    });
+    }));
   },
   serializeExplorer: () => {
     const state = get();
@@ -102,6 +107,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
       followActiveTab: state.followActiveTab,
       organizeByChapter: state.organizeByChapter,
       groupUnassignedItems: state.groupUnassignedItems,
+      hideEmptyCategories: state.hideEmptyCategories,
       showInfoOnHover: state.showInfoOnHover,
       searchQuery: state.searchQuery,
       filterTags: unique(state.filterTags),
@@ -134,6 +140,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   setFollowActiveTab: (followActiveTab) => set({ followActiveTab }),
   setOrganizeByChapter: (organizeByChapter) => set({ organizeByChapter }),
   setGroupUnassignedItems: (groupUnassignedItems) => set({ groupUnassignedItems }),
+  setHideEmptyCategories: (hideEmptyCategories) => set({ hideEmptyCategories }),
   setShowInfoOnHover: (showInfoOnHover) => set({ showInfoOnHover }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setFilterTags: (filterTags) => set({ filterTags: unique(filterTags) }),

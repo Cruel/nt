@@ -8,6 +8,7 @@ import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { dispatchWorkspaceToolbarCommand, WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
+import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
 
 function loadProject(project: AuthoringProject = createAuthoringProject()) {
   useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -18,6 +19,7 @@ describe('ProjectExplorer', () => {
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
     useWorkbenchStore.getState().resetWorkbench();
+    useProjectExplorerStore.getState().hydrate(undefined, undefined);
     useRecentProjectsStore.setState({ recentProjects: [] });
   });
 
@@ -81,6 +83,43 @@ describe('ProjectExplorer', () => {
 
     expect(screen.getByText('Character setup')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create character/i })).toBeInTheDocument();
+  });
+
+  it('persists the hide-empty-categories explorer option from the menu', async () => {
+    const user = userEvent.setup();
+    loadProject();
+    render(<ProjectExplorer nodes={[]} />);
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /project explorer menu/i }), { key: 'ArrowDown' });
+    await user.click(await screen.findByText('Hide Empty Categories'));
+
+    expect(useProjectStore.getState().document).toMatchObject({
+      editor: { explorer: { hideEmptyCategories: true } },
+    });
+    expect(await screen.findByText('Empty Content')).toBeInTheDocument();
+  });
+
+  it('preserves search and tag filters when toggling explorer options', async () => {
+    const user = userEvent.setup();
+    loadProject();
+    render(<ProjectExplorer nodes={[]} />);
+
+    await user.type(screen.getByPlaceholderText('Search project'), 'needle');
+    act(() => {
+      useProjectExplorerStore.getState().setShowTagFilter(true);
+      useProjectExplorerStore.getState().setFilterTags(['important']);
+    });
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /project explorer menu/i }), { key: 'ArrowDown' });
+    await user.click(await screen.findByText('Hide Empty Categories'));
+
+    expect(screen.getByPlaceholderText('Search project')).toHaveValue('needle');
+    expect(useProjectExplorerStore.getState()).toMatchObject({
+      searchQuery: 'needle',
+      showTagFilter: true,
+      filterTags: ['important'],
+      hideEmptyCategories: true,
+    });
   });
 
   it('renders create command diagnostics for duplicate IDs', async () => {

@@ -19,6 +19,7 @@ export type ProjectExplorerNodeKind =
   | 'all-folder'
   | 'unassigned-folder'
   | 'record'
+  | 'empty-root'
   | 'hidden-root';
 
 export interface ProjectExplorerNode {
@@ -179,10 +180,26 @@ export function buildProjectExplorerTree(project: AuthoringProject, options: Bui
   const hidden = new Set(options.explorer.hiddenCollectionKeys);
   const visibleCollections = sortedCollections(authoringCollectionKeys.filter((collection) => !hidden.has(collection)));
   const hiddenCollections = sortedCollections(authoringCollectionKeys.filter((collection) => hidden.has(collection)));
+  const emptyChildren: ProjectExplorerNode[] = [];
   const nodes = visibleCollections.flatMap((collection) => {
     const node = collectionNode(project, collection, options);
+    if (node && options.explorer.hideEmptyCategories && node.count === 0) {
+      emptyChildren.push({ ...node, dimmed: true });
+      return [];
+    }
     return node ? [node] : [];
   });
+  if (emptyChildren.length > 0) {
+    nodes.push({
+      id: 'empty-root',
+      label: 'Empty Content',
+      kind: 'empty-root',
+      dimmed: true,
+      expandable: true,
+      count: emptyChildren.length,
+      children: emptyChildren,
+    });
+  }
   if (hiddenCollections.length > 0) {
     const hiddenChildren = hiddenCollections.flatMap((collection) => {
       const node = collectionNode(project, collection, options, true);
