@@ -182,6 +182,10 @@ export function runPlaybackSpec(project: unknown, spec: unknown) {
   return invokeEditorTool('run-test', { project, spec });
 }
 
+export function runUiPlaybackSpec(project: unknown, spec: unknown) {
+  return invokeEditorTool('run-ui-test', { project, spec });
+}
+
 export function exportPackage(project: unknown, outputPath: string, options?: PackageExportOptions) {
   return invokeEditorTool('export-package', { project, outputPath, options: options ?? {} });
 }

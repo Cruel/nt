@@ -35,6 +35,10 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   can mount the shell title Layout, replay `ui-click` steps by stable selector, dispatch real RmlUi
   click events into Layout Lua/`Game.*`, drain host/script/UI work, and report click, Lua command,
   runtime command, and runtime output traces.
+- Phase I UI-click test integration is implemented. Authoring tests can now define `ui-click` steps
+  with stable document/target/selector fields, serialize them to native UI playback specs, run them
+  through the editor helper/Electron/TestsEditor path, and inspect clickability diagnostics plus
+  UI/Lua/runtime traces in the test playback report.
 - Built-in title Layout startup is implemented. Loading a runtime project mounts
   `system:/ui/title/default-title.rml` through the shell layout manager, binds the project title and
   Start label fallback, and defers loading `runtime_game` until `game.start`.
@@ -56,8 +60,9 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   [`../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md`](../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md):
   default/title Layout startup, menu overlays, pause UI, transitions, Layout-aware preview/playback,
   and command bridges from Lua/editor/test surfaces.
-- Preview recording remains incomplete. Runtime UI playback now provides the replay foundation, but
-  live preview still does not record user-visible `ui-click` steps.
+- Preview recording remains incomplete. Runtime UI playback now provides the replay foundation and
+  TestsEditor can run authored `ui-click` steps, but live preview still does not record
+  user-visible `ui-click` steps.
 - Runtime Layout export/manifest support is still incomplete. The editor now authors named system
   Layout roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`,
   `settings-menu`, `modal`, and `debug-overlay`) with built-in fallbacks. Runtime export and

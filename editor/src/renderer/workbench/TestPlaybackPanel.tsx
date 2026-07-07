@@ -65,6 +65,7 @@ export function TestPlaybackPanel() {
   const observations = getArray(report.observations);
   const diagnostics = getArray(report.diagnostics);
   const outputs = getArray(report.outputs);
+  const trace = getArray(report.trace);
   const finalState = isRecord(report.final_state) ? report.final_state : isRecord(report.finalState) ? report.finalState : null;
 
   return (
@@ -120,6 +121,26 @@ export function TestPlaybackPanel() {
       </section>
 
       {diagnostics.length > 0 ? <section className="space-y-2 rounded border p-3"><h3 className="text-sm font-medium">Report diagnostics</h3><DiagnosticList diagnostics={diagnostics} /></section> : null}
+
+      {trace.length > 0 ? (
+        <section className="space-y-2 rounded border p-3">
+          <h3 className="text-sm font-medium">Trace</h3>
+          <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
+            {trace.slice(0, 60).map((event, index) => {
+              const item = isRecord(event) ? event : {};
+              return (
+                <div key={index} className="rounded border p-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{String(item.step_index ?? index)}</Badge>
+                    <span className="font-medium">{getString(item.type, 'trace')}</span>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">{getString(item.message, '')}</div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {outputs.length > 0 ? (
         <section className="space-y-2 rounded border p-3">

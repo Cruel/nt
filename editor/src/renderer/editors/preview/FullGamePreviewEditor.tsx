@@ -47,6 +47,9 @@ interface RecordedRuntimeAction {
     objectId?: string;
     verbId?: string;
     objectIds?: string[];
+    documentId?: string;
+    target?: string;
+    selector?: string;
   };
 }
 
@@ -191,6 +194,8 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
       return 'Clear object selection';
     case 'run-action':
       return `Run ${action.input.verbId ?? 'action'}`;
+    case 'ui-click':
+      return `Click ${action.input.selector ?? action.input.target ?? 'UI target'}`;
     default:
       return action.label;
   }
@@ -198,6 +203,16 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
 
 function createRecordedAction(kind: RecordedRuntimeInputKind, label: string, input: RecordedRuntimeAction['input']): RecordedRuntimeAction {
   return { id: crypto.randomUUID(), kind, label, input, recordedAt: new Date().toISOString() };
+}
+
+function uiClickTarget(value: unknown): { documentId: string; target: string; selector: string; label: string } | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const documentId = typeof record.documentId === 'string' ? record.documentId : '';
+  const target = typeof record.target === 'string' ? record.target : '';
+  const selector = typeof record.selector === 'string' ? record.selector : target;
+  if (!documentId || !selector) return null;
+  return { documentId, target: target || selector, selector, label: typeof record.label === 'string' ? record.label : selector };
 }
 
 function normalizeTestId(value: string) {
@@ -313,6 +328,15 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
           { recordedAction: createRecordedAction('run-action', action.label || action.verbId, { type: 'run-action', verbId: action.verbId, objectIds: inputs.selectedObjects }) },
         )}>
           {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
+        </Button>
+      ))}
+      {(inputs?.clickableTargets ?? []).map(uiClickTarget).filter((target): target is NonNullable<typeof target> => target !== null).slice(0, 4).map((target) => (
+        <Button key={`${target.documentId}:${target.selector}`} size="sm" variant="outline" className="w-full justify-start" disabled={!controller} onClick={() => controller && onCommand(
+          () => Promise.resolve(),
+          `Recorded UI click ${target.selector}`,
+          { recordedAction: createRecordedAction('ui-click', target.label, { type: 'ui-click', documentId: target.documentId, target: target.target, selector: target.selector }) },
+        )}>
+          Record UI click: {target.label}
         </Button>
       ))}
     </Panel>
@@ -537,7 +561,7 @@ function RecorderPanel({
         </Button>
       </div>
       <div className="rounded-md border bg-muted/40 p-2 text-[11px] text-muted-foreground">
-        Recording captures runtime semantic inputs from this preview tab. UI-click recording is not runnable yet and is intentionally not emitted as a test step in this phase.
+        Recording captures runtime semantic inputs and advertised UI-click targets from this preview tab. Debug-only mutation controls are not recorded.
       </div>
       {draft.replayError ? <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">{draft.replayError}</div> : null}
       {draft.saveError ? <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">{draft.saveError}</div> : null}

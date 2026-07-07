@@ -1,6 +1,7 @@
 #include <noveltea/core/editor_api.hpp>
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/render/shader_compiler.hpp>
+#include <noveltea/runtime_ui_playback.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -83,7 +84,8 @@ nlohmann::json export_diagnostics_to_json(const std::vector<PackageExportDiagnos
     return result;
 }
 
-nlohmann::json material_diagnostics_to_json(const std::vector<noveltea::MaterialDiagnostic>& diagnostics)
+nlohmann::json
+material_diagnostics_to_json(const std::vector<noveltea::MaterialDiagnostic>& diagnostics)
 {
     auto result = nlohmann::json::array();
     for (const auto& diagnostic : diagnostics) {
@@ -114,8 +116,8 @@ nlohmann::json shader_compile_diagnostics_to_json(
     return result;
 }
 
-nlohmann::json shader_compile_outputs_to_json(
-    const std::vector<noveltea::ShaderCompileOutput>& outputs)
+nlohmann::json
+shader_compile_outputs_to_json(const std::vector<noveltea::ShaderCompileOutput>& outputs)
 {
     auto result = nlohmann::json::array();
     for (const auto& output : outputs) {
@@ -183,7 +185,7 @@ nlohmann::json project_payload(ProjectLoadResult& loaded)
 }
 
 noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::json& json,
-                                                                  nlohmann::json& diagnostics)
+                                                                nlohmann::json& diagnostics)
 {
     noveltea::ShaderCompileOptions options;
     if (!json.is_object())
@@ -212,8 +214,8 @@ noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::
     return options;
 }
 
-std::optional<noveltea::ShaderMaterialProject> shader_project_from_request(
-    const nlohmann::json& request, nlohmann::json& error_response)
+std::optional<noveltea::ShaderMaterialProject>
+shader_project_from_request(const nlohmann::json& request, nlohmann::json& error_response)
 {
     auto shader_project_json = request.find("shaderProject");
     if (shader_project_json == request.end()) {
@@ -223,14 +225,15 @@ std::optional<noveltea::ShaderMaterialProject> shader_project_from_request(
 
     noveltea::ShaderMaterialProjectParseResult parsed;
     if (shader_project_json->is_string()) {
-        parsed = noveltea::parse_shader_material_project_json(shader_project_json->get<std::string>());
+        parsed =
+            noveltea::parse_shader_material_project_json(shader_project_json->get<std::string>());
     } else {
         parsed = noveltea::parse_shader_material_project_json_value(*shader_project_json);
     }
 
     if (!parsed.project) {
-        error_response = fail("Shader project parse failed.",
-                              material_diagnostics_to_json(parsed.diagnostics));
+        error_response =
+            fail("Shader project parse failed.", material_diagnostics_to_json(parsed.diagnostics));
         return std::nullopt;
     }
     return std::move(*parsed.project);
@@ -353,6 +356,39 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
             return fail("Playback spec parse failed.", diagnostics_to_json(diagnostics));
 
         RuntimePlaybackSession playback;
+        auto report = playback.run(std::move(*project), *spec);
+        return ok(
+            {{"report", report.to_json()}, {"diagnostics", diagnostics_to_json(diagnostics)}});
+    }
+
+    if (command == "run-ui-test") {
+        nlohmann::json error_response;
+        auto project = project_from_request(request, error_response);
+        if (!project)
+            return error_response;
+
+        std::vector<ToolDiagnostic> diagnostics;
+        std::optional<noveltea::RuntimeUiPlaybackSpec> spec;
+        if (auto spec_json = request.find("spec"); spec_json != request.end()) {
+            spec = noveltea::RuntimeUiPlaybackSession::parse_spec(*spec_json, diagnostics, "/spec");
+        } else {
+            const auto test_id = request.value("testId", std::string{});
+            auto specs =
+                noveltea::RuntimeUiPlaybackSession::specs_from_project(*project, diagnostics);
+            for (auto& candidate : specs) {
+                if (candidate.id == test_id) {
+                    spec = std::move(candidate);
+                    break;
+                }
+            }
+            if (!spec && diagnostics.empty())
+                diagnostics.push_back(
+                    ToolDiagnostic{DiagnosticSeverity::Error, "/testId", "Unknown test id."});
+        }
+        if (!spec)
+            return fail("UI playback spec parse failed.", diagnostics_to_json(diagnostics));
+
+        noveltea::RuntimeUiPlaybackSession playback;
         auto report = playback.run(std::move(*project), *spec);
         return ok(
             {{"report", report.to_json()}, {"diagnostics", diagnostics_to_json(diagnostics)}});

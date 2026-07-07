@@ -17,6 +17,7 @@ import {
   openProject,
   runPlaybackSpec,
   runPlaybackTest,
+  runUiPlaybackSpec,
   setEntityRecord,
   validateProject,
 } from './main/services/editor-tool-service';
@@ -421,6 +422,12 @@ app.whenReady().then(() => {
     IPC_CHANNELS.RUN_PLAYBACK_SPEC,
     (_event: Electron.IpcMainInvokeEvent, project: unknown, spec: unknown) =>
       runPlaybackSpec(project, spec),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC,
+    (_event: Electron.IpcMainInvokeEvent, project: unknown, spec: unknown) =>
+      runUiPlaybackSpec(project, spec),
   );
 
   ipcMain.handle(

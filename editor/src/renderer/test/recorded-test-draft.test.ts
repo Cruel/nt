@@ -36,18 +36,22 @@ describe('recorded test draft conversion', () => {
     });
   });
 
-  it('does not persist ui-click steps until UI playback is in the editor test path', () => {
+  it('persists ui-click steps once UI playback is in the editor test path', () => {
     const result = recordedTestDraftToTestData({
       actions: [
-        { id: 'title-click', kind: 'ui-click', label: 'Click Start', input: { type: 'ui-click' } },
+        { id: 'title-click', kind: 'ui-click', label: 'Click Start', input: { type: 'ui-click', documentId: 'runtime_title', selector: '#nt-title-start' } },
         { id: 'continue-1', kind: 'continue', label: 'Continue', input: { type: 'continue' } },
       ],
     });
 
     expect(result.ok).toBe(true);
-    expect(result.skippedActionCount).toBe(1);
-    expect(result.diagnostics).toContain("Skipped unsupported recorded input 'ui-click'.");
-    expect(result.data.steps.map((step) => step.input)).toEqual(['tick', 'continue']);
+    expect(result.skippedActionCount).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.data.steps.map((step) => step.input)).toEqual(['tick', 'ui-click', 'continue']);
+    expect(result.data.steps[1]).toMatchObject({
+      input: 'ui-click',
+      uiClick: { documentId: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' },
+    });
   });
 
   it('normalizes runtime action ids into valid authoring step ids', () => {

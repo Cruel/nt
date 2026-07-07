@@ -105,7 +105,8 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
     if (auto* nav = find_element(doc, "rt_navigation", m_logged_missing)) {
         std::ostringstream out;
         for (std::size_t i = 0; i < state.navigation.size(); ++i) {
-            out << "<button class=\"nav\" nt-nav=\"" << i << "\">"
+            out << "<button class=\"nav\" nt-nav=\"" << i << "\" onclick=\"Game.navigate("
+                << i << ")\">"
                 << escape_rml(state.navigation[i]) << "</button>";
         }
         nav->SetInnerRML(out.str());
@@ -120,7 +121,8 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
                 out << " selected";
             if (!obj.enabled)
                 out << " disabled";
-            out << "\" nt-object=\"" << escape_rml(obj.id) << "\"";
+            out << "\" nt-object=\"" << escape_rml(obj.id) << "\" onclick=\"Game.select_object('"
+                << escape_rml(obj.id) << "')\"";
             if (!obj.enabled)
                 out << " disabled";
             out << ">";
@@ -146,7 +148,8 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
                 out << " selected";
             if (!obj.enabled)
                 out << " disabled";
-            out << "\" nt-object=\"" << escape_rml(obj.id) << "\"";
+            out << "\" nt-object=\"" << escape_rml(obj.id) << "\" onclick=\"Game.select_object('"
+                << escape_rml(obj.id) << "')\"";
             if (!obj.enabled)
                 out << " disabled";
             out << ">";
@@ -169,14 +172,16 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
             has_selection = has_selection || obj.selected;
         }
         if (has_selection) {
-            out << "<button class=\"clear-selection\" nt-clear-selection=\"1\">Clear "
+            out << "<button class=\"clear-selection\" nt-clear-selection=\"1\" "
+                   "onclick=\"Game.clear_selection()\">Clear "
                    "selection</button>";
         }
         for (const auto& action : state.actions) {
             out << "<button class=\"action";
             if (!action.enabled)
                 out << " disabled";
-            out << "\" nt-action=\"" << escape_rml(action.verb_id) << "\"";
+            out << "\" nt-action=\"" << escape_rml(action.verb_id)
+                << "\" onclick=\"Game.run_action('" << escape_rml(action.verb_id) << "')\"";
             if (!action.enabled)
                 out << " disabled";
             out << ">" << escape_rml(action.label) << " (" << action.selected_count << "/"

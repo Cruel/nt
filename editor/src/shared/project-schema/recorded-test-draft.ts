@@ -13,7 +13,8 @@ export type RecordedRuntimeInputKind =
   | 'navigate'
   | 'select-object'
   | 'clear-object-selection'
-  | 'run-action';
+  | 'run-action'
+  | 'ui-click';
 
 export interface RecordedRuntimeActionInput {
   type: RecordedRuntimeInputKind | 'ui-click' | string;
@@ -22,6 +23,9 @@ export interface RecordedRuntimeActionInput {
   objectId?: string;
   verbId?: string;
   objectIds?: string[];
+  documentId?: string;
+  target?: string;
+  selector?: string;
 }
 
 export interface RecordedRuntimeActionDraft {
@@ -106,6 +110,21 @@ export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActi
         action,
         index,
       );
+    case 'ui-click': {
+      const selector = input.selector?.trim() || input.target?.trim() || '#nt-title-start';
+      return withStepIdentity(
+        {
+          ...defaultTestStep('ui-click', action.label || `Click ${selector}`),
+          uiClick: {
+            documentId: input.documentId?.trim() || 'runtime_title',
+            target: input.target?.trim() || selector,
+            selector,
+          },
+        },
+        action,
+        index,
+      );
+    }
     default:
       return null;
   }

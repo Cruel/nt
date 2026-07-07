@@ -9,6 +9,7 @@ import {
 } from './authoring-dialogues';
 import { parseRoomData } from './authoring-rooms';
 import { parseSceneData, type SceneData, type SceneStepData } from './authoring-scenes';
+import { getSystemLayoutSetting, parseLayoutData, type SystemLayoutRole } from './authoring-layouts';
 import { parseVariableData } from './authoring-variables';
 import { buildShaderMaterialProject } from './shader-material-project';
 import type { PackageExportOptions, ToolDiagnostic } from '../editor-tooling';
@@ -557,6 +558,59 @@ function buildVariableDefaults(project: AuthoringProject, diagnostics: ToolDiagn
   return properties;
 }
 
+function systemLayoutDocumentId(role: SystemLayoutRole) {
+  if (role === 'title') return 'runtime_title';
+  if (role === 'game-hud') return 'runtime_game';
+  if (role === 'pause-menu') return 'runtime_pause_menu';
+  return `runtime_${role.replace(/-/g, '_')}`;
+}
+
+function systemLayoutAssetBase(layoutId: string) {
+  return `project:/layouts/${layoutId.replace(/[^A-Za-z0-9_-]+/g, '_')}`;
+}
+
+function buildRuntimeLayoutRml(layoutId: string, data: NonNullable<ReturnType<typeof parseLayoutData>>) {
+  const base = systemLayoutAssetBase(layoutId);
+  const stylesheet = `<link type="text/rcss" href="${base}.rcss" />`;
+  const source = data.rml.sourceText.trim() || '<div></div>';
+  if (data.layoutKind === 'document') {
+    return source.includes('</head>')
+      ? source.replace('</head>', `${stylesheet}\n</head>`)
+      : source.replace('<body>', `<head>${stylesheet}</head>\n<body>`);
+  }
+  return `<rml>\n<head>\n<title>${layoutId}</title>\n${stylesheet}\n</head>\n<body>\n${source}\n</body>\n</rml>\n`;
+}
+
+function buildRuntimeUiPlaybackLayouts(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
+  const layouts: Record<string, unknown> = {};
+  for (const role of ['title', 'game-hud', 'pause-menu'] as const) {
+    const ref = getSystemLayoutSetting(project, role);
+    if (!ref) continue;
+    const layoutId = ref.$ref.id;
+    const record = project.layouts[layoutId];
+    const data = parseLayoutData(record?.data);
+    if (!data) {
+      diagnostics.push(diagnostic(`/settings/ui/systemLayouts/${role}/$ref`, `System layout '${layoutId}' has invalid layout data.`, 'warning'));
+      continue;
+    }
+    if (data.rml.sourceMode !== 'inline' || data.rcss.sourceMode !== 'inline' || data.lua.sourceMode !== 'inline') {
+      diagnostics.push(diagnostic(`/settings/ui/systemLayouts/${role}/$ref`, `System layout '${layoutId}' uses asset-mode sources that are not embedded for UI playback yet.`, 'warning'));
+      continue;
+    }
+    layouts[role] = {
+      id: layoutId,
+      documentId: systemLayoutDocumentId(role),
+      assetPath: `${systemLayoutAssetBase(layoutId)}.rml`,
+      stylesheetPath: `${systemLayoutAssetBase(layoutId)}.rcss`,
+      scriptPath: `${systemLayoutAssetBase(layoutId)}.lua`,
+      rml: buildRuntimeLayoutRml(layoutId, data),
+      rcss: data.rcss.sourceText,
+      lua: data.script.enabled ? data.lua.sourceText : '',
+    };
+  }
+  return layouts;
+}
+
 export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
   return Object.keys(project.shaders).length > 0 || Object.keys(project.materials).length > 0;
 }
@@ -582,6 +636,11 @@ export function buildAuthoringRuntimeExport(
     properties: buildVariableDefaults(project, diagnostics),
     startInv: [],
   };
+
+  const runtimeUiPlaybackLayouts = buildRuntimeUiPlaybackLayouts(project, diagnostics);
+  if (Object.keys(runtimeUiPlaybackLayouts).length > 0) {
+    runtimeProject.__editor_ui_playback = { systemLayouts: runtimeUiPlaybackLayouts };
+  }
 
   const runtimeEntrypoint = mapReferenceToRuntime(project.entrypoint);
   if (!project.entrypoint) {

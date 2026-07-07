@@ -6,6 +6,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 
@@ -112,6 +113,31 @@ describe('TestsEditor', () => {
         passed: false,
         diagnostics: [expect.objectContaining({ category: 'authoring-test-playback' })],
       });
+    });
+  });
+
+  it('runs ui-click tests through the UI playback API', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.entrypoint = { collection: 'rooms', id: 'foyer' };
+    const data = defaultTestData('Title Start');
+    data.steps = [{ ...defaultTestStep('ui-click'), id: 'title-start', label: 'Title Start' }];
+    data.preview.selectedStepId = 'title-start';
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+
+    render(<TestsEditor tab={tab} />);
+
+    expect(screen.getByText('runnable')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('runtime_title')).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue('#nt-title-start').length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(screen.getByText('Run Test'));
+    await waitFor(() => {
+      expect(window.noveltea.runUiPlaybackSpec).toHaveBeenCalledWith(
+        expect.objectContaining({ room: expect.any(Object), entrypoint: [3, 'foyer'] }),
+        expect.objectContaining({ steps: [expect.objectContaining({ input: 'ui_click', document_id: 'runtime_title', target: '#nt-title-start' })] }),
+      );
     });
   });
 });

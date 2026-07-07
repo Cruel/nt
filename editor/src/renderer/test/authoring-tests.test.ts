@@ -23,6 +23,29 @@ describe('authoring tests schema', () => {
     });
   });
 
+  it('provides stable ui-click defaults and validation', () => {
+    const project = createAuthoringProject();
+    const data = defaultTestData('Smoke');
+    data.steps = [{ ...defaultTestStep('ui-click'), id: 'start-click', label: 'Start Click' }];
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+
+    expect(data.steps[0]).toMatchObject({
+      input: 'ui-click',
+      uiClick: {
+        documentId: 'runtime_title',
+        target: '#nt-title-start',
+        selector: '#nt-title-start',
+      },
+    });
+
+    data.steps[0]!.uiClick = { documentId: '', target: '', selector: '' };
+    expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/tests/smoke/data/steps/0/uiClick/documentId', severity: 'error' }),
+      expect.objectContaining({ path: '/tests/smoke/data/steps/0/uiClick/target', severity: 'error' }),
+      expect.objectContaining({ path: '/tests/smoke/data/steps/0/uiClick/selector', severity: 'error' }),
+    ]));
+  });
+
   it('validates references, duplicate IDs, and assertion requirements', () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');

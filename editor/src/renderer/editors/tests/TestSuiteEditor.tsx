@@ -7,7 +7,7 @@ import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { getAuthoringTestRunReadiness } from '../../../shared/project-schema/test-playback-project';
+import { buildRuntimePlaybackSpecFromAuthoringTest, getAuthoringTestRunReadiness } from '../../../shared/project-schema/test-playback-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
 export function TestSuiteEditor(_props: WorkbenchEditorProps) {
@@ -26,9 +26,22 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   }, [project]);
 
   if (!project) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to manage tests.</div>;
+  const activeProject = project;
 
   async function runTest(testId: string) {
-    const result = await window.noveltea.runPlaybackTest(project, testId);
+    const spec = buildRuntimePlaybackSpecFromAuthoringTest(activeProject, testId);
+    if (!spec.ok || !spec.spec) {
+      const report = { id: testId, passed: false, failures: spec.diagnostics.map((item) => item.message), diagnostics: spec.diagnostics, observations: [] };
+      setLastPlaybackReport(report);
+      setStatusMessage(spec.diagnostics[0]?.message ?? 'Test is not runnable yet.');
+      addTimelineEntry({ source: 'playback', message: 'Test is not runnable yet', detail: report });
+      setBottomPanel('test-playback');
+      return;
+    }
+    const runnerProject = spec.runner === 'runtime-ui' ? spec.project ?? activeProject : activeProject;
+    const result = spec.runner === 'runtime-ui'
+      ? await window.noveltea.runUiPlaybackSpec(runnerProject, spec.spec)
+      : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${testId}` : result.error ?? 'Test run failed');
     addTimelineEntry({ source: 'playback', message: result.ok ? `Ran test ${testId}` : result.error ?? 'Test run failed', detail: result });

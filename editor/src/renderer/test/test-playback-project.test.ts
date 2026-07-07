@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import {
   defaultTestAssertion,
@@ -104,5 +105,32 @@ describe('authoring test playback project adapter', () => {
       reason: 'not-runnable-authoring-conversion-missing',
       diagnostics: [expect.objectContaining({ category: 'authoring-test-playback' })],
     });
+  });
+
+  it('serializes ui-click steps to the UI playback runner with an exported runtime project', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.entrypoint = { collection: 'rooms', id: 'foyer' };
+    const data = defaultTestData('Title Start');
+    data.steps = [{
+      ...defaultTestStep('ui-click'),
+      id: 'title-start',
+      label: 'Title Start',
+      uiClick: { documentId: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' },
+    }];
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+
+    const result = buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
+
+    expect(result).toMatchObject({
+      ok: true,
+      runner: 'runtime-ui',
+      spec: {
+        id: 'smoke',
+        steps: [{ input: 'ui_click', document_id: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' }],
+      },
+    });
+    expect(result.project).toMatchObject({ room: { foyer: expect.any(Array) }, entrypoint: [3, 'foyer'] });
+    expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: true, reason: 'runnable' });
   });
 });

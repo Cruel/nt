@@ -12,6 +12,7 @@
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/script/script_runtime.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -748,6 +749,83 @@ TEST_CASE("RuntimeUiPlaybackSession clicks title Start through RmlUi Lua")
     CHECK(saw_lua_game_call);
     CHECK(saw_command);
     CHECK(saw_output);
+}
+
+TEST_CASE("RuntimeUiPlaybackSession continues into gameplay UI-click targets")
+{
+    RuntimeUiPlaybackSpec spec;
+    spec.id = "title-start-continue";
+    spec.steps.push_back(RuntimeUiPlaybackStep{
+        .input = RuntimeUiPlaybackInputType::UiClick,
+        .document_id = "runtime_title",
+        .target = "#nt-title-start",
+    });
+    spec.steps.push_back(RuntimeUiPlaybackStep{
+        .input = RuntimeUiPlaybackInputType::UiClick,
+        .document_id = "runtime_game",
+        .target = "button[nt-continue=\"1\"]",
+    });
+
+    RuntimeUiPlaybackSession playback;
+    auto report = playback.run(make_scene_flow_project(), spec);
+
+    if (!report.diagnostics.empty()) {
+        INFO(report.diagnostics.front().message);
+    }
+    if (!report.failures.empty()) {
+        INFO(report.failures.front());
+    }
+    CHECK(report.passed);
+    REQUIRE(report.observations.size() == 2);
+    CHECK(report.observations[1].handled);
+    CHECK(report.final_view.body == "The kettle sings.");
+}
+
+TEST_CASE("RuntimeUiPlaybackSession parses ui-click specs and serializes reports")
+{
+    nlohmann::json json = {
+        {"id", "title-start"},
+        {"steps", nlohmann::json::array({{{"input", "ui_click"},
+                                          {"document_id", "runtime_title"},
+                                          {"selector", "#nt-title-start"}}})},
+    };
+    std::vector<core::editor::ToolDiagnostic> diagnostics;
+    auto spec = RuntimeUiPlaybackSession::parse_spec(json, diagnostics, "/spec");
+
+    REQUIRE(spec.has_value());
+    CHECK(diagnostics.empty());
+    REQUIRE(spec->steps.size() == 1);
+    CHECK(spec->steps.front().document_id == "runtime_title");
+    CHECK(spec->steps.front().target == "#nt-title-start");
+
+    RuntimeUiPlaybackSession playback;
+    auto report = playback.run(make_room_project(), *spec);
+    auto report_json = report.to_json();
+
+    CHECK(report_json["id"] == "title-start");
+    CHECK(report_json["passed"] == true);
+    REQUIRE(report_json["observations"].is_array());
+    REQUIRE_FALSE(report_json["observations"].empty());
+    CHECK(report_json["observations"][0]["input"] == "ui_click");
+    CHECK(report_json["trace"].is_array());
+}
+
+TEST_CASE("RuntimeUiPlaybackSession rejects malformed ui-click specs")
+{
+    nlohmann::json json = {
+        {"id", "broken"},
+        {"steps", nlohmann::json::array({{{"input", "ui_click"}, {"document_id", ""}}})},
+    };
+    std::vector<core::editor::ToolDiagnostic> diagnostics;
+    auto spec = RuntimeUiPlaybackSession::parse_spec(json, diagnostics, "/spec");
+
+    CHECK_FALSE(spec.has_value());
+    CHECK(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+        return diagnostic.path == "/spec/steps/0/document_id";
+    }));
+    CHECK(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+        return diagnostic.path == "/spec/steps/0/target";
+    }));
 }
 
 TEST_CASE("RuntimeUiPlaybackSession reports missing ui-click target")

@@ -68,16 +68,21 @@ afterEach(() => {
 async function renderConnectedPreview() {
   render(<FullGamePreviewEditor />);
   const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
-  await act(async () => {
+  await waitFor(() => {
     window.dispatchEvent(new MessageEvent('message', {
       source: iframe.contentWindow,
       origin: 'http://127.0.0.1:5000',
       data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
     }));
-    ports[1]?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    expect(ports.length).toBeGreaterThanOrEqual(2);
+  });
+  const editorPort = ports.at(-2)!;
+  const previewPort = ports.at(-1)!;
+  await act(async () => {
+    previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
   });
   await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
-  return { iframe, editorPort: ports[0]!, previewPort: ports[1]! };
+  return { iframe, editorPort, previewPort };
 }
 
 function latestRequest(editorPort: FakePort, type: string) {
@@ -345,7 +350,7 @@ describe('FullGamePreviewEditor', () => {
     await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
     await user.click(screen.getByText('Stop'));
 
-    expect(screen.getByText('Save as New Test')).toBeDisabled();
+    expect(screen.getByText('Save as New Test')).toBeEnabled();
     expect(screen.getByText('Apply to Existing Test')).toBeDisabled();
 
     await user.click(screen.getByText('Replay'));

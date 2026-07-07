@@ -2225,16 +2225,33 @@ std::string Engine::runtime_preview_debug_snapshot() const
     }
 
     nlohmann::json dialogue_options = nlohmann::json::array();
+    nlohmann::json clickable_targets = nlohmann::json::array();
     for (std::size_t i = 0; i < view.dialogue_options.size(); ++i) {
         const auto& option = view.dialogue_options[i];
         dialogue_options.push_back(
             {{"index", static_cast<int>(i)}, {"label", option.text}, {"enabled", option.enabled}});
+        if (option.enabled) {
+            const auto selector = "button[nt-option=\"" + std::to_string(i) + "\"]";
+            clickable_targets.push_back({{"documentId", "runtime_game"},
+                                         {"target", selector},
+                                         {"selector", selector},
+                                         {"label", option.text},
+                                         {"kind", "dialogue-option"},
+                                         {"index", static_cast<int>(i)}});
+        }
     }
 
     nlohmann::json navigation = nlohmann::json::array();
     for (std::size_t i = 0; i < view.navigation.size(); ++i) {
         navigation.push_back(
             {{"index", static_cast<int>(i)}, {"label", view.navigation[i]}, {"enabled", true}});
+        const auto selector = "button[nt-nav=\"" + std::to_string(i) + "\"]";
+        clickable_targets.push_back({{"documentId", "runtime_game"},
+                                     {"target", selector},
+                                     {"selector", selector},
+                                     {"label", view.navigation[i]},
+                                     {"kind", "navigate"},
+                                     {"index", static_cast<int>(i)}});
     }
 
     nlohmann::json actions = nlohmann::json::array();
@@ -2248,10 +2265,26 @@ std::string Engine::runtime_preview_debug_snapshot() const
         if (!action.reason.empty()) {
             action_json["reason"] = action.reason;
         }
+        if (action.enabled) {
+            const auto selector = "button[nt-action=\"" + action.verb_id + "\"]";
+            clickable_targets.push_back({{"documentId", "runtime_game"},
+                                         {"target", selector},
+                                         {"selector", selector},
+                                         {"label", action.label.empty() ? action.verb_id : action.label},
+                                         {"kind", "run-action"},
+                                         {"verbId", action.verb_id}});
+        }
         actions.push_back(std::move(action_json));
     }
 
     const bool can_continue = view.awaiting_continue || view.page_break;
+    if (can_continue) {
+        clickable_targets.push_back({{"documentId", "runtime_game"},
+                                     {"target", ".continue"},
+                                     {"selector", ".continue"},
+                                     {"label", view.page_break ? "Page break" : "Continue"},
+                                     {"kind", "continue"}});
+    }
     std::string waiting_kind = "none";
     std::string waiting_reason;
     if (!host.loaded()) {
@@ -2296,7 +2329,7 @@ std::string Engine::runtime_preview_debug_snapshot() const
                                  {"navigation", std::move(navigation)},
                                  {"actions", std::move(actions)},
                                  {"selectedObjects", selected_objects},
-                                 {"clickableTargets", nlohmann::json::array()}}},
+                                 {"clickableTargets", std::move(clickable_targets)}}},
                                {"variables", std::move(variables)},
                                {"inventory", std::move(inventory)},
                                {"selectedObjects", std::move(selected_objects)},

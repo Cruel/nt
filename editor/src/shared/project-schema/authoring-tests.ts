@@ -11,6 +11,7 @@ export const testInputTypeValues = [
   'run-action',
   'load-save',
   'set-entrypoint',
+  'ui-click',
 ] as const;
 export type TestInputType = (typeof testInputTypeValues)[number];
 
@@ -77,6 +78,11 @@ export const testStepDataSchema = z.object({
   runAction: z.object({ verb: testVerbRefSchema.nullable().default(null), objects: z.array(testObjectRefSchema).default([]) }).default({ verb: null, objects: [] }),
   loadSave: z.object({ slotId: z.string().default(''), payload: z.unknown().default(null) }).default({ slotId: '', payload: null }),
   setEntrypoint: z.object({ entrypoint: testEntrypointRefSchema.nullable().default(null) }).default({ entrypoint: null }),
+  uiClick: z.object({
+    documentId: z.string().default('runtime_title'),
+    target: z.string().default('#nt-title-start'),
+    selector: z.string().default('#nt-title-start'),
+  }).default({ documentId: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' }),
   assertions: z.array(testAssertionDataSchema).default([]),
 });
 
@@ -201,6 +207,11 @@ function validateStep(project: AuthoringProject, step: TestStepData, path: strin
     step.runAction.objects.forEach((object, index) => validateRef(project, object, `${path}/runAction/objects/${index}`, diagnostics));
   }
   if (step.input === 'set-entrypoint') validateRef(project, step.setEntrypoint.entrypoint, `${path}/setEntrypoint/entrypoint`, diagnostics);
+  if (step.input === 'ui-click') {
+    if (!step.uiClick.documentId.trim()) diagnostics.push(diagnostic(`${path}/uiClick/documentId`, 'ui-click requires a document id.'));
+    if (!step.uiClick.target.trim()) diagnostics.push(diagnostic(`${path}/uiClick/target`, 'ui-click requires a target selector.'));
+    if (!step.uiClick.selector.trim()) diagnostics.push(diagnostic(`${path}/uiClick/selector`, 'ui-click requires a selector.'));
+  }
   if (step.input === 'navigate') validateRef(project, step.navigate.target, `${path}/navigate/target`, diagnostics);
   validateUniqueIds(step.assertions, `${path}/assertions`, 'assertion', diagnostics);
   step.assertions.forEach((assertion, index) => {

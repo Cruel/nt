@@ -128,6 +128,39 @@ Rml::Element* resolve_playback_target(Rml::ElementDocument& doc, const std::stri
         return selector.size() > 1 ? doc.GetElementById(selector.substr(1)) : nullptr;
     }
 
+    const auto attr_start = selector.find('[');
+    const auto attr_end = selector.find(']', attr_start == std::string::npos ? 0 : attr_start);
+    if (attr_start != std::string::npos && attr_end != std::string::npos && attr_end > attr_start + 1) {
+        const auto tag = attr_start == 0 ? std::string("*") : selector.substr(0, attr_start);
+        auto attr = selector.substr(attr_start + 1, attr_end - attr_start - 1);
+        std::string expected;
+        if (const auto equals = attr.find('='); equals != std::string::npos) {
+            expected = attr.substr(equals + 1);
+            attr = attr.substr(0, equals);
+            if (expected.size() >= 2 &&
+                ((expected.front() == '"' && expected.back() == '"') ||
+                 (expected.front() == '\'' && expected.back() == '\''))) {
+                expected = expected.substr(1, expected.size() - 2);
+            }
+        }
+
+        Rml::ElementList elements;
+        if (tag == "*") {
+            doc.GetElementsByTagName(elements, "button");
+        } else {
+            doc.GetElementsByTagName(elements, tag);
+        }
+        for (auto* element : elements) {
+            if (!element || !element->HasAttribute(attr)) {
+                continue;
+            }
+            if (expected.empty() || element->GetAttribute<Rml::String>(attr, "") == expected) {
+                return element;
+            }
+        }
+        return nullptr;
+    }
+
     Rml::ElementList elements;
     if (selector.front() == '.') {
         if (selector.size() <= 1) {
@@ -156,6 +189,24 @@ bool is_descendant_or_self(Rml::Element* candidate, Rml::Element* ancestor)
         if (current == ancestor) {
             return true;
         }
+    }
+    return false;
+}
+
+bool has_runtime_activation_attribute(Rml::Element& element)
+{
+    return element.HasAttribute("nt-option") || element.HasAttribute("nt-nav") ||
+           element.HasAttribute("nt-continue") || element.HasAttribute("nt-object") ||
+           element.HasAttribute("nt-action") || element.HasAttribute("nt-clear-selection");
+}
+
+bool has_runtime_activation_behavior(Rml::Element& target)
+{
+    if (target.HasAttribute("onclick") || has_runtime_activation_attribute(target)) {
+        return true;
+    }
+    if (target.GetTagName() == "nt-active-text" || find_ancestor_tag(&target, "nt-active-text")) {
+        return true;
     }
     return false;
 }
@@ -1223,7 +1274,8 @@ RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackCl
     }
 
     Rml::Element* hit = m_state->context->GetElementAtPoint({result.x, result.y});
-    if (!is_descendant_or_self(hit, target)) {
+    if (!has_runtime_activation_attribute(*target) && hit && !is_descendant_or_self(hit, target) &&
+        !is_descendant_or_self(target, hit)) {
         result.status = RuntimeUiPlaybackClickStatus::TargetBlocked;
         result.message = "target is not hittable at click point: " + request.selector;
         if (hit) {
@@ -1237,7 +1289,7 @@ RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackCl
         return result;
     }
 
-    bool has_click_listener = target->HasAttribute("onclick");
+    bool has_click_listener = has_runtime_activation_behavior(*target);
     for (const auto& [id, record] : m_state->listeners) {
         (void)id;
         if (record.element == target && record.event == "click") {
@@ -1249,6 +1301,49 @@ RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackCl
         result.status = RuntimeUiPlaybackClickStatus::TargetNotInteractive;
         result.message = "target has no onclick or bound click listener: " + request.selector;
         return result;
+    }
+
+    if (has_runtime_activation_attribute(*target) && m_state->runtime_command_dispatcher) {
+        auto make_command = [](std::string name, nlohmann::json payload = nlohmann::json::object()) {
+            RuntimeCommand command;
+            command.source = RuntimeCommandSource::RmlUiEvent;
+            command.domain = domain_from_command_name(name);
+            command.name = std::move(name);
+            command.payload = std::move(payload);
+            return command;
+        };
+        std::optional<RuntimeCommand> command;
+        if (target->HasAttribute("nt-option")) {
+            const int index = target->GetAttribute<int>("nt-option", -1);
+            if (index >= 0)
+                command = make_command("runtime.dialogue-option", {{"index", index}});
+        } else if (target->HasAttribute("nt-nav")) {
+            const int direction = target->GetAttribute<int>("nt-nav", -1);
+            if (direction >= 0)
+                command = make_command("runtime.navigate", {{"direction", direction}});
+        } else if (target->HasAttribute("nt-continue")) {
+            command = make_command("runtime.continue");
+        } else if (target->HasAttribute("nt-object")) {
+            const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
+            if (!object_id.empty())
+                command = make_command("runtime.select-object", {{"object_id", object_id}});
+        } else if (target->HasAttribute("nt-action")) {
+            const auto verb_id = target->GetAttribute<Rml::String>("nt-action", "");
+            if (!verb_id.empty())
+                command = make_command("runtime.run-action", {{"verb_id", verb_id}});
+        } else if (target->HasAttribute("nt-clear-selection")) {
+            command = make_command("runtime.clear-selection");
+        }
+        if (command) {
+            auto dispatch = m_state->runtime_command_dispatcher->dispatch(std::move(*command));
+            m_state->show_title_diagnostic(dispatch.diagnostics);
+            m_state->runtime_view.apply(m_state->runtime_host ? m_state->runtime_host->last_commands()
+                                                               : std::vector<core::ControllerCommand>{});
+            m_state->refresh_runtime_document();
+            result.dispatched = dispatch.handled;
+            result.message = dispatch.handled ? "dispatched ui-click" : "ui-click command was not handled";
+            return result;
+        }
     }
 
     const int x = static_cast<int>(std::lround(result.x));

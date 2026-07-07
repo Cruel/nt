@@ -210,7 +210,10 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       setLastPlaybackReport({ id: activeTestId, passed: false, failures: spec.diagnostics.map((item) => item.message), diagnostics: spec.diagnostics, observations: [] });
       return;
     }
-    const result = await window.noveltea.runPlaybackSpec(activeProject, spec.spec);
+    const runnerProject = spec.runner === 'runtime-ui' ? spec.project ?? activeProject : activeProject;
+    const result = spec.runner === 'runtime-ui'
+      ? await window.noveltea.runUiPlaybackSpec(runnerProject, spec.spec)
+      : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${activeTestId}` : result.error ?? 'Test run failed');
     addTimelineEntry({ source: 'playback', message: result.ok ? `Ran test ${activeTestId}` : result.error ?? 'Test run failed', detail: result });
@@ -323,6 +326,22 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
               ) : null}
               {activeStep.input === 'load-save' ? <SourceEditor className="h-32" language="json" value={JSON.stringify(activeStep.loadSave.payload, null, 2)} onChange={(source) => replaceStep(activeStep.id, { loadSave: { ...activeStep.loadSave, payload: safeJson(source) } })} /> : null}
               {activeStep.input === 'set-entrypoint' ? <Select value={entrypointValue(activeStep.setEntrypoint.entrypoint)} onValueChange={(value) => replaceStep(activeStep.id, { setEntrypoint: { entrypoint: makeEntrypoint(String(value)) } })}><SelectItem value="__none__">No entrypoint</SelectItem>{entrypoints.map((entrypoint) => <SelectItem key={entrypoint.value} value={entrypoint.value}>{entrypoint.label}</SelectItem>)}</Select> : null}
+              {activeStep.input === 'ui-click' ? (
+                <div className="grid gap-2">
+                  <div className="space-y-1">
+                    <Label>Document ID</Label>
+                    <Input value={activeStep.uiClick.documentId} onChange={(event) => replaceStep(activeStep.id, { uiClick: { ...activeStep.uiClick, documentId: event.currentTarget.value } })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Target</Label>
+                    <Input value={activeStep.uiClick.target} onChange={(event) => replaceStep(activeStep.id, { uiClick: { ...activeStep.uiClick, target: event.currentTarget.value, selector: event.currentTarget.value } })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Selector</Label>
+                    <Input value={activeStep.uiClick.selector} onChange={(event) => replaceStep(activeStep.id, { uiClick: { ...activeStep.uiClick, selector: event.currentTarget.value, target: event.currentTarget.value } })} />
+                  </div>
+                </div>
+              ) : null}
 
               <div className="grid gap-2">
                 <Label>Step init script</Label>

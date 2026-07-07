@@ -96,6 +96,7 @@ Object.defineProperty(window, 'noveltea', {
     listPlaybackTests: vi.fn().mockResolvedValue({ ok: true, tests: [{ id: 'smoke', steps: 1 }], diagnostics: [] }),
     runPlaybackTest: vi.fn().mockResolvedValue({ ok: true, report: { id: 'smoke', passed: true }, diagnostics: [] }),
     runPlaybackSpec: vi.fn().mockResolvedValue({ ok: true, report: { id: 'smoke', passed: true, observations: [] }, diagnostics: [] }),
+    runUiPlaybackSpec: vi.fn().mockResolvedValue({ ok: true, report: { id: 'smoke', passed: true, observations: [], trace: [] }, diagnostics: [] }),
     exportPackage: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], byteCount: 1, manifest: { format: 'noveltea.runtime-package', entries: [] }, checksums: {} }),
     compileShaders: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], outputs: [] }),
     saveProject: vi.fn().mockResolvedValue({ ok: true, success: true, projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' }),

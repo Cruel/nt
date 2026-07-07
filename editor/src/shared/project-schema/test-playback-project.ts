@@ -1,5 +1,7 @@
 import type { ToolDiagnostic } from '../editor-tooling';
 import { isAuthoringProject, type AuthoringProject } from './authoring-project';
+import { selectedExportProfile } from './authoring-export';
+import { buildAuthoringRuntimeExport } from './authoring-runtime-export';
 import {
   parseTestData,
   type TestAssertionData,
@@ -24,7 +26,9 @@ export interface TestRunReadiness {
 
 export interface RuntimePlaybackSpecBuildResult {
   ok: boolean;
+  runner?: 'runtime' | 'runtime-ui';
   spec?: unknown;
+  project?: unknown;
   diagnostics: ToolDiagnostic[];
 }
 
@@ -42,6 +46,7 @@ const inputToNative: Record<TestInputType, string> = {
   'run-action': 'run_action',
   'load-save': 'load_save',
   'set-entrypoint': 'set_entrypoint',
+  'ui-click': 'ui_click',
 };
 
 const assertionToNative: Record<TestAssertionData['type'], string> = {
@@ -97,7 +102,24 @@ function buildNativeStep(step: TestStepData) {
     if (step.loadSave.slotId.trim()) result.payload = { slot_id: step.loadSave.slotId, payload: step.loadSave.payload };
   }
   if (step.input === 'set-entrypoint') result.entity_ref = buildNativeEntrypoint(step.setEntrypoint.entrypoint);
+  if (step.input === 'ui-click') {
+    result.document_id = step.uiClick.documentId;
+    result.target = step.uiClick.target || step.uiClick.selector;
+    result.selector = step.uiClick.selector || step.uiClick.target;
+  }
   return result;
+}
+
+function hasEnabledUiClick(data: TestData) {
+  return data.steps.some((step) => step.enabled && step.input === 'ui-click');
+}
+
+function runtimeProjectForAuthoring(project: AuthoringProject): { project?: unknown; diagnostics: ToolDiagnostic[]; ok: boolean } {
+  const exported = buildAuthoringRuntimeExport(project, {
+    projectRoot: null,
+    profile: selectedExportProfile(project),
+  });
+  return { project: exported.runtimeProject, diagnostics: exported.diagnostics, ok: exported.ok };
 }
 
 export function buildRuntimePlaybackSpecFromTestData(testId: string, data: TestData): RuntimePlaybackSpecBuildResult {
@@ -114,7 +136,7 @@ export function buildRuntimePlaybackSpecFromTestData(testId: string, data: TestD
   if (data.entrypoint) {
     diagnostics.push(diagnostic('warning', `/tests/${testId}/data/entrypoint`, 'Authoring entrypoints are not yet convertible to runtime EntityRef values.'));
   }
-  return { ok: true, spec, diagnostics };
+  return { ok: true, runner: hasEnabledUiClick(data) ? 'runtime-ui' : 'runtime', spec, diagnostics };
 }
 
 export function buildRuntimePlaybackSpecFromAuthoringTest(project: AuthoringProject, testId: string): RuntimePlaybackSpecBuildResult {
@@ -126,7 +148,16 @@ export function buildRuntimePlaybackSpecFromAuthoringTest(project: AuthoringProj
   if (!data) {
     return { ok: false, diagnostics: [diagnostic('error', `/tests/${testId}/data`, 'Test data is invalid.')] };
   }
-  return buildRuntimePlaybackSpecFromTestData(testId, data);
+  const built = buildRuntimePlaybackSpecFromTestData(testId, data);
+  if (built.runner !== 'runtime-ui') return built;
+
+  const runtimeProject = runtimeProjectForAuthoring(project);
+  return {
+    ...built,
+    ok: built.ok && runtimeProject.ok,
+    project: runtimeProject.project,
+    diagnostics: [...built.diagnostics, ...runtimeProject.diagnostics],
+  };
 }
 
 export function getAuthoringTestRunReadiness(project: unknown, testId: string): TestRunReadiness {
@@ -147,6 +178,22 @@ export function getAuthoringTestRunReadiness(project: unknown, testId: string): 
       runnable: false,
       reason: 'not-runnable-invalid-test',
       diagnostics: [diagnostic('error', `/tests/${testId}/data`, 'Test data is invalid.')],
+    };
+  }
+  const hasUiClick = hasEnabledUiClick(data);
+  if (hasUiClick) {
+    const runtimeProject = runtimeProjectForAuthoring(project);
+    if (!runtimeProject.ok) {
+      return {
+        runnable: false,
+        reason: 'not-runnable-authoring-conversion-missing',
+        diagnostics: runtimeProject.diagnostics,
+      };
+    }
+    return {
+      runnable: true,
+      reason: 'runnable',
+      diagnostics: runtimeProject.diagnostics.filter((item) => item.severity !== 'error'),
     };
   }
   if (!data.entrypoint) {
