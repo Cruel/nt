@@ -6,12 +6,6 @@ endif()
 
 target_link_libraries(noveltea-sandbox PRIVATE engine)
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    # bgfx/bimg exports a bundled miniz through image decoding; the legacy
-    # package reader also links miniz for read-only old project ZIP support.
-    target_link_options(noveltea-sandbox PRIVATE "-Wl,--allow-multiple-definition")
-endif()
-
 set(NOVELTEA_SANDBOX_ASSETS "${CMAKE_SOURCE_DIR}/apps/sandbox/assets")
 set(NOVELTEA_BUILD_ASSETS "${CMAKE_BINARY_DIR}/runtime-assets")
 set(NOVELTEA_RUNTIME_ASSET_STAMP "${CMAKE_BINARY_DIR}/generated-assets/runtime-assets.stamp")

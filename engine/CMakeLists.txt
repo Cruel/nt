@@ -57,7 +57,19 @@ if(NOT TARGET miniz::miniz)
         add_library(miniz::miniz ALIAS miniz)
     endif()
 endif()
-target_link_libraries(noveltea_core PRIVATE miniz::miniz)
+# noveltea_core uses miniz's ZIP reader/writer API, but engine consumers also
+# link bgfx/bimg, whose image decoder statically embeds TinyEXR's vendored
+# miniz. Propagating a standalone miniz archive through noveltea_core causes
+# duplicate mz_* symbols when linking Android shared libraries with lld. Keep
+# the standalone miniz target available for core-only tests/tools that need it,
+# but use it here only as a header provider; engine final links resolve these
+# symbols from bimg_decode.
+target_include_directories(noveltea_core PRIVATE
+    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_compile_definitions(noveltea_core PRIVATE
+    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
+)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(noveltea_core PRIVATE

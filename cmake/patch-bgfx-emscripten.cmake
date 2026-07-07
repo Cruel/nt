@@ -1,5 +1,7 @@
 # Patch bgfx.cmake for Emscripten compatibility.
 
+include("${CMAKE_CURRENT_LIST_DIR}/patch-bgfx-miniz.cmake")
+
 set(patch_file "cmake/bimg/CMakeLists.txt")
 
 file(READ "${patch_file}" content)
