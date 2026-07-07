@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Bug,
   Clipboard,
   Database,
@@ -35,6 +36,7 @@ import { recordedTestDraftToTestData, type RecordedRuntimeInputKind } from '../.
 import type { RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage, RuntimeFastForwardResult } from '../../../shared/preview-protocol';
 
 type FullGamePreviewMode = 'debug' | 'recording';
+type RuntimeProjectFreshness = 'not-loaded' | 'fresh' | 'stale';
 type RuntimeCommandFactory = () => Promise<void | RuntimeFastForwardResult>;
 
 interface RecordedRuntimeAction {
@@ -87,6 +89,35 @@ interface RuntimeLogEntry {
 interface FullGamePreviewState {
   snapshot: RuntimeDebugSnapshot | null;
   eventLog: RuntimeLogEntry[];
+}
+
+interface FullGamePreviewRuntimeProjectState {
+  loadedRuntimeProjectRevision: string | null;
+  currentRuntimeProjectRevision: string | null;
+  freshness: RuntimeProjectFreshness;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(',')}}`;
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function runtimeProjectRevision(runtimeProject: unknown): string {
+  return hashString(stableStringify(runtimeProject));
 }
 
 function fallbackLabel(id: string | undefined, label: string | undefined) {
@@ -233,11 +264,12 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   return `${base}-${index}`;
 }
 
-function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { runtimeProject: unknown | null; entries: Omit<RuntimeLogEntry, 'id'>[]; ok: boolean } {
+function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { runtimeProject: unknown | null; revision: string | null; entries: Omit<RuntimeLogEntry, 'id'>[]; ok: boolean } {
   if (!project) {
     return {
       ok: false,
       runtimeProject: null,
+      revision: null,
       entries: [{ label: 'No authoring project is open', detail: 'Open or create a project before using the Play tab.', severity: 'warning' }],
     };
   }
@@ -250,6 +282,7 @@ function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { ru
   return {
     ok: exported.ok,
     runtimeProject: exported.runtimeProject ?? null,
+    revision: exported.runtimeProject ? runtimeProjectRevision(exported.runtimeProject) : null,
     entries,
   };
 }
@@ -536,6 +569,7 @@ function EventLogPanel({ entries, diagnostics }: { entries: RuntimeLogEntry[]; d
 function RecorderPanel({
   draft,
   targetTestId,
+  runtimeProjectFreshness,
   onTargetTestIdChange,
   onStart,
   onStop,
@@ -548,6 +582,7 @@ function RecorderPanel({
 }: {
   draft: RecordedTestDraft;
   targetTestId: string;
+  runtimeProjectFreshness: RuntimeProjectFreshness;
   onTargetTestIdChange: (value: string) => void;
   onStart: () => void;
   onStop: () => void;
@@ -561,6 +596,7 @@ function RecorderPanel({
   const isRecording = draft.mode === 'recording';
   const isReplaying = draft.mode === 'replaying';
   const canSave = !isRecording && !isReplaying && draft.actions.length > 0;
+  const recordingStale = isRecording && runtimeProjectFreshness === 'stale';
   return (
     <Panel title="Recorder" icon={<FilePlus2 className="h-3.5 w-3.5" />}>
       <div className="flex flex-wrap gap-1">
@@ -586,6 +622,11 @@ function RecorderPanel({
       <div className="rounded-md border bg-muted/40 p-2 text-[11px] text-muted-foreground">
         Recording captures runtime semantic inputs and advertised UI-click targets from this preview tab. Debug-only mutation controls are not recorded.
       </div>
+      {recordingStale ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+          Recording is using an older runtime snapshot. Restart with the latest project before recording if the new project edits should be included.
+        </div>
+      ) : null}
       {draft.replayError ? <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">{draft.replayError}</div> : null}
       {draft.saveError ? <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">{draft.saveError}</div> : null}
       {draft.savedTestId ? <div className="rounded-md border p-2 text-xs text-muted-foreground">Saved test: <span className="font-mono">{draft.savedTestId}</span></div> : null}
@@ -618,8 +659,26 @@ function RecorderPanel({
   );
 }
 
-function RuntimeInspector({ state, project, controlsContext, mode, recorderDraft, targetTestId, onTargetTestIdChange, onModeChange, onCommand, onRecorderStart, onRecorderStop, onRecorderClear, onRecorderUndoLast, onRecorderReplay, onRecorderSaveNew, onRecorderApplyExisting, onOpenSavedTest }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mode: FullGamePreviewMode; recorderDraft: RecordedTestDraft; targetTestId: string; onTargetTestIdChange: (value: string) => void; onModeChange: (mode: FullGamePreviewMode) => void; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void; onRecorderStart: () => void; onRecorderStop: () => void; onRecorderClear: () => void; onRecorderUndoLast: () => void; onRecorderReplay: () => void; onRecorderSaveNew: () => void; onRecorderApplyExisting: () => void; onOpenSavedTest: () => void }) {
+function RuntimeProjectStaleWarning({ onReloadLatest, disabled }: { onReloadLatest: () => void; disabled: boolean }) {
+  return (
+    <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="font-medium">Project changed since this Play session was loaded.</div>
+          <div className="mt-0.5 text-[11px]">The running game is using an older runtime snapshot.</div>
+        </div>
+        <Button size="sm" variant="outline" className="h-7 shrink-0 bg-background/80" disabled={disabled} onClick={onReloadLatest}>
+          Restart with Latest Project
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RuntimeInspector({ state, project, controlsContext, runtimeProjectState, canReloadLatestProject, mode, recorderDraft, targetTestId, onTargetTestIdChange, onModeChange, onCommand, onReloadLatestProject, onRecorderStart, onRecorderStop, onRecorderClear, onRecorderUndoLast, onRecorderReplay, onRecorderSaveNew, onRecorderApplyExisting, onOpenSavedTest }: { state: FullGamePreviewState; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; runtimeProjectState: FullGamePreviewRuntimeProjectState; canReloadLatestProject: boolean; mode: FullGamePreviewMode; recorderDraft: RecordedTestDraft; targetTestId: string; onTargetTestIdChange: (value: string) => void; onModeChange: (mode: FullGamePreviewMode) => void; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void; onReloadLatestProject: () => void; onRecorderStart: () => void; onRecorderStop: () => void; onRecorderClear: () => void; onRecorderUndoLast: () => void; onRecorderReplay: () => void; onRecorderSaveNew: () => void; onRecorderApplyExisting: () => void; onOpenSavedTest: () => void }) {
   const mutationDisabled = mode === 'recording';
+  const runtimeDisabled = controlsContext?.connectionState !== 'ready';
   return (
     <aside className="flex w-[360px] min-w-[320px] max-w-[420px] shrink-0 flex-col overflow-auto border-l bg-background">
       <div className="flex min-h-10 items-center justify-between gap-2 border-b px-3 py-2">
@@ -629,8 +688,9 @@ function RuntimeInspector({ state, project, controlsContext, mode, recorderDraft
           <Button size="sm" variant={mode === 'recording' ? 'secondary' : 'ghost'} onClick={() => onModeChange('recording')}>Recording</Button>
         </div>
       </div>
+      {runtimeProjectState.freshness === 'stale' ? <RuntimeProjectStaleWarning onReloadLatest={onReloadLatestProject} disabled={runtimeDisabled || !canReloadLatestProject} /> : null}
       <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">Debug-only mutation controls directly alter preview runtime state. Recording mode disables them by default.</div>
-      <RecorderPanel draft={recorderDraft} targetTestId={targetTestId} onTargetTestIdChange={onTargetTestIdChange} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} onSaveNew={onRecorderSaveNew} onApplyExisting={onRecorderApplyExisting} onOpenSavedTest={onOpenSavedTest} />
+      <RecorderPanel draft={recorderDraft} targetTestId={targetTestId} runtimeProjectFreshness={runtimeProjectState.freshness} onTargetTestIdChange={onTargetTestIdChange} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} onSaveNew={onRecorderSaveNew} onApplyExisting={onRecorderApplyExisting} onOpenSavedTest={onOpenSavedTest} />
       <RuntimeSummaryPanel snapshot={state.snapshot} project={project} />
       <InputAvailabilityPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} onCommand={onCommand} />
       <VariablesPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
@@ -642,13 +702,16 @@ function RuntimeInspector({ state, project, controlsContext, mode, recorderDraft
   );
 }
 
-function FullGamePreviewTransportBar({ context, onRuntimeCommand }: { context: EnginePreviewControlsContext; onRuntimeCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
+function FullGamePreviewTransportBar({ context, runtimeProjectState, canReloadLatestProject, onReloadLatestProject, onRuntimeCommand }: { context: EnginePreviewControlsContext; runtimeProjectState: FullGamePreviewRuntimeProjectState; canReloadLatestProject: boolean; onReloadLatestProject: () => void; onRuntimeCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const runtimeDisabled = context.connectionState !== 'ready';
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
       <Button size="sm" variant="ghost" onClick={context.reload} aria-label="Reload engine preview">
         <RefreshCw className="h-4 w-4" />
+      </Button>
+      <Button size="sm" variant={runtimeProjectState.freshness === 'stale' ? 'secondary' : 'ghost'} onClick={onReloadLatestProject} disabled={runtimeDisabled || !canReloadLatestProject} aria-label="Restart with latest project">
+        <PackagePlus className="h-4 w-4" />
       </Button>
       <Button size="sm" variant="ghost" onClick={() => onRuntimeCommand(() => context.controller.runtimeReset(), 'Runtime reset')} disabled={runtimeDisabled} aria-label="Reset runtime">
         <RotateCcw className="h-4 w-4" />
@@ -721,10 +784,18 @@ export function FullGamePreviewEditor() {
   const setPreviewRunning = useWorkspaceStore((s) => s.setPreviewRunning);
   const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
+  const [runtimeProjectState, setRuntimeProjectState] = useState<FullGamePreviewRuntimeProjectState>({
+    loadedRuntimeProjectRevision: null,
+    currentRuntimeProjectRevision: null,
+    freshness: 'not-loaded',
+  });
   const [mode, setMode] = useState<FullGamePreviewMode>('debug');
   const [recorderDraft, setRecorderDraft] = useState<RecordedTestDraft>({ mode: 'idle', actions: [], traceEvents: [] });
   const [targetTestId, setTargetTestId] = useState('');
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
+  const staleWarningRevisionRef = useRef<string | null>(null);
+  const exportedRuntimeProject = useMemo(() => runtimeProjectDiagnosticEntries(project), [project]);
+  const canReloadLatestProject = exportedRuntimeProject.ok && !!exportedRuntimeProject.runtimeProject;
 
   useEffect(() => {
     if (!targetTestId.trim() && recorderDraft.savedTestId) setTargetTestId(recorderDraft.savedTestId);
@@ -742,7 +813,7 @@ export function FullGamePreviewEditor() {
 
   const loadRuntimeProjectIntoPreview = useCallback(async (context: EnginePreviewControlsContext | null = controlsRef.current) => {
     if (!context) return false;
-    const exported = runtimeProjectDiagnosticEntries(project);
+    const exported = exportedRuntimeProject;
     if (!exported.ok || !exported.runtimeProject) {
       setState((current) => ({
         ...current,
@@ -755,6 +826,12 @@ export function FullGamePreviewEditor() {
       return false;
     }
     await context.controller.loadRuntimeProject(exported.runtimeProject);
+    setRuntimeProjectState({
+      loadedRuntimeProjectRevision: exported.revision,
+      currentRuntimeProjectRevision: exported.revision,
+      freshness: exported.revision ? 'fresh' : 'not-loaded',
+    });
+    staleWarningRevisionRef.current = null;
     setState((current) => ({
       ...current,
       eventLog: exported.entries.reduce(
@@ -763,7 +840,7 @@ export function FullGamePreviewEditor() {
       ),
     }));
     return true;
-  }, [project]);
+  }, [exportedRuntimeProject, project?.project.name]);
 
   const replayActions = useCallback((actions: RecordedRuntimeAction[], successMode: RecordedTestDraft['mode'] = 'idle') => {
     const context = controlsRef.current;
@@ -851,14 +928,44 @@ export function FullGamePreviewEditor() {
   }, [loadRuntimeProjectIntoPreview, requestDebugSnapshot]);
 
   useEffect(() => {
+    setRuntimeProjectState((current) => {
+      const freshness = current.loadedRuntimeProjectRevision === null
+        ? 'not-loaded'
+        : exportedRuntimeProject.revision === current.loadedRuntimeProjectRevision
+          ? 'fresh'
+          : 'stale';
+      return {
+        ...current,
+        currentRuntimeProjectRevision: exportedRuntimeProject.revision,
+        freshness,
+      };
+    });
+  }, [exportedRuntimeProject.revision]);
+
+  useEffect(() => {
+    if (runtimeProjectState.freshness !== 'stale') return;
+    if (!runtimeProjectState.currentRuntimeProjectRevision) return;
+    if (staleWarningRevisionRef.current === runtimeProjectState.currentRuntimeProjectRevision) return;
+    staleWarningRevisionRef.current = runtimeProjectState.currentRuntimeProjectRevision;
+    setState((current) => ({
+      ...current,
+      eventLog: addLogEntry(current.eventLog, {
+        label: 'Project changed since this Play session was loaded',
+        detail: 'The running game is using an older runtime snapshot.',
+        severity: 'warning',
+      }),
+    }));
+  }, [runtimeProjectState.currentRuntimeProjectRevision, runtimeProjectState.freshness]);
+
+  const reloadLatestRuntimeProject = useCallback(() => {
     const context = controlsRef.current;
-    if (!context || context.connectionState !== 'ready') return;
-    void loadRuntimeProjectIntoPreview(context).then(() => {
-      requestDebugSnapshot(context);
+    if (!context || context.connectionState !== 'ready' || !canReloadLatestProject) return;
+    void loadRuntimeProjectIntoPreview(context).then((loaded) => {
+      if (loaded) requestDebugSnapshot(context);
     }).catch((error: Error) => {
       setState((current) => ({ ...current, eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }) }));
     });
-  }, [projectDocument, loadRuntimeProjectIntoPreview, requestDebugSnapshot]);
+  }, [canReloadLatestProject, loadRuntimeProjectIntoPreview, requestDebugSnapshot]);
 
   const startRecording = useCallback(() => {
     setMode('recording');
@@ -985,7 +1092,7 @@ export function FullGamePreviewEditor() {
           onPreviewMessage={handlePreviewMessage}
           renderControls={(context) => {
             controlsRef.current = context;
-            return <FullGamePreviewTransportBar context={context} onRuntimeCommand={handleRuntimeCommand} />;
+            return <FullGamePreviewTransportBar context={context} runtimeProjectState={runtimeProjectState} canReloadLatestProject={canReloadLatestProject} onReloadLatestProject={reloadLatestRuntimeProject} onRuntimeCommand={handleRuntimeCommand} />;
           }}
         />
       </div>
@@ -993,12 +1100,15 @@ export function FullGamePreviewEditor() {
         state={state}
         project={project}
         controlsContext={controlsRef.current}
+        runtimeProjectState={runtimeProjectState}
+        canReloadLatestProject={canReloadLatestProject}
         mode={mode}
         recorderDraft={recorderDraft}
         targetTestId={targetTestId}
         onTargetTestIdChange={setTargetTestId}
         onModeChange={setMode}
         onCommand={handleRuntimeCommand}
+        onReloadLatestProject={reloadLatestRuntimeProject}
         onRecorderStart={startRecording}
         onRecorderStop={stopRecording}
         onRecorderClear={clearRecording}

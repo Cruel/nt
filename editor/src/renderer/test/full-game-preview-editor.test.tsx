@@ -91,6 +91,10 @@ function latestRequest(editorPort: FakePort, type: string) {
   return [...editorPort.sent].reverse().find((message) => (message as { type?: string }).type === type) as { requestId: string } | undefined;
 }
 
+function requests(editorPort: FakePort, type: string) {
+  return editorPort.sent.filter((message) => (message as { type?: string }).type === type);
+}
+
 async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: string) {
   const request = latestRequest(editorPort, type);
   expect(request).toBeDefined();
@@ -99,11 +103,20 @@ async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: 
   });
 }
 
+function projectWithEntrypoint() {
+  const project = createAuthoringProject();
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+  project.entrypoint = { collection: 'rooms', id: 'foyer' };
+  return project;
+}
+
+function cloneProject<T>(project: T): T {
+  return JSON.parse(JSON.stringify(project)) as T;
+}
+
 describe('FullGamePreviewEditor', () => {
   it('loads the active authoring project into the runtime preview before debugging', async () => {
-    const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
-    project.entrypoint = { collection: 'rooms', id: 'foyer' };
+    const project = projectWithEntrypoint();
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
@@ -112,6 +125,93 @@ describe('FullGamePreviewEditor', () => {
     expect(request?.project).toMatchObject({ engine: 1, room: { foyer: expect.any(Array) }, entrypoint: [3, 'foyer'] });
     await resolveLatest(editorPort, previewPort, 'runtime-load-project');
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+  });
+
+  it('marks the Play session stale on runtime project edits without automatically reloading', async () => {
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+    const initialLoadCount = requests(editorPort, 'runtime-load-project').length;
+
+    const edited = cloneProject(project);
+    edited.project = { ...edited.project, name: 'Changed Project' };
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+    });
+
+    expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
+    expect(screen.getAllByText('The running game is using an older runtime snapshot.').length).toBeGreaterThan(0);
+    expect(requests(editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount);
+  });
+
+  it('does not mark stale for authoring edits that do not change the runtime export', async () => {
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+    const initialLoadCount = requests(editorPort, 'runtime-load-project').length;
+
+    const edited = cloneProject(project);
+    edited.settings = { ...edited.settings, editorOnlyFlag: true };
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+    });
+
+    await waitFor(() => expect(requests(editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount));
+    expect(screen.queryByText('Project changed since this Play session was loaded.')).not.toBeInTheDocument();
+  });
+
+  it('explicitly reloads the latest runtime project and clears stale state', async () => {
+    const user = userEvent.setup();
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+    const initialLoadCount = requests(editorPort, 'runtime-load-project').length;
+
+    const edited = cloneProject(project);
+    edited.project = { ...edited.project, name: 'Changed Project' };
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+    });
+    expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Restart with Latest Project'));
+    await waitFor(() => expect(requests(editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount + 1));
+    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+
+    await waitFor(() => expect(screen.queryByText('Project changed since this Play session was loaded.')).not.toBeInTheDocument());
+    expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined();
+  });
+
+  it('warns when recording against a stale runtime snapshot', async () => {
+    const user = userEvent.setup();
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+
+    const edited = cloneProject(project);
+    edited.project = { ...edited.project, name: 'Changed Project' };
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+    });
+    expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Recording'));
+    await user.click(screen.getByText('Start Recording'));
+
+    expect(await screen.findByText(/Recording is using an older runtime snapshot/)).toBeInTheDocument();
+    expect(requests(editorPort, 'runtime-load-project')).toHaveLength(1);
   });
 
   it('owns the runtime transport controls and sends runtime commands', async () => {
