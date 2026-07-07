@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssetsEditorTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildPrimaryPreviewTab, buildTestsEditorTab, buildVariablesEditorTab } from '@/workbench/editor-registry';
+import { buildAssetsEditorTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildPrimaryPreviewTab, buildTestsEditorTab, buildVariablesEditorTab, resolveEditorPolicies, type WorkbenchEditorRegistration } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
@@ -9,6 +9,38 @@ describe('editor registry', () => {
     expect(defaultEditorRegistry.resolve('full-game-preview')?.label).toBe('Play');
     expect(defaultEditorRegistry.resolve('placeholder-entity')?.label).toBe('Placeholder Entity');
     expect(defaultEditorRegistry.resolve('raw-json')).toBeNull();
+  });
+
+  it('defaults missing editor policies to active-only with no preview host', () => {
+    const registration: WorkbenchEditorRegistration = {
+      type: 'test-editor',
+      label: 'Test Editor',
+      component: () => null,
+    };
+
+    expect(resolveEditorPolicies(registration)).toEqual({
+      mountPolicy: 'active-only',
+      previewHostPolicy: 'none',
+      previewPersistence: undefined,
+    });
+  });
+
+  it('resolves default preview editor policies', () => {
+    const enginePreviewRegistration = defaultEditorRegistry.resolve('engine-preview');
+    const playRegistration = defaultEditorRegistry.resolve('full-game-preview');
+
+    expect(enginePreviewRegistration).not.toBeNull();
+    expect(playRegistration).not.toBeNull();
+    expect(resolveEditorPolicies(enginePreviewRegistration!)).toEqual({
+      mountPolicy: 'active-only',
+      previewHostPolicy: 'none',
+      previewPersistence: undefined,
+    });
+    expect(resolveEditorPolicies(playRegistration!)).toEqual({
+      mountPolicy: 'keep-mounted-while-open',
+      previewHostPolicy: 'dedicated-while-open',
+      previewPersistence: 'stateful',
+    });
   });
 
   it('builds a stable primary preview tab descriptor', () => {

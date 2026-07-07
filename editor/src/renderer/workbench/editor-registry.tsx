@@ -8,12 +8,27 @@ export interface WorkbenchEditorProps {
   tab: WorkbenchTab;
 }
 
+export type EditorMountPolicy = 'active-only' | 'keep-mounted-while-open';
+
+export type PreviewHostPolicy = 'none' | 'pooled-per-tab-group' | 'dedicated-while-open';
+
+export type PreviewPersistence = 'derived' | 'stateful';
+
 export interface WorkbenchEditorRegistration {
   type: string;
   label: string;
   icon?: ComponentType<{ className?: string }>;
   component: ComponentType<WorkbenchEditorProps>;
   toolbar?: ComponentType<WorkbenchEditorProps>;
+  mountPolicy?: EditorMountPolicy;
+  previewHostPolicy?: PreviewHostPolicy;
+  previewPersistence?: PreviewPersistence;
+}
+
+export interface ResolvedWorkbenchEditorPolicies {
+  mountPolicy: EditorMountPolicy;
+  previewHostPolicy: PreviewHostPolicy;
+  previewPersistence?: PreviewPersistence;
 }
 
 export interface WorkbenchEditorRegistry {
@@ -37,6 +52,16 @@ export const missingEditorRegistration: WorkbenchEditorRegistration = {
   label: 'Missing Editor',
   component: MissingEditor,
 };
+
+export function resolveEditorPolicies(
+  registration: WorkbenchEditorRegistration,
+): ResolvedWorkbenchEditorPolicies {
+  return {
+    mountPolicy: registration.mountPolicy ?? 'active-only',
+    previewHostPolicy: registration.previewHostPolicy ?? 'none',
+    previewPersistence: registration.previewPersistence,
+  };
+}
 
 export function createEditorRegistry(
   registrations: WorkbenchEditorRegistration[],

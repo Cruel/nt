@@ -51,6 +51,9 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Play',
     icon: MonitorPlay,
     component: FullGamePreviewEditor,
+    mountPolicy: 'keep-mounted-while-open',
+    previewHostPolicy: 'dedicated-while-open',
+    previewPersistence: 'stateful',
   },
   {
     type: 'asset-library',
