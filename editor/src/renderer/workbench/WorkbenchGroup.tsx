@@ -1,16 +1,49 @@
 import { useDroppable } from '@dnd-kit/core';
+import { useEffect } from 'react';
 import { useProjectStore } from '@/project/project-store';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
 import { defaultEditorRegistry } from './default-editors';
-import { missingEditorRegistration, resolveEditorPolicies } from './editor-registry';
+import { missingEditorRegistration, resolveEditorPolicies, type WorkbenchEditorRegistration, type ResolvedWorkbenchEditorPolicies } from './editor-registry';
 import { WorkbenchTabs } from './WorkbenchTabs';
 import { workbenchTabDockDndId } from './WorkbenchTabDndContext';
+import { captureWorkbenchTabState, restoreWorkbenchTabState } from './workbench-tab-state';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchGroup as WorkbenchGroupModel, WorkbenchTab } from './workbench-types';
 
 interface WorkbenchGroupProps {
   group: WorkbenchGroupModel;
   tabs: WorkbenchTab[];
+}
+
+interface WorkbenchEditorPaneProps {
+  tab: WorkbenchTab;
+  registration: WorkbenchEditorRegistration;
+  policies: ResolvedWorkbenchEditorPolicies;
+  isActive: boolean;
+}
+
+function WorkbenchEditorPane({ tab, registration, policies, isActive }: WorkbenchEditorPaneProps) {
+  const EditorComponent = registration.component;
+
+  useEffect(() => {
+    if (isActive) restoreWorkbenchTabState(tab.id);
+  }, [isActive, tab.id]);
+
+  useEffect(() => () => {
+    if (policies.mountPolicy === 'active-only') captureWorkbenchTabState(tab.id);
+  }, [policies.mountPolicy, tab.id]);
+
+  return (
+    <div
+      aria-hidden={isActive ? undefined : true}
+      className={isActive ? 'h-full min-h-0' : 'pointer-events-none invisible absolute inset-0 h-full min-h-0'}
+      data-workbench-editor-pane={tab.id}
+      data-hidden={isActive ? undefined : true}
+      inert={isActive ? undefined : true}
+    >
+      <EditorComponent tab={tab} />
+    </div>
+  );
 }
 
 export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
@@ -26,7 +59,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
     const policies = resolveEditorPolicies(registration);
     const isActive = tab.id === activeTab?.id;
     if (!isActive && policies.mountPolicy !== 'keep-mounted-while-open') return [];
-    return [{ tab, registration, isActive }];
+    return [{ tab, registration, policies, isActive }];
   });
 
   return (
@@ -35,19 +68,15 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
       <WorkbenchTabs group={group} tabs={tabs} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {activeTab ? (
-          editorPanes.map(({ tab, registration, isActive }) => {
-            const EditorComponent = registration.component;
+          editorPanes.map(({ tab, registration, policies, isActive }) => {
             return (
-              <div
+              <WorkbenchEditorPane
                 key={tab.id}
-                aria-hidden={isActive ? undefined : true}
-                className={isActive ? 'h-full min-h-0' : 'pointer-events-none invisible absolute inset-0 h-full min-h-0'}
-                data-workbench-editor-pane={tab.id}
-                data-hidden={isActive ? undefined : true}
-                inert={isActive ? undefined : true}
-              >
-                <EditorComponent tab={tab} />
-              </div>
+                tab={tab}
+                registration={registration}
+                policies={policies}
+                isActive={isActive}
+              />
             );
           })
         ) : project ? (

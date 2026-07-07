@@ -3,6 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import {
+  captureWorkbenchTabState,
+  clearWorkbenchTabStates,
+  setWorkbenchTabState,
+  useWorkbenchTabStateStore,
+} from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -32,6 +38,7 @@ const tab: WorkbenchTab = {
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  clearWorkbenchTabStates();
 });
 
 describe('RoomEditor', () => {
@@ -106,5 +113,43 @@ describe('RoomEditor', () => {
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
       rooms: { foyer: { data: { background: { asset: null } } } },
     }));
+  });
+
+  it('captures and restores tab state for scroll and local selector state', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+
+    const view = render(<RoomEditor tab={tab} />);
+    const scrollContainer = view.container.querySelector<HTMLElement>('[data-room-editor-scroll]')!;
+    scrollContainer.scrollTop = 96;
+
+    fireEvent.click(screen.getByText('No image'));
+    expect(await screen.findByText('Choose a background image')).toBeInTheDocument();
+
+    captureWorkbenchTabState(tab.id);
+
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        scroll: { scrollTop: 96, scrollLeft: 0 },
+        backgroundSelectorOpen: true,
+      },
+    });
+
+    view.unmount();
+    setWorkbenchTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      schemaVersion: 1,
+      payload: {
+        scroll: { scrollTop: 48, scrollLeft: 0 },
+        backgroundSelectorOpen: true,
+      },
+    });
+
+    const restoredView = render(<RoomEditor tab={tab} />);
+
+    expect(await screen.findByText('Choose a background image')).toBeInTheDocument();
+    await waitFor(() => expect(restoredView.container.querySelector<HTMLElement>('[data-room-editor-scroll]')?.scrollTop).toBe(48));
   });
 });

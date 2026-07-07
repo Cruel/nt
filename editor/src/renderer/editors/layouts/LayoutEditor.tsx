@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,21 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import {
+  captureScrollViewState,
+  captureSourceEditorViewStates,
+  isScrollViewState,
+  isSplitterViewState,
+  parseSourceEditorViewStates,
+  restoreScrollViewState,
+  restoreSourceEditorViewStates,
+  useSourceEditorViewStateRefs,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type SplitterViewState,
+  type SourceEditorViewStates,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   defaultLayoutData,
@@ -55,6 +70,33 @@ function parseSampleState(text: string): { ok: true; value: Record<string, unkno
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : 'Invalid sample state JSON.' };
   }
+}
+
+const LAYOUT_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.layout';
+
+interface LayoutEditorTabStatePayload {
+  leftScroll?: ScrollViewState;
+  horizontalSplit?: SplitterViewState;
+  sourceViewStates?: SourceEditorViewStates;
+  sampleStateDraft?: string;
+  message?: string | null;
+}
+
+type LayoutEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof LAYOUT_EDITOR_TAB_STATE_SCHEMA;
+  payload?: LayoutEditorTabStatePayload;
+};
+
+function parseLayoutEditorTabState(value: WorkbenchTabStatePayload): LayoutEditorTabStatePayload | null {
+  if (value.schema !== LAYOUT_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    leftScroll: isScrollViewState(payload.leftScroll) ? payload.leftScroll : undefined,
+    horizontalSplit: isSplitterViewState(payload.horizontalSplit) ? payload.horizontalSplit : undefined,
+    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
+    sampleStateDraft: typeof payload.sampleStateDraft === 'string' ? payload.sampleStateDraft : undefined,
+    message: typeof payload.message === 'string' || payload.message === null ? payload.message : undefined,
+  };
 }
 
 function updateLayout(layoutId: string, next: LayoutData, label: string) {
@@ -121,11 +163,41 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const sampleStateText = useMemo(() => JSON.stringify(data.sampleState, null, 2), [data.sampleState]);
   const [sampleStateDraft, setSampleStateDraft] = useState(sampleStateText);
   const [message, setMessage] = useState<string | null>(null);
+  const leftPaneRef = useRef<HTMLDivElement | null>(null);
+  const sourceEditors = useSourceEditorViewStateRefs<'rml' | 'rcss' | 'lua' | 'sampleState'>();
+  const horizontalSplitSizesRef = useRef<number[]>([62, 38]);
+  const pendingRestoreRef = useRef<LayoutEditorTabStatePayload | null>(null);
 
   useEffect(() => {
     setSampleStateDraft(sampleStateText);
     setMessage(null);
   }, [layoutId, sampleStateText]);
+
+  useWorkbenchEditorTabState<LayoutEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: LAYOUT_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        leftScroll: captureScrollViewState(leftPaneRef.current),
+        horizontalSplit: { sizes: horizontalSplitSizesRef.current },
+        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
+        sampleStateDraft,
+        message,
+      },
+    }),
+    restoreTabState: (state: LayoutEditorTabState) => {
+      const parsed = parseLayoutEditorTabState(state);
+      if (!parsed) return;
+      pendingRestoreRef.current = parsed;
+      if (parsed.sampleStateDraft !== undefined) setSampleStateDraft(parsed.sampleStateDraft);
+      if (parsed.message !== undefined) setMessage(parsed.message);
+      if (parsed.horizontalSplit) horizontalSplitSizesRef.current = parsed.horizontalSplit.sizes;
+      window.requestAnimationFrame(() => {
+        restoreScrollViewState(leftPaneRef.current, pendingRestoreRef.current?.leftScroll);
+        restoreSourceEditorViewStates(sourceEditors.refs.current, pendingRestoreRef.current?.sourceViewStates);
+      });
+    },
+  }), [message, sampleStateDraft, sourceEditors.refs]));
 
   const validationDiagnostics = useMemo(() => project && record && layoutId ? validateLayoutData(project, layoutId, record) : [], [layoutId, project, record]);
   const titleLayout = project ? getSystemLayoutSetting(project, 'title') : null;
@@ -208,9 +280,9 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const luaDiagnostics = validationDiagnostics.filter((diagnostic) => diagnostic.path.includes('/lua/') || diagnostic.path.includes('/script/')).map((diagnostic) => ({ message: diagnostic.message, severity: diagnostic.severity }));
 
   return (
-    <Group orientation="horizontal" className="h-full min-h-0 bg-background">
-      <Panel defaultSize={62} minSize={35}>
-        <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <Group orientation="horizontal" className="h-full min-h-0 bg-background" onLayoutChange={(sizes) => { horizontalSplitSizesRef.current = Object.values(sizes); }}>
+      <Panel defaultSize={horizontalSplitSizesRef.current[0] ?? 62} minSize={35}>
+        <div ref={leftPaneRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-layout-editor-scroll>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -281,7 +353,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 </Select>
               ) : null}
             </div>
-            {data.rml.sourceMode === 'inline' ? <SourceEditor language="rml" value={data.rml.sourceText} onChange={(value) => setInlineSource('rml', value)} diagnostics={rmlDiagnostics} className="h-72" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RML source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
+            {data.rml.sourceMode === 'inline' ? <SourceEditor ref={sourceEditors.refFor('rml')} language="rml" value={data.rml.sourceText} onChange={(value) => setInlineSource('rml', value)} diagnostics={rmlDiagnostics} className="h-72" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RML source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
           <section className="space-y-3 rounded border p-3">
@@ -297,7 +369,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 </Select>
               ) : null}
             </div>
-            {data.rcss.sourceMode === 'inline' ? <SourceEditor language="rcss" value={data.rcss.sourceText} onChange={(value) => setInlineSource('rcss', value)} diagnostics={rcssDiagnostics} className="h-64" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RCSS source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
+            {data.rcss.sourceMode === 'inline' ? <SourceEditor ref={sourceEditors.refFor('rcss')} language="rcss" value={data.rcss.sourceText} onChange={(value) => setInlineSource('rcss', value)} diagnostics={rcssDiagnostics} className="h-64" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RCSS source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
           <section className="space-y-3 rounded border p-3">
@@ -327,12 +399,12 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 <Input value={data.mount.defaultParent ?? ''} onChange={(event) => commit({ ...data, mount: { ...data.mount, defaultParent: event.currentTarget.value.trim() || undefined } }, 'Set layout mount parent')} placeholder="nt-layout-preview-mount" />
               </div>
             </div>
-            {data.lua.sourceMode === 'inline' ? <SourceEditor language="lua" value={data.lua.sourceText} onChange={(value) => setInlineSource('lua', value)} diagnostics={luaDiagnostics} className="h-56" /> : <p className="rounded border p-3 text-xs text-muted-foreground">Lua source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
+            {data.lua.sourceMode === 'inline' ? <SourceEditor ref={sourceEditors.refFor('lua')} language="lua" value={data.lua.sourceText} onChange={(value) => setInlineSource('lua', value)} diagnostics={luaDiagnostics} className="h-56" /> : <p className="rounded border p-3 text-xs text-muted-foreground">Lua source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
           <section className="space-y-3 rounded border p-3">
             <h3 className="text-sm font-medium">Sample State JSON</h3>
-            <SourceEditor language="json" value={sampleStateDraft} onChange={setSampleStateSource} className="h-40" />
+            <SourceEditor ref={sourceEditors.refFor('sampleState')} language="json" value={sampleStateDraft} onChange={setSampleStateSource} className="h-40" />
           </section>
         </div>
 
@@ -360,7 +432,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         </div>
       </Panel>
       <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
-      <Panel defaultSize={38} minSize={24}>
+      <Panel defaultSize={horizontalSplitSizesRef.current[1] ?? 38} minSize={24}>
         <div className="h-full min-h-0 border-l bg-background">
           <EnginePreview chrome="minimal" previewMode="layout" previewDocument={previewDocument} />
         </div>

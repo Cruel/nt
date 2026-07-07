@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
@@ -27,8 +27,46 @@ import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { restoredDraftPayload, useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import {
+  captureScrollViewState,
+  captureSourceEditorViewStates,
+  isScrollViewState,
+  isSplitterViewState,
+  parseSourceEditorViewStates,
+  restoreScrollViewState,
+  restoreSourceEditorViewStates,
+  useSourceEditorViewStateRefs,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type SourceEditorViewStateHandle,
+  type SourceEditorViewStates,
+  type SplitterViewState,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
 
 const SHADER_STAGE_DRAFT_SCHEMA = 'noveltea.editor.draft.shader-stage-source';
+const SHADER_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.shader';
+
+interface ShaderEditorTabStatePayload {
+  scroll?: ScrollViewState;
+  horizontalSplit?: SplitterViewState;
+  sourceViewStates?: SourceEditorViewStates;
+}
+
+type ShaderEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof SHADER_EDITOR_TAB_STATE_SCHEMA;
+  payload?: ShaderEditorTabStatePayload;
+};
+
+function parseShaderEditorTabState(value: WorkbenchTabStatePayload): ShaderEditorTabStatePayload | null {
+  if (value.schema !== SHADER_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    horizontalSplit: isSplitterViewState(payload.horizontalSplit) ? payload.horizontalSplit : undefined,
+    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
+  };
+}
 
 function updateShader(shaderId: string, next: ShaderData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -54,7 +92,7 @@ function valueToText(value: unknown): string {
   return value === undefined || value === null ? '' : String(value);
 }
 
-function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAssets }: { tabId: string; shaderId: string; data: ShaderData; stage: ShaderStageData; index: number; shaderSourceAssets: Array<{ id: string; label: string }> }) {
+function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAssets, sourceEditorRef }: { tabId: string; shaderId: string; data: ShaderData; stage: ShaderStageData; index: number; shaderSourceAssets: Array<{ id: string; label: string }>; sourceEditorRef: (handle: SourceEditorViewStateHandle | null) => void }) {
   const draftKey = `${tabId}:shader-stage:${index}`;
   const restoredDraft = restoredDraftPayload<{ sourceText: string }>(draftKey, SHADER_STAGE_DRAFT_SCHEMA);
   const [draft, setDraft] = useState(restoredDraft?.sourceText ?? stage.sourceText ?? '');
@@ -114,7 +152,7 @@ function ShaderStageRow({ tabId, shaderId, data, stage, index, shaderSourceAsset
       ) : (
         <div className="space-y-2">
           <Label>Inline source</Label>
-          <SourceEditor value={draft} onChange={setDraft} language="shader" completionContext={shaderCompletionContext} className="h-64" />
+          <SourceEditor ref={sourceEditorRef} value={draft} onChange={setDraft} language="shader" completionContext={shaderCompletionContext} className="h-64" />
         </div>
       )}
       {stage.compiled && Object.keys(stage.compiled).length > 0 ? (
@@ -149,6 +187,9 @@ function UniformRow({ shaderId, data, uniform, index }: { shaderId: string; data
 }
 
 export function ShaderEditor({ tab }: WorkbenchEditorProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const horizontalSplitSizesRef = useRef<number[]>([62, 38]);
+  const sourceEditors = useSourceEditorViewStateRefs<string>();
   const projectDocument = useProjectStore((state) => state.document);
   const runCompile = useShaderCompileStore((state) => state.runCompile);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
@@ -160,6 +201,27 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
   const shaderSourceAssets = useMemo(() => project ? Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'shader-source')
     .map(([id, asset]) => ({ id, label: asset.label })) : [], [project]);
+
+  useWorkbenchEditorTabState<ShaderEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: SHADER_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        scroll: captureScrollViewState(scrollRef.current),
+        horizontalSplit: { sizes: horizontalSplitSizesRef.current },
+        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
+      },
+    }),
+    restoreTabState: (state: ShaderEditorTabState) => {
+      const parsed = parseShaderEditorTabState(state);
+      if (!parsed) return;
+      if (parsed.horizontalSplit) horizontalSplitSizesRef.current = parsed.horizontalSplit.sizes;
+      window.requestAnimationFrame(() => {
+        restoreScrollViewState(scrollRef.current, parsed.scroll);
+        restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
+      });
+    },
+  }), [sourceEditors.refs]));
 
   if (!shaderId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Shader record not found.</div>;
   const activeShaderId = shaderId;
@@ -180,9 +242,9 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <Group orientation="horizontal" className="h-full min-h-0 bg-background">
-      <Panel defaultSize={62} minSize={35}>
-        <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <Group orientation="horizontal" className="h-full min-h-0 bg-background" onLayoutChange={(sizes) => { horizontalSplitSizesRef.current = Object.values(sizes); }}>
+      <Panel defaultSize={horizontalSplitSizesRef.current[0] ?? 62} minSize={35}>
+        <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-shader-editor-scroll>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2><Badge variant="outline">{activeShaderId}</Badge></div>
@@ -206,7 +268,7 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
 
         <section className="space-y-3">
           <div className="flex items-center justify-between"><h3 className="text-sm font-medium">Stages</h3><Button size="sm" variant="outline" onClick={() => updateShader(activeShaderId, { ...data, stages: [...data.stages, { stage: 'fragment', sourceMode: 'inline', sourceText: '', compiled: {} }] }, 'Add shader stage')}>Add Stage</Button></div>
-          {data.stages.map((stage, index) => <ShaderStageRow key={`${stage.stage}-${index}`} tabId={tab.id} shaderId={activeShaderId} data={data} stage={stage} index={index} shaderSourceAssets={shaderSourceAssets} />)}
+          {data.stages.map((stage, index) => <ShaderStageRow key={`${stage.stage}-${index}`} tabId={tab.id} shaderId={activeShaderId} data={data} stage={stage} index={index} shaderSourceAssets={shaderSourceAssets} sourceEditorRef={sourceEditors.refFor(`stage:${index}`)} />)}
         </section>
 
         <section className="space-y-3 rounded border p-3">
@@ -233,7 +295,7 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
         </div>
       </Panel>
       <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
-      <Panel defaultSize={38} minSize={24}>
+      <Panel defaultSize={horizontalSplitSizesRef.current[1] ?? 38} minSize={24}>
         <div className="h-full min-h-0 border-l bg-background">
           <EnginePreview chrome="minimal" previewMode="material" previewDocument={previewDocument} />
         </div>

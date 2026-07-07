@@ -145,6 +145,7 @@ export type EditorTagsState = z.infer<typeof editorTagsStateSchema>;
 export type EditorBottomPanelState = z.infer<typeof editorBottomPanelStateSchema>;
 export type EditorProjectState = z.infer<typeof editorProjectStateSchema>;
 export type SerializedWorkbenchState = z.infer<typeof editorWorkbenchStateSchema>;
+export type SerializedEditorTabState = z.infer<typeof editorTabStateSchema>;
 export type SerializedEditorDraftState = z.infer<typeof editorDraftStateSchema>;
 
 export function emptyEditorExplorerState(): EditorExplorerState {

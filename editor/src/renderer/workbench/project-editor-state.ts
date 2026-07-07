@@ -5,6 +5,7 @@ import { useLocalEditorSessionStore } from './local-editor-session-store';
 import { useProjectExplorerStore } from '../workspace/project-explorer-store';
 import { createInitialWorkbenchState } from './workbench-model';
 import { useWorkbenchStore } from './workbench-store';
+import { restoreSerializedWorkbenchTabStates, serializeWorkbenchTabStates } from './workbench-tab-state';
 import {
   emptyEditorProjectState,
   parseEditorProjectState,
@@ -15,13 +16,14 @@ export function buildEditorProjectStateSnapshot(): EditorProjectState {
   const workbench = useWorkbenchStore.getState().serializeProjectWorkbench();
   const draftsByKey = serializeDraftDirtyState(useDraftDirtyStore.getState());
   const explorerStore = useProjectExplorerStore.getState();
+  const tabStatesById = serializeWorkbenchTabStates(Object.keys(workbench?.tabsById ?? {}));
   return {
     ...emptyEditorProjectState(),
     workbench: workbench ?? undefined,
     explorer: explorerStore.serializeExplorer(),
     chapters: explorerStore.serializeChapters(),
     bottomPanel: useBottomPanelStore.getState().serialize(),
-    tabStatesById: {},
+    tabStatesById,
     draftsByKey,
   };
 }
@@ -71,4 +73,10 @@ export function restoreEditorProjectState(project: JsonValue, projectFilePath: s
   if (localShellSession?.projectFilePath === projectFilePath) {
     useWorkbenchStore.getState().restoreShellWorkbench(localShellSession.shellWorkbench, project, projectWorkbench);
   }
+  const restoredWorkbench = useWorkbenchStore.getState();
+  restoreSerializedWorkbenchTabStates(
+    Object.fromEntries(
+      Object.entries(editorState.tabStatesById ?? {}).filter(([tabId]) => !!restoredWorkbench.tabsById[tabId]),
+    ),
+  );
 }

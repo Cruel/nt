@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { EnginePreview } from '@/components/engine-preview';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +28,45 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildDialoguePreviewDocumentData, dialoguePreviewRevision } from '../../../shared/project-schema/dialogue-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import {
+  captureScrollViewState,
+  captureSourceEditorViewStates,
+  isGraphViewportState,
+  isScrollViewState,
+  parseSourceEditorViewStates,
+  restoreScrollViewState,
+  restoreSourceEditorViewStates,
+  useSourceEditorViewStateRefs,
+  useWorkbenchEditorTabState,
+  type GraphViewportState,
+  type ScrollViewState,
+  type SourceEditorViewStates,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
 import { DialogueGraph } from './DialogueGraph';
+
+const DIALOGUE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.dialogue';
+
+interface DialogueEditorTabStatePayload {
+  scroll?: ScrollViewState;
+  graphViewport?: GraphViewportState;
+  sourceViewStates?: SourceEditorViewStates;
+}
+
+type DialogueEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof DIALOGUE_EDITOR_TAB_STATE_SCHEMA;
+  payload?: DialogueEditorTabStatePayload;
+};
+
+function parseDialogueEditorTabState(value: WorkbenchTabStatePayload): DialogueEditorTabStatePayload | null {
+  if (value.schema !== DIALOGUE_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    graphViewport: isGraphViewportState(payload.graphViewport) ? payload.graphViewport : undefined,
+    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
+  };
+}
 
 function commitDialogue(dialogueId: string, next: DialogueData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -84,6 +122,32 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   const data = parsedData ?? defaultDialogueData(record?.label ?? dialogueId ?? 'Dialogue');
   const diagnostics = useMemo(() => project && record && dialogueId ? validateDialogueData(project, dialogueId, record) : [], [project, record, dialogueId]);
   const characters = project ? Object.entries(project.characters).map(([id, character]) => ({ id, label: character.label })) : [];
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const graphViewportRef = useRef<GraphViewportState | null>(null);
+  const [graphViewport, setGraphViewport] = useState<GraphViewportState | null>(null);
+  const sourceEditors = useSourceEditorViewStateRefs<'segmentText' | 'segmentCondition' | 'segmentScript'>();
+
+  useWorkbenchEditorTabState<DialogueEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: DIALOGUE_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        scroll: captureScrollViewState(scrollRef.current),
+        graphViewport: graphViewportRef.current ?? undefined,
+        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
+      },
+    }),
+    restoreTabState: (state: DialogueEditorTabState) => {
+      const parsed = parseDialogueEditorTabState(state);
+      if (!parsed) return;
+      graphViewportRef.current = parsed.graphViewport ?? null;
+      setGraphViewport(parsed.graphViewport ?? null);
+      window.requestAnimationFrame(() => {
+        restoreScrollViewState(scrollRef.current, parsed.scroll);
+        restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
+      });
+    },
+  }), [sourceEditors.refs]));
 
   if (!dialogueId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Dialogue record not found.</div>;
 
@@ -248,7 +312,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-dialogue-editor-scroll>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -312,6 +376,11 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
               onSelectBlock={selectBlock}
               onMoveBlock={moveBlock}
               onConnectBlocks={(fromBlockId, toBlockId) => addEdge(fromBlockId, toBlockId, 'choice')}
+              viewport={graphViewport}
+              onViewportChange={(viewport) => {
+                graphViewportRef.current = viewport;
+                setGraphViewport(viewport);
+              }}
             />
           </section>
 
@@ -439,18 +508,18 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <div className="space-y-1">
                 <Label>Text</Label>
-                <SourceEditor className="h-40" language={activeSegment.text.mode === 'lua' ? 'lua' : 'text'} value={activeSegment.text.source} onChange={(source) => replaceSegment(activeBlock.id, activeSegment.id, { text: { ...activeSegment.text, source } })} />
+                <SourceEditor ref={sourceEditors.refFor('segmentText')} className="h-40" language={activeSegment.text.mode === 'lua' ? 'lua' : 'text'} value={activeSegment.text.source} onChange={(source) => replaceSegment(activeBlock.id, activeSegment.id, { text: { ...activeSegment.text, source } })} />
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={activeSegment.condition.enabled} onCheckedChange={(checked) => replaceSegment(activeBlock.id, activeSegment.id, { condition: { ...activeSegment.condition, enabled: Boolean(checked) } })} />
                 <Label>Condition</Label>
               </div>
-              <SourceEditor className="h-28" language="lua" value={activeSegment.condition.source} onChange={(source) => replaceSegment(activeBlock.id, activeSegment.id, { condition: { ...activeSegment.condition, source } })} />
+              <SourceEditor ref={sourceEditors.refFor('segmentCondition')} className="h-28" language="lua" value={activeSegment.condition.source} onChange={(source) => replaceSegment(activeBlock.id, activeSegment.id, { condition: { ...activeSegment.condition, source } })} />
               <div className="flex items-center gap-2">
                 <Switch checked={activeSegment.script.enabled} onCheckedChange={(checked) => replaceSegment(activeBlock.id, activeSegment.id, { script: { ...activeSegment.script, enabled: Boolean(checked) } })} />
                 <Label>Script</Label>
               </div>
-              <SourceEditor className="h-28" language="lua" value={activeSegment.script.source} onChange={(source) => replaceSegment(activeBlock.id, activeSegment.id, { script: { ...activeSegment.script, source } })} />
+              <SourceEditor ref={sourceEditors.refFor('segmentScript')} className="h-28" language="lua" value={activeSegment.script.source} onChange={(source) => replaceSegment(activeBlock.id, activeSegment.id, { script: { ...activeSegment.script, source } })} />
               <div className="grid gap-2 text-xs">
                 <label className="flex items-center gap-2"><Switch checked={activeSegment.flags.showOnce} onCheckedChange={(checked) => replaceSegment(activeBlock.id, activeSegment.id, { flags: { ...activeSegment.flags, showOnce: Boolean(checked) } })} /> Show once</label>
                 <label className="flex items-center gap-2"><Switch checked={activeSegment.flags.autosave} onCheckedChange={(checked) => replaceSegment(activeBlock.id, activeSegment.id, { flags: { ...activeSegment.flags, autosave: Boolean(checked) } })} /> Autosave</label>

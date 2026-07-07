@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,40 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildCharacterPreviewDocumentData, characterPreviewRevision } from '../../../shared/project-schema/character-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import {
+  captureScrollViewState,
+  restoreScrollViewState,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+
+const CHARACTER_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.character';
+
+interface CharacterEditorTabStatePayload {
+  scroll?: ScrollViewState;
+}
+
+type CharacterEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof CHARACTER_EDITOR_TAB_STATE_SCHEMA;
+  payload?: CharacterEditorTabStatePayload;
+};
+
+function isScrollViewState(value: unknown): value is ScrollViewState {
+  return typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && typeof (value as ScrollViewState).scrollTop === 'number'
+    && typeof (value as ScrollViewState).scrollLeft === 'number';
+}
+
+function parseCharacterEditorTabState(value: WorkbenchTabStatePayload): CharacterEditorTabStatePayload | null {
+  if (value.schema !== CHARACTER_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+  };
+}
 
 function commitCharacter(characterId: string, next: CharacterData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -65,6 +99,7 @@ function expressionForPreview(data: CharacterData) {
 }
 
 export function CharacterEditor({ tab }: WorkbenchEditorProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const projectDocument = useProjectStore((state) => state.document);
   const characterId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -76,6 +111,21 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
     .map(([id, asset]) => ({ id, label: asset.label })) : [];
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
+
+  useWorkbenchEditorTabState<CharacterEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: CHARACTER_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        scroll: captureScrollViewState(scrollRef.current),
+      },
+    }),
+    restoreTabState: (state: CharacterEditorTabState) => {
+      const parsed = parseCharacterEditorTabState(state);
+      if (!parsed) return;
+      window.requestAnimationFrame(() => restoreScrollViewState(scrollRef.current, parsed.scroll));
+    },
+  }), []));
 
   if (!characterId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Character record not found.</div>;
 
@@ -166,7 +216,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-character-editor-scroll>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

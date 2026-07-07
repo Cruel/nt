@@ -19,6 +19,40 @@ import { isAuthoringProject } from '../../../shared/project-schema/authoring-pro
 import { projectSettingsFromProject, validateTypedProjectSettings } from '../../../shared/project-schema/authoring-project-settings';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import {
+  captureScrollViewState,
+  captureSourceEditorViewStates,
+  isScrollViewState,
+  parseSourceEditorViewStates,
+  restoreScrollViewState,
+  restoreSourceEditorViewStates,
+  useSourceEditorViewStateRefs,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type SourceEditorViewStates,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+
+const PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.project-settings';
+
+interface ProjectSettingsEditorTabStatePayload {
+  scroll?: ScrollViewState;
+  sourceViewStates?: SourceEditorViewStates;
+}
+
+type ProjectSettingsEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA;
+  payload?: ProjectSettingsEditorTabStatePayload;
+};
+
+function parseProjectSettingsEditorTabState(value: WorkbenchTabStatePayload): ProjectSettingsEditorTabStatePayload | null {
+  if (value.schema !== PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
+  };
+}
 
 function valueOrNone(value: string | null | undefined) {
   return value ?? '__built_in__';
@@ -46,8 +80,10 @@ const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
   'debug-overlay': 'Debug overlay',
 };
 
-export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
+export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sourceEditors = useSourceEditorViewStateRefs<'startupInitScript'>();
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -64,6 +100,25 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(null);
   const comfyUiSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        scroll: captureScrollViewState(scrollRef.current),
+        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
+      },
+    }),
+    restoreTabState: (state: ProjectSettingsEditorTabState) => {
+      const parsed = parseProjectSettingsEditorTabState(state);
+      if (!parsed) return;
+      window.requestAnimationFrame(() => {
+        restoreScrollViewState(scrollRef.current, parsed.scroll);
+        restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
+      });
+    },
+  }), [sourceEditors.refs]));
 
   useEffect(() => {
     if (!projectFilePath) {
@@ -155,7 +210,7 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-project-settings-editor-scroll>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -219,7 +274,7 @@ export function ProjectSettingsEditor(_props: WorkbenchEditorProps) {
               </div>
               <div className="space-y-2">
                 <Label>Init Lua script</Label>
-                <SourceEditor className="h-40" language="lua" value={settings.startup.initScript} onChange={(initScript) => runProjectCommand('project.setStartup', { initScript }, 'Update project startup script')} />
+                <SourceEditor ref={sourceEditors.refFor('startupInitScript')} className="h-40" language="lua" value={settings.startup.initScript} onChange={(initScript) => runProjectCommand('project.setStartup', { initScript }, 'Update project startup script')} />
               </div>
             </CardContent>
           </Card>

@@ -3,6 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import {
+  captureWorkbenchTabState,
+  clearWorkbenchTabStates,
+  setWorkbenchTabState,
+  useWorkbenchTabStateStore,
+} from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
@@ -10,8 +16,21 @@ import { defaultDialogueData } from '../../shared/project-schema/authoring-dialo
 vi.mock('@xyflow/react', () => ({
   Background: () => <div data-testid="xyflow-background" />,
   Controls: () => <div data-testid="xyflow-controls" />,
-  ReactFlow: ({ nodes, children, onNodeClick }: { nodes: Array<{ id: string; data: { label: string } }>; children: React.ReactNode; onNodeClick?: (event: unknown, node: { id: string }) => void }) => (
-    <div data-testid="dialogue-flow">
+  ReactFlow: ({
+    nodes,
+    children,
+    defaultViewport,
+    onNodeClick,
+    onViewportChange,
+  }: {
+    nodes: Array<{ id: string; data: { label: string } }>;
+    children: React.ReactNode;
+    defaultViewport?: { x: number; y: number; zoom: number };
+    onNodeClick?: (event: unknown, node: { id: string }) => void;
+    onViewportChange?: (viewport: { x: number; y: number; zoom: number }) => void;
+  }) => (
+    <div data-testid="dialogue-flow" data-default-viewport={JSON.stringify(defaultViewport ?? null)}>
+      <button type="button" onClick={() => onViewportChange?.({ x: 25, y: 40, zoom: 1.5 })}>Move Viewport</button>
       {nodes.map((node) => <button key={node.id} onClick={() => onNodeClick?.({}, node)}>{node.data.label}</button>)}
       {children}
     </div>
@@ -45,6 +64,7 @@ const tab: WorkbenchTab = {
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  clearWorkbenchTabStates();
 });
 
 describe('DialogueEditor', () => {
@@ -95,5 +115,43 @@ describe('DialogueEditor', () => {
       });
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('dialogue.replaceData');
+  });
+
+  it('captures and restores tab state for scroll and graph viewport', async () => {
+    const project = createAuthoringProject();
+    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: defaultDialogueData('Intro') };
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+
+    const view = render(<DialogueEditor tab={tab} />);
+    const scrollContainer = view.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')!;
+    scrollContainer.scrollTop = 180;
+    scrollContainer.scrollLeft = 8;
+    fireEvent.click(screen.getByText('Move Viewport'));
+
+    captureWorkbenchTabState(tab.id);
+
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      schema: 'noveltea.editor.tab-state.dialogue',
+      payload: {
+        scroll: { scrollTop: 180, scrollLeft: 8 },
+        graphViewport: { x: 25, y: 40, zoom: 1.5 },
+      },
+    });
+
+    view.unmount();
+    setWorkbenchTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.dialogue',
+      schemaVersion: 1,
+      payload: {
+        scroll: { scrollTop: 72, scrollLeft: 5 },
+        graphViewport: { x: 9, y: 12, zoom: 0.75 },
+      },
+    });
+
+    const restoredView = render(<DialogueEditor tab={tab} />);
+
+    await waitFor(() => expect(screen.getByTestId('dialogue-flow')).toHaveAttribute('data-default-viewport', JSON.stringify({ x: 9, y: 12, zoom: 0.75 })));
+    await waitFor(() => expect(restoredView.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')?.scrollTop).toBe(72));
+    expect(restoredView.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')?.scrollLeft).toBe(5);
   });
 });

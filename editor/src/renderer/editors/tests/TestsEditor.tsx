@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,40 @@ import {
   type TestStepData,
 } from '../../../shared/project-schema/authoring-tests';
 import { buildRuntimePlaybackSpecFromAuthoringTest, getAuthoringTestRunReadiness } from '../../../shared/project-schema/test-playback-project';
+import {
+  captureScrollViewState,
+  captureSourceEditorViewStates,
+  isScrollViewState,
+  parseSourceEditorViewStates,
+  restoreScrollViewState,
+  restoreSourceEditorViewStates,
+  useSourceEditorViewStateRefs,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type SourceEditorViewStates,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+
+const TESTS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.test';
+
+interface TestsEditorTabStatePayload {
+  scroll?: ScrollViewState;
+  sourceViewStates?: SourceEditorViewStates;
+}
+
+type TestsEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof TESTS_EDITOR_TAB_STATE_SCHEMA;
+  payload?: TestsEditorTabStatePayload;
+};
+
+function parseTestsEditorTabState(value: WorkbenchTabStatePayload): TestsEditorTabStatePayload | null {
+  if (value.schema !== TESTS_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
+  };
+}
 
 function titleCase(value: string) {
   return value.split('-').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ');
@@ -94,6 +128,8 @@ function reportObservationMap(report: unknown): Map<number, { passed?: boolean; 
 }
 
 export function TestsEditor({ tab }: WorkbenchEditorProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sourceEditors = useSourceEditorViewStateRefs<'initScript' | 'checkScript' | 'loadSave' | 'stepInitScript' | 'stepCheckScript' | 'assertionExpected'>();
   const projectDocument = useProjectStore((state) => state.document);
   const testId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -106,6 +142,25 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const lastPlaybackReport = useWorkspaceStore((state) => state.lastPlaybackReport);
   const setBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const diagnostics = useMemo(() => project && record && testId ? validateTestData(project, testId, record) : [], [project, record, testId]);
+
+  useWorkbenchEditorTabState<TestsEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: TESTS_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        scroll: captureScrollViewState(scrollRef.current),
+        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
+      },
+    }),
+    restoreTabState: (state: TestsEditorTabState) => {
+      const parsed = parseTestsEditorTabState(state);
+      if (!parsed) return;
+      window.requestAnimationFrame(() => {
+        restoreScrollViewState(scrollRef.current, parsed.scroll);
+        restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
+      });
+    },
+  }), [sourceEditors.refs]));
 
   if (!testId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Test record not found.</div>;
 
@@ -220,7 +275,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-tests-editor-scroll>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -285,11 +340,11 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
           <section className="grid gap-3 rounded border p-3 md:grid-cols-2">
             <div className="space-y-1">
               <Label>Init script</Label>
-              <SourceEditor className="h-32" language="lua" value={data.initScript} onChange={(initScript) => patch({ initScript }, 'Update test init script')} />
+              <SourceEditor ref={sourceEditors.refFor('initScript')} className="h-32" language="lua" value={data.initScript} onChange={(initScript) => patch({ initScript }, 'Update test init script')} />
             </div>
             <div className="space-y-1">
               <Label>Check script</Label>
-              <SourceEditor className="h-32" language="lua" value={data.checkScript} onChange={(checkScript) => patch({ checkScript }, 'Update test check script')} />
+              <SourceEditor ref={sourceEditors.refFor('checkScript')} className="h-32" language="lua" value={data.checkScript} onChange={(checkScript) => patch({ checkScript }, 'Update test check script')} />
             </div>
           </section>
         </div>
@@ -324,7 +379,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                   {activeStep.runAction.objects.map((object, index) => <Button key={`${object.$ref.id}-${index}`} size="sm" variant="outline" onClick={() => replaceStep(activeStep.id, { runAction: { ...activeStep.runAction, objects: activeStep.runAction.objects.filter((_, itemIndex) => itemIndex !== index) } })}>Remove {object.$ref.id}</Button>)}
                 </div>
               ) : null}
-              {activeStep.input === 'load-save' ? <SourceEditor className="h-32" language="json" value={JSON.stringify(activeStep.loadSave.payload, null, 2)} onChange={(source) => replaceStep(activeStep.id, { loadSave: { ...activeStep.loadSave, payload: safeJson(source) } })} /> : null}
+              {activeStep.input === 'load-save' ? <SourceEditor ref={sourceEditors.refFor('loadSave')} className="h-32" language="json" value={JSON.stringify(activeStep.loadSave.payload, null, 2)} onChange={(source) => replaceStep(activeStep.id, { loadSave: { ...activeStep.loadSave, payload: safeJson(source) } })} /> : null}
               {activeStep.input === 'set-entrypoint' ? <Select value={entrypointValue(activeStep.setEntrypoint.entrypoint)} onValueChange={(value) => replaceStep(activeStep.id, { setEntrypoint: { entrypoint: makeEntrypoint(String(value)) } })}><SelectItem value="__none__">No entrypoint</SelectItem>{entrypoints.map((entrypoint) => <SelectItem key={entrypoint.value} value={entrypoint.value}>{entrypoint.label}</SelectItem>)}</Select> : null}
               {activeStep.input === 'ui-click' ? (
                 <div className="grid gap-2">
@@ -345,9 +400,9 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
 
               <div className="grid gap-2">
                 <Label>Step init script</Label>
-                <SourceEditor className="h-24" language="lua" value={activeStep.initScript} onChange={(initScript) => replaceStep(activeStep.id, { initScript })} />
+                <SourceEditor ref={sourceEditors.refFor('stepInitScript')} className="h-24" language="lua" value={activeStep.initScript} onChange={(initScript) => replaceStep(activeStep.id, { initScript })} />
                 <Label>Step check script</Label>
-                <SourceEditor className="h-24" language="lua" value={activeStep.checkScript} onChange={(checkScript) => replaceStep(activeStep.id, { checkScript })} />
+                <SourceEditor ref={sourceEditors.refFor('stepCheckScript')} className="h-24" language="lua" value={activeStep.checkScript} onChange={(checkScript) => replaceStep(activeStep.id, { checkScript })} />
               </div>
             </section>
           ) : null}
@@ -363,7 +418,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                   <Input value={assertion.value} placeholder="Value" onChange={(event) => replaceAssertion(activeStep, assertion.id, { value: event.currentTarget.value })} />
                   <Input value={assertion.key} placeholder="Key" onChange={(event) => replaceAssertion(activeStep, assertion.id, { key: event.currentTarget.value })} />
                   <Select value={refValue(assertion.variable)} onValueChange={(value) => replaceAssertion(activeStep, assertion.id, { variable: String(value) === '__none__' ? null : testVariableRef(String(value)) })}><SelectItem value="__none__">No variable</SelectItem>{variables.map((variable) => <SelectItem key={variable.id} value={variable.id}>{variable.label} ({variable.id})</SelectItem>)}</Select>
-                  <SourceEditor className="h-20" language="json" value={JSON.stringify(assertion.expected, null, 2)} onChange={(source) => replaceAssertion(activeStep, assertion.id, { expected: safeJson(source) })} />
+                  <SourceEditor ref={sourceEditors.refFor('assertionExpected')} className="h-20" language="json" value={JSON.stringify(assertion.expected, null, 2)} onChange={(source) => replaceAssertion(activeStep, assertion.id, { expected: safeJson(source) })} />
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => duplicateAssertion(activeStep, assertion)}>Duplicate Assertion</Button>
                     <Button size="sm" variant="outline" onClick={() => deleteAssertion(activeStep, assertion.id)}>Delete Assertion</Button>

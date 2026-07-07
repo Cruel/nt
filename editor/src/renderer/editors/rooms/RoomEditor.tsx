@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EnginePreview } from '@/components/engine-preview';
 import { SourceEditor } from '@/components/source/SourceEditor';
@@ -30,6 +30,42 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildRoomPreviewDocumentData, roomPreviewRevision } from '../../../shared/project-schema/room-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import {
+  captureScrollViewState,
+  captureSourceEditorViewStates,
+  isScrollViewState,
+  parseSourceEditorViewStates,
+  restoreScrollViewState,
+  restoreSourceEditorViewStates,
+  useSourceEditorViewStateRefs,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type SourceEditorViewStates,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+
+const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
+
+interface RoomEditorTabStatePayload {
+  scroll?: ScrollViewState;
+  sourceViewStates?: SourceEditorViewStates;
+  backgroundSelectorOpen?: boolean;
+}
+
+type RoomEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
+  payload?: RoomEditorTabStatePayload;
+};
+
+function parseRoomEditorTabState(value: WorkbenchTabStatePayload): RoomEditorTabStatePayload | null {
+  if (value.schema !== ROOM_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
+    backgroundSelectorOpen: typeof payload.backgroundSelectorOpen === 'boolean' ? payload.backgroundSelectorOpen : undefined,
+  };
+}
 
 function commitRoom(roomId: string, next: RoomData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -69,6 +105,8 @@ function sortPaths(paths: RoomPathData[]) {
 export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sourceEditors = useSourceEditorViewStateRefs<'description' | 'beforeEnter' | 'afterEnter' | 'beforeLeave' | 'afterLeave'>();
   const projectDocument = useProjectStore((state) => state.document);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -81,6 +119,27 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
   const targetRooms = project ? Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label })) : [];
   const objects = project ? Object.entries(project.objects).map(([id, object]) => ({ id, label: object.label })) : [];
+
+  useWorkbenchEditorTabState<RoomEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        scroll: captureScrollViewState(scrollRef.current),
+        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
+        backgroundSelectorOpen,
+      },
+    }),
+    restoreTabState: (state: RoomEditorTabState) => {
+      const parsed = parseRoomEditorTabState(state);
+      if (!parsed) return;
+      if (parsed.backgroundSelectorOpen !== undefined) setBackgroundSelectorOpen(parsed.backgroundSelectorOpen);
+      window.requestAnimationFrame(() => {
+        restoreScrollViewState(scrollRef.current, parsed.scroll);
+        restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
+      });
+    },
+  }), [backgroundSelectorOpen, sourceEditors.refs]));
 
   if (!roomId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
 
@@ -160,7 +219,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-room-editor-scroll>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -220,25 +279,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
 
           <section className="space-y-2 rounded border p-3">
             <Label>Description source</Label>
-            <SourceEditor className="h-56" language="text" value={data.description.source} onChange={(source) => commit({ ...data, description: { ...data.description, source } }, 'Update room description')} />
+            <SourceEditor ref={sourceEditors.refFor('description')} className="h-56" language="text" value={data.description.source} onChange={(source) => commit({ ...data, description: { ...data.description, source } }, 'Update room description')} />
           </section>
 
           <section className="grid gap-3 rounded border p-3 lg:grid-cols-2">
             <div className="space-y-2">
               <Label>Before enter Lua</Label>
-              <SourceEditor className="h-36" language="lua" value={data.scripts.beforeEnter} onChange={(beforeEnter) => patchScripts({ beforeEnter })} />
+              <SourceEditor ref={sourceEditors.refFor('beforeEnter')} className="h-36" language="lua" value={data.scripts.beforeEnter} onChange={(beforeEnter) => patchScripts({ beforeEnter })} />
             </div>
             <div className="space-y-2">
               <Label>After enter Lua</Label>
-              <SourceEditor className="h-36" language="lua" value={data.scripts.afterEnter} onChange={(afterEnter) => patchScripts({ afterEnter })} />
+              <SourceEditor ref={sourceEditors.refFor('afterEnter')} className="h-36" language="lua" value={data.scripts.afterEnter} onChange={(afterEnter) => patchScripts({ afterEnter })} />
             </div>
             <div className="space-y-2">
               <Label>Before leave Lua</Label>
-              <SourceEditor className="h-36" language="lua" value={data.scripts.beforeLeave} onChange={(beforeLeave) => patchScripts({ beforeLeave })} />
+              <SourceEditor ref={sourceEditors.refFor('beforeLeave')} className="h-36" language="lua" value={data.scripts.beforeLeave} onChange={(beforeLeave) => patchScripts({ beforeLeave })} />
             </div>
             <div className="space-y-2">
               <Label>After leave Lua</Label>
-              <SourceEditor className="h-36" language="lua" value={data.scripts.afterLeave} onChange={(afterLeave) => patchScripts({ afterLeave })} />
+              <SourceEditor ref={sourceEditors.refFor('afterLeave')} className="h-36" language="lua" value={data.scripts.afterLeave} onChange={(afterLeave) => patchScripts({ afterLeave })} />
             </div>
           </section>
 

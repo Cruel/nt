@@ -58,6 +58,7 @@ function cloneState(state: WorkbenchState): WorkbenchState {
     recentlyClosedTabs: state.recentlyClosedTabs.map((entry) => ({
       closedFromGroupId: entry.closedFromGroupId,
       tab: { ...entry.tab, resource: entry.tab.resource ? { ...entry.tab.resource } : undefined },
+      tabState: entry.tabState ? { ...entry.tabState } : undefined,
     })),
   };
 }
@@ -649,7 +650,8 @@ export function closeWorkbenchTabs(
   const closedTabIds = group.tabIds.filter((tabId) => closeSet.has(tabId));
   const closedTabs = closedTabIds.flatMap((tabId) => {
     const tab = next.tabsById[tabId];
-    return tab ? [{ tab, closedFromGroupId: groupId }] : [];
+    const existingState = next.recentlyClosedTabs.find((entry) => entry.tab.id === tabId)?.tabState;
+    return tab ? [{ tab, closedFromGroupId: groupId, tabState: existingState }] : [];
   });
   next.recentlyClosedTabs = [...closedTabs.reverse(), ...next.recentlyClosedTabs].slice(0, 20);
 

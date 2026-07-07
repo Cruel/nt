@@ -8,6 +8,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
+import { clearWorkbenchTabStates, setWorkbenchTabState, useWorkbenchTabStateStore } from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
 const tab: WorkbenchTab = {
@@ -49,6 +50,7 @@ beforeEach(() => {
   useDraftDirtyStore.getState().resetDraftDirty();
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  clearWorkbenchTabStates();
   vi.clearAllMocks();
 });
 
@@ -104,6 +106,34 @@ describe('dirty tab close guard', () => {
     await user.click(screen.getByText('Cancel'));
     expect(useCloseGuardStore.getState().pendingClose).toBeNull();
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeTruthy();
+  });
+
+  it('keeps tab state when a dirty close is cancelled', async () => {
+    const user = userEvent.setup();
+    useProjectStore.getState().loadProjectDocument({
+      document: { rooms: { foyer: { id: 'foyer', label: 'Foyer' } } },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.getState().replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
+    openTestTab();
+    setWorkbenchTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.test',
+      schemaVersion: 1,
+      payload: { scroll: { scrollTop: 33, scrollLeft: 4 } },
+    });
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    expect(await screen.findByText('Close foyer?')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Cancel'));
+
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeTruthy();
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      schema: 'noveltea.editor.tab-state.test',
+      payload: { scroll: { scrollTop: 33, scrollLeft: 4 } },
+    });
   });
 
   it('prompts once for a dirty batch and cancels atomically', async () => {

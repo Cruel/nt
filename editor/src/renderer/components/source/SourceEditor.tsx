@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { basicSetup, EditorView } from 'codemirror';
-import { EditorState, type Extension } from '@codemirror/state';
+import { EditorSelection, EditorState, type Extension } from '@codemirror/state';
 import { linter, type Diagnostic } from '@codemirror/lint';
 import { css } from '@codemirror/lang-css';
 import { cpp } from '@codemirror/lang-cpp';
@@ -19,6 +19,7 @@ import {
 } from './source-editor-completions';
 import type { CodeEditorThemeId } from './source-editor-theme-types';
 import { sourceEditorThemeExtension } from './source-editor-themes';
+import type { SourceEditorViewState } from '@/workbench/workbench-tab-state';
 
 export interface SourceEditorDiagnostic {
   from?: number;
@@ -36,6 +37,11 @@ export interface SourceEditorProps {
   completionContext?: SourceEditorCompletionContext;
   themeId?: CodeEditorThemeId;
   className?: string;
+}
+
+export interface SourceEditorHandle {
+  captureViewState(): SourceEditorViewState;
+  restoreViewState(state: SourceEditorViewState | null | undefined): void;
 }
 
 function toCodemirrorDiagnostic(item: SourceEditorDiagnostic, docLength: number): Diagnostic {
@@ -62,7 +68,7 @@ function languageExtensions(language: SourceEditorLanguage, completionContext?: 
   return [];
 }
 
-export function SourceEditor({ value, onChange, readOnly = false, diagnostics = [], language = 'text', completionContext, themeId, className }: SourceEditorProps) {
+export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(function SourceEditor({ value, onChange, readOnly = false, diagnostics = [], language = 'text', completionContext, themeId, className }, ref) {
   const preferredTheme = usePreferencesStore((state) => state.codeEditorTheme);
   const activeTheme = themeId ?? preferredTheme;
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +78,33 @@ export function SourceEditor({ value, onChange, readOnly = false, diagnostics = 
   const diagnosticsRef = useRef(diagnostics);
   onChangeRef.current = onChange;
   diagnosticsRef.current = diagnostics;
+
+  useImperativeHandle(ref, () => ({
+    captureViewState: () => {
+      const view = viewRef.current;
+      return {
+        scroll: view ? { scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft } : undefined,
+        selection: view?.state.selection.toJSON(),
+      };
+    },
+    restoreViewState: (state) => {
+      const view = viewRef.current;
+      if (!view || !state) return;
+      if (state.selection !== undefined) {
+        try {
+          view.dispatch({ selection: EditorSelection.fromJSON(state.selection) });
+        } catch {
+          // Ignore stale editor selection state from older document shapes.
+        }
+      }
+      window.requestAnimationFrame(() => {
+        if (state.scroll) {
+          view.scrollDOM.scrollTop = Number.isFinite(state.scroll.scrollTop) ? state.scroll.scrollTop : 0;
+          view.scrollDOM.scrollLeft = Number.isFinite(state.scroll.scrollLeft) ? state.scroll.scrollLeft : 0;
+        }
+      });
+    },
+  }), []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -113,4 +146,4 @@ export function SourceEditor({ value, onChange, readOnly = false, diagnostics = 
   }, [value]);
 
   return <div ref={hostRef} className={cn('min-h-48 overflow-hidden rounded border bg-background', className)} />;
-}
+});

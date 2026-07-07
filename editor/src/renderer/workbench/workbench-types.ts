@@ -1,3 +1,5 @@
+import type { SerializedEditorTabState } from '../../shared/project-schema/editor-project-state';
+
 export type WorkbenchSplitDirection = 'horizontal' | 'vertical';
 
 export type WorkbenchDockEdge = 'left' | 'right' | 'top' | 'bottom';
@@ -50,6 +52,7 @@ export type WorkbenchLayoutNode = WorkbenchLayoutGroupNode | WorkbenchLayoutSpli
 export interface ClosedWorkbenchTab {
   tab: WorkbenchTab;
   closedFromGroupId: string;
+  tabState?: SerializedEditorTabState;
 }
 
 export interface WorkbenchState {

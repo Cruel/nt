@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { EnginePreview } from '@/components/engine-preview';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +47,40 @@ import { parseCharacterData } from '../../../shared/project-schema/authoring-cha
 import { parseDialogueData } from '../../../shared/project-schema/authoring-dialogues';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildScenePreviewDocumentData, scenePreviewRevision } from '../../../shared/project-schema/scene-project';
+import {
+  captureScrollViewState,
+  captureSourceEditorViewStates,
+  isScrollViewState,
+  parseSourceEditorViewStates,
+  restoreScrollViewState,
+  restoreSourceEditorViewStates,
+  useSourceEditorViewStateRefs,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type SourceEditorViewStates,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+
+const SCENE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.scene';
+
+interface SceneEditorTabStatePayload {
+  scroll?: ScrollViewState;
+  sourceViewStates?: SourceEditorViewStates;
+}
+
+type SceneEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof SCENE_EDITOR_TAB_STATE_SCHEMA;
+  payload?: SceneEditorTabStatePayload;
+};
+
+function parseSceneEditorTabState(value: WorkbenchTabStatePayload): SceneEditorTabStatePayload | null {
+  if (value.schema !== SCENE_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
+  const payload = value.payload as Record<string, unknown>;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
+  };
+}
 
 function commitScene(sceneId: string, next: SceneData, label: string) {
   return useCommandStore.getState().executeCommand({ type: 'scene.replaceData', label, payload: { sceneId, data: next } });
@@ -80,6 +114,8 @@ function replaceRefValue<Ref>(value: string, makeRef: (id: string) => Ref): Ref 
 }
 
 export function SceneEditor({ tab }: WorkbenchEditorProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sourceEditors = useSourceEditorViewStateRefs<'condition' | 'script' | 'branchChoiceCondition' | 'comment'>();
   const projectDocument = useProjectStore((state) => state.document);
   const sceneId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -87,6 +123,25 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseSceneData(record?.data);
   const data = parsedData ?? defaultSceneData(record?.label ?? sceneId ?? 'Scene');
   const diagnostics = useMemo(() => project && record && sceneId ? validateSceneData(project, sceneId, record) : [], [project, record, sceneId]);
+
+  useWorkbenchEditorTabState<SceneEditorTabState>(tab.id, useMemo(() => ({
+    captureTabState: () => ({
+      schema: SCENE_EDITOR_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: {
+        scroll: captureScrollViewState(scrollRef.current),
+        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
+      },
+    }),
+    restoreTabState: (state: SceneEditorTabState) => {
+      const parsed = parseSceneEditorTabState(state);
+      if (!parsed) return;
+      window.requestAnimationFrame(() => {
+        restoreScrollViewState(scrollRef.current, parsed.scroll);
+        restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
+      });
+    },
+  }), [sourceEditors.refs]));
 
   if (!sceneId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Scene record not found.</div>;
 
@@ -190,7 +245,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const selectedDialogue = activeStep?.dialogue.dialogue ? dialogues.find((item) => item.id === activeStep.dialogue.dialogue?.$ref.id) : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-scene-editor-scroll>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -353,7 +408,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 <Switch checked={activeStep.condition.enabled} onCheckedChange={(checked) => replaceStep(activeStep.id, { condition: { ...activeStep.condition, enabled: Boolean(checked) } })} />
                 <Label>Condition</Label>
               </div>
-              <SourceEditor className="h-24" language="lua" value={activeStep.condition.source} onChange={(source) => replaceStep(activeStep.id, { condition: { ...activeStep.condition, source } })} />
+              <SourceEditor ref={sourceEditors.refFor('condition')} className="h-24" language="lua" value={activeStep.condition.source} onChange={(source) => replaceStep(activeStep.id, { condition: { ...activeStep.condition, source } })} />
               <div className="grid gap-2 text-xs">
                 <label className="flex items-center gap-2"><Switch checked={activeStep.autosave.before} onCheckedChange={(checked) => replaceStep(activeStep.id, { autosave: { ...activeStep.autosave, before: Boolean(checked) } })} /> Autosave before</label>
                 <label className="flex items-center gap-2"><Switch checked={activeStep.autosave.after} onCheckedChange={(checked) => replaceStep(activeStep.id, { autosave: { ...activeStep.autosave, after: Boolean(checked) } })} /> Autosave after</label>
@@ -449,7 +504,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             <section className="space-y-3 rounded border p-3">
               <h3 className="text-sm font-medium">Script</h3>
               <Input value={activeStep.script.comment} placeholder="Comment" onChange={(event) => replaceStepPayload(activeStep.id, 'script', { comment: event.currentTarget.value })} />
-              <SourceEditor className="h-40" language="lua" value={activeStep.script.source} onChange={(source) => replaceStepPayload(activeStep.id, 'script', { source })} />
+              <SourceEditor ref={sourceEditors.refFor('script')} className="h-40" language="lua" value={activeStep.script.source} onChange={(source) => replaceStepPayload(activeStep.id, 'script', { source })} />
             </section>
           ) : null}
 
@@ -473,7 +528,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   </Select>
                   <Input value={String(choice.order)} onChange={(event) => replaceBranchChoice(activeStep, choice.id, { order: Number.parseInt(event.currentTarget.value, 10) || 0 })} />
                   <label className="flex items-center gap-2 text-xs"><Switch aria-label={`Condition ${choice.id}`} checked={choice.condition.enabled} onCheckedChange={(checked) => replaceBranchChoice(activeStep, choice.id, { condition: { ...choice.condition, enabled: Boolean(checked) } })} /> Condition</label>
-                  <SourceEditor className="h-24" language="lua" value={choice.condition.source} onChange={(source) => replaceBranchChoice(activeStep, choice.id, { condition: { ...choice.condition, source } })} />
+                  <SourceEditor ref={sourceEditors.refFor('branchChoiceCondition')} className="h-24" language="lua" value={choice.condition.source} onChange={(source) => replaceBranchChoice(activeStep, choice.id, { condition: { ...choice.condition, source } })} />
                   <Button size="sm" variant="outline" onClick={() => deleteBranchChoice(activeStep, choice.id)}>Delete Choice</Button>
                 </div>
               ))}
@@ -504,7 +559,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
           {activeStep?.type === 'comment' ? (
             <section className="space-y-3 rounded border p-3">
               <h3 className="text-sm font-medium">Comment</h3>
-              <SourceEditor className="h-32" language="text" value={activeStep.comment.source} onChange={(source) => replaceStepPayload(activeStep.id, 'comment', { source })} />
+              <SourceEditor ref={sourceEditors.refFor('comment')} className="h-32" language="text" value={activeStep.comment.source} onChange={(source) => replaceStepPayload(activeStep.id, 'comment', { source })} />
             </section>
           ) : null}
 

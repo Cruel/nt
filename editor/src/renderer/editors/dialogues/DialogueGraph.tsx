@@ -1,4 +1,4 @@
-import { Background, Controls, ReactFlow, type Connection, type Edge, type Node } from '@xyflow/react';
+import { Background, Controls, ReactFlow, type Connection, type Edge, type Node, type Viewport } from '@xyflow/react';
 import type { DialogueBlockData, DialogueEdgeData } from '../../../shared/project-schema/authoring-dialogues';
 
 export interface DialogueGraphProps {
@@ -8,9 +8,11 @@ export interface DialogueGraphProps {
   onSelectBlock: (blockId: string) => void;
   onMoveBlock: (blockId: string, position: { x: number; y: number }) => void;
   onConnectBlocks: (fromBlockId: string, toBlockId: string) => void;
+  viewport?: Viewport | null;
+  onViewportChange?: (viewport: Viewport) => void;
 }
 
-export function DialogueGraph({ blocks, edges, selectedBlockId, onSelectBlock, onMoveBlock, onConnectBlocks }: DialogueGraphProps) {
+export function DialogueGraph({ blocks, edges, selectedBlockId, onSelectBlock, onMoveBlock, onConnectBlocks, viewport, onViewportChange }: DialogueGraphProps) {
   const nodes: Node[] = blocks.map((block) => ({
     id: block.id,
     position: block.graph,
@@ -33,14 +35,16 @@ export function DialogueGraph({ blocks, edges, selectedBlockId, onSelectBlock, o
   }
 
   return (
-    <div className="h-72 min-h-0 overflow-hidden rounded border bg-muted/20">
+    <div className="h-72 min-h-0 overflow-hidden rounded border bg-muted/20" data-dialogue-graph>
       <ReactFlow
         nodes={nodes}
         edges={flowEdges}
-        fitView
+        fitView={!viewport}
+        defaultViewport={viewport ?? undefined}
         onConnect={handleConnect}
         onNodeClick={(_, node) => onSelectBlock(node.id)}
         onNodeDragStop={(_, node) => onMoveBlock(node.id, node.position)}
+        onViewportChange={onViewportChange}
       >
         <Background />
         <Controls showInteractive={false} />
