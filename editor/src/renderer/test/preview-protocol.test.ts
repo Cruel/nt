@@ -46,6 +46,8 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r4', settings: { showFpsCounter: true, fpsCap: 60 } })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r5', settings: { fpsCap: -1 } })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-start', requestId: 'runtime-start' })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project', project: { engine: 1 } })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project-bad' })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-stop', requestId: 'runtime-stop' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step-delta', deltaSeconds: 0.016 })).toBe(true);

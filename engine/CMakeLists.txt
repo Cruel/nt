@@ -93,7 +93,10 @@ add_library(engine STATIC
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
     src/runtime_command.cpp
+    src/runtime_debug_mutation.cpp
+    src/runtime_debug_snapshot.cpp
     src/runtime_layout_manager.cpp
+    src/runtime_preview_controller.cpp
     src/runtime_shell.cpp
     src/runtime_transition_manager.cpp
     src/runtime_ui_playback.cpp

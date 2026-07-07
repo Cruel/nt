@@ -150,6 +150,7 @@ export function useEnginePreview({
     setPosition: (position: PreviewPosition) => send({ type: 'set-demo-position', position }),
     reset: () => send({ type: 'reset-demo' }),
     runtimeReset: () => send({ type: 'runtime-reset' }),
+    loadRuntimeProject: (project: unknown) => send({ type: 'runtime-load-project', project }),
     startRuntime: () => send({ type: 'runtime-start' }),
     stopRuntime: () => send({ type: 'runtime-stop' }),
     stepRuntime: (deltaSeconds?: number) => send(deltaSeconds === undefined ? { type: 'runtime-step' } : { type: 'runtime-step', deltaSeconds }),

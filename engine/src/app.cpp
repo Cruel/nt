@@ -396,10 +396,21 @@ int noveltea_preview_show_editor_document(const char* kind, const char* data_jso
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
+int noveltea_runtime_load_project(const char* logical_path)
+{
+    if (!noveltea::g_preview_engine || !logical_path) {
+        return 0;
+    }
+    return noveltea::g_preview_engine->runtime_preview().load_project(logical_path) ? 1 : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
 int noveltea_runtime_reset()
 {
-    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_reset() ? 1
-                                                                                             : 0;
+    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview().reset() ? 1
+                                                                                               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -407,8 +418,8 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 int noveltea_runtime_start()
 {
-    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_start() ? 1
-                                                                                             : 0;
+    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview().start() ? 1
+                                                                                               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -416,7 +427,8 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 int noveltea_runtime_stop()
 {
-    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_stop() ? 1 : 0;
+    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview().stop() ? 1
+                                                                                              : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -425,7 +437,7 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_step(double delta_seconds)
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview_step(delta_seconds)
+                   noveltea::g_preview_engine->runtime_preview().step(delta_seconds)
                ? 1
                : 0;
 }
@@ -435,8 +447,10 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 int noveltea_runtime_continue()
 {
-    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview_continue() ? 1
-                                                                                                : 0;
+    return noveltea::g_preview_engine &&
+                   noveltea::g_preview_engine->runtime_preview().continue_dialogue()
+               ? 1
+               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -445,7 +459,8 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_dialogue_option(int option_index)
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview_dialogue_option(option_index)
+                   noveltea::g_preview_engine->runtime_preview().select_dialogue_option(
+                       option_index)
                ? 1
                : 0;
 }
@@ -456,7 +471,7 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_navigate(int direction)
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview_navigate(direction)
+                   noveltea::g_preview_engine->runtime_preview().navigate(direction)
                ? 1
                : 0;
 }
@@ -467,7 +482,7 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_select_object(const char* object_id)
 {
     return noveltea::g_preview_engine && object_id &&
-                   noveltea::g_preview_engine->runtime_preview_select_object(object_id)
+                   noveltea::g_preview_engine->runtime_preview().select_object(object_id)
                ? 1
                : 0;
 }
@@ -478,7 +493,7 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_clear_object_selection()
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview_clear_object_selection()
+                   noveltea::g_preview_engine->runtime_preview().clear_object_selection()
                ? 1
                : 0;
 }
@@ -506,7 +521,7 @@ int noveltea_runtime_run_action(const char* verb_id, const char* object_ids_json
     } catch (const std::exception&) {
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview_run_action(verb_id, object_ids) ? 1 : 0;
+    return noveltea::g_preview_engine->runtime_preview().run_action(verb_id, object_ids) ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -519,7 +534,8 @@ const char* noveltea_runtime_set_variable(const char* variable_id, const char* v
     if (!noveltea::g_preview_engine || !variable_id || !value_json) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview_set_variable(variable_id, value_json);
+    event_json =
+        noveltea::g_preview_engine->runtime_preview().set_variable(variable_id, value_json);
     return event_json.c_str();
 }
 
@@ -533,7 +549,7 @@ const char* noveltea_runtime_reset_variable(const char* variable_id)
     if (!noveltea::g_preview_engine || !variable_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview_reset_variable(variable_id);
+    event_json = noveltea::g_preview_engine->runtime_preview().reset_variable(variable_id);
     return event_json.c_str();
 }
 
@@ -547,7 +563,7 @@ const char* noveltea_runtime_give_object(const char* object_id)
     if (!noveltea::g_preview_engine || !object_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview_give_object(object_id);
+    event_json = noveltea::g_preview_engine->runtime_preview().give_object(object_id);
     return event_json.c_str();
 }
 
@@ -561,7 +577,7 @@ const char* noveltea_runtime_remove_inventory_object(const char* object_id)
     if (!noveltea::g_preview_engine || !object_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview_remove_inventory_object(object_id);
+    event_json = noveltea::g_preview_engine->runtime_preview().remove_inventory_object(object_id);
     return event_json.c_str();
 }
 
@@ -575,7 +591,7 @@ const char* noveltea_runtime_teleport_room(const char* room_id)
     if (!noveltea::g_preview_engine || !room_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview_teleport_room(room_id);
+    event_json = noveltea::g_preview_engine->runtime_preview().teleport_room(room_id);
     return event_json.c_str();
 }
 
@@ -589,7 +605,7 @@ const char* noveltea_runtime_debug_snapshot()
         snapshot.clear();
         return snapshot.c_str();
     }
-    snapshot = noveltea::g_preview_engine->runtime_preview_debug_snapshot();
+    snapshot = noveltea::g_preview_engine->runtime_preview().debug_snapshot();
     return snapshot.c_str();
 }
 
@@ -603,7 +619,7 @@ const char* noveltea_runtime_fast_forward_to_input()
         result_json.clear();
         return result_json.c_str();
     }
-    result_json = noveltea::g_preview_engine->runtime_preview_fast_forward_to_input();
+    result_json = noveltea::g_preview_engine->runtime_preview().fast_forward_to_input();
     return result_json.c_str();
 }
 

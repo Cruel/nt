@@ -26,7 +26,9 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
 import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { selectedExportProfile } from '../../../shared/project-schema/authoring-export';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
+import { buildAuthoringRuntimeExport } from '../../../shared/project-schema/authoring-runtime-export';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import { parseVariableData, parseVariableDefaultText, variableDefaultValueToText } from '../../../shared/project-schema/authoring-variables';
 import { recordedTestDraftToTestData, type RecordedRuntimeInputKind } from '../../../shared/project-schema/recorded-test-draft';
@@ -229,6 +231,27 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   let index = 2;
   while (project.tests[`${base}-${index}`]) index += 1;
   return `${base}-${index}`;
+}
+
+function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { runtimeProject: unknown | null; entries: Omit<RuntimeLogEntry, 'id'>[]; ok: boolean } {
+  if (!project) {
+    return {
+      ok: false,
+      runtimeProject: null,
+      entries: [{ label: 'No authoring project is open', detail: 'Open or create a project before using the Play tab.', severity: 'warning' }],
+    };
+  }
+  const exported = buildAuthoringRuntimeExport(project, { projectRoot: null, profile: selectedExportProfile(project) });
+  const entries = exported.diagnostics.slice(0, 6).map((diagnostic) => ({
+    label: diagnostic.message,
+    detail: diagnostic.path,
+    severity: diagnostic.severity,
+  }));
+  return {
+    ok: exported.ok,
+    runtimeProject: exported.runtimeProject ?? null,
+    entries,
+  };
 }
 
 function executeRecordedAction(action: RecordedRuntimeAction, context: EnginePreviewControlsContext) {
@@ -717,6 +740,31 @@ export function FullGamePreviewEditor() {
     });
   }, []);
 
+  const loadRuntimeProjectIntoPreview = useCallback(async (context: EnginePreviewControlsContext | null = controlsRef.current) => {
+    if (!context) return false;
+    const exported = runtimeProjectDiagnosticEntries(project);
+    if (!exported.ok || !exported.runtimeProject) {
+      setState((current) => ({
+        ...current,
+        snapshot: null,
+        eventLog: exported.entries.reduce(
+          (entries, entry) => addLogEntry(entries, entry),
+          addLogEntry(current.eventLog, { label: 'Runtime project not loaded', severity: 'warning' }),
+        ),
+      }));
+      return false;
+    }
+    await context.controller.loadRuntimeProject(exported.runtimeProject);
+    setState((current) => ({
+      ...current,
+      eventLog: exported.entries.reduce(
+        (entries, entry) => addLogEntry(entries, entry),
+        addLogEntry(current.eventLog, { label: 'Runtime project loaded for Play tab', detail: project?.project.name, severity: exported.entries.length > 0 ? 'warning' : 'info' }),
+      ),
+    }));
+    return true;
+  }, [project]);
+
   const replayActions = useCallback((actions: RecordedRuntimeAction[], successMode: RecordedTestDraft['mode'] = 'idle') => {
     const context = controlsRef.current;
     if (!context) {
@@ -791,10 +839,26 @@ export function FullGamePreviewEditor() {
         return { ...current, traceEvents: addTraceEvent(current.traceEvents, logEntry) };
       });
     }
-    if (message.type === 'ready' || message.type === 'preview-interacted' || message.type === 'object-clicked' || message.type === 'preview-object-selected') {
+    if (message.type === 'ready') {
+      void loadRuntimeProjectIntoPreview(controlsRef.current).then(() => {
+        requestDebugSnapshot(controlsRef.current);
+      }).catch((error: Error) => {
+        setState((current) => ({ ...current, eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }) }));
+      });
+    } else if (message.type === 'preview-interacted' || message.type === 'object-clicked' || message.type === 'preview-object-selected') {
       requestDebugSnapshot(controlsRef.current);
     }
-  }, [requestDebugSnapshot]);
+  }, [loadRuntimeProjectIntoPreview, requestDebugSnapshot]);
+
+  useEffect(() => {
+    const context = controlsRef.current;
+    if (!context || context.connectionState !== 'ready') return;
+    void loadRuntimeProjectIntoPreview(context).then(() => {
+      requestDebugSnapshot(context);
+    }).catch((error: Error) => {
+      setState((current) => ({ ...current, eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }) }));
+    });
+  }, [projectDocument, loadRuntimeProjectIntoPreview, requestDebugSnapshot]);
 
   const startRecording = useCallback(() => {
     setMode('recording');

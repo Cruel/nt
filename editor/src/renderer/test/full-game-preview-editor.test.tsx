@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 class FakePort {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -48,6 +49,7 @@ beforeEach(() => {
     statusMessage: 'Preview disconnected',
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
+  useProjectStore.getState().clearProject();
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -98,6 +100,20 @@ async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: 
 }
 
 describe('FullGamePreviewEditor', () => {
+  it('loads the active authoring project into the runtime preview before debugging', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.entrypoint = { collection: 'rooms', id: 'foyer' };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
+    const request = latestRequest(editorPort, 'runtime-load-project') as { project?: unknown } | undefined;
+    expect(request?.project).toMatchObject({ engine: 1, room: { foyer: expect.any(Array) }, entrypoint: [3, 'foyer'] });
+    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+  });
+
   it('owns the runtime transport controls and sends runtime commands', async () => {
     const user = userEvent.setup();
     const { editorPort } = await renderConnectedPreview();

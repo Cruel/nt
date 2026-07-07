@@ -31,6 +31,8 @@
     let currentPosition = { x: 0.5, y: 0.5 };
     let currentRunning = true;
     let drainingCommands = false;
+    const editorRuntimeProjectPath = '/assets/project/editor-runtime-project.json';
+    const editorRuntimeProjectLogicalPath = 'project:/editor-runtime-project.json';
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
     let fpsCap = Math.max(0, Math.min(1000, Number.parseInt(params.get('fpsCap') || '0', 10) || 0));
 
@@ -490,6 +492,39 @@ thead, tbody, tfoot {
       return typeof Module !== 'undefined' && typeof Module[`_${exportName}`] === 'function';
     }
 
+    function moduleFileSystem() {
+      if (typeof Module !== 'undefined' && Module.FS) return Module.FS;
+      if (typeof FS !== 'undefined') return FS;
+      return null;
+    }
+
+    function loadRuntimeProject(message) {
+      if (!nativeExportAvailable('noveltea_runtime_load_project')) {
+        failCommand(message, 'Preview widget build does not export noveltea_runtime_load_project. Rebuild the editor preview.', { category: 'preview-export' });
+        return;
+      }
+      const fs = moduleFileSystem();
+      if (!fs) {
+        failCommand(message, 'Preview widget filesystem is unavailable. Rebuild the editor preview with FS exported.', { category: 'runtime-project' });
+        return;
+      }
+      try {
+        fs.mkdirTree('/assets/project');
+        fs.writeFile(editorRuntimeProjectPath, JSON.stringify(message.project || {}, null, 2));
+      } catch (error) {
+        failCommand(message, `Could not write runtime project into preview filesystem: ${error && error.message ? error.message : String(error)}`, { category: 'runtime-project' });
+        return;
+      }
+      const ok = Module.ccall('noveltea_runtime_load_project', 'number', ['string'], [editorRuntimeProjectLogicalPath]);
+      if (!ok) {
+        failCommand(message, 'Runtime project failed to load. Check export diagnostics and engine logs.', { category: 'runtime-project' });
+        return;
+      }
+      hideFailure();
+      emitRuntimeDebugSnapshot(message);
+      send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+    }
+
     function invokeNativeCommand(message, exportName, returnType, argTypes, args, failureMessage) {
       if (!nativeExportAvailable(exportName)) {
         failCommand(message, `Preview widget build does not export ${exportName}. Rebuild the editor preview.`, { category: 'preview-export' });
@@ -610,6 +645,9 @@ thead, tbody, tfoot {
         send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
       };
       switch (message.type) {
+        case 'runtime-load-project':
+          loadRuntimeProject(message);
+          return true;
         case 'runtime-reset':
           finishRuntimeCommand('noveltea_runtime_reset', 'number', [], [], 'Runtime reset was not handled. No runtime project may be loaded.');
           return true;
@@ -735,7 +773,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-load-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
       });
       void drainCommands();
     }

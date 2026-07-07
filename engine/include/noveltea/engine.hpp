@@ -3,6 +3,7 @@
 #include "platform.hpp"
 #include "preview_bridge.hpp"
 #include "renderer.hpp"
+#include "runtime_preview_controller.hpp"
 #include "noveltea/audio/audio_system.hpp"
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
@@ -73,25 +74,8 @@ public:
     bool load_preview_rml_document(const std::string& rml);
     bool execute_preview_lua_script(const std::string& source);
     bool apply_editor_preview_document(const std::string& kind, const std::string& data_json);
-    bool runtime_preview_reset();
-    bool runtime_preview_start();
-    bool runtime_preview_stop();
-    bool runtime_preview_step(double delta_seconds);
-    bool runtime_preview_continue();
-    bool runtime_preview_dialogue_option(int option_index);
-    bool runtime_preview_navigate(int direction);
-    bool runtime_preview_select_object(const std::string& object_id);
-    bool runtime_preview_clear_object_selection();
-    bool runtime_preview_run_action(const std::string& verb_id,
-                                    const std::vector<std::string>& object_ids);
-    std::string runtime_preview_set_variable(const std::string& variable_id,
-                                             const std::string& value_json);
-    std::string runtime_preview_reset_variable(const std::string& variable_id);
-    std::string runtime_preview_give_object(const std::string& object_id);
-    std::string runtime_preview_remove_inventory_object(const std::string& object_id);
-    std::string runtime_preview_teleport_room(const std::string& room_id);
-    std::string runtime_preview_debug_snapshot() const;
-    std::string runtime_preview_fast_forward_to_input();
+    RuntimePreviewController& runtime_preview() noexcept { return m_runtime_preview; }
+    const RuntimePreviewController& runtime_preview() const noexcept { return m_runtime_preview; }
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                     float pitch = 1.0f);
     AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,
@@ -103,6 +87,8 @@ public:
     bool is_running() const { return m_running; }
 
 private:
+    friend class RuntimePreviewController;
+
     void handle_events();
     bool throttle_frame_start();
     void finish_frame_timing_sample();
@@ -113,7 +99,6 @@ private:
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
     bool load_runtime_project(const std::string& logical_path);
-    bool apply_runtime_preview_input(core::RuntimeInput input);
     void process_runtime_result(core::RuntimeInputResult& result);
     void process_audio_outputs(const std::vector<core::RuntimeOutput>& outputs);
 
@@ -127,6 +112,7 @@ private:
     ShaderMaterialProject m_shader_materials;
     RuntimeUI m_runtime_ui;
     RuntimeShell m_runtime_shell;
+    RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;
     bool m_running = false;
