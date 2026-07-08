@@ -354,19 +354,6 @@ export function buildProjectTagsTab(): WorkbenchTab {
   };
 }
 
-export function buildPrimaryPreviewTab(): WorkbenchTab {
-  return {
-    id: 'tab:primary-preview',
-    title: 'Preview',
-    editorType: 'engine-preview',
-    preview: true,
-    resource: {
-      kind: 'preview',
-      stableId: 'preview:primary',
-    },
-  };
-}
-
 export function buildFullGamePreviewTab(): WorkbenchTab {
   return {
     id: 'tab:full-game-preview',

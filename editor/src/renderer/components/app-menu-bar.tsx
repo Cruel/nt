@@ -60,18 +60,22 @@ function WorkspaceTopToolbar() {
       <span className="mr-2 max-w-64 truncate font-mono text-[11px] text-muted-foreground" title="NovelTea">
         NovelTea
       </span>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('play-game')} disabled={!project} title={t('actions.playDebugGame')}>
-        <Play className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('undo')} disabled={!canUndo} title={t('actions.undo')}>
-        <Undo2 className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('redo')} disabled={!canRedo} title={t('actions.redo')}>
-        <Redo2 className="h-3.5 w-3.5" />
-      </Button>
-      <Button size="icon-xs" variant={saveDirty ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('save')} disabled={!saveDirty || isSaving} title={t('actions.save')}>
-        <Save className="h-3.5 w-3.5" />
-      </Button>
+      {project ? (
+        <>
+          <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('play-game')} title={t('actions.playDebugGame')}>
+            <Play className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('undo')} disabled={!canUndo} title={t('actions.undo')}>
+            <Undo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon-xs" variant="ghost" onClick={() => dispatchWorkspaceToolbarCommand('redo')} disabled={!canRedo} title={t('actions.redo')}>
+            <Redo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon-xs" variant={saveDirty ? 'secondary' : 'ghost'} onClick={() => dispatchWorkspaceToolbarCommand('save')} disabled={!saveDirty || isSaving} title={t('actions.save')}>
+            <Save className="h-3.5 w-3.5" />
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 }

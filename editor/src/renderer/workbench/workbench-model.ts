@@ -12,21 +12,7 @@ import type {
   WorkbenchTab,
 } from './workbench-types';
 
-export const PRIMARY_PREVIEW_TAB_ID = 'tab:primary-preview';
 export const ROOT_GROUP_ID = 'group:root';
-
-export function createPrimaryPreviewTab(): WorkbenchTab {
-  return {
-    id: PRIMARY_PREVIEW_TAB_ID,
-    title: 'Preview',
-    editorType: 'engine-preview',
-    preview: true,
-    resource: {
-      kind: 'preview',
-      stableId: 'preview:primary',
-    },
-  };
-}
 
 export function createInitialWorkbenchState(): WorkbenchState {
   return {

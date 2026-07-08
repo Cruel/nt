@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssetsEditorTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildPrimaryPreviewTab, buildTestsEditorTab, buildVariablesEditorTab, resolveEditorPolicies, type WorkbenchEditorRegistration } from '@/workbench/editor-registry';
+import { buildAssetsEditorTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildTestsEditorTab, buildVariablesEditorTab, resolveEditorPolicies, type WorkbenchEditorRegistration } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
@@ -63,14 +63,6 @@ describe('editor registry', () => {
         previewPersistence: 'derived',
       });
     }
-  });
-
-  it('builds a stable primary preview tab descriptor', () => {
-    expect(buildPrimaryPreviewTab()).toMatchObject({
-      id: 'tab:primary-preview',
-      editorType: 'engine-preview',
-      resource: { stableId: 'preview:primary' },
-    });
   });
 
   it('builds a stable full-game preview tab descriptor', () => {

@@ -14,13 +14,6 @@ const tab: WorkbenchTab = {
   },
 };
 
-const previewTab: WorkbenchTab = {
-  id: 'tab:preview',
-  title: 'Preview',
-  editorType: 'engine-preview',
-  resource: { kind: 'preview', stableId: 'preview:primary' },
-};
-
 describe('workbench dirty state', () => {
   it('keeps record resources clean when current and saved values match', () => {
     const document = { materials: { panel: { id: 'panel', label: 'Panel' } } };
@@ -41,11 +34,6 @@ describe('workbench dirty state', () => {
   it('marks new unsaved records dirty without a saved baseline', () => {
     const current = { materials: { panel: { id: 'panel', label: 'Panel' } } };
     expect(getResourceDirtyState(tab.resource, current, null)).toMatchObject({ dirty: true, currentExists: true, savedExists: false });
-  });
-
-  it('does not mark preview tabs resource-dirty', () => {
-    const current = { materials: { panel: { id: 'panel', label: 'Panel' } } };
-    expect(getResourceDirtyState(previewTab.resource, current, null).dirty).toBe(false);
   });
 
   it('combines persistent and draft dirty state for tab markers', () => {

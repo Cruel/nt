@@ -113,4 +113,12 @@ describe('workbench tabs', () => {
     expect(workbench.groupsById[workbench.activeGroupId]?.activeTabId).toBeTruthy();
     expect(workbench.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
   });
+
+  it('hides split actions when the group has no active tab', () => {
+    renderRootTabs();
+
+    expect(screen.queryByLabelText('Reopen closed tab')).toBeNull();
+    expect(screen.queryByLabelText('Split right')).toBeNull();
+    expect(screen.queryByLabelText('Split down')).toBeNull();
+  });
 });

@@ -58,7 +58,7 @@ describe('ProjectExplorer', () => {
     loadProject();
     render(<ProjectExplorer nodes={[]} />);
 
-    await user.click(screen.getByRole('button', { name: /^new$/i }));
+    act(() => dispatchWorkspaceToolbarCommand('new-entity'));
 
     const labelInput = screen.getByLabelText('Entity label');
     const idInput = screen.getByLabelText('Entity ID');
@@ -129,7 +129,7 @@ describe('ProjectExplorer', () => {
     loadProject(project);
     render(<ProjectExplorer nodes={[]} />);
 
-    await user.click(screen.getByRole('button', { name: /^new$/i }));
+    act(() => dispatchWorkspaceToolbarCommand('new-entity'));
     const labelInput = screen.getByLabelText('Entity label');
     await user.clear(labelInput);
     await user.type(labelInput, 'Foyer');
@@ -143,7 +143,7 @@ describe('ProjectExplorer', () => {
     loadProject();
     render(<ProjectExplorer nodes={[]} />);
 
-    await user.click(screen.getByRole('button', { name: /^new$/i }));
+    act(() => dispatchWorkspaceToolbarCommand('new-entity'));
     await user.click(screen.getByRole('button', { name: /^object/i }));
     const labelInput = screen.getByLabelText('Entity label');
     await user.clear(labelInput);
@@ -163,7 +163,7 @@ describe('ProjectExplorer', () => {
     loadProject();
     render(<ProjectExplorer nodes={[]} />);
 
-    await user.click(screen.getByRole('button', { name: /^new$/i }));
+    act(() => dispatchWorkspaceToolbarCommand('new-entity'));
     const labelInput = screen.getByLabelText('Entity label');
     await user.clear(labelInput);
     await user.type(labelInput, 'Entry Room');

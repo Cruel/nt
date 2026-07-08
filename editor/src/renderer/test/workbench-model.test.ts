@@ -312,14 +312,6 @@ describe('workbench model', () => {
       editorType: 'settings',
       resource: { kind: 'tool', stableId: 'utility:settings' },
     });
-    state = openWorkbenchTab(state, {
-      id: 'tab:primary-preview',
-      title: 'Preview',
-      editorType: 'engine-preview',
-      preview: true,
-      resource: { kind: 'preview', stableId: 'preview:primary' },
-    });
-
     state = closeProjectWorkbenchTabs(state);
 
     expect(Object.keys(state.tabsById)).toEqual(['tab:settings']);

@@ -1,10 +1,9 @@
 import { useDroppable } from '@dnd-kit/core';
-import { ArrowDownToLine, ArrowRightToLine, RotateCcw } from 'lucide-react';
+import { RotateCcw, SplitSquareHorizontal, SplitSquareVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { defaultEditorRegistry } from './default-editors';
 import { renderEditorToolbar } from './editor-registry';
-import { buildPrimaryPreviewTab } from './editor-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useCloseGuardStore } from './close-guard-store';
 import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
@@ -74,27 +73,27 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
         })}
         <div className="min-w-3 flex-1 border-b" />
       </div>
-      <div className="flex shrink-0 items-center gap-1 border-b px-1.5">
+      <div className="flex shrink-0 items-center gap-0 border-b px-1">
         {activeTab ? renderEditorToolbar(defaultEditorRegistry, activeTab) : null}
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Split right" onClick={() => splitActive('horizontal')}>
-          <ArrowRightToLine className="h-3.5 w-3.5" />
-        </Button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Split down" onClick={() => splitActive('vertical')}>
-          <ArrowDownToLine className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 w-7 p-0"
-          aria-label="Reopen closed tab"
-          disabled={recentlyClosedTabs.length === 0}
-          onClick={reopenLastClosedTab}
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </Button>
-        {tabs.length === 0 ? (
-          <Button size="sm" variant="outline" className="h-7" onClick={() => openTab(buildPrimaryPreviewTab())}>
-            Reopen Preview
+        {activeTab ? (
+          <>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" aria-label="Split right" onClick={() => splitActive('horizontal')}>
+              <SplitSquareHorizontal className="h-3 w-3" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" aria-label="Split down" onClick={() => splitActive('vertical')}>
+              <SplitSquareVertical className="h-3 w-3" />
+            </Button>
+          </>
+        ) : null}
+        {recentlyClosedTabs.length > 0 ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            aria-label="Reopen closed tab"
+            onClick={reopenLastClosedTab}
+          >
+            <RotateCcw className="h-3 w-3" />
           </Button>
         ) : null}
       </div>
