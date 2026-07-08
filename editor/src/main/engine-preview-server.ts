@@ -36,6 +36,11 @@ export class EnginePreviewServer {
   private session: EnginePreviewSession | null = null;
   private previewRoot: string | null = null;
   private editorAssetsRoot: string | null = null;
+  private projectRoot: string | null = null;
+
+  setProjectFilePath(projectFilePath: string | null | undefined): void {
+    this.projectRoot = projectFilePath ? path.dirname(path.resolve(projectFilePath)) : null;
+  }
 
   async getSession(): Promise<EnginePreviewSession> {
     if (this.session) return this.session;
@@ -78,6 +83,16 @@ export class EnginePreviewServer {
           return;
         }
         serveFileFromRoot(this.editorAssetsRoot, pathname.slice(assetPrefix.length), response);
+        return;
+      }
+
+      const projectAssetPrefix = '/project-assets/';
+      if (pathname.startsWith(projectAssetPrefix)) {
+        if (!this.projectRoot) {
+          response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Project asset root not set');
+          return;
+        }
+        serveFileFromRoot(this.projectRoot, pathname.slice(projectAssetPrefix.length), response);
         return;
       }
 

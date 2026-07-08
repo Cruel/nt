@@ -55,6 +55,13 @@ interface EditorWindowSettings {
   maximized?: boolean;
 }
 
+function rememberPreviewProjectRoot(result: { projectFilePath?: string; success?: boolean; ok?: boolean } | null | undefined) {
+  if (result && result.success !== false && result.ok !== false && result.projectFilePath) {
+    enginePreviewServer.setProjectFilePath(result.projectFilePath);
+  }
+  return result;
+}
+
 function getEditorWindowSettingsPath() {
   return path.join(app.getPath('userData'), 'editor-window-settings.json');
 }
@@ -384,14 +391,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.OPEN_PROJECT,
-    (_event: Electron.IpcMainInvokeEvent, projectPath: string) =>
-      openProject(projectPath),
+    async (_event: Electron.IpcMainInvokeEvent, projectPath: string) =>
+      rememberPreviewProjectRoot(await openProject(projectPath)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.CREATE_PROJECT,
-    (_event: Electron.IpcMainInvokeEvent, request: CreateProjectRequest) =>
-      createProject(request),
+    async (_event: Electron.IpcMainInvokeEvent, request: CreateProjectRequest) =>
+      rememberPreviewProjectRoot(await createProject(request)),
   );
 
   ipcMain.handle(
@@ -448,14 +455,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.SAVE_PROJECT,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, projectFilePath: string) =>
-      saveProject(project, projectFilePath),
+    async (_event: Electron.IpcMainInvokeEvent, project: unknown, projectFilePath: string) =>
+      rememberPreviewProjectRoot(await saveProject(project, projectFilePath)),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.SAVE_PROJECT_AS,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, defaultPath: string | null, currentProjectFilePath: string | null) =>
-      saveProjectAs(mainWindow, project, defaultPath, currentProjectFilePath),
+    async (_event: Electron.IpcMainInvokeEvent, project: unknown, defaultPath: string | null, currentProjectFilePath: string | null) =>
+      rememberPreviewProjectRoot(await saveProjectAs(mainWindow, project, defaultPath, currentProjectFilePath)),
   );
 
   ipcMain.handle(

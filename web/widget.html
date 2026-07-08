@@ -495,6 +495,7 @@ thead, tbody, tfoot {
       }
       try {
         data = await resolvePreviewTemplates(data);
+        if (!(await stagePreviewProjectAssets(message, data))) return;
       } catch (error) {
         failCommand(message, `Failed to load preview template: ${error && error.message ? error.message : String(error)}`, { category: 'preview-template' });
         return;
@@ -514,12 +515,15 @@ thead, tbody, tfoot {
       const data = document && document.data ? document.data : {};
       emitDocumentDiagnostics(document);
       if (kind === 'layout-preview' || kind === 'shader-preview') await showEnginePreviewDocument(message, document);
-      else if (kind === 'material-preview') applyPreviewRml(message, buildMaterialPreviewRml(data));
-      else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
-      else if (kind === 'room-preview') applyPreviewRml(message, buildRoomPreviewRml(data));
-      else if (kind === 'dialogue-preview') applyPreviewRml(message, buildDialoguePreviewRml(data));
-      else if (kind === 'scene-preview') applyPreviewRml(message, buildScenePreviewRml(data));
-      else failCommand(message, `Preview widget cannot render document '${kind}'.`);
+      else {
+        if (!(await stagePreviewProjectAssets(message, data))) return;
+        if (kind === 'material-preview') applyPreviewRml(message, buildMaterialPreviewRml(data));
+        else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
+        else if (kind === 'room-preview') applyPreviewRml(message, buildRoomPreviewRml(data));
+        else if (kind === 'dialogue-preview') applyPreviewRml(message, buildDialoguePreviewRml(data));
+        else if (kind === 'scene-preview') applyPreviewRml(message, buildScenePreviewRml(data));
+        else failCommand(message, `Preview widget cannot render document '${kind}'.`);
+      }
     }
 
     function nativeExportAvailable(exportName) {
@@ -530,6 +534,76 @@ thead, tbody, tfoot {
       if (typeof Module !== 'undefined' && Module.FS) return Module.FS;
       if (typeof FS !== 'undefined') return FS;
       return null;
+    }
+
+    function safeProjectAssetPath(value) {
+      if (typeof value !== 'string' || value.length === 0) return false;
+      if (value.startsWith('/') || value.startsWith('\\') || value.includes(':') || value.includes('\\') || value.includes('//')) return false;
+      return value.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..');
+    }
+
+    function projectAssetFetchUrl(projectRelativePath) {
+      return `/project-assets/${projectRelativePath.split('/').map((part) => encodeURIComponent(part)).join('/')}`;
+    }
+
+    function ensureFsDirectory(fs, directory) {
+      if (!directory || directory === '/') return;
+      const parts = directory.split('/').filter(Boolean);
+      let current = '';
+      for (const part of parts) {
+        current += `/${part}`;
+        try {
+          fs.mkdir(current);
+        } catch {
+          // Directory already exists, or another filesystem error will be reported by the later write.
+        }
+      }
+    }
+
+    function collectProjectAssetPaths(value, paths = new Set()) {
+      if (!value || typeof value !== 'object') return paths;
+      if (Array.isArray(value)) {
+        for (const item of value) collectProjectAssetPaths(item, paths);
+        return paths;
+      }
+      if (typeof value.path === 'string' && safeProjectAssetPath(value.path)) {
+        paths.add(value.path);
+      }
+      for (const item of Object.values(value)) collectProjectAssetPaths(item, paths);
+      return paths;
+    }
+
+    async function stageProjectAsset(message, fs, projectRelativePath) {
+      const virtualPath = `/assets/project/${projectRelativePath}`;
+      try {
+        const response = await fetch(projectAssetFetchUrl(projectRelativePath), { cache: 'no-store' });
+        if (!response.ok) {
+          failCommand(message, `Project asset could not be loaded for preview: ${projectRelativePath}`, { category: 'project-asset', path: projectRelativePath });
+          return false;
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        ensureFsDirectory(fs, virtualPath.slice(0, virtualPath.lastIndexOf('/')));
+        fs.writeFile(virtualPath, bytes);
+        return true;
+      } catch (error) {
+        failCommand(message, `Project asset could not be staged for preview: ${projectRelativePath}: ${error && error.message ? error.message : String(error)}`, { category: 'project-asset', path: projectRelativePath });
+        return false;
+      }
+    }
+
+    async function stagePreviewProjectAssets(message, data) {
+      const paths = [...collectProjectAssetPaths(data)];
+      if (paths.length === 0) return true;
+      const fs = moduleFileSystem();
+      if (!fs) {
+        failCommand(message, 'Preview widget filesystem is unavailable. Rebuild the editor preview with FS exported.', { category: 'project-asset' });
+        return false;
+      }
+      for (const projectRelativePath of paths) {
+        const ok = await stageProjectAsset(message, fs, projectRelativePath);
+        if (!ok) return false;
+      }
+      return true;
     }
 
     function loadRuntimeProject(message) {
