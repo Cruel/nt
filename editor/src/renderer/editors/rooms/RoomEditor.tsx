@@ -19,6 +19,7 @@ import {
   parseRoomData,
   roomAssetRef,
   roomBackgroundFitValues,
+  roomLayoutRef,
   roomMaterialRef,
   roomObjectRef,
   roomPathDirectionValues,
@@ -27,6 +28,7 @@ import {
   validateRoomData,
   type RoomData,
   type RoomHotspotData,
+  type RoomOverlayData,
   type RoomPathData,
 } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -122,6 +124,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const backgroundImageItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['assets'], assetKinds: ['image'], includeActions: false }), [selectorItems]);
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
+  const layouts = project ? Object.entries(project.layouts).map(([id, layout]) => ({ id, label: layout.label })) : [];
   const targetRooms = project ? Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label })) : [];
   const objects = project ? Object.entries(project.objects).map(([id, object]) => ({ id, label: object.label })) : [];
 
@@ -229,6 +232,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       hotspots: remaining,
       preview: { ...data.preview, selectedHotspotId: data.preview.selectedHotspotId === hotspotId ? (remaining[0]?.id ?? null) : data.preview.selectedHotspotId },
     }, 'Delete room hotspot');
+  }
+
+  function addOverlay() {
+    const id = nextUniqueId(data.overlays.map((overlay) => overlay.id), 'overlay');
+    commit({
+      ...data,
+      overlays: [...data.overlays, { id, label: 'Overlay', layout: null, enabled: true }],
+    }, 'Add room overlay');
+  }
+
+  function replaceOverlay(overlayId: string, patch: Partial<RoomOverlayData>) {
+    commit({
+      ...data,
+      overlays: data.overlays.map((overlay) => overlay.id === overlayId ? { ...overlay, ...patch } : overlay),
+    }, 'Update room overlay');
+  }
+
+  function deleteOverlay(overlayId: string) {
+    commit({ ...data, overlays: data.overlays.filter((overlay) => overlay.id !== overlayId) }, 'Delete room overlay');
   }
 
   return (
@@ -408,6 +430,43 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             ))}
             {data.hotspots.length === 0 ? <div className="rounded border p-2 text-xs text-muted-foreground">No hotspots yet.</div> : null}
+          </section>
+
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.overlays">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-medium">Layout overlays</h3>
+                <p className="mt-1 text-xs text-muted-foreground">Optional room-level RmlUi overlays shown with this room.</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={addOverlay}>Add Overlay</Button>
+            </div>
+            {data.overlays.map((overlay, index) => (
+              <div key={overlay.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-[140px_1fr_1fr_auto_auto]" data-workbench-anchor={`room.overlay.${overlay.id || index}`}>
+                <div className="space-y-1">
+                  <Label>ID</Label>
+                  <Input value={overlay.id} onChange={(event) => replaceOverlay(overlay.id, { id: event.currentTarget.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Label</Label>
+                  <Input value={overlay.label} onChange={(event) => replaceOverlay(overlay.id, { label: event.currentTarget.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Layout</Label>
+                  <Select value={refValue(overlay.layout)} onValueChange={(value) => replaceOverlay(overlay.id, { layout: value === '__none__' ? null : roomLayoutRef(String(value)) })}>
+                    <SelectItem value="__none__">No layout</SelectItem>
+                    {layouts.map((layout) => <SelectItem key={layout.id} value={layout.id}>{layout.label} ({layout.id})</SelectItem>)}
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 self-end">
+                  <Switch checked={overlay.enabled} onCheckedChange={(checked) => replaceOverlay(overlay.id, { enabled: Boolean(checked) })} />
+                  <Label>Enabled</Label>
+                </div>
+                <div className="flex items-end">
+                  <Button size="sm" variant="outline" onClick={() => deleteOverlay(overlay.id)}>Delete</Button>
+                </div>
+              </div>
+            ))}
+            {data.overlays.length === 0 ? <div className="rounded border p-2 text-xs text-muted-foreground">No layout overlays yet.</div> : null}
           </section>
         </div>
 

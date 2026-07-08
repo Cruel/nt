@@ -106,7 +106,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3" data-workbench-anchor="material.summary">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2><Badge variant="outline">{activeMaterialId}</Badge></div>
           <p className="mt-1 text-xs text-muted-foreground">Material shader, role, uniform overrides, texture slots, inheritance, and live preview.</p>
@@ -118,7 +118,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]">
         <div className="space-y-4">
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-2">
+          <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="material.settings">
             <div className="space-y-1">
               <Label>Shader</Label>
               <Select value={shaderId ?? '__none__'} onValueChange={(value) => commit({ ...data, shader: value === '__none__' ? null : { $ref: { collection: 'shaders', id: String(value) } } }, 'Set material shader')}>
@@ -147,7 +147,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="material.uniforms">
             <h3 className="text-sm font-medium">Uniform Overrides</h3>
             {!shader ? <p className="text-xs text-muted-foreground">Choose a valid shader to edit uniform overrides.</p> : null}
             {shader?.uniforms.map((uniform) => {
@@ -172,7 +172,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             })}
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="material.textures">
             <h3 className="text-sm font-medium">Texture Slots</h3>
             {!shader ? <p className="text-xs text-muted-foreground">Choose a valid shader to edit texture slots.</p> : null}
             {shader?.samplers.map((sampler) => {
@@ -196,7 +196,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             })}
           </section>
         </div>
-        <aside className="min-h-[420px] overflow-hidden rounded border bg-muted/20">
+        <aside className="min-h-[420px] overflow-hidden rounded border bg-muted/20" data-workbench-anchor="material.preview">
           <DerivedPreviewPane ownerTabId={tab.id} previewMode="material" previewDocument={previewDocument} resetBeforeLoad />
         </aside>
       </div>

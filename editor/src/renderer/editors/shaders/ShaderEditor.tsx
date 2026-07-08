@@ -245,7 +245,7 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
     <Group orientation="horizontal" className="h-full min-h-0 bg-background" onLayoutChange={(sizes) => { horizontalSplitSizesRef.current = Object.values(sizes); }}>
       <Panel defaultSize={horizontalSplitSizesRef.current[0] ?? 62} minSize={35}>
         <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-shader-editor-scroll>
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3" data-workbench-anchor="shader.summary">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2><Badge variant="outline">{activeShaderId}</Badge></div>
           <p className="mt-1 text-xs text-muted-foreground">Shader source, interface declarations, roles, compiled refs, and helper compile actions.</p>
@@ -256,7 +256,7 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
       {!parsedData ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Shader data was invalid; showing editable defaults until you apply a change.</div> : null}
 
       <div className="mt-4 space-y-4">
-        <section className="space-y-3 rounded border p-3">
+        <section className="space-y-3 rounded border p-3" data-workbench-anchor="shader.roles">
           <h3 className="text-sm font-medium">Roles</h3>
           <div className="flex flex-wrap gap-2">
             {shaderRoleValues.map((role) => {
@@ -266,18 +266,18 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-3" data-workbench-anchor="shader.stages">
           <div className="flex items-center justify-between"><h3 className="text-sm font-medium">Stages</h3><Button size="sm" variant="outline" onClick={() => updateShader(activeShaderId, { ...data, stages: [...data.stages, { stage: 'fragment', sourceMode: 'inline', sourceText: '', compiled: {} }] }, 'Add shader stage')}>Add Stage</Button></div>
           {data.stages.map((stage, index) => <ShaderStageRow key={`${stage.stage}-${index}`} tabId={tab.id} shaderId={activeShaderId} data={data} stage={stage} index={index} shaderSourceAssets={shaderSourceAssets} sourceEditorRef={sourceEditors.refFor(`stage:${index}`)} />)}
         </section>
 
-        <section className="space-y-3 rounded border p-3">
+        <section className="space-y-3 rounded border p-3" data-workbench-anchor="shader.uniforms">
           <div className="flex items-center justify-between"><h3 className="text-sm font-medium">Uniforms</h3><Button size="sm" variant="outline" onClick={() => updateShader(shaderId, { ...data, uniforms: [...data.uniforms, { name: `u_value_${data.uniforms.length + 1}`, type: 'float', default: 0 }] }, 'Add shader uniform')}>Add Uniform</Button></div>
           {data.uniforms.length === 0 ? <p className="text-xs text-muted-foreground">No uniforms declared.</p> : null}
           {data.uniforms.map((uniform, index) => <UniformRow key={`${uniform.name}-${index}`} shaderId={activeShaderId} data={data} uniform={uniform} index={index} />)}
         </section>
 
-        <section className="space-y-3 rounded border p-3">
+        <section className="space-y-3 rounded border p-3" data-workbench-anchor="shader.samplers">
           <div className="flex items-center justify-between"><h3 className="text-sm font-medium">Samplers</h3><Button size="sm" variant="outline" onClick={() => updateShader(activeShaderId, { ...data, samplers: [...data.samplers, { name: `s_texture_${data.samplers.length + 1}`, type: 'texture2d' }] }, 'Add shader sampler')}>Add Sampler</Button></div>
           {data.samplers.map((sampler, index) => (
             <div key={`${sampler.name}-${index}`} className="flex gap-2 rounded border p-2">

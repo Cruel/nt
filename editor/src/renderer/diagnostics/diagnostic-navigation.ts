@@ -9,6 +9,7 @@ import {
   buildSceneDetailTabForRecord,
   buildShaderDetailTabForRecord,
   buildTestDetailTabForRecord,
+  buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
 import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -68,7 +69,12 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
     return target(buildProjectSettingsTab(), 'projectSettings.startup');
   }
 
+  if (collection === 'project') {
+    return target(buildProjectSettingsTab(), 'projectSettings.metadata');
+  }
+
   if (collection === 'settings') {
+    if (id === 'startup') return target(buildProjectSettingsTab(), 'projectSettings.startup');
     if (id === 'ui' || id === 'text' || id === 'runtime') return target(buildProjectSettingsTab(), 'projectSettings.runtime');
     if (id === 'titleScreen') return target(buildProjectSettingsTab(), 'projectSettings.titleScreen');
     if (id === 'app') return target(buildProjectSettingsTab(), 'projectSettings.packageIdentity');
@@ -193,7 +199,7 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
     return target(buildShaderDetailTabForRecord(id, recordLabel(project, 'shaders', id)), 'shader.summary');
   }
   if (collection === 'variables' && project.variables[id]) {
-    return null;
+    return rowTarget(buildVariablesEditorTab(), `variable.row.${id}`, { kind: 'variable', rowId: id });
   }
 
   return null;

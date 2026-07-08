@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { useProjectStore } from '@/project/project-store';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { previewTargetLabel } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 
@@ -8,10 +12,19 @@ export function PreviewDiagnosticsPanel() {
   const diagnosticOrder = usePreviewManagerStore((state) => state.diagnosticOrder);
   const diagnosticsById = usePreviewManagerStore((state) => state.diagnosticsById);
   const clearPreviewDiagnostics = usePreviewManagerStore((state) => state.clearPreviewDiagnostics);
+  const projectDocument = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const diagnostics = useMemo(
     () => diagnosticOrder.map((id) => diagnosticsById[id]).filter(Boolean),
     [diagnosticOrder, diagnosticsById],
   );
+  const diagnosticItems = useMemo(() => diagnostics.map((diagnostic) => ({
+    severity: diagnostic.severity,
+    message: `${diagnostic.message} (${previewTargetLabel(diagnostic.target)})`,
+    path: diagnostic.path,
+    category: diagnostic.source,
+    target: project && diagnostic.path ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null,
+  })), [diagnostics, project]);
 
   if (diagnostics.length === 0) {
     return <p className="p-3 text-xs text-muted-foreground">No preview diagnostics.</p>;
@@ -26,25 +39,7 @@ export function PreviewDiagnosticsPanel() {
           Clear
         </Button>
       </div>
-      {diagnostics.map((diagnostic) => (
-        <div key={diagnostic.id} className="rounded border p-2">
-          <div className="flex items-center gap-2">
-            <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>
-              {diagnostic.severity}
-            </Badge>
-            <Badge variant="outline">{diagnostic.source}</Badge>
-            <span className="font-mono text-[10px] text-muted-foreground">{diagnostic.sessionId ?? 'global'}</span>
-            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-              {new Date(diagnostic.timestamp).toLocaleTimeString()}
-            </span>
-          </div>
-          <div className="mt-1">{diagnostic.message}</div>
-          <div className="mt-1 flex gap-2 font-mono text-[10px] text-muted-foreground">
-            <span>{previewTargetLabel(diagnostic.target)}</span>
-            {diagnostic.path ? <span>{diagnostic.path}</span> : null}
-          </div>
-        </div>
-      ))}
+      <DiagnosticList items={diagnosticItems} />
     </div>
   );
 }

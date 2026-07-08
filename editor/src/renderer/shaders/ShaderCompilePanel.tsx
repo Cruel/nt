@@ -1,6 +1,11 @@
+import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCommandStore } from '@/commands/command-store';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { useProjectStore } from '@/project/project-store';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { useShaderCompileStore } from './shader-compile-store';
 
 export function ShaderCompilePanel() {
@@ -10,6 +15,15 @@ export function ShaderCompilePanel() {
   const error = useShaderCompileStore((state) => state.error);
   const clear = useShaderCompileStore((state) => state.clear);
   const executeCommand = useCommandStore((state) => state.executeCommand);
+  const projectDocument = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const diagnosticItems = useMemo(() => diagnostics.map((diagnostic) => ({
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+    path: [diagnostic.shader, diagnostic.stage, diagnostic.variant].filter(Boolean).join(' / ') || undefined,
+    category: diagnostic.code,
+    target: project && diagnostic.shader ? resolveProjectDiagnosticTarget(project, `/shaders/${diagnostic.shader}/data`) : null,
+  })), [diagnostics, project]);
 
   function applyOutputs() {
     executeCommand({
@@ -36,19 +50,7 @@ export function ShaderCompilePanel() {
       {diagnostics.length > 0 ? (
         <section className="space-y-2">
           <div className="font-medium">Diagnostics</div>
-          {diagnostics.map((diagnostic, index) => (
-            <div key={`${diagnostic.message}-${index}`} className="rounded border p-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={diagnostic.severity === 'error' ? 'destructive' : 'secondary'}>{diagnostic.severity}</Badge>
-                {diagnostic.code ? <span className="font-mono text-muted-foreground">{diagnostic.code}</span> : null}
-                {diagnostic.shader ? <span className="font-mono text-muted-foreground">{diagnostic.shader}</span> : null}
-                {diagnostic.stage ? <span className="font-mono text-muted-foreground">{diagnostic.stage}</span> : null}
-                {diagnostic.variant ? <span className="font-mono text-muted-foreground">{diagnostic.variant}</span> : null}
-              </div>
-              <div className="mt-1">{diagnostic.message}</div>
-              {diagnostic.commandLine ? <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{diagnostic.commandLine}</div> : null}
-            </div>
-          ))}
+          <DiagnosticList items={diagnosticItems} />
         </section>
       ) : null}
       {outputs.length > 0 ? (

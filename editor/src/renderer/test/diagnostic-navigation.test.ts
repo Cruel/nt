@@ -11,6 +11,7 @@ function projectWithRecords(): AuthoringProject {
   project.layouts.room_1 = { id: 'room_1', label: 'Room Layout', tags: [], data: {} };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: {
     hotspots: [{ id: 'door' }],
+    overlays: [{ id: 'hud' }],
   } };
   project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: {
     blocks: [{ id: 'start', segments: [{ id: 'line-1' }] }],
@@ -53,6 +54,10 @@ describe('diagnostic navigation', () => {
     expect(resolveProjectDiagnosticTarget(project, '/layouts/room_1/data/rml/sourceText')?.target?.id).toBe('layout.source.rml');
     expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/hotspots/0/object/$ref')?.target?.id).toBe('room.hotspot.door');
     expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/hotspots/9/object/$ref')?.target?.id).toBe('room.hotspots');
+    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/overlays/0/layout/$ref')?.target?.id).toBe('room.overlays');
+    expect(resolveProjectDiagnosticTarget(project, '/project/name')?.target?.id).toBe('projectSettings.metadata');
+    expect(resolveProjectDiagnosticTarget(project, '/project/version')?.target?.id).toBe('projectSettings.metadata');
+    expect(resolveProjectDiagnosticTarget(project, '/settings/startup/initScript')?.target?.id).toBe('projectSettings.startup');
     expect(resolveProjectDiagnosticTarget(project, '/settings/ui/systemLayouts/title/$ref')?.target?.id).toBe('projectSettings.runtime');
     expect(resolveProjectDiagnosticTarget(project, '/entrypoint')?.target?.id).toBe('projectSettings.startup');
   });
@@ -72,7 +77,10 @@ describe('diagnostic navigation', () => {
     expect(resolveProjectDiagnosticTarget(project, '/assets/logo/data/source/path')?.tab.editorType).toBe('asset-detail');
     expect(resolveProjectDiagnosticTarget(project, '/materials/tint/data')?.tab.editorType).toBe('material-detail');
     expect(resolveProjectDiagnosticTarget(project, '/shaders/flat/data')?.tab.editorType).toBe('shader-detail');
-    expect(resolveProjectDiagnosticTarget(project, '/variables/score/data/defaultValue')).toBeNull();
+    expect(resolveProjectDiagnosticTarget(project, '/variables/score/data/defaultValue')).toMatchObject({
+      tab: { editorType: 'variables', resource: { stableId: 'variables' } },
+      target: { id: 'variable.row.score' },
+    });
     expect(resolveProjectDiagnosticTarget(project, '/characters/missing/data/preview')).toBeNull();
     expect(resolveProjectDiagnosticTarget(project, 'not/a/pointer')).toBeNull();
   });

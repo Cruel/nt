@@ -76,8 +76,11 @@ describe('editor registry', () => {
 
   it('builds collective tabs as project-scoped tabs', () => {
     expect(buildAssetsEditorTab()).toMatchObject({ editorType: 'asset-library', resource: { kind: 'project', stableId: 'assets' } });
+    expect(buildAssetsEditorTab('logo')).toMatchObject({ editorType: 'asset-library', resource: { kind: 'project', stableId: 'assets', entityId: 'logo' } });
     expect(buildTestsEditorTab()).toMatchObject({ editorType: 'test-suite', resource: { kind: 'project', stableId: 'tests' } });
+    expect(buildTestsEditorTab('smoke')).toMatchObject({ editorType: 'test-suite', resource: { kind: 'project', stableId: 'tests', entityId: 'smoke' } });
     expect(buildVariablesEditorTab()).toMatchObject({ editorType: 'variables', resource: { kind: 'project', stableId: 'variables' } });
+    expect(buildVariablesEditorTab('score')).toMatchObject({ editorType: 'variables', resource: { kind: 'project', stableId: 'variables', entityId: 'score' } });
   });
 
   it('routes room records to the typed room editor', () => {

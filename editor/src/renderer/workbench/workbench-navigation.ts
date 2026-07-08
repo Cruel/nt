@@ -1,5 +1,4 @@
 import type { OpenWorkbenchTabOptions, WorkbenchTab } from './workbench-types';
-import { useWorkbenchStore } from './workbench-store';
 
 export interface WorkbenchRevealTarget {
   id: string;
@@ -25,6 +24,11 @@ export type WorkbenchTargetHandler = (target: PendingWorkbenchRevealTarget) => b
 let nextRequestId = 1;
 const pendingTargetsByResourceKey = new Map<string, PendingWorkbenchRevealTarget>();
 const targetHandlersByTabId = new Map<string, Map<string, WorkbenchTargetHandler>>();
+let openWorkbenchTabForNavigation: ((tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void) | null = null;
+
+export function bindWorkbenchNavigationOpenTab(openTab: (tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void) {
+  openWorkbenchTabForNavigation = openTab;
+}
 
 export function workbenchResourceKey(tab: WorkbenchTab): string | null {
   if (!tab.resource) return null;
@@ -58,6 +62,10 @@ export function clearWorkbenchRevealTargets() {
   pendingTargetsByResourceKey.clear();
 }
 
+export function clearWorkbenchTargetHandlers() {
+  targetHandlersByTabId.clear();
+}
+
 export function registerWorkbenchTargetHandler(tabId: string, targetId: string, handler: WorkbenchTargetHandler): () => void {
   const handlers = targetHandlersByTabId.get(tabId) ?? new Map<string, WorkbenchTargetHandler>();
   handlers.set(targetId, handler);
@@ -82,5 +90,8 @@ export function invokeWorkbenchTargetHandler(tabId: string, target: PendingWorkb
 
 export function navigateToWorkbenchTarget(request: WorkbenchNavigationRequest) {
   if (request.target) enqueueWorkbenchRevealTarget(request.tab, request.target);
-  useWorkbenchStore.getState().openTab(request.tab, request.options);
+  if (!openWorkbenchTabForNavigation) {
+    throw new Error('Workbench navigation has not been bound to the workbench store.');
+  }
+  openWorkbenchTabForNavigation(request.tab, request.options);
 }

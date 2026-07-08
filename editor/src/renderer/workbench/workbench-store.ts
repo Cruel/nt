@@ -39,6 +39,11 @@ import {
   restoreWorkbenchTabState,
   setWorkbenchTabState,
 } from './workbench-tab-state';
+import {
+  bindWorkbenchNavigationOpenTab,
+  clearWorkbenchRevealTargets,
+  clearWorkbenchTargetHandlers,
+} from './workbench-navigation';
 
 interface WorkbenchStore extends WorkbenchState {
   openTab: (tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void;
@@ -205,25 +210,31 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   resetWorkbench: () => {
     nextId = 1;
     clearWorkbenchTabStates();
+    clearWorkbenchRevealTargets();
+    clearWorkbenchTargetHandlers();
     set(toStoreState(createInitialWorkbenchState()));
   },
   closeProjectTabs: () => set((state) => {
     captureWorkbenchTabStates(tabIdsInWorkbench(state));
+    clearWorkbenchRevealTargets();
     const next = closeProjectWorkbenchTabs(state);
     pruneWorkbenchTabStates(tabStateKeepIds(next));
     return toStoreState(next);
   }),
   replaceWorkbench: (state) => {
+    clearWorkbenchRevealTargets();
     pruneWorkbenchTabStates(tabStateKeepIds(state));
     set(toStoreState(state));
   },
   restoreProjectWorkbench: (serialized, project) => {
+    clearWorkbenchRevealTargets();
     const restored = restoreProjectWorkbenchStatePreservingGlobalTabs(serialized, project, get());
     pruneWorkbenchTabStates(tabStateKeepIds(restored));
     set(toStoreState(restored));
     return restored;
   },
   restoreShellWorkbench: (serialized, project, projectWorkbench) => {
+    clearWorkbenchRevealTargets();
     const restored = restoreShellWorkbenchState(serialized, project, projectWorkbench);
     pruneWorkbenchTabStates(tabStateKeepIds(restored));
     set(toStoreState(restored));
@@ -238,3 +249,5 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     return serializeShellWorkbenchState(get());
   },
 }));
+
+bindWorkbenchNavigationOpenTab((tab, options) => useWorkbenchStore.getState().openTab(tab, options));

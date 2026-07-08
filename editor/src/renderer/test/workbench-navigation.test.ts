@@ -66,4 +66,18 @@ describe('workbench navigation', () => {
 
     dispose();
   });
+
+  it('clears pending targets and handlers when the workbench resets', async () => {
+    const { invokeWorkbenchTargetHandler } = await import('@/workbench/workbench-navigation');
+    const tab = buildSettingsTab();
+    const handler = vi.fn(() => true);
+
+    enqueueWorkbenchRevealTarget(tab, { id: 'settings.comfyui' });
+    registerWorkbenchTargetHandler('tab:settings', 'settings.comfyui', handler);
+
+    useWorkbenchStore.getState().resetWorkbench();
+
+    expect(consumeWorkbenchRevealTarget(tab)).toBeNull();
+    expect(invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 1 })).toBe(false);
+  });
 });

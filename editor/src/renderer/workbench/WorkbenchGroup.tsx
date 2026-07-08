@@ -65,25 +65,32 @@ function revealWorkbenchTarget(root: HTMLElement | null, target: PendingWorkbenc
     window.requestAnimationFrame(() => {
       const tabId = root.dataset.workbenchEditorPane;
       if (tabId && invokeWorkbenchTargetHandler(tabId, target)) return;
-      window.requestAnimationFrame(() => {
-        const escapedTargetId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(target.id) : target.id.replaceAll('"', '\\"');
-        const anchor = root.querySelector<HTMLElement>(`[data-workbench-anchor="${escapedTargetId}"]`);
-        if (!anchor) return;
-        anchor.scrollIntoView({
-          behavior: 'smooth',
-          block: target.block ?? 'nearest',
-          inline: target.inline ?? 'nearest',
-        });
-        if (target.focus) anchor.focus({ preventScroll: true });
-        if (!target.flash) return;
-        anchor.dataset.workbenchAnchorFlash = String(target.requestId);
-        window.setTimeout(() => {
-          if (anchor.dataset.workbenchAnchorFlash === String(target.requestId)) {
-            delete anchor.dataset.workbenchAnchorFlash;
-          }
-        }, 5200);
-      });
+      revealWorkbenchAnchor(root, target, 8);
     });
+  });
+}
+
+function revealWorkbenchAnchor(root: HTMLElement, target: PendingWorkbenchRevealTarget, attemptsRemaining: number) {
+  window.requestAnimationFrame(() => {
+    const escapedTargetId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(target.id) : target.id.replaceAll('"', '\\"');
+    const anchor = root.querySelector<HTMLElement>(`[data-workbench-anchor="${escapedTargetId}"]`);
+    if (!anchor) {
+      if (attemptsRemaining > 0) revealWorkbenchAnchor(root, target, attemptsRemaining - 1);
+      return;
+    }
+    anchor.scrollIntoView({
+      behavior: 'smooth',
+      block: target.block ?? 'nearest',
+      inline: target.inline ?? 'nearest',
+    });
+    if (target.focus) anchor.focus({ preventScroll: true });
+    if (!target.flash) return;
+    anchor.dataset.workbenchAnchorFlash = String(target.requestId);
+    window.setTimeout(() => {
+      if (anchor.dataset.workbenchAnchorFlash === String(target.requestId)) {
+        delete anchor.dataset.workbenchAnchorFlash;
+      }
+    }, 1200);
   });
 }
 

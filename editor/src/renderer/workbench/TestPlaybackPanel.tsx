@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList, type EditorDiagnosticItem } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { isAuthoringProject, type AuthoringProject } from '../../shared/project-schema/authoring-project';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -31,31 +35,29 @@ function JsonBlock({ value }: { value: unknown }) {
   );
 }
 
-function DiagnosticList({ diagnostics }: { diagnostics: unknown[] }) {
-  if (diagnostics.length === 0) return null;
-  return (
-    <div className="space-y-1">
-      {diagnostics.map((diagnostic, index) => {
-        const item = isRecord(diagnostic) ? diagnostic : {};
-        const severity = getString(item.severity, 'warning');
-        return (
-          <div key={index} className="rounded border p-2 text-xs">
-            <div className="flex items-center gap-2">
-              <Badge variant={severity === 'error' ? 'destructive' : 'outline'}>{severity}</Badge>
-              <span>{getString(item.category, 'diagnostic')}</span>
-            </div>
-            <div className="mt-1">{getString(item.message, JSON.stringify(diagnostic))}</div>
-            {item.path || item.step_index !== undefined ? <div className="mt-1 font-mono text-[10px] text-muted-foreground">{getString(item.path)}{item.step_index !== undefined ? ` step ${String(item.step_index)}` : ''}</div> : null}
-          </div>
-        );
-      })}
-    </div>
-  );
+function normalizedSeverity(value: unknown): EditorDiagnosticItem['severity'] {
+  return value === 'error' || value === 'warning' || value === 'info' ? value : 'warning';
+}
+
+function playbackDiagnosticItems(diagnostics: unknown[], project: AuthoringProject | null): EditorDiagnosticItem[] {
+  return diagnostics.map((diagnostic) => {
+    const item = isRecord(diagnostic) ? diagnostic : {};
+    const path = getString(item.path) || undefined;
+    return {
+      severity: normalizedSeverity(item.severity),
+      message: getString(item.message, JSON.stringify(diagnostic)),
+      path: path ? `${path}${item.step_index !== undefined ? ` step ${String(item.step_index)}` : ''}` : item.step_index !== undefined ? `step ${String(item.step_index)}` : undefined,
+      category: getString(item.category, 'diagnostic'),
+      target: project && path ? resolveProjectDiagnosticTarget(project, path) : null,
+    };
+  });
 }
 
 export function TestPlaybackPanel() {
   const [showRaw, setShowRaw] = useState(false);
   const report = useWorkspaceStore((state) => state.lastPlaybackReport);
+  const projectDocument = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   if (!report || !isRecord(report)) {
     return <p className="p-3 text-xs text-muted-foreground">No playback report yet.</p>;
   }
@@ -64,6 +66,7 @@ export function TestPlaybackPanel() {
   const failures = getArray(report.failures);
   const observations = getArray(report.observations);
   const diagnostics = getArray(report.diagnostics);
+  const diagnosticItems = playbackDiagnosticItems(diagnostics, project);
   const outputs = getArray(report.outputs);
   const trace = getArray(report.trace);
   const finalState = isRecord(report.final_state) ? report.final_state : isRecord(report.finalState) ? report.finalState : null;
@@ -114,13 +117,13 @@ export function TestPlaybackPanel() {
                 <span className="text-muted-foreground">handled {String(item.handled ?? false)}</span>
               </div>
               {assertionFailures.length > 0 ? <div className="mt-2 space-y-1">{assertionFailures.map((failure, failureIndex) => <div key={failureIndex} className="rounded bg-destructive/10 p-1 text-destructive">{String(failure)}</div>)}</div> : null}
-              <DiagnosticList diagnostics={getArray(item.diagnostics)} />
+              <DiagnosticList items={playbackDiagnosticItems(getArray(item.diagnostics), project)} />
             </div>
           );
         })}
       </section>
 
-      {diagnostics.length > 0 ? <section className="space-y-2 rounded border p-3"><h3 className="text-sm font-medium">Report diagnostics</h3><DiagnosticList diagnostics={diagnostics} /></section> : null}
+      {diagnostics.length > 0 ? <section className="space-y-2 rounded border p-3"><h3 className="text-sm font-medium">Report diagnostics</h3><DiagnosticList items={diagnosticItems} /></section> : null}
 
       {trace.length > 0 ? (
         <section className="space-y-2 rounded border p-3">

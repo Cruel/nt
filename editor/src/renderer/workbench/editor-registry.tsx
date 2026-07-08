@@ -238,7 +238,7 @@ export function buildAssetsEditorTab(selectedId?: string): WorkbenchTab {
     editorType: 'asset-library',
     resource: {
       kind: 'project',
-      stableId: selectedId ? `assets:${selectedId}` : 'assets',
+      stableId: 'assets',
       collection: 'assets',
       entityId: selectedId,
     },
@@ -252,7 +252,7 @@ export function buildTestsEditorTab(selectedId?: string): WorkbenchTab {
     editorType: 'test-suite',
     resource: {
       kind: 'project',
-      stableId: selectedId ? `tests:${selectedId}` : 'tests',
+      stableId: 'tests',
       collection: 'tests',
       entityId: selectedId,
     },
@@ -266,7 +266,7 @@ export function buildVariablesEditorTab(selectedId?: string): WorkbenchTab {
     editorType: 'variables',
     resource: {
       kind: 'project',
-      stableId: selectedId ? `variables:${selectedId}` : 'variables',
+      stableId: 'variables',
       collection: 'variables',
       entityId: selectedId,
     },

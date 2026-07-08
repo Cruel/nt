@@ -113,7 +113,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3" data-workbench-anchor="asset.summary">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-lg font-semibold">{record.label}</h2>
@@ -171,7 +171,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
-          <section className="rounded border p-3">
+          <section className="rounded border p-3" data-workbench-anchor="asset.tags">
             <h3 className="text-sm font-medium">Tags</h3>
             <p className="mt-1 text-xs text-muted-foreground">Tags are for user-facing organization and do not affect the asset type.</p>
             <div className="mt-3">
@@ -180,7 +180,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="rounded border p-3">
+          <section className="rounded border p-3" data-workbench-anchor="asset.aliases">
             <h3 className="text-sm font-medium">Aliases</h3>
             <div className="mt-2 flex flex-wrap gap-2">
               {data.aliases.length === 0 ? <span className="text-xs text-muted-foreground">No aliases assigned.</span> : null}
@@ -209,7 +209,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="rounded border p-3">
+          <section className="rounded border p-3" data-workbench-anchor="asset.metadata">
             <h3 className="text-sm font-medium">Metadata</h3>
             <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
               <div><Label>Original name</Label><div className="font-mono">{data.originalName ?? '—'}</div></div>
@@ -219,7 +219,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="rounded border p-3">
+          <section className="rounded border p-3" data-workbench-anchor="asset.aliasUsages">
             <h3 className="text-sm font-medium">Alias usages</h3>
             {aliasUsages.length === 0 ? <p className="mt-2 text-xs text-muted-foreground">No explicit alias usages found.</p> : null}
             <div className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">

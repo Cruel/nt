@@ -42,6 +42,19 @@ vi.mock('@/workbench/default-editors', async () => {
     return <button data-testid="play-editor">Play editor</button>;
   }
 
+  function DelayedAnchorEditor() {
+    const [visible, setVisible] = React.useState(false);
+    React.useEffect(() => {
+      const timeout = window.setTimeout(() => setVisible(true), 20);
+      return () => window.clearTimeout(timeout);
+    }, []);
+    return (
+      <div data-testid="delayed-editor">
+        {visible ? <section data-testid="delayed-anchor" data-workbench-anchor="delayed.target">Delayed Target</section> : null}
+      </div>
+    );
+  }
+
   return {
     defaultEditorRegistry: {
       resolve: (editorType: string) => {
@@ -60,6 +73,13 @@ vi.mock('@/workbench/default-editors', async () => {
             type: 'normal-editor',
             label: 'Normal',
             component: NormalEditor,
+          };
+        }
+        if (editorType === 'delayed-editor') {
+          return {
+            type: 'delayed-editor',
+            label: 'Delayed',
+            component: DelayedAnchorEditor,
           };
         }
         return null;
@@ -82,6 +102,13 @@ const normalTab: WorkbenchTab = {
   title: 'Normal',
   editorType: 'normal-editor',
   resource: { kind: 'record', stableId: 'record:rooms:foyer', collection: 'rooms', entityId: 'foyer' },
+};
+
+const delayedTab: WorkbenchTab = {
+  id: 'tab:delayed',
+  title: 'Delayed',
+  editorType: 'delayed-editor',
+  resource: { kind: 'record', stableId: 'record:rooms:delayed', collection: 'rooms', entityId: 'delayed' },
 };
 
 function group(activeTabId: string | null, tabIds: string[] = [playTab.id, normalTab.id]): WorkbenchGroupModel {
@@ -192,6 +219,27 @@ describe('WorkbenchGroup mount policy rendering', () => {
       renderGroup(group(normalTab.id));
 
       const anchor = await screen.findByTestId('normal-anchor');
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest',
+      }));
+      expect(anchor).toHaveAttribute('data-workbench-anchor-flash');
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it('retries queued anchors that appear after editor state changes', async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    enqueueWorkbenchRevealTarget(delayedTab, { id: 'delayed.target', block: 'center', flash: true });
+
+    try {
+      renderGroup(group(delayedTab.id, [delayedTab.id]), [delayedTab]);
+
+      const anchor = await screen.findByTestId('delayed-anchor');
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
         behavior: 'smooth',
         block: 'center',

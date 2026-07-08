@@ -154,7 +154,7 @@ function VariableRow({
 
   if (!data) {
     return (
-      <tr className="border-t align-top">
+      <tr className="border-t align-top" data-workbench-anchor={`variable.row.${variableId}`}>
         <td className="p-2 font-mono text-xs">{variableId}</td>
         <td className="p-2" colSpan={5}>
           <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Invalid variable data.</div>
@@ -167,7 +167,7 @@ function VariableRow({
   }
 
   return (
-    <tr className="border-t align-top">
+    <tr className="border-t align-top" data-workbench-anchor={`variable.row.${variableId}`}>
       <td className="space-y-2 p-2">
         <div className="font-mono text-xs">{variableId}</div>
         <div className="flex gap-1">
@@ -274,7 +274,7 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3" data-workbench-anchor="variable.summary">
         <div>
           <h2 className="text-lg font-semibold">Variables</h2>
           <p className="mt-1 text-sm text-muted-foreground">Author typed global state for later dialogue, scene, script, and UI conditions.</p>
@@ -282,7 +282,7 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
         <Badge variant="outline">{variables.length} variable{variables.length === 1 ? '' : 's'}</Badge>
       </div>
 
-      <section className="mt-4 rounded border p-3">
+      <section className="mt-4 rounded border p-3" data-workbench-anchor="variable.create">
         <h3 className="text-sm font-medium">Create variable</h3>
         <div className="mt-3 grid gap-2 lg:grid-cols-[160px_180px_150px_1fr_1fr_auto]">
           <div className="space-y-1"><Label>ID</Label><Input value={createId} onChange={(event) => setCreateId(event.currentTarget.value)} placeholder="has-key" /></div>
@@ -295,7 +295,7 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
         {message ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{message}</div> : null}
       </section>
 
-      <section className="mt-4 min-h-0 rounded border">
+      <section className="mt-4 min-h-0 rounded border" data-workbench-anchor="variable.rows">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
             <tr>
