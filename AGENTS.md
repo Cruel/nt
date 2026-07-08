@@ -99,6 +99,19 @@ cd android
 
 If a verification command cannot run in the current environment, state exactly why and record the closest completed check.
 
+### Editor Verification
+
+When changing code under `editor/`, verify the editor package directly before finishing the task.
+
+```sh
+cd editor
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+Run the editor application or the narrowest relevant UI smoke check when the change affects editor rendering, interaction, routing, or preview behavior. If a full app run is not practical in the current environment, call that out explicitly and include the closest successful verification.
+
 ## C++ and Architecture Conventions
 
 Use C++20 for new code. Prefer `noveltea` for new framework code. If old code is temporarily ported with the historical `NovelTea` namespace, isolate that compatibility choice and do not let it leak into new platform/renderer APIs without an explicit reason.

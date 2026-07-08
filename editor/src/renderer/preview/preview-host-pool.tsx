@@ -550,7 +550,7 @@ export function PreviewPane({
       if (leaseRef.current?.leaseId === lease.leaseId) leaseRef.current = null;
       onLeaseRef.current?.(null);
     };
-  }, [claimHost, isActive, measureAndUpdate, mode, ownerTabId, paneId, persistence, releaseHost]);
+  }, [claimHost, isActive, layerRef, measureAndUpdate, mode, ownerTabId, paneId, persistence, releaseHost]);
 
   useLayoutEffect(() => {
     if (!isActive) return undefined;
