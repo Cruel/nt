@@ -50,6 +50,7 @@ function WorkbenchEditorPane({ tab, registration, policies, isActive }: Workbenc
 export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
   const project = useProjectStore((state) => state.document);
   const activateGroup = useWorkbenchStore((state) => state.activateGroup);
+  const activateTab = useWorkbenchStore((state) => state.activateTab);
   const activeTab = group.activeTabId ? tabs.find((tab) => tab.id === group.activeTabId) ?? null : null;
   const { setNodeRef: setDockNodeRef } = useDroppable({
     id: workbenchTabDockDndId(group.id),
@@ -68,7 +69,11 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
     <div ref={setDockNodeRef} className="flex h-full min-h-0 flex-col overflow-hidden border-x border-b bg-background" data-workbench-group-id={group.id} onFocusCapture={() => activateGroup(group.id)} onPointerDownCapture={() => activateGroup(group.id)}>
       <WorkbenchTabs group={group} tabs={tabs} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <PreviewHostPoolProvider groupId={group.id} activeTabId={activeTab?.id ?? null}>
+        <PreviewHostPoolProvider
+          groupId={group.id}
+          activeTabId={activeTab?.id ?? null}
+          onActivateOwnerTab={(ownerTabId) => activateTab(group.id, ownerTabId)}
+        >
           {activeTab ? (
             editorPanes.map(({ tab, registration, policies, isActive }) => {
               return (

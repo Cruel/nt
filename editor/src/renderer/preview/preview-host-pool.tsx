@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
-import type { PreviewMode } from '../../shared/preview-protocol';
+import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 export type PreviewPanePolicy = 'pooled-per-tab-group';
 export type PooledPreviewPersistence = 'derived';
@@ -119,18 +119,26 @@ function PreviewHostSlot({
   host,
   registerController,
   registerHostElement,
+  onActivateOwnerTab,
   pointerEventsDisabled,
 }: {
   host: PreviewHostRecord;
   registerController: (hostId: string, controller: EnginePreviewController | null) => void;
   registerHostElement: (hostId: string, element: HTMLElement | null) => void;
+  onActivateOwnerTab?: (ownerTabId: string) => void;
   pointerEventsDisabled: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const activateOwningTab = useCallback(() => {
+    if (host.lease) onActivateOwnerTab?.(host.lease.ownerTabId);
+  }, [host.lease, onActivateOwnerTab]);
+  const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
+    if (message.type === 'preview-interacted') activateOwningTab();
+  }, [activateOwningTab]);
   const controller = useEnginePreview({
     embedded: true,
     onReady: () => undefined,
-    onMessage: () => undefined,
+    onMessage: handlePreviewMessage,
     onError: () => undefined,
   });
   const { iframeRef, iframeKey, iframeSrc, loadSession } = controller;
@@ -191,7 +199,7 @@ function PreviewHostSlot({
         className="h-full w-full bg-zinc-950"
         iframeClassName="h-full w-full border-0"
         showConnectionOverlay={false}
-        onActivateContainingGroup={() => undefined}
+        onActivateContainingGroup={activateOwningTab}
         onConnecting={() => undefined}
         onError={() => undefined}
       />
@@ -212,10 +220,12 @@ function scrollableAncestors(element: HTMLElement): EventTarget[] {
 export function PreviewHostPoolProvider({
   groupId,
   activeTabId,
+  onActivateOwnerTab,
   children,
 }: {
   groupId: string;
   activeTabId: string | null;
+  onActivateOwnerTab?: (ownerTabId: string) => void;
   children: ReactNode;
 }) {
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -434,6 +444,7 @@ export function PreviewHostPoolProvider({
             host={host}
             registerController={registerController}
             registerHostElement={registerHostElement}
+            onActivateOwnerTab={onActivateOwnerTab}
             pointerEventsDisabled={previewPointerEventsDisabled}
           />
         ))}

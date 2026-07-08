@@ -1,35 +1,44 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PreviewHostPoolProvider, PreviewPane, type PreviewHostLease } from '@/preview/preview-host-pool';
 
 const previewControllerMocks = vi.hoisted(() => ({
   setPreviewActivity: vi.fn().mockResolvedValue(undefined),
   requestPreviewState: vi.fn().mockResolvedValue(undefined),
+  onMessages: [] as Array<(message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void>,
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: () => ({
-    iframeRef: { current: null },
-    iframeKey: 0,
-    iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
-    session: {
-      url: 'http://127.0.0.1:5000/?sessionToken=test-token',
-      origin: 'http://127.0.0.1:5000',
-      sessionToken: 'test-token',
-    },
-    loadSession: vi.fn().mockResolvedValue({
-      url: 'http://127.0.0.1:5000/?sessionToken=test-token',
-      origin: 'http://127.0.0.1:5000',
-      sessionToken: 'test-token',
-    }),
-    setPreviewActivity: previewControllerMocks.setPreviewActivity,
-    requestPreviewState: previewControllerMocks.requestPreviewState,
-  }),
+  useEnginePreview: (options: { onMessage: (message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void }) => {
+    previewControllerMocks.onMessages.push(options.onMessage);
+    return {
+      iframeRef: { current: null },
+      iframeKey: 0,
+      iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
+      session: {
+        url: 'http://127.0.0.1:5000/?sessionToken=test-token',
+        origin: 'http://127.0.0.1:5000',
+        sessionToken: 'test-token',
+      },
+      loadSession: vi.fn().mockResolvedValue({
+        url: 'http://127.0.0.1:5000/?sessionToken=test-token',
+        origin: 'http://127.0.0.1:5000',
+        sessionToken: 'test-token',
+      }),
+      setPreviewActivity: previewControllerMocks.setPreviewActivity,
+      requestPreviewState: previewControllerMocks.requestPreviewState,
+    };
+  },
 }));
 
 vi.mock('@/components/engine-preview-host', () => ({
-  EnginePreviewHost: ({ iframeSrc }: { iframeSrc: string | null }) => (
-    <iframe title="NovelTea engine preview" src={iframeSrc ?? undefined} />
+  EnginePreviewHost: ({ iframeSrc, onActivateContainingGroup }: { iframeSrc: string | null; onActivateContainingGroup: () => void }) => (
+    <iframe
+      title="NovelTea engine preview"
+      src={iframeSrc ?? undefined}
+      onPointerDown={onActivateContainingGroup}
+      onFocus={onActivateContainingGroup}
+    />
   ),
 }));
 
@@ -43,13 +52,15 @@ interface HarnessPane {
 function Harness({
   activeTabId,
   panes,
+  onActivateOwnerTab,
 }: {
   activeTabId: string | null;
   panes: HarnessPane[];
+  onActivateOwnerTab?: (ownerTabId: string) => void;
 }) {
   return (
     <div style={{ position: 'relative', width: 800, height: 600 }}>
-      <PreviewHostPoolProvider groupId="group:one" activeTabId={activeTabId}>
+      <PreviewHostPoolProvider groupId="group:one" activeTabId={activeTabId} onActivateOwnerTab={onActivateOwnerTab}>
         {panes.map((pane) => (
           <PreviewPane
             key={`${pane.ownerTabId}:${pane.paneId}`}
@@ -77,6 +88,7 @@ function hostElements(container: HTMLElement) {
 beforeEach(() => {
   previewControllerMocks.setPreviewActivity.mockClear();
   previewControllerMocks.requestPreviewState.mockClear();
+  previewControllerMocks.onMessages = [];
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -168,6 +180,42 @@ describe('PreviewHostPool', () => {
 
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
     await waitFor(() => expect(previewControllerMocks.requestPreviewState).toHaveBeenCalled());
+  });
+
+  it('activates the owning tab when the pooled preview iframe is focused or clicked', async () => {
+    const onActivateOwnerTab = vi.fn();
+    render(
+      <Harness
+        activeTabId="tab:a"
+        panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }]}
+        onActivateOwnerTab={onActivateOwnerTab}
+      />,
+    );
+
+    const iframe = await screen.findByTitle('NovelTea engine preview');
+    fireEvent.pointerDown(iframe);
+    expect(onActivateOwnerTab).toHaveBeenCalledWith('tab:a');
+
+    fireEvent.focus(iframe);
+    expect(onActivateOwnerTab).toHaveBeenCalledWith('tab:a');
+  });
+
+  it('activates the owning tab from iframe preview-interacted messages', async () => {
+    const onActivateOwnerTab = vi.fn();
+    render(
+      <Harness
+        activeTabId="tab:a"
+        panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }]}
+        onActivateOwnerTab={onActivateOwnerTab}
+      />,
+    );
+
+    await waitFor(() => expect(previewControllerMocks.onMessages.length).toBeGreaterThan(0));
+    act(() => {
+      previewControllerMocks.onMessages.at(-1)?.({ version: 1, type: 'preview-interacted', interaction: 'pointer' });
+    });
+
+    expect(onActivateOwnerTab).toHaveBeenCalledWith('tab:a');
   });
 
   it('rejects sends from stale leases after release', async () => {
