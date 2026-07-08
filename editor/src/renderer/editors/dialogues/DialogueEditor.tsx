@@ -2,6 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -121,6 +123,10 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseDialogueData(record?.data);
   const data = parsedData ?? defaultDialogueData(record?.label ?? dialogueId ?? 'Dialogue');
   const diagnostics = useMemo(() => project && record && dialogueId ? validateDialogueData(project, dialogueId, record) : [], [project, record, dialogueId]);
+  const diagnosticItems = useMemo(() => diagnostics.map((item) => ({
+    ...item,
+    target: project ? resolveProjectDiagnosticTarget(project, item.path) : null,
+  })), [diagnostics, project]);
   const characters = project ? Object.entries(project.characters).map(([id, character]) => ({ id, label: character.label })) : [];
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const graphViewportRef = useRef<GraphViewportState | null>(null);
@@ -325,7 +331,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
 
       {!parsedData ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Dialogue data was invalid; showing editable defaults until you apply a change.</div> : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]" data-workbench-anchor="dialogue.summary">
         <div className="space-y-4">
           <section className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1">
@@ -567,16 +573,9 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
             </section>
           ) : null}
 
-          <section className="space-y-2 rounded border p-3">
+          <section className="space-y-2 rounded border p-3" data-workbench-anchor="dialogue.diagnostics">
             <h3 className="text-sm font-medium">Diagnostics</h3>
-            {diagnostics.length === 0 ? <div className="text-xs text-muted-foreground">No dialogue diagnostics.</div> : null}
-            {diagnostics.map((item) => (
-              <div key={`${item.path}:${item.message}`} className="rounded border p-2 text-xs">
-                <Badge variant={item.severity === 'error' ? 'destructive' : 'outline'}>{item.severity}</Badge>
-                <span className="ml-2">{item.message}</span>
-                <div className="mt-1 font-mono text-[10px] text-muted-foreground">{item.path}</div>
-              </div>
-            ))}
+            <DiagnosticList items={diagnosticItems} emptyMessage="No dialogue diagnostics." />
           </section>
         </aside>
       </div>

@@ -1,6 +1,8 @@
 import { useMemo, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -107,6 +109,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseCharacterData(record?.data);
   const data = parsedData ?? defaultCharacterData(record?.label ?? characterId ?? 'Character');
   const diagnostics = useMemo(() => project && record && characterId ? validateCharacterData(project, characterId, record) : [], [project, record, characterId]);
+  const diagnosticItems = useMemo(() => diagnostics.map((item) => ({
+    ...item,
+    target: project ? resolveProjectDiagnosticTarget(project, item.path) : null,
+  })), [project, diagnostics]);
   const imageAssets = project ? Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
     .map(([id, asset]) => ({ id, label: asset.label })) : [];
@@ -231,7 +237,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]">
         <div className="space-y-4">
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-2">
+          <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="character.summary">
             <div className="space-y-1">
               <Label>Display name</Label>
               <Input value={data.displayName} onChange={(event) => commit({ ...data, displayName: event.currentTarget.value }, 'Update character display name')} />
@@ -254,7 +260,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-2">
+          <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="character.defaults">
             <div className="space-y-1">
               <Label>Default pose</Label>
               <Select value={data.defaults.poseId} onValueChange={(value) => patchDefaults({ poseId: String(value) })}>
@@ -281,7 +287,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="character.poses">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-medium">Poses</h3>
               <Button size="sm" variant="outline" onClick={addPose}>Add Pose</Button>
@@ -329,7 +335,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             ))}
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="character.expressions">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-medium">Expressions</h3>
               <Button size="sm" variant="outline" onClick={addExpression}>Add Expression</Button>
@@ -373,7 +379,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           </section>
         </div>
 
-        <aside className="rounded border bg-muted/20 p-4">
+        <aside className="rounded border bg-muted/20 p-4" data-workbench-anchor="character.preview">
           <div className="h-72 overflow-hidden rounded border bg-background">
             <DerivedPreviewPane ownerTabId={tab.id} previewMode="character" previewDocument={previewDocument} />
           </div>
@@ -390,10 +396,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             </Select>
           </div>
           {diagnostics.length > 0 ? (
-            <div className="mt-4 rounded border p-2 text-xs text-muted-foreground">
+            <div className="mt-4 rounded border p-2 text-xs text-muted-foreground" data-workbench-anchor="character.diagnostics">
               <div className="font-medium text-foreground">Diagnostics</div>
-              <div className="mt-1 space-y-1">
-                {diagnostics.slice(0, 4).map((item) => <div key={`${item.path}:${item.message}`}>{item.severity}: {item.message}</div>)}
+              <div className="mt-1">
+                <DiagnosticList items={diagnosticItems.slice(0, 4)} />
               </div>
             </div>
           ) : null}

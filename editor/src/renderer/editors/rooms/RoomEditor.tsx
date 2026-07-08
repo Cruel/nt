@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -112,6 +114,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseRoomData(record?.data);
   const data = parsedData ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
   const diagnostics = useMemo(() => project && record && roomId ? validateRoomData(project, roomId, record) : [], [project, record, roomId]);
+  const diagnosticItems = useMemo(() => diagnostics.map((item) => ({
+    ...item,
+    target: project ? resolveProjectDiagnosticTarget(project, item.path) : null,
+  })), [diagnostics, project]);
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const backgroundImageItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['assets'], assetKinds: ['image'], includeActions: false }), [selectorItems]);
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
@@ -230,7 +236,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-2">
+          <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="room.summary">
             <div className="space-y-1">
               <Label>Display name</Label>
               <Input value={data.displayName} onChange={(event) => commit({ ...data, displayName: event.currentTarget.value }, 'Update room display name')} />
@@ -244,7 +250,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-4" data-workbench-anchor="room.background">
             <div className="space-y-1">
               <Label>Background image</Label>
               <div className="flex gap-2">
@@ -273,12 +279,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="space-y-2 rounded border p-3">
+          <section className="space-y-2 rounded border p-3" data-workbench-anchor="room.description">
             <Label>Description source</Label>
             <SourceEditor ref={sourceEditors.refFor('description')} className="h-56" language="text" value={data.description.source} onChange={(source) => commit({ ...data, description: { ...data.description, source } }, 'Update room description')} />
           </section>
 
-          <section className="grid gap-3 rounded border p-3 lg:grid-cols-2">
+          <section className="grid gap-3 rounded border p-3 lg:grid-cols-2" data-workbench-anchor="room.scripts">
             <div className="space-y-2">
               <Label>Before enter Lua</Label>
               <SourceEditor ref={sourceEditors.refFor('beforeEnter')} className="h-36" language="lua" value={data.scripts.beforeEnter} onChange={(beforeEnter) => patchScripts({ beforeEnter })} />
@@ -297,7 +303,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.paths">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-medium">Navigation paths</h3>
               <Button size="sm" variant="outline" onClick={addPath}>Add Path</Button>
@@ -341,7 +347,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             {data.paths.length === 0 ? <div className="rounded border p-2 text-xs text-muted-foreground">No paths yet.</div> : null}
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.hotspots">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-medium">Hotspots</h3>
               <Button size="sm" variant="outline" onClick={addHotspot}>Add Hotspot</Button>
@@ -394,7 +400,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           </section>
         </div>
 
-        <aside className="space-y-4 rounded border bg-muted/20 p-4">
+        <aside className="space-y-4 rounded border bg-muted/20 p-4" data-workbench-anchor="room.preview">
           <div className="h-72 overflow-hidden rounded border bg-background">
             <DerivedPreviewPane
               ownerTabId={tab.id}
@@ -437,10 +443,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </label>
           </div>
           {diagnostics.length > 0 ? (
-            <div className="rounded border p-2 text-xs text-muted-foreground">
+            <div className="rounded border p-2 text-xs text-muted-foreground" data-workbench-anchor="room.diagnostics">
               <div className="font-medium text-foreground">Diagnostics</div>
-              <div className="mt-1 space-y-1">
-                {diagnostics.slice(0, 6).map((item) => <div key={`${item.path}:${item.message}`}>{item.severity}: {item.message}</div>)}
+              <div className="mt-1">
+                <DiagnosticList items={diagnosticItems.slice(0, 6)} />
               </div>
             </div>
           ) : null}

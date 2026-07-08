@@ -46,6 +46,8 @@ The previous 11-phase backend-neutral core migration is complete for the current
 
 ## Editor UI Component Policy
 
+When working under `editor/`, read `docs/editor/EDITOR_AGENT_GUIDE.md` first. That guide is the editor documentation index and records cross-cutting editor practices such as workbench navigation, diagnostics, tab state, preview ownership, localization, and UI component conventions.
+
 The Electron editor should use shadcn Base UI components whenever an appropriate shadcn component exists. Do not create custom editor UI primitives or wrappers unless shadcn Base does not provide the needed primitive or the user explicitly asks for a custom component.
 
 For stable user-facing editor text, use the editor i18n resources under `editor/src/renderer/i18n/locales/` rather than scattering hard-coded English through components. Keep `en-US` as the maintained source copy, keep other real locales key-compatible with `en-US`, and update `docs/editor/EDITOR_TRANSLATIONS.md` when locale status or namespace coverage changes. Fast-moving experimental surfaces may stay inline English until their UI settles.

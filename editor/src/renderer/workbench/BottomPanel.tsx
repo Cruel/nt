@@ -1,9 +1,14 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCommandStore } from '@/commands/command-store';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   bottomPanelDefinitions,
   type BottomPanelId,
@@ -29,22 +34,18 @@ function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
 function ProblemsPanel() {
   const { t } = useTranslation('workspace');
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+  const projectDocument = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const diagnosticItems = useMemo(() => diagnostics.map((diagnostic) => ({
+    ...diagnostic,
+    target: project ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null,
+  })), [diagnostics, project]);
   if (diagnostics.length === 0) {
     return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.problems')}</p>;
   }
   return (
-    <div className="space-y-2 p-3">
-      {diagnostics.map((diagnostic, index) => (
-        <div key={`${diagnostic.path}-${index}`} className="rounded border p-2 text-xs">
-          <div className="flex items-center gap-2">
-            <Badge variant={diagnostic.severity === 'error' ? 'destructive' : 'secondary'}>
-              {diagnostic.severity}
-            </Badge>
-            <span className="font-mono text-muted-foreground">{diagnostic.path || '/'}</span>
-          </div>
-          <div className="mt-1">{diagnostic.message}</div>
-        </div>
-      ))}
+    <div className="p-3 text-xs">
+      <DiagnosticList items={diagnosticItems} />
     </div>
   );
 }
@@ -79,6 +80,15 @@ function CommandHistoryPanel() {
   const { t } = useTranslation('workspace');
   const history = useCommandStore((state) => state.history);
   const lastDiagnostics = useCommandStore((state) => state.lastDiagnostics);
+  const projectDocument = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const lastDiagnosticItems = useMemo(() => lastDiagnostics.map((diagnostic) => ({
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+    path: diagnostic.path,
+    category: diagnostic.commandType,
+    target: project ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null,
+  })), [lastDiagnostics, project]);
   if (history.entries.length === 0 && lastDiagnostics.length === 0) {
     return <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.commandHistory')}</p>;
   }
@@ -87,15 +97,7 @@ function CommandHistoryPanel() {
       {lastDiagnostics.length > 0 ? (
         <div className="rounded border p-2 text-xs">
           <div className="mb-1 font-medium">{t('bottomPanel.lastCommandDiagnostics')}</div>
-          {lastDiagnostics.map((diagnostic, index) => (
-            <div key={`${diagnostic.message}-${index}`} className="flex gap-2">
-              <Badge variant={diagnostic.severity === 'error' ? 'destructive' : 'secondary'}>
-                {diagnostic.severity}
-              </Badge>
-              <span className="font-mono text-muted-foreground">{diagnostic.path ?? '/'}</span>
-              <span>{diagnostic.message}</span>
-            </div>
-          ))}
+          <DiagnosticList items={lastDiagnosticItems} />
         </div>
       ) : null}
       {history.entries.map((entry, index) => (

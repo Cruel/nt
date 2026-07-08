@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList, type EditorDiagnosticItem } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePackageExportStore, type PackageExportWorkflowResult } from './package-export-store';
-
-function diagnosticBadge(severity: string) {
-  return severity === 'error' ? 'destructive' : severity === 'warning' ? 'secondary' : 'outline';
-}
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 function normalizeResult(value: unknown): PackageExportWorkflowResult | null {
   if (!value || typeof value !== 'object') return null;
@@ -40,27 +40,23 @@ function ManifestSummary({ result }: { result: PackageExportWorkflowResult }) {
 }
 
 function Diagnostics({ result }: { result: PackageExportWorkflowResult }) {
+  const projectDocument = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   if (result.diagnostics.length === 0 && result.validationDiagnostics.length === 0 && result.shaderDiagnostics.length === 0) {
     return <p className="text-xs text-muted-foreground">No export diagnostics.</p>;
   }
-  const diagnostics = [
+  const diagnostics: EditorDiagnosticItem[] = [
     ...result.validationDiagnostics.map((diagnostic) => ({ ...diagnostic, category: diagnostic.category ?? 'validation' })),
     ...result.diagnostics,
     ...result.shaderDiagnostics.map((diagnostic) => ({ severity: diagnostic.severity, category: 'shader', path: diagnostic.path ?? diagnostic.outputPath ?? diagnostic.sourcePath ?? '/', message: diagnostic.message })),
-  ];
+  ].map((diagnostic) => ({
+    ...diagnostic,
+    target: project ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null,
+  }));
   return (
     <section className="space-y-2">
       <div className="font-medium">Diagnostics</div>
-      {diagnostics.map((diagnostic, index) => (
-        <div key={`${diagnostic.category}-${diagnostic.path}-${diagnostic.message}-${index}`} className="rounded border p-2 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={diagnosticBadge(diagnostic.severity)}>{diagnostic.severity}</Badge>
-            <Badge variant="outline">{diagnostic.category ?? 'export'}</Badge>
-            <span className="font-mono text-muted-foreground">{diagnostic.path || '/'}</span>
-          </div>
-          <div className="mt-1">{diagnostic.message}</div>
-        </div>
-      ))}
+      <DiagnosticList items={diagnostics} />
     </section>
   );
 }

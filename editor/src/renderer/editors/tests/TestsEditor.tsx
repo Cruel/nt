@@ -2,6 +2,8 @@ import { useMemo, useRef } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -142,6 +144,11 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const lastPlaybackReport = useWorkspaceStore((state) => state.lastPlaybackReport);
   const setBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const diagnostics = useMemo(() => project && record && testId ? validateTestData(project, testId, record) : [], [project, record, testId]);
+  const readiness = project && testId ? getAuthoringTestRunReadiness(project, testId) : { runnable: false, diagnostics: [] };
+  const diagnosticItems = useMemo(() => [...diagnostics, ...readiness.diagnostics].map((item) => ({
+    ...item,
+    target: project ? resolveProjectDiagnosticTarget(project, item.path) : null,
+  })), [diagnostics, project, readiness.diagnostics]);
 
   useWorkbenchEditorTabState<TestsEditorTabState>(tab.id, useMemo(() => ({
     captureTabState: () => ({
@@ -166,7 +173,6 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
 
   const activeTestId = testId;
   const activeProject = project;
-  const readiness = getAuthoringTestRunReadiness(activeProject, activeTestId);
   const activeStep = selectedStep(data);
   const activeStepIndex = activeStep ? data.steps.findIndex((step) => step.id === activeStep.id) : -1;
   const observations = reportObservationMap(lastPlaybackReport);
@@ -291,7 +297,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
 
       {!parsedData ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Test data was invalid; showing editable defaults until you apply a change.</div> : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(360px,1fr)_440px]">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(360px,1fr)_440px]" data-workbench-anchor="test.summary">
         <div className="space-y-4">
           <section className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-1">
@@ -428,16 +434,9 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
             </section>
           ) : null}
 
-          <section className="space-y-2 rounded border p-3">
+          <section className="space-y-2 rounded border p-3" data-workbench-anchor="test.diagnostics">
             <h3 className="text-sm font-medium">Diagnostics</h3>
-            {diagnostics.length === 0 ? <div className="text-xs text-muted-foreground">No test diagnostics.</div> : null}
-            {[...diagnostics, ...readiness.diagnostics].map((item) => (
-              <div key={`${item.path}:${item.message}`} className="rounded border p-2 text-xs">
-                <Badge variant={item.severity === 'error' ? 'destructive' : 'outline'}>{item.severity}</Badge>
-                <span className="ml-2">{item.message}</span>
-                <div className="mt-1 font-mono text-[10px] text-muted-foreground">{item.path}</div>
-              </div>
-            ))}
+            <DiagnosticList items={diagnosticItems} emptyMessage="No test diagnostics." />
           </section>
         </aside>
       </div>

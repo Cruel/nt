@@ -46,6 +46,14 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+@layer utilities {
+  [data-workbench-anchor-flash] {
+    @apply animate-pulse ring-2 ring-ring/60 ring-offset-2 ring-offset-background;
+    animation-duration: 1s;
+    animation-iteration-count: 5;
+  }
+}
+
 @layer base {
   *,
   ::after,

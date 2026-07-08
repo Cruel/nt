@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { useCommandStore } from '@/commands/command-store';
 import { buildSettingsTab } from '@/workbench/editor-registry';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { cancelComfyUiJob, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useComfyUiGenerationStore, type GeneratedImageRevision } from '@/comfyui/comfyui-generation-store';
@@ -79,7 +79,6 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const comfyUiConfig = useComfyUiStore((state) => state.config);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
-  const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
   const revisions = useComfyUiGenerationStore((state) => state.revisionsByTabId[tab.id] ?? EMPTY_REVISIONS);
   const selectedRevisionId = useComfyUiGenerationStore((state) => state.selectedRevisionByTabId[tab.id] ?? null);
   const queueJobsByPromptId = useComfyUiQueueStore((state) => state.jobsByPromptId);
@@ -320,7 +319,10 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       : null;
 
   function openComfyUiSettings() {
-    openWorkbenchTab(buildSettingsTab());
+    navigateToWorkbenchTarget({
+      tab: buildSettingsTab(),
+      target: { id: 'settings.comfyui', block: 'center', flash: true },
+    });
   }
 
   if (comfyUiUnavailableMessage) {

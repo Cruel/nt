@@ -42,6 +42,8 @@ export interface SourceEditorProps {
 export interface SourceEditorHandle {
   captureViewState(): SourceEditorViewState;
   restoreViewState(state: SourceEditorViewState | null | undefined): void;
+  focus(): void;
+  revealLine(lineNumber: number, columnNumber?: number): void;
 }
 
 function toCodemirrorDiagnostic(item: SourceEditorDiagnostic, docLength: number): Diagnostic {
@@ -103,6 +105,21 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
           view.scrollDOM.scrollLeft = Number.isFinite(state.scroll.scrollLeft) ? state.scroll.scrollLeft : 0;
         }
       });
+    },
+    focus: () => {
+      viewRef.current?.focus();
+    },
+    revealLine: (lineNumber, columnNumber = 1) => {
+      const view = viewRef.current;
+      if (!view) return;
+      const line = view.state.doc.line(Math.min(Math.max(1, Math.trunc(lineNumber)), view.state.doc.lines));
+      const columnOffset = Math.min(Math.max(0, Math.trunc(columnNumber) - 1), line.length);
+      const position = line.from + columnOffset;
+      view.dispatch({
+        selection: { anchor: position },
+        effects: EditorView.scrollIntoView(position, { y: 'center' }),
+      });
+      view.focus();
     },
   }), []);
 

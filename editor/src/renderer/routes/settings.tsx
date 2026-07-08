@@ -253,7 +253,7 @@ export function SettingsPage() {
         description={t('settings:page.description')}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 [&>*]:shrink-0">
-        <Card>
+        <Card data-workbench-anchor="settings.theme">
           <CardHeader>
             <CardTitle>{t('settings:theme.title')}</CardTitle>
             <CardDescription>
@@ -287,7 +287,7 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-workbench-anchor="settings.codeEditor">
           <CardHeader>
             <CardTitle>{t('settings:codeEditor.title')}</CardTitle>
             <CardDescription>
@@ -307,7 +307,7 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-workbench-anchor="settings.language">
           <CardHeader>
             <CardTitle>{t('settings:language.title')}</CardTitle>
             <CardDescription>{t('settings:language.description')}</CardDescription>
@@ -339,7 +339,7 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-workbench-anchor="settings.window">
           <CardHeader>
             <CardTitle>{t('settings:window.title')}</CardTitle>
             <CardDescription>
@@ -368,7 +368,7 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-workbench-anchor="settings.workspace">
           <CardHeader>
             <CardTitle>{t('settings:workspace.title')}</CardTitle>
             <CardDescription>
@@ -418,7 +418,7 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-workbench-anchor="settings.preview">
           <CardHeader>
             <CardTitle>{t('settings:preview.title')}</CardTitle>
             <CardDescription>
@@ -442,7 +442,7 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-workbench-anchor="settings.comfyui">
           <CardHeader>
             <CardTitle>{t('settings:comfyui.title')}</CardTitle>
             <CardDescription>

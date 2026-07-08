@@ -2,6 +2,8 @@ import { useMemo, useRef } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -123,6 +125,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseSceneData(record?.data);
   const data = parsedData ?? defaultSceneData(record?.label ?? sceneId ?? 'Scene');
   const diagnostics = useMemo(() => project && record && sceneId ? validateSceneData(project, sceneId, record) : [], [project, record, sceneId]);
+  const diagnosticItems = useMemo(() => diagnostics.map((item) => ({
+    ...item,
+    target: project ? resolveProjectDiagnosticTarget(project, item.path) : null,
+  })), [diagnostics, project]);
 
   useWorkbenchEditorTabState<SceneEditorTabState>(tab.id, useMemo(() => ({
     captureTabState: () => ({
@@ -258,7 +264,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
 
       {!parsedData ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Scene data was invalid; showing editable defaults until you apply a change.</div> : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_420px]">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_420px]" data-workbench-anchor="scene.summary">
         <div className="space-y-4">
           <section className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1">
@@ -565,16 +571,9 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             </section>
           ) : null}
 
-          <section className="space-y-2 rounded border p-3">
+          <section className="space-y-2 rounded border p-3" data-workbench-anchor="scene.diagnostics">
             <h3 className="text-sm font-medium">Diagnostics</h3>
-            {diagnostics.length === 0 ? <div className="text-xs text-muted-foreground">No scene diagnostics.</div> : null}
-            {diagnostics.map((item) => (
-              <div key={`${item.path}:${item.message}`} className="rounded border p-2 text-xs">
-                <Badge variant={item.severity === 'error' ? 'destructive' : 'outline'}>{item.severity}</Badge>
-                <span className="ml-2">{item.message}</span>
-                <div className="mt-1 font-mono text-[10px] text-muted-foreground">{item.path}</div>
-              </div>
-            ))}
+            <DiagnosticList items={diagnosticItems} emptyMessage="No scene diagnostics." />
           </section>
         </aside>
       </div>

@@ -1,5 +1,5 @@
 import { useDroppable } from '@dnd-kit/core';
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useProjectStore } from '@/project/project-store';
 import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
@@ -8,6 +8,7 @@ import { missingEditorRegistration, resolveEditorPolicies, type WorkbenchEditorR
 import { WorkbenchTabs } from './WorkbenchTabs';
 import { workbenchTabDockDndId } from './WorkbenchTabDndContext';
 import { captureWorkbenchTabState, restoreWorkbenchTabState, useWorkbenchTabStateStore } from './workbench-tab-state';
+import { consumeWorkbenchRevealTarget, invokeWorkbenchTargetHandler, type PendingWorkbenchRevealTarget } from './workbench-navigation';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchGroup as WorkbenchGroupModel, WorkbenchTab } from './workbench-types';
 
@@ -25,6 +26,7 @@ interface WorkbenchEditorPaneProps {
 
 function WorkbenchEditorPane({ tab, registration, policies, isActive }: WorkbenchEditorPaneProps) {
   const EditorComponent = registration.component;
+  const paneRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (isActive) restoreWorkbenchTabState(tab.id);
@@ -36,8 +38,16 @@ function WorkbenchEditorPane({ tab, registration, policies, isActive }: Workbenc
     captureWorkbenchTabState(tab.id);
   }, [policies.mountPolicy, tab.id]);
 
+  useEffect(() => {
+    if (!isActive) return;
+    const pending = consumeWorkbenchRevealTarget(tab);
+    if (!pending) return;
+    revealWorkbenchTarget(paneRef.current, pending);
+  }, [isActive, tab]);
+
   return (
     <div
+      ref={paneRef}
       aria-hidden={isActive ? undefined : true}
       className={isActive ? 'h-full min-h-0' : 'pointer-events-none invisible absolute inset-0 h-full min-h-0'}
       data-workbench-editor-pane={tab.id}
@@ -47,6 +57,32 @@ function WorkbenchEditorPane({ tab, registration, policies, isActive }: Workbenc
       <EditorComponent tab={tab} />
     </div>
   );
+}
+
+function revealWorkbenchTarget(root: HTMLElement | null, target: PendingWorkbenchRevealTarget) {
+  if (!root) return;
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      const tabId = root.dataset.workbenchEditorPane;
+      if (tabId && invokeWorkbenchTargetHandler(tabId, target)) return;
+      const escapedTargetId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(target.id) : target.id.replaceAll('"', '\\"');
+      const anchor = root.querySelector<HTMLElement>(`[data-workbench-anchor="${escapedTargetId}"]`);
+      if (!anchor) return;
+      anchor.scrollIntoView({
+        behavior: 'smooth',
+        block: target.block ?? 'nearest',
+        inline: target.inline ?? 'nearest',
+      });
+      if (target.focus) anchor.focus({ preventScroll: true });
+      if (!target.flash) return;
+      anchor.dataset.workbenchAnchorFlash = String(target.requestId);
+      window.setTimeout(() => {
+        if (anchor.dataset.workbenchAnchorFlash === String(target.requestId)) {
+          delete anchor.dataset.workbenchAnchorFlash;
+        }
+      }, 5200);
+    });
+  });
 }
 
 export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {

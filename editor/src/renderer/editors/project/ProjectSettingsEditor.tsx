@@ -4,6 +4,8 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -96,7 +98,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(null);
-  const comfyUiSectionRef = useRef<HTMLDivElement | null>(null);
 
   useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(tab.id, useMemo(() => ({
     captureTabState: () => ({
@@ -129,16 +130,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     return () => { canceled = true; };
   }, [projectFilePath]);
 
-  useEffect(() => {
-    function onScrollRequest(event: Event) {
-      const section = (event as CustomEvent<{ section?: string }>).detail?.section;
-      if (section !== 'comfyui') return;
-      comfyUiSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-    window.addEventListener('noveltea:project-settings-scroll', onScrollRequest);
-    return () => window.removeEventListener('noveltea:project-settings-scroll', onScrollRequest);
-  }, []);
-
   if (!project || !settings) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to edit project settings.</div>;
 
   const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label || id }));
@@ -152,6 +143,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const entrypointRecord = project.entrypoint ? project[project.entrypoint.collection]?.[project.entrypoint.id] : null;
   const entrypointDiagnostics = diagnostics.filter((diagnostic) => diagnostic.path.startsWith('/entrypoint'));
   const relevantDiagnostics = [...entrypointDiagnostics, ...projectSettingsDiagnostics];
+  const relevantDiagnosticItems = relevantDiagnostics.map((diagnostic) => ({
+    ...diagnostic,
+    target: resolveProjectDiagnosticTarget(project, diagnostic.path),
+  }));
 
   function updateMetadata(patch: { name?: string; version?: string; author?: string; description?: string }) {
     runProjectCommand('project.updateMetadata', patch, 'Update project metadata');
@@ -208,7 +203,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
-          <Card>
+          <Card data-workbench-anchor="projectSettings.metadata">
             <CardHeader>
               <CardTitle>Metadata</CardTitle>
               <CardDescription>Project identity used by the editor, package metadata, and built-in title UI.</CardDescription>
@@ -237,7 +232,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card data-workbench-anchor="projectSettings.startup">
             <CardHeader>
               <CardTitle>Startup</CardTitle>
               <CardDescription>{t('selectors.entrypoint.description')}</CardDescription>
@@ -264,7 +259,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card data-workbench-anchor="projectSettings.runtime">
             <CardHeader>
               <CardTitle>Runtime Defaults</CardTitle>
               <CardDescription>Built-in fallback resources are used when no project resource is selected.</CardDescription>
@@ -309,7 +304,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card data-workbench-anchor="projectSettings.titleScreen">
             <CardHeader>
               <CardTitle>Title Screen</CardTitle>
               <CardDescription>Values consumed by the built-in title/menu layout.</CardDescription>
@@ -348,7 +343,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         </div>
 
         <div className="space-y-4">
-          <Card>
+          <Card data-workbench-anchor="projectSettings.packageIdentity">
             <CardHeader>
               <CardTitle>App / Package Identity</CardTitle>
               <CardDescription>Project icon is stored now and can feed package/platform icons later.</CardDescription>
@@ -367,7 +362,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <Card id="project-settings-comfyui" ref={comfyUiSectionRef}>
+          <Card id="project-settings-comfyui" data-workbench-anchor="projectSettings.comfyuiWorkflows">
             <CardHeader>
               <CardTitle>ComfyUI Workflows</CardTitle>
               <CardDescription>Install and validate project-local workflow files. Connection settings are editor preferences.</CardDescription>
@@ -393,7 +388,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card data-workbench-anchor="projectSettings.exportReadiness">
             <CardHeader>
               <CardTitle>Export Readiness</CardTitle>
               <CardDescription>Package export currently requires a room entrypoint.</CardDescription>
@@ -410,21 +405,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card data-workbench-anchor="projectSettings.diagnostics">
             <CardHeader>
               <CardTitle>Diagnostics</CardTitle>
               <CardDescription>Project-level validation relevant to settings and export.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-xs">
-              {relevantDiagnostics.length === 0 ? <p className="text-muted-foreground">No project settings diagnostics.</p> : relevantDiagnostics.map((diagnostic, index) => (
-                <div key={`${diagnostic.path}-${diagnostic.message}-${index}`} className="rounded border p-2">
-                  <div className="mb-1 flex items-center gap-2">
-                    <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>{diagnostic.severity}</Badge>
-                    <span className="font-mono text-[10px] text-muted-foreground">{diagnostic.path}</span>
-                  </div>
-                  <div>{diagnostic.message}</div>
-                </div>
-              ))}
+              <DiagnosticList items={relevantDiagnosticItems} emptyMessage="No project settings diagnostics." />
             </CardContent>
           </Card>
         </div>

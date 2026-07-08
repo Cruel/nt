@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { enqueueWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchGroup as WorkbenchGroupModel, WorkbenchTab } from '@/workbench/workbench-types';
 
@@ -23,7 +24,12 @@ vi.mock('@/workbench/default-editors', async () => {
         counters.normalUnmounts += 1;
       };
     }, []);
-    return <div data-testid="normal-editor">Normal editor</div>;
+    return (
+      <div data-testid="normal-editor">
+        <div style={{ height: 1000 }}>Top</div>
+        <section data-testid="normal-anchor" data-workbench-anchor="normal.target">Target</section>
+      </div>
+    );
   }
 
   function PlayEditor() {
@@ -174,5 +180,26 @@ describe('WorkbenchGroup mount policy rendering', () => {
 
     expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
     expect(counters.playUnmounts).toBe(1);
+  });
+
+  it('reveals and flashes queued anchors after the active pane mounts', async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    enqueueWorkbenchRevealTarget(normalTab, { id: 'normal.target', block: 'center', flash: true });
+
+    try {
+      renderGroup(group(normalTab.id));
+
+      const anchor = await screen.findByTestId('normal-anchor');
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest',
+      }));
+      expect(anchor).toHaveAttribute('data-workbench-anchor-flash');
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 });

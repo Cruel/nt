@@ -24,7 +24,6 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   const activateTab = useWorkbenchStore((state) => state.activateTab);
   const requestCloseTab = useCloseGuardStore((state) => state.requestCloseTab);
   const splitGroup = useWorkbenchStore((state) => state.splitGroup);
-  const openTab = useWorkbenchStore((state) => state.openTab);
   const reopenLastClosedTab = useWorkbenchStore((state) => state.reopenLastClosedTab);
   const { setNodeRef: setDroppableNodeRef } = useDroppable({
     id: workbenchTabGroupDndId(group.id),

@@ -6,6 +6,9 @@ import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { consumeWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
+import { buildSettingsTab } from '@/workbench/editor-registry';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
@@ -35,6 +38,7 @@ beforeEach(() => {
   useComfyUiStore.getState().hydrateFromPreferences();
   useComfyUiStore.setState((state) => ({ status: { ...state.status, state: 'ready', message: 'ComfyUI connected' } }));
   useComfyUiGenerationStore.getState().clearProjectSession();
+  useWorkbenchStore.getState().resetWorkbench();
   vi.mocked(window.noveltea.generateComfyUiImage).mockClear();
   vi.mocked(window.noveltea.editComfyUiImage).mockClear();
 });
@@ -47,6 +51,8 @@ describe('ImageGenerationEditor', () => {
 
     expect(screen.getByText('Image generation requires ComfyUI.')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Open ComfyUI Settings'));
+    expect(useWorkbenchStore.getState().tabsById['tab:settings']).toBeTruthy();
+    expect(consumeWorkbenchRevealTarget(buildSettingsTab())).toMatchObject({ id: 'settings.comfyui', block: 'center', flash: true });
     expect(screen.queryByLabelText('Generate workflow')).not.toBeInTheDocument();
   });
 

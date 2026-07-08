@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -224,6 +226,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   }), [message, sampleStateDraft, sourceEditors.refs]));
 
   const validationDiagnostics = useMemo(() => project && record && layoutId ? validateLayoutData(project, layoutId, record) : [], [layoutId, project, record]);
+  const diagnosticItems = useMemo(() => validationDiagnostics.map((item) => ({
+    ...item,
+    target: project ? resolveProjectDiagnosticTarget(project, item.path) : null,
+  })), [project, validationDiagnostics]);
   const titleLayout = project ? getSystemLayoutSetting(project, 'title') : null;
   const isTitleLayout = !!layoutId && titleLayout?.$ref.id === layoutId;
   const sourceAssetOptions = useMemo(() => project ? selectableAssets(project, (kind, extension) => kind === 'text' || kind === 'data' || kind === 'script' || ['.rml', 'rml', '.rcss', 'rcss', '.css', 'css', '.lua', 'lua'].includes(extension ?? '')) : [], [project]);
@@ -328,7 +334,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
         <div className="space-y-4">
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-3">
+          <section className="grid gap-3 rounded border p-3 md:grid-cols-3" data-workbench-anchor="layout.summary">
             <div className="space-y-1">
               <Label>Layout kind</Label>
               <Select value={data.layoutKind} onValueChange={(value) => commit({ ...data, layoutKind: value as LayoutData['layoutKind'] }, 'Set layout kind')}>
@@ -364,7 +370,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="layout.source.rml">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-medium">RML Source</h3>
               <Select value={data.rml.sourceMode} onValueChange={(value) => setSourceMode('rml', value as LayoutSourceData['sourceMode'])}>
@@ -380,7 +386,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             {data.rml.sourceMode === 'inline' ? <SourceEditor ref={sourceEditors.refFor('rml')} language="rml" value={data.rml.sourceText} onChange={(value) => setInlineSource('rml', value)} diagnostics={rmlDiagnostics} className="h-72" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RML source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="layout.source.rcss">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-medium">RCSS Source</h3>
               <Select value={data.rcss.sourceMode} onValueChange={(value) => setSourceMode('rcss', value as LayoutSourceData['sourceMode'])}>
@@ -396,7 +402,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             {data.rcss.sourceMode === 'inline' ? <SourceEditor ref={sourceEditors.refFor('rcss')} language="rcss" value={data.rcss.sourceText} onChange={(value) => setInlineSource('rcss', value)} diagnostics={rcssDiagnostics} className="h-64" /> : <p className="rounded border p-3 text-xs text-muted-foreground">RCSS source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="layout.source.lua">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-medium">Lua Source</h3>
               <Select value={data.lua.sourceMode} onValueChange={(value) => setSourceMode('lua', value as LayoutSourceData['sourceMode'])}>
@@ -426,13 +432,13 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             {data.lua.sourceMode === 'inline' ? <SourceEditor ref={sourceEditors.refFor('lua')} language="lua" value={data.lua.sourceText} onChange={(value) => setInlineSource('lua', value)} diagnostics={luaDiagnostics} className="h-56" /> : <p className="rounded border p-3 text-xs text-muted-foreground">Lua source is loaded from the selected asset. Inline source is preserved for switching back.</p>}
           </section>
 
-          <section className="space-y-3 rounded border p-3">
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="layout.sampleState">
             <h3 className="text-sm font-medium">Sample State JSON</h3>
             <SourceEditor ref={sourceEditors.refFor('sampleState')} language="json" value={sampleStateDraft} onChange={setSampleStateSource} className="h-40" />
           </section>
         </div>
 
-        <aside className="space-y-4">
+        <aside className="space-y-4" data-workbench-anchor="layout.dependencies">
           <DependencySelector title="Image Assets" options={imageAssets} selectedIds={refIds(data.dependencies.images)} onToggle={(id) => setDependency('images', toggleRef(data.dependencies.images, assetRef(id)).map((ref) => ref.$ref.id))} />
           <DependencySelector title="Font Assets" options={fontAssets} selectedIds={refIds(data.dependencies.fonts)} onToggle={(id) => setDependency('fonts', toggleRef(data.dependencies.fonts, assetRef(id)).map((ref) => ref.$ref.id))} />
           <DependencySelector title="Stylesheet Assets" options={stylesheetAssets} selectedIds={refIds(data.dependencies.stylesheets)} onToggle={(id) => setDependency('stylesheets', toggleRef(data.dependencies.stylesheets, assetRef(id)).map((ref) => ref.$ref.id))} />
@@ -440,15 +446,9 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
           <DependencySelector title="Materials" options={materialOptions} selectedIds={refIds(data.dependencies.materials)} onToggle={(id) => setDependency('materials', toggleRef(data.dependencies.materials, materialRef(id)).map((ref) => ref.$ref.id))} />
 
           {validationDiagnostics.length ? (
-            <section className="space-y-2 rounded border p-3">
+            <section className="space-y-2 rounded border p-3" data-workbench-anchor="layout.diagnostics">
               <h3 className="text-sm font-medium">Diagnostics</h3>
-              {validationDiagnostics.slice(0, 8).map((diagnostic, index) => (
-                <div key={`${diagnostic.path}-${index}`} className="rounded border p-2 text-xs">
-                  <Badge variant={diagnostic.severity === 'error' ? 'destructive' : 'secondary'}>{diagnostic.severity}</Badge>
-                  <div className="mt-1">{diagnostic.message}</div>
-                  <div className="mt-1 font-mono text-[10px] text-muted-foreground">{diagnostic.path}</div>
-                </div>
-              ))}
+              <DiagnosticList items={diagnosticItems.slice(0, 8)} />
             </section>
           ) : null}
         </aside>
