@@ -1,5 +1,5 @@
 import { useDroppable } from '@dnd-kit/core';
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { useProjectStore } from '@/project/project-store';
 import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
@@ -30,7 +30,7 @@ function WorkbenchEditorPane({ tab, registration, policies, isActive }: Workbenc
     if (isActive) restoreWorkbenchTabState(tab.id);
   }, [isActive, tab.id]);
 
-  useEffect(() => () => {
+  useLayoutEffect(() => () => {
     if (policies.mountPolicy === 'active-only') captureWorkbenchTabState(tab.id);
   }, [policies.mountPolicy, tab.id]);
 

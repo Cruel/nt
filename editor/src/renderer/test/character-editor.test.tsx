@@ -8,8 +8,8 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 
-vi.mock('@/components/engine-preview', () => ({
-  EnginePreview: () => <div data-testid="character-engine-preview" />,
+vi.mock('@/preview/DerivedPreviewPane', () => ({
+  DerivedPreviewPane: () => <div data-testid="character-derived-preview" />,
 }));
 
 const tab: WorkbenchTab = {
@@ -41,7 +41,7 @@ describe('CharacterEditor', () => {
     expect(screen.getByText('Iris')).toBeInTheDocument();
     expect(screen.getByText('Poses')).toBeInTheDocument();
     expect(screen.getByText('Expressions')).toBeInTheDocument();
-    expect(screen.getByTestId('character-engine-preview')).toBeInTheDocument();
+    expect(screen.getByTestId('character-derived-preview')).toBeInTheDocument();
   });
 
   it('dispatches command-backed dialogue and pose updates', async () => {

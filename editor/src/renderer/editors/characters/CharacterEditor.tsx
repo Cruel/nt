@@ -1,11 +1,11 @@
 import { useMemo, useRef } from 'react';
-import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
@@ -375,7 +375,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
 
         <aside className="rounded border bg-muted/20 p-4">
           <div className="h-72 overflow-hidden rounded border bg-background">
-            <EnginePreview chrome="minimal" previewMode="character" previewDocument={previewDocument} />
+            <DerivedPreviewPane ownerTabId={tab.id} previewMode="character" previewDocument={previewDocument} />
           </div>
           <div className="mt-3 space-y-2 text-xs text-muted-foreground">
             <div><span className="font-medium text-foreground">Pose:</span> {previewPose?.label ?? 'None'}</div>

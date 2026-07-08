@@ -7,9 +7,9 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
 
-vi.mock('@/components/engine-preview', () => ({
-  EnginePreview: ({ previewDocument }: { previewDocument: { kind: string; data: { selectedStepId?: string | null } } }) => (
-    <div data-kind={previewDocument.kind} data-selected-step={previewDocument.data.selectedStepId ?? ''} data-testid="scene-engine-preview" />
+vi.mock('@/preview/DerivedPreviewPane', () => ({
+  DerivedPreviewPane: ({ previewDocument }: { previewDocument: { kind: string; data: { selectedStepId?: string | null } } }) => (
+    <div data-kind={previewDocument.kind} data-selected-step={previewDocument.data.selectedStepId ?? ''} data-testid="scene-derived-preview" />
   ),
 }));
 
@@ -47,7 +47,7 @@ describe('SceneEditor', () => {
 
     expect(screen.getByText('Scene steps')).toBeInTheDocument();
     expect(screen.getByText('Selected step')).toBeInTheDocument();
-    expect(screen.getByTestId('scene-engine-preview')).toHaveAttribute('data-kind', 'scene-preview');
+    expect(screen.getByTestId('scene-derived-preview')).toHaveAttribute('data-kind', 'scene-preview');
   });
 
   it('dispatches command-backed display, step, reorder, and payload updates', async () => {

@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react';
-import { EnginePreview } from '@/components/engine-preview';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
+import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import {
   defaultDialogueData,
@@ -419,7 +419,9 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         <aside className="space-y-4">
           <section className="space-y-3 rounded border p-3">
             <h3 className="text-sm font-medium">Preview</h3>
-            <EnginePreview chrome="minimal" previewMode="dialogue" previewDocument={previewDocument} />
+            <div className="h-72 overflow-hidden rounded border bg-background">
+              <DerivedPreviewPane ownerTabId={tab.id} previewMode="dialogue" previewDocument={previewDocument} />
+            </div>
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
               <div className="space-y-1">
                 <Label>Background</Label>

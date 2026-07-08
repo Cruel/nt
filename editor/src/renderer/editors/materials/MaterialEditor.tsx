@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
@@ -197,7 +197,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           </section>
         </div>
         <aside className="min-h-[420px] overflow-hidden rounded border bg-muted/20">
-          <EnginePreview chrome="minimal" previewMode="material" previewDocument={previewDocument} />
+          <DerivedPreviewPane ownerTabId={tab.id} previewMode="material" previewDocument={previewDocument} resetBeforeLoad />
         </aside>
       </div>
     </div>

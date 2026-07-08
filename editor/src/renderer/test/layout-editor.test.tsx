@@ -20,8 +20,8 @@ vi.mock('react-resizable-panels', () => ({
   Separator: () => <div data-testid="resize-separator" />,
 }));
 
-vi.mock('@/components/engine-preview', () => ({
-  EnginePreview: ({ previewDocument }: { previewDocument?: { data?: unknown } }) => <div data-preview-document={JSON.stringify(previewDocument?.data ?? null)} data-testid="engine-preview" />,
+vi.mock('@/preview/DerivedPreviewPane', () => ({
+  DerivedPreviewPane: ({ previewDocument }: { previewDocument?: { data?: unknown } }) => <div data-preview-document={JSON.stringify(previewDocument?.data ?? null)} data-testid="derived-preview" />,
 }));
 
 vi.mock('@/components/source/SourceEditor', async () => {
@@ -82,7 +82,7 @@ describe('LayoutEditor', () => {
     expect(screen.getByText('RML Source')).toBeInTheDocument();
     expect(screen.getByText('RCSS Source')).toBeInTheDocument();
     expect(screen.getByText('Lua Source')).toBeInTheDocument();
-    expect(screen.getByTestId('engine-preview')).toBeInTheDocument();
+    expect(screen.getByTestId('derived-preview')).toBeInTheDocument();
   });
 
   it('commits source edits immediately through layout.replaceData', async () => {
@@ -96,7 +96,7 @@ describe('LayoutEditor', () => {
     fireEvent.change(rmlEditor, { target: { value: '<div><h1>Changed Layout</h1></div>\n' } });
 
     await waitFor(() => {
-      expect(screen.getByTestId('engine-preview')).toHaveAttribute('data-preview-document', expect.stringContaining('Changed Layout'));
+      expect(screen.getByTestId('derived-preview')).toHaveAttribute('data-preview-document', expect.stringContaining('Changed Layout'));
       expect(useProjectStore.getState().document).toMatchObject({
         layouts: {
           main: {

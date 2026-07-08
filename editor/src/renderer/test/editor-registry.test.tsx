@@ -43,6 +43,28 @@ describe('editor registry', () => {
     });
   });
 
+  it('marks derived embedded preview editors as pooled per tab group', () => {
+    const pooledDerivedEditorTypes = [
+      'shader-detail',
+      'material-detail',
+      'layout-detail',
+      'character-detail',
+      'room-detail',
+      'dialogue-detail',
+      'scene-detail',
+    ];
+
+    for (const editorType of pooledDerivedEditorTypes) {
+      const registration = defaultEditorRegistry.resolve(editorType);
+      expect(registration).not.toBeNull();
+      expect(resolveEditorPolicies(registration!)).toEqual({
+        mountPolicy: 'active-only',
+        previewHostPolicy: 'pooled-per-tab-group',
+        previewPersistence: 'derived',
+      });
+    }
+  });
+
   it('builds a stable primary preview tab descriptor', () => {
     expect(buildPrimaryPreviewTab()).toMatchObject({
       id: 'tab:primary-preview',

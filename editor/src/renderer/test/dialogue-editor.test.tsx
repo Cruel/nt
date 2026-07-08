@@ -37,9 +37,9 @@ vi.mock('@xyflow/react', () => ({
   ),
 }));
 
-vi.mock('@/components/engine-preview', () => ({
-  EnginePreview: ({ previewDocument }: { previewDocument: { kind: string; data: { selectedBlockId?: string | null } } }) => (
-    <div data-kind={previewDocument.kind} data-selected-block={previewDocument.data.selectedBlockId ?? ''} data-testid="dialogue-engine-preview" />
+vi.mock('@/preview/DerivedPreviewPane', () => ({
+  DerivedPreviewPane: ({ previewDocument }: { previewDocument: { kind: string; data: { selectedBlockId?: string | null } } }) => (
+    <div data-kind={previewDocument.kind} data-selected-block={previewDocument.data.selectedBlockId ?? ''} data-testid="dialogue-derived-preview" />
   ),
 }));
 
@@ -77,7 +77,7 @@ describe('DialogueEditor', () => {
 
     expect(screen.getByText('Branch map')).toBeInTheDocument();
     expect(screen.getByText('Block transcript')).toBeInTheDocument();
-    expect(screen.getByTestId('dialogue-engine-preview')).toHaveAttribute('data-kind', 'dialogue-preview');
+    expect(screen.getByTestId('dialogue-derived-preview')).toHaveAttribute('data-kind', 'dialogue-preview');
   });
 
   it('dispatches command-backed display, block, segment, and choice updates', async () => {

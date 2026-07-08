@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
-import { EnginePreview } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +8,7 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
+import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -434,7 +434,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
       <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
       <Panel defaultSize={horizontalSplitSizesRef.current[1] ?? 38} minSize={24}>
         <div className="h-full min-h-0 border-l bg-background">
-          <EnginePreview chrome="minimal" previewMode="layout" previewDocument={previewDocument} />
+          <DerivedPreviewPane ownerTabId={tab.id} previewMode="layout" previewDocument={previewDocument} resetBeforeLoad />
         </div>
       </Panel>
     </Group>
