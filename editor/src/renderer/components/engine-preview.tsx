@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useEnginePreview } from '@/hooks/use-engine-preview';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { EnginePreviewHost } from '@/components/engine-preview-host';
+import { latestPreviewReplay, previewDocumentTarget, useEnginePreviewStatusBridge } from '@/components/engine-preview-status-bridge';
+import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -7,51 +9,9 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { PreviewConnectionState, PreviewDocument, PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
-const BUILD_COMMAND = 'pnpm engine:preview:build';
-
-function previewDocumentTarget(document: PreviewDocument) {
-  if (document.kind === 'symbolic') return document.target;
-  const collection = document.kind === 'layout-preview'
-    ? 'layouts'
-    : document.kind === 'material-preview'
-      ? 'materials'
-      : document.kind === 'shader-preview'
-        ? 'shaders'
-        : document.kind === 'character-preview'
-          ? 'characters'
-          : document.kind === 'room-preview'
-            ? 'rooms'
-            : document.kind === 'dialogue-preview'
-              ? 'dialogues'
-              : document.kind === 'scene-preview'
-                ? 'scenes'
-                : undefined;
-  return { collection, entityId: document.recordId, kind: document.kind.replace('-preview', '') };
-}
-
-function latestPreviewReplay(
-  documentsBySessionId: Record<string, PreviewDocument>,
-  modeBySessionId: Record<string, PreviewMode>,
-): { sessionId: string; document: PreviewDocument; mode: PreviewMode } | null {
-  const entry = Object.entries(documentsBySessionId).at(-1);
-  if (!entry) return null;
-  const [sessionId, document] = entry;
-  return { sessionId, document, mode: modeBySessionId[sessionId] ?? 'symbolic' };
-}
-
-function appendSessionParams(url: string, params: Record<string, string | number | boolean | undefined>) {
-  const next = new URL(url);
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined) next.searchParams.set(key, String(value));
-  }
-  return next.toString();
-}
-
 export function sanitizePreviewFpsCap(value: number) {
   return Number.isFinite(value) ? Math.min(1000, Math.max(0, Math.trunc(value))) : 0;
 }
-
-export type EnginePreviewController = ReturnType<typeof useEnginePreview>;
 
 export type EnginePreviewConnectionState = PreviewConnectionState;
 
@@ -78,21 +38,22 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     ? `${previewDocument.kind}:${previewDocument.recordId}`
     : PRIMARY_PREVIEW_SESSION_ID;
   const ensurePrimaryRuntimeSession = usePreviewManagerStore((s) => s.ensurePrimaryRuntimeSession);
-  const setSessionStatus = usePreviewManagerStore((s) => s.setSessionStatus);
-  const setSessionCapabilities = usePreviewManagerStore((s) => s.setSessionCapabilities);
   const setPrimaryTransport = usePreviewManagerStore((s) => s.setPrimaryTransport);
   const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
-  const recordPreviewDiagnostic = usePreviewManagerStore((s) => s.recordPreviewDiagnostic);
   const replayDocuments = usePreviewManagerStore((s) => s.replay.documentsBySessionId);
   const replayModes = usePreviewManagerStore((s) => s.replay.modeBySessionId);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
-  const setSelectedRuntimeObjectId = useWorkspaceStore((s) => s.setSelectedRuntimeObjectId);
-  const setLastPreviewEvent = useWorkspaceStore((s) => s.setLastPreviewEvent);
-  const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
   const activateGroup = useWorkbenchStore((s) => s.activateGroup);
-  const previewHostRef = useRef<HTMLDivElement | null>(null);
+  const {
+    handlePreviewMessage: bridgePreviewMessage,
+    recordTransportError: bridgeTransportError,
+    recordPreviewDiagnostic,
+    setSessionStatus,
+    setStatusMessage,
+  } = useEnginePreviewStatusBridge({ embedded, sessionId, onPreviewMessage });
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [localConnectionState, setLocalConnectionState] = useState<EnginePreviewConnectionState>('loading');
   const [fpsCap, setFpsCap] = useState(0);
   const connectionState = embedded ? localConnectionState : globalConnectionState;
@@ -102,56 +63,24 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   }, [embedded, setGlobalConnectionState]);
   const setSanitizedFpsCap = useCallback((value: number) => setFpsCap(sanitizePreviewFpsCap(value)), []);
 
-  const activateContainingWorkbenchGroup = useCallback(() => {
-    // Iframe focus does not reliably bubble to React, so activate the owning workbench group explicitly.
-    const groupElement = previewHostRef.current?.closest<HTMLElement>('[data-workbench-group-id]');
-    const groupId = groupElement?.dataset.workbenchGroupId;
-    if (groupId) activateGroup(groupId);
+  const activateContainingWorkbenchGroup = useCallback((groupId?: string) => {
+    const nextGroupId = groupId ?? wrapperRef.current?.closest<HTMLElement>('[data-workbench-group-id]')?.dataset.workbenchGroupId;
+    if (nextGroupId) activateGroup(nextGroupId);
   }, [activateGroup]);
 
-  const scheduleContainingWorkbenchGroupActivation = useCallback(() => {
-    window.setTimeout(activateContainingWorkbenchGroup, 0);
-  }, [activateContainingWorkbenchGroup]);
-
   const recordTransportError = useCallback((message: string) => {
-    setConnectionState('error');
-    setSessionStatus(sessionId, 'error');
-    recordPreviewDiagnostic({ sessionId, severity: 'error', source: 'transport', message });
-    if (!embedded) setStatusMessage(message);
-  }, [embedded, recordPreviewDiagnostic, sessionId, setConnectionState, setSessionStatus, setStatusMessage]);
+    bridgeTransportError(message, setConnectionState);
+  }, [bridgeTransportError, setConnectionState]);
 
   const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
-    onPreviewMessage?.(message);
-    if (!embedded) setLastPreviewEvent(message);
-    if (message.type === 'ready' || message.type === 'capabilities') {
-      setSessionCapabilities(sessionId, message.capabilities);
-    }
-    if (message.type === 'preview-diagnostic') {
-      recordPreviewDiagnostic({
-        sessionId,
-        severity: message.diagnostic.severity,
-        source: 'runtime',
-        message: message.diagnostic.message,
-        path: message.diagnostic.path,
-        target: message.diagnostic.target,
-      });
-    }
-    if (message.type === 'preview-interacted') {
-      // Handles iframe-to-iframe focus changes that parent DOM pointer/focus events cannot observe.
-      activateContainingWorkbenchGroup();
-    }
-    if (!embedded && message.type === 'object-clicked' && message.objectId === 'demo-triangle') {
-      setSelectedRuntimeObjectId(message.objectId);
-      setStatusMessage('Selected demo-triangle from engine preview');
-    } else if (message.type === 'runtime-error') {
-      setConnectionState('error');
-      setSessionStatus(sessionId, 'error');
-      recordPreviewDiagnostic({ sessionId, severity: 'error', source: 'runtime', message: message.message });
-      if (!embedded) setStatusMessage(message.message);
-    }
-  }, [activateContainingWorkbenchGroup, embedded, onPreviewMessage, recordPreviewDiagnostic, sessionId, setConnectionState, setLastPreviewEvent, setSelectedRuntimeObjectId, setSessionCapabilities, setSessionStatus, setStatusMessage]);
+    bridgePreviewMessage(message, {
+      activateContainingWorkbenchGroup,
+      setConnectionState,
+    });
+  }, [activateContainingWorkbenchGroup, bridgePreviewMessage, setConnectionState]);
 
   const controller = useEnginePreview({
+    embedded,
     onReady: () => {
       setConnectionState('ready');
       setSessionStatus(sessionId, 'ready');
@@ -168,23 +97,12 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   const {
     iframeRef,
     iframeKey,
-    session,
+    iframeSrc,
     loadSession,
     loadPreviewDocument,
     setPreviewMode,
     setEngineSettings,
   } = controller;
-
-  useEffect(() => {
-    function handleWindowBlur() {
-      window.setTimeout(() => {
-        // Parent window blur is the browser-level signal for focus moving into the iframe.
-        if (document.activeElement === iframeRef.current) activateContainingWorkbenchGroup();
-      }, 0);
-    }
-    window.addEventListener('blur', handleWindowBlur);
-    return () => window.removeEventListener('blur', handleWindowBlur);
-  }, [activateContainingWorkbenchGroup, iframeRef]);
 
   useEffect(() => {
     if (!embedded) {
@@ -279,47 +197,22 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
       })
     : null;
 
-  const iframeSrc = useMemo(() => {
-    if (!session) return null;
-    return embedded
-      ? appendSessionParams(session.url, { demo: 'none', noImgui: '1', maxDpr: '1' })
-      : session.url;
-  }, [embedded, session]);
-
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div ref={wrapperRef} className="flex h-full min-h-0 flex-col bg-background">
       {controls}
-      <div ref={previewHostRef} className="relative min-h-0 flex-1 bg-zinc-950">
-        {iframeSrc ? (
-          <iframe
-            key={iframeKey}
-            ref={iframeRef}
-            title="NovelTea engine preview"
-            src={iframeSrc}
-            sandbox="allow-scripts allow-same-origin"
-            className="h-full w-full border-0"
-            onPointerDown={scheduleContainingWorkbenchGroupActivation}
-            onFocus={scheduleContainingWorkbenchGroupActivation}
-            onLoad={() => {
-              setConnectionState('connecting');
-              setSessionStatus(sessionId, 'connecting');
-            }}
-            onError={() => recordTransportError('Engine preview iframe failed to load.')}
-          />
-        ) : connectionState === 'missing' || connectionState === 'error' ? (
-          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            <div>
-              <div className="font-medium">Engine preview build not found</div>
-              <div className="mt-1 font-mono text-xs">{BUILD_COMMAND}</div>
-            </div>
-          </div>
-        ) : null}
-        {!embedded && connectionState !== 'ready' ? (
-          <div className="pointer-events-none absolute left-3 top-3 rounded-sm bg-background/90 px-2 py-1 font-mono text-[11px] text-muted-foreground">
-            {connectionState}
-          </div>
-        ) : null}
-      </div>
+      <EnginePreviewHost
+        iframeRef={iframeRef}
+        iframeKey={iframeKey}
+        iframeSrc={iframeSrc}
+        embedded={embedded}
+        connectionState={connectionState}
+        onActivateContainingGroup={activateContainingWorkbenchGroup}
+        onConnecting={() => {
+          setConnectionState('connecting');
+          setSessionStatus(sessionId, 'connecting');
+        }}
+        onError={recordTransportError}
+      />
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { EnginePreview } from '@/components/engine-preview';
+import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -59,6 +61,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -84,6 +87,36 @@ async function renderConnectedPreview() {
 }
 
 describe('EnginePreview', () => {
+  it('renders the lower-level iframe host without preview-manager wrapper state', () => {
+    const iframeRef = { current: null };
+    render(
+      <EnginePreviewHost
+        iframeRef={iframeRef}
+        iframeKey={0}
+        iframeSrc="http://localhost:4173/widget.html"
+        embedded={true}
+        connectionState="loading"
+        className="absolute inset-0"
+        iframeClassName="size-full border-0"
+        showConnectionOverlay={false}
+        onActivateContainingGroup={() => undefined}
+        onConnecting={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+
+    expect(screen.getByTitle('NovelTea engine preview')).toHaveAttribute('src', 'http://localhost:4173/widget.html');
+    expect(screen.queryByText('loading')).not.toBeInTheDocument();
+    expect(usePreviewManagerStore.getState().sessionsById).toEqual({});
+  });
+
+  it('loads a preview session into an iframe src', async () => {
+    render(<EnginePreview />);
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    expect(iframe.src).toBe('http://127.0.0.1:5000/?sessionToken=test-token');
+    expect(window.noveltea.getEnginePreviewSession).toHaveBeenCalledTimes(1);
+  });
+
   it('activates the containing workbench group when the preview iframe receives click focus or child interaction', async () => {
     useWorkbenchStore.setState({
       layout: { kind: 'split', id: 'split', direction: 'horizontal', children: [{ kind: 'group', groupId: 'left' }, { kind: 'group', groupId: 'right' }], sizesByChild: { 'group:left': 50, 'group:right': 50 } },
@@ -133,6 +166,142 @@ describe('EnginePreview', () => {
     });
   });
 
+  it('updates capabilities from ready and capabilities messages', async () => {
+    const { previewPort } = await renderConnectedPreview();
+    await act(async () => {
+      previewPort.postMessage({ version: 1, type: 'capabilities', capabilities: ['runtime-debug', 'snapshots'] });
+    });
+    expect(usePreviewManagerStore.getState().sessionsById[PRIMARY_PREVIEW_SESSION_ID]).toMatchObject({
+      status: 'ready',
+      capabilities: ['runtime-debug', 'snapshots'],
+    });
+  });
+
+  it('resolves command request and response messages for controls', async () => {
+    const user = userEvent.setup();
+    render(
+      <EnginePreview
+        renderControls={({ controller }) => (
+          <button type="button" onClick={() => void controller.requestState().then(() => useWorkspaceStore.getState().setStatusMessage('request resolved'))}>
+            Request state
+          </button>
+        )}
+      />,
+    );
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }));
+      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
+    await user.click(screen.getByText('Request state'));
+    const editorPort = ports.at(-2)!;
+    const request = editorPort.sent.find((message) => (message as { type?: string }).type === 'request-state') as { requestId: string } | undefined;
+    expect(request).toBeDefined();
+    await act(async () => {
+      ports.at(-1)?.postMessage({ version: 1, type: 'command-result', requestId: request!.requestId, ok: true });
+    });
+    await waitFor(() => expect(useWorkspaceStore.getState().statusMessage).toBe('request resolved'));
+  });
+
+  it('records timed out command requests as transport errors', async () => {
+    render(
+      <EnginePreview
+        renderControls={({ controller, sendRuntimeCommand }) => (
+          <button type="button" onClick={() => sendRuntimeCommand(controller.requestState(), 'Requested state')}>
+            Request state
+          </button>
+        )}
+      />,
+    );
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }));
+      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('Request state'));
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    vi.useRealTimers();
+    await waitFor(() => expect(useWorkspaceStore.getState().statusMessage).toBe('Preview command timed out: request-state'));
+  });
+
+  it('reloads the iframe session and closes the previous transport port', async () => {
+    const user = userEvent.setup();
+    render(
+      <EnginePreview
+        renderControls={({ reload }) => (
+          <button type="button" onClick={reload}>
+            Reload preview
+          </button>
+        )}
+      />,
+    );
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }));
+      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
+    const editorPort = ports.at(-2)!;
+    await user.click(await screen.findByText('Reload preview'));
+    await waitFor(() => expect(window.noveltea.reloadEnginePreview).toHaveBeenCalled());
+    expect(editorPort.closed).toBe(true);
+    await waitFor(() => expect((screen.getByTitle('NovelTea engine preview') as HTMLIFrameElement).src).toBe('http://127.0.0.1:5001/?sessionToken=test-token-2'));
+  });
+
+  it('minimal embedded previews load preview documents with embedded iframe params', async () => {
+    const previewDocument = {
+      kind: 'room-preview' as const,
+      recordId: 'foyer',
+      revision: 'rev-1',
+      data: { label: 'Foyer' },
+    };
+    render(<EnginePreview chrome="minimal" previewMode="room" previewDocument={previewDocument} />);
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    expect(iframe.src).toContain('sessionToken=test-token');
+    expect(iframe.src).toContain('demo=none');
+    expect(iframe.src).toContain('noImgui=1');
+    expect(iframe.src).toContain('maxDpr=1');
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }));
+      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
+    const editorPort = ports.at(-2)!;
+    await waitFor(() => expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-preview-mode',
+      requestId: expect.any(String),
+      mode: 'room',
+    }));
+    const modeRequest = editorPort.sent.find((message) => (message as { type?: string }).type === 'set-preview-mode') as { requestId: string };
+    await act(async () => {
+      ports.at(-1)?.postMessage({ version: 1, type: 'command-result', requestId: modeRequest.requestId, ok: true });
+    });
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'load-preview-document',
+      requestId: expect.any(String),
+      document: previewDocument,
+    });
+  });
+
   it('keeps ad-hoc runtime controls out of the generic preview chrome', async () => {
     await renderConnectedPreview();
     expect(screen.queryByLabelText('Start runtime')).not.toBeInTheDocument();
@@ -173,6 +342,19 @@ describe('EnginePreview', () => {
     });
     const diagnostics = usePreviewManagerStore.getState().diagnosticOrder.map((id) => usePreviewManagerStore.getState().diagnosticsById[id]);
     expect(diagnostics[0]).toMatchObject({ severity: 'error', source: 'runtime', message: 'preview failed' });
+  });
+
+  it('preview diagnostics are recorded from preview messages', async () => {
+    const { previewPort } = await renderConnectedPreview();
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'preview-diagnostic',
+        diagnostic: { severity: 'warning', message: 'layout fallback used', path: 'rooms.foyer' },
+      });
+    });
+    const diagnostics = usePreviewManagerStore.getState().diagnosticOrder.map((id) => usePreviewManagerStore.getState().diagnosticsById[id]);
+    expect(diagnostics[0]).toMatchObject({ severity: 'warning', source: 'runtime', message: 'layout fallback used', path: 'rooms.foyer' });
   });
 
   it('missing preview build displays the build instruction', async () => {

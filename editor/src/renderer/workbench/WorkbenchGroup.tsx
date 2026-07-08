@@ -1,6 +1,7 @@
 import { useDroppable } from '@dnd-kit/core';
 import { useEffect } from 'react';
 import { useProjectStore } from '@/project/project-store';
+import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
 import { defaultEditorRegistry } from './default-editors';
 import { missingEditorRegistration, resolveEditorPolicies, type WorkbenchEditorRegistration, type ResolvedWorkbenchEditorPolicies } from './editor-registry';
@@ -67,28 +68,30 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
     <div ref={setDockNodeRef} className="flex h-full min-h-0 flex-col overflow-hidden border-x border-b bg-background" data-workbench-group-id={group.id} onFocusCapture={() => activateGroup(group.id)} onPointerDownCapture={() => activateGroup(group.id)}>
       <WorkbenchTabs group={group} tabs={tabs} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {activeTab ? (
-          editorPanes.map(({ tab, registration, policies, isActive }) => {
-            return (
-              <WorkbenchEditorPane
-                key={tab.id}
-                tab={tab}
-                registration={registration}
-                policies={policies}
-                isActive={isActive}
-              />
-            );
-          })
-        ) : project ? (
-          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            <div>
-              <div className="font-medium text-foreground">No tab open</div>
-              <div className="mt-1">Open a project record or reopen the preview.</div>
+        <PreviewHostPoolProvider groupId={group.id} activeTabId={activeTab?.id ?? null}>
+          {activeTab ? (
+            editorPanes.map(({ tab, registration, policies, isActive }) => {
+              return (
+                <WorkbenchEditorPane
+                  key={tab.id}
+                  tab={tab}
+                  registration={registration}
+                  policies={policies}
+                  isActive={isActive}
+                />
+              );
+            })
+          ) : project ? (
+            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+              <div>
+                <div className="font-medium text-foreground">No tab open</div>
+                <div className="mt-1">Open a project record or reopen the preview.</div>
+              </div>
             </div>
-          </div>
-        ) : (
-          <WorkspaceDashboard />
-        )}
+          ) : (
+            <WorkspaceDashboard />
+          )}
+        </PreviewHostPoolProvider>
       </div>
     </div>
   );
