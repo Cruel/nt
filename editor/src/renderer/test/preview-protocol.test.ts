@@ -45,6 +45,11 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'request-preview-snapshot', requestId: 'r3', snapshotId: 's1' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r4', settings: { showFpsCounter: true, fpsCap: 60 } })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-engine-settings', requestId: 'r5', settings: { fpsCap: -1 } })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-active', active: true, visible: true })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-inactive', active: false })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-missing' })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-bad-active', active: 1 })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-bad-visible', active: true, visible: 'yes' })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-start', requestId: 'runtime-start' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project', project: { engine: 1 } })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project-bad' })).toBe(false);

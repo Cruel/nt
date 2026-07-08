@@ -1,6 +1,6 @@
 # Migration Status
 
-Last updated: 2026-07-06.
+Last updated: 2026-07-08.
 
 This file is durable project memory for the next implementation session. Keep it short and current.
 Move historical analysis to `docs/archive/` and detailed implementation plans to the relevant
@@ -53,6 +53,10 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   support as optional migration tooling, not a compatibility contract.
 - The Electron/TanStack editor has a workbench shell, command/undo foundation, authoring schema
   skeleton, project explorer/entity operations, preview manager foundation, and assets editor v1.
+- Editor preview Phase 9 visibility/activity throttling is implemented. Preview hosts send typed
+  `set-preview-activity` presentation messages; pooled idle hosts become inactive, and hidden Play
+  hosts reduce presentation work and apply the existing engine FPS pacing hook without using
+  semantic runtime stop/reset/load commands.
 
 ## Active Gaps
 
@@ -197,4 +201,14 @@ ctest --test-dir build/linux-debug -R "RuntimeShell start_game supports a scene 
 ./node_modules/.bin/vitest run src/renderer/test/authoring-runtime-export.test.ts
 clang-format --dry-run --Werror <touched C++ files>
 git diff --check
+```
+
+Latest editor preview Phase 9 verification:
+
+```sh
+pnpm vitest run src/renderer/test/preview-protocol.test.ts
+pnpm vitest run src/renderer/test/engine-preview.test.tsx
+pnpm vitest run src/renderer/test/full-game-preview-editor.test.tsx
+pnpm vitest run src/renderer/test/preview-host-pool.test.tsx src/renderer/test/workbench-group.test.tsx src/renderer/test/workbench-tabs.test.tsx
+pnpm typecheck
 ```

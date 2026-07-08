@@ -28,11 +28,25 @@ interface EnginePreviewProps {
   chrome?: 'runtime' | 'minimal';
   previewDocument?: PreviewDocument;
   previewMode?: PreviewMode;
+  previewActivityRefreshOnVisible?: 'none' | 'preview-state' | 'runtime-debug';
   renderControls?: (context: EnginePreviewControlsContext) => ReactNode;
   onPreviewMessage?: (message: PreviewToEditorMessage) => void;
 }
 
-export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode = 'runtime', renderControls, onPreviewMessage }: EnginePreviewProps) {
+function isPreviewWrapperVisible(wrapper: HTMLDivElement | null) {
+  const pane = wrapper?.closest<HTMLElement>('[data-workbench-editor-pane]');
+  if (!pane) return true;
+  return pane.dataset.hidden !== 'true' && pane.getAttribute('aria-hidden') !== 'true';
+}
+
+export function EnginePreview({
+  chrome = 'runtime',
+  previewDocument,
+  previewMode = 'runtime',
+  previewActivityRefreshOnVisible = 'none',
+  renderControls,
+  onPreviewMessage,
+}: EnginePreviewProps) {
   const embedded = chrome === 'minimal';
   const sessionId = embedded && previewDocument && previewDocument.kind !== 'symbolic'
     ? `${previewDocument.kind}:${previewDocument.recordId}`
@@ -56,6 +70,7 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [localConnectionState, setLocalConnectionState] = useState<EnginePreviewConnectionState>('loading');
   const [fpsCap, setFpsCap] = useState(0);
+  const [previewVisible, setPreviewVisible] = useState(true);
   const connectionState = embedded ? localConnectionState : globalConnectionState;
   const setConnectionState = useCallback((next: EnginePreviewConnectionState) => {
     if (embedded) setLocalConnectionState(next);
@@ -105,6 +120,16 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
   } = controller;
 
   useEffect(() => {
+    const updateVisibility = () => setPreviewVisible(isPreviewWrapperVisible(wrapperRef.current));
+    updateVisibility();
+    const pane = wrapperRef.current?.closest<HTMLElement>('[data-workbench-editor-pane]');
+    if (!pane) return undefined;
+    const observer = new MutationObserver(updateVisibility);
+    observer.observe(pane, { attributes: true, attributeFilter: ['data-hidden', 'aria-hidden', 'class', 'inert'] });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     if (!embedded) {
       ensurePrimaryRuntimeSession();
       setPrimaryRuntimeReplay({
@@ -131,6 +156,20 @@ export function EnginePreview({ chrome = 'runtime', previewDocument, previewMode
     if (connectionState !== 'ready') return;
     void setEngineSettings({ showFpsCounter: showPreviewFpsCounter, fpsCap }).catch((error: Error) => recordTransportError(error.message));
   }, [connectionState, fpsCap, recordTransportError, setEngineSettings, showPreviewFpsCounter]);
+
+  useEffect(() => {
+    if (connectionState !== 'ready') return;
+    const sendActivity = async () => {
+      await controller.setPreviewActivity(previewVisible, previewVisible);
+      if (!previewVisible) return;
+      if (previewActivityRefreshOnVisible === 'runtime-debug') {
+        await controller.requestRuntimeDebugSnapshot();
+      } else if (previewActivityRefreshOnVisible === 'preview-state') {
+        await controller.requestPreviewState();
+      }
+    };
+    void sendActivity().catch((error: Error) => recordTransportError(error.message));
+  }, [connectionState, controller, previewActivityRefreshOnVisible, previewVisible, recordTransportError]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;

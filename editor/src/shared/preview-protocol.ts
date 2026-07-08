@@ -229,6 +229,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
   | { version: 1; type: 'request-preview-state'; requestId: string }
   | { version: 1; type: 'set-engine-settings'; requestId: string; settings: EnginePreviewSettings }
+  | { version: 1; type: 'set-preview-activity'; requestId: string; active: boolean; visible?: boolean }
   | { version: 1; type: 'request-preview-snapshot'; requestId: string; snapshotId: string };
 
 export type PreviewToEditorMessage =
@@ -574,6 +575,11 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return isPreviewMode(value.mode);
     case 'set-engine-settings':
       return isEnginePreviewSettings(value.settings);
+    case 'set-preview-activity':
+      return (
+        typeof value.active === 'boolean' &&
+        (value.visible === undefined || typeof value.visible === 'boolean')
+      );
     case 'request-preview-snapshot':
       return typeof value.snapshotId === 'string';
     default:

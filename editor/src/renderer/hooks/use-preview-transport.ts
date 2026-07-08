@@ -163,6 +163,11 @@ export function usePreviewTransport({
     updatePreviewDocument: (document: PreviewDocument) => send({ type: 'update-preview-document', document }),
     setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
     setEngineSettings: (settings: EnginePreviewSettings) => send({ type: 'set-engine-settings', settings }),
+    setPreviewActivity: (active: boolean, visible?: boolean) => (
+      visible === undefined
+        ? send({ type: 'set-preview-activity', active })
+        : send({ type: 'set-preview-activity', active, visible })
+    ),
     requestPreviewState: () => send({ type: 'request-preview-state' }),
     requestPreviewSnapshot: (snapshotId: string) => send({ type: 'request-preview-snapshot', snapshotId }),
   }), [cleanupPort, send]);

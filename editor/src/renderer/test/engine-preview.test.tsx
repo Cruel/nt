@@ -86,6 +86,18 @@ async function renderConnectedPreview() {
   return { iframe, editorPort, previewPort };
 }
 
+function latestRequest(editorPort: FakePort, type: string) {
+  return [...editorPort.sent].reverse().find((message) => (message as { type?: string }).type === type) as { requestId: string } | undefined;
+}
+
+async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: string) {
+  const request = latestRequest(editorPort, type);
+  expect(request).toBeDefined();
+  await act(async () => {
+    previewPort.postMessage({ version: 1, type: 'command-result', requestId: request!.requestId, ok: true });
+  });
+}
+
 describe('EnginePreview', () => {
   it('renders the lower-level iframe host without preview-manager wrapper state', () => {
     const iframeRef = { current: null };
@@ -318,6 +330,52 @@ describe('EnginePreview', () => {
       requestId: expect.any(String),
       settings: { showFpsCounter: true, fpsCap: 0 },
     });
+  });
+
+  it('sends preview activity and requests a safe refresh when a dedicated preview becomes visible', async () => {
+    const view = render(
+      <div data-workbench-editor-pane="tab:preview" data-hidden="true" aria-hidden="true">
+        <EnginePreview previewActivityRefreshOnVisible="preview-state" />
+      </div>,
+    );
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    await waitFor(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }));
+      expect(ports.length).toBeGreaterThanOrEqual(2);
+    });
+    const editorPort = ports.at(-2)!;
+    const previewPort = ports.at(-1)!;
+    await act(async () => {
+      previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
+    await waitFor(() => expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-preview-activity',
+      requestId: expect.any(String),
+      active: false,
+      visible: false,
+    }));
+
+    view.rerender(
+      <div data-workbench-editor-pane="tab:preview">
+        <EnginePreview previewActivityRefreshOnVisible="preview-state" />
+      </div>,
+    );
+
+    await waitFor(() => expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-preview-activity',
+      requestId: expect.any(String),
+      active: true,
+      visible: true,
+    }));
+    await resolveLatest(editorPort, previewPort, 'set-preview-activity');
+    await waitFor(() => expect(latestRequest(editorPort, 'request-preview-state')).toBeDefined());
+    expect(editorPort.sent.filter((message) => ['runtime-stop', 'runtime-reset', 'stop'].includes(String((message as { type?: string }).type)))).toEqual([]);
   });
 
   it('object-clicked updates selected runtime object and status', async () => {

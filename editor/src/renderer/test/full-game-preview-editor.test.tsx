@@ -87,6 +87,30 @@ async function renderConnectedPreview() {
   return { iframe, editorPort, previewPort };
 }
 
+async function renderConnectedPreviewInPane(hidden = false) {
+  const view = render(
+    <div data-workbench-editor-pane="tab:full-game-preview" data-hidden={hidden ? true : undefined} aria-hidden={hidden ? true : undefined}>
+      <FullGamePreviewEditor />
+    </div>,
+  );
+  const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+  await waitFor(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      source: iframe.contentWindow,
+      origin: 'http://127.0.0.1:5000',
+      data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+    }));
+    expect(ports.length).toBeGreaterThanOrEqual(2);
+  });
+  const editorPort = ports.at(-2)!;
+  const previewPort = ports.at(-1)!;
+  await act(async () => {
+    previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
+  });
+  await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
+  return { ...view, iframe, editorPort, previewPort };
+}
+
 function latestRequest(editorPort: FakePort, type: string) {
   return [...editorPort.sent].reverse().find((message) => (message as { type?: string }).type === type) as { requestId: string } | undefined;
 }
@@ -115,6 +139,60 @@ function cloneProject<T>(project: T): T {
 }
 
 describe('FullGamePreviewEditor', () => {
+  it('presentation-pauses hidden Play without semantically stopping or resetting the runtime', async () => {
+    const view = await renderConnectedPreviewInPane(false);
+    await waitFor(() => expect(latestRequest(view.editorPort, 'set-preview-activity')).toBeDefined());
+    const initialRuntimeStopCount = requests(view.editorPort, 'runtime-stop').length;
+    const initialRuntimeResetCount = requests(view.editorPort, 'runtime-reset').length;
+    const initialStopCount = requests(view.editorPort, 'stop').length;
+    const initialLoadCount = requests(view.editorPort, 'runtime-load-project').length;
+
+    view.rerender(
+      <div data-workbench-editor-pane="tab:full-game-preview" data-hidden="true" aria-hidden="true">
+        <FullGamePreviewEditor />
+      </div>,
+    );
+
+    await waitFor(() => expect(view.editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-preview-activity',
+      requestId: expect.any(String),
+      active: false,
+      visible: false,
+    }));
+    expect(requests(view.editorPort, 'runtime-stop')).toHaveLength(initialRuntimeStopCount);
+    expect(requests(view.editorPort, 'runtime-reset')).toHaveLength(initialRuntimeResetCount);
+    expect(requests(view.editorPort, 'stop')).toHaveLength(initialStopCount);
+    expect(requests(view.editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount);
+  });
+
+  it('reactivates visible Play and requests a runtime debug snapshot refresh', async () => {
+    const view = await renderConnectedPreviewInPane(true);
+    await waitFor(() => expect(view.editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-preview-activity',
+      requestId: expect.any(String),
+      active: false,
+      visible: false,
+    }));
+
+    view.rerender(
+      <div data-workbench-editor-pane="tab:full-game-preview">
+        <FullGamePreviewEditor />
+      </div>,
+    );
+
+    await waitFor(() => expect(view.editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-preview-activity',
+      requestId: expect.any(String),
+      active: true,
+      visible: true,
+    }));
+    await resolveLatest(view.editorPort, view.previewPort, 'set-preview-activity');
+    await waitFor(() => expect(latestRequest(view.editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+  });
+
   it('loads the active authoring project into the runtime preview before debugging', async () => {
     const project = projectWithEntrypoint();
     useProjectStore.getState().loadUnsavedProjectDocument(project);

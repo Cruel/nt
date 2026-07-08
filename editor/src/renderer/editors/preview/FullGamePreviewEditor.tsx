@@ -1089,6 +1089,7 @@ export function FullGamePreviewEditor() {
     <div className="flex h-full min-h-0 bg-background">
       <div className="min-w-0 flex-1">
         <EnginePreview
+          previewActivityRefreshOnVisible="runtime-debug"
           onPreviewMessage={handlePreviewMessage}
           renderControls={(context) => {
             controlsRef.current = context;

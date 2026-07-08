@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { PreviewHostPoolProvider, PreviewPane, type PreviewHostLease } from '@/preview/preview-host-pool';
 
+const previewControllerMocks = vi.hoisted(() => ({
+  setPreviewActivity: vi.fn().mockResolvedValue(undefined),
+  requestPreviewState: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/hooks/use-engine-preview', () => ({
   useEnginePreview: () => ({
     iframeRef: { current: null },
@@ -17,6 +22,8 @@ vi.mock('@/hooks/use-engine-preview', () => ({
       origin: 'http://127.0.0.1:5000',
       sessionToken: 'test-token',
     }),
+    setPreviewActivity: previewControllerMocks.setPreviewActivity,
+    requestPreviewState: previewControllerMocks.requestPreviewState,
   }),
 }));
 
@@ -64,6 +71,8 @@ function hostElements(container: HTMLElement) {
 }
 
 beforeEach(() => {
+  previewControllerMocks.setPreviewActivity.mockClear();
+  previewControllerMocks.requestPreviewState.mockClear();
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -116,6 +125,30 @@ describe('PreviewHostPool', () => {
     await waitFor(() => expect(hostElements(container)[0]).toHaveAttribute('data-preview-host-claimed', 'true'));
     expect(hostElements(container)).toHaveLength(1);
     expect(hostElements(container)[0]?.dataset.previewHostId).toBe(firstHostId);
+  });
+
+  it('sends inactive activity when a pooled host is released', async () => {
+    const { rerender } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
+
+    rerender(<Harness activeTabId={null} panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+
+    await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(false, false));
+  });
+
+  it('sends active activity and requests preview state when a warm pooled host becomes visible again', async () => {
+    const { rerender } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
+
+    rerender(<Harness activeTabId={null} panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(false, false));
+    previewControllerMocks.setPreviewActivity.mockClear();
+    previewControllerMocks.requestPreviewState.mockClear();
+
+    rerender(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+
+    await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
+    await waitFor(() => expect(previewControllerMocks.requestPreviewState).toHaveBeenCalled());
   });
 
   it('rejects sends from stale leases after release', async () => {

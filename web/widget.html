@@ -31,6 +31,8 @@
     let currentPosition = { x: 0.5, y: 0.5 };
     let currentRunning = true;
     let drainingCommands = false;
+    let previewActivityActive = true;
+    let previewActivityVisible = true;
     const editorRuntimeProjectPath = '/assets/project/editor-runtime-project.json';
     const editorRuntimeProjectLogicalPath = 'project:/editor-runtime-project.json';
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
@@ -162,6 +164,7 @@ thead, tbody, tfoot {
     }
 
     function send(message) {
+      if (message && message.type === 'fps-counter' && (!previewActivityActive || !previewActivityVisible)) return;
       if (port) port.postMessage(message);
     }
 
@@ -179,7 +182,7 @@ thead, tbody, tfoot {
     function setFpsCounterText(fps, frameTimeMs, cap) {
       const counter = document.getElementById('fps-counter');
       if (!counter) return;
-      if (!showFpsCounter || !Number.isFinite(fps) || fps <= 0) {
+      if (!previewActivityActive || !previewActivityVisible || !showFpsCounter || !Number.isFinite(fps) || fps <= 0) {
         counter.style.display = 'none';
         counter.textContent = '';
         return;
@@ -187,6 +190,16 @@ thead, tbody, tfoot {
       const capText = cap > 0 ? ` engine cap ${cap}, display paced` : ' display paced';
       counter.textContent = `${fps.toFixed(1)} fps · ${frameTimeMs.toFixed(2)} ms ·${capText}`;
       counter.style.display = 'block';
+    }
+
+    function effectivePreviewFpsCap() {
+      return previewActivityActive && previewActivityVisible ? fpsCap : 1;
+    }
+
+    function applyPreviewFramePacing() {
+      if (typeof Module !== 'undefined' && typeof Module._noveltea_engine_set_fps_cap === 'function') {
+        Module._noveltea_engine_set_fps_cap(effectivePreviewFpsCap());
+      }
     }
 
     function applyEngineSettings(settings = {}) {
@@ -201,10 +214,31 @@ thead, tbody, tfoot {
         if (typeof Module._noveltea_engine_set_show_fps_counter === 'function') {
           Module._noveltea_engine_set_show_fps_counter(showFpsCounter ? 1 : 0);
         }
-        if (typeof Module._noveltea_engine_set_fps_cap === 'function') {
-          Module._noveltea_engine_set_fps_cap(fpsCap);
-        }
+        applyPreviewFramePacing();
       }
+    }
+
+    function applyPreviewActivity(message) {
+      if (!message || message.version !== protocolVersion || message.type !== 'set-preview-activity' || typeof message.requestId !== 'string') {
+        return false;
+      }
+      if (typeof message.active !== 'boolean' || (message.visible !== undefined && typeof message.visible !== 'boolean')) {
+        failCommand(message, 'Invalid preview activity command.', { category: 'preview-activity' });
+        return true;
+      }
+      const wasVisible = previewActivityVisible;
+      previewActivityActive = message.active;
+      previewActivityVisible = message.visible === undefined ? message.active : message.visible;
+      applyPreviewFramePacing();
+      if (!previewActivityActive || !previewActivityVisible) {
+        setFpsCounterText(0, 0, fpsCap);
+      } else if (!wasVisible && previewActivityVisible) {
+        // This is intentionally presentation-only. The runtime state is not stopped, reset, or reloaded.
+        resizeCanvas();
+        scheduleResize();
+      }
+      send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      return true;
     }
 
     function sourceText(source) {
@@ -708,6 +742,9 @@ thead, tbody, tfoot {
 
     async function runCommand(message) {
       try {
+        if (applyPreviewActivity(message)) {
+          return;
+        }
         if (!runtimeReady || !engineReady) {
           commandQueue.push(message);
           return;
@@ -738,6 +775,8 @@ thead, tbody, tfoot {
         } else if (message.type === 'set-engine-settings') {
           applyEngineSettings(message.settings);
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+        } else if (message.type === 'set-preview-activity') {
+          applyPreviewActivity(message);
         } else if (message.type === 'request-preview-snapshot') {
           failCommand(message, 'Preview snapshots are not implemented by the editor widget yet.');
         } else {
@@ -773,7 +812,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'runtime-load-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'runtime-load-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
       });
       void drainCommands();
     }
@@ -784,6 +823,7 @@ thead, tbody, tfoot {
         if (port) port.close();
         port = nextPort;
         port.onmessage = function(event) {
+          if (applyPreviewActivity(event.data)) return;
           commandQueue.push(event.data);
           void drainCommands();
         };

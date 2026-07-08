@@ -123,6 +123,18 @@ function PreviewHostSlot({
   const isVisible = Boolean(rect && host.lease);
   const style = rect && isVisible ? rectHostStyle(rect) : hiddenHostStyle();
 
+  useEffect(() => {
+    const sendActivity = async () => {
+      try {
+        await controller.setPreviewActivity(isVisible, isVisible);
+        if (isVisible) await controller.requestPreviewState();
+      } catch {
+        // Activity is best-effort; preview content commands remain lease-scoped.
+      }
+    };
+    void sendActivity();
+  }, [controller, isVisible]);
+
   return (
     <div
       className="overflow-hidden bg-zinc-950"
