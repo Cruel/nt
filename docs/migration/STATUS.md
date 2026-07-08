@@ -53,6 +53,9 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   support as optional migration tooling, not a compatibility contract.
 - The Electron/TanStack editor has a workbench shell, command/undo foundation, authoring schema
   skeleton, project explorer/entity operations, preview manager foundation, and assets editor v1.
+- ComfyUI server/default workflow preferences are editor-wide persisted preferences. Project Settings
+  only handles project-local workflow installation and diagnostics, and should not write ComfyUI
+  connection data into authoring project `settings`.
 - Editor preview Phase 9 visibility/activity throttling is implemented. Preview hosts send typed
   `set-preview-activity` presentation messages; pooled idle hosts become inactive, and hidden Play
   hosts reduce presentation work and apply the existing engine FPS pacing hook without using
@@ -212,3 +215,18 @@ pnpm vitest run src/renderer/test/full-game-preview-editor.test.tsx
 pnpm vitest run src/renderer/test/preview-host-pool.test.tsx src/renderer/test/workbench-group.test.tsx src/renderer/test/workbench-tabs.test.tsx
 pnpm typecheck
 ```
+
+Latest editor ComfyUI settings relocation verification:
+
+```sh
+pnpm vitest run src/renderer/test/comfyui-store.test.ts src/renderer/test/settings-page.test.tsx src/renderer/test/project-settings-editor.test.tsx src/renderer/test/project-settings-operations.test.ts src/renderer/test/authoring-project-settings.test.ts src/renderer/test/image-generation-editor.test.tsx
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm vitest run src/renderer/test/engine-preview.test.tsx
+```
+
+The focused tests and `pnpm typecheck` pass. `pnpm lint` currently fails on pre-existing unrelated
+dirty workbench code: `editor/src/renderer/workbench/WorkbenchTabs.tsx` has an unused `openTab`.
+`pnpm test` had one order-sensitive failure in `src/renderer/test/engine-preview.test.tsx`; rerunning
+that file in isolation passed.

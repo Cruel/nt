@@ -177,7 +177,7 @@ Generic project and entity commands handle most project-level edits:
 
 Entity creation uses collection-specific default data where available. Rename operations rewrite references across the project. Delete preflight checks reference usages before removing a record.
 
-Project UI settings and editor preferences are not the same layer. The existing Settings tab is editor preferences. The Project Settings tab is the dedicated authoring surface for game/runtime settings, project metadata, startup entrypoint, startup init Lua, default layout/font, title-screen options, and project icon.
+Project UI settings and editor preferences are not the same layer. The existing Settings tab is editor preferences. The Project Settings tab is the dedicated authoring surface for game/runtime settings, project metadata, startup entrypoint, startup init Lua, default layout/font, title-screen options, and project icon. ComfyUI server connection/default workflow preferences are editor-wide Settings values, not authoring project settings; Project Settings only manages project-local workflow files.
 
 Project-level commands include metadata, entrypoint, startup, runtime default layout/font, title-screen, and project-icon operations. These commands keep Project Settings edits undoable and avoid direct store mutation.
 

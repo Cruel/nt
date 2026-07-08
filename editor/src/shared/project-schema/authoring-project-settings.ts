@@ -30,31 +30,6 @@ export const projectAppSettingsSchema = z.object({
   icon: imageAssetRefSchema.default(null),
 });
 
-export const projectComfyUiSettingsSchema = z.object({
-  enabled: z.boolean().default(false),
-  serverUrl: z.string().trim().default('http://127.0.0.1:8000'),
-  defaultWorkflowId: z.string().min(1).default('flux2-klein-text-to-image'),
-  defaultWorkflows: z.object({
-    'image.generate': z.string().min(1).default('flux2-klein-text-to-image'),
-    'image.edit': z.string().min(1).default('flux2-klein-image-edit'),
-  }).partial().default({
-    'image.generate': 'flux2-klein-text-to-image',
-    'image.edit': 'flux2-klein-image-edit',
-  }),
-  requestTimeoutMs: z.number().int().min(1000).max(120000).default(15000),
-  connectionCheckIntervalMs: z.number().int().min(3000).max(120000).default(10000),
-}).default({
-  enabled: false,
-  serverUrl: 'http://127.0.0.1:8000',
-  defaultWorkflowId: 'flux2-klein-text-to-image',
-  defaultWorkflows: {
-    'image.generate': 'flux2-klein-text-to-image',
-    'image.edit': 'flux2-klein-image-edit',
-  },
-  requestTimeoutMs: 15000,
-  connectionCheckIntervalMs: 10000,
-});
-
 export const typedProjectSettingsSchema = z.object({
   startup: projectStartupSettingsSchema.default({ initScript: '' }),
   ui: z.object({ systemLayouts: systemLayoutSettingsSchema }).default({ systemLayouts: {} }),
@@ -67,7 +42,6 @@ export const typedProjectSettingsSchema = z.object({
     startLabel: 'Start',
   }),
   app: projectAppSettingsSchema.default({ icon: null }),
-  comfyui: projectComfyUiSettingsSchema,
 }).passthrough();
 
 export type AssetRecordRef = z.infer<typeof assetRecordRefSchema>;
@@ -75,7 +49,6 @@ export type ProjectStartupSettings = z.infer<typeof projectStartupSettingsSchema
 export type ProjectTextSettings = z.infer<typeof projectTextSettingsSchema>;
 export type ProjectTitleScreenSettings = z.infer<typeof projectTitleScreenSettingsSchema>;
 export type ProjectAppSettings = z.infer<typeof projectAppSettingsSchema>;
-export type ProjectComfyUiSettings = z.infer<typeof projectComfyUiSettingsSchema>;
 export type TypedProjectSettings = z.infer<typeof typedProjectSettingsSchema>;
 
 export interface ProjectSettingsDiagnostic {
@@ -156,20 +129,5 @@ export function validateTypedProjectSettings(project: AuthoringProject): Project
   validateAssetRef(project, settings.text.defaultFont, '/settings/text/defaultFont', 'font', diagnostics);
   validateAssetRef(project, settings.titleScreen.titleImage, '/settings/titleScreen/titleImage', 'image', diagnostics);
   validateAssetRef(project, settings.app.icon, '/settings/app/icon', 'image', diagnostics);
-  if (settings.comfyui.enabled) {
-    try {
-      const url = new URL(settings.comfyui.serverUrl);
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-        diagnostics.push(diagnostic('/settings/comfyui/serverUrl', 'ComfyUI server URL must use http or https.'));
-      }
-      const host = url.hostname.toLowerCase();
-      const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
-      if (!localHosts.has(host)) {
-        diagnostics.push(diagnostic('/settings/comfyui/serverUrl', 'Remote ComfyUI servers should only be used deliberately.', 'warning'));
-      }
-    } catch {
-      diagnostics.push(diagnostic('/settings/comfyui/serverUrl', 'ComfyUI server URL is invalid.'));
-    }
-  }
   return diagnostics;
 }

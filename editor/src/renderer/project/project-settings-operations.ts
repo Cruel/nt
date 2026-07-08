@@ -45,14 +45,6 @@ export interface SetProjectIconPayload {
   assetId: string | null;
 }
 
-export interface SetProjectComfyUiPayload {
-  enabled?: boolean;
-  serverUrl?: string;
-  defaultWorkflowId?: string;
-  requestTimeoutMs?: number;
-  connectionCheckIntervalMs?: number;
-}
-
 export interface SetProjectTagColorPayload {
   tag: string;
   color: string;
@@ -86,22 +78,6 @@ function ensureEditorTagObjects(patches: JsonPatchOperation[], documentValue: Js
 
 function patchValue(documentValue: JsonValue, path: string, value: unknown): JsonPatchOperation {
   return { op: hasJsonAtPointer(documentValue, path) ? 'replace' : 'add', path, value: toJsonValue(value) };
-}
-
-function normalizeServerUrl(serverUrl: string): string {
-  return serverUrl.trim().replace(/\/+$/, '');
-}
-
-function validateComfyUiServerUrl(serverUrl: string): EntityOperationDiagnostic | null {
-  try {
-    const url = new URL(normalizeServerUrl(serverUrl));
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return error('ComfyUI server URL must use http or https.', '/settings/comfyui/serverUrl');
-    }
-    return null;
-  } catch {
-    return error('ComfyUI server URL is invalid.', '/settings/comfyui/serverUrl');
-  }
 }
 
 function validateAssetKind(document: unknown, assetId: string, expectedKind: 'font' | 'image', path: string): EntityOperationDiagnostic | null {
@@ -208,29 +184,6 @@ export function setProjectIconPatches(document: unknown, payload: SetProjectIcon
   ensureSettingsObject(patches, documentValue, '/settings/app');
   patches.push(patchValue(documentValue, '/settings/app/icon', payload.assetId === null ? null : assetRef(payload.assetId)));
   return { patches, affectedPaths: ['/settings/app/icon'] };
-}
-
-export function setProjectComfyUiPatches(document: unknown, payload: SetProjectComfyUiPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
-  if (payload.serverUrl !== undefined) {
-    const urlError = validateComfyUiServerUrl(payload.serverUrl);
-    if (urlError) return { patches: [], diagnostics: [urlError] };
-  }
-  const patches: JsonPatchOperation[] = [];
-  const documentValue = toJsonValue(document);
-  ensureSettingsObject(patches, documentValue, '/settings/comfyui');
-  const affectedPaths: string[] = [];
-  const set = (key: keyof SetProjectComfyUiPayload, value: unknown) => {
-    const path = buildJsonPointer(['settings', 'comfyui', key]);
-    patches.push(patchValue(documentValue, path, value));
-    affectedPaths.push(path);
-  };
-  if (payload.enabled !== undefined) set('enabled', payload.enabled);
-  if (payload.serverUrl !== undefined) set('serverUrl', normalizeServerUrl(payload.serverUrl));
-  if (payload.defaultWorkflowId !== undefined) set('defaultWorkflowId', payload.defaultWorkflowId.trim());
-  if (payload.requestTimeoutMs !== undefined) set('requestTimeoutMs', payload.requestTimeoutMs);
-  if (payload.connectionCheckIntervalMs !== undefined) set('connectionCheckIntervalMs', payload.connectionCheckIntervalMs);
-  return { patches, affectedPaths };
 }
 
 export function setProjectTagColorPatches(document: unknown, payload: SetProjectTagColorPayload): EntityOperationResult {

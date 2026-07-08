@@ -1,7 +1,7 @@
 import type { ToolDiagnostic } from './editor-tooling';
 import type { ComfyUiWorkflowId, ComfyUiWorkflowRole } from './comfyui-workflows';
 
-export type ComfyUiConnectionState = 'disabled' | 'checking' | 'ready' | 'error';
+export type ComfyUiConnectionState = 'disabled' | 'unchecked' | 'checking' | 'ready' | 'error';
 
 export interface ComfyUiConfig {
   enabled: boolean;

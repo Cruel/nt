@@ -13,6 +13,16 @@
     "selectTheme": "⟦Theme⟧",
     "title": "⟦Code Editor⟧"
   },
+  "comfyui": {
+    "defaultWorkflow": "⟦Default generate workflow⟧",
+    "description": "⟦ComfyUI connection settings for this editor installation.⟧",
+    "enabled": "⟦Enable ComfyUI integration⟧",
+    "enabledDescription": "⟦Allows image generation and image editing tools to use your configured ComfyUI server.⟧",
+    "serverUrl": "⟦Server URL⟧",
+    "statusUnknown": "⟦ComfyUI status has not been checked yet.⟧",
+    "testConnection": "⟦Test Connection⟧",
+    "title": "⟦ComfyUI⟧"
+  },
   "language": {
     "description": "⟦Controls the editor interface language.⟧",
     "effective": "⟦System currently resolves to {{language}}.⟧",

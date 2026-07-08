@@ -35,7 +35,6 @@ import { replaceSceneDataPatches } from '@/project/scene-operations';
 import { replaceTestDataPatches } from '@/project/test-operations';
 import { replaceLayoutDataPatches } from '@/project/layout-operations';
 import {
-  setProjectComfyUiPatches,
   setProjectDefaultFontPatches,
   setProjectEntrypointPatches,
   setProjectIconPatches,
@@ -297,13 +296,6 @@ const projectTitleScreenSchema = z.object({
   startLabel: z.string().optional(),
 });
 const projectIconSchema = z.object({ assetId: entityIdSchema.nullable() });
-const projectComfyUiSchema = z.object({
-  enabled: z.boolean().optional(),
-  serverUrl: z.string().optional(),
-  defaultWorkflowId: z.string().min(1).optional(),
-  requestTimeoutMs: z.number().int().min(1000).max(120000).optional(),
-  connectionCheckIntervalMs: z.number().int().min(3000).max(120000).optional(),
-});
 const projectTagColorSchema = z.object({ tag: z.string().min(1), color: z.string().min(1) });
 const chapterCreateSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1), color: z.string().nullable().optional() });
 const chapterRenameSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1) });
@@ -416,9 +408,6 @@ export const projectSetTitleScreenCommand: CommandHandler = ({ document, payload
 export const projectSetIconCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectIconSchema, payload, (parsed) => setProjectIconPatches(document, parsed));
 
-export const projectSetComfyUiCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectComfyUiSchema, payload, (parsed) => setProjectComfyUiPatches(document, parsed));
-
 export const projectSetTagColorCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectTagColorSchema, payload, (parsed) => setProjectTagColorPatches(document, parsed));
 
@@ -482,7 +471,6 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
     'project.setIcon': projectSetIconCommand,
-    'project.setComfyUi': projectSetComfyUiCommand,
     'project.setTagColor': projectSetTagColorCommand,
     'project.createChapter': projectCreateChapterCommand,
     'project.renameChapter': projectRenameChapterCommand,
@@ -533,7 +521,6 @@ export function labelForCommand(type: string): string {
     case 'project.setDefaultFont': return 'Set project default font';
     case 'project.setTitleScreen': return 'Update title screen settings';
     case 'project.setIcon': return 'Set project icon';
-    case 'project.setComfyUi': return 'Update ComfyUI settings';
     case 'project.setTagColor': return 'Set tag color';
     case 'project.createChapter': return 'Create chapter';
     case 'project.renameChapter': return 'Rename chapter';

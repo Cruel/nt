@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from '@/routes/settings';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({ value, themeId }: { value: string; themeId?: string }) => (
@@ -20,7 +21,19 @@ describe('SettingsPage code editor theme selector', () => {
       showPreviewFpsCounter: false,
       lastProjectPath: null,
       defaultProjectDirectory: null,
+      comfyUiConfig: {
+        enabled: false,
+        serverUrl: 'http://127.0.0.1:8000',
+        defaultWorkflowId: 'flux2-klein-text-to-image',
+        defaultWorkflows: {
+          'image.generate': 'flux2-klein-text-to-image',
+          'image.edit': 'flux2-klein-image-edit',
+        },
+        requestTimeoutMs: 15000,
+        connectionCheckIntervalMs: 10000,
+      },
     });
+    useComfyUiStore.getState().hydrateFromPreferences();
     vi.spyOn(window.noveltea, 'getDefaultProjectDirectory').mockResolvedValue('/home/test/Documents/NovelTea');
     vi.spyOn(window.noveltea, 'selectDirectory').mockResolvedValue('/tmp/NovelTea');
   });
@@ -93,5 +106,26 @@ describe('SettingsPage code editor theme selector', () => {
 
     expect(await screen.findByText('Project directory paths must not contain spaces.')).toBeInTheDocument();
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
+  });
+
+  it('stores ComfyUI connection settings as editor preferences', async () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable ComfyUI integration' }));
+    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+    vi.mocked(window.noveltea.checkComfyUiConnection).mockClear();
+
+    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'http://127.0.0.1:8000/' } });
+    fireEvent.change(screen.getByLabelText('Default generate workflow'), { target: { value: 'custom-workflow' } });
+
+    expect(usePreferencesStore.getState().comfyUiConfig).toMatchObject({
+      enabled: true,
+      serverUrl: 'http://127.0.0.1:8000',
+      defaultWorkflowId: 'custom-workflow',
+      defaultWorkflows: { 'image.generate': 'custom-workflow' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }));
+    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
   });
 });

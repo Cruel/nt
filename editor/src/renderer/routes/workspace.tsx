@@ -101,7 +101,6 @@ export function WorkspacePage() {
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
   const setBottomPanelSizePercent = useBottomPanelStore((state) => state.setSizePercent);
   const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
-  const hydrateComfyUi = useComfyUiStore((state) => state.hydrateFromProject);
   const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
   const comfyUiConfig = useComfyUiStore((state) => state.config);
   const setComfyUiProgress = useComfyUiStore((state) => state.setProgress);
@@ -604,14 +603,12 @@ export function WorkspacePage() {
     if (!project) {
       setProject(null);
       setDiagnostics([]);
-      hydrateComfyUi(null);
       return;
     }
     setProject(project);
     const authoringProject = isAuthoringProject(project) ? project : null;
-    hydrateComfyUi(authoringProject);
     setDiagnostics(authoringProject ? validateAuthoringProject(authoringProject) : unsupportedProjectDiagnostics());
-  }, [hydrateComfyUi, project, setProject, setDiagnostics]);
+  }, [project, setProject, setDiagnostics]);
 
   useEffect(() => {
     if (!project || !comfyUiConfig.enabled) return;

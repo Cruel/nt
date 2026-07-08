@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/page-header';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { codeEditorThemeLabel, codeEditorThemeOptions } from '@/components/source/source-editor-themes';
 import type { CodeEditorThemeId } from '@/components/source/source-editor-theme-types';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { SUPPORTED_EDITOR_LANGUAGES, languageLabel, resolveEditorLanguage, type EditorLanguage } from '@/i18n';
 import {
   usePreferencesStore,
@@ -171,12 +172,16 @@ export function SettingsPage() {
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
+  const comfyUiConfig = usePreferencesStore((s) => s.comfyUiConfig);
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
+  const setComfyUiConfig = usePreferencesStore((s) => s.setComfyUiConfig);
+  const comfyUiStatus = useComfyUiStore((s) => s.status);
+  const checkComfyUiConnection = useComfyUiStore((s) => s.checkConnection);
   const [nativeFrame, setNativeFrame] = useState(false);
   const [nativeFrameDefault, setNativeFrameDefault] = useState(false);
   const [nativeFrameSaved, setNativeFrameSaved] = useState(false);
@@ -210,6 +215,21 @@ export function SettingsPage() {
       setNativeFrame(info.nativeFrame);
       setNativeFrameSaved(true);
     });
+  }
+
+  function updateComfyUiConfig(patch: Parameters<typeof setComfyUiConfig>[0]) {
+    const wasEnabled = usePreferencesStore.getState().comfyUiConfig.enabled;
+    setComfyUiConfig(patch);
+    useComfyUiStore.getState().hydrateFromPreferences();
+    const nextConfig = usePreferencesStore.getState().comfyUiConfig;
+    if (!wasEnabled && nextConfig.enabled) {
+      void useComfyUiStore.getState().checkConnection(useComfyUiStore.getState().config, { showChecking: true });
+    }
+  }
+
+  async function testComfyUiConnection() {
+    const config = usePreferencesStore.getState().comfyUiConfig;
+    await checkComfyUiConnection(config, { showChecking: true });
   }
 
   async function chooseDefaultProjectDirectory() {
@@ -422,6 +442,64 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('settings:comfyui.title')}</CardTitle>
+            <CardDescription>
+              {t('settings:comfyui.description')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4">
+              <div className="flex items-center justify-between gap-6">
+                <div>
+                  <Label htmlFor="comfyui-enabled">{t('settings:comfyui.enabled')}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:comfyui.enabledDescription')}
+                  </p>
+                </div>
+                <Switch
+                  id="comfyui-enabled"
+                  checked={comfyUiConfig.enabled}
+                  onCheckedChange={(enabled) => updateComfyUiConfig({ enabled: Boolean(enabled) })}
+                />
+              </div>
+              <div className="grid gap-2 md:grid-cols-[1fr_220px]">
+                <div className="space-y-1">
+                  <Label htmlFor="comfyui-server-url">{t('settings:comfyui.serverUrl')}</Label>
+                  <Input
+                    id="comfyui-server-url"
+                    value={comfyUiConfig.serverUrl}
+                    onChange={(event) => updateComfyUiConfig({ serverUrl: event.currentTarget.value })}
+                    placeholder="http://127.0.0.1:8000"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="comfyui-default-workflow">{t('settings:comfyui.defaultWorkflow')}</Label>
+                  <Input
+                    id="comfyui-default-workflow"
+                    value={comfyUiConfig.defaultWorkflowId}
+                    onChange={(event) => updateComfyUiConfig({
+                      defaultWorkflowId: event.currentTarget.value,
+                      defaultWorkflows: {
+                        ...comfyUiConfig.defaultWorkflows,
+                        'image.generate': event.currentTarget.value,
+                      },
+                    })}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-md border px-2 py-1 text-muted-foreground">{comfyUiStatus.state}</span>
+                <span className="text-muted-foreground">{comfyUiStatus.message ?? t('settings:comfyui.statusUnknown')}</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => void testComfyUiConnection()}>
+                  {t('settings:comfyui.testConnection')}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="flex justify-end">
           <Button
             variant="outline"
@@ -433,6 +511,17 @@ export function SettingsPage() {
               setShowPreviewFpsCounter(false);
               setDefaultProjectDirectoryError(null);
               setDefaultProjectDirectory(null);
+              updateComfyUiConfig({
+                enabled: false,
+                serverUrl: 'http://127.0.0.1:8000',
+                defaultWorkflowId: 'flux2-klein-text-to-image',
+                defaultWorkflows: {
+                  'image.generate': 'flux2-klein-text-to-image',
+                  'image.edit': 'flux2-klein-image-edit',
+                },
+                requestTimeoutMs: 15000,
+                connectionCheckIntervalMs: 10000,
+              });
               updateNativeFrame(nativeFrameDefault);
             }}
           >

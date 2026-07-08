@@ -5,6 +5,7 @@ import { useComfyUiGenerationStore } from '@/comfyui/comfyui-generation-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
@@ -17,7 +18,6 @@ const tab: WorkbenchTab = {
 
 function project() {
   const next = createAuthoringProject();
-  next.settings.comfyui = { enabled: true, serverUrl: 'http://127.0.0.1:8000' };
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
@@ -30,8 +30,9 @@ function project() {
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+  usePreferencesStore.getState().setComfyUiConfig({ enabled: true, serverUrl: 'http://127.0.0.1:8000' });
   useComfyUiQueueStore.setState({ jobsByPromptId: {}, localJobsByPromptId: {}, order: [] });
-  useComfyUiStore.getState().hydrateFromProject(project());
+  useComfyUiStore.getState().hydrateFromPreferences();
   useComfyUiStore.setState((state) => ({ status: { ...state.status, state: 'ready', message: 'ComfyUI connected' } }));
   useComfyUiGenerationStore.getState().clearProjectSession();
   vi.mocked(window.noveltea.generateComfyUiImage).mockClear();

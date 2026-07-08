@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { installComfyUiStarterWorkflows, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
-import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
@@ -93,8 +92,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const entrypointItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['rooms', 'scenes', 'dialogues', 'scripts'], includeActions: false }), [selectorItems]);
   const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
-  const comfyUiStatus = useComfyUiStore((state) => state.status);
-  const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
@@ -144,7 +141,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
   if (!project || !settings) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to edit project settings.</div>;
 
-  const comfyUiSettings = settings.comfyui;
   const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label || id }));
   const imageAssets = Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
@@ -179,17 +175,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
   function setProjectIcon(assetId: string | null) {
     runProjectCommand('project.setIcon', { assetId }, 'Set project icon');
-  }
-
-  function setComfyUi(patch: { enabled?: boolean; serverUrl?: string; defaultWorkflowId?: string }) {
-    const result = runProjectCommand('project.setComfyUi', patch, 'Update ComfyUI settings');
-    if (!result.projectChanged) return;
-    const latestProject = useProjectStore.getState().document;
-    useComfyUiStore.getState().hydrateFromProject(isAuthoringProject(latestProject) ? latestProject : null);
-  }
-
-  async function testComfyUiConnection() {
-    await checkComfyUiConnection(comfyUiSettings, { showChecking: true });
   }
 
   async function refreshWorkflows() {
@@ -384,39 +369,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
           <Card id="project-settings-comfyui" ref={comfyUiSectionRef}>
             <CardHeader>
-              <CardTitle>ComfyUI</CardTitle>
-              <CardDescription>Configure a ComfyUI server for generated images and future image-editing workflows.</CardDescription>
+              <CardTitle>ComfyUI Workflows</CardTitle>
+              <CardDescription>Install and validate project-local workflow files. Connection settings are editor preferences.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <label className="flex items-center gap-2 text-xs">
-                <Switch checked={comfyUiSettings.enabled} onCheckedChange={(checked) => setComfyUi({ enabled: Boolean(checked) })} />
-                Enable ComfyUI integration
-              </label>
-              <div className="space-y-1">
-                <Label htmlFor="comfyui-server-url">Server URL</Label>
-                <Input
-                  id="comfyui-server-url"
-                  value={comfyUiSettings.serverUrl}
-                  onChange={(event) => setComfyUi({ serverUrl: event.currentTarget.value })}
-                  placeholder="http://127.0.0.1:8000"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="comfyui-workflow">Default workflow</Label>
-                <select
-                  id="comfyui-workflow"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={comfyUiSettings.defaultWorkflowId}
-                  onChange={(event) => setComfyUi({ defaultWorkflowId: event.currentTarget.value })}
-                >
-                  <option value="basic-text-to-image">Basic Text to Image</option>
-                </select>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <Badge variant={comfyUiStatus.state === 'ready' ? 'default' : comfyUiStatus.state === 'error' ? 'destructive' : 'secondary'}>{comfyUiStatus.state}</Badge>
-                <span className="text-muted-foreground">{comfyUiStatus.message ?? 'ComfyUI status has not been checked yet.'}</span>
-                <Button size="sm" variant="outline" onClick={() => void testComfyUiConnection()}>Test Connection</Button>
-              </div>
               <div className="space-y-2 rounded border p-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>

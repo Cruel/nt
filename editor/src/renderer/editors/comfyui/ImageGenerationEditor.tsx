@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { useCommandStore } from '@/commands/command-store';
-import { buildProjectSettingsTab } from '@/workbench/editor-registry';
+import { buildSettingsTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { cancelComfyUiJob, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
@@ -320,10 +320,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       : null;
 
   function openComfyUiSettings() {
-    openWorkbenchTab(buildProjectSettingsTab());
-    for (const delay of [0, 50, 150]) {
-      window.setTimeout(() => window.dispatchEvent(new CustomEvent('noveltea:project-settings-scroll', { detail: { section: 'comfyui' } })), delay);
-    }
+    openWorkbenchTab(buildSettingsTab());
   }
 
   if (comfyUiUnavailableMessage) {

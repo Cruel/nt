@@ -91,26 +91,8 @@ describe('project settings operations', () => {
     });
   });
 
-  it('updates ComfyUI settings through an undoable command', () => {
+  it('does not expose a project command for editor-wide ComfyUI settings', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
-    const result = executeCommand(state, {
-      type: 'project.setComfyUi',
-      payload: { enabled: true, serverUrl: 'http://127.0.0.1:8000/' },
-    });
-    expect(result.ok).toBe(true);
-    expect(result.state.document).toMatchObject({
-      settings: {
-        comfyui: {
-          enabled: true,
-          serverUrl: 'http://127.0.0.1:8000',
-        },
-      },
-    });
-    expect(undoCommand(result.state).state.document).not.toMatchObject({ settings: { comfyui: expect.anything() } });
-  });
-
-  it('rejects invalid ComfyUI URLs', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
-    expect(executeCommand(state, { type: 'project.setComfyUi', payload: { serverUrl: 'file:///tmp/comfy' } }).ok).toBe(false);
+    expect(executeCommand(state, { type: 'project.setComfyUi', payload: { enabled: true } }).ok).toBe(false);
   });
 });

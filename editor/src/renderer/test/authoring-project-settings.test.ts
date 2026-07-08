@@ -26,15 +26,7 @@ describe('authoring project settings', () => {
     expect(settings.text.defaultFont).toBeNull();
     expect(settings.titleScreen).toMatchObject({ showProjectTitle: true, showAuthor: false, startLabel: 'Start' });
     expect(settings.startup.initScript).toBe('');
-    expect(settings.comfyui).toMatchObject({
-      enabled: false,
-      serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'flux2-klein-text-to-image',
-      defaultWorkflows: {
-        'image.generate': 'flux2-klein-text-to-image',
-        'image.edit': 'flux2-klein-image-edit',
-      },
-    });
+    expect(settings).not.toHaveProperty('comfyui');
   });
 
   it('validates project-level layout, font, image, and icon refs', () => {
@@ -51,17 +43,10 @@ describe('authoring project settings', () => {
     expect(validateTypedProjectSettings(project)).toContainEqual(expect.objectContaining({ severity: 'error', path: '/settings/text/defaultFont/$ref' }));
   });
 
-  it('validates ComfyUI settings when enabled', () => {
+  it('leaves legacy ComfyUI settings as passthrough data', () => {
     const project = createAuthoringProject();
-    project.settings.comfyui = {
-      enabled: true,
-      serverUrl: 'file:///tmp/comfyui',
-      defaultWorkflowId: 'basic-text-to-image',
-      requestTimeoutMs: 15000,
-      connectionCheckIntervalMs: 10000,
-    };
-    expect(validateTypedProjectSettings(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: 'error', path: '/settings/comfyui/serverUrl' }),
-    ]));
+    project.settings.comfyui = { enabled: true, serverUrl: 'file:///tmp/comfyui' };
+    expect(projectSettingsFromProject(project)).toMatchObject({ comfyui: { enabled: true } });
+    expect(validateTypedProjectSettings(project)).toEqual([]);
   });
 });

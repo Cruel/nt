@@ -1,8 +1,7 @@
 import { create } from 'zustand';
-import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { defaultComfyUiConfig, normalizeComfyUiServerUrl } from '../../shared/comfyui';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { checkComfyUiConnection as requestComfyUiConnection, getComfyUiQueue as requestComfyUiQueue } from './comfyui-service';
 
 interface CheckConnectionOptions {
@@ -13,7 +12,7 @@ interface ComfyUiStore {
   config: ComfyUiConfig;
   status: ComfyUiStatus;
   progress: ComfyUiQueueProgress;
-  hydrateFromProject: (project: AuthoringProject | null) => void;
+  hydrateFromPreferences: () => void;
   checkConnection: (config?: ComfyUiConfig, options?: CheckConnectionOptions) => Promise<ComfyUiStatus>;
   refreshQueue: (config?: ComfyUiConfig) => Promise<ComfyUiQueueProgress>;
   setProgress: (progress: ComfyUiQueueProgress) => void;
@@ -29,6 +28,16 @@ function disabledStatus(config = defaultComfyUiConfig()): ComfyUiStatus {
   };
 }
 
+function uncheckedStatus(config = defaultComfyUiConfig()): ComfyUiStatus {
+  return {
+    state: 'unchecked',
+    serverUrl: normalizeComfyUiServerUrl(config.serverUrl),
+    checkedAt: null,
+    message: 'ComfyUI enabled; connection has not been checked yet.',
+    queueRemaining: null,
+  };
+}
+
 function idleProgress(): ComfyUiQueueProgress {
   return {
     promptId: null,
@@ -40,12 +49,6 @@ function idleProgress(): ComfyUiQueueProgress {
     progressMax: null,
     message: null,
   };
-}
-
-function configFromProject(project: AuthoringProject | null): ComfyUiConfig {
-  if (!project) return defaultComfyUiConfig();
-  const settings = projectSettingsFromProject(project).comfyui;
-  return { ...settings };
 }
 
 function visibleStatusChanged(previous: ComfyUiStatus, next: ComfyUiStatus) {
@@ -74,12 +77,12 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
   config: defaultComfyUiConfig(),
   status: disabledStatus(),
   progress: idleProgress(),
-  hydrateFromProject: (project) => {
-    const config = configFromProject(project);
+  hydrateFromPreferences: () => {
+    const config = { ...usePreferencesStore.getState().comfyUiConfig };
     set({
       config,
       status: config.enabled
-        ? { ...disabledStatus(config), state: 'checking', message: 'Checking ComfyUI...' }
+        ? uncheckedStatus(config)
         : disabledStatus(config),
       progress: idleProgress(),
     });

@@ -13,6 +13,16 @@
     "selectTheme": "Tema",
     "title": "Editor de código"
   },
+  "comfyui": {
+    "defaultWorkflow": "Workflow padrão de geração",
+    "description": "Configurações de conexão do ComfyUI para esta instalação do editor.",
+    "enabled": "Ativar integração com ComfyUI",
+    "enabledDescription": "Permite que ferramentas de geração e edição de imagens usem o servidor ComfyUI configurado.",
+    "serverUrl": "URL do servidor",
+    "statusUnknown": "O status do ComfyUI ainda não foi verificado.",
+    "testConnection": "Testar conexão",
+    "title": "ComfyUI"
+  },
   "language": {
     "description": "Controla o idioma da interface do editor.",
     "effective": "No momento, o sistema resolve para {{language}}.",

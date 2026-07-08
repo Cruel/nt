@@ -19,6 +19,7 @@ function labelForState(state: ReturnType<typeof useComfyUiStore.getState>['statu
     case 'ready': return 'ComfyUI ready';
     case 'error': return 'ComfyUI error';
     case 'checking': return 'ComfyUI checking';
+    case 'unchecked': return 'ComfyUI not checked';
     case 'disabled':
     default: return 'ComfyUI disabled';
   }

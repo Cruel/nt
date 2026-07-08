@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { useCommandStore } from '@/commands/command-store';
-import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -47,7 +46,6 @@ function project() {
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
-  useComfyUiStore.getState().hydrateFromProject(null);
 });
 
 describe('ProjectSettingsEditor', () => {
@@ -113,52 +111,13 @@ describe('ProjectSettingsEditor', () => {
     }));
   });
 
-  it('updates ComfyUI settings and can test the connection', async () => {
+  it('keeps ComfyUI connection settings out of project settings', async () => {
     useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock', projectFilePath: '/mock/project.json' });
     render(<ProjectSettingsEditor tab={tab} />);
 
-    fireEvent.click(screen.getAllByLabelText('Enable ComfyUI integration')[0]!);
-    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'http://127.0.0.1:8000/' } });
-
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
-      settings: { comfyui: { enabled: true, serverUrl: 'http://127.0.0.1:8000' } },
-    }));
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setComfyUi');
-
-    fireEvent.click(screen.getByText('Test Connection'));
-    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalled());
-  });
-
-  it('resets the ComfyUI status immediately when integration is disabled', async () => {
-    const next = project();
-    next.settings.comfyui = {
-      enabled: true,
-      serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'flux2-klein-text-to-image',
-      defaultWorkflows: {
-        'image.generate': 'flux2-klein-text-to-image',
-        'image.edit': 'flux2-klein-image-edit',
-      },
-      requestTimeoutMs: 15000,
-      connectionCheckIntervalMs: 10000,
-    };
-    useProjectStore.getState().loadProjectDocument({ document: next, projectPath: '/mock', projectFilePath: '/mock/project.json' });
-    useComfyUiStore.getState().hydrateFromProject(next);
-    useComfyUiStore.setState((state) => ({
-      status: { ...state.status, state: 'error', message: 'ComfyUI connection refused' },
-    }));
-
-    render(<ProjectSettingsEditor tab={tab} />);
-    expect(useComfyUiStore.getState().status.state).toBe('error');
-
-    fireEvent.click(screen.getAllByLabelText('Enable ComfyUI integration')[0]!);
-
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
-      settings: { comfyui: { enabled: false } },
-    }));
-    expect(useComfyUiStore.getState().status).toMatchObject({
-      state: 'disabled',
-      message: 'ComfyUI disabled',
-    });
+    expect(screen.getByText('ComfyUI Workflows')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Enable ComfyUI integration')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Server URL')).not.toBeInTheDocument();
+    expect(useProjectStore.getState().document).not.toMatchObject({ settings: { comfyui: expect.anything() } });
   });
 });

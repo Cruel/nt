@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspacePage } from '@/routes/workspace';
 import { useCommandStore } from '@/commands/command-store';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -41,6 +42,36 @@ beforeEach(() => {
     statusMessage: 'Preview disconnected',
   });
   useCommandStore.getState().resetCommandHistory();
+  useComfyUiStore.setState({
+    config: {
+      enabled: false,
+      serverUrl: 'http://127.0.0.1:8000',
+      defaultWorkflowId: 'flux2-klein-text-to-image',
+      defaultWorkflows: {
+        'image.generate': 'flux2-klein-text-to-image',
+        'image.edit': 'flux2-klein-image-edit',
+      },
+      requestTimeoutMs: 15000,
+      connectionCheckIntervalMs: 10000,
+    },
+    status: {
+      state: 'disabled',
+      serverUrl: 'http://127.0.0.1:8000',
+      checkedAt: null,
+      message: 'ComfyUI disabled',
+      queueRemaining: null,
+    },
+    progress: {
+      promptId: null,
+      workflowId: null,
+      state: 'idle',
+      queueRemaining: null,
+      currentNode: null,
+      progressValue: null,
+      progressMax: null,
+      message: null,
+    },
+  });
   usePreferencesStore.setState({
     theme: 'system',
     language: 'system',
@@ -67,6 +98,9 @@ beforeEach(() => {
     project: createAuthoringProject({ id: 'my-story', name: 'My Story' }),
     diagnostics: [],
   });
+  vi.mocked(window.noveltea.saveProject).mockResolvedValue({ ok: true, success: true, projectPath: '/mock/project', projectFilePath: '/mock/project/project.json' });
+  vi.mocked(window.noveltea.purgeProjectTrash).mockResolvedValue({ ok: true, success: true, diagnostics: [] });
+  vi.mocked(window.noveltea.stopProjectAssetWatcher).mockResolvedValue({ ok: true, success: true, diagnostics: [] });
 });
 
 describe('WorkspacePage new project modal', () => {
@@ -81,6 +115,40 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() => expect(screen.getByLabelText('Project directory')).toHaveValue('/home/test/Documents/NovelTea/new-project'));
     expect(useProjectStore.getState().document).toBeNull();
     expect(window.noveltea.createProject).not.toHaveBeenCalled();
+  });
+
+  it('does not reset editor-wide ComfyUI status when closing a project', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: createAuthoringProject({ id: 'my-story', name: 'My Story' }),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      project: createAuthoringProject({ id: 'my-story', name: 'My Story' }),
+    });
+    useComfyUiStore.setState((state) => ({
+      config: { ...state.config, enabled: true },
+      status: {
+        state: 'ready',
+        serverUrl: 'http://127.0.0.1:8000',
+        checkedAt: 'now',
+        message: 'ComfyUI ready',
+        queueRemaining: 0,
+      },
+    }));
+
+    render(<WorkspacePage />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }));
+    });
+
+    await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
+    expect(useComfyUiStore.getState().status).toMatchObject({
+      state: 'ready',
+      message: 'ComfyUI ready',
+    });
   });
 
   it('updates the proposed directory from the project name until manually edited', async () => {

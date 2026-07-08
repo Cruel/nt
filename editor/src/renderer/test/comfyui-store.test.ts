@@ -1,18 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import type { ComfyUiStatus } from '../../shared/comfyui';
-
-function enabledProject() {
-  const project = createAuthoringProject();
-  project.settings.comfyui = {
-    ...projectSettingsFromProject(project).comfyui,
-    enabled: true,
-    serverUrl: 'http://127.0.0.1:8000',
-  };
-  return project;
-}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -23,18 +12,44 @@ function deferred<T>() {
 beforeEach(() => {
   vi.mocked(window.noveltea.checkComfyUiConnection).mockReset();
   vi.mocked(window.noveltea.getComfyUiQueue).mockReset();
-  useComfyUiStore.getState().hydrateFromProject(null);
+  usePreferencesStore.setState({
+    comfyUiConfig: {
+      enabled: false,
+      serverUrl: 'http://127.0.0.1:8000',
+      defaultWorkflowId: 'flux2-klein-text-to-image',
+      defaultWorkflows: {
+        'image.generate': 'flux2-klein-text-to-image',
+        'image.edit': 'flux2-klein-image-edit',
+      },
+      requestTimeoutMs: 15000,
+      connectionCheckIntervalMs: 10000,
+    },
+  });
+  useComfyUiStore.getState().hydrateFromPreferences();
 });
 
 describe('useComfyUiStore', () => {
+  it('does not report checking unless a connection check is in flight', () => {
+    usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
+    useComfyUiStore.getState().hydrateFromPreferences();
+
+    expect(useComfyUiStore.getState().status).toMatchObject({
+      state: 'unchecked',
+      message: 'ComfyUI enabled; connection has not been checked yet.',
+    });
+    expect(window.noveltea.checkComfyUiConnection).not.toHaveBeenCalled();
+  });
+
   it('keeps the disabled status when an older connection check returns after ComfyUI is disabled', async () => {
     const connection = deferred<ComfyUiStatus>();
     vi.mocked(window.noveltea.checkComfyUiConnection).mockReturnValueOnce(connection.promise);
 
-    useComfyUiStore.getState().hydrateFromProject(enabledProject());
+    usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
+    useComfyUiStore.getState().hydrateFromPreferences();
     const inFlight = useComfyUiStore.getState().checkConnection();
 
-    useComfyUiStore.getState().hydrateFromProject(null);
+    usePreferencesStore.getState().setComfyUiConfig({ enabled: false });
+    useComfyUiStore.getState().hydrateFromPreferences();
     connection.resolve({
       state: 'error',
       serverUrl: 'http://127.0.0.1:8000',
@@ -54,10 +69,12 @@ describe('useComfyUiStore', () => {
     const queue = deferred<Awaited<ReturnType<typeof window.noveltea.getComfyUiQueue>>>();
     vi.mocked(window.noveltea.getComfyUiQueue).mockReturnValueOnce(queue.promise);
 
-    useComfyUiStore.getState().hydrateFromProject(enabledProject());
+    usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
+    useComfyUiStore.getState().hydrateFromPreferences();
     const inFlight = useComfyUiStore.getState().refreshQueue();
 
-    useComfyUiStore.getState().hydrateFromProject(null);
+    usePreferencesStore.getState().setComfyUiConfig({ enabled: false });
+    useComfyUiStore.getState().hydrateFromPreferences();
     queue.resolve({
       promptId: null,
       workflowId: null,

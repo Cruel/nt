@@ -14,6 +14,7 @@ The command palette/quick-open surface is not implemented yet, so Project Settin
 ## Stored Data
 
 Project Settings edits the authoring project document through undoable command-bus operations. It does not write editor preferences.
+ComfyUI connection settings are editor-wide preferences in the Settings tab. Project Settings may expose project-local ComfyUI workflow installation/diagnostics, but it must not write server URLs, enablement, or default workflow preferences into the authoring project document.
 
 Metadata uses existing project root fields:
 
