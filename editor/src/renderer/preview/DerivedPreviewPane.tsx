@@ -30,6 +30,7 @@ export function DerivedPreviewPane({
     void reset
       .then(() => lease.send((controller) => controller.setPreviewMode(previewMode)))
       .then(() => lease.send((controller) => controller.loadPreviewDocument(previewDocument)))
+      .then(() => lease.reveal())
       .catch(() => {
         // Lease release and not-yet-connected hosts are expected transient states for pooled previews.
       });

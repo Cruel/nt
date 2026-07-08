@@ -27,6 +27,7 @@ export interface PreviewHostLease {
   ownerTabId: string;
   paneId: string;
   mode: PreviewMode;
+  reveal(): void;
   send<TResult>(command: (controller: EnginePreviewController) => Promise<TResult>): Promise<TResult>;
 }
 
@@ -44,6 +45,7 @@ interface PreviewHostLeaseInfo {
   ownerTabId: string;
   paneId: string;
   mode: PreviewMode;
+  visible: boolean;
   rect?: PreviewHostRect;
 }
 
@@ -52,6 +54,7 @@ interface PreviewHostPoolContextValue {
   layerRef: RefObject<HTMLDivElement | null>;
   claimHost: (request: PreviewHostClaimRequest) => PreviewHostLease;
   releaseHost: (leaseId: string) => void;
+  revealHost: (leaseId: string) => void;
   updateHostRect: (leaseId: string, rect: PreviewHostRect | undefined) => void;
 }
 
@@ -71,17 +74,22 @@ function hiddenHostStyle(): CSSProperties {
     inset: 0,
     visibility: 'hidden',
     pointerEvents: 'none',
+    width: 0,
+    height: 0,
+    overflow: 'hidden',
   };
 }
 
-function rectHostStyle(rect: PreviewHostRect, pointerEventsDisabled: boolean): CSSProperties {
+function rectHostStyle(rect: PreviewHostRect, pointerEventsDisabled: boolean, visible: boolean): CSSProperties {
   return {
     position: 'absolute',
     left: rect.left,
     top: rect.top,
     width: rect.width,
     height: rect.height,
-    pointerEvents: pointerEventsDisabled ? 'none' : 'auto',
+    visibility: visible ? 'visible' : 'hidden',
+    pointerEvents: visible && !pointerEventsDisabled ? 'auto' : 'none',
+    overflow: 'hidden',
   };
 }
 
@@ -96,15 +104,29 @@ function measureRect(element: HTMLElement, layer: HTMLElement): PreviewHostRect 
   };
 }
 
+function applyMeasuredHostStyle(element: HTMLElement, rect: PreviewHostRect) {
+  element.style.left = `${rect.left}px`;
+  element.style.top = `${rect.top}px`;
+  element.style.width = `${rect.width}px`;
+  element.style.height = `${rect.height}px`;
+}
+
+function sameHostSize(left: PreviewHostRect | undefined, right: PreviewHostRect | undefined) {
+  return Boolean(left && right && left.width === right.width && left.height === right.height);
+}
+
 function PreviewHostSlot({
   host,
   registerController,
+  registerHostElement,
   pointerEventsDisabled,
 }: {
   host: PreviewHostRecord;
   registerController: (hostId: string, controller: EnginePreviewController | null) => void;
+  registerHostElement: (hostId: string, element: HTMLElement | null) => void;
   pointerEventsDisabled: boolean;
 }) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const controller = useEnginePreview({
     embedded: true,
     onReady: () => undefined,
@@ -123,8 +145,17 @@ function PreviewHostSlot({
   }, [loadSession]);
 
   const rect = host.lease?.rect;
-  const isVisible = Boolean(rect && host.lease);
-  const style = rect && isVisible ? rectHostStyle(rect, pointerEventsDisabled) : hiddenHostStyle();
+  const isVisible = Boolean(host.lease?.visible && rect);
+  const style = host.lease && rect
+    ? rectHostStyle(rect, pointerEventsDisabled, isVisible)
+    : hiddenHostStyle();
+
+  useLayoutEffect(() => {
+    const element = hostRef.current;
+    registerHostElement(host.hostId, element);
+    if (element && rect) applyMeasuredHostStyle(element, rect);
+    return () => registerHostElement(host.hostId, null);
+  }, [host.hostId, rect, registerHostElement]);
 
   useEffect(() => {
     const sendActivity = async () => {
@@ -140,11 +171,14 @@ function PreviewHostSlot({
 
   return (
     <div
-      className="overflow-hidden bg-zinc-950"
+      ref={hostRef}
+      className="bg-zinc-950"
       data-preview-host-id={host.hostId}
       data-preview-host-claimed={host.lease ? 'true' : undefined}
       data-preview-host-pane-id={host.lease?.paneId}
       data-preview-host-lease-id={host.lease?.leaseId}
+      data-preview-host-visible={isVisible ? 'true' : undefined}
+      data-preview-host-placement={rect ? 'measured-rect' : 'hidden'}
       aria-hidden={isVisible ? undefined : true}
       style={style}
     >
@@ -165,6 +199,16 @@ function PreviewHostSlot({
   );
 }
 
+function scrollableAncestors(element: HTMLElement): EventTarget[] {
+  const ancestors: EventTarget[] = [window];
+  for (let current = element.parentElement; current; current = current.parentElement) {
+    const style = window.getComputedStyle(current);
+    const overflow = `${style.overflow} ${style.overflowX} ${style.overflowY}`;
+    if (/auto|scroll|overlay/i.test(overflow)) ancestors.push(current);
+  }
+  return ancestors;
+}
+
 export function PreviewHostPoolProvider({
   groupId,
   activeTabId,
@@ -176,6 +220,7 @@ export function PreviewHostPoolProvider({
 }) {
   const layerRef = useRef<HTMLDivElement | null>(null);
   const controllersRef = useRef(new Map<string, EnginePreviewController>());
+  const hostElementsRef = useRef(new Map<string, HTMLElement>());
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
   const reservedHostIdsRef = useRef(new Set<string>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
@@ -186,6 +231,11 @@ export function PreviewHostPoolProvider({
   const registerController = useCallback((hostId: string, controller: EnginePreviewController | null) => {
     if (controller) controllersRef.current.set(hostId, controller);
     else controllersRef.current.delete(hostId);
+  }, []);
+
+  const registerHostElement = useCallback((hostId: string, element: HTMLElement | null) => {
+    if (element) hostElementsRef.current.set(hostId, element);
+    else hostElementsRef.current.delete(hostId);
   }, []);
 
   const isCurrentLease = useCallback((leaseId: string, hostId: string) => {
@@ -204,9 +254,22 @@ export function PreviewHostPoolProvider({
   }, []);
 
   const updateHostRect = useCallback((leaseId: string, rect: PreviewHostRect | undefined) => {
+    const hostForLease = hostsRef.current.find((host) => host.lease?.leaseId === leaseId);
+    if (hostForLease && rect) {
+      const element = hostElementsRef.current.get(hostForLease.hostId);
+      if (element) applyMeasuredHostStyle(element, rect);
+    }
     setHosts((current) => current.map((host) => {
       if (host.lease?.leaseId !== leaseId) return host;
+      if (rect && sameHostSize(host.lease.rect, rect)) return host;
       return { ...host, lease: { ...host.lease, rect } };
+    }));
+  }, []);
+
+  const revealHost = useCallback((leaseId: string) => {
+    setHosts((current) => current.map((host) => {
+      if (host.lease?.leaseId !== leaseId || host.lease.visible) return host;
+      return { ...host, lease: { ...host.lease, visible: true } };
     }));
   }, []);
 
@@ -276,6 +339,7 @@ export function PreviewHostPoolProvider({
                 ownerTabId: request.ownerTabId,
                 paneId: request.paneId,
                 mode: request.mode,
+                visible: false,
                 rect: request.initialRect,
               },
             }
@@ -290,6 +354,7 @@ export function PreviewHostPoolProvider({
             ownerTabId: request.ownerTabId,
             paneId: request.paneId,
             mode: request.mode,
+            visible: false,
             rect: request.initialRect,
           },
         },
@@ -301,9 +366,10 @@ export function PreviewHostPoolProvider({
       ownerTabId: request.ownerTabId,
       paneId: request.paneId,
       mode: request.mode,
+      reveal: () => revealHost(leaseId),
       send: (command) => sendForLease(leaseId, claimedHostId, command),
     };
-  }, [groupId, sendForLease]);
+  }, [groupId, revealHost, sendForLease]);
 
   useEffect(() => {
     for (const hostId of [...reservedHostIdsRef.current]) {
@@ -354,22 +420,24 @@ export function PreviewHostPoolProvider({
     layerRef,
     claimHost,
     releaseHost,
+    revealHost,
     updateHostRect,
-  }), [activeTabId, claimHost, releaseHost, updateHostRect]);
+  }), [activeTabId, claimHost, releaseHost, revealHost, updateHostRect]);
 
   return (
     <PreviewHostPoolContext.Provider value={value}>
+      {children}
       <div ref={layerRef} className="pointer-events-none absolute inset-0 z-10" data-preview-host-layer={groupId}>
         {hosts.map((host) => (
           <PreviewHostSlot
             key={host.hostId}
             host={host}
             registerController={registerController}
+            registerHostElement={registerHostElement}
             pointerEventsDisabled={previewPointerEventsDisabled}
           />
         ))}
       </div>
-      {children}
     </PreviewHostPoolContext.Provider>
   );
 }
@@ -454,6 +522,37 @@ export function PreviewPane({
     if (layerRef.current) observer.observe(layerRef.current);
     return () => observer.disconnect();
   }, [isActive, layerRef, measureAndUpdate]);
+
+  useLayoutEffect(() => {
+    if (!isActive) return undefined;
+    const placeholder = placeholderRef.current;
+    if (!placeholder) return undefined;
+
+    let animationFrame = 0;
+    const updateBeforePaint = () => {
+      animationFrame = 0;
+      measureAndUpdate();
+    };
+    const scheduleUpdate = () => {
+      if (animationFrame) return;
+      animationFrame = window.requestAnimationFrame(updateBeforePaint);
+    };
+
+    const targets = scrollableAncestors(placeholder);
+    for (const target of targets) {
+      target.addEventListener('scroll', scheduleUpdate, { passive: true });
+    }
+    window.addEventListener('resize', scheduleUpdate, { passive: true });
+    scheduleUpdate();
+
+    return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      for (const target of targets) {
+        target.removeEventListener('scroll', scheduleUpdate);
+      }
+      window.removeEventListener('resize', scheduleUpdate);
+    };
+  }, [isActive, measureAndUpdate]);
 
   return (
     <div

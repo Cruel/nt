@@ -36,6 +36,7 @@ vi.mock('@/components/engine-preview-host', () => ({
 interface HarnessPane {
   ownerTabId: string;
   paneId: string;
+  revealOnLease?: boolean;
   onLease?: (lease: PreviewHostLease | null) => void;
 }
 
@@ -56,7 +57,10 @@ function Harness({
             paneId={pane.paneId}
             mode="room"
             className="h-48 w-64"
-            onLease={pane.onLease}
+            onLease={(lease) => {
+              if (lease && pane.revealOnLease) lease.reveal();
+              pane.onLease?.(lease);
+            }}
           >
             <div>{pane.paneId}</div>
           </PreviewPane>
@@ -128,24 +132,39 @@ describe('PreviewHostPool', () => {
   });
 
   it('sends inactive activity when a pooled host is released', async () => {
-    const { rerender } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    const { rerender } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }]} />);
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
 
-    rerender(<Harness activeTabId={null} panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    rerender(<Harness activeTabId={null} panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }]} />);
 
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(false, false));
   });
 
   it('sends active activity and requests preview state when a warm pooled host becomes visible again', async () => {
-    const { rerender } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    const { rerender } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }]} />);
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
 
-    rerender(<Harness activeTabId={null} panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    rerender(<Harness activeTabId={null} panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }]} />);
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(false, false));
     previewControllerMocks.setPreviewActivity.mockClear();
     previewControllerMocks.requestPreviewState.mockClear();
 
-    rerender(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+    rerender(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }]} />);
+
+    await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
+    await waitFor(() => expect(previewControllerMocks.requestPreviewState).toHaveBeenCalled());
+  });
+
+  it('keeps a newly claimed host invisible until its lease is revealed', async () => {
+    let lease: PreviewHostLease | null = null;
+    const { container } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main', onLease: (next) => { lease = next; } }]} />);
+
+    await waitFor(() => expect(lease).not.toBeNull());
+    const [host] = hostElements(container);
+    expect(host).toHaveAttribute('data-preview-host-claimed', 'true');
+    expect(host).not.toHaveAttribute('data-preview-host-visible');
+
+    act(() => lease!.reveal());
 
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
     await waitFor(() => expect(previewControllerMocks.requestPreviewState).toHaveBeenCalled());

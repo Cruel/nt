@@ -9,9 +9,9 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
-import { PreviewPane, type PreviewHostLease } from '@/preview/preview-host-pool';
 import {
   defaultRoomData,
   parseRoomData,
@@ -56,45 +56,6 @@ type RoomEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
   payload?: RoomEditorTabStatePayload;
 };
-
-type RoomPreviewDocument = {
-  kind: 'room-preview';
-  recordId: string;
-  revision: string;
-  data: Record<string, unknown>;
-};
-
-function RoomPreviewPane({ tabId, previewDocument }: { tabId: string; previewDocument: RoomPreviewDocument }) {
-  const [lease, setLease] = useState<PreviewHostLease | null>(null);
-
-  const handleLease = useCallback((nextLease: PreviewHostLease | null) => {
-    setLease(nextLease);
-  }, []);
-
-  useEffect(() => {
-    if (!lease) return undefined;
-
-    void lease
-      .send((controller) => controller.setPreviewMode('room'))
-      .then(() => lease.send((controller) => controller.loadPreviewDocument(previewDocument)))
-      .catch(() => {
-        // Lease release and not-yet-connected hosts are expected transient states for pooled previews.
-      });
-    return undefined;
-  }, [lease, previewDocument]);
-
-  return (
-    <PreviewPane
-      ownerTabId={tabId}
-      paneId="main"
-      policy="pooled-per-tab-group"
-      persistence="derived"
-      mode="room"
-      className="h-full w-full bg-zinc-950"
-      onLease={handleLease}
-    />
-  );
-}
 
 function parseRoomEditorTabState(value: WorkbenchTabStatePayload): RoomEditorTabStatePayload | null {
   if (value.schema !== ROOM_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
@@ -439,7 +400,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
 
         <aside className="space-y-4 rounded border bg-muted/20 p-4">
           <div className="h-72 overflow-hidden rounded border bg-background">
-            <RoomPreviewPane tabId={tab.id} previewDocument={previewDocument} />
+            <DerivedPreviewPane
+              ownerTabId={tab.id}
+              previewMode="room"
+              previewDocument={previewDocument}
+            />
           </div>
           <div className="relative h-48 overflow-hidden rounded border bg-background">
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">Placement canvas</div>
