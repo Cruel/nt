@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
+import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import {
@@ -13,8 +14,26 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
-vi.mock('@/components/engine-preview', () => ({
-  EnginePreview: ({ previewDocument }: { previewDocument: { kind: string } }) => <div data-kind={previewDocument.kind} data-testid="room-engine-preview" />,
+vi.mock('@/hooks/use-engine-preview', () => ({
+  useEnginePreview: () => ({
+    iframeRef: { current: null },
+    iframeKey: 0,
+    iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
+    session: null,
+    loadSession: vi.fn().mockResolvedValue({
+      url: 'http://127.0.0.1:5000/?sessionToken=test-token',
+      origin: 'http://127.0.0.1:5000',
+      sessionToken: 'test-token',
+    }),
+    setPreviewMode: vi.fn().mockResolvedValue(undefined),
+    loadPreviewDocument: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
+vi.mock('@/components/engine-preview-host', () => ({
+  EnginePreviewHost: ({ iframeSrc }: { iframeSrc: string | null }) => (
+    <iframe title="NovelTea engine preview" src={iframeSrc ?? undefined} />
+  ),
 }));
 
 vi.mock('@/components/source/SourceEditor', () => ({
@@ -35,6 +54,16 @@ const tab: WorkbenchTab = {
   },
 };
 
+function renderRoomEditor() {
+  return render(
+    <div style={{ position: 'relative', width: 800, height: 600 }}>
+      <PreviewHostPoolProvider groupId="test-group" activeTabId={tab.id}>
+        <RoomEditor tab={tab} />
+      </PreviewHostPoolProvider>
+    </div>,
+  );
+}
+
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
@@ -47,12 +76,15 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
-    render(<RoomEditor tab={tab} />);
+    renderRoomEditor();
 
     expect(screen.getByText('Foyer')).toBeInTheDocument();
     expect(screen.getByText('Navigation paths')).toBeInTheDocument();
     expect(screen.getByText('Hotspots')).toBeInTheDocument();
-    expect(screen.getByTestId('room-engine-preview')).toHaveAttribute('data-kind', 'room-preview');
+    expect(screen.getByTitle('NovelTea engine preview')).toBeInTheDocument();
+    expect(document.querySelector('[data-preview-pane-policy="pooled-per-tab-group"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-preview-pane-persistence="derived"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-preview-pane-mode="room"]')).toBeInTheDocument();
   });
 
   it('dispatches command-backed display name and hotspot updates', async () => {
@@ -60,7 +92,7 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
-    render(<RoomEditor tab={tab} />);
+    renderRoomEditor();
 
     fireEvent.change(screen.getByDisplayValue('Foyer'), { target: { value: 'Foyer East' } });
     await waitFor(() => {
@@ -96,7 +128,7 @@ describe('RoomEditor', () => {
     };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
-    render(<RoomEditor tab={tab} />);
+    renderRoomEditor();
 
     fireEvent.click(screen.getByText('No image'));
     expect(await screen.findByText('Choose a background image')).toBeInTheDocument();
@@ -120,7 +152,7 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
-    const view = render(<RoomEditor tab={tab} />);
+    const view = renderRoomEditor();
     const scrollContainer = view.container.querySelector<HTMLElement>('[data-room-editor-scroll]')!;
     scrollContainer.scrollTop = 96;
 
@@ -147,7 +179,7 @@ describe('RoomEditor', () => {
       },
     });
 
-    const restoredView = render(<RoomEditor tab={tab} />);
+    const restoredView = renderRoomEditor();
 
     expect(await screen.findByText('Choose a background image')).toBeInTheDocument();
     await waitFor(() => expect(restoredView.container.querySelector<HTMLElement>('[data-room-editor-scroll]')?.scrollTop).toBe(48));

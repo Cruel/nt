@@ -102,6 +102,8 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Room Detail',
     icon: DoorOpen,
     component: RoomEditor,
+    previewHostPolicy: 'pooled-per-tab-group',
+    previewPersistence: 'derived',
   },
   {
     type: 'dialogue-detail',

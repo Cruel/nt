@@ -3,6 +3,7 @@ import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
 import type { PreviewMode } from '../../shared/preview-protocol';
 
+export type PreviewPanePolicy = 'pooled-per-tab-group';
 export type PooledPreviewPersistence = 'derived';
 
 export interface PreviewHostRect {
@@ -201,16 +202,35 @@ export function PreviewHostPoolProvider({
     if (!isCurrentLease(leaseId, hostId)) {
       return Promise.reject(new Error('Preview host lease is no longer current.'));
     }
-    const controller = controllersRef.current.get(hostId);
-    if (!controller) {
-      return Promise.reject(new Error('Preview host is not ready.'));
-    }
     const pending: PendingLeaseCommand = { cancelled: false };
     const leasePending = pendingByLeaseRef.current.get(leaseId) ?? new Set<PendingLeaseCommand>();
     leasePending.add(pending);
     pendingByLeaseRef.current.set(leaseId, leasePending);
+
+    const waitForController = () => new Promise<EnginePreviewController>((resolve, reject) => {
+      const startedAt = Date.now();
+      const tick = () => {
+        if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
+          reject(new Error('Preview host command was cancelled because the lease was released.'));
+          return;
+        }
+        const controller = controllersRef.current.get(hostId);
+        if (controller) {
+          resolve(controller);
+          return;
+        }
+        if (Date.now() - startedAt > 5000) {
+          reject(new Error('Preview host is not ready.'));
+          return;
+        }
+        window.setTimeout(tick, 0);
+      };
+      tick();
+    });
+
     return Promise.resolve()
-      .then(() => command(controller))
+      .then(waitForController)
+      .then((controller) => command(controller))
       .then((result) => {
         if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
           throw new Error('Preview host command was cancelled because the lease was released.');
@@ -308,6 +328,8 @@ export function usePreviewHostPool() {
 export function PreviewPane({
   ownerTabId,
   paneId,
+  policy = 'pooled-per-tab-group',
+  persistence = 'derived',
   mode,
   children,
   className = 'relative min-h-0 flex-1 overflow-hidden bg-zinc-950',
@@ -315,6 +337,8 @@ export function PreviewPane({
 }: {
   ownerTabId: string;
   paneId: string;
+  policy?: PreviewPanePolicy;
+  persistence?: PooledPreviewPersistence;
   mode: PreviewMode;
   children?: ReactNode;
   className?: string;
@@ -344,7 +368,7 @@ export function PreviewPane({
       }
       return;
     }
-    const lease = claimHost({ ownerTabId, paneId, mode, persistence: 'derived' });
+    const lease = claimHost({ ownerTabId, paneId, mode, persistence });
     leaseRef.current = lease;
     onLeaseRef.current?.(lease);
     measureAndUpdate();
@@ -353,7 +377,7 @@ export function PreviewPane({
       if (leaseRef.current?.leaseId === lease.leaseId) leaseRef.current = null;
       onLeaseRef.current?.(null);
     };
-  }, [claimHost, isActive, measureAndUpdate, mode, ownerTabId, paneId, releaseHost]);
+  }, [claimHost, isActive, measureAndUpdate, mode, ownerTabId, paneId, persistence, releaseHost]);
 
   useEffect(() => {
     if (!isActive) return undefined;
@@ -377,6 +401,9 @@ export function PreviewPane({
       className={className}
       data-preview-pane-id={paneId}
       data-preview-pane-owner-tab-id={ownerTabId}
+      data-preview-pane-policy={policy}
+      data-preview-pane-persistence={persistence}
+      data-preview-pane-mode={mode}
       data-preview-pane-active={isActive ? 'true' : undefined}
     >
       {children}
