@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   defaultTestAssertion,
@@ -168,6 +169,27 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       });
     },
   }), [sourceEditors.refs]));
+
+  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'test.step', (target) => {
+    if (!testId || !target.id.startsWith('test.step.')) return false;
+    const stepId = target.id.slice('test.step.'.length);
+    if (!data.steps.some((step) => step.id === stepId)) return false;
+    if (data.preview.selectedStepId !== stepId) {
+      commitTest(testId, { ...data, preview: { ...data.preview, selectedStepId: stepId } }, 'Select test step');
+    }
+    return false;
+  }), [data, tab.id, testId]);
+
+  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'test.assertion', (target) => {
+    if (!testId || !target.id.startsWith('test.assertion.')) return false;
+    const assertionId = target.id.slice('test.assertion.'.length);
+    const step = data.steps.find((item) => item.assertions.some((assertion) => assertion.id === assertionId));
+    if (!step) return false;
+    if (data.preview.selectedStepId !== step.id) {
+      commitTest(testId, { ...data, preview: { ...data.preview, selectedStepId: step.id } }, 'Select test assertion');
+    }
+    return false;
+  }), [data, tab.id, testId]);
 
   if (!testId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Test record not found.</div>;
 
@@ -328,7 +350,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
               {data.steps.map((step, index) => {
                 const observation = observations.get(index);
                 return (
-                  <button key={step.id} type="button" className={`w-full rounded border p-3 text-left text-sm ${step.id === activeStep?.id ? 'border-primary bg-primary/5' : 'bg-background'}`} onClick={() => patchPreview({ selectedStepId: step.id })}>
+                  <button key={step.id} type="button" data-workbench-anchor={`test.step.${step.id || index}`} className={`w-full rounded border p-3 text-left text-sm ${step.id === activeStep?.id ? 'border-primary bg-primary/5' : 'bg-background'}`} onClick={() => patchPreview({ selectedStepId: step.id })}>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline">{index + 1}</Badge>
                       <span className="font-medium">{step.label}</span>
@@ -417,8 +439,8 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
             <section className="space-y-3 rounded border p-3">
               <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">Assertions</h3><Button size="sm" variant="outline" onClick={() => addAssertion(activeStep)}>Add Assertion</Button></div>
               {activeStep.assertions.length === 0 ? <div className="text-xs text-muted-foreground">No assertions.</div> : null}
-              {activeStep.assertions.map((assertion) => (
-                <div key={assertion.id} className="space-y-2 rounded border p-2">
+              {activeStep.assertions.map((assertion, index) => (
+                <div key={assertion.id} className="space-y-2 rounded border p-2" data-workbench-anchor={`test.assertion.${assertion.id || index}`}>
                   <div className="flex items-center gap-2"><Switch checked={assertion.enabled} onCheckedChange={(checked) => replaceAssertion(activeStep, assertion.id, { enabled: Boolean(checked) })} /><Input value={assertion.label} onChange={(event) => replaceAssertion(activeStep, assertion.id, { label: event.currentTarget.value })} /></div>
                   <Select value={assertion.type} onValueChange={(value) => replaceAssertion(activeStep, assertion.id, { type: value as TestAssertionData['type'] })}>{testAssertionTypeValues.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</Select>
                   <Input value={assertion.value} placeholder="Value" onChange={(event) => replaceAssertion(activeStep, assertion.id, { value: event.currentTarget.value })} />

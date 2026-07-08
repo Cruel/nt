@@ -230,3 +230,20 @@ The focused tests and `pnpm typecheck` pass. `pnpm lint` currently fails on pre-
 dirty workbench code: `editor/src/renderer/workbench/WorkbenchTabs.tsx` has an unused `openTab`.
 `pnpm test` had one order-sensitive failure in `src/renderer/test/engine-preview.test.tsx`; rerunning
 that file in isolation passed.
+
+Latest editor diagnostic row-level navigation verification:
+
+```sh
+pnpm test -- diagnostic-navigation.test.ts
+pnpm typecheck
+pnpm lint
+pnpm test
+```
+
+Row-level project diagnostic navigation now resolves and reveals character pose/expression rows,
+room hotspots, scene steps, dialogue blocks/segments/edges, and test steps/assertions. Stateful
+editors select the targeted row before the shared workbench anchor reveal runs. Exact source
+line/column navigation remains deferred until diagnostics carry reliable source-position metadata.
+`pnpm lint`, `pnpm typecheck`, and focused/full Vitest coverage pass except for the known
+order-sensitive `src/renderer/test/engine-preview.test.tsx` timeout-status assertion when run inside
+the full suite; rerunning that file in isolation passes.

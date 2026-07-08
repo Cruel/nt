@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildDialoguePreviewDocumentData, dialoguePreviewRevision } from '../../../shared/project-schema/dialogue-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
@@ -154,6 +155,41 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
       });
     },
   }), [sourceEditors.refs]));
+
+  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'dialogue.block', (target) => {
+    if (!dialogueId || !target.id.startsWith('dialogue.block.')) return false;
+    const blockId = target.id.slice('dialogue.block.'.length);
+    const block = data.blocks.find((item) => item.id === blockId);
+    if (!block) return false;
+    if (data.preview.selectedBlockId !== block.id) {
+      commitDialogue(dialogueId, { ...data, preview: { ...data.preview, selectedBlockId: block.id, selectedSegmentId: block.segments[0]?.id ?? null } }, 'Select dialogue block');
+    }
+    return false;
+  }), [data, dialogueId, tab.id]);
+
+  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'dialogue.segment', (target) => {
+    if (!dialogueId || !target.id.startsWith('dialogue.segment.')) return false;
+    const segmentId = target.id.slice('dialogue.segment.'.length);
+    const block = data.blocks.find((item) => item.segments.some((segment) => segment.id === segmentId));
+    if (!block) return false;
+    if (data.preview.selectedBlockId !== block.id || data.preview.selectedSegmentId !== segmentId) {
+      commitDialogue(dialogueId, { ...data, preview: { ...data.preview, selectedBlockId: block.id, selectedSegmentId: segmentId } }, 'Select dialogue segment');
+    }
+    return false;
+  }), [data, dialogueId, tab.id]);
+
+  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'dialogue.edge', (target) => {
+    if (!dialogueId || !target.id.startsWith('dialogue.edge.')) return false;
+    const edgeId = target.id.slice('dialogue.edge.'.length);
+    const edge = data.edges.find((item) => item.id === edgeId);
+    if (!edge) return false;
+    const block = data.blocks.find((item) => item.id === edge.fromBlockId);
+    if (!block) return false;
+    if (data.preview.selectedBlockId !== block.id) {
+      commitDialogue(dialogueId, { ...data, preview: { ...data.preview, selectedBlockId: block.id, selectedSegmentId: block.segments[0]?.id ?? null } }, 'Select dialogue choice');
+    }
+    return false;
+  }), [data, dialogueId, tab.id]);
 
   if (!dialogueId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Dialogue record not found.</div>;
 
@@ -406,6 +442,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                 {activeBlock.segments.map((segment, index) => (
                   <button
                     key={segment.id}
+                    data-workbench-anchor={`dialogue.segment.${segment.id || index}`}
                     className={`w-full rounded border p-2 text-left text-sm ${segment.id === activeSegment?.id ? 'border-primary bg-primary/5' : 'bg-background'}`}
                     onClick={() => patchPreview({ selectedBlockId: activeBlock.id, selectedSegmentId: segment.id })}
                   >
@@ -443,7 +480,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
           </section>
 
           {activeBlock ? (
-            <section className="space-y-3 rounded border p-3">
+            <section className="space-y-3 rounded border p-3" data-workbench-anchor={`dialogue.block.${activeBlock.id}`}>
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-medium">Block</h3>
                 <Button size="sm" variant="outline" onClick={() => deleteBlock(activeBlock.id)} disabled={data.blocks.length <= 1}>Delete</Button>
@@ -543,8 +580,8 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                 <Button size="sm" variant="outline" onClick={() => addEdge(activeBlock.id, data.blocks.find((block) => block.id !== activeBlock.id)?.id ?? activeBlock.id, 'choice')}>Add Choice</Button>
               </div>
               {outgoingEdges.length === 0 ? <div className="text-xs text-muted-foreground">No outgoing choices yet.</div> : null}
-              {outgoingEdges.map((edge) => (
-                <div key={edge.id} className="space-y-2 rounded border p-2">
+              {outgoingEdges.map((edge, index) => (
+                <div key={edge.id} className="space-y-2 rounded border p-2" data-workbench-anchor={`dialogue.edge.${edge.id || index}`}>
                   <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
                     <div className="space-y-1">
                       <Label>Label</Label>

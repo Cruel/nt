@@ -292,8 +292,8 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               <h3 className="text-sm font-medium">Poses</h3>
               <Button size="sm" variant="outline" onClick={addPose}>Add Pose</Button>
             </div>
-            {data.poses.map((pose) => (
-              <div key={pose.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-4">
+            {data.poses.map((pose, index) => (
+              <div key={pose.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-4" data-workbench-anchor={`character.pose.${pose.id || index}`}>
                 <div className="space-y-1">
                   <Label>ID</Label>
                   <Input value={pose.id} onChange={(event) => replacePose(pose.id, { id: event.currentTarget.value })} />
@@ -340,8 +340,8 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               <h3 className="text-sm font-medium">Expressions</h3>
               <Button size="sm" variant="outline" onClick={addExpression}>Add Expression</Button>
             </div>
-            {data.expressions.map((expression) => (
-              <div key={expression.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-5">
+            {data.expressions.map((expression, index) => (
+              <div key={expression.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-5" data-workbench-anchor={`character.expression.${expression.id || index}`}>
                 <div className="space-y-1">
                   <Label>ID</Label>
                   <Input value={expression.id} onChange={(event) => replaceExpression(expression.id, { id: event.currentTarget.value })} />

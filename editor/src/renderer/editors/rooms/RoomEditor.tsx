@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +32,7 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildRoomPreviewDocumentData, roomPreviewRevision } from '../../../shared/project-schema/room-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
@@ -142,6 +143,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       });
     },
   }), [sourceEditors.refs]));
+
+  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'room.hotspot', (target) => {
+    if (!roomId || !target.id.startsWith('room.hotspot.')) return false;
+    const hotspotId = target.id.slice('room.hotspot.'.length);
+    if (!data.hotspots.some((hotspot) => hotspot.id === hotspotId)) return false;
+    if (data.preview.selectedHotspotId !== hotspotId) {
+      commitRoom(roomId, { ...data, preview: { ...data.preview, selectedHotspotId: hotspotId } }, 'Select room hotspot');
+    }
+    return false;
+  }), [data, roomId, tab.id]);
 
   if (!roomId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
 
@@ -352,8 +363,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <h3 className="text-sm font-medium">Hotspots</h3>
               <Button size="sm" variant="outline" onClick={addHotspot}>Add Hotspot</Button>
             </div>
-            {data.hotspots.map((hotspot) => (
-              <div key={hotspot.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-6">
+            {data.hotspots.map((hotspot, index) => (
+              <div key={hotspot.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-6" data-workbench-anchor={`room.hotspot.${hotspot.id || index}`}>
                 <div className="space-y-1">
                   <Label>ID</Label>
                   <Input value={hotspot.id} onFocus={() => patchPreview({ selectedHotspotId: hotspot.id })} onChange={(event) => replaceHotspot(hotspot.id, { id: event.currentTarget.value })} />

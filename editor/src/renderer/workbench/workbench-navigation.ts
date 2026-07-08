@@ -71,8 +71,13 @@ export function registerWorkbenchTargetHandler(tabId: string, targetId: string, 
 }
 
 export function invokeWorkbenchTargetHandler(tabId: string, target: PendingWorkbenchRevealTarget): boolean {
-  const handler = targetHandlersByTabId.get(tabId)?.get(target.id);
-  return handler ? handler(target) === true : false;
+  const handlers = targetHandlersByTabId.get(tabId);
+  const handler = handlers?.get(target.id);
+  if (handler) return handler(target) === true;
+  for (const [targetId, targetHandler] of handlers ?? []) {
+    if (target.id.startsWith(`${targetId}.`)) return targetHandler(target) === true;
+  }
+  return false;
 }
 
 export function navigateToWorkbenchTarget(request: WorkbenchNavigationRequest) {

@@ -181,7 +181,7 @@ Resolver behavior should favor useful navigation over perfect precision. Field-l
 
 ## Implementation Status
 
-Status: mostly implemented for coarse section-level navigation. Keep this plan until the precision follow-ups below are complete.
+Status: implemented for coarse section-level navigation and current row-level collection targets. Keep this plan until the source-position follow-ups below are complete.
 
 Completed:
 
@@ -192,15 +192,15 @@ Completed:
 - Phase 4: shared `DiagnosticList` / `DiagnosticCard` components render plain and clickable diagnostics.
 - Phase 5: `resolveProjectDiagnosticTarget(project, path)` handles JSON-pointer-like project paths for characters, layouts, rooms, project settings, entrypoint, dialogues, scenes, tests, assets, materials, shaders, variables, and unknown-path fallback.
 - Phase 6: shared diagnostic navigation is integrated into Character, Layout, Room, Dialogue, Scene, Test, Project Settings, Problems, Command History, and Package Export surfaces where project paths can be resolved.
-- Phase 7 partial: an optional per-tab target handler registry exists, and `SourceEditorHandle.focus()` / `SourceEditorHandle.revealLine()` provide source-editor plumbing for later source-position targets.
-- Phase 8 partial: lint, typecheck, and tests pass for the implementation; obsolete project-settings navigation events are removed.
+- Phase 7: an optional per-tab target handler registry exists, including prefix handlers for dynamic row targets; `SourceEditorHandle.focus()` / `SourceEditorHandle.revealLine()` provide source-editor plumbing for later source-position targets.
+- Phase 8: row-level diagnostic navigation is implemented for character poses/expressions, room hotspots, scene steps, dialogue blocks/segments/edges, and test steps/assertions. Stateful editors update the active row before reveal where needed.
+- Phase 9 partial: automated lint, typecheck, and tests pass for the current implementation; obsolete project-settings navigation events are removed.
 
 Remaining:
 
 - Exact source line/column diagnostic navigation is not wired end to end. The `SourceEditor` handle supports line reveal, but current validators generally do not emit reliable line/column/range payloads.
 - Diagnostic target payloads do not yet include source-editor keys or ranges. Add these once validators or tool diagnostics can identify exact RML/RCSS/Lua/JSON positions.
-- Row-level targets are not implemented for collection UIs such as character poses/expressions, room hotspots, scene steps, dialogue blocks/segments/edges, and test steps/assertions.
-- Runtime, preview, shader-compile, and other tool diagnostics remain plain when their paths are not authoring-project JSON pointers or cannot be mapped safely.
+- Runtime, preview, shader-compile, and other tool diagnostics remain plain unless they provide authoring-project JSON-pointer paths or future source-position metadata that can be mapped safely.
 - A manual Electron smoke pass is still recommended for visual confirmation of the ComfyUI settings deep link and clickable diagnostics, even though automated coverage exists.
 
 ## Implementation Phases
@@ -261,10 +261,10 @@ Remaining:
 
 ### Phase 7: Source-editor and field-level follow-up
 
+- Add prefix-capable editor-specific handlers and row anchors for collection sections such as character poses/expressions, room hotspots, scene steps, dialogue blocks/segments/edges, and test steps/assertions.
 - Extend `SourceEditorHandle` with optional `focus`, `revealLine`, or `revealRange` methods when exact source locations become available.
 - Allow diagnostic targets to include a source-editor key and optional line/column/range payload.
 - Add editor-specific handlers for exact RML/RCSS/Lua/JSON source positioning.
-- Add row-level handlers for collection sections such as character poses/expressions, room hotspots, scene steps, and dialogue blocks when those UIs have stable row anchors.
 
 ### Phase 8: Verification and cleanup
 
@@ -307,5 +307,4 @@ Remaining precision-navigation definition:
 
 - Validators or tool diagnostics emit reliable source positions or row identities where available.
 - Source-editor targets carry source key plus line/column/range payloads and reveal exact RML/RCSS/Lua/JSON positions.
-- Collection editors expose stable row anchors or handlers for poses, expressions, hotspots, scene steps, dialogue blocks/segments/edges, and test steps/assertions.
 - Runtime/preview/shader diagnostics are mapped only when a resolver can do so without misleading users.

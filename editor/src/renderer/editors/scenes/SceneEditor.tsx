@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
   defaultSceneData,
   defaultSceneStep,
@@ -148,6 +149,16 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
       });
     },
   }), [sourceEditors.refs]));
+
+  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'scene.step', (target) => {
+    if (!sceneId || !target.id.startsWith('scene.step.')) return false;
+    const stepId = target.id.slice('scene.step.'.length);
+    if (!data.steps.some((step) => step.id === stepId)) return false;
+    if (data.preview.selectedStepId !== stepId) {
+      commitScene(sceneId, { ...data, preview: { ...data.preview, selectedStepId: stepId } }, 'Select scene step');
+    }
+    return false;
+  }), [data, sceneId, tab.id]);
 
   if (!sceneId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Scene record not found.</div>;
 
@@ -327,6 +338,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               {data.steps.map((step, index) => (
                 <button
                   key={step.id}
+                  data-workbench-anchor={`scene.step.${step.id || index}`}
                   className={`w-full rounded border p-3 text-left text-sm ${step.id === activeStep?.id ? 'border-primary bg-primary/5' : 'bg-background'}`}
                   onClick={() => patchPreview({ selectedStepId: step.id })}
                 >

@@ -65,22 +65,24 @@ function revealWorkbenchTarget(root: HTMLElement | null, target: PendingWorkbenc
     window.requestAnimationFrame(() => {
       const tabId = root.dataset.workbenchEditorPane;
       if (tabId && invokeWorkbenchTargetHandler(tabId, target)) return;
-      const escapedTargetId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(target.id) : target.id.replaceAll('"', '\\"');
-      const anchor = root.querySelector<HTMLElement>(`[data-workbench-anchor="${escapedTargetId}"]`);
-      if (!anchor) return;
-      anchor.scrollIntoView({
-        behavior: 'smooth',
-        block: target.block ?? 'nearest',
-        inline: target.inline ?? 'nearest',
+      window.requestAnimationFrame(() => {
+        const escapedTargetId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(target.id) : target.id.replaceAll('"', '\\"');
+        const anchor = root.querySelector<HTMLElement>(`[data-workbench-anchor="${escapedTargetId}"]`);
+        if (!anchor) return;
+        anchor.scrollIntoView({
+          behavior: 'smooth',
+          block: target.block ?? 'nearest',
+          inline: target.inline ?? 'nearest',
+        });
+        if (target.focus) anchor.focus({ preventScroll: true });
+        if (!target.flash) return;
+        anchor.dataset.workbenchAnchorFlash = String(target.requestId);
+        window.setTimeout(() => {
+          if (anchor.dataset.workbenchAnchorFlash === String(target.requestId)) {
+            delete anchor.dataset.workbenchAnchorFlash;
+          }
+        }, 5200);
       });
-      if (target.focus) anchor.focus({ preventScroll: true });
-      if (!target.flash) return;
-      anchor.dataset.workbenchAnchorFlash = String(target.requestId);
-      window.setTimeout(() => {
-        if (anchor.dataset.workbenchAnchorFlash === String(target.requestId)) {
-          delete anchor.dataset.workbenchAnchorFlash;
-        }
-      }, 5200);
     });
   });
 }

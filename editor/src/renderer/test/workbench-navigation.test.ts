@@ -55,4 +55,15 @@ describe('workbench navigation', () => {
     dispose();
     expect(invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 2 })).toBe(false);
   });
+
+  it('invokes prefix target handlers for dynamic row targets', async () => {
+    const { invokeWorkbenchTargetHandler } = await import('@/workbench/workbench-navigation');
+    const handler = vi.fn(() => false);
+    const dispose = registerWorkbenchTargetHandler('tab:scene', 'scene.step', handler);
+
+    expect(invokeWorkbenchTargetHandler('tab:scene', { id: 'scene.step.intro', requestId: 1 })).toBe(false);
+    expect(handler).toHaveBeenCalledWith({ id: 'scene.step.intro', requestId: 1 });
+
+    dispose();
+  });
 });
