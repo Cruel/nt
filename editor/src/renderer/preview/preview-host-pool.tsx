@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
 import type { PreviewMode } from '../../shared/preview-protocol';
@@ -18,6 +18,7 @@ export interface PreviewHostClaimRequest {
   paneId: string;
   mode: PreviewMode;
   persistence?: PooledPreviewPersistence;
+  initialRect?: PreviewHostRect;
 }
 
 export interface PreviewHostLease {
@@ -73,14 +74,14 @@ function hiddenHostStyle(): CSSProperties {
   };
 }
 
-function rectHostStyle(rect: PreviewHostRect): CSSProperties {
+function rectHostStyle(rect: PreviewHostRect, pointerEventsDisabled: boolean): CSSProperties {
   return {
     position: 'absolute',
     left: rect.left,
     top: rect.top,
     width: rect.width,
     height: rect.height,
-    pointerEvents: 'auto',
+    pointerEvents: pointerEventsDisabled ? 'none' : 'auto',
   };
 }
 
@@ -98,9 +99,11 @@ function measureRect(element: HTMLElement, layer: HTMLElement): PreviewHostRect 
 function PreviewHostSlot({
   host,
   registerController,
+  pointerEventsDisabled,
 }: {
   host: PreviewHostRecord;
   registerController: (hostId: string, controller: EnginePreviewController | null) => void;
+  pointerEventsDisabled: boolean;
 }) {
   const controller = useEnginePreview({
     embedded: true,
@@ -121,7 +124,7 @@ function PreviewHostSlot({
 
   const rect = host.lease?.rect;
   const isVisible = Boolean(rect && host.lease);
-  const style = rect && isVisible ? rectHostStyle(rect) : hiddenHostStyle();
+  const style = rect && isVisible ? rectHostStyle(rect, pointerEventsDisabled) : hiddenHostStyle();
 
   useEffect(() => {
     const sendActivity = async () => {
@@ -176,6 +179,7 @@ export function PreviewHostPoolProvider({
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
   const reservedHostIdsRef = useRef(new Set<string>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
+  const [previewPointerEventsDisabled, setPreviewPointerEventsDisabled] = useState(false);
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
 
@@ -272,6 +276,7 @@ export function PreviewHostPoolProvider({
                 ownerTabId: request.ownerTabId,
                 paneId: request.paneId,
                 mode: request.mode,
+                rect: request.initialRect,
               },
             }
           : host);
@@ -285,6 +290,7 @@ export function PreviewHostPoolProvider({
             ownerTabId: request.ownerTabId,
             paneId: request.paneId,
             mode: request.mode,
+            rect: request.initialRect,
           },
         },
       ];
@@ -305,11 +311,43 @@ export function PreviewHostPoolProvider({
     }
   }, [hosts]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setHosts((current) => current.map((host) => (
       host.lease && host.lease.ownerTabId !== activeTabId ? { ...host, lease: null } : host
     )));
   }, [activeTabId]);
+
+  useEffect(() => {
+    const startsResizeDrag = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return false;
+
+      const handle = target.closest('[role="separator"]') ?? target.closest('[data-panel-resize-handle-id]');
+      if (handle) return true;
+
+      const classed = target.closest('.cursor-col-resize') ?? target.closest('.cursor-row-resize');
+      return Boolean(classed);
+    };
+
+    const stopResizeDrag = () => setPreviewPointerEventsDisabled(false);
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!startsResizeDrag(event.target)) return;
+
+      setPreviewPointerEventsDisabled(true);
+      window.addEventListener('pointerup', stopResizeDrag, { once: true });
+      window.addEventListener('pointercancel', stopResizeDrag, { once: true });
+      window.addEventListener('blur', stopResizeDrag, { once: true });
+    };
+
+    window.addEventListener('pointerdown', onPointerDown, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('pointerup', stopResizeDrag);
+      window.removeEventListener('pointercancel', stopResizeDrag);
+      window.removeEventListener('blur', stopResizeDrag);
+    };
+  }, []);
 
   const value = useMemo<PreviewHostPoolContextValue>(() => ({
     activeTabId,
@@ -321,10 +359,17 @@ export function PreviewHostPoolProvider({
 
   return (
     <PreviewHostPoolContext.Provider value={value}>
-      {children}
       <div ref={layerRef} className="pointer-events-none absolute inset-0 z-10" data-preview-host-layer={groupId}>
-        {hosts.map((host) => <PreviewHostSlot key={host.hostId} host={host} registerController={registerController} />)}
+        {hosts.map((host) => (
+          <PreviewHostSlot
+            key={host.hostId}
+            host={host}
+            registerController={registerController}
+            pointerEventsDisabled={previewPointerEventsDisabled}
+          />
+        ))}
       </div>
+      {children}
     </PreviewHostPoolContext.Provider>
   );
 }
@@ -371,7 +416,7 @@ export function PreviewPane({
     updateHostRect(lease.leaseId, measureRect(placeholder, layer));
   }, [layerRef, updateHostRect]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isActive) {
       if (leaseRef.current) {
         releaseHost(leaseRef.current.leaseId);
@@ -380,7 +425,10 @@ export function PreviewPane({
       }
       return;
     }
-    const lease = claimHost({ ownerTabId, paneId, mode, persistence });
+    const placeholder = placeholderRef.current;
+    const layer = layerRef.current;
+    const initialRect = placeholder && layer ? measureRect(placeholder, layer) : undefined;
+    const lease = claimHost({ ownerTabId, paneId, mode, persistence, initialRect });
     leaseRef.current = lease;
     onLeaseRef.current?.(lease);
     measureAndUpdate();
@@ -391,7 +439,7 @@ export function PreviewPane({
     };
   }, [claimHost, isActive, measureAndUpdate, mode, ownerTabId, paneId, persistence, releaseHost]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isActive) return undefined;
     const placeholder = placeholderRef.current;
     if (!placeholder) return undefined;
