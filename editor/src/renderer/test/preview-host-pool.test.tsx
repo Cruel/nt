@@ -85,6 +85,20 @@ function hostElements(container: HTMLElement) {
   return [...container.querySelectorAll<HTMLElement>('[data-preview-host-id]')];
 }
 
+function testRect(left: number, top: number, width: number, height: number): DOMRect {
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
 beforeEach(() => {
   previewControllerMocks.setPreviewActivity.mockClear();
   previewControllerMocks.requestPreviewState.mockClear();
@@ -180,6 +194,45 @@ describe('PreviewHostPool', () => {
 
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
     await waitFor(() => expect(previewControllerMocks.requestPreviewState).toHaveBeenCalled());
+  });
+
+  it('persists host position updates when the measured size is unchanged', async () => {
+    let lease: PreviewHostLease | null = null;
+    let paneRect = testRect(10, 20, 256, 192);
+    const { container, rerender } = render(
+      <Harness
+        activeTabId="tab:a"
+        panes={[{ ownerTabId: 'tab:a', paneId: 'main', onLease: (next) => { lease = next; } }]}
+      />,
+    );
+    await waitFor(() => expect(lease).not.toBeNull());
+
+    const pane = container.querySelector<HTMLElement>('[data-preview-pane-id="main"]');
+    const layer = container.querySelector<HTMLElement>('[data-preview-host-layer="group:one"]');
+    expect(pane).not.toBeNull();
+    expect(layer).not.toBeNull();
+    vi.spyOn(pane!, 'getBoundingClientRect').mockImplementation(() => paneRect);
+    vi.spyOn(layer!, 'getBoundingClientRect').mockImplementation(() => testRect(0, 0, 800, 600));
+
+    fireEvent(window, new Event('resize'));
+    act(() => lease!.reveal());
+    await waitFor(() => expect(hostElements(container)[0]).toHaveStyle({ left: '10px', top: '20px' }));
+
+    paneRect = testRect(40, 64, 256, 192);
+    fireEvent.scroll(window);
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+    await waitFor(() => expect(hostElements(container)[0]).toHaveStyle({ left: '40px', top: '64px' }));
+
+    rerender(
+      <Harness
+        activeTabId="tab:a"
+        panes={[{ ownerTabId: 'tab:a', paneId: 'main', onLease: (next) => { lease = next; } }]}
+      />,
+    );
+
+    expect(hostElements(container)[0]).toHaveStyle({ left: '40px', top: '64px' });
   });
 
   it('activates the owning tab when the pooled preview iframe is focused or clicked', async () => {

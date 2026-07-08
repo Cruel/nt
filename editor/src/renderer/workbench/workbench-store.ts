@@ -124,6 +124,11 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     return toStoreState(next);
   }),
   activateTab: (groupId, tabId) => set((state) => {
+    const group = state.groupsById[groupId];
+    if (group?.activeTabId === tabId) {
+      if (state.activeGroupId === groupId) return state;
+      return toStoreState(activateWorkbenchGroup(state, groupId));
+    }
     captureActiveGroupTab(state, groupId);
     const next = activateWorkbenchTab(state, groupId, tabId);
     restoreWorkbenchTabState(tabId);

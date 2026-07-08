@@ -111,8 +111,15 @@ function applyMeasuredHostStyle(element: HTMLElement, rect: PreviewHostRect) {
   element.style.height = `${rect.height}px`;
 }
 
-function sameHostSize(left: PreviewHostRect | undefined, right: PreviewHostRect | undefined) {
-  return Boolean(left && right && left.width === right.width && left.height === right.height);
+function sameHostRect(left: PreviewHostRect | undefined, right: PreviewHostRect | undefined) {
+  return Boolean(
+    left
+      && right
+      && left.left === right.left
+      && left.top === right.top
+      && left.width === right.width
+      && left.height === right.height,
+  );
 }
 
 function isPreviewNotConnectedError(error: unknown) {
@@ -275,7 +282,7 @@ export function PreviewHostPoolProvider({
     }
     setHosts((current) => current.map((host) => {
       if (host.lease?.leaseId !== leaseId) return host;
-      if (rect && sameHostSize(host.lease.rect, rect)) return host;
+      if (rect && sameHostRect(host.lease.rect, rect)) return host;
       return { ...host, lease: { ...host.lease, rect } };
     }));
   }, []);

@@ -155,7 +155,7 @@ describe('workbench tab-state registry', () => {
 
     act(() => {
       useWorkbenchStore.getState().openTab(rawTab('one'));
-      useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, 'tab:one');
+      useWorkbenchStore.getState().openTab(rawTab('two'));
     });
 
     expect(captures).toContain('capture');
@@ -240,6 +240,18 @@ describe('workbench tab-state lifecycle', () => {
     );
 
     await waitFor(() => expect(lifecycle.restoredValues).toContainEqual({ tabId: first.id, value: 'store-switch' }));
+  });
+
+  it('does not capture or restore tab state when activating the already-active tab', () => {
+    const tab = rawTab('one');
+    useWorkbenchStore.getState().openTab(tab);
+    renderGroup(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!, [tab]);
+
+    lifecycle.currentValues.set(tab.id, 'should-not-capture');
+    act(() => useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, tab.id));
+
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toBeUndefined();
+    expect(lifecycle.restoredValues).toEqual([]);
   });
 
   it('retains recently closed tab state, restores on reopen, and expires trimmed entries', () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
@@ -17,12 +17,14 @@ const previewControllers = vi.hoisted(() => ({
   setPreviewModeCalls: [] as string[],
   loadPreviewDocumentCalls: [] as Array<{ kind: string; recordId: string; revision: string; data: Record<string, unknown> }>,
   nextResetPromise: null as Promise<void> | null,
+  onMessages: [] as Array<(message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void>,
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: () => {
+  useEnginePreview: (options: { onMessage?: (message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void } = {}) => {
     previewControllers.created += 1;
     const hostIndex = previewControllers.created;
+    if (options.onMessage) previewControllers.onMessages.push(options.onMessage);
     return {
       iframeRef: { current: null },
       iframeKey: hostIndex,
@@ -147,6 +149,7 @@ function resetPreviewControllerState() {
   previewControllers.setPreviewModeCalls = [];
   previewControllers.loadPreviewDocumentCalls = [];
   previewControllers.nextResetPromise = null;
+  previewControllers.onMessages = [];
 }
 
 beforeEach(() => {
@@ -244,6 +247,22 @@ describe('LayoutEditor pooled layout preview', () => {
     await waitFor(() => expect(view.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollTop).toBe(128));
     expect(view.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollLeft).toBe(12);
     expect(screen.getByLabelText('source-rml').scrollTop).toBe(22);
+  });
+
+  it('does not reload the already-active layout preview when the iframe reports interaction', async () => {
+    renderGroup(group(layoutTab.id));
+
+    await waitFor(() => expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('main'));
+    await waitFor(() => expect(previewControllers.onMessages.length).toBeGreaterThan(0));
+    const loadCount = previewControllers.loadPreviewDocumentCalls.length;
+    const resetCount = previewControllers.resetCalls;
+
+    act(() => {
+      previewControllers.onMessages.at(-1)?.({ version: 1, type: 'preview-interacted', interaction: 'pointer' });
+    });
+
+    expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(loadCount);
+    expect(previewControllers.resetCalls).toBe(resetCount);
   });
 
   it('ignores stale layout sends after the layout preview releases its lease', async () => {
