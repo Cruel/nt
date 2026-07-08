@@ -148,7 +148,7 @@ completes and the app reports the missing preview build with the command to run.
 The project uses the `base-mira` style with `@base-ui/react` primitives.
 
 ```sh
-npx shadcn@latest add <component-name> -y
+pnpm dlx shadcn@latest add <component-name> -y
 ```
 
 Available components are listed in the shadcn documentation. Currently

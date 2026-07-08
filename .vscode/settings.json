@@ -1,4 +1,6 @@
 {
+  "npm.packageManager": "pnpm",
+  "npm.scriptRunner": "pnpm",
   "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
   "C_Cpp.files.exclude": {
     "**/.cache/**": true,
