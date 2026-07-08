@@ -7,7 +7,7 @@ import { defaultEditorRegistry } from './default-editors';
 import { missingEditorRegistration, resolveEditorPolicies, type WorkbenchEditorRegistration, type ResolvedWorkbenchEditorPolicies } from './editor-registry';
 import { WorkbenchTabs } from './WorkbenchTabs';
 import { workbenchTabDockDndId } from './WorkbenchTabDndContext';
-import { captureWorkbenchTabState, restoreWorkbenchTabState } from './workbench-tab-state';
+import { captureWorkbenchTabState, restoreWorkbenchTabState, useWorkbenchTabStateStore } from './workbench-tab-state';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchGroup as WorkbenchGroupModel, WorkbenchTab } from './workbench-types';
 
@@ -31,7 +31,9 @@ function WorkbenchEditorPane({ tab, registration, policies, isActive }: Workbenc
   }, [isActive, tab.id]);
 
   useLayoutEffect(() => () => {
-    if (policies.mountPolicy === 'active-only') captureWorkbenchTabState(tab.id);
+    if (policies.mountPolicy !== 'active-only') return;
+    if (useWorkbenchTabStateStore.getState().tabStatesById[tab.id]) return;
+    captureWorkbenchTabState(tab.id);
   }, [policies.mountPolicy, tab.id]);
 
   return (

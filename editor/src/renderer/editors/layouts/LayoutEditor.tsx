@@ -73,6 +73,7 @@ function parseSampleState(text: string): { ok: true; value: Record<string, unkno
 }
 
 const LAYOUT_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.layout';
+const DEFAULT_HORIZONTAL_SPLIT_SIZES: [number, number] = [62, 38];
 
 interface LayoutEditorTabStatePayload {
   leftScroll?: ScrollViewState;
@@ -97,6 +98,22 @@ function parseLayoutEditorTabState(value: WorkbenchTabStatePayload): LayoutEdito
     sampleStateDraft: typeof payload.sampleStateDraft === 'string' ? payload.sampleStateDraft : undefined,
     message: typeof payload.message === 'string' || payload.message === null ? payload.message : undefined,
   };
+}
+
+function normalizeHorizontalSplitSizes(sizes: readonly number[] | null | undefined): [number, number] {
+  const left = sizes?.[0];
+  const right = sizes?.[1];
+  if (
+    typeof left === 'number'
+    && Number.isFinite(left)
+    && left > 0
+    && typeof right === 'number'
+    && Number.isFinite(right)
+    && right > 0
+  ) {
+    return [left, right];
+  }
+  return [...DEFAULT_HORIZONTAL_SPLIT_SIZES];
 }
 
 function updateLayout(layoutId: string, next: LayoutData, label: string) {
@@ -163,9 +180,11 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const sampleStateText = useMemo(() => JSON.stringify(data.sampleState, null, 2), [data.sampleState]);
   const [sampleStateDraft, setSampleStateDraft] = useState(sampleStateText);
   const [message, setMessage] = useState<string | null>(null);
+  const [horizontalSplitDefaultSizes, setHorizontalSplitDefaultSizes] = useState<[number, number]>(() => [...DEFAULT_HORIZONTAL_SPLIT_SIZES]);
+  const [horizontalSplitRestoreKey, setHorizontalSplitRestoreKey] = useState(0);
   const leftPaneRef = useRef<HTMLDivElement | null>(null);
   const sourceEditors = useSourceEditorViewStateRefs<'rml' | 'rcss' | 'lua' | 'sampleState'>();
-  const horizontalSplitSizesRef = useRef<number[]>([62, 38]);
+  const horizontalSplitSizesRef = useRef<[number, number]>([...DEFAULT_HORIZONTAL_SPLIT_SIZES]);
   const pendingRestoreRef = useRef<LayoutEditorTabStatePayload | null>(null);
 
   useEffect(() => {
@@ -191,7 +210,12 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
       pendingRestoreRef.current = parsed;
       if (parsed.sampleStateDraft !== undefined) setSampleStateDraft(parsed.sampleStateDraft);
       if (parsed.message !== undefined) setMessage(parsed.message);
-      if (parsed.horizontalSplit) horizontalSplitSizesRef.current = parsed.horizontalSplit.sizes;
+      if (parsed.horizontalSplit) {
+        const splitSizes = normalizeHorizontalSplitSizes(parsed.horizontalSplit.sizes);
+        horizontalSplitSizesRef.current = splitSizes;
+        setHorizontalSplitDefaultSizes(splitSizes);
+        setHorizontalSplitRestoreKey((current) => current + 1);
+      }
       window.requestAnimationFrame(() => {
         restoreScrollViewState(leftPaneRef.current, pendingRestoreRef.current?.leftScroll);
         restoreSourceEditorViewStates(sourceEditors.refs.current, pendingRestoreRef.current?.sourceViewStates);
@@ -280,8 +304,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const luaDiagnostics = validationDiagnostics.filter((diagnostic) => diagnostic.path.includes('/lua/') || diagnostic.path.includes('/script/')).map((diagnostic) => ({ message: diagnostic.message, severity: diagnostic.severity }));
 
   return (
-    <Group orientation="horizontal" className="h-full min-h-0 bg-background" onLayoutChange={(sizes) => { horizontalSplitSizesRef.current = Object.values(sizes); }}>
-      <Panel defaultSize={horizontalSplitSizesRef.current[0] ?? 62} minSize={35}>
+    <Group key={`layout-horizontal-split:${horizontalSplitRestoreKey}`} orientation="horizontal" className="h-full min-h-0 bg-background" onLayoutChange={(sizes) => { horizontalSplitSizesRef.current = normalizeHorizontalSplitSizes(Object.values(sizes)); }}>
+      <Panel defaultSize={horizontalSplitDefaultSizes[0]} minSize={35}>
         <div ref={leftPaneRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-layout-editor-scroll>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -432,7 +456,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         </div>
       </Panel>
       <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
-      <Panel defaultSize={horizontalSplitSizesRef.current[1] ?? 38} minSize={24}>
+      <Panel defaultSize={horizontalSplitDefaultSizes[1]} minSize={24}>
         <div className="h-full min-h-0 border-l bg-background">
           <DerivedPreviewPane ownerTabId={tab.id} previewMode="layout" previewDocument={previewDocument} resetBeforeLoad />
         </div>

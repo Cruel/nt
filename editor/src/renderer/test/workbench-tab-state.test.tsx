@@ -224,6 +224,13 @@ describe('workbench tab-state lifecycle', () => {
 
     act(() => useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, second.id));
     expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe('store-switch');
+    lifecycle.currentValues.set(first.id, 'cleanup-overwrite');
+    view.rerender(
+      <WorkbenchTabDndContext>
+        <WorkbenchGroup group={useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!} tabs={[first, second]} />
+      </WorkbenchTabDndContext>,
+    );
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe('store-switch');
 
     act(() => useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, first.id));
     view.rerender(

@@ -49,7 +49,6 @@ const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
 interface RoomEditorTabStatePayload {
   scroll?: ScrollViewState;
   sourceViewStates?: SourceEditorViewStates;
-  backgroundSelectorOpen?: boolean;
 }
 
 type RoomEditorTabState = WorkbenchTabStatePayload & {
@@ -63,7 +62,6 @@ function parseRoomEditorTabState(value: WorkbenchTabStatePayload): RoomEditorTab
   return {
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
     sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
-    backgroundSelectorOpen: typeof payload.backgroundSelectorOpen === 'boolean' ? payload.backgroundSelectorOpen : undefined,
   };
 }
 
@@ -127,19 +125,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       payload: {
         scroll: captureScrollViewState(scrollRef.current),
         sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
-        backgroundSelectorOpen,
       },
     }),
     restoreTabState: (state: RoomEditorTabState) => {
       const parsed = parseRoomEditorTabState(state);
       if (!parsed) return;
-      if (parsed.backgroundSelectorOpen !== undefined) setBackgroundSelectorOpen(parsed.backgroundSelectorOpen);
       window.requestAnimationFrame(() => {
         restoreScrollViewState(scrollRef.current, parsed.scroll);
         restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
       });
     },
-  }), [backgroundSelectorOpen, sourceEditors.refs]));
+  }), [sourceEditors.refs]));
 
   if (!roomId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
 

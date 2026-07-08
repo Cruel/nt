@@ -139,6 +139,7 @@ describe('RoomEditor', () => {
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
       rooms: { foyer: { data: { background: { asset: { $ref: { collection: 'assets', id: 'logo' } } } } } },
     }));
+    await waitFor(() => expect(screen.queryByText('Choose a background image')).not.toBeInTheDocument());
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('room.replaceData');
 
     fireEvent.click(screen.getByText('Clear'));
@@ -147,7 +148,7 @@ describe('RoomEditor', () => {
     }));
   });
 
-  it('captures and restores tab state for scroll and local selector state', async () => {
+  it('captures and restores tab state for scroll without persisting transient selector state', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
@@ -165,9 +166,9 @@ describe('RoomEditor', () => {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
         scroll: { scrollTop: 96, scrollLeft: 0 },
-        backgroundSelectorOpen: true,
       },
     });
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]?.payload).not.toHaveProperty('backgroundSelectorOpen');
 
     view.unmount();
     setWorkbenchTabState(tab.id, {
@@ -181,7 +182,7 @@ describe('RoomEditor', () => {
 
     const restoredView = renderRoomEditor();
 
-    expect(await screen.findByText('Choose a background image')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Choose a background image')).not.toBeInTheDocument());
     await waitFor(() => expect(restoredView.container.querySelector<HTMLElement>('[data-room-editor-scroll]')?.scrollTop).toBe(48));
   });
 });

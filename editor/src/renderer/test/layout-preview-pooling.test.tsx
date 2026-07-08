@@ -58,8 +58,13 @@ vi.mock('@/components/engine-preview-host', () => ({
 }));
 
 vi.mock('react-resizable-panels', () => ({
-  Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Panel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Group: ({ children, onLayoutChange }: { children: React.ReactNode; onLayoutChange?: (sizes: Record<string, number>) => void }) => (
+    <div data-testid="layout-panel-group">
+      <button type="button" aria-label="mock-layout-split-44-56" onClick={() => onLayoutChange?.({ left: 44, right: 56 })} />
+      {children}
+    </div>
+  ),
+  Panel: ({ children, defaultSize }: { children: React.ReactNode; defaultSize?: number }) => <div data-testid="layout-panel" data-default-size={defaultSize}>{children}</div>,
   Separator: () => <div data-testid="resize-separator" />,
 }));
 
@@ -210,6 +215,7 @@ describe('LayoutEditor pooled layout preview', () => {
     rmlEditor.scrollTop = 22;
     rmlEditor.scrollLeft = 3;
     fireEvent.change(screen.getByLabelText('source-json'), { target: { value: '{ invalid json' } });
+    fireEvent.click(screen.getByLabelText('mock-layout-split-44-56'));
 
     rerenderGroup(view, group(nonPreviewTab.id));
 
@@ -218,7 +224,7 @@ describe('LayoutEditor pooled layout preview', () => {
         schema: 'noveltea.editor.tab-state.layout',
         payload: {
           leftScroll: { scrollTop: 128, scrollLeft: 12 },
-          horizontalSplit: { sizes: [62, 38] },
+          horizontalSplit: { sizes: [44, 56] },
           sourceViewStates: {
             rml: { scroll: { scrollTop: 22, scrollLeft: 3 } },
           },
@@ -230,6 +236,11 @@ describe('LayoutEditor pooled layout preview', () => {
     rerenderGroup(view, group(layoutTab.id));
 
     expect(screen.getByLabelText('source-json')).toHaveValue('{ invalid json');
+    await waitFor(() => {
+      const panels = view.container.querySelectorAll<HTMLElement>('[data-testid="layout-panel"]');
+      expect(panels[0]).toHaveAttribute('data-default-size', '44');
+      expect(panels[1]).toHaveAttribute('data-default-size', '56');
+    });
     await waitFor(() => expect(view.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollTop).toBe(128));
     expect(view.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollLeft).toBe(12);
     expect(screen.getByLabelText('source-rml').scrollTop).toBe(22);
