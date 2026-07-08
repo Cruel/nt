@@ -218,6 +218,20 @@ describe('PreviewHostPool', () => {
     expect(onActivateOwnerTab).toHaveBeenCalledWith('tab:a');
   });
 
+  it('retries lease sends while the preview transport is still connecting', async () => {
+    let lease: PreviewHostLease | null = null;
+    render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main', onLease: (next) => { lease = next; } }]} />);
+    await waitFor(() => expect(lease).not.toBeNull());
+
+    let attempts = 0;
+    await expect(lease!.send(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Engine preview is not connected.');
+      return 'sent';
+    })).resolves.toBe('sent');
+    expect(attempts).toBe(2);
+  });
+
   it('rejects sends from stale leases after release', async () => {
     let lease: PreviewHostLease | null = null;
     const { rerender } = render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main', onLease: (next) => { lease = next; } }]} />);

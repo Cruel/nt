@@ -235,7 +235,7 @@ thead, tbody, tfoot {
       } else if (!wasVisible && previewActivityVisible) {
         // This is intentionally presentation-only. The runtime state is not stopped, reset, or reloaded.
         resizeCanvas();
-        scheduleResize();
+        scheduleResizeApply();
       }
       send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
       return true;

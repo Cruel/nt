@@ -115,6 +115,10 @@ function sameHostSize(left: PreviewHostRect | undefined, right: PreviewHostRect 
   return Boolean(left && right && left.width === right.width && left.height === right.height);
 }
 
+function isPreviewNotConnectedError(error: unknown) {
+  return error instanceof Error && error.message === 'Engine preview is not connected.';
+}
+
 function PreviewHostSlot({
   host,
   registerController,
@@ -296,6 +300,7 @@ export function PreviewHostPoolProvider({
     leasePending.add(pending);
     pendingByLeaseRef.current.set(leaseId, leasePending);
 
+    const startedAt = Date.now();
     const waitForController = () => new Promise<EnginePreviewController>((resolve, reject) => {
       const startedAt = Date.now();
       const tick = () => {
@@ -317,15 +322,37 @@ export function PreviewHostPoolProvider({
       tick();
     });
 
-    return Promise.resolve()
-      .then(waitForController)
-      .then((controller) => command(controller))
-      .then((result) => {
-        if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
-          throw new Error('Preview host command was cancelled because the lease was released.');
-        }
-        return result;
-      })
+    const runWhenConnected = (): Promise<TResult> => {
+      if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
+        return Promise.reject(new Error('Preview host command was cancelled because the lease was released.'));
+      }
+      return Promise.resolve()
+        .then(waitForController)
+        .then((controller) => command(controller))
+        .then((result) => {
+          if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
+            throw new Error('Preview host command was cancelled because the lease was released.');
+          }
+          return result;
+        })
+        .catch((error: unknown) => {
+          if (
+            isPreviewNotConnectedError(error)
+            && !pending.cancelled
+            && isCurrentLease(leaseId, hostId)
+            && Date.now() - startedAt <= 5000
+          ) {
+            return new Promise<TResult>((resolve, reject) => {
+              window.setTimeout(() => {
+                runWhenConnected().then(resolve, reject);
+              }, 16);
+            });
+          }
+          throw error;
+        });
+    };
+
+    return runWhenConnected()
       .finally(() => {
         leasePending.delete(pending);
         if (leasePending.size === 0) pendingByLeaseRef.current.delete(leaseId);
