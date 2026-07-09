@@ -4,6 +4,7 @@ import { WorkspacePage } from '@/routes/workspace';
 import { useCommandStore } from '@/commands/command-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
+import { defaultComfyUiConfig } from '../../shared/comfyui';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -80,6 +81,7 @@ beforeEach(() => {
     showPreviewFpsCounter: false,
     lastProjectPath: null,
     defaultProjectDirectory: null,
+    comfyUiConfig: defaultComfyUiConfig(),
   });
   vi.mocked(window.noveltea.getDefaultProjectDirectory).mockResolvedValue('/home/test/Documents/NovelTea');
   vi.mocked(window.noveltea.selectDirectory).mockResolvedValue('/home/test/Documents/NovelTea/custom-project');
@@ -104,6 +106,21 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('checks editor-wide ComfyUI connection even when no project is loaded', async () => {
+    usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
+
+    render(<WorkspacePage />);
+
+    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      serverUrl: 'http://127.0.0.1:8000',
+    })));
+    await waitFor(() => expect(useComfyUiStore.getState().status).toMatchObject({
+      state: 'ready',
+      message: 'ComfyUI ready',
+    }));
+  });
+
   it('opens a modal instead of creating an unsaved project immediately', async () => {
     render(<WorkspacePage />);
 

@@ -73,6 +73,16 @@ function requestStillCurrent(requestConfig: ComfyUiConfig, currentConfig: ComfyU
   return requestConfig === currentConfig;
 }
 
+function configChanged(previous: ComfyUiConfig, next: ComfyUiConfig) {
+  return previous.enabled !== next.enabled
+    || previous.serverUrl !== next.serverUrl
+    || previous.defaultWorkflowId !== next.defaultWorkflowId
+    || previous.requestTimeoutMs !== next.requestTimeoutMs
+    || previous.connectionCheckIntervalMs !== next.connectionCheckIntervalMs
+    || previous.defaultWorkflows['image.generate'] !== next.defaultWorkflows['image.generate']
+    || previous.defaultWorkflows['image.edit'] !== next.defaultWorkflows['image.edit'];
+}
+
 export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
   config: defaultComfyUiConfig(),
   status: disabledStatus(),
@@ -124,3 +134,17 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
     if (progressChanged(get().progress, progress) || visibleStatusChanged(get().status, nextStatus)) set({ progress, status: nextStatus });
   },
 }));
+
+useComfyUiStore.getState().hydrateFromPreferences();
+
+usePreferencesStore.subscribe((state, previousState) => {
+  if (state.comfyUiConfig !== previousState.comfyUiConfig) {
+    useComfyUiStore.getState().hydrateFromPreferences();
+  }
+});
+
+usePreferencesStore.persist.onFinishHydration((state) => {
+  if (configChanged(useComfyUiStore.getState().config, state.comfyUiConfig)) {
+    useComfyUiStore.getState().hydrateFromPreferences();
+  }
+});

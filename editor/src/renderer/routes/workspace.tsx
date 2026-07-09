@@ -611,13 +611,13 @@ export function WorkspacePage() {
   }, [project, setProject, setDiagnostics]);
 
   useEffect(() => {
-    if (!project || !comfyUiConfig.enabled) return;
-    void checkComfyUiConnection(comfyUiConfig);
+    if (!comfyUiConfig.enabled) return;
+    void checkComfyUiConnection(comfyUiConfig, { showChecking: true });
     const timer = window.setInterval(() => {
       void useComfyUiStore.getState().checkConnection(useComfyUiStore.getState().config);
     }, comfyUiConfig.connectionCheckIntervalMs);
     return () => window.clearInterval(timer);
-  }, [checkComfyUiConnection, comfyUiConfig, project]);
+  }, [checkComfyUiConnection, comfyUiConfig]);
 
   function validate() {
     if (!project) return;

@@ -29,6 +29,21 @@ beforeEach(() => {
 });
 
 describe('useComfyUiStore', () => {
+  it('syncs enabled preference changes into the runtime status store', () => {
+    expect(useComfyUiStore.getState().status).toMatchObject({
+      state: 'disabled',
+      message: 'ComfyUI disabled',
+    });
+
+    usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
+
+    expect(useComfyUiStore.getState().config).toMatchObject({ enabled: true });
+    expect(useComfyUiStore.getState().status).toMatchObject({
+      state: 'unchecked',
+      message: 'ComfyUI enabled; connection has not been checked yet.',
+    });
+  });
+
   it('does not report checking unless a connection check is in flight', () => {
     usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
     useComfyUiStore.getState().hydrateFromPreferences();
