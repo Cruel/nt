@@ -9,8 +9,10 @@ export interface ComfyUiGenerateImageRequest {
   clientJobId?: string;
   width?: number;
   height?: number;
+  negativePrompt?: string;
   seed?: number;
   steps?: number;
+  cfg?: number;
 }
 
 export interface ComfyUiEditImageRequest {
@@ -20,8 +22,10 @@ export interface ComfyUiEditImageRequest {
   sourceProjectRelativePath: string;
   prompt: string;
   clientJobId?: string;
+  negativePrompt?: string;
   seed?: number;
   steps?: number;
+  cfg?: number;
 }
 
 export interface ComfyUiGeneratedAsset {

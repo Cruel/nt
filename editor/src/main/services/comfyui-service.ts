@@ -336,6 +336,11 @@ function setWorkflowInput(workflow: WorkflowGraph, binding: ComfyUiWorkflowBindi
   node.inputs[inputName] = coerceBindingValue(binding, value);
 }
 
+function setOptionalWorkflowInput(workflow: WorkflowGraph, binding: ComfyUiWorkflowBinding | undefined, value: unknown) {
+  if (value === undefined || value === null) return;
+  setWorkflowInput(workflow, binding, value);
+}
+
 function generatedSeed(seed: number | undefined) {
   if (seed !== undefined && seed >= 0 && Number.isFinite(seed)) return Math.trunc(seed);
   return Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
@@ -572,9 +577,11 @@ export async function generateComfyUiImage(owner: BrowserWindow | null, config: 
   validateWorkflowBindings(workflow, definition);
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
+  setWorkflowInput(workflow, definition.bindings.negativePrompt, request.negativePrompt ?? definition.defaults.negativePrompt ?? '');
   setWorkflowInput(workflow, definition.bindings.width, request.width ?? definition.defaults.width ?? 1024);
   setWorkflowInput(workflow, definition.bindings.height, request.height ?? definition.defaults.height ?? 1024);
   setWorkflowInput(workflow, definition.bindings.steps, request.steps ?? definition.defaults.steps ?? 20);
+  setOptionalWorkflowInput(workflow, definition.bindings.cfg, request.cfg ?? definition.defaults.cfg);
   setWorkflowInput(workflow, definition.bindings.seed, seed);
   setWorkflowInput(workflow, definition.bindings.filenamePrefix, definition.defaults.filenamePrefix);
   return runImageJob(config, definition, workflow, request.projectFilePath, request.prompt, seed, 'generated', owner, request.clientJobId);
@@ -591,7 +598,9 @@ export async function editComfyUiImage(owner: BrowserWindow | null, config: Comf
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.sourceImage, uploadReference);
   setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
+  setWorkflowInput(workflow, definition.bindings.negativePrompt, request.negativePrompt ?? definition.defaults.negativePrompt ?? '');
   setWorkflowInput(workflow, definition.bindings.steps, request.steps ?? definition.defaults.steps ?? 4);
+  setOptionalWorkflowInput(workflow, definition.bindings.cfg, request.cfg ?? definition.defaults.cfg);
   setWorkflowInput(workflow, definition.bindings.seed, seed);
   setWorkflowInput(workflow, definition.bindings.filenamePrefix, definition.defaults.filenamePrefix);
   return runImageJob(config, definition, workflow, request.projectFilePath, request.prompt, seed, 'edit', owner, request.clientJobId);

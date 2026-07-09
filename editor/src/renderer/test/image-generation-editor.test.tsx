@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ImageGenerationEditor } from '@/editors/comfyui/ImageGenerationEditor';
 import { useComfyUiGenerationStore } from '@/comfyui/comfyui-generation-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
@@ -11,6 +11,7 @@ import { buildSettingsTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import type { ComfyUiWorkflowDefinition } from '../../shared/comfyui-workflows';
 
 const tab: WorkbenchTab = {
   id: 'tab:image-generation',
@@ -30,6 +31,44 @@ function project() {
   return next;
 }
 
+function workflow(overrides: Partial<ComfyUiWorkflowDefinition>): ComfyUiWorkflowDefinition {
+  return {
+    schemaVersion: 2,
+    id: 'workflow',
+    label: 'Workflow',
+    provider: 'comfyui',
+    role: 'image.generate',
+    workflowFile: 'workflow.json',
+    contract: { inputs: { prompt: { type: 'string', required: true } }, outputs: { images: { type: 'image-list', required: true, primary: 'first' } } },
+    requiredNodeClasses: [],
+    outputNodeIds: ['9'],
+    bindings: { prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' } },
+    outputBindings: {},
+    defaults: { filenamePrefix: 'NovelTea' },
+    manifestFile: 'workflow.manifest.json',
+    ...overrides,
+  };
+}
+
+function mockWorkflowList(workflows: ComfyUiWorkflowDefinition[]) {
+  vi.mocked(window.noveltea.listComfyUiWorkflows).mockResolvedValueOnce({
+    ok: true,
+    success: true,
+    diagnostics: [],
+    workflows,
+    entries: workflows.map((definition) => ({
+      manifestFile: definition.manifestFile ?? `${definition.id}.manifest.json`,
+      workflowFile: definition.workflowFile,
+      id: definition.id,
+      label: definition.label,
+      role: definition.role,
+      status: 'valid',
+      repairable: true,
+      diagnostics: [],
+    })),
+  });
+}
+
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
@@ -41,6 +80,7 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   vi.mocked(window.noveltea.generateComfyUiImage).mockClear();
   vi.mocked(window.noveltea.editComfyUiImage).mockClear();
+  vi.mocked(window.noveltea.listComfyUiWorkflows).mockClear();
 });
 
 describe('ImageGenerationEditor', () => {
@@ -130,5 +170,159 @@ describe('ImageGenerationEditor', () => {
     const job = queue.localJobsByPromptId[queue.order[0]!];
     expect(job?.kind).toBe('edit');
     expect(job?.request).toMatchObject({ sourceProjectRelativePath: 'assets/generated/generated.png', prompt: 'make it night' });
+  });
+
+  it('shows and submits only bound generate controls', async () => {
+    mockWorkflowList([
+      workflow({
+        id: 'bound-generate',
+        label: 'Bound Generate',
+        contract: {
+          inputs: {
+            prompt: { type: 'string', required: true },
+            negativePrompt: { type: 'string', required: false },
+            width: { type: 'integer', required: false },
+            cfg: { type: 'number', required: false },
+          },
+          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        },
+        bindings: {
+          prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
+          negativePrompt: { nodeId: 'negative', inputName: 'value', valueType: 'string' },
+          width: { nodeId: 'width', inputName: 'value', valueType: 'integer' },
+          cfg: { nodeId: 'cfg', inputName: 'value', valueType: 'number' },
+        },
+        defaults: { width: 768, cfg: 6.5, negativePrompt: 'blur', filenamePrefix: 'NovelTea' },
+      }),
+    ]);
+
+    render(<ImageGenerationEditor tab={tab} />);
+
+    await screen.findByLabelText('Negative prompt');
+    await waitFor(() => expect(screen.getByLabelText('Negative prompt')).toHaveValue('blur'));
+    expect(screen.getByLabelText('Width')).toHaveValue('768');
+    expect(screen.getByLabelText('CFG')).toHaveValue('6.5');
+    expect(screen.queryByLabelText('Height')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Generate steps')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Generate seed')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'a lantern' } });
+    fireEvent.change(screen.getByLabelText('Negative prompt'), { target: { value: 'noise' } });
+    fireEvent.change(screen.getByLabelText('CFG'), { target: { value: '7.25' } });
+    fireEvent.click(screen.getByText('Generate'));
+
+    const queue = useComfyUiQueueStore.getState();
+    const job = queue.localJobsByPromptId[queue.order[0]!];
+    expect(job?.request).toMatchObject({ prompt: 'a lantern', negativePrompt: 'noise', width: 768, cfg: 7.25 });
+    expect(job?.request).not.toHaveProperty('height');
+    expect(job?.request).not.toHaveProperty('steps');
+    expect(job?.request).not.toHaveProperty('seed');
+  });
+
+  it('clears hidden generate values when switching to a workflow without those bindings', async () => {
+    mockWorkflowList([
+      workflow({
+        id: 'full-generate',
+        label: 'Full Generate',
+        contract: {
+          inputs: {
+            prompt: { type: 'string', required: true },
+            negativePrompt: { type: 'string', required: false },
+            cfg: { type: 'number', required: false },
+          },
+          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        },
+        bindings: {
+          prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
+          negativePrompt: { nodeId: 'negative', inputName: 'value', valueType: 'string' },
+          cfg: { nodeId: 'cfg', inputName: 'value', valueType: 'number' },
+        },
+        defaults: { negativePrompt: 'old default', cfg: 4, filenamePrefix: 'NovelTea' },
+      }),
+      workflow({
+        id: 'prompt-only',
+        label: 'Prompt Only',
+        contract: {
+          inputs: { prompt: { type: 'string', required: true } },
+          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        },
+        bindings: { prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' } },
+      }),
+    ]);
+
+    render(<ImageGenerationEditor tab={tab} />);
+
+    expect(await screen.findByLabelText('Negative prompt')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Negative prompt'), { target: { value: 'stale negative' } });
+    fireEvent.change(screen.getByLabelText('CFG'), { target: { value: '9' } });
+    fireEvent.change(screen.getByLabelText('Generate workflow'), { target: { value: 'prompt-only' } });
+    await waitFor(() => expect(screen.queryByLabelText('Negative prompt')).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'a clean prompt' } });
+    fireEvent.click(screen.getByText('Generate'));
+
+    const queue = useComfyUiQueueStore.getState();
+    const job = queue.localJobsByPromptId[queue.order[0]!];
+    expect(job?.request).toMatchObject({ workflowId: 'prompt-only', prompt: 'a clean prompt' });
+    expect(job?.request).not.toHaveProperty('negativePrompt');
+    expect(job?.request).not.toHaveProperty('cfg');
+  });
+
+  it('shows and submits bound edit controls', async () => {
+    mockWorkflowList([
+      workflow({ id: 'generate-only', label: 'Generate Only' }),
+      workflow({
+        id: 'bound-edit',
+        label: 'Bound Edit',
+        role: 'image.edit',
+        contract: {
+          inputs: {
+            sourceImage: { type: 'image', required: true },
+            prompt: { type: 'string', required: true },
+            negativePrompt: { type: 'string', required: false },
+            steps: { type: 'integer', required: false },
+            cfg: { type: 'number', required: false },
+          },
+          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        },
+        bindings: {
+          sourceImage: { nodeId: 'source', inputName: 'image', valueType: 'image-upload-reference' },
+          prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
+          negativePrompt: { nodeId: 'negative', inputName: 'value', valueType: 'string' },
+          steps: { nodeId: 'steps', inputName: 'value', valueType: 'integer' },
+          cfg: { nodeId: 'cfg', inputName: 'value', valueType: 'number' },
+        },
+        defaults: { negativePrompt: 'low quality', steps: 12, cfg: 5.5, filenamePrefix: 'NovelTea' },
+      }),
+    ]);
+    const editTab: WorkbenchTab = {
+      ...tab,
+      id: 'tab:image-edit',
+      resource: { kind: 'tool', stableId: 'utility:image-generation:logo', collection: 'assets', entityId: 'logo', sourceProjectRelativePath: 'assets/images/logo.png', generationMode: 'edit' },
+    };
+
+    render(<ImageGenerationEditor tab={editTab} />);
+
+    await screen.findByLabelText('Edit negative prompt');
+    await waitFor(() => expect(screen.getByLabelText('Edit negative prompt')).toHaveValue('low quality'));
+    expect(screen.getByLabelText('Edit steps')).toHaveValue('12');
+    expect(screen.getByLabelText('Edit CFG')).toHaveValue('5.5');
+    expect(screen.queryByLabelText('Edit seed')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Edit selected image'), { target: { value: 'make it warmer' } });
+    fireEvent.change(screen.getByLabelText('Edit negative prompt'), { target: { value: 'harsh shadows' } });
+    fireEvent.click(screen.getByText('Edit Selected Image'));
+
+    const queue = useComfyUiQueueStore.getState();
+    const job = queue.localJobsByPromptId[queue.order[0]!];
+    expect(job?.request).toMatchObject({
+      workflowId: 'bound-edit',
+      sourceProjectRelativePath: 'assets/images/logo.png',
+      prompt: 'make it warmer',
+      negativePrompt: 'harsh shadows',
+      steps: 12,
+      cfg: 5.5,
+    });
+    expect(job?.request).not.toHaveProperty('seed');
   });
 });

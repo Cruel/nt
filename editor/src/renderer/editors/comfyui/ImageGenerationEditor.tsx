@@ -14,7 +14,7 @@ import { useComfyUiGenerationStore, type GeneratedImageRevision } from '@/comfyu
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import type { ComfyUiWorkflowDefinition } from '../../../shared/comfyui-workflows';
+import type { ComfyUiSemanticInput, ComfyUiWorkflowDefinition } from '../../../shared/comfyui-workflows';
 import { defaultAssetIdFromFilename, parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 
@@ -24,11 +24,24 @@ function numericInputValue(value: string) {
   return value.replace(/\D/g, '');
 }
 
+function decimalInputValue(value: string) {
+  const cleaned = value.replace(/[^\d.]/g, '');
+  const [head, ...tail] = cleaned.split('.');
+  return tail.length ? `${head}.${tail.join('')}` : head;
+}
+
 function numberOrUndefined(value: string) {
   const trimmed = numericInputValue(value);
   if (!trimmed) return undefined;
   const number = Number(trimmed);
   return Number.isSafeInteger(number) ? number : undefined;
+}
+
+function decimalNumberOrUndefined(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const number = Number(trimmed);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function positiveIntegerIssue(label: string, value: string) {
@@ -42,6 +55,12 @@ function optionalIntegerIssue(label: string, value: string) {
   const trimmed = numericInputValue(value);
   if (!trimmed) return null;
   return Number.isSafeInteger(Number(trimmed)) ? null : `${label} is too large.`;
+}
+
+function optionalNumberIssue(label: string, value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return Number.isFinite(Number(trimmed)) ? null : `${label} must be a number.`;
 }
 
 function firstIssue(...issues: Array<string | null>) {
@@ -73,6 +92,20 @@ function assetIdForRevision(revision: GeneratedImageRevision) {
   return defaultAssetIdFromFilename(revision.asset.originalName);
 }
 
+function hasBoundInput(workflow: ComfyUiWorkflowDefinition | null, input: ComfyUiSemanticInput) {
+  return Boolean(workflow?.contract.inputs[input] && workflow.bindings[input]);
+}
+
+function defaultString(workflow: ComfyUiWorkflowDefinition, input: ComfyUiSemanticInput, fallback = '') {
+  const value = workflow.defaults[input];
+  return value === undefined ? fallback : String(value);
+}
+
+function optionalText(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
@@ -92,12 +125,16 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const initialSource = sourceFromTab(tab);
   const [prompt, setPrompt] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
+  const [generateNegativePrompt, setGenerateNegativePrompt] = useState('');
+  const [editNegativePrompt, setEditNegativePrompt] = useState('');
   const [generateWidth, setGenerateWidth] = useState('1024');
   const [generateHeight, setGenerateHeight] = useState('1024');
   const [generateSteps, setGenerateSteps] = useState('20');
   const [generateSeed, setGenerateSeed] = useState('');
+  const [generateCfg, setGenerateCfg] = useState('');
   const [editSteps, setEditSteps] = useState('4');
   const [editSeed, setEditSeed] = useState('');
+  const [editCfg, setEditCfg] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflows, setWorkflows] = useState<ComfyUiWorkflowDefinition[]>([]);
   const [generateWorkflowId, setGenerateWorkflowId] = useState('');
@@ -113,6 +150,20 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const editWorkflows = useMemo(() => workflows.filter((workflow) => workflow.role === 'image.edit'), [workflows]);
   const selectedGenerateWorkflow = useMemo(() => generateWorkflows.find((workflow) => workflow.id === generateWorkflowId) ?? generateWorkflows[0] ?? null, [generateWorkflowId, generateWorkflows]);
   const selectedEditWorkflow = useMemo(() => editWorkflows.find((workflow) => workflow.id === editWorkflowId) ?? editWorkflows[0] ?? null, [editWorkflowId, editWorkflows]);
+  const generateFields = {
+    negativePrompt: hasBoundInput(selectedGenerateWorkflow, 'negativePrompt'),
+    width: hasBoundInput(selectedGenerateWorkflow, 'width'),
+    height: hasBoundInput(selectedGenerateWorkflow, 'height'),
+    steps: hasBoundInput(selectedGenerateWorkflow, 'steps'),
+    seed: hasBoundInput(selectedGenerateWorkflow, 'seed'),
+    cfg: hasBoundInput(selectedGenerateWorkflow, 'cfg'),
+  };
+  const editFields = {
+    negativePrompt: hasBoundInput(selectedEditWorkflow, 'negativePrompt'),
+    steps: hasBoundInput(selectedEditWorkflow, 'steps'),
+    seed: hasBoundInput(selectedEditWorkflow, 'seed'),
+    cfg: hasBoundInput(selectedEditWorkflow, 'cfg'),
+  };
   const selectedRevision = useMemo(() => revisions.find((revision) => revision.id === selectedRevisionId) ?? revisions.at(-1) ?? null, [revisions, selectedRevisionId]);
   const activeJob = useMemo(() => {
     const projectJobs = queueOrder
@@ -132,14 +183,16 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     return { id: initialSource.sourceAssetId, label: record.label, path: data.source.path, kind: data.kind };
   }, [initialSource.sourceAssetId, project]);
   const generateValidationIssue = firstIssue(
-    positiveIntegerIssue('Width', generateWidth),
-    positiveIntegerIssue('Height', generateHeight),
-    positiveIntegerIssue('Generate steps', generateSteps),
-    optionalIntegerIssue('Generate seed', generateSeed),
+    generateFields.width ? positiveIntegerIssue('Width', generateWidth) : null,
+    generateFields.height ? positiveIntegerIssue('Height', generateHeight) : null,
+    generateFields.steps ? positiveIntegerIssue('Generate steps', generateSteps) : null,
+    generateFields.seed ? optionalIntegerIssue('Generate seed', generateSeed) : null,
+    generateFields.cfg ? optionalNumberIssue('CFG', generateCfg) : null,
   );
   const editValidationIssue = firstIssue(
-    positiveIntegerIssue('Edit steps', editSteps),
-    optionalIntegerIssue('Edit seed', editSeed),
+    editFields.steps ? positiveIntegerIssue('Edit steps', editSteps) : null,
+    editFields.seed ? optionalIntegerIssue('Edit seed', editSeed) : null,
+    editFields.cfg ? optionalNumberIssue('Edit CFG', editCfg) : null,
   );
   const canQueueGenerate = !!projectFilePath && !!selectedGenerateWorkflow && !!prompt.trim() && !generateValidationIssue && !generateQueuedFeedback;
   const canQueueEdit = !!projectFilePath && !!selectedEditWorkflow && !!editPrompt.trim() && (!!selectedRevision || !!sourceAsset) && !editValidationIssue && !editQueuedFeedback;
@@ -187,15 +240,43 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       const editChoice = response.workflows.find((workflow) => workflow.role === 'image.edit' && workflow.id === editDefault) ?? response.workflows.find((workflow) => workflow.role === 'image.edit') ?? null;
       setGenerateWorkflowId(generateChoice?.id ?? '');
       setEditWorkflowId(editChoice?.id ?? '');
-      if (generateChoice?.defaults.width !== undefined) setGenerateWidth(String(generateChoice.defaults.width));
-      if (generateChoice?.defaults.height !== undefined) setGenerateHeight(String(generateChoice.defaults.height));
-      if (generateChoice?.defaults.steps !== undefined) setGenerateSteps(String(generateChoice.defaults.steps));
-      if (editChoice?.defaults.steps !== undefined) setEditSteps(String(editChoice.defaults.steps));
     }).catch((error) => {
       if (!canceled) setWorkflowMessage(error instanceof Error ? error.message : 'Failed to load ComfyUI workflows.');
     });
     return () => { canceled = true; };
   }, [comfyUiConfig.defaultWorkflowId, comfyUiConfig.defaultWorkflows, comfyUiConfig.enabled, comfyUiStatus.state, projectFilePath]);
+
+  useEffect(() => {
+    if (!selectedGenerateWorkflow) {
+      setGenerateNegativePrompt('');
+      setGenerateWidth('');
+      setGenerateHeight('');
+      setGenerateSteps('');
+      setGenerateSeed('');
+      setGenerateCfg('');
+      return;
+    }
+    setGenerateNegativePrompt(hasBoundInput(selectedGenerateWorkflow, 'negativePrompt') ? defaultString(selectedGenerateWorkflow, 'negativePrompt') : '');
+    setGenerateWidth(hasBoundInput(selectedGenerateWorkflow, 'width') ? defaultString(selectedGenerateWorkflow, 'width', '1024') : '');
+    setGenerateHeight(hasBoundInput(selectedGenerateWorkflow, 'height') ? defaultString(selectedGenerateWorkflow, 'height', '1024') : '');
+    setGenerateSteps(hasBoundInput(selectedGenerateWorkflow, 'steps') ? defaultString(selectedGenerateWorkflow, 'steps', '20') : '');
+    setGenerateSeed(hasBoundInput(selectedGenerateWorkflow, 'seed') ? defaultString(selectedGenerateWorkflow, 'seed') : '');
+    setGenerateCfg(hasBoundInput(selectedGenerateWorkflow, 'cfg') ? defaultString(selectedGenerateWorkflow, 'cfg') : '');
+  }, [selectedGenerateWorkflow]);
+
+  useEffect(() => {
+    if (!selectedEditWorkflow) {
+      setEditNegativePrompt('');
+      setEditSteps('');
+      setEditSeed('');
+      setEditCfg('');
+      return;
+    }
+    setEditNegativePrompt(hasBoundInput(selectedEditWorkflow, 'negativePrompt') ? defaultString(selectedEditWorkflow, 'negativePrompt') : '');
+    setEditSteps(hasBoundInput(selectedEditWorkflow, 'steps') ? defaultString(selectedEditWorkflow, 'steps', '4') : '');
+    setEditSeed(hasBoundInput(selectedEditWorkflow, 'seed') ? defaultString(selectedEditWorkflow, 'seed') : '');
+    setEditCfg(hasBoundInput(selectedEditWorkflow, 'cfg') ? defaultString(selectedEditWorkflow, 'cfg') : '');
+  }, [selectedEditWorkflow]);
 
   useEffect(() => {
     let canceled = false;
@@ -212,6 +293,12 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     if (!selectedGenerateWorkflow) { setMessage('No valid image.generate workflow is available.'); return; }
     if (!prompt.trim()) { setMessage('Enter a prompt before generating.'); return; }
     if (generateValidationIssue) { setMessage(generateValidationIssue); return; }
+    const generateNegativePromptValue = generateFields.negativePrompt ? optionalText(generateNegativePrompt) : undefined;
+    const generateWidthValue = generateFields.width ? numberOrUndefined(generateWidth) : undefined;
+    const generateHeightValue = generateFields.height ? numberOrUndefined(generateHeight) : undefined;
+    const generateStepsValue = generateFields.steps ? numberOrUndefined(generateSteps) : undefined;
+    const generateSeedValue = generateFields.seed ? numberOrUndefined(generateSeed) : undefined;
+    const generateCfgValue = generateFields.cfg ? decimalNumberOrUndefined(generateCfg) : undefined;
     enqueueJob({
       kind: 'generate',
       tabId: tab.id,
@@ -223,10 +310,12 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
         projectFilePath,
         workflowId: selectedGenerateWorkflow.id,
         prompt: prompt.trim(),
-        width: numberOrUndefined(generateWidth),
-        height: numberOrUndefined(generateHeight),
-        steps: numberOrUndefined(generateSteps),
-        seed: numberOrUndefined(generateSeed),
+        ...(generateNegativePromptValue !== undefined ? { negativePrompt: generateNegativePromptValue } : {}),
+        ...(generateWidthValue !== undefined ? { width: generateWidthValue } : {}),
+        ...(generateHeightValue !== undefined ? { height: generateHeightValue } : {}),
+        ...(generateStepsValue !== undefined ? { steps: generateStepsValue } : {}),
+        ...(generateSeedValue !== undefined ? { seed: generateSeedValue } : {}),
+        ...(generateCfgValue !== undefined ? { cfg: generateCfgValue } : {}),
       },
     });
     triggerQueuedFeedback('generate');
@@ -241,6 +330,10 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     const sourceProjectRelativePath = selectedRevision?.projectRelativePath ?? sourceAsset?.path;
     const sourceAssetId = selectedRevision?.assetId ?? sourceAsset?.id;
     if (!sourceProjectRelativePath) { setMessage('Generate or select an image before editing.'); return; }
+    const editNegativePromptValue = editFields.negativePrompt ? optionalText(editNegativePrompt) : undefined;
+    const editStepsValue = editFields.steps ? numberOrUndefined(editSteps) : undefined;
+    const editSeedValue = editFields.seed ? numberOrUndefined(editSeed) : undefined;
+    const editCfgValue = editFields.cfg ? decimalNumberOrUndefined(editCfg) : undefined;
     enqueueJob({
       kind: 'edit',
       tabId: tab.id,
@@ -254,8 +347,10 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
         sourceAssetId,
         sourceProjectRelativePath,
         prompt: editPrompt.trim(),
-        steps: numberOrUndefined(editSteps),
-        seed: numberOrUndefined(editSeed),
+        ...(editNegativePromptValue !== undefined ? { negativePrompt: editNegativePromptValue } : {}),
+        ...(editStepsValue !== undefined ? { steps: editStepsValue } : {}),
+        ...(editSeedValue !== undefined ? { seed: editSeedValue } : {}),
+        ...(editCfgValue !== undefined ? { cfg: editCfgValue } : {}),
       },
     });
     triggerQueuedFeedback('edit');
@@ -394,10 +489,14 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
                 {editWorkflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.label}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1"><Label htmlFor="edit-steps">Edit steps</Label><Input id="edit-steps" type="text" inputMode="numeric" pattern="[0-9]*" value={editSteps} onChange={(event) => setEditSteps(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Edit steps', editSteps) ? true : undefined} /></div>
-              <div className="space-y-1"><Label htmlFor="edit-seed">Edit seed</Label><Input id="edit-seed" type="text" inputMode="numeric" pattern="[0-9]*" value={editSeed} onChange={(event) => setEditSeed(numericInputValue(event.currentTarget.value))} placeholder="random" aria-invalid={optionalIntegerIssue('Edit seed', editSeed) ? true : undefined} /></div>
-            </div>
+            {editFields.negativePrompt ? <div className="space-y-1"><Label htmlFor="edit-negative-prompt">Edit negative prompt</Label><textarea id="edit-negative-prompt" className="min-h-16 w-full rounded-md border bg-background p-2 text-sm" value={editNegativePrompt} onChange={(event) => setEditNegativePrompt(event.currentTarget.value)} placeholder="Describe what to avoid" /></div> : null}
+            {editFields.steps || editFields.seed || editFields.cfg ? (
+              <div className="grid grid-cols-2 gap-2">
+                {editFields.steps ? <div className="space-y-1"><Label htmlFor="edit-steps">Edit steps</Label><Input id="edit-steps" type="text" inputMode="numeric" pattern="[0-9]*" value={editSteps} onChange={(event) => setEditSteps(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Edit steps', editSteps) ? true : undefined} /></div> : null}
+                {editFields.seed ? <div className="space-y-1"><Label htmlFor="edit-seed">Edit seed</Label><Input id="edit-seed" type="text" inputMode="numeric" pattern="[0-9]*" value={editSeed} onChange={(event) => setEditSeed(numericInputValue(event.currentTarget.value))} placeholder="random" aria-invalid={optionalIntegerIssue('Edit seed', editSeed) ? true : undefined} /></div> : null}
+                {editFields.cfg ? <div className="space-y-1"><Label htmlFor="edit-cfg">Edit CFG</Label><Input id="edit-cfg" type="text" inputMode="decimal" value={editCfg} onChange={(event) => setEditCfg(decimalInputValue(event.currentTarget.value))} aria-invalid={optionalNumberIssue('Edit CFG', editCfg) ? true : undefined} /></div> : null}
+              </div>
+            ) : null}
             {editValidationIssue ? <p className="text-xs text-destructive">{editValidationIssue}</p> : null}
             <div className="flex gap-2"><Button onClick={() => void editSelected()} disabled={!canQueueEdit}>{editQueuedFeedback ? 'Added to queue!' : 'Edit Selected Image'}</Button></div>
           </div>
@@ -408,12 +507,16 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
             <h3 className="text-sm font-medium">Text to Image</h3>
             <div className="mt-3 space-y-3">
               <div className="space-y-1"><Label htmlFor="prompt">Prompt</Label><textarea id="prompt" className="min-h-28 w-full rounded-md border bg-background p-2 text-sm" value={prompt} onChange={(event) => setPrompt(event.currentTarget.value)} placeholder="Describe the image to generate" /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1"><Label htmlFor="generate-width">Width</Label><Input id="generate-width" type="text" inputMode="numeric" pattern="[0-9]*" value={generateWidth} onChange={(event) => setGenerateWidth(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Width', generateWidth) ? true : undefined} /></div>
-                <div className="space-y-1"><Label htmlFor="generate-height">Height</Label><Input id="generate-height" type="text" inputMode="numeric" pattern="[0-9]*" value={generateHeight} onChange={(event) => setGenerateHeight(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Height', generateHeight) ? true : undefined} /></div>
-                <div className="space-y-1"><Label htmlFor="generate-steps">Generate steps</Label><Input id="generate-steps" type="text" inputMode="numeric" pattern="[0-9]*" value={generateSteps} onChange={(event) => setGenerateSteps(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Generate steps', generateSteps) ? true : undefined} /></div>
-                <div className="space-y-1"><Label htmlFor="generate-seed">Generate seed</Label><Input id="generate-seed" type="text" inputMode="numeric" pattern="[0-9]*" value={generateSeed} onChange={(event) => setGenerateSeed(numericInputValue(event.currentTarget.value))} placeholder="random" aria-invalid={optionalIntegerIssue('Generate seed', generateSeed) ? true : undefined} /></div>
-              </div>
+              {generateFields.negativePrompt ? <div className="space-y-1"><Label htmlFor="generate-negative-prompt">Negative prompt</Label><textarea id="generate-negative-prompt" className="min-h-20 w-full rounded-md border bg-background p-2 text-sm" value={generateNegativePrompt} onChange={(event) => setGenerateNegativePrompt(event.currentTarget.value)} placeholder="Describe what to avoid" /></div> : null}
+              {generateFields.width || generateFields.height || generateFields.steps || generateFields.seed || generateFields.cfg ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {generateFields.width ? <div className="space-y-1"><Label htmlFor="generate-width">Width</Label><Input id="generate-width" type="text" inputMode="numeric" pattern="[0-9]*" value={generateWidth} onChange={(event) => setGenerateWidth(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Width', generateWidth) ? true : undefined} /></div> : null}
+                  {generateFields.height ? <div className="space-y-1"><Label htmlFor="generate-height">Height</Label><Input id="generate-height" type="text" inputMode="numeric" pattern="[0-9]*" value={generateHeight} onChange={(event) => setGenerateHeight(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Height', generateHeight) ? true : undefined} /></div> : null}
+                  {generateFields.steps ? <div className="space-y-1"><Label htmlFor="generate-steps">Generate steps</Label><Input id="generate-steps" type="text" inputMode="numeric" pattern="[0-9]*" value={generateSteps} onChange={(event) => setGenerateSteps(numericInputValue(event.currentTarget.value))} aria-invalid={positiveIntegerIssue('Generate steps', generateSteps) ? true : undefined} /></div> : null}
+                  {generateFields.seed ? <div className="space-y-1"><Label htmlFor="generate-seed">Generate seed</Label><Input id="generate-seed" type="text" inputMode="numeric" pattern="[0-9]*" value={generateSeed} onChange={(event) => setGenerateSeed(numericInputValue(event.currentTarget.value))} placeholder="random" aria-invalid={optionalIntegerIssue('Generate seed', generateSeed) ? true : undefined} /></div> : null}
+                  {generateFields.cfg ? <div className="space-y-1"><Label htmlFor="generate-cfg">CFG</Label><Input id="generate-cfg" type="text" inputMode="decimal" value={generateCfg} onChange={(event) => setGenerateCfg(decimalInputValue(event.currentTarget.value))} aria-invalid={optionalNumberIssue('CFG', generateCfg) ? true : undefined} /></div> : null}
+                </div>
+              ) : null}
               <div className="space-y-1">
                 <Label htmlFor="generate-workflow">Generate workflow</Label>
                 <select id="generate-workflow" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={selectedGenerateWorkflow?.id ?? ''} onChange={(event) => setGenerateWorkflowId(event.currentTarget.value)}>

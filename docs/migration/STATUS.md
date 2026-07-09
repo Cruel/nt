@@ -262,3 +262,18 @@ entry points for entries with loadable workflow JSON, and saves repair changes t
 manifest-only IPC/service path. Binding diagnostics distinguish stale node-id rebases from
 unresolved or ambiguous selector matches. Focused tests, full Vitest coverage, lint, and typecheck
 pass.
+
+Latest editor ComfyUI workflow import Phase 7 verification:
+
+```sh
+pnpm vitest run src/renderer/test/image-generation-editor.test.tsx src/renderer/test/comfyui-generation-service.test.ts
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+The Image Generation editor now shows and submits only controls declared in the selected workflow
+contract and bound in the manifest. Bound `negativePrompt` and `cfg` inputs are supported for both
+generate and edit workflows, defaults reset when workflows change, and hidden stale values are not
+queued. The main ComfyUI service mutates bound optional inputs before prompt submission and ignores
+unbound optional request fields. Focused tests, full Vitest coverage, lint, and typecheck pass.
