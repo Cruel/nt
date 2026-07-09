@@ -28,7 +28,6 @@ Do not treat `docs/archive/` as current implementation direction. Archive files 
 
 ## Documentation Maintenance Rules
 
-- `docs/AGENT_DOCUMENTATION_AUDIT.md` records the latest agent-documentation hierarchy audit and remaining documentation gaps.
 
 When a task materially changes behavior, update the narrowest relevant document or explicitly state why no documentation update was needed.
 
