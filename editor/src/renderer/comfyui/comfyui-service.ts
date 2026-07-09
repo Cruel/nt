@@ -9,6 +9,7 @@ import type {
   ComfyUiAnalyzeWorkflowImportRequest,
   ComfyUiAnalyzeWorkflowImportResponse,
   ComfyUiInstallStarterWorkflowsResponse,
+  ComfyUiRepairWorkflowManifestRequest,
   ComfyUiSaveImportedWorkflowRequest,
   ComfyUiSaveImportedWorkflowResponse,
   ComfyUiWorkflowListResponse,
@@ -36,6 +37,10 @@ export async function analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkfl
 
 export async function saveImportedComfyUiWorkflow(request: ComfyUiSaveImportedWorkflowRequest): Promise<ComfyUiSaveImportedWorkflowResponse> {
   return window.noveltea.saveImportedComfyUiWorkflow(request);
+}
+
+export async function repairComfyUiWorkflowManifest(request: ComfyUiRepairWorkflowManifestRequest): Promise<ComfyUiSaveImportedWorkflowResponse> {
+  return window.noveltea.repairComfyUiWorkflowManifest(request);
 }
 
 export async function generateComfyUiImage(

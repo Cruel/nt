@@ -11,6 +11,7 @@ import {
   SUPPORTED_COMFYUI_WORKFLOW_ROLES,
   type ComfyUiAnalyzeWorkflowImportRequest,
   type ComfyUiAnalyzeWorkflowImportResponse,
+  type ComfyUiRepairWorkflowManifestRequest,
   type ComfyUiSaveImportedWorkflowRequest,
   type ComfyUiSaveImportedWorkflowResponse,
   type ComfyUiWorkflowDefinition,
@@ -167,6 +168,38 @@ export async function saveImportedComfyUiWorkflow(request: ComfyUiSaveImportedWo
     return { ok: true, success: true, workflowFile: workflowFileName, manifestFile: manifestFileName, definition, diagnostics: bindingDiagnostics };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to save imported ComfyUI workflow.';
+    return { ok: false, success: false, diagnostics: [diagnostic('/workflows', message)], error: message };
+  }
+}
+
+export async function repairComfyUiWorkflowManifest(request: ComfyUiRepairWorkflowManifestRequest): Promise<ComfyUiSaveImportedWorkflowResponse> {
+  if (!request.projectFilePath) {
+    return { ok: false, success: false, diagnostics: [diagnostic('/projectFilePath', 'Save the project before repairing ComfyUI workflows.')], error: 'Project file path is required.' };
+  }
+
+  try {
+    const manifestFileName = safeImportFileName(request.manifestFileName, '.manifest.json', 'manifestFileName');
+    const definition = parseComfyUiWorkflowDefinition(request.manifest, manifestFileName);
+    const workflowsRoot = projectWorkflowsRoot(request.projectFilePath);
+    const workflowPath = path.join(workflowsRoot, definition.workflowFile);
+    const workflowJsonText = await fs.readFile(workflowPath, 'utf8');
+    const parsed = parseWorkflowJson(workflowJsonText);
+    if (!parsed.ok) return { ok: false, success: false, diagnostics: parsed.diagnostics, error: parsed.error };
+
+    const shape = workflowHasBlockingShapeError(parsed.value);
+    if (shape.blocking) {
+      return { ok: false, success: false, diagnostics: shape.diagnostics, error: shape.diagnostics.find((item) => item.severity === 'error')?.message ?? 'Workflow repair failed.' };
+    }
+
+    const bindingDiagnostics = validateManifestBindings(parsed.value as ComfyUiWorkflowGraphLike, definition);
+    if (bindingDiagnostics.some((item) => item.severity === 'error')) {
+      return { ok: false, success: false, diagnostics: bindingDiagnostics, error: bindingDiagnostics[0]?.message ?? 'Workflow bindings are invalid.' };
+    }
+
+    await writeFileAtomic(path.join(workflowsRoot, manifestFileName), `${JSON.stringify(request.manifest, null, 2)}\n`);
+    return { ok: true, success: true, workflowFile: definition.workflowFile, manifestFile: manifestFileName, definition, diagnostics: bindingDiagnostics };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to repair ComfyUI workflow manifest.';
     return { ok: false, success: false, diagnostics: [diagnostic('/workflows', message)], error: message };
   }
 }

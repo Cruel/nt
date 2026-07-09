@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import bundledTextToImageWorkflow from '../../../assets/comfyui/workflows/flux2-klein-text-to-image.workflow.json';
 import {
   analyzeComfyUiWorkflowImport,
+  repairComfyUiWorkflowManifest,
   saveImportedComfyUiWorkflow,
 } from '../../main/services/comfyui-workflow-import-service';
+import { listComfyUiWorkflows } from '../../main/services/comfyui-service';
 
 const roots: string[] = [];
 
@@ -58,6 +60,13 @@ function simpleManifest(workflowFile = 'custom.workflow.json') {
     defaults: { filenamePrefix: 'NovelTea' },
     requiredNodeClasses: ['PrimitiveStringMultiline', 'SaveImage'],
   };
+}
+
+function writeWorkflowPair(project: string, manifest: unknown, workflow: unknown = simpleWorkflow()) {
+  const workflowsRoot = path.join(path.dirname(project), 'workflows');
+  fs.mkdirSync(workflowsRoot, { recursive: true });
+  fs.writeFileSync(path.join(workflowsRoot, 'custom.workflow.json'), `${JSON.stringify(workflow, null, 2)}\n`);
+  fs.writeFileSync(path.join(workflowsRoot, 'custom.manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 afterEach(() => {
@@ -176,5 +185,105 @@ describe('comfyui workflow import service', () => {
 
     expect(response.success).toBe(false);
     expect(response.error).toContain('does not match');
+  });
+
+  it('lists valid and invalid installed workflow entries while keeping workflows valid-only', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, simpleManifest());
+    const workflowsRoot = path.join(path.dirname(project), 'workflows');
+    fs.writeFileSync(path.join(workflowsRoot, 'broken.manifest.json'), '{');
+
+    const response = await listComfyUiWorkflows(project);
+
+    expect(response.entries).toHaveLength(2);
+    expect(response.entries).toContainEqual(expect.objectContaining({ manifestFile: 'custom.manifest.json', status: 'valid', repairable: true }));
+    expect(response.entries).toContainEqual(expect.objectContaining({ manifestFile: 'broken.manifest.json', status: 'invalid', repairable: false }));
+    expect(response.workflows).toHaveLength(1);
+    expect(response.workflows[0]?.id).toBe('custom');
+  });
+
+  it('reports missing workflow files as invalid installed entries', async () => {
+    const project = projectFilePath();
+    const workflowsRoot = path.join(path.dirname(project), 'workflows');
+    fs.mkdirSync(workflowsRoot, { recursive: true });
+    fs.writeFileSync(path.join(workflowsRoot, 'custom.manifest.json'), `${JSON.stringify(simpleManifest(), null, 2)}\n`);
+
+    const response = await listComfyUiWorkflows(project);
+
+    expect(response.entries[0]).toMatchObject({ manifestFile: 'custom.manifest.json', status: 'invalid', repairable: false });
+    expect(response.entries[0]?.diagnostics[0]?.message).toContain('no such file');
+    expect(response.workflows).toHaveLength(0);
+  });
+
+  it('reports stale node id rebases through selector metadata', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, {
+      ...simpleManifest(),
+      bindings: {
+        prompt: {
+          nodeId: 'old-prompt',
+          nodeTitle: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+          valueType: 'string',
+          selector: { title: 'noveltea.prompt', classType: 'PrimitiveStringMultiline', inputName: 'value' },
+        },
+      },
+    });
+
+    const response = await listComfyUiWorkflows(project);
+
+    expect(response.entries[0]).toMatchObject({ status: 'warning' });
+    expect(response.entries[0]?.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'info',
+      message: expect.stringContaining('Rebased stale node id old-prompt'),
+    }));
+  });
+
+  it('reports ambiguous selector bindings as invalid', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, {
+      ...simpleManifest(),
+      bindings: {
+        prompt: {
+          nodeTitle: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+          valueType: 'string',
+          selector: { classType: 'PrimitiveStringMultiline', inputName: 'value' },
+        },
+      },
+    }, {
+      promptA: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'A' }, inputs: { value: 'Tea' } },
+      promptB: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'B' }, inputs: { value: 'Tea' } },
+      output: simpleWorkflow().output,
+    });
+
+    const response = await listComfyUiWorkflows(project);
+
+    expect(response.entries[0]).toMatchObject({ status: 'invalid' });
+    expect(response.entries[0]?.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'error',
+      message: expect.stringContaining('matches multiple workflow nodes'),
+    }));
+    expect(response.workflows).toHaveLength(0);
+  });
+
+  it('repairs a manifest without rewriting the workflow file', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, { ...simpleManifest(), label: 'Old Label' });
+    const workflowPath = path.join(path.dirname(project), 'workflows', 'custom.workflow.json');
+    const beforeWorkflow = fs.readFileSync(workflowPath, 'utf8');
+
+    const response = await repairComfyUiWorkflowManifest({
+      projectFilePath: project,
+      manifestFileName: 'custom.manifest.json',
+      manifest: { ...simpleManifest(), label: 'New Label' },
+      overwrite: true,
+    });
+
+    expect(response).toMatchObject({ success: true, definition: { label: 'New Label' } });
+    expect(fs.readFileSync(workflowPath, 'utf8')).toBe(beforeWorkflow);
+    expect(JSON.parse(fs.readFileSync(path.join(path.dirname(project), 'workflows', 'custom.manifest.json'), 'utf8')).label).toBe('New Label');
   });
 });

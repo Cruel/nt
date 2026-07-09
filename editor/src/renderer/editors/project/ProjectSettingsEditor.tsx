@@ -15,6 +15,7 @@ import { useProjectStore } from '@/project/project-store';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import { ComfyUiWorkflowImportDialog } from './ComfyUiWorkflowImportDialog';
+import type { ComfyUiWorkflowListEntry } from '../../../shared/comfyui-workflows';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { getSystemLayoutSetting, systemLayoutRoleValues, type SystemLayoutRole } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -97,7 +98,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
+  const [workflowEntries, setWorkflowEntries] = useState<ComfyUiWorkflowListEntry[]>([]);
   const [workflowImportOpen, setWorkflowImportOpen] = useState(false);
+  const [workflowRepairEntry, setWorkflowRepairEntry] = useState<ComfyUiWorkflowListEntry | null>(null);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(null);
 
@@ -123,11 +126,15 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   useEffect(() => {
     if (!projectFilePath) {
       setWorkflowDiagnostics([]);
+      setWorkflowEntries([]);
       return;
     }
     let canceled = false;
     void listComfyUiWorkflows(projectFilePath).then((response) => {
-      if (!canceled) setWorkflowDiagnostics(response.diagnostics);
+      if (!canceled) {
+        setWorkflowDiagnostics(response.diagnostics);
+        setWorkflowEntries(response.entries ?? []);
+      }
     });
     return () => { canceled = true; };
   }, [projectFilePath]);
@@ -178,6 +185,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     if (!projectFilePath) return;
     const response = await listComfyUiWorkflows(projectFilePath);
     setWorkflowDiagnostics(response.diagnostics);
+    setWorkflowEntries(response.entries ?? []);
   }
 
   async function installStarterWorkflows() {
@@ -189,6 +197,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     setWorkflowDiagnostics(response.diagnostics);
     setWorkflowMessage(response.success ? `Copied ${response.copied.length} file${response.copied.length === 1 ? '' : 's'}; skipped ${response.skipped.length} existing file${response.skipped.length === 1 ? '' : 's'}.` : response.error ?? 'Failed to install starter workflows.');
     await refreshWorkflows();
+  }
+
+  function revealWorkflowsFolder() {
+    if (!projectFilePath) return;
+    const workflowsFolder = `${projectFilePath.replace(/[/\\][^/\\]*$/u, '')}/workflows`;
+    void window.noveltea.showItemInFolder(workflowsFolder);
+  }
+
+  function openRepair(entry: ComfyUiWorkflowListEntry) {
+    setWorkflowRepairEntry(entry);
   }
 
   return (
@@ -382,13 +400,59 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                 </div>
                 {workflowMessage ? <div className="text-xs text-muted-foreground">{workflowMessage}</div> : null}
-                {workflowDiagnostics.length > 0 ? <div className="space-y-1">{workflowDiagnostics.map((diagnostic, index) => (
-                  <div key={`${diagnostic.path}-${diagnostic.message}-${index}`} className="rounded border p-1.5 text-xs">
-                    <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>{diagnostic.severity}</Badge>
-                    <span className="ml-2 font-mono text-[10px] text-muted-foreground">{diagnostic.path}</span>
-                    <div className="mt-1">{diagnostic.message}</div>
-                  </div>
-                ))}</div> : <div className="text-xs text-muted-foreground">No workflow diagnostics.</div>}
+                <div className="overflow-x-auto rounded border">
+                  <table className="w-full min-w-[720px] text-left text-xs">
+                    <thead className="border-b bg-muted/40 text-muted-foreground">
+                      <tr>
+                        <th className="px-2 py-1 font-medium">Status</th>
+                        <th className="px-2 py-1 font-medium">Label</th>
+                        <th className="px-2 py-1 font-medium">Role</th>
+                        <th className="px-2 py-1 font-medium">ID</th>
+                        <th className="px-2 py-1 font-medium">Workflow</th>
+                        <th className="px-2 py-1 font-medium">Manifest</th>
+                        <th className="px-2 py-1 font-medium">Diagnostics</th>
+                        <th className="px-2 py-1 font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {workflowEntries.map((entry) => (
+                        <tr key={entry.manifestFile} className="border-b last:border-b-0">
+                          <td className="px-2 py-1 align-top">
+                            <Badge variant={entry.status === 'invalid' ? 'destructive' : entry.status === 'warning' ? 'secondary' : 'outline'}>{entry.status}</Badge>
+                          </td>
+                          <td className="max-w-40 truncate px-2 py-1 align-top">{entry.label ?? 'Invalid manifest'}</td>
+                          <td className="px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.role ?? '-'}</td>
+                          <td className="max-w-32 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.id ?? '-'}</td>
+                          <td className="max-w-36 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.workflowFile ?? '-'}</td>
+                          <td className="max-w-36 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.manifestFile}</td>
+                          <td className="px-2 py-1 align-top">{entry.diagnostics.length ? `${entry.diagnostics.length} issue${entry.diagnostics.length === 1 ? '' : 's'}` : 'None'}</td>
+                          <td className="px-2 py-1 align-top">
+                            <div className="flex flex-wrap gap-1">
+                              <Button size="sm" variant="outline" disabled={!entry.repairable || !entry.workflowJsonText || !entry.definition} onClick={() => openRepair(entry)}>Repair</Button>
+                              <Button size="sm" variant="outline" onClick={revealWorkflowsFolder}>Reveal in Folder</Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {workflowEntries.length === 0 ? (
+                        <tr><td colSpan={8} className="px-2 py-3 text-center text-muted-foreground">No project workflows installed.</td></tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+                {workflowDiagnostics.length > 0 ? <div className="space-y-1">{workflowDiagnostics.map((diagnostic, index) => {
+                  const entry = workflowEntries.find((item) => diagnostic.path.includes(item.manifestFile));
+                  return (
+                    <div key={`${diagnostic.path}-${diagnostic.message}-${index}`} className="rounded border p-1.5 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>{diagnostic.severity}</Badge>
+                        <span className="font-mono text-[10px] text-muted-foreground">{diagnostic.path}</span>
+                        {entry?.repairable && entry.workflowJsonText && entry.definition ? <Button size="sm" variant="outline" onClick={() => openRepair(entry)}>Repair</Button> : null}
+                      </div>
+                      <div className="mt-1">{diagnostic.message}</div>
+                    </div>
+                  );
+                })}</div> : <div className="text-xs text-muted-foreground">No workflow diagnostics.</div>}
               </div>
             </CardContent>
           </Card>
@@ -451,6 +515,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         open={workflowImportOpen}
         projectFilePath={projectFilePath}
         onOpenChange={setWorkflowImportOpen}
+        onImported={async (message, diagnostics) => {
+          setWorkflowMessage(message);
+          setWorkflowDiagnostics(diagnostics);
+          await refreshWorkflows();
+        }}
+      />
+      <ComfyUiWorkflowImportDialog
+        open={!!workflowRepairEntry}
+        projectFilePath={projectFilePath}
+        repairEntry={workflowRepairEntry}
+        onOpenChange={(open) => {
+          if (!open) setWorkflowRepairEntry(null);
+        }}
         onImported={async (message, diagnostics) => {
           setWorkflowMessage(message);
           setWorkflowDiagnostics(diagnostics);

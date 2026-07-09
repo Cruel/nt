@@ -114,13 +114,23 @@ Object.defineProperty(window, 'noveltea', {
     resolveProjectAssetUrl: vi.fn().mockResolvedValue({ url: 'data:image/png;base64,bW9jaw==', absolutePath: '/mock/project/assets/images/logo.png' }),
     checkComfyUiConnection: vi.fn().mockResolvedValue({ state: 'ready', serverUrl: 'http://127.0.0.1:8000', checkedAt: 'now', message: 'ComfyUI ready', queueRemaining: 0 }),
     getComfyUiQueue: vi.fn().mockResolvedValue({ promptId: null, workflowId: null, state: 'idle', queueRemaining: 0, currentNode: null, progressValue: null, progressMax: null, message: 'ComfyUI queue idle' }),
-    listComfyUiWorkflows: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], workflows: [
-      { id: 'flux2-klein-text-to-image', label: 'Flux 2 Klein Text to Image', provider: 'comfyui', role: 'image.generate', workflowFile: 'text.workflow.json', contract: { inputs: { prompt: { type: 'string', required: true } }, outputs: { images: { type: 'image-list', required: true, primary: 'first' } } }, requiredNodeClasses: [], outputNodeIds: ['9'], bindings: {}, defaults: { width: 1024, height: 1024, steps: 20, filenamePrefix: 'NovelTea' } },
-      { id: 'flux2-klein-image-edit', label: 'Flux 2 Klein Image Edit', provider: 'comfyui', role: 'image.edit', workflowFile: 'edit.workflow.json', contract: { inputs: { sourceImage: { type: 'image', required: true }, prompt: { type: 'string', required: true } }, outputs: { images: { type: 'image-list', required: true, primary: 'first' } } }, requiredNodeClasses: [], outputNodeIds: ['9'], bindings: {}, defaults: { steps: 4, filenamePrefix: 'NovelTea' } },
-    ] }),
+    listComfyUiWorkflows: vi.fn().mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      workflows: [
+        { id: 'flux2-klein-text-to-image', label: 'Flux 2 Klein Text to Image', provider: 'comfyui', role: 'image.generate', workflowFile: 'text.workflow.json', contract: { inputs: { prompt: { type: 'string', required: true } }, outputs: { images: { type: 'image-list', required: true, primary: 'first' } } }, requiredNodeClasses: [], outputNodeIds: ['9'], bindings: {}, outputBindings: {}, defaults: { width: 1024, height: 1024, steps: 20, filenamePrefix: 'NovelTea' }, manifestFile: 'text.manifest.json' },
+        { id: 'flux2-klein-image-edit', label: 'Flux 2 Klein Image Edit', provider: 'comfyui', role: 'image.edit', workflowFile: 'edit.workflow.json', contract: { inputs: { sourceImage: { type: 'image', required: true }, prompt: { type: 'string', required: true } }, outputs: { images: { type: 'image-list', required: true, primary: 'first' } } }, requiredNodeClasses: [], outputNodeIds: ['9'], bindings: {}, outputBindings: {}, defaults: { steps: 4, filenamePrefix: 'NovelTea' }, manifestFile: 'edit.manifest.json' },
+      ],
+      entries: [
+        { manifestFile: 'text.manifest.json', workflowFile: 'text.workflow.json', id: 'flux2-klein-text-to-image', label: 'Flux 2 Klein Text to Image', role: 'image.generate', status: 'valid', repairable: true, diagnostics: [] },
+        { manifestFile: 'edit.manifest.json', workflowFile: 'edit.workflow.json', id: 'flux2-klein-image-edit', label: 'Flux 2 Klein Image Edit', role: 'image.edit', status: 'valid', repairable: true, diagnostics: [] },
+      ],
+    }),
     installComfyUiStarterWorkflows: vi.fn().mockResolvedValue({ ok: true, success: true, copied: [], skipped: [], diagnostics: [] }),
     analyzeComfyUiWorkflowImport: vi.fn().mockResolvedValue({ ok: true, diagnostics: [], roleCandidates: {} }),
     saveImportedComfyUiWorkflow: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], workflowFile: 'mock.workflow.json', manifestFile: 'mock.manifest.json' }),
+    repairComfyUiWorkflowManifest: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], workflowFile: 'mock.workflow.json', manifestFile: 'mock.manifest.json' }),
     generateComfyUiImage: vi.fn().mockResolvedValue({ ok: true, success: true, promptId: 'prompt-1', diagnostics: [], assets: [{ asset: { originalPath: 'comfyui:generated.png', originalName: 'generated.png', projectRelativePath: 'assets/generated/generated.png', kind: 'image', extension: '.png', mimeType: 'image/png', byteSize: 4, contentHash: 'sha256:mock', importedAt: 'now' }, previewUrl: 'data:image/png;base64,bW9jaw==', absolutePath: '/mock/project/assets/generated/generated.png', projectRelativePath: 'assets/generated/generated.png', promptId: 'prompt-1', workflowId: 'flux2-klein-text-to-image', seed: 1, prompt: 'mock prompt', createdAt: 'now' }] }),
     editComfyUiImage: vi.fn().mockResolvedValue({ ok: true, success: true, promptId: 'prompt-2', diagnostics: [], assets: [{ asset: { originalPath: 'comfyui:edit.png', originalName: 'edit.png', projectRelativePath: 'assets/generated/edit.png', kind: 'image', extension: '.png', mimeType: 'image/png', byteSize: 4, contentHash: 'sha256:mock-edit', importedAt: 'now' }, previewUrl: 'data:image/png;base64,ZWRpdA==', absolutePath: '/mock/project/assets/generated/edit.png', projectRelativePath: 'assets/generated/edit.png', promptId: 'prompt-2', workflowId: 'flux2-klein-image-edit', seed: 2, prompt: 'edit prompt', createdAt: 'now' }] }),
     cancelComfyUiJob: vi.fn().mockResolvedValue({ ok: true, success: true }),

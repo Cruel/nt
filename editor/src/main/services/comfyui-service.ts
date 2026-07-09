@@ -6,7 +6,7 @@ import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from '../../shared/comfyui-generation';
-import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, resolveComfyUiWorkflowBinding, resolvedComfyUiWorkflowOutputNodeIdList, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowId, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
+import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, resolveComfyUiWorkflowBinding, resolvedComfyUiWorkflowOutputNodeIdList, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowId, type ComfyUiWorkflowListEntry, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 
@@ -147,6 +147,12 @@ function diagnostic(pathValue: string, message: string, severity: ComfyUiWorkflo
   return { severity, category: 'comfyui-workflows', path: pathValue, message };
 }
 
+function entryStatus(diagnostics: ComfyUiWorkflowDiagnostic[]): ComfyUiWorkflowListEntry['status'] {
+  if (diagnostics.some((item) => item.severity === 'error')) return 'invalid';
+  if (diagnostics.some((item) => item.severity === 'warning' || item.severity === 'info')) return 'warning';
+  return 'valid';
+}
+
 function slashPath(value: string) {
   return value.split(path.sep).join('/');
 }
@@ -195,11 +201,6 @@ async function readManifestFiles(projectFilePath: string): Promise<string[]> {
   }
 }
 
-async function loadProjectWorkflowManifest(projectFilePath: string, manifestFile: string): Promise<ComfyUiWorkflowDefinition> {
-  const text = await fs.readFile(path.join(projectWorkflowsRoot(projectFilePath), manifestFile), 'utf8');
-  return parseComfyUiWorkflowDefinition(JSON.parse(text), manifestFile);
-}
-
 export async function loadComfyUiWorkflowTemplate(projectFilePath: string, definition: ComfyUiWorkflowDefinition): Promise<WorkflowGraph> {
   const text = await fs.readFile(path.join(projectWorkflowsRoot(projectFilePath), definition.workflowFile), 'utf8');
   return JSON.parse(text) as WorkflowGraph;
@@ -207,15 +208,22 @@ export async function loadComfyUiWorkflowTemplate(projectFilePath: string, defin
 
 function validateWorkflowBindings(workflow: WorkflowGraph, definition: ComfyUiWorkflowDefinition): ComfyUiWorkflowDiagnostic[] {
   const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
-  for (const binding of Object.values(definition.bindings)) {
+  for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
     if (!binding) continue;
     const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
-    if (!resolution.ok) throw new Error(`Workflow '${definition.label}' ${resolution.message ?? 'has an unresolved binding.'}`);
+    if (!resolution.ok) {
+      diagnostics.push(diagnostic(`/workflows/${definition.manifestFile ?? definition.id}/bindings/${semanticKey}`, resolution.message ?? `Workflow '${definition.label}' has an unresolved binding.`));
+      continue;
+    }
     if (resolution.rebased && binding.nodeId && resolution.nodeId) {
-      diagnostics.push(diagnostic(`/workflows/${definition.manifestFile ?? definition.id}/bindings`, `Rebased binding from missing node ${binding.nodeId} to node ${resolution.nodeId}.`, 'info'));
+      diagnostics.push(diagnostic(`/workflows/${definition.manifestFile ?? definition.id}/bindings/${semanticKey}`, `Rebased stale node id ${binding.nodeId} to node ${resolution.nodeId} using selector metadata.`, 'info'));
     }
   }
-  resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
+  try {
+    resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
+  } catch (error) {
+    diagnostics.push(diagnostic(`/workflows/${definition.manifestFile ?? definition.id}/outputBindings/images`, error instanceof Error ? error.message : 'Workflow output bindings could not be resolved.'));
+  }
   return diagnostics;
 }
 
@@ -236,20 +244,52 @@ async function validateProjectWorkflowDefinition(projectFilePath: string, defini
 }
 
 export async function listComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowListResponse> {
-  if (!projectFilePath) return { ok: false, success: false, workflows: [], diagnostics: [diagnostic('/workflows', 'Save the project before using ComfyUI workflows.')], error: 'Project file path is required.' };
+  if (!projectFilePath) return { ok: false, success: false, workflows: [], entries: [], diagnostics: [diagnostic('/workflows', 'Save the project before using ComfyUI workflows.')], error: 'Project file path is required.' };
   const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
   const workflows: ComfyUiWorkflowDefinition[] = [];
+  const entries: ComfyUiWorkflowListEntry[] = [];
   for (const manifestFile of await readManifestFiles(projectFilePath)) {
+    const manifestPath = path.join(projectWorkflowsRoot(projectFilePath), manifestFile);
+    let manifestJsonText: string | undefined;
     try {
-      const definition = await loadProjectWorkflowManifest(projectFilePath, manifestFile);
+      manifestJsonText = await fs.readFile(manifestPath, 'utf8');
+      const definition = parseComfyUiWorkflowDefinition(JSON.parse(manifestJsonText), manifestFile);
+      let workflowJsonText: string | undefined;
+      try {
+        workflowJsonText = await fs.readFile(path.join(projectWorkflowsRoot(projectFilePath), definition.workflowFile), 'utf8');
+      } catch {
+        // Missing workflow files are represented by validation diagnostics below.
+      }
       const definitionDiagnostics = await validateProjectWorkflowDefinition(projectFilePath, definition);
+      const status = entryStatus(definitionDiagnostics);
+      entries.push({
+        manifestFile,
+        workflowFile: definition.workflowFile,
+        definition,
+        id: definition.id,
+        label: definition.label,
+        role: definition.role,
+        status,
+        repairable: Boolean(workflowJsonText),
+        diagnostics: definitionDiagnostics,
+        manifestJsonText,
+        workflowJsonText,
+      });
       diagnostics.push(...definitionDiagnostics);
-      if (!definitionDiagnostics.some((item) => item.severity === 'error')) workflows.push(definition);
+      if (status !== 'invalid') workflows.push(definition);
     } catch (error) {
-      diagnostics.push(diagnostic(`/workflows/${manifestFile}`, error instanceof Error ? error.message : 'Workflow manifest is invalid.'));
+      const entryDiagnostics = [diagnostic(`/workflows/${manifestFile}`, error instanceof Error ? error.message : 'Workflow manifest is invalid.')];
+      entries.push({
+        manifestFile,
+        status: 'invalid',
+        repairable: false,
+        diagnostics: entryDiagnostics,
+        manifestJsonText,
+      });
+      diagnostics.push(...entryDiagnostics);
     }
   }
-  return { ok: !diagnostics.some((item) => item.severity === 'error'), success: true, workflows, diagnostics };
+  return { ok: !diagnostics.some((item) => item.severity === 'error'), success: true, workflows, entries, diagnostics };
 }
 
 export async function validateProjectComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowDiagnostic[]> {

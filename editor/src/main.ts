@@ -6,7 +6,7 @@ import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import { cancelComfyUiJob, checkComfyUiConnection, editComfyUiImage, generateComfyUiImage, getComfyUiQueue, installProjectComfyUiStarterWorkflows, listComfyUiWorkflows } from './main/services/comfyui-service';
-import { analyzeComfyUiWorkflowImport, saveImportedComfyUiWorkflow } from './main/services/comfyui-workflow-import-service';
+import { analyzeComfyUiWorkflowImport, repairComfyUiWorkflowManifest, saveImportedComfyUiWorkflow } from './main/services/comfyui-workflow-import-service';
 import { auditProjectAssets, importUntrackedProjectAssets, purgeProjectTrash, restoreProjectAssetFiles, startProjectAssetWatcher, stopProjectAssetWatcher, trashProjectAssetFiles } from './main/services/project-asset-audit-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
 import {
@@ -26,7 +26,7 @@ import { createProject, saveProject, saveProjectAs } from './main/services/proje
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
-import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiSaveImportedWorkflowRequest } from './shared/comfyui-workflows';
+import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiRepairWorkflowManifestRequest, ComfyUiSaveImportedWorkflowRequest } from './shared/comfyui-workflows';
 import type { CreateProjectRequest, PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
 
 if (started) {
@@ -549,6 +549,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.COMFYUI_SAVE_IMPORTED_WORKFLOW, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiSaveImportedWorkflowRequest) =>
     saveImportedComfyUiWorkflow(request),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_MANIFEST, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiRepairWorkflowManifestRequest) =>
+    repairComfyUiWorkflowManifest(request),
   );
 
   ipcMain.handle(

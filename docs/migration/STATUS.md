@@ -1,6 +1,6 @@
 # Migration Status
 
-Last updated: 2026-07-08.
+Last updated: 2026-07-09.
 
 This file is durable project memory for the next implementation session. Keep it short and current.
 Move historical analysis to `docs/archive/` and detailed implementation plans to the relevant
@@ -247,3 +247,18 @@ line/column navigation remains deferred until diagnostics carry reliable source-
 `pnpm lint`, `pnpm typecheck`, and focused/full Vitest coverage pass except for the known
 order-sensitive `src/renderer/test/engine-preview.test.tsx` timeout-status assertion when run inside
 the full suite; rerunning that file in isolation passes.
+
+Latest editor ComfyUI workflow import Phase 6 verification:
+
+```sh
+pnpm exec vitest run src/renderer/test/comfyui-workflow-import-service.test.ts src/renderer/test/project-settings-editor.test.tsx src/renderer/test/comfyui-service.test.ts
+pnpm test
+pnpm lint
+pnpm typecheck
+```
+
+Project Settings now lists valid and invalid installed ComfyUI workflow entries, exposes repair
+entry points for entries with loadable workflow JSON, and saves repair changes through a
+manifest-only IPC/service path. Binding diagnostics distinguish stale node-id rebases from
+unresolved or ambiguous selector matches. Focused tests, full Vitest coverage, lint, and typecheck
+pass.

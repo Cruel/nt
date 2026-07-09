@@ -123,13 +123,29 @@ export interface ComfyUiBindingResolution {
   ok: boolean;
   nodeId?: string;
   rebased?: boolean;
+  ambiguous?: boolean;
   message?: string;
+}
+
+export interface ComfyUiWorkflowListEntry {
+  manifestFile: string;
+  workflowFile?: string;
+  definition?: ComfyUiWorkflowDefinition;
+  id?: string;
+  label?: string;
+  role?: ComfyUiWorkflowRole;
+  status: 'valid' | 'warning' | 'invalid';
+  repairable: boolean;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  manifestJsonText?: string;
+  workflowJsonText?: string;
 }
 
 export interface ComfyUiWorkflowListResponse {
   ok: boolean;
   success: boolean;
   workflows: ComfyUiWorkflowDefinition[];
+  entries: ComfyUiWorkflowListEntry[];
   diagnostics: ComfyUiWorkflowDiagnostic[];
   error?: string;
 }
@@ -178,6 +194,13 @@ export interface ComfyUiSaveImportedWorkflowResponse {
   definition?: ComfyUiWorkflowDefinition;
   diagnostics: ComfyUiWorkflowDiagnostic[];
   error?: string;
+}
+
+export interface ComfyUiRepairWorkflowManifestRequest {
+  projectFilePath: string;
+  manifestFileName: string;
+  manifest: unknown;
+  overwrite: true;
 }
 
 export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<ComfyUiWorkflowRole, ComfyUiWorkflowRoleDefinition> = {
@@ -472,9 +495,20 @@ function nodeMatchesTitle(node: ComfyUiWorkflowNodeLike, title: string | undefin
   return !title || workflowNodeTitle(node) === title;
 }
 
-function singleMatch(graph: ComfyUiWorkflowGraphLike, predicate: (nodeId: string, node: ComfyUiWorkflowNodeLike) => boolean): string | undefined {
-  const matches = Object.entries(graph).filter(([nodeId, node]) => predicate(nodeId, node)).map(([nodeId]) => nodeId);
-  return matches.length === 1 ? matches[0] : undefined;
+function nodeMatches(graph: ComfyUiWorkflowGraphLike, predicate: (nodeId: string, node: ComfyUiWorkflowNodeLike) => boolean): string[] {
+  return Object.entries(graph).filter(([nodeId, node]) => predicate(nodeId, node)).map(([nodeId]) => nodeId);
+}
+
+function resolutionFromMatches(matches: string[], bindingLabel: string, currentNodeId?: string): ComfyUiBindingResolution | null {
+  if (matches.length === 1) return { ok: true, nodeId: matches[0], rebased: matches[0] !== currentNodeId };
+  if (matches.length > 1) {
+    return {
+      ok: false,
+      ambiguous: true,
+      message: `Binding '${bindingLabel}' matches multiple workflow nodes: ${matches.join(', ')}.`,
+    };
+  }
+  return null;
 }
 
 export function resolveComfyUiWorkflowBinding(graph: ComfyUiWorkflowGraphLike, binding: ComfyUiWorkflowBinding): ComfyUiBindingResolution {
@@ -486,21 +520,22 @@ export function resolveComfyUiWorkflowBinding(graph: ComfyUiWorkflowGraphLike, b
   const title = binding.selector?.title ?? binding.nodeTitle;
   const classType = binding.selector?.classType ?? binding.classType;
   const inputName = binding.selector?.inputName ?? binding.inputName;
+  const bindingLabel = `${binding.nodeId ?? binding.nodeTitle ?? classType ?? 'unknown'}.${binding.inputName}`;
 
   if (title && classType) {
-    const nodeId = singleMatch(graph, (_nodeId, node) => nodeMatchesTitle(node, title) && nodeMatchesClass(node, classType) && nodeMatchesInput(node, inputName));
-    if (nodeId) return { ok: true, nodeId, rebased: nodeId !== binding.nodeId };
+    const resolution = resolutionFromMatches(nodeMatches(graph, (_nodeId, node) => nodeMatchesTitle(node, title) && nodeMatchesClass(node, classType) && nodeMatchesInput(node, inputName)), bindingLabel, binding.nodeId);
+    if (resolution) return resolution;
   }
   if (title) {
-    const nodeId = singleMatch(graph, (_nodeId, node) => nodeMatchesTitle(node, title) && nodeMatchesInput(node, inputName));
-    if (nodeId) return { ok: true, nodeId, rebased: nodeId !== binding.nodeId };
+    const resolution = resolutionFromMatches(nodeMatches(graph, (_nodeId, node) => nodeMatchesTitle(node, title) && nodeMatchesInput(node, inputName)), bindingLabel, binding.nodeId);
+    if (resolution) return resolution;
   }
   if (classType) {
-    const nodeId = singleMatch(graph, (_nodeId, node) => nodeMatchesClass(node, classType) && nodeMatchesInput(node, inputName));
-    if (nodeId) return { ok: true, nodeId, rebased: nodeId !== binding.nodeId };
+    const resolution = resolutionFromMatches(nodeMatches(graph, (_nodeId, node) => nodeMatchesClass(node, classType) && nodeMatchesInput(node, inputName)), bindingLabel, binding.nodeId);
+    if (resolution) return resolution;
   }
 
-  return { ok: false, message: `Could not resolve binding '${binding.nodeId ?? binding.nodeTitle ?? classType ?? 'unknown'}.${binding.inputName}'.` };
+  return { ok: false, message: `Could not resolve binding '${bindingLabel}'.` };
 }
 
 export function resolveComfyUiWorkflowOutputBinding(graph: ComfyUiWorkflowGraphLike, binding: ComfyUiWorkflowOutputBinding): ComfyUiBindingResolution {
@@ -508,21 +543,22 @@ export function resolveComfyUiWorkflowOutputBinding(graph: ComfyUiWorkflowGraphL
 
   const title = binding.nodeTitle;
   const classType = binding.classType;
+  const bindingLabel = binding.nodeId ?? binding.nodeTitle ?? classType ?? 'unknown';
 
   if (title && classType) {
-    const nodeId = singleMatch(graph, (_nodeId, node) => nodeMatchesTitle(node, title) && nodeMatchesClass(node, classType));
-    if (nodeId) return { ok: true, nodeId, rebased: nodeId !== binding.nodeId };
+    const resolution = resolutionFromMatches(nodeMatches(graph, (_nodeId, node) => nodeMatchesTitle(node, title) && nodeMatchesClass(node, classType)), bindingLabel, binding.nodeId);
+    if (resolution) return resolution;
   }
   if (title) {
-    const nodeId = singleMatch(graph, (_nodeId, node) => nodeMatchesTitle(node, title));
-    if (nodeId) return { ok: true, nodeId, rebased: nodeId !== binding.nodeId };
+    const resolution = resolutionFromMatches(nodeMatches(graph, (_nodeId, node) => nodeMatchesTitle(node, title)), bindingLabel, binding.nodeId);
+    if (resolution) return resolution;
   }
   if (classType) {
-    const nodeId = singleMatch(graph, (_nodeId, node) => nodeMatchesClass(node, classType));
-    if (nodeId) return { ok: true, nodeId, rebased: nodeId !== binding.nodeId };
+    const resolution = resolutionFromMatches(nodeMatches(graph, (_nodeId, node) => nodeMatchesClass(node, classType)), bindingLabel, binding.nodeId);
+    if (resolution) return resolution;
   }
 
-  return { ok: false, message: `Could not resolve output binding '${binding.nodeId ?? binding.nodeTitle ?? classType ?? 'unknown'}'.` };
+  return { ok: false, message: `Could not resolve output binding '${bindingLabel}'.` };
 }
 
 export function resolveComfyUiWorkflowOutputNodeIds(graph: ComfyUiWorkflowGraphLike, definition: ComfyUiWorkflowDefinition): ComfyUiBindingResolution {

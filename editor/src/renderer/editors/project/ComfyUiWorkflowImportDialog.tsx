@@ -12,7 +12,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { analyzeComfyUiWorkflowImport, saveImportedComfyUiWorkflow } from '@/comfyui/comfyui-service';
+import { analyzeComfyUiWorkflowImport, repairComfyUiWorkflowManifest, saveImportedComfyUiWorkflow } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import type { ComfyUiBindingCandidate } from '../../../shared/comfyui-workflow-inference';
 import {
@@ -22,6 +22,7 @@ import {
   type ComfyUiSemanticInput,
   type ComfyUiWorkflowDefinition,
   type ComfyUiWorkflowDiagnostic,
+  type ComfyUiWorkflowListEntry,
   type ComfyUiWorkflowRole,
   type ComfyUiWorkflowValueType,
 } from '../../../shared/comfyui-workflows';
@@ -29,6 +30,7 @@ import {
 interface ComfyUiWorkflowImportDialogProps {
   open: boolean;
   projectFilePath: string | null;
+  repairEntry?: ComfyUiWorkflowListEntry | null;
   onOpenChange: (open: boolean) => void;
   onImported: (message: string, diagnostics: ComfyUiWorkflowDiagnostic[]) => void | Promise<void>;
 }
@@ -116,6 +118,32 @@ function findCandidate(candidates: ComfyUiBindingCandidate[], key: string | unde
   return candidates.find((candidate) => candidateKey(candidate) === key);
 }
 
+function keyForBinding(candidates: ComfyUiBindingCandidate[], binding: ComfyUiWorkflowDefinition['bindings'][ComfyUiSemanticInput]) {
+  if (!binding) return undefined;
+  const title = binding.selector?.title ?? binding.nodeTitle;
+  const classType = binding.selector?.classType ?? binding.classType;
+  const inputName = binding.selector?.inputName ?? binding.inputName;
+  const match = candidates.find((candidate) => (
+    (binding.nodeId ? candidate.nodeId === binding.nodeId : true)
+    && candidate.inputName === inputName
+    && (!classType || candidate.classType === classType)
+  )) ?? candidates.find((candidate) => (
+    candidate.inputName === inputName
+    && (!title || candidate.nodeTitle === title)
+    && (!classType || candidate.classType === classType)
+  ));
+  return match ? candidateKey(match) : undefined;
+}
+
+function keyForOutputBinding(candidates: ComfyUiBindingCandidate[], binding: NonNullable<ComfyUiWorkflowDefinition['outputBindings']['images']>[number]) {
+  const match = candidates.find((candidate) => binding.nodeId && candidate.nodeId === binding.nodeId)
+    ?? candidates.find((candidate) => (
+      (!binding.nodeTitle || candidate.nodeTitle === binding.nodeTitle)
+      && (!binding.classType || candidate.classType === binding.classType)
+    ));
+  return match ? candidateKey(match) : undefined;
+}
+
 function selectedInputCandidates(response: ComfyUiAnalyzeWorkflowImportResponse | null, role: ComfyUiWorkflowRole, selections: InputSelections) {
   const candidates = roleCandidates(response, role);
   const selected: Partial<Record<ComfyUiSemanticInput, ComfyUiBindingCandidate>> = {};
@@ -136,10 +164,31 @@ function buildInitialInputSelections(response: ComfyUiAnalyzeWorkflowImportRespo
   return selections;
 }
 
+function buildRepairInputSelections(response: ComfyUiAnalyzeWorkflowImportResponse | null, definition: ComfyUiWorkflowDefinition): InputSelections {
+  const candidates = roleCandidates(response, definition.role);
+  const selections: InputSelections = {};
+  for (const [semanticKey] of inputEntries(definition.role)) {
+    const key = keyForBinding(candidates[semanticKey] ?? [], definition.bindings[semanticKey]);
+    if (key) selections[semanticKey] = key;
+  }
+  return selections;
+}
+
 function buildInitialOutputs(response: ComfyUiAnalyzeWorkflowImportResponse | null, role: ComfyUiWorkflowRole) {
   const candidates = roleCandidates(response, role).images ?? [];
   const preferred = candidates.find((candidate) => candidate.classType === 'SaveImage') ?? candidates[0];
   return preferred ? [candidateKey(preferred)] : [];
+}
+
+function buildRepairOutputs(response: ComfyUiAnalyzeWorkflowImportResponse | null, definition: ComfyUiWorkflowDefinition) {
+  const candidates = roleCandidates(response, definition.role).images ?? [];
+  const bindings = definition.outputBindings.images ?? [];
+  const keys = bindings.map((binding) => keyForOutputBinding(candidates, binding)).filter((key): key is string => Boolean(key));
+  if (keys.length) return keys;
+  return definition.outputNodeIds
+    .map((nodeId) => candidates.find((candidate) => candidate.nodeId === nodeId))
+    .filter((candidate): candidate is ComfyUiBindingCandidate => Boolean(candidate))
+    .map(candidateKey);
 }
 
 function selectorFor(candidate: ComfyUiBindingCandidate) {
@@ -232,8 +281,9 @@ function DiagnosticRows({ diagnostics }: { diagnostics: ComfyUiWorkflowDiagnosti
   );
 }
 
-export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChange, onImported }: ComfyUiWorkflowImportDialogProps) {
+export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry, onOpenChange, onImported }: ComfyUiWorkflowImportDialogProps) {
   const config = useComfyUiStore((state) => state.config);
+  const mode = repairEntry ? 'repair' : 'import';
   const [step, setStep] = useState<Step>(0);
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState<number | null>(null);
@@ -287,9 +337,37 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChang
   }, [open]);
 
   useEffect(() => {
+    if (!open || !repairEntry?.definition || !repairEntry.workflowJsonText) return;
+    const definition = repairEntry.definition;
+    setStep(1);
+    setFileName(definition.workflowFile);
+    setWorkflowJsonText(repairEntry.workflowJsonText);
+    setRole(definition.role);
+    setWorkflowId(definition.id);
+    setLabel(definition.label);
+    setDescription(definition.description ?? '');
+    setOverwrite(true);
+    setDefaultsDraft(Object.fromEntries(Object.entries(definition.defaults).map(([key, value]) => [key, String(value)])) as DefaultsDraft);
+    setSaveDiagnostics([]);
+    setError(null);
+    setAnalyzing(true);
+    void analyzeComfyUiWorkflowImport({ projectFilePath: projectFilePath ?? '', workflowJsonText: repairEntry.workflowJsonText, config }).then((response) => {
+      setAnalysisResponse(response);
+      setError(response.ok ? null : response.error ?? 'Workflow repair analysis failed.');
+      setInputSelections(buildRepairInputSelections(response, definition));
+      setOutputSelections(buildRepairOutputs(response, definition));
+    }).catch((caught) => {
+      const message = caught instanceof Error ? caught.message : 'Failed to analyze workflow for repair.';
+      setAnalysisResponse({ ok: false, roleCandidates: {}, diagnostics: [{ severity: 'error', category: 'comfyui-workflows', path: '/workflow', message }], error: message });
+      setError(message);
+    }).finally(() => setAnalyzing(false));
+  }, [config, open, projectFilePath, repairEntry]);
+
+  useEffect(() => {
+    if (mode === 'repair') return;
     setInputSelections(buildInitialInputSelections(analysisResponse, role));
     setOutputSelections(buildInitialOutputs(analysisResponse, role));
-  }, [analysisResponse, role]);
+  }, [analysisResponse, mode, role]);
 
   useEffect(() => {
     const nextDefaults: DefaultsDraft = { filenamePrefix: 'NovelTea' };
@@ -337,26 +415,35 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChang
     setSaving(true);
     setError(null);
     setSaveDiagnostics([]);
-    const response = await saveImportedComfyUiWorkflow({
-      projectFilePath,
-      workflowFileName,
-      manifestFileName,
-      workflowJsonText,
-      manifest,
-      overwrite,
-    });
+    const response = mode === 'repair' && repairEntry
+      ? await repairComfyUiWorkflowManifest({
+        projectFilePath,
+        manifestFileName: repairEntry.manifestFile,
+        manifest: { ...manifest, workflowFile: repairEntry.definition?.workflowFile ?? manifest.workflowFile },
+        overwrite: true,
+      })
+      : await saveImportedComfyUiWorkflow({
+        projectFilePath,
+        workflowFileName,
+        manifestFileName,
+        workflowJsonText,
+        manifest,
+        overwrite,
+      });
     setSaveDiagnostics(response.diagnostics);
     setSaving(false);
     if (!response.success) {
       setError(response.error ?? 'Failed to save imported workflow.');
       return;
     }
-    await onImported(`Imported ${response.workflowFile ?? workflowFileName}.`, response.diagnostics);
+    await onImported(mode === 'repair'
+      ? `Repaired ${response.manifestFile ?? manifestFileName}.`
+      : `Imported ${response.workflowFile ?? workflowFileName}.`, response.diagnostics);
     onOpenChange(false);
   }
 
   function renderStep() {
-    if (step === 0) {
+    if (step === 0 && mode === 'import') {
       return (
         <div className="space-y-3">
           <div className="space-y-1">
@@ -407,10 +494,10 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChang
             <div className="font-mono text-[11px] text-muted-foreground">{workflowFileName}</div>
             <div className="font-mono text-[11px] text-muted-foreground">{manifestFileName}</div>
           </div>
-          <label className="flex items-center gap-2 text-xs md:col-span-2">
+          {mode === 'import' ? <label className="flex items-center gap-2 text-xs md:col-span-2">
             <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.currentTarget.checked)} />
             Overwrite existing workflow files with these names
-          </label>
+          </label> : null}
         </div>
       );
     }
@@ -525,7 +612,7 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChang
       <div className="space-y-3">
         <div className="rounded border p-2 text-xs">
           <div><span className="text-muted-foreground">Workflow:</span> {workflowFileName}</div>
-          <div><span className="text-muted-foreground">Manifest:</span> {manifestFileName}</div>
+          <div><span className="text-muted-foreground">Manifest:</span> {mode === 'repair' ? repairEntry?.manifestFile : manifestFileName}</div>
         </div>
         <DiagnosticRows diagnostics={[...(analysisResponse?.diagnostics ?? []), ...saveDiagnostics]} />
         <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">{manifest ? JSON.stringify(manifest, null, 2) : 'Manifest is not ready.'}</pre>
@@ -537,8 +624,8 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChang
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Import ComfyUI Workflow</DialogTitle>
-          <DialogDescription>Import an API workflow export and generate a NovelTea manifest.</DialogDescription>
+          <DialogTitle>{mode === 'repair' ? 'Repair ComfyUI Workflow' : 'Import ComfyUI Workflow'}</DialogTitle>
+          <DialogDescription>{mode === 'repair' ? 'Repair the NovelTea manifest for an installed ComfyUI workflow.' : 'Import an API workflow export and generate a NovelTea manifest.'}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap gap-1">
           {stepLabels.map((stepLabel, index) => (
@@ -548,11 +635,11 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChang
         {error ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div> : null}
         <div className="min-h-0 overflow-auto pr-1">{renderStep()}</div>
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={step === 0 || saving} onClick={() => setStep((current) => Math.max(0, current - 1) as Step)}>Back</Button>
+          <Button type="button" variant="outline" disabled={step === 0 || (mode === 'repair' && step === 1) || saving} onClick={() => setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)}>Back</Button>
           {step < 6 ? (
             <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && requiredOutputsMissing)} onClick={nextStep}>Next</Button>
           ) : (
-            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || saving} onClick={() => void saveImport()}>{saving ? 'Saving...' : 'Save Import'}</Button>
+            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || saving} onClick={() => void saveImport()}>{saving ? 'Saving...' : mode === 'repair' ? 'Save Repair' : 'Save Import'}</Button>
           )}
         </DialogFooter>
       </DialogContent>
