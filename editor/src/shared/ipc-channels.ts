@@ -47,6 +47,7 @@ export const IPC_CHANNELS = {
   COMFYUI_LIST_WORKFLOW_LIBRARY: 'noveltea:comfyui-list-workflow-library',
   COMFYUI_COPY_WORKFLOW: 'noveltea:comfyui-copy-workflow',
   COMFYUI_DELETE_WORKFLOW: 'noveltea:comfyui-delete-workflow',
+  COMFYUI_RENAME_WORKFLOW: 'noveltea:comfyui-rename-workflow',
   COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY: 'noveltea:comfyui-import-workflow-to-library',
   COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY: 'noveltea:comfyui-repair-workflow-in-library',
   COMFYUI_REVEAL_WORKFLOW: 'noveltea:comfyui-reveal-workflow',

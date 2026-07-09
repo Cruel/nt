@@ -44,6 +44,10 @@ export async function deleteComfyUiWorkflow(request: ComfyUiWorkflowDeleteReques
   return window.noveltea.deleteComfyUiWorkflow(request);
 }
 
+export async function renameComfyUiWorkflow(request: import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameRequest): Promise<import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameResponse> {
+  return window.noveltea.renameComfyUiWorkflow(request);
+}
+
 export async function importComfyUiWorkflowToLibrary(request: ComfyUiImportWorkflowToLibraryRequest): Promise<ComfyUiImportWorkflowToLibraryResponse> {
   return window.noveltea.importComfyUiWorkflowToLibrary(request);
 }

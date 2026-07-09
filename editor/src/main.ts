@@ -6,7 +6,7 @@ import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import { cancelComfyUiJob, checkComfyUiConnection, editComfyUiImage, generateComfyUiImage, getComfyUiQueue } from './main/services/comfyui-service';
-import { copyComfyUiWorkflow, deleteComfyUiWorkflow, importComfyUiWorkflowToLibrary, listComfyUiWorkflowLibrary, repairComfyUiWorkflowInLibrary, revealComfyUiWorkflow, verifyComfyUiWorkflowLibrary } from './main/services/comfyui-workflow-library-service';
+import { copyComfyUiWorkflow, deleteComfyUiWorkflow, importComfyUiWorkflowToLibrary, listComfyUiWorkflowLibrary, repairComfyUiWorkflowInLibrary, renameComfyUiWorkflow, revealComfyUiWorkflow, verifyComfyUiWorkflowLibrary } from './main/services/comfyui-workflow-library-service';
 import { analyzeComfyUiWorkflowImport } from './main/services/comfyui-workflow-import-service';
 import { auditProjectAssets, importUntrackedProjectAssets, purgeProjectTrash, restoreProjectAssetFiles, startProjectAssetWatcher, stopProjectAssetWatcher, trashProjectAssetFiles } from './main/services/project-asset-audit-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
@@ -27,7 +27,7 @@ import { createProject, saveProject, saveProjectAs } from './main/services/proje
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
-import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiImportWorkflowToLibraryRequest, ComfyUiRepairWorkflowInLibraryRequest, ComfyUiVerifyWorkflowLibraryRequest, ComfyUiWorkflowCopyRequest, ComfyUiWorkflowDeleteRequest, ComfyUiWorkflowKey, ComfyUiWorkflowLibraryListRequest } from './shared/comfyui-workflows';
+import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiImportWorkflowToLibraryRequest, ComfyUiRepairWorkflowInLibraryRequest, ComfyUiVerifyWorkflowLibraryRequest, ComfyUiWorkflowCopyRequest, ComfyUiWorkflowDeleteRequest, ComfyUiWorkflowKey, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowRenameRequest } from './shared/comfyui-workflows';
 import type { CreateProjectRequest, PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
 
 if (started) {
@@ -546,6 +546,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowDeleteRequest) =>
     deleteComfyUiWorkflow(request),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowRenameRequest) =>
+    renameComfyUiWorkflow(request),
   );
 
   ipcMain.handle(IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiImportWorkflowToLibraryRequest) =>

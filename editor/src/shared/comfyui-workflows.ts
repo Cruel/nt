@@ -180,6 +180,7 @@ export interface ComfyUiWorkflowCapabilities {
   canDelete: boolean;
   canRepair: boolean;
   canReveal: boolean;
+  canRename?: boolean;
 }
 
 export interface ComfyUiWorkflowLibraryEntry {
@@ -267,6 +268,21 @@ export interface ComfyUiWorkflowDeleteResponse {
   deleted: string[];
   workflowKey?: ComfyUiWorkflowKey;
   refreshed?: ComfyUiWorkflowLibraryListResponse;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiWorkflowRenameRequest {
+  workflowKey: ComfyUiWorkflowKey;
+  label: string;
+  projectFilePath?: string | null;
+}
+
+export interface ComfyUiWorkflowRenameResponse {
+  ok: boolean;
+  success: boolean;
+  workflowKey?: ComfyUiWorkflowKey;
+  entry?: ComfyUiWorkflowLibraryEntry;
   diagnostics: ComfyUiWorkflowDiagnostic[];
   error?: string;
 }

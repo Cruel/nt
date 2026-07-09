@@ -41,6 +41,7 @@ function entry(overrides: Partial<ComfyUiWorkflowLibraryEntry>): ComfyUiWorkflow
       canDelete: source !== 'built-in',
       canRepair: source !== 'built-in',
       canReveal: true,
+      canRename: source !== 'built-in',
     },
   };
 }
@@ -77,6 +78,7 @@ beforeEach(() => {
   ]));
   vi.mocked(window.noveltea.copyComfyUiWorkflow).mockResolvedValue({ ok: true, success: true, action: 'copied', diagnostics: [] });
   vi.mocked(window.noveltea.deleteComfyUiWorkflow).mockResolvedValue({ ok: true, success: true, deleted: [], diagnostics: [] });
+  vi.mocked(window.noveltea.renameComfyUiWorkflow).mockResolvedValue({ ok: true, success: true, diagnostics: [] });
   vi.mocked(window.noveltea.revealComfyUiWorkflow).mockResolvedValue(true);
   vi.mocked(window.noveltea.verifyComfyUiWorkflowLibrary).mockResolvedValue({ ok: true, success: true, checkedAt: 'now', verified: [], failed: [], skipped: [], entries: [], diagnostics: [] });
   vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -197,5 +199,26 @@ describe('ComfyUiWorkflowsEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
     expect(await screen.findByText('Repair ComfyUI Workflow')).toBeInTheDocument();
+  });
+
+  it('edits a mutable workflow name inline', async () => {
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(response([
+      entry({ source: 'editor', id: 'custom', label: 'Original Name' }),
+    ]));
+
+    render(<ComfyUiWorkflowsEditor tab={tab} />);
+
+    expect(await screen.findByText('Original Name')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit name for Original Name' }));
+    const input = screen.getByRole('textbox', { name: 'Edit name for Original Name' });
+    fireEvent.change(input, { target: { value: 'Renamed Workflow' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await screen.findByText('Workflow renamed.');
+    expect(window.noveltea.renameComfyUiWorkflow).toHaveBeenCalledWith({
+      workflowKey: 'editor:custom.manifest.json',
+      label: 'Renamed Workflow',
+      projectFilePath: null,
+    });
   });
 });

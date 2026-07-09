@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Copy, FolderOpen, MoreHorizontal, RefreshCw, Trash2, Upload, Wrench } from 'lucide-react';
+import { Copy, FolderOpen, MoreHorizontal, Pencil, RefreshCw, Trash2, Upload, Wrench, X } from 'lucide-react';
 import { ComfyUiWorkflowImportDialog } from '@/editors/project/ComfyUiWorkflowImportDialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { copyComfyUiWorkflow, deleteComfyUiWorkflow, listComfyUiWorkflowLibrary, revealComfyUiWorkflow, verifyComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
+import { copyComfyUiWorkflow, deleteComfyUiWorkflow, listComfyUiWorkflowLibrary, renameComfyUiWorkflow, revealComfyUiWorkflow, verifyComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { invalidateComfyUiWorkflowVerification } from '@/comfyui/comfyui-workflow-library-store';
 import { useProjectStore } from '@/project/project-store';
@@ -69,6 +69,8 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [repairEntry, setRepairEntry] = useState<ComfyUiWorkflowLibraryEntry | null>(null);
+  const [editingWorkflowKey, setEditingWorkflowKey] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
 
   useEffect(() => {
     let canceled = false;
@@ -157,6 +159,36 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
     }
   }
 
+  function beginRename(entry: ComfyUiWorkflowLibraryEntry) {
+    setEditingWorkflowKey(entry.workflowKey);
+    setEditingName(entry.label ?? '');
+  }
+
+  function cancelRename() {
+    setEditingWorkflowKey(null);
+    setEditingName('');
+  }
+
+  async function saveRename(entry: ComfyUiWorkflowLibraryEntry) {
+    const nextName = editingName.trim();
+    if (!nextName || nextName === entry.label) {
+      cancelRename();
+      return;
+    }
+    const actionKey = `rename:${entry.workflowKey}`;
+    setBusyAction(actionKey);
+    try {
+      const result = await renameComfyUiWorkflow({ workflowKey: entry.workflowKey, label: nextName, projectFilePath });
+      setMessage(operationMessage(result, 'Workflow renamed.'));
+      if (result.success) {
+        cancelRename();
+        refresh();
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function verifyWorkflows() {
     const actionKey = 'refresh';
     setBusyAction(actionKey);
@@ -202,23 +234,56 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
         {!loading && entries.length === 0 ? <p className="text-sm text-muted-foreground">No ComfyUI workflows found.</p> : null}
         {entries.length > 0 ? (
           <div className="overflow-auto rounded border">
-            <table className="w-full min-w-[620px] text-left text-sm">
+            <table className="w-full min-w-0 table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-24" />
+                <col />
+                <col className="w-36" />
+                <col className="w-16" />
+                <col className="w-8" />
+              </colgroup>
               <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 font-medium">Source</th>
                   <th className="px-3 py-2 font-medium">Name</th>
                   <th className="px-3 py-2 font-medium">Role</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                  <th className="w-12 px-3 py-2 text-right font-medium"><span className="sr-only">Actions</span></th>
+                  <th className="w-16 whitespace-nowrap px-2 py-2 font-medium">Status</th>
+                  <th className="w-8 px-1 py-2 text-right font-medium"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((entry) => (
-                  <tr key={entry.workflowKey} className={`border-b last:border-b-0 ${entry.overridden ? 'text-muted-foreground opacity-70' : ''}`}>
+                  <tr key={entry.workflowKey} className={`group/row border-b last:border-b-0 ${entry.overridden ? 'text-muted-foreground opacity-70' : ''}`}>
                     <td className="px-3 py-2">{sourceLabel(entry.source)}</td>
-                    <td className="px-3 py-2">{entry.label}</td>
+                    <td className="px-3 py-2">
+                      {editingWorkflowKey === entry.workflowKey ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            autoFocus
+                            className="h-7 min-w-0 flex-1 rounded border bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                            value={editingName}
+                            onChange={(event) => setEditingName(event.currentTarget.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') void saveRename(entry);
+                              if (event.key === 'Escape') cancelRename();
+                            }}
+                            aria-label={`Edit name for ${entry.label ?? entry.workflowKey}`}
+                          />
+                          <Button type="button" size="icon-sm" variant="ghost" disabled={busyAction !== null} onClick={cancelRename} aria-label="Cancel workflow name edit"><X className="size-4" /></Button>
+                        </div>
+                      ) : (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 truncate">{entry.label}</span>
+                          {entry.capabilities.canRename === true ? (
+                            <Button type="button" size="icon-sm" variant="ghost" className="size-6 shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100" disabled={busyAction !== null} onClick={() => beginRename(entry)} aria-label={`Edit name for ${entry.label ?? entry.workflowKey}`}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs">{entry.role}</td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="w-16 whitespace-nowrap px-2 py-2 align-middle">
                       <TooltipProvider>
                         <div className="flex items-center gap-2">
                           {statusLights(entry, comfyUiStatus.state).map((light) => (
@@ -230,9 +295,9 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
                         </div>
                       </TooltipProvider>
                     </td>
-                    <td className="px-3 py-2 text-right align-top">
+                    <td className="w-8 px-1 py-2 text-right align-top">
                       <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button type="button" size="icon-sm" variant="ghost" disabled={busyAction !== null} aria-label={`Actions for ${entry.label ?? entry.workflowKey}`} />}>
+                        <DropdownMenuTrigger render={<Button type="button" size="icon-sm" variant="ghost" className="opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100" disabled={busyAction !== null} aria-label={`Actions for ${entry.label ?? entry.workflowKey}`} />}>
                           <MoreHorizontal className="size-4" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48 min-w-48">

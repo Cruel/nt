@@ -68,8 +68,10 @@ workflow until replacement-workflow repair is added.
 
 ## Manager Actions
 
-The `ComfyUI Workflows` tab lists active workflows by default and can optionally show overridden packages. It reports
-source, role, logical ID, verification status, workflow and manifest files, diagnostics, and available actions.
+The `ComfyUI Workflows` tab is intentionally compact: each row shows only source, name, role, and status. Status uses
+two hoverable lights for offline validation and ComfyUI verification; failures expose their diagnostics in the tooltip.
+Overridden packages can be shown from the header without replacing the current rows with a loading state. Row actions
+are grouped under the trailing `...` menu.
 
 Supported source-aware actions include:
 
@@ -78,7 +80,8 @@ Supported source-aware actions include:
 - delete editor or project workflows;
 - reveal a workflow package in the file manager;
 - repair mutable workflow manifests;
-- verify valid workflows against the configured ComfyUI server.
+- refresh the library and verify workflows that are failing or do not have a cached success against the configured
+  ComfyUI server.
 
 Copying an identical package is a no-op. Copying a same-ID package with different package contents requires replacing
 the target package.
@@ -88,10 +91,10 @@ the target package.
 Offline validation checks package shape, bindings, output nodes, and required metadata. Online verification runs against
 the configured ComfyUI `/object_info` endpoint and records whether workflow node classes and mapped inputs are available.
 
-When ComfyUI becomes ready, the renderer triggers one verification pass for the current server/project/package-hash
-session. Copying, deleting, importing, or repairing workflows invalidates that session key so changed packages can be
-verified again. The verification cache is used for offline UX only; a ready ComfyUI server still gets a fresh
-verification pass for the current session.
+Refresh verifies workflows that are failing or do not have a cached success. Cached successes are skipped, while changed
+package hashes naturally become unverified and are checked again. A label-only rename updates the package hash but
+migrates its cached verification because the name does not affect ComfyUI compatibility. If offline checks pass but no server is
+available, the verification light is yellow and its tooltip says `Need ComfyUI server to verify`.
 
 ## Defaults and Generation
 

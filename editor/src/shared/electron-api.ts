@@ -63,6 +63,7 @@ export interface NovelTeaElectronApi {
   listComfyUiWorkflowLibrary(request?: ComfyUiWorkflowLibraryListRequest): Promise<ComfyUiWorkflowLibraryListResponse>;
   copyComfyUiWorkflow(request: ComfyUiWorkflowCopyRequest): Promise<ComfyUiWorkflowCopyResponse>;
   deleteComfyUiWorkflow(request: ComfyUiWorkflowDeleteRequest): Promise<ComfyUiWorkflowDeleteResponse>;
+  renameComfyUiWorkflow(request: import('./comfyui-workflows').ComfyUiWorkflowRenameRequest): Promise<import('./comfyui-workflows').ComfyUiWorkflowRenameResponse>;
   importComfyUiWorkflowToLibrary(request: ComfyUiImportWorkflowToLibraryRequest): Promise<ComfyUiImportWorkflowToLibraryResponse>;
   repairComfyUiWorkflowInLibrary(request: ComfyUiRepairWorkflowInLibraryRequest): Promise<ComfyUiRepairWorkflowInLibraryResponse>;
   revealComfyUiWorkflow(workflowKey: ComfyUiWorkflowKey, projectFilePath?: string | null): Promise<boolean>;

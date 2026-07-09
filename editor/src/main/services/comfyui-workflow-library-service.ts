@@ -28,6 +28,8 @@ import {
   type ComfyUiWorkflowLibraryListRequest,
   type ComfyUiWorkflowLibraryListResponse,
   type ComfyUiWorkflowRootSummary,
+  type ComfyUiWorkflowRenameRequest,
+  type ComfyUiWorkflowRenameResponse,
   type ComfyUiWorkflowSource,
   type ComfyUiWorkflowValidationStatus,
   type ComfyUiWorkflowVerificationRecord,
@@ -177,6 +179,7 @@ function capabilities(source: ComfyUiWorkflowSource, status: ComfyUiWorkflowVali
     canDelete: mutable,
     canRepair: mutable && hasWorkflowText,
     canReveal: mutable,
+    canRename: mutable,
   };
 }
 
@@ -512,6 +515,34 @@ export async function deleteComfyUiWorkflow(request: ComfyUiWorkflowDeleteReques
     deleted.push(filePath);
   }
   return { ok: true, success: true, deleted, workflowKey: request.workflowKey, refreshed: await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true }, options), diagnostics: [] };
+}
+
+export async function renameComfyUiWorkflow(request: ComfyUiWorkflowRenameRequest, options: WorkflowLibraryServiceOptions = {}): Promise<ComfyUiWorkflowRenameResponse> {
+  const label = request.label.trim();
+  if (!label) return { ok: false, success: false, diagnostics: [diagnostic('/label', 'Workflow name is required.')], error: 'Workflow name is required.' };
+  if (sourceFromWorkflowKey(request.workflowKey) === 'built-in') return { ok: false, success: false, diagnostics: [diagnostic('/workflowKey', 'Built-in workflows cannot be renamed.')], error: 'Built-in workflows cannot be renamed.' };
+  const library = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true }, options);
+  const entry = library.entries.find((item) => item.workflowKey === request.workflowKey);
+  if (!entry?.manifestJsonText) return { ok: false, success: false, diagnostics: [diagnostic('/workflowKey', 'Workflow was not found or has no manifest.')], error: 'Workflow was not found or has no manifest.' };
+  try {
+    const manifest = JSON.parse(entry.manifestJsonText) as Record<string, unknown>;
+    manifest.label = label;
+    await writeFileAtomic(entry.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const refreshed = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true }, options);
+    const renamed = refreshed.entries.find((item) => item.workflowKey === request.workflowKey);
+    if (entry.packageHash && renamed?.packageHash && entry.packageHash !== renamed.packageHash) {
+      const roots = resolveComfyUiWorkflowLibraryRoots(request.projectFilePath, options);
+      const records = await readVerificationCache(roots.cacheFile);
+      const migrated = records
+        .filter((record) => record.workflowKey === request.workflowKey && record.packageHash === entry.packageHash)
+        .map((record) => ({ ...record, packageHash: renamed.packageHash! }));
+      await writeComfyUiWorkflowVerificationCache([...records, ...migrated], request.projectFilePath, options);
+    }
+    return { ok: true, success: true, workflowKey: request.workflowKey, entry: renamed, diagnostics: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to rename ComfyUI workflow.';
+    return { ok: false, success: false, diagnostics: [diagnostic('/label', message)], error: message };
+  }
 }
 
 export async function revealComfyUiWorkflow(workflowKeyValue: ComfyUiWorkflowKey, projectFilePath?: string | null, options: WorkflowLibraryServiceOptions = {}) {
