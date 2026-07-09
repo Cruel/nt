@@ -55,7 +55,7 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
     let canceled = false;
     setLoading(true);
     setMessage(null);
-    void listComfyUiWorkflowLibrary({ projectFilePath, includeOverridden: showOverridden }).then((next) => {
+    void listComfyUiWorkflowLibrary({ projectFilePath, includeOverridden: showOverridden, comfyUiVersion: comfyUiStatus.comfyUiVersion }).then((next) => {
       if (canceled) return;
       setResponse(next);
       const warningCount = next.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info').length;
@@ -69,7 +69,7 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
       if (!canceled) setLoading(false);
     });
     return () => { canceled = true; };
-  }, [comfyUiStatus.state, projectFilePath, refreshToken, showOverridden]);
+  }, [comfyUiStatus.comfyUiVersion, comfyUiStatus.state, projectFilePath, refreshToken, showOverridden]);
 
   const entries = visibleEntries(response);
 

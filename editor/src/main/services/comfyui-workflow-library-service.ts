@@ -276,20 +276,29 @@ export async function writeComfyUiWorkflowVerificationCache(records: ComfyUiWork
   await fs.writeFile(cacheFile, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
 }
 
-function newestVerificationRecordsByPackageHash(records: ComfyUiWorkflowVerificationRecord[]) {
+function verificationCacheKey(packageHash: ComfyUiPackageHash, comfyUiVersion?: string) {
+  return comfyUiVersion ? comfyUiVersion + ':' + packageHash : 'legacy:' + packageHash;
+}
+
+function newestVerificationRecordsByVersionAndPackageHash(records: ComfyUiWorkflowVerificationRecord[]) {
   const byHash = new Map<string, ComfyUiWorkflowVerificationRecord>();
   for (const record of records) {
-    const current = byHash.get(record.packageHash);
-    if (!current || record.checkedAt.localeCompare(current.checkedAt) >= 0) byHash.set(record.packageHash, record);
+    const key = verificationCacheKey(record.packageHash, record.comfyUiVersion);
+    const current = byHash.get(key);
+    if (!current || record.checkedAt.localeCompare(current.checkedAt) >= 0) byHash.set(key, record);
   }
   return byHash;
 }
 
-function applyVerificationCache(entries: ComfyUiWorkflowLibraryEntry[], records: ComfyUiWorkflowVerificationRecord[]) {
-  const byHash = newestVerificationRecordsByPackageHash(records);
+function applyVerificationCache(entries: ComfyUiWorkflowLibraryEntry[], records: ComfyUiWorkflowVerificationRecord[], comfyUiVersion?: string) {
+  if (!comfyUiVersion) return;
+  const byHash = newestVerificationRecordsByVersionAndPackageHash(records);
   for (const entry of entries) {
     if (!entry.packageHash) continue;
-    const record = byHash.get(entry.packageHash);
+    const matchingRecords = [...byHash.values()]
+      .filter((record) => record.packageHash === entry.packageHash && record.comfyUiVersion === comfyUiVersion)
+      .toSorted((left, right) => right.checkedAt.localeCompare(left.checkedAt));
+    const record = matchingRecords[0];
     if (!record) continue;
     entry.onlineStatus = record.status === 'verified' ? 'previously-verified' : 'failed';
     entry.verificationDiagnostics = record.diagnostics;
@@ -315,7 +324,7 @@ export async function listComfyUiWorkflowLibrary(request: ComfyUiWorkflowLibrary
   const hasProject = roots.some((root) => root.source === 'project' && root.available);
   const entries = (await Promise.all(roots.map((root) => discoverSource(root, hasProject)))).flat();
   applyOverrides(entries);
-  applyVerificationCache(entries, await readVerificationCache(resolveComfyUiWorkflowLibraryRoots(request.projectFilePath, options).cacheFile));
+  applyVerificationCache(entries, await readVerificationCache(resolveComfyUiWorkflowLibraryRoots(request.projectFilePath, options).cacheFile), request.comfyUiVersion);
   const visibleEntries = request.includeOverridden ? entries : entries.filter((entry) => !entry.overridden);
   const diagnostics = [...entries.flatMap((entry) => entry.diagnostics), ...roots.flatMap((root) => sourceSummary(root, entries).diagnostics)];
   return {
@@ -514,6 +523,37 @@ export async function revealComfyUiWorkflow(workflowKeyValue: ComfyUiWorkflowKey
   return true;
 }
 
+function findComfyUiVersion(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['comfyui_version', 'comfyuiVersion', 'version']) {
+    const next = record[key];
+    if (typeof next === 'string' && next.trim()) return next.trim();
+  }
+  for (const next of Object.values(record)) {
+    const found = findComfyUiVersion(next);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function fetchVerificationSystemStats(request: ComfyUiVerifyWorkflowLibraryRequest): Promise<unknown | null> {
+  const config = request.config;
+  if (!config.enabled) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  try {
+    const url = new URL('/system_stats', normalizeComfyUiServerUrl(config.serverUrl));
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchVerificationObjectInfo(request: ComfyUiVerifyWorkflowLibraryRequest): Promise<unknown | null> {
   const config = request.config;
   if (!config.enabled) return null;
@@ -534,7 +574,11 @@ async function fetchVerificationObjectInfo(request: ComfyUiVerifyWorkflowLibrary
 export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflowLibraryRequest, options: WorkflowLibraryServiceOptions = {}): Promise<ComfyUiVerifyWorkflowLibraryResponse> {
   const checkedAt = new Date().toISOString();
   const library = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true }, options);
-  const objectInfo = await fetchVerificationObjectInfo(request);
+  const [systemStats, objectInfo] = await Promise.all([
+    fetchVerificationSystemStats(request),
+    fetchVerificationObjectInfo(request),
+  ]);
+  const comfyUiVersion = findComfyUiVersion(systemStats) ?? 'unknown';
   const verified: ComfyUiWorkflowVerificationRecord[] = [];
   const failed: ComfyUiWorkflowVerificationRecord[] = [];
   const skipped: ComfyUiWorkflowKey[] = [];
@@ -548,12 +592,12 @@ export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflo
       continue;
     }
     if (!objectInfo) {
-      failed.push({ workflowKey: entry.workflowKey, id: entry.id, packageHash: entry.packageHash, status: 'failed', checkedAt, diagnostics: [diagnostic('/object_info', 'ComfyUI object_info was unavailable; workflow could not be verified.')] });
+      failed.push({ workflowKey: entry.workflowKey, id: entry.id, packageHash: entry.packageHash, comfyUiVersion, status: 'failed', checkedAt, diagnostics: [diagnostic('/object_info', 'ComfyUI object_info was unavailable; workflow could not be verified.')] });
       continue;
     }
     const parsed = parseWorkflowJsonText(entry.workflowJsonText);
     if (!parsed.ok) {
-      failed.push({ workflowKey: entry.workflowKey, id: entry.id, packageHash: entry.packageHash, status: 'failed', checkedAt, diagnostics: parsed.diagnostics });
+      failed.push({ workflowKey: entry.workflowKey, id: entry.id, packageHash: entry.packageHash, comfyUiVersion, status: 'failed', checkedAt, diagnostics: parsed.diagnostics });
       continue;
     }
     const compatibility = analyzeComfyUiObjectInfoCompatibility(analyzeComfyUiApiWorkflow(parsed.value), objectInfo);
@@ -561,6 +605,7 @@ export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflo
       workflowKey: entry.workflowKey,
       id: entry.id,
       packageHash: entry.packageHash,
+      comfyUiVersion,
       status: compatibility.diagnostics.some((item) => item.severity === 'error') ? 'failed' : 'verified',
       checkedAt,
       diagnostics: compatibility.diagnostics,
@@ -572,11 +617,11 @@ export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflo
   if (objectInfo) {
     const roots = resolveComfyUiWorkflowLibraryRoots(request.projectFilePath, options);
     const existing = await readVerificationCache(roots.cacheFile);
-    const mergedByHash = newestVerificationRecordsByPackageHash(existing);
-    for (const record of [...verified, ...failed]) mergedByHash.set(record.packageHash, record);
+    const mergedByHash = newestVerificationRecordsByVersionAndPackageHash(existing);
+    for (const record of [...verified, ...failed]) mergedByHash.set(verificationCacheKey(record.packageHash, record.comfyUiVersion), record);
     await writeComfyUiWorkflowVerificationCache([...mergedByHash.values()], request.projectFilePath, options);
   }
-  const refreshed = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true }, options);
+  const refreshed = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true, comfyUiVersion }, options);
   const allDiagnostics = [...diagnostics, ...failed.flatMap((record) => record.diagnostics)];
   return {
     ok: failed.length === 0 && diagnostics.length === 0,

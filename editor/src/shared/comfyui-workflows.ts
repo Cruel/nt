@@ -159,6 +159,7 @@ export interface ComfyUiWorkflowVerificationRecord {
   workflowKey: ComfyUiWorkflowKey;
   id: ComfyUiWorkflowId;
   packageHash: ComfyUiPackageHash;
+  comfyUiVersion?: string;
   status: Extract<ComfyUiWorkflowVerificationStatus, 'verified' | 'failed'>;
   checkedAt: string;
   diagnostics: ComfyUiWorkflowDiagnostic[];
@@ -223,6 +224,7 @@ export interface ComfyUiWorkflowActiveEntry {
 export interface ComfyUiWorkflowLibraryListRequest {
   projectFilePath?: string | null;
   includeOverridden?: boolean;
+  comfyUiVersion?: string;
 }
 
 export interface ComfyUiWorkflowLibraryListResponse {

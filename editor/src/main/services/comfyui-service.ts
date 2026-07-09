@@ -116,12 +116,28 @@ function queueRemainingFromValue(value: unknown): number | null {
   return running + pending;
 }
 
+function findComfyUiVersion(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['comfyui_version', 'comfyuiVersion', 'version']) {
+    const next = record[key];
+    if (typeof next === 'string' && next.trim()) return next.trim();
+  }
+  for (const next of Object.values(record)) {
+    const found = findComfyUiVersion(next);
+    if (found) return found;
+  }
+  return null;
+}
+
+
 export async function checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus> {
   if (!config.enabled) return disabledStatus(config);
   const stats = await fetchJson(config, '/system_stats');
   if (!stats.ok) return errorStatus(config, stats.error);
   const queue = await fetchJson(config, '/queue');
-  return { state: 'ready', serverUrl: normalizeComfyUiServerUrl(config.serverUrl), checkedAt: checkedAt(), message: 'ComfyUI ready', queueRemaining: queue.ok ? queueRemainingFromValue(queue.value) : null, systemStats: stats.value };
+  const comfyUiVersion = findComfyUiVersion(stats.value) ?? 'unknown';
+  return { state: 'ready', serverUrl: normalizeComfyUiServerUrl(config.serverUrl), checkedAt: checkedAt(), message: 'ComfyUI ready', queueRemaining: queue.ok ? queueRemainingFromValue(queue.value) : null, systemStats: stats.value, comfyUiVersion };
 }
 
 export async function getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress> {

@@ -18,13 +18,13 @@ export function invalidateComfyUiWorkflowVerification() {
   inFlightKey = null;
 }
 
-export async function triggerComfyUiWorkflowVerification(config: ComfyUiConfig, projectFilePath?: string | null) {
+export async function triggerComfyUiWorkflowVerification(config: ComfyUiConfig, projectFilePath?: string | null, comfyUiVersion?: string) {
   if (!config.enabled) return;
-  const library = await listComfyUiWorkflowLibrary({ projectFilePath, includeOverridden: true });
+  const library = await listComfyUiWorkflowLibrary({ projectFilePath, includeOverridden: true, comfyUiVersion });
   const packageParts = library.entries
     .filter((entry) => entry.offlineStatus !== 'invalid' && entry.packageHash)
     .map((entry) => `${entry.workflowKey}:${entry.packageHash}`);
-  const sessionKey = packageSessionKey(config, projectFilePath, packageParts);
+  const sessionKey = packageSessionKey(config, projectFilePath, [comfyUiVersion ?? 'unknown-version', ...packageParts]);
   if (verifiedSessionKeys.has(sessionKey) || inFlightKey) return;
 
   inFlightKey = sessionKey;

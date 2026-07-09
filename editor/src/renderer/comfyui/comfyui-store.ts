@@ -121,7 +121,7 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
     const status = await requestComfyUiConnection(config);
     if (!requestStillCurrent(config, get().config)) return status;
     if (visibleStatusChanged(get().status, status)) set({ status });
-    if (status.state === 'ready') void triggerComfyUiWorkflowVerification(config, useProjectStore.getState().projectFilePath);
+    if (status.state === 'ready') void triggerComfyUiWorkflowVerification(config, useProjectStore.getState().projectFilePath, status.comfyUiVersion);
     return status;
   },
   refreshQueue: async (overrideConfig) => {

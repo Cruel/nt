@@ -19,6 +19,7 @@ export interface ComfyUiStatus {
   message: string | null;
   queueRemaining: number | null;
   systemStats?: unknown;
+  comfyUiVersion?: string;
 }
 
 export interface ComfyUiQueueProgress {
