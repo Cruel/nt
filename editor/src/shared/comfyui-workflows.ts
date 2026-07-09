@@ -1,3 +1,7 @@
+import type { ComfyUiConfig } from './comfyui';
+import type { ComfyUiAnalyzedWorkflow } from './comfyui-workflow-graph';
+import type { ComfyUiRoleCandidateMap } from './comfyui-workflow-inference';
+
 export type ComfyUiWorkflowId = string;
 export type ComfyUiWorkflowRole = 'image.generate' | 'image.edit';
 export type ComfyUiWorkflowProvider = 'comfyui';
@@ -135,6 +139,43 @@ export interface ComfyUiInstallStarterWorkflowsResponse {
   success: boolean;
   copied: string[];
   skipped: string[];
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiAnalyzeWorkflowImportRequest {
+  projectFilePath: string;
+  workflowJsonText: string;
+  config?: ComfyUiConfig;
+}
+
+export interface ComfyUiWorkflowRoleImportAnalysis {
+  candidates: ComfyUiRoleCandidateMap;
+}
+
+export interface ComfyUiAnalyzeWorkflowImportResponse {
+  ok: boolean;
+  analysis?: ComfyUiAnalyzedWorkflow;
+  roleCandidates: Partial<Record<ComfyUiWorkflowRole, ComfyUiWorkflowRoleImportAnalysis>>;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiSaveImportedWorkflowRequest {
+  projectFilePath: string;
+  workflowFileName: string;
+  manifestFileName: string;
+  workflowJsonText: string;
+  manifest: unknown;
+  overwrite: boolean;
+}
+
+export interface ComfyUiSaveImportedWorkflowResponse {
+  ok: boolean;
+  success: boolean;
+  workflowFile?: string;
+  manifestFile?: string;
+  definition?: ComfyUiWorkflowDefinition;
   diagnostics: ComfyUiWorkflowDiagnostic[];
   error?: string;
 }

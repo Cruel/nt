@@ -62,6 +62,8 @@ export interface NovelTeaElectronApi {
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
   listComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowListResponse>;
   installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse>;
+  analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse>;
+  saveImportedComfyUiWorkflow(request: ComfyUiSaveImportedWorkflowRequest): Promise<ComfyUiSaveImportedWorkflowResponse>;
   generateComfyUiImage(config: ComfyUiConfig, request: ComfyUiGenerateImageRequest): Promise<ComfyUiImageJobResponse>;
   editComfyUiImage(config: ComfyUiConfig, request: ComfyUiEditImageRequest): Promise<ComfyUiImageJobResponse>;
   cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse>;
@@ -81,7 +83,7 @@ export interface NovelTeaElectronApi {
 import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from './comfyui-generation';
-import type { ComfyUiInstallStarterWorkflowsResponse, ComfyUiWorkflowListResponse } from './comfyui-workflows';
+import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiAnalyzeWorkflowImportResponse, ComfyUiInstallStarterWorkflowsResponse, ComfyUiSaveImportedWorkflowRequest, ComfyUiSaveImportedWorkflowResponse, ComfyUiWorkflowListResponse } from './comfyui-workflows';
 import type { EnginePreviewSession } from './preview-protocol';
 import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from './project-asset-audit';
 import type { ProjectAssetUrlResponse } from './project-asset-url';

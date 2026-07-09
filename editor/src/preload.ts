@@ -95,6 +95,10 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOWS, projectFilePath),
   installComfyUiStarterWorkflows: (projectFilePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_INSTALL_STARTER_WORKFLOWS, projectFilePath),
+  analyzeComfyUiWorkflowImport: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT, request),
+  saveImportedComfyUiWorkflow: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_SAVE_IMPORTED_WORKFLOW, request),
   generateComfyUiImage: (config, request) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GENERATE_IMAGE, config, request),
   editComfyUiImage: (config, request) =>

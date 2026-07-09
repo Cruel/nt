@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  analyzeComfyUiWorkflowImport,
   bestComfyUiErrorMessage,
   cancelComfyUiJob,
   checkComfyUiConnection,
@@ -8,6 +9,7 @@ import {
   getComfyUiQueue,
   installComfyUiStarterWorkflows,
   listComfyUiWorkflows,
+  saveImportedComfyUiWorkflow,
   subscribeComfyUiProgress,
 } from '@/comfyui/comfyui-service';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
@@ -24,6 +26,8 @@ describe('comfyui-service', () => {
     await getComfyUiQueue(config);
     await listComfyUiWorkflows('/mock/project/game.json');
     await installComfyUiStarterWorkflows('/mock/project/game.json');
+    await analyzeComfyUiWorkflowImport({ projectFilePath: '/mock/project/game.json', workflowJsonText: '{}' });
+    await saveImportedComfyUiWorkflow({ projectFilePath: '/mock/project/game.json', workflowFileName: 'custom.workflow.json', manifestFileName: 'custom.manifest.json', workflowJsonText: '{}', manifest: {}, overwrite: false });
     await generateComfyUiImage(config, { projectFilePath: '/mock/project/game.json', workflowId: 'flux2-klein-text-to-image', prompt: 'tea' });
     await editComfyUiImage(config, { projectFilePath: '/mock/project/game.json', workflowId: 'flux2-klein-image-edit', sourceProjectRelativePath: 'assets/generated/generated.png', prompt: 'night' });
     await cancelComfyUiJob(config);
@@ -32,6 +36,8 @@ describe('comfyui-service', () => {
     expect(window.noveltea.getComfyUiQueue).toHaveBeenCalledWith(config);
     expect(window.noveltea.listComfyUiWorkflows).toHaveBeenCalledWith('/mock/project/game.json');
     expect(window.noveltea.installComfyUiStarterWorkflows).toHaveBeenCalledWith('/mock/project/game.json');
+    expect(window.noveltea.analyzeComfyUiWorkflowImport).toHaveBeenCalledWith(expect.objectContaining({ workflowJsonText: '{}' }));
+    expect(window.noveltea.saveImportedComfyUiWorkflow).toHaveBeenCalledWith(expect.objectContaining({ workflowFileName: 'custom.workflow.json' }));
     expect(window.noveltea.generateComfyUiImage).toHaveBeenCalledWith(config, expect.objectContaining({ prompt: 'tea' }));
     expect(window.noveltea.editComfyUiImage).toHaveBeenCalledWith(config, expect.objectContaining({ prompt: 'night' }));
     expect(window.noveltea.cancelComfyUiJob).toHaveBeenCalledWith(config);

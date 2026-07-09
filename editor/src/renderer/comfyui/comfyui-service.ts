@@ -6,7 +6,11 @@ import type {
   ComfyUiImageJobResponse,
 } from '../../shared/comfyui-generation';
 import type {
+  ComfyUiAnalyzeWorkflowImportRequest,
+  ComfyUiAnalyzeWorkflowImportResponse,
   ComfyUiInstallStarterWorkflowsResponse,
+  ComfyUiSaveImportedWorkflowRequest,
+  ComfyUiSaveImportedWorkflowResponse,
   ComfyUiWorkflowListResponse,
 } from '../../shared/comfyui-workflows';
 
@@ -24,6 +28,14 @@ export async function listComfyUiWorkflows(projectFilePath: string): Promise<Com
 
 export async function installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse> {
   return window.noveltea.installComfyUiStarterWorkflows(projectFilePath);
+}
+
+export async function analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse> {
+  return window.noveltea.analyzeComfyUiWorkflowImport(request);
+}
+
+export async function saveImportedComfyUiWorkflow(request: ComfyUiSaveImportedWorkflowRequest): Promise<ComfyUiSaveImportedWorkflowResponse> {
+  return window.noveltea.saveImportedComfyUiWorkflow(request);
 }
 
 export async function generateComfyUiImage(

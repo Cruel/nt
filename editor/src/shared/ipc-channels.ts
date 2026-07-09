@@ -46,6 +46,8 @@ export const IPC_CHANNELS = {
   COMFYUI_GET_QUEUE: 'noveltea:comfyui-get-queue',
   COMFYUI_LIST_WORKFLOWS: 'noveltea:comfyui-list-workflows',
   COMFYUI_INSTALL_STARTER_WORKFLOWS: 'noveltea:comfyui-install-starter-workflows',
+  COMFYUI_ANALYZE_WORKFLOW_IMPORT: 'noveltea:comfyui-analyze-workflow-import',
+  COMFYUI_SAVE_IMPORTED_WORKFLOW: 'noveltea:comfyui-save-imported-workflow',
   COMFYUI_GENERATE_IMAGE: 'noveltea:comfyui-generate-image',
   COMFYUI_EDIT_IMAGE: 'noveltea:comfyui-edit-image',
   COMFYUI_CANCEL_JOB: 'noveltea:comfyui-cancel-job',
