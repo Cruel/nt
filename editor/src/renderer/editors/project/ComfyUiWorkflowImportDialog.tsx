@@ -21,7 +21,9 @@ import {
   SUPPORTED_COMFYUI_WORKFLOW_ROLES,
   type ComfyUiAnalyzeWorkflowImportResponse,
   type ComfyUiSemanticInput,
+  type ComfyUiWorkflowContract,
   type ComfyUiWorkflowDefinition,
+  type ComfyUiWorkflowRoleInputDefinition,
   type ComfyUiWorkflowDiagnostic,
   type ComfyUiWorkflowListEntry,
   type ComfyUiWorkflowRole,
@@ -74,10 +76,33 @@ function candidateKey(candidate: ComfyUiBindingCandidate) {
   return `${candidate.nodeId}:${candidate.inputName}:${candidate.semanticKey}`;
 }
 
-function inputEntries(role: ComfyUiWorkflowRole) {
+function inputEntries(role: ComfyUiWorkflowRole): Array<[ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]> {
   const inputs = COMFYUI_WORKFLOW_ROLE_CATALOG[role].contract.inputs;
-  return (Object.entries(inputs) as Array<[ComfyUiSemanticInput, typeof inputs[ComfyUiSemanticInput]]>)
+  return (Object.entries(inputs) as Array<[ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]>)
     .sort((left, right) => Number(right[1].required) - Number(left[1].required) || left[0].localeCompare(right[0]));
+}
+
+function manifestContractForRole(role: ComfyUiWorkflowRole): ComfyUiWorkflowContract {
+  const roleContract = COMFYUI_WORKFLOW_ROLE_CATALOG[role].contract;
+  const inputs: ComfyUiWorkflowContract['inputs'] = {};
+  for (const [semanticKey, input] of Object.entries(roleContract.inputs) as Array<[ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]>) {
+    inputs[semanticKey] = {
+      type: input.type,
+      required: input.required,
+      ...(input.editorField ? { editorField: input.editorField } : {}),
+      ...(input.defaultValue !== undefined ? { defaultValue: input.defaultValue } : {}),
+    };
+  }
+  return {
+    inputs,
+    outputs: {
+      images: {
+        type: roleContract.outputs.images.type,
+        required: roleContract.outputs.images.required,
+        primary: roleContract.outputs.images.primary,
+      },
+    },
+  };
 }
 
 function roleCandidates(response: ComfyUiAnalyzeWorkflowImportResponse | null, role: ComfyUiWorkflowRole) {
@@ -244,6 +269,7 @@ function buildManifest(options: {
   for (const [semanticKey, value] of Object.entries(options.defaultsDraft) as Array<[ComfyUiSemanticInput, string]>) {
     if (semanticKey === 'filenamePrefix' || value.trim() === '') continue;
     const input = roleDefinition.contract.inputs[semanticKey];
+    if (!input) continue;
     defaults[semanticKey] = input.type === 'string' ? value : Number(value);
   }
 
@@ -255,10 +281,7 @@ function buildManifest(options: {
     role: options.role,
     ...(options.description.trim() ? { description: options.description.trim() } : {}),
     workflowFile: options.workflowFileName,
-    contract: {
-      inputs: roleDefinition.contract.inputs,
-      outputs: roleDefinition.contract.outputs,
-    },
+    contract: manifestContractForRole(options.role),
     requiredNodeClasses: [...(options.response.analysis?.classTypes ?? [])].sort(),
     outputNodeIds: selectedOutputs.map((candidate) => candidate.nodeId),
     bindings,
@@ -313,7 +336,9 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
     return buildManifest({ role, workflowId: slugify(workflowId), label, description, workflowFileName, response: analysisResponse, inputSelections, outputSelections, defaultsDraft });
   }, [analysisResponse, defaultsDraft, description, inputSelections, label, outputSelections, role, workflowFileName, workflowId]);
   const requiredInputsMissing = inputEntries(role).some(([semanticKey, input]) => input.required && !selectedInputs[semanticKey]);
-  const requiredOutputsMissing = outputSelections.length === 0;
+  const outputCardinality = COMFYUI_WORKFLOW_ROLE_CATALOG[role].contract.outputs.images;
+  const requiredOutputsMissing = outputSelections.length < outputCardinality.minBindings;
+  const tooManyOutputsSelected = outputSelections.length > outputCardinality.maxBindings;
   const canContinue = analysisResponse?.ok && !analyzing;
 
   useEffect(() => {
@@ -408,12 +433,12 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
 
   function nextStep() {
     if (step === 3 && requiredInputsMissing) return;
-    if (step === 4 && requiredOutputsMissing) return;
+    if (step === 4 && (requiredOutputsMissing || tooManyOutputsSelected)) return;
     setStep((current) => Math.min(6, current + 1) as Step);
   }
 
   async function saveImport() {
-    if (!projectFilePath || !manifest || requiredInputsMissing || requiredOutputsMissing) return;
+    if (!projectFilePath || !manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected) return;
     setSaving(true);
     setError(null);
     setSaveDiagnostics([]);
@@ -574,7 +599,11 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
                 <input
                   type="checkbox"
                   checked={outputSelections.includes(key)}
-                  onChange={(event) => setOutputSelections((current) => event.currentTarget.checked ? [...current, key] : current.filter((value) => value !== key))}
+                  onChange={(event) => setOutputSelections((current) => {
+                    if (!event.currentTarget.checked) return current.filter((value) => value !== key);
+                    if (outputCardinality.maxBindings === 1) return [key];
+                    return current.includes(key) ? current : [...current, key].slice(0, outputCardinality.maxBindings);
+                  })}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium">{candidateLabel(candidate)}</span>
@@ -589,6 +618,7 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
           })}
           {outputs.length === 0 ? <div className="text-xs text-muted-foreground">{t('comfyuiImport.outputs.empty')}</div> : null}
           {requiredOutputsMissing ? <div className="text-xs text-destructive">{t('comfyuiImport.outputs.requiredMissing')}</div> : null}
+          {tooManyOutputsSelected ? <div className="text-xs text-destructive">{t('comfyuiImport.outputs.tooMany', { count: outputCardinality.maxBindings })}</div> : null}
         </div>
       );
     }
@@ -639,9 +669,9 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
         <DialogFooter>
           <Button type="button" variant="outline" disabled={step === 0 || (mode === 'repair' && step === 1) || saving} onClick={() => setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)}>{t('comfyuiImport.actions.back')}</Button>
           {step < 6 ? (
-            <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && requiredOutputsMissing)} onClick={nextStep}>{t('comfyuiImport.actions.next')}</Button>
+            <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && (requiredOutputsMissing || tooManyOutputsSelected))} onClick={nextStep}>{t('comfyuiImport.actions.next')}</Button>
           ) : (
-            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || saving} onClick={() => void saveImport()}>{saving ? t('comfyuiImport.actions.saving') : mode === 'repair' ? t('comfyuiImport.actions.saveRepair') : t('comfyuiImport.actions.saveImport')}</Button>
+            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected || saving} onClick={() => void saveImport()}>{saving ? t('comfyuiImport.actions.saving') : mode === 'repair' ? t('comfyuiImport.actions.saveRepair') : t('comfyuiImport.actions.saveImport')}</Button>
           )}
         </DialogFooter>
       </DialogContent>

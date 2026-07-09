@@ -242,7 +242,8 @@
     },
     "outputs": {
       "empty": "Nenhum candidato de saída de imagem foi detectado.",
-      "requiredMissing": "Selecione pelo menos uma saída de imagem."
+      "requiredMissing": "Selecione pelo menos uma saída de imagem.",
+      "tooMany": "Selecione no máximo {{count}} saída de imagem."
     },
     "defaults": {
       "empty": "Nenhuma entrada opcional mapeada tem padrões."

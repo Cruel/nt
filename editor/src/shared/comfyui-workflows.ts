@@ -89,23 +89,31 @@ export interface ComfyUiWorkflowDefinition {
   manifestFile?: string;
 }
 
+export interface ComfyUiWorkflowRoleInputDefinition {
+  type: ComfyUiContractInputType;
+  required: boolean;
+  editorField?: ComfyUiWorkflowEditorField;
+  defaultValue?: string | number;
+  minBindings: number;
+  maxBindings: number;
+}
+
+export interface ComfyUiWorkflowRoleOutputDefinition {
+  type: ComfyUiContractOutputType;
+  required: boolean;
+  primary: ComfyUiImagePrimaryOutput;
+  minBindings: number;
+  maxBindings: number;
+}
+
 export interface ComfyUiWorkflowRoleDefinition {
   role: ComfyUiWorkflowRole;
   label: string;
   description: string;
   provider: ComfyUiWorkflowProvider;
   contract: {
-    inputs: Record<ComfyUiSemanticInput, {
-      type: ComfyUiContractInputType;
-      required: boolean;
-      editorField?: ComfyUiWorkflowEditorField;
-      defaultValue?: string | number;
-    }>;
-    outputs: Record<ComfyUiSemanticOutput, {
-      type: ComfyUiContractOutputType;
-      required: boolean;
-      primary: ComfyUiImagePrimaryOutput;
-    }>;
+    inputs: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition>>;
+    outputs: Record<ComfyUiSemanticOutput, ComfyUiWorkflowRoleOutputDefinition>;
   };
   inference: {
     titleMarkers: Partial<Record<ComfyUiSemanticInput | ComfyUiSemanticOutput, string>>;
@@ -211,19 +219,17 @@ export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<ComfyUiWorkflowRole, ComfyUiW
     provider: 'comfyui',
     contract: {
       inputs: {
-        prompt: { type: 'string', required: true, editorField: 'textarea' },
-        negativePrompt: { type: 'string', required: false, editorField: 'textarea' },
-        sourceImage: { type: 'image', required: false, editorField: 'imageAsset' },
-        maskImage: { type: 'image', required: false, editorField: 'imageAsset' },
-        width: { type: 'integer', required: false, editorField: 'integer', defaultValue: 1024 },
-        height: { type: 'integer', required: false, editorField: 'integer', defaultValue: 1024 },
-        seed: { type: 'integer', required: false, editorField: 'integer' },
-        steps: { type: 'integer', required: false, editorField: 'integer', defaultValue: 20 },
-        cfg: { type: 'number', required: false, editorField: 'number' },
-        filenamePrefix: { type: 'string', required: false, editorField: 'text', defaultValue: 'NovelTea' },
+        prompt: { type: 'string', required: true, editorField: 'textarea', minBindings: 1, maxBindings: 1 },
+        negativePrompt: { type: 'string', required: false, editorField: 'textarea', minBindings: 0, maxBindings: 1 },
+        width: { type: 'integer', required: false, editorField: 'integer', defaultValue: 1024, minBindings: 0, maxBindings: 1 },
+        height: { type: 'integer', required: false, editorField: 'integer', defaultValue: 1024, minBindings: 0, maxBindings: 1 },
+        seed: { type: 'integer', required: false, editorField: 'integer', minBindings: 0, maxBindings: 1 },
+        steps: { type: 'integer', required: false, editorField: 'integer', defaultValue: 20, minBindings: 0, maxBindings: 1 },
+        cfg: { type: 'number', required: false, editorField: 'number', minBindings: 0, maxBindings: 1 },
+        filenamePrefix: { type: 'string', required: false, editorField: 'text', defaultValue: 'NovelTea', minBindings: 0, maxBindings: 1 },
       },
       outputs: {
-        images: { type: 'image-list', required: true, primary: 'first' },
+        images: { type: 'image-list', required: true, primary: 'first', minBindings: 1, maxBindings: 1 },
       },
     },
     inference: {
@@ -247,19 +253,16 @@ export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<ComfyUiWorkflowRole, ComfyUiW
     provider: 'comfyui',
     contract: {
       inputs: {
-        sourceImage: { type: 'image', required: true, editorField: 'imageAsset' },
-        prompt: { type: 'string', required: true, editorField: 'textarea' },
-        maskImage: { type: 'image', required: false, editorField: 'imageAsset' },
-        negativePrompt: { type: 'string', required: false, editorField: 'textarea' },
-        width: { type: 'integer', required: false, editorField: 'integer' },
-        height: { type: 'integer', required: false, editorField: 'integer' },
-        seed: { type: 'integer', required: false, editorField: 'integer' },
-        steps: { type: 'integer', required: false, editorField: 'integer', defaultValue: 4 },
-        cfg: { type: 'number', required: false, editorField: 'number' },
-        filenamePrefix: { type: 'string', required: false, editorField: 'text', defaultValue: 'NovelTea' },
+        sourceImage: { type: 'image', required: true, editorField: 'imageAsset', minBindings: 1, maxBindings: 1 },
+        prompt: { type: 'string', required: true, editorField: 'textarea', minBindings: 1, maxBindings: 1 },
+        negativePrompt: { type: 'string', required: false, editorField: 'textarea', minBindings: 0, maxBindings: 1 },
+        seed: { type: 'integer', required: false, editorField: 'integer', minBindings: 0, maxBindings: 1 },
+        steps: { type: 'integer', required: false, editorField: 'integer', defaultValue: 4, minBindings: 0, maxBindings: 1 },
+        cfg: { type: 'number', required: false, editorField: 'number', minBindings: 0, maxBindings: 1 },
+        filenamePrefix: { type: 'string', required: false, editorField: 'text', defaultValue: 'NovelTea', minBindings: 0, maxBindings: 1 },
       },
       outputs: {
-        images: { type: 'image-list', required: true, primary: 'first' },
+        images: { type: 'image-list', required: true, primary: 'first', minBindings: 1, maxBindings: 1 },
       },
     },
     inference: {
@@ -434,20 +437,122 @@ function safeWorkflowSiblingPath(value: string, label: string) {
   }
 }
 
-function validateRoleContract(definition: ComfyUiWorkflowDefinition) {
+function workflowContractDiagnostic(path: string, message: string): ComfyUiWorkflowDiagnostic {
+  return { severity: 'error', category: 'comfyui-workflows', path, message };
+}
+
+export function comfyUiWorkflowBindingValueTypeMatchesContract(contractType: ComfyUiContractInputType, valueType: ComfyUiWorkflowValueType): boolean {
+  if (contractType === 'string') return valueType === 'string';
+  if (contractType === 'integer') return valueType === 'integer';
+  if (contractType === 'number') return valueType === 'number' || valueType === 'integer';
+  if (contractType === 'image') return valueType === 'image-upload-reference';
+  return false;
+}
+
+function inputBindingCount(definition: ComfyUiWorkflowDefinition, input: ComfyUiSemanticInput): number {
+  return definition.bindings[input] ? 1 : 0;
+}
+
+function outputBindingCount(definition: ComfyUiWorkflowDefinition, output: ComfyUiSemanticOutput): number {
+  const explicitBindings = definition.outputBindings[output] ?? [];
+  return explicitBindings.length || definition.outputNodeIds.length;
+}
+
+export function validateComfyUiWorkflowDefinitionContract(definition: ComfyUiWorkflowDefinition): ComfyUiWorkflowDiagnostic[] {
+  const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
   const roleDefinition = COMFYUI_WORKFLOW_ROLE_CATALOG[definition.role];
-  if (!roleDefinition) throw new Error(`role '${definition.role}' is not supported.`);
-  const images = definition.contract.outputs.images;
-  const requiredImages = roleDefinition.contract.outputs.images;
-  if (requiredImages.required && (!images?.required || images.type !== requiredImages.type || images.primary !== requiredImages.primary)) {
-    throw new Error(`${definition.role} workflows must declare required contract.outputs.images.`);
+  if (!roleDefinition) {
+    diagnostics.push(workflowContractDiagnostic('/role', `role '${definition.role}' is not supported.`));
+    return diagnostics;
   }
-  for (const [input, roleInput] of Object.entries(roleDefinition.contract.inputs) as Array<[ComfyUiSemanticInput, ComfyUiWorkflowRoleDefinition['contract']['inputs'][ComfyUiSemanticInput]]>) {
-    if (!roleInput.required) continue;
+
+  for (const [input, contractInput] of Object.entries(definition.contract.inputs) as Array<[ComfyUiSemanticInput, ComfyUiWorkflowContractInput]>) {
+    const roleInput = roleDefinition.contract.inputs[input];
+    if (!roleInput) {
+      diagnostics.push(workflowContractDiagnostic(`/contract/inputs/${input}`, `${definition.role} workflows do not support contract.inputs.${input}.`));
+      continue;
+    }
+    if (contractInput.type !== roleInput.type) {
+      diagnostics.push(workflowContractDiagnostic(`/contract/inputs/${input}/type`, `${definition.role} workflows must declare contract.inputs.${input} as ${roleInput.type}.`));
+    }
+  }
+
+  for (const [input, roleInput] of Object.entries(roleDefinition.contract.inputs) as Array<[ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]>) {
     const contractInput = definition.contract.inputs[input];
-    if (!contractInput?.required || contractInput.type !== roleInput.type) throw new Error(`${definition.role} workflows must declare required contract.inputs.${input} as ${roleInput.type}.`);
-    if (!definition.bindings[input]) throw new Error(`${definition.role} workflows must bind ${input}.`);
+    const binding = definition.bindings[input];
+    const bindingCount = inputBindingCount(definition, input);
+    const minimum = contractInput?.required ? Math.max(1, roleInput.minBindings) : roleInput.minBindings;
+    if (roleInput.required && (!contractInput?.required || contractInput.type !== roleInput.type)) {
+      diagnostics.push(workflowContractDiagnostic(`/contract/inputs/${input}`, `${definition.role} workflows must declare required contract.inputs.${input} as ${roleInput.type}.`));
+    }
+    if (bindingCount < minimum) {
+      diagnostics.push(workflowContractDiagnostic(`/bindings/${input}`, `${definition.role} workflows require ${minimum === 1 ? 'exactly one' : `at least ${minimum}`} ${input} binding.`));
+    }
+    if (bindingCount > roleInput.maxBindings) {
+      diagnostics.push(workflowContractDiagnostic(`/bindings/${input}`, `${input} supports at most ${roleInput.maxBindings} binding${roleInput.maxBindings === 1 ? '' : 's'} for ${definition.role}.`));
+    }
+    if (binding && contractInput && !comfyUiWorkflowBindingValueTypeMatchesContract(contractInput.type, binding.valueType)) {
+      diagnostics.push(workflowContractDiagnostic(`/bindings/${input}/valueType`, `bindings.${input}.valueType '${binding.valueType}' is not compatible with contract.inputs.${input}.type '${contractInput.type}'.`));
+    }
   }
+
+  for (const [input, binding] of Object.entries(definition.bindings) as Array<[ComfyUiSemanticInput, ComfyUiWorkflowBinding]>) {
+    const contractInput = definition.contract.inputs[input];
+    const roleInput = roleDefinition.contract.inputs[input];
+    if (!roleInput) {
+      diagnostics.push(workflowContractDiagnostic(`/bindings/${input}`, `${definition.role} workflows do not support bindings.${input}.`));
+      continue;
+    }
+    if (!contractInput) {
+      diagnostics.push(workflowContractDiagnostic(`/bindings/${input}`, `bindings.${input} must be declared by contract.inputs.${input}.`));
+      continue;
+    }
+    if (!comfyUiWorkflowBindingValueTypeMatchesContract(contractInput.type, binding.valueType)) {
+      diagnostics.push(workflowContractDiagnostic(`/bindings/${input}/valueType`, `bindings.${input}.valueType '${binding.valueType}' is not compatible with contract.inputs.${input}.type '${contractInput.type}'.`));
+    }
+  }
+
+  for (const [input] of Object.entries(definition.defaults) as Array<[ComfyUiSemanticInput, string | number]>) {
+    if (input === 'filenamePrefix') continue;
+    if (!roleDefinition.contract.inputs[input]) {
+      diagnostics.push(workflowContractDiagnostic(`/defaults/${input}`, `${definition.role} workflows do not support defaults.${input}.`));
+      continue;
+    }
+    if (!definition.contract.inputs[input]) {
+      diagnostics.push(workflowContractDiagnostic(`/defaults/${input}`, `defaults.${input} must be declared by contract.inputs.${input}.`));
+    }
+  }
+
+  const roleImages = roleDefinition.contract.outputs.images;
+  const images = definition.contract.outputs.images;
+  if (!images) {
+    diagnostics.push(workflowContractDiagnostic('/contract/outputs/images', `${definition.role} workflows must declare required contract.outputs.images.`));
+  } else {
+    if (roleImages.required && !images.required) {
+      diagnostics.push(workflowContractDiagnostic('/contract/outputs/images/required', `${definition.role} workflows must declare required contract.outputs.images.`));
+    }
+    if (images.type !== roleImages.type || images.primary !== roleImages.primary) {
+      diagnostics.push(workflowContractDiagnostic('/contract/outputs/images', `${definition.role} workflows must declare contract.outputs.images as ${roleImages.type}/${roleImages.primary}.`));
+    }
+  }
+  const imageBindingCount = outputBindingCount(definition, 'images');
+  if (imageBindingCount < roleImages.minBindings) {
+    diagnostics.push(workflowContractDiagnostic('/outputBindings/images', `${definition.role} workflows require at least one images output binding.`));
+  }
+  if (imageBindingCount > roleImages.maxBindings) {
+    diagnostics.push(workflowContractDiagnostic('/outputBindings/images', `images supports at most ${roleImages.maxBindings} output binding${roleImages.maxBindings === 1 ? '' : 's'} for ${definition.role}.`));
+  }
+  if (definition.outputBindings.images?.length && !images) {
+    diagnostics.push(workflowContractDiagnostic('/outputBindings/images', 'outputBindings.images must be declared by contract.outputs.images.'));
+  }
+
+  return diagnostics;
+}
+
+function validateRoleContract(definition: ComfyUiWorkflowDefinition) {
+  const diagnostics = validateComfyUiWorkflowDefinitionContract(definition);
+  const firstError = diagnostics.find((item) => item.severity === 'error');
+  if (firstError) throw new Error(firstError.message);
 }
 
 export function parseComfyUiWorkflowDefinition(value: unknown, manifestFile?: string): ComfyUiWorkflowDefinition {

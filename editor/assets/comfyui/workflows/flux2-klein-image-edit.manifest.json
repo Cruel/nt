@@ -23,6 +23,12 @@
       "seed": {
         "type": "integer",
         "required": false
+      },
+      "filenamePrefix": {
+        "type": "string",
+        "required": false,
+        "editorField": "text",
+        "defaultValue": "NovelTea"
       }
     },
     "outputs": {

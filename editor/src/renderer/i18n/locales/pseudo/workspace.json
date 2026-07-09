@@ -228,7 +228,8 @@
     },
     "outputs": {
       "empty": "⟦No image output candidates were detected.⟧",
-      "requiredMissing": "⟦Select at least one image output.⟧"
+      "requiredMissing": "⟦Select at least one image output.⟧",
+      "tooMany": "⟦Select at most {{count}} image output.⟧"
     },
     "defaults": {
       "empty": "⟦No mapped optional inputs have defaults.⟧"

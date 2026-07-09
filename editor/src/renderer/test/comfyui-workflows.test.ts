@@ -114,6 +114,62 @@ describe('comfyui workflow manifests', () => {
     })).toThrow('image.edit workflows must declare required contract.inputs.sourceImage as image');
   });
 
+  it('rejects bindings that are not declared by the manifest contract', () => {
+    expect(() => parseComfyUiWorkflowDefinition({
+      ...v1Manifest,
+      bindings: {
+        ...v1Manifest.bindings,
+        width: { nodeId: 'width', inputName: 'value', valueType: 'integer' },
+      },
+    })).toThrow('bindings.width must be declared by contract.inputs.width');
+  });
+
+  it('rejects fields that are not supported by the selected workflow role', () => {
+    expect(() => parseComfyUiWorkflowDefinition({
+      ...v1Manifest,
+      contract: {
+        inputs: {
+          ...v1Manifest.contract.inputs,
+          sourceImage: { type: 'image', required: false },
+        },
+        outputs: v1Manifest.contract.outputs,
+      },
+      bindings: {
+        ...v1Manifest.bindings,
+        sourceImage: { nodeId: 'source', inputName: 'image', valueType: 'image-upload-reference' },
+      },
+    })).toThrow('image.generate workflows do not support contract.inputs.sourceImage');
+  });
+
+  it('rejects binding value types that do not match the semantic contract type', () => {
+    expect(() => parseComfyUiWorkflowDefinition({
+      ...v1Manifest,
+      contract: {
+        inputs: {
+          ...v1Manifest.contract.inputs,
+          width: { type: 'integer', required: false },
+        },
+        outputs: v1Manifest.contract.outputs,
+      },
+      bindings: {
+        ...v1Manifest.bindings,
+        width: { nodeId: 'width', inputName: 'value', valueType: 'string' },
+      },
+    })).toThrow("bindings.width.valueType 'string' is not compatible with contract.inputs.width.type 'integer'");
+  });
+
+  it('rejects missing and excessive image output mappings for current image roles', () => {
+    expect(() => parseComfyUiWorkflowDefinition({
+      ...v1Manifest,
+      outputNodeIds: [],
+    })).toThrow('image.generate workflows require at least one images output binding');
+
+    expect(() => parseComfyUiWorkflowDefinition({
+      ...v1Manifest,
+      outputNodeIds: ['9', '10'],
+    })).toThrow('images supports at most 1 output binding for image.generate');
+  });
+
   it('exposes initial image workflow roles through the role catalog', () => {
     expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.generate'].contract.inputs.prompt).toMatchObject({ type: 'string', required: true });
     expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.edit'].contract.inputs.sourceImage).toMatchObject({ type: 'image', required: true });

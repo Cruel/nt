@@ -7,6 +7,7 @@ import { inferComfyUiWorkflowCandidates } from '../../shared/comfyui-workflow-in
 import {
   parseComfyUiWorkflowDefinition,
   resolveComfyUiWorkflowBinding,
+  validateComfyUiWorkflowDefinitionContract,
   resolvedComfyUiWorkflowOutputNodeIdList,
   SUPPORTED_COMFYUI_WORKFLOW_ROLES,
   type ComfyUiAnalyzeWorkflowImportRequest,
@@ -73,7 +74,7 @@ async function fetchObjectInfo(request: ComfyUiAnalyzeWorkflowImportRequest): Pr
 }
 
 function validateManifestBindings(workflow: ComfyUiWorkflowGraphLike, definition: ComfyUiWorkflowDefinition): ComfyUiWorkflowDiagnostic[] {
-  const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
+  const diagnostics: ComfyUiWorkflowDiagnostic[] = [...validateComfyUiWorkflowDefinitionContract(definition)];
   for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
     if (!binding) continue;
     const resolution = resolveComfyUiWorkflowBinding(workflow, binding);

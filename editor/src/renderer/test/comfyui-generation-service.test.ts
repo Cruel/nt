@@ -159,4 +159,61 @@ describe('comfyui generation service', () => {
     expect(submitted.prompt.negative.inputs.value).toBe('');
     expect(submitted.prompt.cfg.inputs.value).toBe(0);
   });
+
+  it('reports selected output node ids when a completed prompt has no images there', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, manifest(false), workflow());
+    vi.stubGlobal('WebSocket', CompletedWebSocket);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/object_info')) return new Response(JSON.stringify({ PrimitiveStringMultiline: {}, PrimitiveFloat: {}, SaveImage: {} }), { status: 200 });
+      if (url.includes('/prompt')) return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
+      if (url.includes('/history/job-1')) return new Response(JSON.stringify({ 'job-1': { outputs: { other: { images: [{ filename: 'ignored.png', type: 'output' }] } } } }), { status: 200 });
+      if (url.includes('/view')) return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
+      return new Response('{}', { status: 404 });
+    }));
+
+    const response = await generateComfyUiImage(null, config(), {
+      projectFilePath: project,
+      workflowId: 'custom',
+      prompt: 'tea house',
+      clientJobId: 'job-1',
+    });
+
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('selected output node output');
+  });
+
+  it('rejects mapped inputs that are absent from available ComfyUI object_info metadata', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, manifest(false), workflow());
+    const capturedPrompts: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/object_info')) {
+        return new Response(JSON.stringify({
+          PrimitiveStringMultiline: { input: { required: { other: ['STRING'] } } },
+          PrimitiveFloat: {},
+          SaveImage: {},
+        }), { status: 200 });
+      }
+      if (url.includes('/prompt')) {
+        capturedPrompts.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
+      }
+      return new Response('{}', { status: 404 });
+    }));
+
+    const response = await generateComfyUiImage(null, config(), {
+      projectFilePath: project,
+      workflowId: 'custom',
+      prompt: 'tea house',
+      clientJobId: 'job-1',
+    });
+
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('PrimitiveStringMultiline.value');
+    expect(capturedPrompts).toHaveLength(0);
+  });
+
 });

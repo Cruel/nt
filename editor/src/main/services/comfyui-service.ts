@@ -6,7 +6,7 @@ import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from '../../shared/comfyui-generation';
-import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, resolveComfyUiWorkflowBinding, resolvedComfyUiWorkflowOutputNodeIdList, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowId, type ComfyUiWorkflowListEntry, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
+import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, resolveComfyUiWorkflowBinding, resolvedComfyUiWorkflowOutputNodeIdList, validateComfyUiWorkflowDefinitionContract, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowId, type ComfyUiWorkflowListEntry, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 
@@ -207,7 +207,7 @@ export async function loadComfyUiWorkflowTemplate(projectFilePath: string, defin
 }
 
 function validateWorkflowBindings(workflow: WorkflowGraph, definition: ComfyUiWorkflowDefinition): ComfyUiWorkflowDiagnostic[] {
-  const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
+  const diagnostics: ComfyUiWorkflowDiagnostic[] = [...validateComfyUiWorkflowDefinitionContract(definition)];
   for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
     if (!binding) continue;
     const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
@@ -224,6 +224,13 @@ function validateWorkflowBindings(workflow: WorkflowGraph, definition: ComfyUiWo
   } catch (error) {
     diagnostics.push(diagnostic(`/workflows/${definition.manifestFile ?? definition.id}/outputBindings/images`, error instanceof Error ? error.message : 'Workflow output bindings could not be resolved.'));
   }
+  return diagnostics;
+}
+
+function assertWorkflowBindingsValid(workflow: WorkflowGraph, definition: ComfyUiWorkflowDefinition) {
+  const diagnostics = validateWorkflowBindings(workflow, definition);
+  const firstError = diagnostics.find((item) => item.severity === 'error');
+  if (firstError) throw new Error(firstError.message);
   return diagnostics;
 }
 
@@ -388,12 +395,42 @@ async function writeGeneratedAsset(projectFilePath: string, bytes: Buffer, prefi
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function objectInfoInputNames(nodeInfo: unknown): Set<string> | null {
+  if (!isRecord(nodeInfo) || !isRecord(nodeInfo.input)) return null;
+  const names = new Set<string>();
+  for (const section of ['required', 'optional', 'hidden'] as const) {
+    const inputs = nodeInfo.input[section];
+    if (!isRecord(inputs)) continue;
+    for (const inputName of Object.keys(inputs)) names.add(inputName);
+  }
+  return names.size ? names : null;
+}
+
+function workflowRequirementInputErrors(definition: ComfyUiWorkflowDefinition, objectInfo: Record<string, unknown>) {
+  const errors: string[] = [];
+  for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
+    if (!binding) continue;
+    const classType = binding.selector?.classType ?? binding.classType;
+    const inputName = binding.selector?.inputName ?? binding.inputName;
+    if (!classType || !(classType in objectInfo)) continue;
+    const inputNames = objectInfoInputNames(objectInfo[classType]);
+    if (inputNames && !inputNames.has(inputName)) errors.push(`${semanticKey}: ${classType}.${inputName}`);
+  }
+  return errors;
+}
+
 async function validateWorkflowRequirements(config: ComfyUiConfig, definition: ComfyUiWorkflowDefinition) {
   const info = await fetchJson(config, '/object_info');
   if (!info.ok) throw new Error(info.error);
   const available = info.value && typeof info.value === 'object' ? info.value as Record<string, unknown> : {};
   const missing = definition.requiredNodeClasses.filter((nodeClass) => !(nodeClass in available));
   if (missing.length) throw new Error(`ComfyUI is missing required node classes for ${definition.label}: ${missing.join(', ')}`);
+  const inputErrors = workflowRequirementInputErrors(definition, available);
+  if (inputErrors.length) throw new Error(`ComfyUI node metadata does not expose mapped workflow inputs for ${definition.label}: ${inputErrors.join(', ')}`);
 }
 
 async function submitPrompt(config: ComfyUiConfig, workflow: WorkflowGraph, promptId: string, clientId: string): Promise<PromptResponse> {
@@ -552,7 +589,10 @@ async function runImageJob(config: ComfyUiConfig, definition: ComfyUiWorkflowDef
     emit({ promptId: actualPromptId, workflowId: definition.id, state: 'queued', queueRemaining: typeof submitted.number === 'number' ? submitted.number : null, currentNode: null, progressValue: null, progressMax: null, message: 'Queued generation', queueNumber: typeof submitted.number === 'number' ? submitted.number : undefined });
     await waitForPrompt(config, definition.id, actualPromptId, clientId, emit);
     const descriptors = await historyImageDescriptors(config, actualPromptId, outputNodeIds);
-    if (!descriptors.length) throw new Error('ComfyUI completed without image outputs.');
+    if (!descriptors.length) {
+      const outputDetail = outputNodeIds.length ? ` from selected output node${outputNodeIds.length === 1 ? '' : 's'} ${outputNodeIds.join(', ')}` : '';
+      throw new Error(`ComfyUI completed without image outputs${outputDetail}.`);
+    }
     const assets = [];
     for (const descriptor of descriptors) {
       const bytes = await fetchBytes(config, descriptorViewPath(descriptor));
@@ -574,7 +614,7 @@ export async function generateComfyUiImage(owner: BrowserWindow | null, config: 
   const definition = await getComfyUiWorkflowDefinition(request.projectFilePath, request.workflowId);
   if (definition.role !== 'image.generate') return { ok: false, success: false, assets: [], diagnostics: [], error: `Workflow '${definition.id}' is not an image.generate workflow.` };
   const workflow = cloneWorkflow(await loadComfyUiWorkflowTemplate(request.projectFilePath, definition));
-  validateWorkflowBindings(workflow, definition);
+  assertWorkflowBindingsValid(workflow, definition);
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
   setWorkflowInput(workflow, definition.bindings.negativePrompt, request.negativePrompt ?? definition.defaults.negativePrompt ?? '');
@@ -593,7 +633,7 @@ export async function editComfyUiImage(owner: BrowserWindow | null, config: Comf
   const definition = await getComfyUiWorkflowDefinition(request.projectFilePath, request.workflowId);
   if (definition.role !== 'image.edit') return { ok: false, success: false, assets: [], diagnostics: [], error: `Workflow '${definition.id}' is not an image.edit workflow.` };
   const workflow = cloneWorkflow(await loadComfyUiWorkflowTemplate(request.projectFilePath, definition));
-  validateWorkflowBindings(workflow, definition);
+  assertWorkflowBindingsValid(workflow, definition);
   const uploadReference = await uploadImage(config, request.projectFilePath, request.sourceProjectRelativePath);
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.sourceImage, uploadReference);
