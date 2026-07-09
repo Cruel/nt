@@ -292,6 +292,7 @@ describe('comfyui workflow library service', () => {
     }, options);
 
     expect(failed.success).toBe(false);
+    expect(failed.skipped).toContain('editor:portrait.manifest.json');
     const after = await listComfyUiWorkflowLibrary({ includeOverridden: true, comfyUiVersion: '1.0.0' }, options);
     expect(after.entries[0]).toMatchObject({ onlineStatus: 'previously-verified' });
   });

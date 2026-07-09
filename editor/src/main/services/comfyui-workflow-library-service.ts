@@ -296,7 +296,7 @@ function applyVerificationCache(entries: ComfyUiWorkflowLibraryEntry[], records:
   for (const entry of entries) {
     if (!entry.packageHash) continue;
     const matchingRecords = [...byHash.values()]
-      .filter((record) => record.packageHash === entry.packageHash && record.comfyUiVersion === comfyUiVersion)
+      .filter((record) => record.packageHash === entry.packageHash && (comfyUiVersion === 'unknown' || record.comfyUiVersion === comfyUiVersion))
       .toSorted((left, right) => right.checkedAt.localeCompare(left.checkedAt));
     const record = matchingRecords[0];
     if (!record) continue;
@@ -573,12 +573,12 @@ async function fetchVerificationObjectInfo(request: ComfyUiVerifyWorkflowLibrary
 
 export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflowLibraryRequest, options: WorkflowLibraryServiceOptions = {}): Promise<ComfyUiVerifyWorkflowLibraryResponse> {
   const checkedAt = new Date().toISOString();
-  const library = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true }, options);
   const [systemStats, objectInfo] = await Promise.all([
     fetchVerificationSystemStats(request),
     fetchVerificationObjectInfo(request),
   ]);
   const comfyUiVersion = findComfyUiVersion(systemStats) ?? 'unknown';
+  const library = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true, comfyUiVersion }, options);
   const verified: ComfyUiWorkflowVerificationRecord[] = [];
   const failed: ComfyUiWorkflowVerificationRecord[] = [];
   const skipped: ComfyUiWorkflowKey[] = [];
@@ -588,6 +588,10 @@ export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflo
 
   for (const entry of library.entries) {
     if (entry.offlineStatus === 'invalid' || !entry.id || !entry.packageHash || !entry.workflowJsonText) {
+      skipped.push(entry.workflowKey);
+      continue;
+    }
+    if (!request.force && entry.onlineStatus === 'previously-verified') {
       skipped.push(entry.workflowKey);
       continue;
     }
