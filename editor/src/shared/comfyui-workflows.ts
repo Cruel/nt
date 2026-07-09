@@ -127,6 +127,206 @@ export interface ComfyUiWorkflowDiagnostic {
   message: string;
 }
 
+export type ComfyUiWorkflowSource = 'built-in' | 'editor' | 'project';
+export type ComfyUiMutableWorkflowSource = Exclude<ComfyUiWorkflowSource, 'built-in'>;
+export type ComfyUiWorkflowKey = `${ComfyUiWorkflowSource}:${string}`;
+export type ComfyUiPackageHash = `sha256:${string}`;
+export type ComfyUiWorkflowValidationStatus = 'valid' | 'warning' | 'invalid';
+export type ComfyUiWorkflowVerificationStatus = 'unverified' | 'previously-verified' | 'verified' | 'failed' | 'skipped';
+
+export interface ComfyUiWorkflowRootSummary {
+  source: ComfyUiWorkflowSource;
+  root: string;
+  writable: boolean;
+  available: boolean;
+  workflowCount: number;
+  activeCount: number;
+  overriddenCount: number;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+}
+
+export interface ComfyUiWorkflowLibrarySummary {
+  sources: ComfyUiWorkflowRootSummary[];
+  totalCount: number;
+  activeCount: number;
+  overriddenCount: number;
+  invalidCount: number;
+  verifiedCount: number;
+  failedVerificationCount: number;
+}
+
+export interface ComfyUiWorkflowVerificationRecord {
+  workflowKey: ComfyUiWorkflowKey;
+  id: ComfyUiWorkflowId;
+  packageHash: ComfyUiPackageHash;
+  status: Extract<ComfyUiWorkflowVerificationStatus, 'verified' | 'failed'>;
+  checkedAt: string;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+}
+
+export interface ComfyUiWorkflowPackageFiles {
+  manifestFile: string;
+  workflowFile?: string;
+  manifestPath: string;
+  workflowPath?: string;
+  manifestJsonText?: string;
+  workflowJsonText?: string;
+}
+
+export interface ComfyUiWorkflowCapabilities {
+  canCopyToEditor: boolean;
+  canCopyToProject: boolean;
+  canDelete: boolean;
+  canRepair: boolean;
+  canReveal: boolean;
+}
+
+export interface ComfyUiWorkflowLibraryEntry {
+  source: ComfyUiWorkflowSource;
+  workflowKey: ComfyUiWorkflowKey;
+  id?: ComfyUiWorkflowId;
+  label?: string;
+  role?: ComfyUiWorkflowRole;
+  definition?: ComfyUiWorkflowDefinition;
+  manifestFile: string;
+  workflowFile?: string;
+  manifestPath: string;
+  workflowPath?: string;
+  packageHash?: ComfyUiPackageHash;
+  active: boolean;
+  overridden: boolean;
+  overriddenBy?: ComfyUiWorkflowKey;
+  offlineStatus: ComfyUiWorkflowValidationStatus;
+  onlineStatus: ComfyUiWorkflowVerificationStatus;
+  repairable: boolean;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  verificationDiagnostics: ComfyUiWorkflowDiagnostic[];
+  manifestJsonText?: string;
+  workflowJsonText?: string;
+  capabilities: ComfyUiWorkflowCapabilities;
+}
+
+export interface ComfyUiWorkflowActiveEntry {
+  workflowKey: ComfyUiWorkflowKey;
+  source: ComfyUiWorkflowSource;
+  id: ComfyUiWorkflowId;
+  label: string;
+  role: ComfyUiWorkflowRole;
+  definition: ComfyUiWorkflowDefinition;
+  packageHash?: ComfyUiPackageHash;
+  offlineStatus: Exclude<ComfyUiWorkflowValidationStatus, 'invalid'>;
+  onlineStatus: ComfyUiWorkflowVerificationStatus;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  verificationDiagnostics: ComfyUiWorkflowDiagnostic[];
+}
+
+export interface ComfyUiWorkflowLibraryListRequest {
+  projectFilePath?: string | null;
+  includeOverridden?: boolean;
+}
+
+export interface ComfyUiWorkflowLibraryListResponse {
+  ok: boolean;
+  success: boolean;
+  entries: ComfyUiWorkflowLibraryEntry[];
+  activeWorkflows: ComfyUiWorkflowActiveEntry[];
+  overriddenEntries: ComfyUiWorkflowLibraryEntry[];
+  summary: ComfyUiWorkflowLibrarySummary;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiWorkflowCopyRequest {
+  workflowKey: ComfyUiWorkflowKey;
+  targetSource: ComfyUiMutableWorkflowSource;
+  projectFilePath?: string | null;
+  replace?: boolean;
+}
+
+export interface ComfyUiWorkflowCopyResponse {
+  ok: boolean;
+  success: boolean;
+  action: 'copied' | 'already-copied' | 'replace-required' | 'replaced' | 'rejected';
+  sourceWorkflowKey?: ComfyUiWorkflowKey;
+  targetWorkflowKey?: ComfyUiWorkflowKey;
+  entry?: ComfyUiWorkflowLibraryEntry;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiWorkflowDeleteRequest {
+  workflowKey: ComfyUiWorkflowKey;
+  projectFilePath?: string | null;
+}
+
+export interface ComfyUiWorkflowDeleteResponse {
+  ok: boolean;
+  success: boolean;
+  deleted: string[];
+  workflowKey?: ComfyUiWorkflowKey;
+  refreshed?: ComfyUiWorkflowLibraryListResponse;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiImportWorkflowToLibraryRequest {
+  workflowFileName: string;
+  manifestFileName: string;
+  workflowJsonText: string;
+  manifest: unknown;
+  overwrite: boolean;
+  config?: ComfyUiConfig;
+}
+
+export interface ComfyUiImportWorkflowToLibraryResponse {
+  ok: boolean;
+  success: boolean;
+  workflowKey?: ComfyUiWorkflowKey;
+  workflowFile?: string;
+  manifestFile?: string;
+  definition?: ComfyUiWorkflowDefinition;
+  entry?: ComfyUiWorkflowLibraryEntry;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiRepairWorkflowInLibraryRequest {
+  workflowKey: ComfyUiWorkflowKey;
+  manifest: unknown;
+  overwrite: true;
+  projectFilePath?: string | null;
+}
+
+export interface ComfyUiRepairWorkflowInLibraryResponse {
+  ok: boolean;
+  success: boolean;
+  workflowKey?: ComfyUiWorkflowKey;
+  workflowFile?: string;
+  manifestFile?: string;
+  definition?: ComfyUiWorkflowDefinition;
+  entry?: ComfyUiWorkflowLibraryEntry;
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
+export interface ComfyUiVerifyWorkflowLibraryRequest {
+  projectFilePath?: string | null;
+  config: ComfyUiConfig;
+  force?: boolean;
+}
+
+export interface ComfyUiVerifyWorkflowLibraryResponse {
+  ok: boolean;
+  success: boolean;
+  checkedAt: string;
+  verified: ComfyUiWorkflowVerificationRecord[];
+  failed: ComfyUiWorkflowVerificationRecord[];
+  skipped: ComfyUiWorkflowKey[];
+  entries: ComfyUiWorkflowLibraryEntry[];
+  diagnostics: ComfyUiWorkflowDiagnostic[];
+  error?: string;
+}
+
 export interface ComfyUiBindingResolution {
   ok: boolean;
   nodeId?: string;

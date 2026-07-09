@@ -114,6 +114,15 @@ Object.defineProperty(window, 'noveltea', {
     resolveProjectAssetUrl: vi.fn().mockResolvedValue({ url: 'data:image/png;base64,bW9jaw==', absolutePath: '/mock/project/assets/images/logo.png' }),
     checkComfyUiConnection: vi.fn().mockResolvedValue({ state: 'ready', serverUrl: 'http://127.0.0.1:8000', checkedAt: 'now', message: 'ComfyUI ready', queueRemaining: 0 }),
     getComfyUiQueue: vi.fn().mockResolvedValue({ promptId: null, workflowId: null, state: 'idle', queueRemaining: 0, currentNode: null, progressValue: null, progressMax: null, message: 'ComfyUI queue idle' }),
+    listComfyUiWorkflowLibrary: vi.fn().mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      entries: [],
+      activeWorkflows: [],
+      overriddenEntries: [],
+      summary: { sources: [], totalCount: 0, activeCount: 0, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
+    }),
     listComfyUiWorkflows: vi.fn().mockResolvedValue({
       ok: true,
       success: true,

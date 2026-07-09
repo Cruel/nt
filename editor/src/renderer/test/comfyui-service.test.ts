@@ -8,6 +8,7 @@ import {
   generateComfyUiImage,
   getComfyUiQueue,
   installComfyUiStarterWorkflows,
+  listComfyUiWorkflowLibrary,
   listComfyUiWorkflows,
   repairComfyUiWorkflowManifest,
   saveImportedComfyUiWorkflow,
@@ -25,6 +26,7 @@ describe('comfyui-service', () => {
   it('forwards ComfyUI IPC calls through one renderer boundary', async () => {
     await checkComfyUiConnection(config);
     await getComfyUiQueue(config);
+    await listComfyUiWorkflowLibrary({ projectFilePath: '/mock/project/game.json', includeOverridden: true });
     await listComfyUiWorkflows('/mock/project/game.json');
     await installComfyUiStarterWorkflows('/mock/project/game.json');
     await analyzeComfyUiWorkflowImport({ projectFilePath: '/mock/project/game.json', workflowJsonText: '{}' });
@@ -36,6 +38,7 @@ describe('comfyui-service', () => {
 
     expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(config);
     expect(window.noveltea.getComfyUiQueue).toHaveBeenCalledWith(config);
+    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenCalledWith({ projectFilePath: '/mock/project/game.json', includeOverridden: true });
     expect(window.noveltea.listComfyUiWorkflows).toHaveBeenCalledWith('/mock/project/game.json');
     expect(window.noveltea.installComfyUiStarterWorkflows).toHaveBeenCalledWith('/mock/project/game.json');
     expect(window.noveltea.analyzeComfyUiWorkflowImport).toHaveBeenCalledWith(expect.objectContaining({ workflowJsonText: '{}' }));

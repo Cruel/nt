@@ -122,7 +122,7 @@ export const useComfyUiQueueStore = create<ComfyUiQueueStore>()((set, get) => ({
     const item: ComfyUiQueueItem = {
       promptId,
       projectFilePath: itemRequest.projectFilePath,
-      workflowId: itemRequest.workflowId,
+      workflowId: itemRequest.workflowId ?? itemRequest.workflowKey ?? null,
       workflowLabel: options.workflowLabel,
       role: options.role,
       mode: options.kind,

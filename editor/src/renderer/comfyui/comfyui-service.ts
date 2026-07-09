@@ -12,6 +12,8 @@ import type {
   ComfyUiRepairWorkflowManifestRequest,
   ComfyUiSaveImportedWorkflowRequest,
   ComfyUiSaveImportedWorkflowResponse,
+  ComfyUiWorkflowLibraryListRequest,
+  ComfyUiWorkflowLibraryListResponse,
   ComfyUiWorkflowListResponse,
 } from '../../shared/comfyui-workflows';
 
@@ -25,6 +27,10 @@ export async function getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQue
 
 export async function listComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowListResponse> {
   return window.noveltea.listComfyUiWorkflows(projectFilePath);
+}
+
+export async function listComfyUiWorkflowLibrary(request: ComfyUiWorkflowLibraryListRequest = {}): Promise<ComfyUiWorkflowLibraryListResponse> {
+  return window.noveltea.listComfyUiWorkflowLibrary(request);
 }
 
 export async function installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse> {

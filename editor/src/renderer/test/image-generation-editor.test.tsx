@@ -51,21 +51,25 @@ function workflow(overrides: Partial<ComfyUiWorkflowDefinition>): ComfyUiWorkflo
 }
 
 function mockWorkflowList(workflows: ComfyUiWorkflowDefinition[]) {
-  vi.mocked(window.noveltea.listComfyUiWorkflows).mockResolvedValueOnce({
+  vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue({
     ok: true,
     success: true,
     diagnostics: [],
-    workflows,
-    entries: workflows.map((definition) => ({
-      manifestFile: definition.manifestFile ?? `${definition.id}.manifest.json`,
-      workflowFile: definition.workflowFile,
+    entries: [],
+    activeWorkflows: workflows.map((definition) => ({
+      workflowKey: `project:${definition.id}.manifest.json`,
+      source: 'project',
       id: definition.id,
       label: definition.label,
       role: definition.role,
-      status: 'valid',
-      repairable: true,
+      definition,
+      offlineStatus: 'valid',
+      onlineStatus: 'unverified',
       diagnostics: [],
+      verificationDiagnostics: [],
     })),
+    overriddenEntries: [],
+    summary: { sources: [], totalCount: workflows.length, activeCount: workflows.length, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
   });
 }
 
@@ -81,6 +85,23 @@ beforeEach(() => {
   vi.mocked(window.noveltea.generateComfyUiImage).mockClear();
   vi.mocked(window.noveltea.editComfyUiImage).mockClear();
   vi.mocked(window.noveltea.listComfyUiWorkflows).mockClear();
+  vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockClear();
+  mockWorkflowList([
+    workflow({ id: 'flux2-klein-text-to-image', label: 'Flux 2 Klein Text to Image' }),
+    workflow({
+      id: 'flux2-klein-image-edit',
+      label: 'Flux 2 Klein Image Edit',
+      role: 'image.edit',
+      contract: {
+        inputs: { sourceImage: { type: 'image', required: true }, prompt: { type: 'string', required: true } },
+        outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+      },
+      bindings: {
+        sourceImage: { nodeId: 'source', inputName: 'image', valueType: 'image-upload-reference' },
+        prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
+      },
+    }),
+  ]);
 });
 
 describe('ImageGenerationEditor', () => {
@@ -116,7 +137,7 @@ describe('ImageGenerationEditor', () => {
     expect(queue.order).toHaveLength(1);
     const job = queue.localJobsByPromptId[queue.order[0]!];
     expect(job?.kind).toBe('generate');
-    expect(job?.request).toMatchObject({ projectFilePath: '/mock/project/game.json', prompt: 'a tea cup in a rainstorm' });
+    expect(job?.request).toMatchObject({ projectFilePath: '/mock/project/game.json', workflowKey: 'project:flux2-klein-text-to-image.manifest.json', prompt: 'a tea cup in a rainstorm' });
     expect(screen.getByText('Added to queue!')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
@@ -169,7 +190,7 @@ describe('ImageGenerationEditor', () => {
     expect(queue.order).toHaveLength(1);
     const job = queue.localJobsByPromptId[queue.order[0]!];
     expect(job?.kind).toBe('edit');
-    expect(job?.request).toMatchObject({ sourceProjectRelativePath: 'assets/generated/generated.png', prompt: 'make it night' });
+    expect(job?.request).toMatchObject({ workflowKey: 'project:flux2-klein-image-edit.manifest.json', sourceProjectRelativePath: 'assets/generated/generated.png', prompt: 'make it night' });
   });
 
   it('shows and submits only bound generate controls', async () => {
@@ -255,7 +276,7 @@ describe('ImageGenerationEditor', () => {
     expect(await screen.findByLabelText('Negative prompt')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Negative prompt'), { target: { value: 'stale negative' } });
     fireEvent.change(screen.getByLabelText('CFG'), { target: { value: '9' } });
-    fireEvent.change(screen.getByLabelText('Generate workflow'), { target: { value: 'prompt-only' } });
+    fireEvent.change(screen.getByLabelText('Generate workflow'), { target: { value: 'project:prompt-only.manifest.json' } });
     await waitFor(() => expect(screen.queryByLabelText('Negative prompt')).not.toBeInTheDocument());
 
     fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'a clean prompt' } });

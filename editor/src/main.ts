@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import { cancelComfyUiJob, checkComfyUiConnection, editComfyUiImage, generateComfyUiImage, getComfyUiQueue, installProjectComfyUiStarterWorkflows, listComfyUiWorkflows } from './main/services/comfyui-service';
+import { listComfyUiWorkflowLibrary } from './main/services/comfyui-workflow-library-service';
 import { analyzeComfyUiWorkflowImport, repairComfyUiWorkflowManifest, saveImportedComfyUiWorkflow } from './main/services/comfyui-workflow-import-service';
 import { auditProjectAssets, importUntrackedProjectAssets, purgeProjectTrash, restoreProjectAssetFiles, startProjectAssetWatcher, stopProjectAssetWatcher, trashProjectAssetFiles } from './main/services/project-asset-audit-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
@@ -26,7 +27,7 @@ import { createProject, saveProject, saveProjectAs } from './main/services/proje
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
-import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiRepairWorkflowManifestRequest, ComfyUiSaveImportedWorkflowRequest } from './shared/comfyui-workflows';
+import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiRepairWorkflowManifestRequest, ComfyUiSaveImportedWorkflowRequest, ComfyUiWorkflowLibraryListRequest } from './shared/comfyui-workflows';
 import type { CreateProjectRequest, PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
 
 if (started) {
@@ -533,6 +534,10 @@ app.whenReady().then(() => {
     IPC_CHANNELS.COMFYUI_GET_QUEUE,
     (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
       getComfyUiQueue(config),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowLibraryListRequest = {}) =>
+    listComfyUiWorkflowLibrary(request),
   );
 
   ipcMain.handle(IPC_CHANNELS.COMFYUI_LIST_WORKFLOWS, (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>

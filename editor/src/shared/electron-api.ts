@@ -60,6 +60,7 @@ export interface NovelTeaElectronApi {
   resolveProjectAssetUrl(projectFilePath: string, projectRelativePath: string): Promise<ProjectAssetUrlResponse | null>;
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
+  listComfyUiWorkflowLibrary(request?: ComfyUiWorkflowLibraryListRequest): Promise<ComfyUiWorkflowLibraryListResponse>;
   listComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowListResponse>;
   installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse>;
   analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse>;
@@ -84,7 +85,7 @@ export interface NovelTeaElectronApi {
 import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from './comfyui-generation';
-import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiAnalyzeWorkflowImportResponse, ComfyUiInstallStarterWorkflowsResponse, ComfyUiRepairWorkflowManifestRequest, ComfyUiSaveImportedWorkflowRequest, ComfyUiSaveImportedWorkflowResponse, ComfyUiWorkflowListResponse } from './comfyui-workflows';
+import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiAnalyzeWorkflowImportResponse, ComfyUiInstallStarterWorkflowsResponse, ComfyUiRepairWorkflowManifestRequest, ComfyUiSaveImportedWorkflowRequest, ComfyUiSaveImportedWorkflowResponse, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowLibraryListResponse, ComfyUiWorkflowListResponse } from './comfyui-workflows';
 import type { EnginePreviewSession } from './preview-protocol';
 import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from './project-asset-audit';
 import type { ProjectAssetUrlResponse } from './project-asset-url';

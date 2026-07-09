@@ -44,6 +44,7 @@ export const IPC_CHANNELS = {
   RESOLVE_PROJECT_ASSET_URL: 'noveltea:resolve-project-asset-url',
   COMFYUI_CHECK_CONNECTION: 'noveltea:comfyui-check-connection',
   COMFYUI_GET_QUEUE: 'noveltea:comfyui-get-queue',
+  COMFYUI_LIST_WORKFLOW_LIBRARY: 'noveltea:comfyui-list-workflow-library',
   COMFYUI_LIST_WORKFLOWS: 'noveltea:comfyui-list-workflows',
   COMFYUI_INSTALL_STARTER_WORKFLOWS: 'noveltea:comfyui-install-starter-workflows',
   COMFYUI_ANALYZE_WORKFLOW_IMPORT: 'noveltea:comfyui-analyze-workflow-import',

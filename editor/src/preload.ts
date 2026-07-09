@@ -91,6 +91,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
   getComfyUiQueue: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),
+  listComfyUiWorkflowLibrary: (request = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, request),
   listComfyUiWorkflows: (projectFilePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOWS, projectFilePath),
   installComfyUiStarterWorkflows: (projectFilePath) =>

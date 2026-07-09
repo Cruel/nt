@@ -8,13 +8,13 @@ import { Progress } from '@/components/ui/progress';
 import { useCommandStore } from '@/commands/command-store';
 import { buildSettingsTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
-import { cancelComfyUiJob, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
+import { cancelComfyUiJob, listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useComfyUiGenerationStore, type GeneratedImageRevision } from '@/comfyui/comfyui-generation-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import type { ComfyUiSemanticInput, ComfyUiWorkflowDefinition } from '../../../shared/comfyui-workflows';
+import type { ComfyUiSemanticInput, ComfyUiWorkflowActiveEntry, ComfyUiWorkflowDefinition } from '../../../shared/comfyui-workflows';
 import { defaultAssetIdFromFilename, parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 
@@ -92,12 +92,17 @@ function assetIdForRevision(revision: GeneratedImageRevision) {
   return defaultAssetIdFromFilename(revision.asset.originalName);
 }
 
-function hasBoundInput(workflow: ComfyUiWorkflowDefinition | null, input: ComfyUiSemanticInput) {
-  return Boolean(workflow?.contract.inputs[input] && workflow.bindings[input]);
+function workflowDefinition(workflow: ComfyUiWorkflowActiveEntry | null): ComfyUiWorkflowDefinition | null {
+  return workflow?.definition ?? null;
 }
 
-function defaultString(workflow: ComfyUiWorkflowDefinition, input: ComfyUiSemanticInput, fallback = '') {
-  const value = workflow.defaults[input];
+function hasBoundInput(workflow: ComfyUiWorkflowActiveEntry | null, input: ComfyUiSemanticInput) {
+  const definition = workflowDefinition(workflow);
+  return Boolean(definition?.contract.inputs[input] && definition.bindings[input]);
+}
+
+function defaultString(workflow: ComfyUiWorkflowActiveEntry, input: ComfyUiSemanticInput, fallback = '') {
+  const value = workflow.definition.defaults[input];
   return value === undefined ? fallback : String(value);
 }
 
@@ -136,9 +141,9 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const [editSeed, setEditSeed] = useState('');
   const [editCfg, setEditCfg] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
-  const [workflows, setWorkflows] = useState<ComfyUiWorkflowDefinition[]>([]);
-  const [generateWorkflowId, setGenerateWorkflowId] = useState('');
-  const [editWorkflowId, setEditWorkflowId] = useState('');
+  const [workflows, setWorkflows] = useState<ComfyUiWorkflowActiveEntry[]>([]);
+  const [generateWorkflowKey, setGenerateWorkflowKey] = useState('');
+  const [editWorkflowKey, setEditWorkflowKey] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [generateQueuedFeedback, setGenerateQueuedFeedback] = useState(false);
   const [editQueuedFeedback, setEditQueuedFeedback] = useState(false);
@@ -148,8 +153,8 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const editQueuedFeedbackTimer = useRef<number | null>(null);
   const generateWorkflows = useMemo(() => workflows.filter((workflow) => workflow.role === 'image.generate'), [workflows]);
   const editWorkflows = useMemo(() => workflows.filter((workflow) => workflow.role === 'image.edit'), [workflows]);
-  const selectedGenerateWorkflow = useMemo(() => generateWorkflows.find((workflow) => workflow.id === generateWorkflowId) ?? generateWorkflows[0] ?? null, [generateWorkflowId, generateWorkflows]);
-  const selectedEditWorkflow = useMemo(() => editWorkflows.find((workflow) => workflow.id === editWorkflowId) ?? editWorkflows[0] ?? null, [editWorkflowId, editWorkflows]);
+  const selectedGenerateWorkflow = useMemo(() => generateWorkflows.find((workflow) => workflow.workflowKey === generateWorkflowKey) ?? generateWorkflows[0] ?? null, [generateWorkflowKey, generateWorkflows]);
+  const selectedEditWorkflow = useMemo(() => editWorkflows.find((workflow) => workflow.workflowKey === editWorkflowKey) ?? editWorkflows[0] ?? null, [editWorkflowKey, editWorkflows]);
   const generateFields = {
     negativePrompt: hasBoundInput(selectedGenerateWorkflow, 'negativePrompt'),
     width: hasBoundInput(selectedGenerateWorkflow, 'width'),
@@ -229,17 +234,17 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     setWorkflowMessage(null);
     setWorkflows([]);
     if (!projectFilePath || !comfyUiConfig.enabled || comfyUiStatus.state === 'error') return;
-    void listComfyUiWorkflows(projectFilePath).then((response) => {
+    void listComfyUiWorkflowLibrary({ projectFilePath }).then((response) => {
       if (canceled) return;
-      setWorkflows(response.workflows);
+      setWorkflows(response.activeWorkflows);
       const warningCount = response.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info').length;
       setWorkflowMessage(warningCount > 0 ? `${warningCount} workflow diagnostic${warningCount === 1 ? '' : 's'} found. Invalid workflows are hidden from the selectors.` : null);
       const generateDefault = comfyUiConfig.defaultWorkflows['image.generate'] ?? comfyUiConfig.defaultWorkflowId;
       const editDefault = comfyUiConfig.defaultWorkflows['image.edit'];
-      const generateChoice = response.workflows.find((workflow) => workflow.role === 'image.generate' && workflow.id === generateDefault) ?? response.workflows.find((workflow) => workflow.role === 'image.generate') ?? null;
-      const editChoice = response.workflows.find((workflow) => workflow.role === 'image.edit' && workflow.id === editDefault) ?? response.workflows.find((workflow) => workflow.role === 'image.edit') ?? null;
-      setGenerateWorkflowId(generateChoice?.id ?? '');
-      setEditWorkflowId(editChoice?.id ?? '');
+      const generateChoice = response.activeWorkflows.find((workflow) => workflow.role === 'image.generate' && workflow.id === generateDefault) ?? response.activeWorkflows.find((workflow) => workflow.role === 'image.generate') ?? null;
+      const editChoice = response.activeWorkflows.find((workflow) => workflow.role === 'image.edit' && workflow.id === editDefault) ?? response.activeWorkflows.find((workflow) => workflow.role === 'image.edit') ?? null;
+      setGenerateWorkflowKey(generateChoice?.workflowKey ?? '');
+      setEditWorkflowKey(editChoice?.workflowKey ?? '');
     }).catch((error) => {
       if (!canceled) setWorkflowMessage(error instanceof Error ? error.message : 'Failed to load ComfyUI workflows.');
     });
@@ -309,6 +314,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       request: {
         projectFilePath,
         workflowId: selectedGenerateWorkflow.id,
+        workflowKey: selectedGenerateWorkflow.workflowKey,
         prompt: prompt.trim(),
         ...(generateNegativePromptValue !== undefined ? { negativePrompt: generateNegativePromptValue } : {}),
         ...(generateWidthValue !== undefined ? { width: generateWidthValue } : {}),
@@ -344,6 +350,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       request: {
         projectFilePath,
         workflowId: selectedEditWorkflow.id,
+        workflowKey: selectedEditWorkflow.workflowKey,
         sourceAssetId,
         sourceProjectRelativePath,
         prompt: editPrompt.trim(),
@@ -484,9 +491,9 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
             <textarea id="edit-prompt" className="min-h-20 w-full rounded-md border bg-background p-2 text-sm" value={editPrompt} onChange={(event) => setEditPrompt(event.currentTarget.value)} placeholder="Describe how to edit the selected image" />
             <div className="space-y-1">
               <Label htmlFor="edit-workflow">Edit workflow</Label>
-              <select id="edit-workflow" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={selectedEditWorkflow?.id ?? ''} onChange={(event) => setEditWorkflowId(event.currentTarget.value)}>
+              <select id="edit-workflow" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={selectedEditWorkflow?.workflowKey ?? ''} onChange={(event) => setEditWorkflowKey(event.currentTarget.value)}>
                 {editWorkflows.length === 0 ? <option value="">No valid edit workflows</option> : null}
-                {editWorkflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.label}</option>)}
+                {editWorkflows.map((workflow) => <option key={workflow.workflowKey} value={workflow.workflowKey}>{workflow.label}</option>)}
               </select>
             </div>
             {editFields.negativePrompt ? <div className="space-y-1"><Label htmlFor="edit-negative-prompt">Edit negative prompt</Label><textarea id="edit-negative-prompt" className="min-h-16 w-full rounded-md border bg-background p-2 text-sm" value={editNegativePrompt} onChange={(event) => setEditNegativePrompt(event.currentTarget.value)} placeholder="Describe what to avoid" /></div> : null}
@@ -519,9 +526,9 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
               ) : null}
               <div className="space-y-1">
                 <Label htmlFor="generate-workflow">Generate workflow</Label>
-                <select id="generate-workflow" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={selectedGenerateWorkflow?.id ?? ''} onChange={(event) => setGenerateWorkflowId(event.currentTarget.value)}>
+                <select id="generate-workflow" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={selectedGenerateWorkflow?.workflowKey ?? ''} onChange={(event) => setGenerateWorkflowKey(event.currentTarget.value)}>
                   {generateWorkflows.length === 0 ? <option value="">No valid generate workflows</option> : null}
-                  {generateWorkflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.label}</option>)}
+                  {generateWorkflows.map((workflow) => <option key={workflow.workflowKey} value={workflow.workflowKey}>{workflow.label}</option>)}
                 </select>
               </div>
               {generateValidationIssue ? <p className="text-xs text-destructive">{generateValidationIssue}</p> : null}

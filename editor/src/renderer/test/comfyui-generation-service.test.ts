@@ -5,6 +5,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateComfyUiImage } from '../../main/services/comfyui-service';
 import type { ComfyUiConfig } from '../../shared/comfyui';
 
+vi.mock('electron', () => ({
+  app: {
+    isPackaged: false,
+    getAppPath: () => process.cwd(),
+    getPath: () => '/tmp/noveltea-test-user-data',
+  },
+}));
+
 const roots: string[] = [];
 
 function projectFilePath() {
@@ -158,6 +166,24 @@ describe('comfyui generation service', () => {
     expect(submitted.prompt.prompt.inputs.value).toBe('tea house');
     expect(submitted.prompt.negative.inputs.value).toBe('');
     expect(submitted.prompt.cfg.inputs.value).toBe(0);
+  });
+
+  it('resolves generation requests by source-specific workflow key', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, manifest(false), workflow());
+    const capturedPrompts: unknown[] = [];
+    vi.stubGlobal('fetch', mockComfyUiFetch(capturedPrompts));
+    vi.stubGlobal('WebSocket', CompletedWebSocket);
+
+    const response = await generateComfyUiImage(null, config(), {
+      projectFilePath: project,
+      workflowKey: 'project:custom.manifest.json',
+      prompt: 'tea house',
+      clientJobId: 'job-1',
+    });
+
+    expect(response.success).toBe(true);
+    expect(capturedPrompts).toHaveLength(1);
   });
 
   it('reports selected output node ids when a completed prompt has no images there', async () => {

@@ -1,10 +1,11 @@
 import type { ImportedAssetMetadata } from './asset-import';
 import type { ToolDiagnostic } from './editor-tooling';
-import type { ComfyUiWorkflowId } from './comfyui-workflows';
+import type { ComfyUiWorkflowId, ComfyUiWorkflowKey } from './comfyui-workflows';
 
 export interface ComfyUiGenerateImageRequest {
   projectFilePath: string;
-  workflowId: ComfyUiWorkflowId;
+  workflowId?: ComfyUiWorkflowId;
+  workflowKey?: ComfyUiWorkflowKey;
   prompt: string;
   clientJobId?: string;
   width?: number;
@@ -17,7 +18,8 @@ export interface ComfyUiGenerateImageRequest {
 
 export interface ComfyUiEditImageRequest {
   projectFilePath: string;
-  workflowId: ComfyUiWorkflowId;
+  workflowId?: ComfyUiWorkflowId;
+  workflowKey?: ComfyUiWorkflowKey;
   sourceAssetId?: string;
   sourceProjectRelativePath: string;
   prompt: string;

@@ -6,7 +6,8 @@ import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from '../../shared/comfyui-generation';
-import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, resolveComfyUiWorkflowBinding, resolvedComfyUiWorkflowOutputNodeIdList, validateComfyUiWorkflowDefinitionContract, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowId, type ComfyUiWorkflowListEntry, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
+import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, resolveComfyUiWorkflowBinding, resolvedComfyUiWorkflowOutputNodeIdList, validateComfyUiWorkflowDefinitionContract, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowListEntry, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
+import { listComfyUiWorkflowLibrary } from './comfyui-workflow-library-service';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 
@@ -303,14 +304,28 @@ export async function validateProjectComfyUiWorkflows(projectFilePath: string): 
   return (await listComfyUiWorkflows(projectFilePath)).diagnostics;
 }
 
-async function getComfyUiWorkflowDefinition(projectFilePath: string, id: ComfyUiWorkflowId): Promise<ComfyUiWorkflowDefinition> {
-  const response = await listComfyUiWorkflows(projectFilePath);
-  const definition = response.workflows.find((workflow) => workflow.id === id);
-  if (!definition) {
+async function resolveComfyUiWorkflowPackage(
+  projectFilePath: string,
+  request: Pick<ComfyUiGenerateImageRequest | ComfyUiEditImageRequest, 'workflowId' | 'workflowKey'>,
+): Promise<{ definition: ComfyUiWorkflowDefinition; workflow: WorkflowGraph }> {
+  const response = await listComfyUiWorkflowLibrary({ projectFilePath, includeOverridden: true });
+  const entry = request.workflowKey
+    ? response.entries.find((item) => item.workflowKey === request.workflowKey)
+    : response.entries.find((item) => item.active && item.id === request.workflowId);
+  if (!entry?.definition || !entry.workflowPath) {
+    const requested = request.workflowKey ?? request.workflowId ?? '(none)';
     const detail = response.diagnostics.length ? ` Diagnostics: ${response.diagnostics.map((item) => item.message).join('; ')}` : '';
-    throw new Error(`Unknown or invalid ComfyUI workflow '${id}'.${detail}`);
+    throw new Error(`Unknown or invalid ComfyUI workflow '${requested}'.${detail}`);
   }
-  return definition;
+  if (entry.offlineStatus === 'invalid') {
+    const detail = entry.diagnostics.length ? ` Diagnostics: ${entry.diagnostics.map((item) => item.message).join('; ')}` : '';
+    throw new Error(`Invalid ComfyUI workflow '${entry.definition.id}'.${detail}`);
+  }
+  if (entry.overridden) {
+    throw new Error(`ComfyUI workflow '${entry.definition.id}' is overridden by '${entry.overriddenBy}'.`);
+  }
+  const text = await fs.readFile(entry.workflowPath, 'utf8');
+  return { definition: entry.definition, workflow: JSON.parse(text) as WorkflowGraph };
 }
 
 function cloneWorkflow(workflow: WorkflowGraph): WorkflowGraph {
@@ -611,9 +626,9 @@ async function runImageJob(config: ComfyUiConfig, definition: ComfyUiWorkflowDef
 export async function generateComfyUiImage(owner: BrowserWindow | null, config: ComfyUiConfig, request: ComfyUiGenerateImageRequest): Promise<ComfyUiImageJobResponse> {
   if (!config.enabled) return { ok: false, success: false, assets: [], diagnostics: [], error: 'ComfyUI is disabled.' };
   if (!request.projectFilePath) return { ok: false, success: false, assets: [], diagnostics: [], error: 'Save the project before generating images.' };
-  const definition = await getComfyUiWorkflowDefinition(request.projectFilePath, request.workflowId);
+  const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(request.projectFilePath, request);
   if (definition.role !== 'image.generate') return { ok: false, success: false, assets: [], diagnostics: [], error: `Workflow '${definition.id}' is not an image.generate workflow.` };
-  const workflow = cloneWorkflow(await loadComfyUiWorkflowTemplate(request.projectFilePath, definition));
+  const workflow = cloneWorkflow(template);
   assertWorkflowBindingsValid(workflow, definition);
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
@@ -630,9 +645,9 @@ export async function generateComfyUiImage(owner: BrowserWindow | null, config: 
 export async function editComfyUiImage(owner: BrowserWindow | null, config: ComfyUiConfig, request: ComfyUiEditImageRequest): Promise<ComfyUiImageJobResponse> {
   if (!config.enabled) return { ok: false, success: false, assets: [], diagnostics: [], error: 'ComfyUI is disabled.' };
   if (!request.projectFilePath) return { ok: false, success: false, assets: [], diagnostics: [], error: 'Save the project before editing images.' };
-  const definition = await getComfyUiWorkflowDefinition(request.projectFilePath, request.workflowId);
+  const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(request.projectFilePath, request);
   if (definition.role !== 'image.edit') return { ok: false, success: false, assets: [], diagnostics: [], error: `Workflow '${definition.id}' is not an image.edit workflow.` };
-  const workflow = cloneWorkflow(await loadComfyUiWorkflowTemplate(request.projectFilePath, definition));
+  const workflow = cloneWorkflow(template);
   assertWorkflowBindingsValid(workflow, definition);
   const uploadReference = await uploadImage(config, request.projectFilePath, request.sourceProjectRelativePath);
   const seed = generatedSeed(request.seed);
