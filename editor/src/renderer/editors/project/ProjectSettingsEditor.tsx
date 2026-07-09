@@ -10,18 +10,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
-import { installComfyUiStarterWorkflows, listComfyUiWorkflows } from '@/comfyui/comfyui-service';
+import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import { useProjectStore } from '@/project/project-store';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
-import { ComfyUiWorkflowImportDialog } from './ComfyUiWorkflowImportDialog';
-import type { ComfyUiWorkflowListEntry } from '../../../shared/comfyui-workflows';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { getSystemLayoutSetting, systemLayoutRoleValues, type SystemLayoutRole } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject, validateTypedProjectSettings } from '../../../shared/project-schema/authoring-project-settings';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
-import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
@@ -96,11 +95,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const entrypointItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['rooms', 'scenes', 'dialogues', 'scripts'], includeActions: false }), [selectorItems]);
   const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
-  const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
-  const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
-  const [workflowEntries, setWorkflowEntries] = useState<ComfyUiWorkflowListEntry[]>([]);
-  const [workflowImportOpen, setWorkflowImportOpen] = useState(false);
-  const [workflowRepairEntry, setWorkflowRepairEntry] = useState<ComfyUiWorkflowListEntry | null>(null);
+  const [workflowSummary, setWorkflowSummary] = useState({ activeCount: 0, projectCount: 0, invalidProjectCount: 0 });
+  const [workflowSummaryMessage, setWorkflowSummaryMessage] = useState<string | null>(null);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(null);
 
@@ -125,15 +121,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
   useEffect(() => {
     if (!projectFilePath) {
-      setWorkflowDiagnostics([]);
-      setWorkflowEntries([]);
+      setWorkflowSummary({ activeCount: 0, projectCount: 0, invalidProjectCount: 0 });
       return;
     }
     let canceled = false;
-    void listComfyUiWorkflows(projectFilePath).then((response) => {
+    void listComfyUiWorkflowLibrary({ projectFilePath, includeOverridden: true }).then((response) => {
       if (!canceled) {
-        setWorkflowDiagnostics(response.diagnostics);
-        setWorkflowEntries(response.entries ?? []);
+        const projectSource = response.summary.sources.find((source) => source.source === 'project');
+        setWorkflowSummary({
+          activeCount: response.summary.activeCount,
+          projectCount: projectSource?.workflowCount ?? 0,
+          invalidProjectCount: response.entries.filter((entry) => entry.source === 'project' && entry.offlineStatus === 'invalid').length,
+        });
+        setWorkflowSummaryMessage(response.error ?? null);
       }
     });
     return () => { canceled = true; };
@@ -181,37 +181,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     runProjectCommand('project.setIcon', { assetId }, 'Set project icon');
   }
 
-  async function refreshWorkflows() {
-    if (!projectFilePath) return;
-    const response = await listComfyUiWorkflows(projectFilePath);
-    setWorkflowDiagnostics(response.diagnostics);
-    setWorkflowEntries(response.entries ?? []);
-  }
-
-  async function installStarterWorkflows() {
-    if (!projectFilePath) {
-      setWorkflowMessage(t('comfyuiWorkflows.messages.saveProjectBeforeInstall'));
-      return;
-    }
-    const response = await installComfyUiStarterWorkflows(projectFilePath);
-    setWorkflowDiagnostics(response.diagnostics);
-    setWorkflowMessage(response.success
-      ? t('comfyuiWorkflows.messages.installResult', {
-        copied: t('comfyuiWorkflows.messages.copiedFiles', { count: response.copied.length }),
-        skipped: t('comfyuiWorkflows.messages.skippedFiles', { count: response.skipped.length }),
-      })
-      : response.error ?? t('comfyuiWorkflows.messages.installFailed'));
-    await refreshWorkflows();
-  }
-
-  function revealWorkflowsFolder() {
-    if (!projectFilePath) return;
-    const workflowsFolder = `${projectFilePath.replace(/[/\\][^/\\]*$/u, '')}/workflows`;
-    void window.noveltea.showItemInFolder(workflowsFolder);
-  }
-
-  function openRepair(entry: ComfyUiWorkflowListEntry) {
-    setWorkflowRepairEntry(entry);
+  function openWorkflowManager() {
+    navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
   }
 
   return (
@@ -393,71 +364,21 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               <CardDescription>{t('comfyuiWorkflows.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="space-y-2 rounded border p-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs font-medium">{t('comfyuiWorkflows.projectWorkflows.title')}</div>
-                    <div className="text-xs text-muted-foreground">{t('comfyuiWorkflows.projectWorkflows.description')}</div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setWorkflowImportOpen(true)}>{t('comfyuiWorkflows.actions.import')}</Button>
-                    <Button size="sm" variant="outline" onClick={() => void installStarterWorkflows()}>{t('comfyuiWorkflows.actions.installBuiltIns')}</Button>
-                  </div>
+              <div className="grid gap-2 text-xs">
+                <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                  <span className="text-muted-foreground">{t('comfyuiWorkflows.summary.active')}</span>
+                  <Badge variant="secondary">{workflowSummary.activeCount}</Badge>
                 </div>
-                {workflowMessage ? <div className="text-xs text-muted-foreground">{workflowMessage}</div> : null}
-                <div className="overflow-x-auto rounded border">
-                  <table className="w-full min-w-[720px] text-left text-xs">
-                    <thead className="border-b bg-muted/40 text-muted-foreground">
-                      <tr>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.status')}</th>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.label')}</th>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.role')}</th>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.id')}</th>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.workflow')}</th>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.manifest')}</th>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.diagnostics')}</th>
-                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.actions')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {workflowEntries.map((entry) => (
-                        <tr key={entry.manifestFile} className="border-b last:border-b-0">
-                          <td className="px-2 py-1 align-top">
-                            <Badge variant={entry.status === 'invalid' ? 'destructive' : entry.status === 'warning' ? 'secondary' : 'outline'}>{entry.status}</Badge>
-                          </td>
-                          <td className="max-w-40 truncate px-2 py-1 align-top">{entry.label ?? t('comfyuiWorkflows.table.invalidManifest')}</td>
-                          <td className="px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.role ?? '-'}</td>
-                          <td className="max-w-32 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.id ?? '-'}</td>
-                          <td className="max-w-36 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.workflowFile ?? '-'}</td>
-                          <td className="max-w-36 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.manifestFile}</td>
-                          <td className="px-2 py-1 align-top">{entry.diagnostics.length ? t('comfyuiWorkflows.table.issueCount', { count: entry.diagnostics.length }) : t('comfyuiWorkflows.table.none')}</td>
-                          <td className="px-2 py-1 align-top">
-                            <div className="flex flex-wrap gap-1">
-                              <Button size="sm" variant="outline" disabled={!entry.repairable || !entry.workflowJsonText || !entry.definition} onClick={() => openRepair(entry)}>{t('comfyuiWorkflows.actions.repair')}</Button>
-                              <Button size="sm" variant="outline" onClick={revealWorkflowsFolder}>{t('comfyuiWorkflows.actions.revealInFolder')}</Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {workflowEntries.length === 0 ? (
-                        <tr><td colSpan={8} className="px-2 py-3 text-center text-muted-foreground">{t('comfyuiWorkflows.table.empty')}</td></tr>
-                      ) : null}
-                    </tbody>
-                  </table>
+                <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                  <span className="text-muted-foreground">{t('comfyuiWorkflows.summary.project')}</span>
+                  <Badge variant="outline">{workflowSummary.projectCount}</Badge>
                 </div>
-                {workflowDiagnostics.length > 0 ? <div className="space-y-1">{workflowDiagnostics.map((diagnostic, index) => {
-                  const entry = workflowEntries.find((item) => diagnostic.path.includes(item.manifestFile));
-                  return (
-                    <div key={`${diagnostic.path}-${diagnostic.message}-${index}`} className="rounded border p-1.5 text-xs">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>{diagnostic.severity}</Badge>
-                        <span className="font-mono text-[10px] text-muted-foreground">{diagnostic.path}</span>
-                        {entry?.repairable && entry.workflowJsonText && entry.definition ? <Button size="sm" variant="outline" onClick={() => openRepair(entry)}>{t('comfyuiWorkflows.actions.repair')}</Button> : null}
-                      </div>
-                      <div className="mt-1">{diagnostic.message}</div>
-                    </div>
-                  );
-                })}</div> : <div className="text-xs text-muted-foreground">{t('comfyuiWorkflows.diagnostics.empty')}</div>}
+                <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                  <span className="text-muted-foreground">{t('comfyuiWorkflows.summary.invalidProject')}</span>
+                  <Badge variant={workflowSummary.invalidProjectCount > 0 ? 'destructive' : 'outline'}>{workflowSummary.invalidProjectCount}</Badge>
+                </div>
+                {workflowSummaryMessage ? <div className="rounded border p-2 text-muted-foreground">{workflowSummaryMessage}</div> : null}
+                <Button size="sm" variant="outline" onClick={openWorkflowManager}>{t('comfyuiWorkflows.actions.manage')}</Button>
               </div>
             </CardContent>
           </Card>
@@ -515,29 +436,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           setSystemLayout(systemLayoutSelectorRole, item.entityId);
         }}
         onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
-      />
-      <ComfyUiWorkflowImportDialog
-        open={workflowImportOpen}
-        projectFilePath={projectFilePath}
-        onOpenChange={setWorkflowImportOpen}
-        onImported={async (message, diagnostics) => {
-          setWorkflowMessage(message);
-          setWorkflowDiagnostics(diagnostics);
-          await refreshWorkflows();
-        }}
-      />
-      <ComfyUiWorkflowImportDialog
-        open={!!workflowRepairEntry}
-        projectFilePath={projectFilePath}
-        repairEntry={workflowRepairEntry}
-        onOpenChange={(open) => {
-          if (!open) setWorkflowRepairEntry(null);
-        }}
-        onImported={async (message, diagnostics) => {
-          setWorkflowMessage(message);
-          setWorkflowDiagnostics(diagnostics);
-          await refreshWorkflows();
-        }}
       />
     </div>
   );

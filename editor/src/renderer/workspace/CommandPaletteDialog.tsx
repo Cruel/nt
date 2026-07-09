@@ -4,6 +4,7 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import type { AssetNode } from '@/stores/workspace-store';
 import {
   buildAssetsEditorTab,
+  buildComfyUiWorkflowsTab,
   buildDefaultRecordTab,
   buildProjectSettingsTab,
   buildSettingsTab,
@@ -39,6 +40,7 @@ function tabForItem(item: CommandPaletteItem): WorkbenchTab | null {
     return node ? buildDefaultRecordTab(node) : null;
   }
   if (item.action === 'settings') return buildSettingsTab();
+  if (item.action === 'comfyui-workflows') return buildComfyUiWorkflowsTab();
   if (item.action === 'project-settings') return buildProjectSettingsTab();
   if (item.action === 'assets') return buildAssetsEditorTab();
   if (item.action === 'variables') return buildVariablesEditorTab();

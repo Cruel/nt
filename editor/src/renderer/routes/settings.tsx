@@ -12,13 +12,17 @@ import { PageHeader } from '@/components/page-header';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { codeEditorThemeLabel, codeEditorThemeOptions } from '@/components/source/source-editor-themes';
 import type { CodeEditorThemeId } from '@/components/source/source-editor-theme-types';
+import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { SUPPORTED_EDITOR_LANGUAGES, languageLabel, resolveEditorLanguage, type EditorLanguage } from '@/i18n';
 import {
   usePreferencesStore,
   type Theme,
 } from '@/stores/preferences-store';
+import { buildComfyUiWorkflowsTab } from '@/workbench/editor-registry';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { ChevronLeft, ChevronRight, Code2, FolderOpen, Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
+import type { ComfyUiWorkflowActiveEntry, ComfyUiWorkflowRole } from '../../shared/comfyui-workflows';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -68,6 +72,20 @@ const editorPreviewSource = `<div class="noveltea-layout-preview">
     Clicked 0 times
   </button>
 </div>`;
+
+type WorkflowDefaultOption = Pick<ComfyUiWorkflowActiveEntry, 'id' | 'label' | 'role'>;
+
+function workflowDefaultOptions(
+  workflows: ComfyUiWorkflowActiveEntry[],
+  role: ComfyUiWorkflowRole,
+  selectedId: string,
+): WorkflowDefaultOption[] {
+  const options = workflows.filter((workflow) => workflow.role === role);
+  if (selectedId && !options.some((workflow) => workflow.id === selectedId)) {
+    return [{ id: selectedId, label: selectedId, role }, ...options];
+  }
+  return options;
+}
 
 function CodeEditorThemeDialog({
   currentTheme,
@@ -188,8 +206,13 @@ export function SettingsPage() {
   const [appDefaultProjectDirectory, setAppDefaultProjectDirectory] = useState('');
   const [defaultProjectDirectoryError, setDefaultProjectDirectoryError] = useState<string | null>(null);
   const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
+  const [comfyUiWorkflows, setComfyUiWorkflows] = useState<ComfyUiWorkflowActiveEntry[]>([]);
   const effectiveLanguage = resolveEditorLanguage(language, preferredSystemLanguages);
   const effectiveProjectDirectory = defaultProjectDirectory ?? appDefaultProjectDirectory;
+  const defaultGenerateWorkflowId = comfyUiConfig.defaultWorkflows['image.generate'] || comfyUiConfig.defaultWorkflowId;
+  const defaultEditWorkflowId = comfyUiConfig.defaultWorkflows['image.edit'] || 'flux2-klein-image-edit';
+  const generateWorkflowOptions = workflowDefaultOptions(comfyUiWorkflows, 'image.generate', defaultGenerateWorkflowId);
+  const editWorkflowOptions = workflowDefaultOptions(comfyUiWorkflows, 'image.edit', defaultEditWorkflowId);
 
   useEffect(() => {
     let mounted = true;
@@ -202,6 +225,20 @@ export function SettingsPage() {
     void window.noveltea.getDefaultProjectDirectory().then((directory) => {
       if (!mounted) return;
       setAppDefaultProjectDirectory(directory);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void listComfyUiWorkflowLibrary({ includeOverridden: false }).then((library) => {
+      if (!mounted) return;
+      setComfyUiWorkflows(library.activeWorkflows);
+    }).catch(() => {
+      if (!mounted) return;
+      setComfyUiWorkflows([]);
     });
     return () => {
       mounted = false;
@@ -225,6 +262,20 @@ export function SettingsPage() {
     if (!wasEnabled && nextConfig.enabled) {
       void useComfyUiStore.getState().checkConnection(useComfyUiStore.getState().config, { showChecking: true });
     }
+  }
+
+  function updateDefaultWorkflow(role: ComfyUiWorkflowRole, workflowId: string) {
+    updateComfyUiConfig({
+      defaultWorkflowId: role === 'image.generate' ? workflowId : comfyUiConfig.defaultWorkflowId,
+      defaultWorkflows: {
+        ...comfyUiConfig.defaultWorkflows,
+        [role]: workflowId,
+      },
+    });
+  }
+
+  function openComfyUiWorkflows() {
+    navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
   }
 
   async function testComfyUiConnection() {
@@ -464,7 +515,7 @@ export function SettingsPage() {
                   onCheckedChange={(enabled) => updateComfyUiConfig({ enabled: Boolean(enabled) })}
                 />
               </div>
-              <div className="grid gap-2 md:grid-cols-[1fr_220px]">
+              <div className="grid gap-2 md:grid-cols-[minmax(240px,1fr)_minmax(190px,240px)_minmax(190px,240px)]">
                 <div className="space-y-1">
                   <Label htmlFor="comfyui-server-url">{t('settings:comfyui.serverUrl')}</Label>
                   <Input
@@ -476,22 +527,41 @@ export function SettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="comfyui-default-workflow">{t('settings:comfyui.defaultWorkflow')}</Label>
-                  <Input
+                  <select
                     id="comfyui-default-workflow"
-                    value={comfyUiConfig.defaultWorkflowId}
-                    onChange={(event) => updateComfyUiConfig({
-                      defaultWorkflowId: event.currentTarget.value,
-                      defaultWorkflows: {
-                        ...comfyUiConfig.defaultWorkflows,
-                        'image.generate': event.currentTarget.value,
-                      },
-                    })}
-                  />
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring"
+                    value={defaultGenerateWorkflowId}
+                    onChange={(event) => updateDefaultWorkflow('image.generate', event.currentTarget.value)}
+                  >
+                    {generateWorkflowOptions.length > 0 ? generateWorkflowOptions.map((workflow) => (
+                      <option key={workflow.id} value={workflow.id}>{workflow.label}</option>
+                    )) : (
+                      <option value="">{t('settings:comfyui.noWorkflows')}</option>
+                    )}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="comfyui-default-edit-workflow">{t('settings:comfyui.defaultEditWorkflow')}</Label>
+                  <select
+                    id="comfyui-default-edit-workflow"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring"
+                    value={defaultEditWorkflowId}
+                    onChange={(event) => updateDefaultWorkflow('image.edit', event.currentTarget.value)}
+                  >
+                    {editWorkflowOptions.length > 0 ? editWorkflowOptions.map((workflow) => (
+                      <option key={workflow.id} value={workflow.id}>{workflow.label}</option>
+                    )) : (
+                      <option value="">{t('settings:comfyui.noWorkflows')}</option>
+                    )}
+                  </select>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-md border px-2 py-1 text-muted-foreground">{comfyUiStatus.state}</span>
                 <span className="text-muted-foreground">{comfyUiStatus.message ?? t('settings:comfyui.statusUnknown')}</span>
+                <Button type="button" size="sm" variant="outline" onClick={openComfyUiWorkflows}>
+                  {t('settings:comfyui.manageWorkflows')}
+                </Button>
                 <Button type="button" size="sm" variant="outline" onClick={() => void testComfyUiConnection()}>
                   {t('settings:comfyui.testConnection')}
                 </Button>

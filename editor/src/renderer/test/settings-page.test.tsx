@@ -3,12 +3,43 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from '@/routes/settings';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import type { ComfyUiWorkflowActiveEntry, ComfyUiWorkflowRole } from '../../shared/comfyui-workflows';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({ value, themeId }: { value: string; themeId?: string }) => (
     <textarea aria-label="source-editor-preview" data-theme-id={themeId} readOnly value={value} />
   ),
 }));
+
+function activeWorkflow(id: string, role: ComfyUiWorkflowRole): ComfyUiWorkflowActiveEntry {
+  return {
+    workflowKey: `editor:${id}.manifest.json`,
+    source: 'editor',
+    id,
+    label: id,
+    role,
+    definition: {
+      schemaVersion: 2,
+      id,
+      label: id,
+      provider: 'comfyui',
+      role,
+      workflowFile: `${id}.workflow.json`,
+      contract: { inputs: {}, outputs: {} },
+      requiredNodeClasses: [],
+      outputNodeIds: [],
+      bindings: {},
+      outputBindings: {},
+      defaults: { filenamePrefix: 'NovelTea' },
+      manifestFile: `${id}.manifest.json`,
+    },
+    offlineStatus: 'valid',
+    onlineStatus: 'unverified',
+    diagnostics: [],
+    verificationDiagnostics: [],
+  };
+}
 
 describe('SettingsPage code editor theme selector', () => {
   beforeEach(() => {
@@ -34,6 +65,7 @@ describe('SettingsPage code editor theme selector', () => {
       },
     });
     useComfyUiStore.getState().hydrateFromPreferences();
+    useWorkbenchStore.getState().resetWorkbench();
     vi.spyOn(window.noveltea, 'getDefaultProjectDirectory').mockResolvedValue('/home/test/Documents/NovelTea');
     vi.spyOn(window.noveltea, 'selectDirectory').mockResolvedValue('/tmp/NovelTea');
   });
@@ -65,7 +97,7 @@ describe('SettingsPage code editor theme selector', () => {
   it('renders the editor language selector options', () => {
     render(<SettingsPage />);
 
-    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getAllByRole('combobox')[0]!);
     expect(screen.getByRole('option', { name: 'Pseudo-localized' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Portuguese (Brazil)' })).toBeInTheDocument();
   });
@@ -109,6 +141,19 @@ describe('SettingsPage code editor theme selector', () => {
   });
 
   it('stores ComfyUI connection settings as editor preferences', async () => {
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      entries: [],
+      activeWorkflows: [
+        activeWorkflow('custom-workflow', 'image.generate'),
+        activeWorkflow('custom-edit-workflow', 'image.edit'),
+      ],
+      overriddenEntries: [],
+      summary: { sources: [], totalCount: 2, activeCount: 2, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
+    });
+
     render(<SettingsPage />);
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enable ComfyUI integration' }));
@@ -116,16 +161,48 @@ describe('SettingsPage code editor theme selector', () => {
     vi.mocked(window.noveltea.checkComfyUiConnection).mockClear();
 
     fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'http://127.0.0.1:8000/' } });
+    await waitFor(() => expect(screen.getByLabelText('Default generate workflow')).toHaveValue('flux2-klein-text-to-image'));
     fireEvent.change(screen.getByLabelText('Default generate workflow'), { target: { value: 'custom-workflow' } });
+    fireEvent.change(screen.getByLabelText('Default edit workflow'), { target: { value: 'custom-edit-workflow' } });
 
     expect(usePreferencesStore.getState().comfyUiConfig).toMatchObject({
       enabled: true,
       serverUrl: 'http://127.0.0.1:8000',
       defaultWorkflowId: 'custom-workflow',
-      defaultWorkflows: { 'image.generate': 'custom-workflow' },
+      defaultWorkflows: {
+        'image.generate': 'custom-workflow',
+        'image.edit': 'custom-edit-workflow',
+      },
     });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manage ComfyUI Workflows' }));
+    expect(useWorkbenchStore.getState().tabsById['tab:comfyui-workflows']).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }));
     await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+  });
+
+  it('backfills logical ComfyUI workflow defaults when saving partial legacy preferences', () => {
+    usePreferencesStore.setState({
+      comfyUiConfig: {
+        enabled: true,
+        serverUrl: 'http://127.0.0.1:8000',
+        defaultWorkflowId: 'legacy-generate',
+        defaultWorkflows: {},
+        requestTimeoutMs: 15000,
+        connectionCheckIntervalMs: 10000,
+      },
+    });
+
+    usePreferencesStore.getState().setComfyUiConfig({ serverUrl: 'http://127.0.0.1:8000/' });
+
+    expect(usePreferencesStore.getState().comfyUiConfig).toMatchObject({
+      serverUrl: 'http://127.0.0.1:8000',
+      defaultWorkflowId: 'legacy-generate',
+      defaultWorkflows: {
+        'image.generate': 'legacy-generate',
+        'image.edit': 'flux2-klein-image-edit',
+      },
+    });
   });
 });

@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { BookOpen, Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, Tags, User, Wrench } from 'lucide-react';
+import { BookOpen, Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, Tags, User, Workflow, Wrench } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import type { WorkbenchTab } from './workbench-types';
@@ -315,6 +315,18 @@ export function buildSettingsTab(): WorkbenchTab {
   };
 }
 
+export function buildComfyUiWorkflowsTab(): WorkbenchTab {
+  return {
+    id: 'tab:comfyui-workflows',
+    title: 'ComfyUI Workflows',
+    editorType: 'comfyui-workflows',
+    resource: {
+      kind: 'tool',
+      stableId: 'utility:comfyui-workflows',
+    },
+  };
+}
+
 export function buildProjectSettingsTab(): WorkbenchTab {
   return {
     id: 'tab:project-settings',
@@ -388,6 +400,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'variables') return SlidersHorizontal;
   if (editorType === 'components') return Puzzle;
   if (editorType === 'settings') return Settings;
+  if (editorType === 'comfyui-workflows') return Workflow;
   if (editorType === 'project-settings') return Wrench;
   if (editorType === 'project-chapters') return BookOpen;
   if (editorType === 'project-tags') return Tags;

@@ -11,7 +11,7 @@ import { buildSettingsTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
-import type { ComfyUiWorkflowDefinition } from '../../shared/comfyui-workflows';
+import type { ComfyUiWorkflowDefinition, ComfyUiWorkflowSource } from '../../shared/comfyui-workflows';
 
 const tab: WorkbenchTab = {
   id: 'tab:image-generation',
@@ -50,24 +50,27 @@ function workflow(overrides: Partial<ComfyUiWorkflowDefinition>): ComfyUiWorkflo
   };
 }
 
-function mockWorkflowList(workflows: ComfyUiWorkflowDefinition[]) {
+function mockWorkflowList(workflows: ComfyUiWorkflowDefinition[], sourceById: Partial<Record<string, ComfyUiWorkflowSource>> = {}) {
   vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue({
     ok: true,
     success: true,
     diagnostics: [],
     entries: [],
-    activeWorkflows: workflows.map((definition) => ({
-      workflowKey: `project:${definition.id}.manifest.json`,
-      source: 'project',
-      id: definition.id,
-      label: definition.label,
-      role: definition.role,
-      definition,
-      offlineStatus: 'valid',
-      onlineStatus: 'unverified',
-      diagnostics: [],
-      verificationDiagnostics: [],
-    })),
+    activeWorkflows: workflows.map((definition) => {
+      const source = sourceById[definition.id] ?? 'project';
+      return {
+        workflowKey: `${source}:${definition.id}.manifest.json`,
+        source,
+        id: definition.id,
+        label: definition.label,
+        role: definition.role,
+        definition,
+        offlineStatus: 'valid',
+        onlineStatus: 'unverified',
+        diagnostics: [],
+        verificationDiagnostics: [],
+      };
+    }),
     overriddenEntries: [],
     summary: { sources: [], totalCount: workflows.length, activeCount: workflows.length, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
   });
@@ -126,6 +129,28 @@ describe('ImageGenerationEditor', () => {
     expect(screen.getByText('Connection refused')).toBeInTheDocument();
   });
 
+  it('distinguishes unsaved project output availability from workflow availability', async () => {
+    useProjectStore.getState().clearProject();
+
+    render(<ImageGenerationEditor tab={tab} />);
+
+    expect(await screen.findByText('Save the project before generating or editing images. Generated output files need a project asset folder.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Generate workflow')).toHaveValue('project:flux2-klein-text-to-image.manifest.json');
+    expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+    expect(screen.queryByText('No valid ComfyUI workflows are available.')).not.toBeInTheDocument();
+  });
+
+  it('shows a separate workflow availability message when no valid workflows exist', async () => {
+    mockWorkflowList([]);
+
+    render(<ImageGenerationEditor tab={tab} />);
+
+    expect(await screen.findByText('No valid ComfyUI workflows are available.')).toBeInTheDocument();
+    expect(screen.queryByText(/Generated output files need a project asset folder/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Generate workflow')).toHaveValue('');
+    expect(screen.getByLabelText('Edit workflow')).toHaveValue('');
+  });
+
   it('queues image generation instead of immediately importing it', async () => {
     render(<ImageGenerationEditor tab={tab} />);
     await screen.findByLabelText('Generate workflow');
@@ -140,6 +165,54 @@ describe('ImageGenerationEditor', () => {
     expect(job?.request).toMatchObject({ projectFilePath: '/mock/project/game.json', workflowKey: 'project:flux2-klein-text-to-image.manifest.json', prompt: 'a tea cup in a rainstorm' });
     expect(screen.getByText('Added to queue!')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  });
+
+  it('resolves logical default workflow IDs to the active source-specific workflow key', async () => {
+    usePreferencesStore.getState().setComfyUiConfig({
+      defaultWorkflowId: 'flux2-klein-text-to-image',
+      defaultWorkflows: {
+        'image.generate': 'flux2-klein-text-to-image',
+        'image.edit': 'flux2-klein-image-edit',
+      },
+    });
+    useComfyUiStore.getState().hydrateFromPreferences();
+    mockWorkflowList([
+      workflow({ id: 'other-generate', label: 'Other Generate' }),
+      workflow({ id: 'flux2-klein-text-to-image', label: 'Project Override Generate' }),
+      workflow({
+        id: 'flux2-klein-image-edit',
+        label: 'Editor Override Edit',
+        role: 'image.edit',
+        contract: {
+          inputs: { sourceImage: { type: 'image', required: true }, prompt: { type: 'string', required: true } },
+          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        },
+        bindings: {
+          sourceImage: { nodeId: 'source', inputName: 'image', valueType: 'image-upload-reference' },
+          prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
+        },
+      }),
+    ], {
+      'flux2-klein-text-to-image': 'project',
+      'flux2-klein-image-edit': 'editor',
+      'other-generate': 'built-in',
+    });
+
+    render(<ImageGenerationEditor tab={tab} />);
+
+    await waitFor(() => expect(screen.getByLabelText('Generate workflow')).toHaveValue('project:flux2-klein-text-to-image.manifest.json'));
+    expect(screen.getByLabelText('Edit workflow')).toHaveValue('editor:flux2-klein-image-edit.manifest.json');
+
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'a default override' } });
+    fireEvent.click(screen.getByText('Generate'));
+
+    const queue = useComfyUiQueueStore.getState();
+    const job = queue.localJobsByPromptId[queue.order[0]!];
+    expect(job?.request).toMatchObject({
+      workflowId: 'flux2-klein-text-to-image',
+      workflowKey: 'project:flux2-klein-text-to-image.manifest.json',
+      prompt: 'a default override',
+    });
   });
 
   it('adds a staged revision to assets only when Add is clicked', async () => {

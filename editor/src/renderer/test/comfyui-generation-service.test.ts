@@ -168,6 +168,25 @@ describe('comfyui generation service', () => {
     expect(submitted.prompt.cfg.inputs.value).toBe(0);
   });
 
+  it('resolves legacy bare workflow ids to the active workflow package', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, manifest(false), workflow());
+    const capturedPrompts: unknown[] = [];
+    vi.stubGlobal('fetch', mockComfyUiFetch(capturedPrompts));
+    vi.stubGlobal('WebSocket', CompletedWebSocket);
+
+    const response = await generateComfyUiImage(null, config(), {
+      projectFilePath: project,
+      workflowId: 'custom',
+      prompt: 'legacy id path',
+      clientJobId: 'job-1',
+    });
+
+    expect(response.success).toBe(true);
+    const submitted = capturedPrompts[0] as { prompt: Record<string, { inputs: Record<string, unknown> }> };
+    expect(submitted.prompt.prompt.inputs.value).toBe('legacy id path');
+  });
+
   it('resolves generation requests by source-specific workflow key', async () => {
     const project = projectFilePath();
     writeWorkflowPair(project, manifest(false), workflow());

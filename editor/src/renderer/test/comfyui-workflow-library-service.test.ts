@@ -43,6 +43,22 @@ function testRoots() {
   return { root, builtInRoot, editorRoot, projectRoot, options };
 }
 
+function testRootsWithoutProject() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-workflow-library-'));
+  roots.push(root);
+  const builtInRoot = path.join(root, 'built-in');
+  const editorRoot = path.join(root, 'editor');
+  for (const item of [builtInRoot, editorRoot]) fs.mkdirSync(item, { recursive: true });
+  const options: WorkflowLibraryServiceOptions = {
+    roots: {
+      builtInRoot,
+      editorRoot,
+      cacheFile: path.join(editorRoot, '.verification-cache.json'),
+    },
+  };
+  return { root, builtInRoot, editorRoot, options };
+}
+
 function workflow(prompt = 'Tea') {
   return {
     prompt: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'noveltea.prompt' }, inputs: { value: prompt } },
@@ -100,6 +116,29 @@ afterEach(() => {
 });
 
 describe('comfyui workflow library service', () => {
+  it('discovers built-in and editor workflows without a project and omits project workflows until a project path exists', async () => {
+    const { root, builtInRoot, editorRoot, options } = testRootsWithoutProject();
+    const projectRoot = path.join(root, 'project', 'workflows');
+    fs.mkdirSync(projectRoot, { recursive: true });
+    writePackage(builtInRoot, 'built-in-workflow', 'Built-in Workflow');
+    writePackage(editorRoot, 'editor-workflow', 'Editor Workflow');
+    writePackage(projectRoot, 'project-workflow', 'Project Workflow');
+
+    const withoutProject = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
+    const withProject = await listComfyUiWorkflowLibrary({ projectFilePath: path.join(root, 'project', 'game.json'), includeOverridden: true }, options);
+
+    expect(withoutProject.activeWorkflows.map((entry) => `${entry.source}:${entry.id}`)).toEqual([
+      'built-in:built-in-workflow',
+      'editor:editor-workflow',
+    ]);
+    expect(withoutProject.summary.sources.find((source) => source.source === 'project')).toMatchObject({ available: false, workflowCount: 0 });
+    expect(withProject.activeWorkflows.map((entry) => `${entry.source}:${entry.id}`)).toEqual([
+      'built-in:built-in-workflow',
+      'editor:editor-workflow',
+      'project:project-workflow',
+    ]);
+  });
+
   it('discovers source-aware workflow entries and resolves active overrides by workflow id', async () => {
     const { builtInRoot, editorRoot, projectRoot, options } = testRoots();
     writePackage(builtInRoot, 'portrait', 'Built-in Portrait');
@@ -123,9 +162,11 @@ describe('comfyui workflow library service', () => {
     const left = computeComfyUiWorkflowPackageHash({ b: 2, a: 1 }, { prompt: { inputs: { value: 'Tea' } } });
     const right = computeComfyUiWorkflowPackageHash({ a: 1, b: 2 }, { prompt: { inputs: { value: 'Tea' } } });
     const changed = computeComfyUiWorkflowPackageHash({ a: 1, b: 2 }, { prompt: { inputs: { value: 'Coffee' } } });
+    const manifestChanged = computeComfyUiWorkflowPackageHash({ a: 1, b: 3 }, { prompt: { inputs: { value: 'Tea' } } });
 
     expect(left).toBe(right);
     expect(changed).not.toBe(left);
+    expect(manifestChanged).not.toBe(left);
   });
 
   it('copies workflows to mutable sources, detects duplicates, and requires replace for changed packages', async () => {
@@ -157,6 +198,15 @@ describe('comfyui workflow library service', () => {
     expect(response.success).toBe(true);
     expect(response.deleted).toHaveLength(2);
     expect(response.refreshed?.activeWorkflows).toContainEqual(expect.objectContaining({ source: 'built-in', id: 'portrait' }));
+  });
+
+  it('rejects built-in workflow deletion', async () => {
+    const { builtInRoot, options } = testRoots();
+    writePackage(builtInRoot, 'portrait', 'Built-in Portrait');
+
+    const response = await deleteComfyUiWorkflow({ workflowKey: 'built-in:portrait.manifest.json' }, options);
+
+    expect(response).toMatchObject({ ok: false, success: false, deleted: [], error: 'Built-in workflows cannot be deleted.' });
   });
 
   it('applies matching verification cache records and reveals workflow files', async () => {

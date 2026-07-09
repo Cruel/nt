@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssetsEditorTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildTestsEditorTab, buildVariablesEditorTab, resolveEditorPolicies, type WorkbenchEditorRegistration } from '@/workbench/editor-registry';
+import { buildAssetsEditorTab, buildComfyUiWorkflowsTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildTestsEditorTab, buildVariablesEditorTab, resolveEditorPolicies, type WorkbenchEditorRegistration } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
@@ -7,6 +7,7 @@ describe('editor registry', () => {
   it('resolves default editor registrations', () => {
     expect(defaultEditorRegistry.resolve('engine-preview')?.label).toBe('Engine Preview');
     expect(defaultEditorRegistry.resolve('full-game-preview')?.label).toBe('Play');
+    expect(defaultEditorRegistry.resolve('comfyui-workflows')?.label).toBe('ComfyUI Workflows');
     expect(defaultEditorRegistry.resolve('placeholder-entity')?.label).toBe('Placeholder Entity');
     expect(defaultEditorRegistry.resolve('raw-json')).toBeNull();
   });
@@ -71,6 +72,15 @@ describe('editor registry', () => {
       title: 'Play',
       editorType: 'full-game-preview',
       resource: { stableId: 'preview:full-game' },
+    });
+  });
+
+  it('builds the global ComfyUI workflows tab descriptor', () => {
+    expect(buildComfyUiWorkflowsTab()).toEqual({
+      id: 'tab:comfyui-workflows',
+      title: 'ComfyUI Workflows',
+      editorType: 'comfyui-workflows',
+      resource: { kind: 'tool', stableId: 'utility:comfyui-workflows' },
     });
   });
 

@@ -75,6 +75,22 @@ export function defaultComfyUiConfig(): ComfyUiConfig {
   };
 }
 
+export function normalizeComfyUiConfig(config: Partial<ComfyUiConfig> = {}): ComfyUiConfig {
+  const defaults = defaultComfyUiConfig();
+  const defaultWorkflowId = config.defaultWorkflowId ?? defaults.defaultWorkflowId;
+  return {
+    ...defaults,
+    ...config,
+    serverUrl: normalizeComfyUiServerUrl(config.serverUrl ?? defaults.serverUrl),
+    defaultWorkflowId,
+    defaultWorkflows: {
+      ...defaults.defaultWorkflows,
+      ...config.defaultWorkflows,
+      'image.generate': config.defaultWorkflows?.['image.generate'] ?? defaultWorkflowId,
+    },
+  };
+}
+
 export function normalizeComfyUiServerUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
 }

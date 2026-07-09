@@ -14,10 +14,13 @@
     "title": "Editor de código"
   },
   "comfyui": {
+    "defaultEditWorkflow": "Workflow padrão de edição",
     "defaultWorkflow": "Workflow padrão de geração",
     "description": "Configurações de conexão do ComfyUI para esta instalação do editor.",
     "enabled": "Ativar integração com ComfyUI",
     "enabledDescription": "Permite que ferramentas de geração e edição de imagens usem o servidor ComfyUI configurado.",
+    "manageWorkflows": "Gerenciar workflows do ComfyUI",
+    "noWorkflows": "Nenhum workflow disponível",
     "serverUrl": "URL do servidor",
     "statusUnknown": "O status do ComfyUI ainda não foi verificado.",
     "testConnection": "Testar conexão",

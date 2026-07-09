@@ -339,6 +339,12 @@ describe('workbench model', () => {
       editorType: 'settings',
       resource: { kind: 'tool', stableId: 'utility:settings' },
     });
+    state = openWorkbenchTab(state, {
+      id: 'tab:comfyui-workflows',
+      title: 'ComfyUI Workflows',
+      editorType: 'comfyui-workflows',
+      resource: { kind: 'tool', stableId: 'utility:comfyui-workflows' },
+    });
 
     const serialized = serializeProjectWorkbenchState(state);
     expect(Object.keys(serialized?.tabsById ?? {})).toEqual(['tab:project-settings', 'tab:assets']);
@@ -346,7 +352,7 @@ describe('workbench model', () => {
     expect(restoreProjectWorkbenchState(serialized ?? undefined, {}).tabsById['tab:assets']).toBeTruthy();
 
     const closed = closeProjectWorkbenchTabs(state);
-    expect(Object.keys(closed.tabsById)).toEqual(['tab:settings']);
+    expect(Object.keys(closed.tabsById)).toEqual(['tab:settings', 'tab:comfyui-workflows']);
   });
 
   it('treats stale project-scoped utility tabs with tool resources as project tabs', () => {

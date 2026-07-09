@@ -49,6 +49,15 @@
         "subtitle": "⟦Open an existing project⟧",
         "title": "⟦Open Project⟧"
       },
+      "comfyUiWorkflows": {
+        "search": [
+          "comfyui workflows",
+          "workflow manager",
+          "manage comfyui workflows"
+        ],
+        "subtitle": "⟦Manage ComfyUI workflows⟧",
+        "title": "⟦Manage ComfyUI Workflows⟧"
+      },
       "settings": {
         "search": [
           "settings",
@@ -122,43 +131,14 @@
   },
   "comfyuiWorkflows": {
     "title": "⟦ComfyUI Workflows⟧",
-    "description": "⟦Install and validate project-local workflow files. Connection settings are editor preferences.⟧",
-    "projectWorkflows": {
-      "title": "⟦Project workflows⟧",
-      "description": "⟦Install bundled starters or import a ComfyUI API workflow export.⟧"
-    },
+    "description": "⟦Project workflow summary. Manage built-in, editor-wide, and project workflows in the workflow manager.⟧",
     "actions": {
-      "import": "⟦Import Workflow⟧",
-      "installBuiltIns": "⟦Save Built-in Workflows to Project⟧",
-      "repair": "⟦Repair⟧",
-      "revealInFolder": "⟦Reveal in Folder⟧"
+      "manage": "⟦Manage⟧"
     },
-    "messages": {
-      "saveProjectBeforeInstall": "⟦Save the project before installing starter workflows.⟧",
-      "copiedFiles_one": "⟦{{count}} file copied⟧",
-      "copiedFiles_other": "⟦{{count}} files copied⟧",
-      "skippedFiles_one": "⟦{{count}} existing file skipped⟧",
-      "skippedFiles_other": "⟦{{count}} existing files skipped⟧",
-      "installResult": "⟦{{copied}}; {{skipped}}.⟧",
-      "installFailed": "⟦Failed to install starter workflows.⟧"
-    },
-    "table": {
-      "status": "⟦Status⟧",
-      "label": "⟦Label⟧",
-      "role": "⟦Role⟧",
-      "id": "⟦ID⟧",
-      "workflow": "⟦Workflow⟧",
-      "manifest": "⟦Manifest⟧",
-      "diagnostics": "⟦Diagnostics⟧",
-      "actions": "⟦Actions⟧",
-      "invalidManifest": "⟦Invalid manifest⟧",
-      "issueCount_one": "⟦{{count}} issue⟧",
-      "issueCount_other": "⟦{{count}} issues⟧",
-      "none": "⟦None⟧",
-      "empty": "⟦No project workflows installed.⟧"
-    },
-    "diagnostics": {
-      "empty": "⟦No workflow diagnostics.⟧"
+    "summary": {
+      "active": "⟦Total active workflows⟧",
+      "project": "⟦Project workflows⟧",
+      "invalidProject": "⟦Invalid project workflows⟧"
     }
   },
   "comfyuiImport": {

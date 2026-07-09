@@ -28,13 +28,13 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
 ## Project and Entity Editor Surfaces
 
 - `docs/editor/project/PROJECT_EXPLORER.md` — project explorer persistence, ordering, categories, context menus, chapters, and visual identity.
-- `docs/editor/project/PROJECT_SETTINGS.md` — project settings behavior, stored data, built-in fallbacks, validation, and project-local ComfyUI workflow management.
+- `docs/editor/project/PROJECT_SETTINGS.md` — project settings behavior, stored data, built-in fallbacks, validation, and the compact ComfyUI workflow summary.
 - `docs/engine/OVERVIEW.md` — component docs for individual project entity editors such as rooms, characters, dialogue, scenes, layouts, shaders, materials, variables, assets, and tests.
 
 ## ComfyUI Workflow Integration
 
-- `docs/editor/comfyui/WORKFLOW_IMPORT.md` — user-facing workflow import guidance, node-title conventions, bindings, outputs, and repair.
-- `docs/editor/project/PROJECT_SETTINGS.md` — Project Settings entrypoint for installed workflow table, import, repair, and diagnostics.
+- `docs/editor/comfyui/WORKFLOW_IMPORT.md` — workflow library sources, manager actions, import guidance, node-title conventions, bindings, outputs, repair, verification, and default resolution.
+- `docs/editor/project/PROJECT_SETTINGS.md` — Project Settings ComfyUI summary and handoff to the editor-owned workflow manager.
 
 When changing ComfyUI workflows, update the user-facing import doc when behavior or validation changes.
 

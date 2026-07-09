@@ -93,6 +93,18 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),
   listComfyUiWorkflowLibrary: (request = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, request),
+  copyComfyUiWorkflow: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_COPY_WORKFLOW, request),
+  deleteComfyUiWorkflow: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW, request),
+  importComfyUiWorkflowToLibrary: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY, request),
+  repairComfyUiWorkflowInLibrary: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY, request),
+  revealComfyUiWorkflow: (workflowKey, projectFilePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW, workflowKey, projectFilePath),
+  verifyComfyUiWorkflowLibrary: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY, request),
   listComfyUiWorkflows: (projectFilePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOWS, projectFilePath),
   installComfyUiStarterWorkflows: (projectFilePath) =>

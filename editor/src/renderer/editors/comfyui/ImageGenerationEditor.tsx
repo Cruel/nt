@@ -233,7 +233,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     let canceled = false;
     setWorkflowMessage(null);
     setWorkflows([]);
-    if (!projectFilePath || !comfyUiConfig.enabled || comfyUiStatus.state === 'error') return;
+    if (!comfyUiConfig.enabled || comfyUiStatus.state === 'error') return;
     void listComfyUiWorkflowLibrary({ projectFilePath }).then((response) => {
       if (canceled) return;
       setWorkflows(response.activeWorkflows);
@@ -419,6 +419,17 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     : comfyUiStatus.state === 'error'
       ? 'Image generation requires ComfyUI, but the current configuration is not working.'
       : null;
+  const outputAvailabilityMessage = !projectFilePath
+    ? 'Save the project before generating or editing images. Generated output files need a project asset folder.'
+    : null;
+  const workflowAvailabilityMessage = workflows.length > 0 && (!selectedGenerateWorkflow || !selectedEditWorkflow)
+    ? [
+      !selectedGenerateWorkflow ? 'No valid generate workflow is available.' : null,
+      !selectedEditWorkflow ? 'No valid edit workflow is available.' : null,
+    ].filter(Boolean).join(' ')
+    : workflows.length === 0
+      ? 'No valid ComfyUI workflows are available.'
+      : null;
 
   function openComfyUiSettings() {
     navigateToWorkbenchTarget({
@@ -474,6 +485,8 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {workflowMessage ? <div className="mb-4 rounded border p-2 text-xs text-muted-foreground">{workflowMessage}</div> : null}
+        {outputAvailabilityMessage ? <div className="mb-4 rounded border p-2 text-xs text-muted-foreground">{outputAvailabilityMessage}</div> : null}
+        {workflowAvailabilityMessage ? <div className="mb-4 rounded border p-2 text-xs text-muted-foreground">{workflowAvailabilityMessage}</div> : null}
         {message ? <div className="mb-4 rounded border p-2 text-xs text-muted-foreground">{message}</div> : null}
         <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-h-0 rounded border bg-muted/20 p-3">

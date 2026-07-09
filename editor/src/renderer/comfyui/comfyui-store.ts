@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { defaultComfyUiConfig, normalizeComfyUiServerUrl } from '../../shared/comfyui';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { useProjectStore } from '@/project/project-store';
 import { checkComfyUiConnection as requestComfyUiConnection, getComfyUiQueue as requestComfyUiQueue } from './comfyui-service';
+import { triggerComfyUiWorkflowVerification } from './comfyui-workflow-library-store';
 
 interface CheckConnectionOptions {
   showChecking?: boolean;
@@ -119,6 +121,7 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
     const status = await requestComfyUiConnection(config);
     if (!requestStillCurrent(config, get().config)) return status;
     if (visibleStatusChanged(get().status, status)) set({ status });
+    if (status.state === 'ready') void triggerComfyUiWorkflowVerification(config, useProjectStore.getState().projectFilePath);
     return status;
   },
   refreshQueue: async (overrideConfig) => {

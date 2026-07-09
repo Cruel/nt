@@ -30,7 +30,7 @@ export interface SelectorItem {
   entityId?: string;
   assetKind?: AssetData['kind'];
   preview?: SelectorPreview;
-  action?: 'settings' | 'new-project' | 'open-project' | 'project-settings' | 'assets' | 'variables' | 'tests';
+  action?: 'settings' | 'new-project' | 'open-project' | 'project-settings' | 'comfyui-workflows' | 'assets' | 'variables' | 'tests';
   tags: string[];
   collectionTerms: string[];
   actionTerms: string[];
@@ -79,6 +79,7 @@ const actionDefinitions = [
   { id: 'action:settings', action: 'settings', key: 'settings', projectOnly: false },
   { id: 'action:new-project', action: 'new-project', key: 'newProject', projectOnly: false },
   { id: 'action:open-project', action: 'open-project', key: 'openProject', projectOnly: false },
+  { id: 'action:comfyui-workflows', action: 'comfyui-workflows', key: 'comfyUiWorkflows', projectOnly: false },
   { id: 'action:project-settings', action: 'project-settings', key: 'projectSettings', projectOnly: true },
   { id: 'action:assets', action: 'assets', key: 'assets', projectOnly: true },
   { id: 'action:variables', action: 'variables', key: 'variables', projectOnly: true },

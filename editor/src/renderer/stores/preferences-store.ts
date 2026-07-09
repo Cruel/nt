@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { CodeEditorThemeId } from '@/components/source/source-editor-theme-types';
 import type { EditorLanguage } from '@/i18n';
 import type { ComfyUiConfig } from '../../shared/comfyui';
-import { defaultComfyUiConfig, normalizeComfyUiServerUrl } from '../../shared/comfyui';
+import { defaultComfyUiConfig, normalizeComfyUiConfig } from '../../shared/comfyui';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -45,15 +45,24 @@ export const usePreferencesStore = create<PreferencesState>()(
       setLastProjectPath: (lastProjectPath) => set({ lastProjectPath }),
       setDefaultProjectDirectory: (defaultProjectDirectory) => set({ defaultProjectDirectory }),
       setComfyUiConfig: (patch) => set((state) => ({
-        comfyUiConfig: {
+        comfyUiConfig: normalizeComfyUiConfig({
           ...state.comfyUiConfig,
           ...patch,
-          serverUrl: patch.serverUrl === undefined ? state.comfyUiConfig.serverUrl : normalizeComfyUiServerUrl(patch.serverUrl),
-        },
+        }),
       })),
     }),
     {
       name: 'noveltea-preferences',
+      merge: (persisted, current) => {
+        const next = {
+          ...current,
+          ...(persisted && typeof persisted === 'object' ? persisted : {}),
+        } as PreferencesState;
+        return {
+          ...next,
+          comfyUiConfig: normalizeComfyUiConfig(next.comfyUiConfig),
+        };
+      },
     },
   ),
 );

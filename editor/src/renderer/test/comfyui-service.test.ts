@@ -4,15 +4,21 @@ import {
   bestComfyUiErrorMessage,
   cancelComfyUiJob,
   checkComfyUiConnection,
+  copyComfyUiWorkflow,
+  deleteComfyUiWorkflow,
   editComfyUiImage,
   generateComfyUiImage,
   getComfyUiQueue,
+  importComfyUiWorkflowToLibrary,
   installComfyUiStarterWorkflows,
   listComfyUiWorkflowLibrary,
   listComfyUiWorkflows,
+  repairComfyUiWorkflowInLibrary,
   repairComfyUiWorkflowManifest,
+  revealComfyUiWorkflow,
   saveImportedComfyUiWorkflow,
   subscribeComfyUiProgress,
+  verifyComfyUiWorkflowLibrary,
 } from '@/comfyui/comfyui-service';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
 
@@ -27,6 +33,12 @@ describe('comfyui-service', () => {
     await checkComfyUiConnection(config);
     await getComfyUiQueue(config);
     await listComfyUiWorkflowLibrary({ projectFilePath: '/mock/project/game.json', includeOverridden: true });
+    await copyComfyUiWorkflow({ workflowKey: 'built-in:custom.manifest.json', targetSource: 'editor' });
+    await deleteComfyUiWorkflow({ workflowKey: 'editor:custom.manifest.json' });
+    await importComfyUiWorkflowToLibrary({ workflowFileName: 'custom.workflow.json', manifestFileName: 'custom.manifest.json', workflowJsonText: '{}', manifest: {}, overwrite: false });
+    await repairComfyUiWorkflowInLibrary({ workflowKey: 'editor:custom.manifest.json', manifest: {}, overwrite: true });
+    await revealComfyUiWorkflow('editor:custom.manifest.json', '/mock/project/game.json');
+    await verifyComfyUiWorkflowLibrary({ projectFilePath: '/mock/project/game.json', config });
     await listComfyUiWorkflows('/mock/project/game.json');
     await installComfyUiStarterWorkflows('/mock/project/game.json');
     await analyzeComfyUiWorkflowImport({ projectFilePath: '/mock/project/game.json', workflowJsonText: '{}' });
@@ -39,6 +51,12 @@ describe('comfyui-service', () => {
     expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(config);
     expect(window.noveltea.getComfyUiQueue).toHaveBeenCalledWith(config);
     expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenCalledWith({ projectFilePath: '/mock/project/game.json', includeOverridden: true });
+    expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith(expect.objectContaining({ workflowKey: 'built-in:custom.manifest.json' }));
+    expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith(expect.objectContaining({ workflowKey: 'editor:custom.manifest.json' }));
+    expect(window.noveltea.importComfyUiWorkflowToLibrary).toHaveBeenCalledWith(expect.objectContaining({ workflowFileName: 'custom.workflow.json' }));
+    expect(window.noveltea.repairComfyUiWorkflowInLibrary).toHaveBeenCalledWith(expect.objectContaining({ workflowKey: 'editor:custom.manifest.json' }));
+    expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith('editor:custom.manifest.json', '/mock/project/game.json');
+    expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(expect.objectContaining({ projectFilePath: '/mock/project/game.json' }));
     expect(window.noveltea.listComfyUiWorkflows).toHaveBeenCalledWith('/mock/project/game.json');
     expect(window.noveltea.installComfyUiStarterWorkflows).toHaveBeenCalledWith('/mock/project/game.json');
     expect(window.noveltea.analyzeComfyUiWorkflowImport).toHaveBeenCalledWith(expect.objectContaining({ workflowJsonText: '{}' }));

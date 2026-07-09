@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { buildSettingsTab } from '@/workbench/editor-registry';
+import { buildComfyUiWorkflowsTab, buildSettingsTab } from '@/workbench/editor-registry';
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
@@ -35,5 +35,14 @@ describe('CommandPaletteDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
     expect(onOpenTab).toHaveBeenCalledWith(buildSettingsTab());
+  });
+
+  it('opens ComfyUI workflow manager without a project', async () => {
+    const onOpenTab = vi.fn();
+    render(<CommandPaletteDialog open project={null} onOpenChange={vi.fn()} onOpenTab={onOpenTab} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manage ComfyUI Workflows' }));
+
+    expect(onOpenTab).toHaveBeenCalledWith(buildComfyUiWorkflowsTab());
   });
 });

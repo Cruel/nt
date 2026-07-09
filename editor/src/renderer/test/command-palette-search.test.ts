@@ -22,6 +22,7 @@ describe('command palette search', () => {
       'action:settings',
       'action:new-project',
       'action:open-project',
+      'action:comfyui-workflows',
       'action:project-settings',
       'record:assets:logo',
       'record:rooms:classroom',
@@ -44,8 +45,9 @@ describe('command palette search', () => {
 
   it('shows only non-project actions without project data', () => {
     const items = buildCommandPaletteItems(null);
-    expect(items.map((item) => item.id)).toEqual(['action:settings', 'action:new-project', 'action:open-project']);
+    expect(items.map((item) => item.id)).toEqual(['action:settings', 'action:new-project', 'action:open-project', 'action:comfyui-workflows']);
     expect(searchCommandPaletteItems(items, 'settings')[0]?.item.id).toBe('action:settings');
+    expect(searchCommandPaletteItems(items, 'workflow manager')[0]?.item.id).toBe('action:comfyui-workflows');
   });
 
   it('filters selector items by image asset kind', () => {

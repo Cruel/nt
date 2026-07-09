@@ -14,10 +14,13 @@
     "title": "⟦Code Editor⟧"
   },
   "comfyui": {
+    "defaultEditWorkflow": "⟦Default edit workflow⟧",
     "defaultWorkflow": "⟦Default generate workflow⟧",
     "description": "⟦ComfyUI connection settings for this editor installation.⟧",
     "enabled": "⟦Enable ComfyUI integration⟧",
     "enabledDescription": "⟦Allows image generation and image editing tools to use your configured ComfyUI server.⟧",
+    "manageWorkflows": "⟦Manage ComfyUI Workflows⟧",
+    "noWorkflows": "⟦No workflows available⟧",
     "serverUrl": "⟦Server URL⟧",
     "statusUnknown": "⟦ComfyUI status has not been checked yet.⟧",
     "testConnection": "⟦Test Connection⟧",

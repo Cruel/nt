@@ -61,6 +61,12 @@ export interface NovelTeaElectronApi {
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
   listComfyUiWorkflowLibrary(request?: ComfyUiWorkflowLibraryListRequest): Promise<ComfyUiWorkflowLibraryListResponse>;
+  copyComfyUiWorkflow(request: ComfyUiWorkflowCopyRequest): Promise<ComfyUiWorkflowCopyResponse>;
+  deleteComfyUiWorkflow(request: ComfyUiWorkflowDeleteRequest): Promise<ComfyUiWorkflowDeleteResponse>;
+  importComfyUiWorkflowToLibrary(request: ComfyUiImportWorkflowToLibraryRequest): Promise<ComfyUiImportWorkflowToLibraryResponse>;
+  repairComfyUiWorkflowInLibrary(request: ComfyUiRepairWorkflowInLibraryRequest): Promise<ComfyUiRepairWorkflowInLibraryResponse>;
+  revealComfyUiWorkflow(workflowKey: ComfyUiWorkflowKey, projectFilePath?: string | null): Promise<boolean>;
+  verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflowLibraryRequest): Promise<ComfyUiVerifyWorkflowLibraryResponse>;
   listComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowListResponse>;
   installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse>;
   analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse>;
@@ -85,7 +91,7 @@ export interface NovelTeaElectronApi {
 import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from './comfyui-generation';
-import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiAnalyzeWorkflowImportResponse, ComfyUiInstallStarterWorkflowsResponse, ComfyUiRepairWorkflowManifestRequest, ComfyUiSaveImportedWorkflowRequest, ComfyUiSaveImportedWorkflowResponse, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowLibraryListResponse, ComfyUiWorkflowListResponse } from './comfyui-workflows';
+import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiAnalyzeWorkflowImportResponse, ComfyUiImportWorkflowToLibraryRequest, ComfyUiImportWorkflowToLibraryResponse, ComfyUiInstallStarterWorkflowsResponse, ComfyUiRepairWorkflowInLibraryRequest, ComfyUiRepairWorkflowInLibraryResponse, ComfyUiRepairWorkflowManifestRequest, ComfyUiSaveImportedWorkflowRequest, ComfyUiSaveImportedWorkflowResponse, ComfyUiVerifyWorkflowLibraryRequest, ComfyUiVerifyWorkflowLibraryResponse, ComfyUiWorkflowCopyRequest, ComfyUiWorkflowCopyResponse, ComfyUiWorkflowDeleteRequest, ComfyUiWorkflowDeleteResponse, ComfyUiWorkflowKey, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowLibraryListResponse, ComfyUiWorkflowListResponse } from './comfyui-workflows';
 import type { EnginePreviewSession } from './preview-protocol';
 import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from './project-asset-audit';
 import type { ProjectAssetUrlResponse } from './project-asset-url';

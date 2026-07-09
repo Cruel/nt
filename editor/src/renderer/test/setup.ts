@@ -123,6 +123,12 @@ Object.defineProperty(window, 'noveltea', {
       overriddenEntries: [],
       summary: { sources: [], totalCount: 0, activeCount: 0, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
     }),
+    copyComfyUiWorkflow: vi.fn().mockResolvedValue({ ok: true, success: true, action: 'copied', diagnostics: [] }),
+    deleteComfyUiWorkflow: vi.fn().mockResolvedValue({ ok: true, success: true, deleted: [], diagnostics: [] }),
+    importComfyUiWorkflowToLibrary: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], workflowKey: 'editor:mock.manifest.json', workflowFile: 'mock.workflow.json', manifestFile: 'mock.manifest.json' }),
+    repairComfyUiWorkflowInLibrary: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [], workflowKey: 'editor:mock.manifest.json', workflowFile: 'mock.workflow.json', manifestFile: 'mock.manifest.json' }),
+    revealComfyUiWorkflow: vi.fn().mockResolvedValue(true),
+    verifyComfyUiWorkflowLibrary: vi.fn().mockResolvedValue({ ok: true, success: true, checkedAt: 'now', verified: [], failed: [], skipped: [], entries: [], diagnostics: [] }),
     listComfyUiWorkflows: vi.fn().mockResolvedValue({
       ok: true,
       success: true,

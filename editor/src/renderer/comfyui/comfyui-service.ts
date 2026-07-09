@@ -8,10 +8,21 @@ import type {
 import type {
   ComfyUiAnalyzeWorkflowImportRequest,
   ComfyUiAnalyzeWorkflowImportResponse,
+  ComfyUiImportWorkflowToLibraryRequest,
+  ComfyUiImportWorkflowToLibraryResponse,
   ComfyUiInstallStarterWorkflowsResponse,
+  ComfyUiRepairWorkflowInLibraryRequest,
+  ComfyUiRepairWorkflowInLibraryResponse,
   ComfyUiRepairWorkflowManifestRequest,
   ComfyUiSaveImportedWorkflowRequest,
   ComfyUiSaveImportedWorkflowResponse,
+  ComfyUiVerifyWorkflowLibraryRequest,
+  ComfyUiVerifyWorkflowLibraryResponse,
+  ComfyUiWorkflowCopyRequest,
+  ComfyUiWorkflowCopyResponse,
+  ComfyUiWorkflowDeleteRequest,
+  ComfyUiWorkflowDeleteResponse,
+  ComfyUiWorkflowKey,
   ComfyUiWorkflowLibraryListRequest,
   ComfyUiWorkflowLibraryListResponse,
   ComfyUiWorkflowListResponse,
@@ -31,6 +42,30 @@ export async function listComfyUiWorkflows(projectFilePath: string): Promise<Com
 
 export async function listComfyUiWorkflowLibrary(request: ComfyUiWorkflowLibraryListRequest = {}): Promise<ComfyUiWorkflowLibraryListResponse> {
   return window.noveltea.listComfyUiWorkflowLibrary(request);
+}
+
+export async function copyComfyUiWorkflow(request: ComfyUiWorkflowCopyRequest): Promise<ComfyUiWorkflowCopyResponse> {
+  return window.noveltea.copyComfyUiWorkflow(request);
+}
+
+export async function deleteComfyUiWorkflow(request: ComfyUiWorkflowDeleteRequest): Promise<ComfyUiWorkflowDeleteResponse> {
+  return window.noveltea.deleteComfyUiWorkflow(request);
+}
+
+export async function importComfyUiWorkflowToLibrary(request: ComfyUiImportWorkflowToLibraryRequest): Promise<ComfyUiImportWorkflowToLibraryResponse> {
+  return window.noveltea.importComfyUiWorkflowToLibrary(request);
+}
+
+export async function repairComfyUiWorkflowInLibrary(request: ComfyUiRepairWorkflowInLibraryRequest): Promise<ComfyUiRepairWorkflowInLibraryResponse> {
+  return window.noveltea.repairComfyUiWorkflowInLibrary(request);
+}
+
+export async function revealComfyUiWorkflow(workflowKey: ComfyUiWorkflowKey, projectFilePath?: string | null): Promise<boolean> {
+  return window.noveltea.revealComfyUiWorkflow(workflowKey, projectFilePath);
+}
+
+export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflowLibraryRequest): Promise<ComfyUiVerifyWorkflowLibraryResponse> {
+  return window.noveltea.verifyComfyUiWorkflowLibrary(request);
 }
 
 export async function installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse> {
