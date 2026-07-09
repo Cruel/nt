@@ -6,7 +6,7 @@ import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from '../../shared/comfyui-generation';
-import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowId, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
+import { BUILTIN_COMFYUI_WORKFLOW_MANIFESTS, parseComfyUiWorkflowDefinition, resolveComfyUiWorkflowBinding, resolvedComfyUiWorkflowOutputNodeIdList, type ComfyUiInstallStarterWorkflowsResponse, type ComfyUiWorkflowBinding, type ComfyUiWorkflowDefinition, type ComfyUiWorkflowDiagnostic, type ComfyUiWorkflowId, type ComfyUiWorkflowListResponse } from '../../shared/comfyui-workflows';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 
@@ -205,12 +205,18 @@ export async function loadComfyUiWorkflowTemplate(projectFilePath: string, defin
   return JSON.parse(text) as WorkflowGraph;
 }
 
-function validateWorkflowBindings(workflow: WorkflowGraph, definition: ComfyUiWorkflowDefinition) {
+function validateWorkflowBindings(workflow: WorkflowGraph, definition: ComfyUiWorkflowDefinition): ComfyUiWorkflowDiagnostic[] {
+  const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
   for (const binding of Object.values(definition.bindings)) {
     if (!binding) continue;
-    const node = workflow[binding.nodeId];
-    if (!node || !node.inputs || !(binding.inputName in node.inputs)) throw new Error(`Workflow '${definition.label}' is missing binding '${binding.nodeId}.${binding.inputName}'.`);
+    const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
+    if (!resolution.ok) throw new Error(`Workflow '${definition.label}' ${resolution.message ?? 'has an unresolved binding.'}`);
+    if (resolution.rebased && binding.nodeId && resolution.nodeId) {
+      diagnostics.push(diagnostic(`/workflows/${definition.manifestFile ?? definition.id}/bindings`, `Rebased binding from missing node ${binding.nodeId} to node ${resolution.nodeId}.`, 'info'));
+    }
   }
+  resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
+  return diagnostics;
 }
 
 async function validateProjectWorkflowDefinition(projectFilePath: string, definition: ComfyUiWorkflowDefinition): Promise<ComfyUiWorkflowDiagnostic[]> {
@@ -221,7 +227,8 @@ async function validateProjectWorkflowDefinition(projectFilePath: string, defini
     const relative = path.relative(projectWorkflowsRoot(projectFilePath), workflowPath);
     if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Workflow file escapes the workflows directory.');
     const workflow = await loadComfyUiWorkflowTemplate(projectFilePath, definition);
-    validateWorkflowBindings(workflow, definition);
+    diagnostics.push(...validateWorkflowBindings(workflow, definition));
+    if (!definition.outputBindings.images?.length) diagnostics.push(diagnostic(`${manifestPath}/outputBindings/images`, `Workflow '${definition.label}' uses legacy outputNodeIds; repair or reimport it to add explicit output bindings.`, 'warning'));
   } catch (error) {
     diagnostics.push(diagnostic(manifestPath, error instanceof Error ? error.message : 'Workflow template is invalid.'));
   }
@@ -264,14 +271,15 @@ function cloneWorkflow(workflow: WorkflowGraph): WorkflowGraph {
 }
 
 function coerceBindingValue(binding: ComfyUiWorkflowBinding, value: unknown) {
+  const bindingLabel = `${binding.nodeId ?? binding.nodeTitle ?? 'unresolved'}.${binding.inputName}`;
   if (binding.valueType === 'integer') {
     const number = Number(value);
-    if (!Number.isFinite(number)) throw new Error(`Input '${binding.nodeId}.${binding.inputName}' must be a number.`);
+    if (!Number.isFinite(number)) throw new Error(`Input '${bindingLabel}' must be a number.`);
     return Math.trunc(number);
   }
   if (binding.valueType === 'number') {
     const number = Number(value);
-    if (!Number.isFinite(number)) throw new Error(`Input '${binding.nodeId}.${binding.inputName}' must be a number.`);
+    if (!Number.isFinite(number)) throw new Error(`Input '${bindingLabel}' must be a number.`);
     return number;
   }
   return String(value);
@@ -279,10 +287,13 @@ function coerceBindingValue(binding: ComfyUiWorkflowBinding, value: unknown) {
 
 function setWorkflowInput(workflow: WorkflowGraph, binding: ComfyUiWorkflowBinding | undefined, value: unknown) {
   if (!binding) return;
-  const node = workflow[binding.nodeId];
-  if (!node || !node.inputs) throw new Error(`Workflow node '${binding.nodeId}' is missing.`);
-  if (!(binding.inputName in node.inputs)) throw new Error(`Workflow input '${binding.nodeId}.${binding.inputName}' is missing.`);
-  node.inputs[binding.inputName] = coerceBindingValue(binding, value);
+  const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
+  if (!resolution.ok || !resolution.nodeId) throw new Error(resolution.message ?? `Workflow binding '${binding.nodeTitle ?? binding.inputName}' cannot be resolved.`);
+  const inputName = binding.selector?.inputName ?? binding.inputName;
+  const node = workflow[resolution.nodeId];
+  if (!node || !node.inputs) throw new Error(`Workflow node '${resolution.nodeId}' is missing.`);
+  if (!(inputName in node.inputs)) throw new Error(`Workflow input '${resolution.nodeId}.${inputName}' is missing.`);
+  node.inputs[inputName] = coerceBindingValue(binding, value);
 }
 
 function generatedSeed(seed: number | undefined) {
@@ -439,13 +450,16 @@ async function waitForPrompt(config: ComfyUiConfig, workflowId: string, promptId
   }
 }
 
-async function historyImageDescriptors(config: ComfyUiConfig, promptId: string): Promise<ComfyImageDescriptor[]> {
+async function historyImageDescriptors(config: ComfyUiConfig, promptId: string, outputNodeIds: string[]): Promise<ComfyImageDescriptor[]> {
   const result = await fetchJson(config, `/history/${encodeURIComponent(promptId)}`);
   if (!result.ok) throw new Error(result.error);
   const root = result.value as Record<string, { outputs?: Record<string, { images?: ComfyImageDescriptor[] }> }>;
   const promptHistory = root[promptId];
   if (!promptHistory?.outputs) return [];
-  return Object.values(promptHistory.outputs).flatMap((output) => Array.isArray(output.images) ? output.images : []);
+  const outputs = outputNodeIds.length
+    ? outputNodeIds.map((nodeId) => promptHistory.outputs?.[nodeId]).filter((output): output is { images?: ComfyImageDescriptor[] } => Boolean(output))
+    : Object.values(promptHistory.outputs);
+  return outputs.flatMap((output) => Array.isArray(output.images) ? output.images : []);
 }
 
 function descriptorViewPath(image: ComfyImageDescriptor) {
@@ -488,10 +502,11 @@ async function runImageJob(config: ComfyUiConfig, definition: ComfyUiWorkflowDef
     await validateWorkflowRequirements(config, definition);
     const submitted = await submitPrompt(config, workflow, promptId, clientId);
     const actualPromptId = submitted.prompt_id ?? promptId;
+    const outputNodeIds = resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
     const emit = (progress: ComfyUiQueueProgress) => owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, { ...progressMetadata, ...progress, updatedAt: new Date().toISOString() });
     emit({ promptId: actualPromptId, workflowId: definition.id, state: 'queued', queueRemaining: typeof submitted.number === 'number' ? submitted.number : null, currentNode: null, progressValue: null, progressMax: null, message: 'Queued generation', queueNumber: typeof submitted.number === 'number' ? submitted.number : undefined });
     await waitForPrompt(config, definition.id, actualPromptId, clientId, emit);
-    const descriptors = await historyImageDescriptors(config, actualPromptId);
+    const descriptors = await historyImageDescriptors(config, actualPromptId, outputNodeIds);
     if (!descriptors.length) throw new Error('ComfyUI completed without image outputs.');
     const assets = [];
     for (const descriptor of descriptors) {
