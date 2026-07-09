@@ -25,7 +25,7 @@ RmlUi renderer internals, effects probes, renderer refactor plans, and optimizat
 
 ## Engine 2D Rendering
 
-NovelTea keeps a small engine-owned 2D draw layer for sprites, quads, room/object presentation, render layers, clipping, and material-backed engine geometry. The shader/material asset pipeline is documented in [`NOVELTEA_SHADER_MATERIAL_PLAN.md`](NOVELTEA_SHADER_MATERIAL_PLAN.md).
+NovelTea keeps a small engine-owned 2D draw layer for sprites, quads, room/object presentation, render layers, clipping, and material-backed engine geometry. The shader/material asset pipeline is documented in [`docs/rendering/plans/SHADER_MATERIAL_PLAN.md`](plans/SHADER_MATERIAL_PLAN.md).
 
 Current view ownership:
 

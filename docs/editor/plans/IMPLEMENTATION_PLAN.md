@@ -15,7 +15,7 @@ preview integration, diagnostics, tab splitting, and persistence reliable enough
 that later editors can be implemented one at a time without rewriting the shell.
 
 Editor-side dependency and component choices are standardized in
-`docs/editor/EDITOR_TECH_STACK.md`. Check that document before adding React UI,
+`docs/editor/TECH_STACK.md`. Check that document before adding React UI,
 state, table, graph, source editor, validation, drag/drop, or workbench layout
 dependencies.
 
@@ -953,7 +953,7 @@ Acceptance criteria:
 
 Goal: replace the single workspace route layout with a reusable workbench.
 
-Before implementing this milestone, review `docs/editor/EDITOR_TECH_STACK.md`.
+Before implementing this milestone, review `docs/editor/TECH_STACK.md`.
 The intended foundation is local shadcn/Base UI wrappers, `react-resizable-panels`
 for split panes, `@dnd-kit` for tab/list drag behavior, and the editor's own
 workbench/tab model rather than a full docking-layout framework.
@@ -1069,7 +1069,7 @@ requests/fallback previews for imported asset records.
 Goal: exercise assets, command bus, helper CLI, preview, diagnostics, and
 thumbnails through one high-value editor.
 
-Before implementing this milestone, review `docs/editor/EDITOR_TECH_STACK.md`.
+Before implementing this milestone, review `docs/editor/TECH_STACK.md`.
 Shader/source editing should use the local CodeMirror wrapper once source editor
 work begins, uniform/variant tables should use TanStack Table when needed, and
 material thumbnail lists should use PreviewManager plus virtualization/caching
@@ -1153,7 +1153,7 @@ Acceptance criteria:
 
 Goal: make RmlUi authoring visible and previewable.
 
-Before implementing this milestone, review `docs/editor/EDITOR_TECH_STACK.md`.
+Before implementing this milestone, review `docs/editor/TECH_STACK.md`.
 RML/RCSS source editing should use the local CodeMirror wrapper, diagnostics
 should flow through the shared validation/preview surfaces, and visual design
 primitives should remain shadcn/Base UI based.
@@ -1214,7 +1214,7 @@ Acceptance criteria:
 
 Goal: author branching dialogue and embed it later in scenes.
 
-Before implementing this milestone, review `docs/editor/EDITOR_TECH_STACK.md`.
+Before implementing this milestone, review `docs/editor/TECH_STACK.md`.
 Dialogue graph work should use `@xyflow/react` when the graph editor is
 implemented, while ordered/reorderable lists should continue to use dnd-kit.
 
@@ -1237,7 +1237,7 @@ Acceptance criteria:
 
 Goal: implement the core VN orchestration authoring surface.
 
-Before implementing this milestone, review `docs/editor/EDITOR_TECH_STACK.md`.
+Before implementing this milestone, review `docs/editor/TECH_STACK.md`.
 Scene step ordering should start with local components plus dnd-kit. Add a
 specialized timeline package only after concrete scene timeline requirements
 justify it.
@@ -1342,7 +1342,7 @@ These should not block the workbench and first editor slices:
 For docs-only changes:
 
 ```sh
-git diff -- docs/editor/EDITOR_IMPLEMENTATION_PLAN.md
+git diff -- docs/editor/plans/IMPLEMENTATION_PLAN.md
 ```
 
 For editor shell changes:
@@ -1373,10 +1373,10 @@ ctest --test-dir build/linux-debug --output-on-failure
 ```
 
 For runtime/export/rendering-impacting changes, also run the smallest relevant
-Linux/Web/Android checks documented in `AGENTS.md` and `docs/BUILD_AND_VERIFY.md`.
+Linux/Web/Android checks documented in `AGENTS.md` and `docs/build/BUILD_AND_VERIFY.md`.
 
 ## Suggested First Implementation Prompt
 
 ```
-@dev nt Review `/home/thomas/dev/nt/docs/editor/EDITOR_IMPLEMENTATION_PLAN.md` and all relevant files, including some that may be in the reference project dir `/home/thomas/dev/nt/refs/NovelTea/src/editor/`. Create an implementation plan for Milestone X.
+@dev nt Review `/home/thomas/dev/nt/docs/editor/plans/IMPLEMENTATION_PLAN.md` and all relevant files, including some that may be in the reference project dir `/home/thomas/dev/nt/refs/NovelTea/src/editor/`. Create an implementation plan for Milestone X.
 ```

@@ -115,7 +115,7 @@ ZIP-based `.ntpkg` files using the legacy-compatible runtime layout plus additiv
 `manifest.json` metadata, safe asset-path filtering, per-entry checksums, and compiled bgfx shader
 variant inclusion. Editor-facing callers use `core::editor::ProjectTooling::export_project_package`
 so archive-library types do not leak through public APIs. The v1 package contract is documented in
-[`docs/runtime/PACKAGE_EXPORT.md`](runtime/PACKAGE_EXPORT.md).
+[`docs/runtime/PACKAGE_EXPORT.md`](../runtime/PACKAGE_EXPORT.md).
 
 ## Main Loop
 

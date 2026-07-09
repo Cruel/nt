@@ -485,7 +485,7 @@ Implement:
 - cover/background/image slots — v1 done via RmlUi `<img>` elements backed by
   the existing bgfx RmlUi texture loader (bimg decode).
 - room/object image presentation where project data supports it
-- shader/material resolution policy — deferred to [`docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`](../rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md)
+- shader/material resolution policy — deferred to [`docs/rendering/plans/SHADER_MATERIAL_PLAN.md`](../rendering/plans/SHADER_MATERIAL_PLAN.md)
 - render layers and ordering — 4-layer view system (Background, Main, Foreground,
   UIOverlay) via `GameLayer` enum, each mapped to its own bgfx view.
 - scissor/clip integration — push/pop scissor stack on `Renderer`, applied
@@ -499,7 +499,7 @@ Do not invent old SFML behavior blindly. Use `refs/NovelTea/` only to understand
 
 Deferred items:
 
-- Material/shader resolution. [`docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`](../rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md)
+- Material/shader resolution. [`docs/rendering/plans/SHADER_MATERIAL_PLAN.md`](../rendering/plans/SHADER_MATERIAL_PLAN.md)
   is now the source of truth for this work. When implemented this must define
   project-schema shader records, project-schema material records, MaterialId and
   ShaderId normalization, shader-role compatibility validation, a shader/material

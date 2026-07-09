@@ -2,9 +2,28 @@
 
 ## Project Purpose
 
-This repository is the new NovelTea runtime/framework. The target stack is SDL3 for platform/input/windowing, bgfx for rendering across Linux, Web, and Android, RmlUi for runtime UI, Dear ImGui for developer/debug UI only, and Lua for runtime scripting.
+This repository is the new NovelTea runtime/framework and editor. The target stack is SDL3 for platform/input/windowing, bgfx for rendering across Linux, Web, and Android, RmlUi for runtime UI, Dear ImGui for developer/debug UI only, and Lua for runtime scripting.
 
 This is a new engine/editor, not a compatibility fork of the old `Cruel/NovelTea` engine. The old engine is a reference for selected behavior and workflows only; new runtime, editor, and project-format decisions should choose the best new-engine design rather than preserve old formats or APIs.
+
+## Documentation Routing
+
+Use `docs/OVERVIEW.md` as the top-level documentation map. `AGENTS.md` should stay focused on root repository rules and route agents to top-level documentation entrypoints; detailed subsystem references belong in the area overview files.
+
+Read the relevant area overview before changing code in that area:
+
+- Build, CMake, CI, toolchains, shaders, platform build wiring: `docs/build/OVERVIEW.md`
+- Engine/runtime architecture and C++ framework direction: `docs/architecture/OVERVIEW.md`
+- Authoring project/entity schemas and component behavior: `docs/engine/OVERVIEW.md`
+- Electron editor work: `docs/editor/OVERVIEW.md`
+- Runtime state, Lua, playback, preview/debugger/recorder, package export: `docs/runtime/OVERVIEW.md`
+- Rendering, text, shaders/materials, bgfx, render perf: `docs/rendering/OVERVIEW.md`
+- RmlUi runtime UI and custom UI components: `docs/ui/OVERVIEW.md`
+- Asset loading/import/export and typed asset manager work: `docs/assets/OVERVIEW.md`
+- Migration planning/status and legacy-reference decisions: `docs/migration/OVERVIEW.md`
+- Historical reports only: `docs/archive/OVERVIEW.md`
+
+When a task materially changes behavior, update the narrowest relevant document or explicitly report why no documentation change was needed.
 
 ## Repository Layout
 
@@ -12,9 +31,8 @@ This is a new engine/editor, not a compatibility fork of the old `Cruel/NovelTea
 - `apps/sandbox/` is the current smoke-test application and should remain a fast verification target.
 - `android/` contains the Android Gradle project that builds the native CMake project.
 - `cmake/` contains toolchains and build helpers.
-- `editor/` is for the Electron/TanStack/Vite editor direction, not the old Qt editor.
+- `editor/` is the Electron/TanStack/Vite editor direction, not the old Qt editor.
 - `docs/` contains current architecture, build, runtime, UI, rendering, editor, migration, and archive notes.
-- `docs/migration/` contains current migration status and the next migration-plan index.
 - `docs/archive/` contains historical reports that must not be treated as current implementation direction.
 - `refs/` contains local read-only clones used solely as migration/implementation reference. Currently: `NovelTea/` (old engine), `bgfx/`, `bimg/`, `bx/`, and `RmlUi/` (upstream library snapshots).
 
@@ -38,43 +56,30 @@ Do not port the old Qt5 editor unless the user explicitly asks. The old editor i
 
 Avoid new third-party dependencies unless the task explicitly justifies them. Prefer small adapters and tests over dependency expansion.
 
-Do not paste large logs or file dumps into the parent conversation. Save durable findings under `docs/migration/` or `docs/archive/` when needed and return concise summaries.
+Do not paste large logs or file dumps into the parent conversation. Save durable findings under the relevant docs area when needed and return concise summaries.
 
 ## Current Migration Direction
 
-The previous 11-phase backend-neutral core migration is complete for the current repository target. The next plan should focus on runtime state/playback, Lua execution, RmlUi runtime components, ActiveText/map/text-log rendering, editor preview/testing, save/autosave/object placement, packaging/export, and real project fixtures.
+The previous backend-neutral core migration is complete for the current repository target. Current work should focus on runtime state/playback, Lua execution, RmlUi runtime components, ActiveText/map/text-log rendering, editor preview/testing, save/autosave/object placement, packaging/export, real project fixtures, and documentation that lets agents navigate these systems without chat history.
 
-## Editor UI Component Policy
+## Editor Policy
 
-When working under `editor/`, read `docs/editor/EDITOR_AGENT_GUIDE.md` first. That guide is the editor documentation index and records cross-cutting editor practices such as workbench navigation, diagnostics, tab state, preview ownership, localization, and UI component conventions.
+When working under `editor/`, read `docs/editor/OVERVIEW.md` first. That overview routes to the editor agent guide, tech stack/component standards, workbench/tab/preview docs, localization docs, ComfyUI workflow docs, project explorer/settings docs, and export/packaging docs.
 
-The Electron editor should use shadcn Base UI components whenever an appropriate shadcn component exists. Do not create custom editor UI primitives or wrappers unless shadcn Base does not provide the needed primitive or the user explicitly asks for a custom component.
-
-For stable user-facing editor text, use the editor i18n resources under `editor/src/renderer/i18n/locales/` rather than scattering hard-coded English through components. Keep `en-US` as the maintained source copy, keep other real locales key-compatible with `en-US`, and update `docs/editor/EDITOR_TRANSLATIONS.md` when locale status or namespace coverage changes. Fast-moving experimental surfaces may stay inline English until their UI settles.
-
-Use whole-message i18n keys with interpolation for dynamic user-facing values; do not assemble translated sentences by concatenating fragments. Use i18next plural suffixes such as `_one` and `_other` for count-based text. Use the `editor/src/renderer/i18n/formatting.ts` helpers for locale-aware dates, times, relative time, numbers, percentages, and file sizes instead of manual formatting in components.
-
-The editor owns its application menu in renderer chrome. Do not add or restore a native Electron application menu on any platform.
-
-When adding or updating editor UI components, use the `shadcn add` workflow for the Base UI registry and reference the official shadcn Base documentation for the intended composition and state attributes before wiring usage code. Keep generated component files close to the upstream shadcn output; prefer adapting usage code over rewriting generated components.
-
-For editor pages, compose official component parts as documented. For example, use `SelectTrigger`, `SelectValue`, and `SelectContent` with `Select`; use the documented dialog, dropdown menu, tooltip, menubar, sidebar, and sheet component structure instead of relying on locally invented shortcut APIs.
+Keep stable editor behavior documented in the editor docs hierarchy. Do not reintroduce detailed editor policy into `AGENTS.md` unless it is truly repository-wide.
 
 ## Build and Verification Commands
 
-Use the smallest relevant command set for the touched area, but keep Linux and Web healthy during engine work.
+Use the smallest relevant command set for the touched area, but keep Linux and Web healthy during engine work. `docs/build/BUILD_AND_VERIFY.md` and `docs/build/OVERVIEW.md` are the source of truth for build and verification details.
+
+Common engine verification:
 
 ```sh
 cmake --preset linux-debug
 cmake --build --preset linux-debug
+ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
 cmake --build --preset web-debug
-```
-
-Run tests when core/runtime behavior changes:
-
-```sh
-ctest --test-dir build/linux-debug --output-on-failure
 ```
 
 Run clang-format for touched C/C++ files before final verification. The project provides CMake targets:
@@ -99,11 +104,7 @@ cd android
 ./gradlew :app:assembleDebug
 ```
 
-If a verification command cannot run in the current environment, state exactly why and record the closest completed check.
-
-### Editor Verification
-
-When changing code under `editor/`, verify the editor package directly before finishing the task.
+When changing code under `editor/`, verify the editor package directly before finishing the task:
 
 ```sh
 cd editor
@@ -112,7 +113,7 @@ pnpm typecheck
 pnpm test
 ```
 
-Run the editor application or the narrowest relevant UI smoke check when the change affects editor rendering, interaction, routing, or preview behavior. If a full app run is not practical in the current environment, call that out explicitly and include the closest successful verification.
+Run the editor application or the narrowest relevant UI smoke check when the change affects editor rendering, interaction, routing, or preview behavior. If a verification command cannot run in the current environment, state exactly why and record the closest completed check.
 
 ## C++ and Architecture Conventions
 
@@ -155,16 +156,10 @@ When delegating, require each subagent to return:
 - whether it changed files
 - verification performed or skipped
 
-Keep subagent outputs concise. Detailed historical reports belong under `docs/archive/`; current planning/status belongs under `docs/migration/`.
+Keep subagent outputs concise. Detailed historical reports belong under `docs/archive/`; current planning/status belongs under the relevant active docs area.
 
 ## Durable Project Memory
 
-Use these files to avoid relying on chat context:
+Future sessions should be able to resume from repository files without needing prior chat history.
 
-- `docs/migration/PLAN.md` for the next migration-plan placeholder/index.
-- `docs/migration/STATUS.md` for completed foundation, active gaps, current verification, and next planning task.
-- `docs/migration/COMPATIBILITY.md` for historical import/export notes only; it is not a requirement to preserve old project formats.
-- `docs/ARCHITECTURE.md`, `docs/BUILD_AND_VERIFY.md`, `docs/runtime/`, `docs/ui/`, `docs/rendering/`, and `docs/editor/` for active technical direction.
-- `docs/archive/` for historical analysis.
-
-Update `STATUS.md` after non-trivial migration work. Future Codex sessions should be able to resume from repository files without needing the full prior chat.
+Use `docs/OVERVIEW.md` for the current documentation hierarchy. Use `docs/migration/OVERVIEW.md` and `docs/migration/STATUS.md` for migration resumption. Use the relevant area overview for active implementation details.

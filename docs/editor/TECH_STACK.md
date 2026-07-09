@@ -202,7 +202,7 @@ Keep Zustand as the lightweight renderer state store, but do not use it as an
 implicit project mutation mechanism.
 
 Persistent project edits must go through the command bus described in
-`docs/editor/EDITOR_IMPLEMENTATION_PLAN.md`.
+`docs/editor/plans/IMPLEMENTATION_PLAN.md`.
 
 Recommended division:
 
@@ -359,7 +359,7 @@ Rules:
 
 Use `i18next` and `react-i18next` for editor UI localization when the editor
 starts supporting multiple interface languages. Follow
-`docs/editor/EDITOR_LOCALIZATION_IMPLEMENTATION_PLAN.md` for the implementation
+the tracked localization status and conventions for the implementation
 order, resource layout, language preference model, and separation between editor
 UI localization and future game-content localization.
 

@@ -29,7 +29,7 @@ Relevant existing files and systems:
   - ActiveText currently uses this local `TextEngine` and a default font alias, rather than a project-wide typed asset request.
 - `engine/src/render/bgfx/text/bgfx_text_renderer.cpp`
   - Owns another `TextEngine` inside the bgfx text renderer and exposes renderer-level `load_font` and text drawing.
-- `docs/rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`
+- `docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`
   - Existing font-focused plan assumes direct font resolver work. This new plan supersedes the public API direction: callers should ask `AssetManager` for typed prepared assets; font resolver behavior lives behind the AssetManager typed-font loader.
 
 ## Desired Architecture
@@ -288,10 +288,10 @@ Acceptance:
 
 Likely files:
 
-- `docs/ARCHITECTURE.md`
+- `docs/architecture/ENGINE_ARCHITECTURE.md`
 - `docs/rendering/TEXT_IMPLEMENTATION.md`
-- `docs/rendering/TEXT_FONT_STYLE_PLAN.md`
-- `docs/rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`
+- `docs/rendering/plans/TEXT_FONT_STYLE_PLAN.md`
+- `docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`
 - `docs/migration/STATUS.md`
 
 Tasks:
@@ -366,7 +366,7 @@ Mitigation: first centralize policy through `AssetManager`; later consider unify
 
 Repo: /home/thomas/dev/nt
 Follow AGENTS.md. Do not touch untracked rmlui-bgfx/.
-Read and implement docs/assets/TYPED_ASSET_MANAGER_IMPLEMENTATION_PLAN.md.
+Read and implement docs/assets/plans/TYPED_ASSET_MANAGER_IMPLEMENTATION_PLAN.md.
 
 Goal: make AssetManager the public typed prepared-asset facade, starting with fonts. Consumers should ask AssetManager for a prepared font asset and not care whether it came from project fontDefault, sys fallback, a real style face, or synthetic fallback. Keep raw read_binary/read_text/open APIs unchanged. Keep backend ownership clean: AssetManager delegates to typed loaders; TextEngine owns FreeType/HarfBuzz font operations; renderer owns GPU handles.
 

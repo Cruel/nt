@@ -369,9 +369,9 @@ Acceptance:
 
 Files likely touched:
 
-- `docs/rendering/TEXT_FONT_STYLE_PLAN.md`
+- `docs/rendering/plans/TEXT_FONT_STYLE_PLAN.md`
 - `docs/rendering/TEXT_IMPLEMENTATION.md`
-- `docs/rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`
+- `docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`
 - `docs/migration/STATUS.md`
 
 Tasks:

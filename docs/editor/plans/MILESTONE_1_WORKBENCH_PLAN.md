@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This plan turns Milestone 1 from `EDITOR_IMPLEMENTATION_PLAN.md` into an
+This plan turns Milestone 1 from `IMPLEMENTATION_PLAN.md` into an
 implementation-ready work breakdown. The goal is to replace the current
 single-surface workspace route with a reusable workbench shell that can host
 multiple editor tabs, split those tabs side by side, preserve the existing engine
@@ -15,11 +15,11 @@ narrow interfaces and placeholders where later milestones need stable seams.
 
 ## Inputs Reviewed
 
-- `docs/editor/EDITOR_IMPLEMENTATION_PLAN.md`
-- `docs/editor/EDITOR_TECH_STACK.md`
-- `docs/editor/ENGINE_PREVIEW_COMMUNICATION.md`
-- `docs/editor/PREVIEW_AND_TEST_PLAYBACK.md`
-- `docs/ARCHITECTURE.md`
+- `docs/editor/plans/IMPLEMENTATION_PLAN.md`
+- `docs/editor/TECH_STACK.md`
+- `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`
+- `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md`
+- `docs/architecture/ENGINE_ARCHITECTURE.md`
 - `docs/migration/STATUS.md`
 - `editor/README.md`
 - `editor/package.json`
@@ -731,5 +731,5 @@ feature components to append arbitrary UI outside the panel registry.
 ## Suggested Implementation Prompt
 
 ```text
-@dev nt Implement Milestone 1 using `docs/editor/EDITOR_MILESTONE_1_WORKBENCH_PLAN.md` as the source plan. Read `docs/editor/EDITOR_IMPLEMENTATION_PLAN.md`, `docs/editor/EDITOR_TECH_STACK.md`, `docs/editor/ENGINE_PREVIEW_COMMUNICATION.md`, and the current `editor/src` structure first. Keep this to the workbench shell only: add a pure workbench tab/group/split model, a Zustand workbench store, editor registry, split-tab UI with `react-resizable-panels`, fallback raw JSON editor, primary engine preview editor tab, project explorer record opening into tabs, and global bottom panel scaffolding. Do not implement the persistent command bus, undo/redo, save/autosave, new schema conversion, typed entity editors, PreviewManager pooling, or any changes under `refs/`. Preserve existing project open/validate/playback/export and preview behavior. Add tests for the pure workbench model and registry, then run `cd editor && pnpm typecheck && pnpm test && pnpm lint`.
+@dev nt Implement Milestone 1 using `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` as the source plan. Read `docs/editor/plans/IMPLEMENTATION_PLAN.md`, `docs/editor/TECH_STACK.md`, `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`, and the current `editor/src` structure first. Keep this to the workbench shell only: add a pure workbench tab/group/split model, a Zustand workbench store, editor registry, split-tab UI with `react-resizable-panels`, fallback raw JSON editor, primary engine preview editor tab, project explorer record opening into tabs, and global bottom panel scaffolding. Do not implement the persistent command bus, undo/redo, save/autosave, new schema conversion, typed entity editors, PreviewManager pooling, or any changes under `refs/`. Preserve existing project open/validate/playback/export and preview behavior. Add tests for the pure workbench model and registry, then run `cd editor && pnpm typecheck && pnpm test && pnpm lint`.
 ```

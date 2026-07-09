@@ -636,7 +636,7 @@ Acceptance:
 ## Prompt For The Next Implementation Session
 
 ```text
-Start from docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md.
+Start from docs/rendering/plans/SHADER_MATERIAL_PLAN.md.
 
 RmlUi `shader(<string>)` decorator usage resolves to NovelTea material ids through a provider seam in the external `rmlui-bgfx` package and a NovelTea adapter for `ShaderRole::RmlUiDecorator` materials. Materials are not standalone files. Shader binaries remain runtime assets under shaders/bgfx/<variant>/, and runtime game packages strip shader source/editor data.
 

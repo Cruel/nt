@@ -186,7 +186,7 @@ Implementation slices:
    - Missing material/program variants should fall back to default text rendering with structured, deduped diagnostics.
 
 5a. Add the font-family loader/resolver required by direct ActiveText.
-   - Follow [`../rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`](../rendering/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md) for the detailed implementation sequence.
+   - Follow [`docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`](../rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md) for the detailed implementation sequence.
    - A font family registration must accept at minimum one base/regular face.
    - Optional faces: bold, italic, and bold-italic.
    - If a requested styled face is missing, resolve to the closest available real face and apply synthetic styling for the missing style bits.
@@ -504,7 +504,7 @@ Keep these docs aligned as phases land:
 - `docs/migration/PLAN.md`: active long-range migration plan.
 - `docs/migration/COMPATIBILITY.md`: compatibility contract and known limits.
 - `docs/rendering/RENDERING_STACK.md`: renderer ownership and integration boundary.
-- `docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md`: shader/material pipeline.
+- `docs/rendering/plans/SHADER_MATERIAL_PLAN.md`: shader/material pipeline.
 - `docs/ui/RMLUI_RUNTIME_UI.md`: runtime UI templates, binder, component slots, and event routing.
 - `docs/ui/RMLUI_CUSTOM_COMPONENTS.md`: ActiveText/MapView/TextLog component status.
 - `docs/runtime/STATE_AND_PLAYBACK.md`: runtime input/output, save policy, playback.

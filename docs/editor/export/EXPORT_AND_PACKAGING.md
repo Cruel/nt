@@ -153,7 +153,7 @@ Required shader binary paths are passed to native export as `requiredShaderBinar
 Project Settings:
 
 ```text
-docs/editor/PROJECT_SETTINGS.md
+docs/editor/project/PROJECT_SETTINGS.md
 editor/src/renderer/editors/project/ProjectSettingsEditor.tsx
 ```
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is the entrypoint document for agentic work on the Electron editor. Read this file before editing code under `editor/`, then follow the more specific documents linked below for the area being changed.
+This is the operational guide for agentic work on the Electron editor. `docs/editor/OVERVIEW.md` is the editor documentation entrypoint; read that overview and this guide before editing code under `editor/`, then follow the more specific documents linked below for the area being changed.
 
 The goal is to keep editor work consistent across many agent sessions. Cross-cutting behavior should be documented here or linked from here instead of being rediscovered from individual components.
 
@@ -17,16 +17,16 @@ The goal is to keep editor work consistent across many agent sessions. Cross-cut
 
 Use these documents as the main references for editor work:
 
-- `docs/editor/EDITOR_TECH_STACK.md` describes the editor technology direction.
-- `docs/editor/EDITOR_MILESTONE_1_WORKBENCH_PLAN.md` describes the workbench milestone direction.
-- `docs/editor/EDITOR_TAB_STATE_AND_PREVIEW_POOLING_PLAN.md` describes tab-state preservation and preview host ownership.
-- `docs/editor/EDITOR_DEEP_LINKS_AND_DIAGNOSTIC_NAVIGATION_PLAN.md` describes the planned workbench target/deep-link system and clickable diagnostic navigation.
-- `docs/editor/EDITOR_TRANSLATIONS.md` describes localization status and conventions.
-- `docs/editor/ENGINE_PREVIEW_COMMUNICATION.md` describes renderer-to-preview communication.
-- `docs/editor/PREVIEW_AND_TEST_PLAYBACK.md` describes preview and test playback direction.
-- `docs/editor/PROJECT_EXPLORER.md` describes project explorer behavior.
-- `docs/editor/PROJECT_SETTINGS.md` describes project settings behavior.
-- `docs/editor/EXPORT_AND_PACKAGING.md` describes export and packaging behavior.
+- `docs/editor/OVERVIEW.md` is the editor documentation map.
+- `docs/editor/TECH_STACK.md` describes the editor technology direction.
+- `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` describes the workbench milestone direction.
+- the editor agent guide describes tab-state preservation and preview host ownership.
+- `docs/editor/LOCALIZATION.md` describes localization status and conventions.
+- `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md` describes renderer-to-preview communication.
+- `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` describes preview and test playback direction.
+- `docs/editor/project/PROJECT_EXPLORER.md` describes project explorer behavior.
+- `docs/editor/project/PROJECT_SETTINGS.md` describes project settings behavior.
+- `docs/editor/export/EXPORT_AND_PACKAGING.md` describes export and packaging behavior.
 
 When a task materially changes one of these areas, update the relevant document or explicitly report why no documentation change was needed.
 
@@ -50,7 +50,7 @@ Do not duplicate diagnostic card markup across editors when adding new diagnosti
 
 ### Tab State
 
-Open tabs should preserve expected user-facing state: scroll positions, source-editor selection/scroll, selected panels, split sizes, graph viewports, and similar state. See `EDITOR_TAB_STATE_AND_PREVIEW_POOLING_PLAN.md` before changing tab mounting, restoration, or preview ownership.
+Open tabs should preserve expected user-facing state: scroll positions, source-editor selection/scroll, selected panels, split sizes, graph viewports, and similar state. See the editor agent guide before changing tab mounting, restoration, or preview ownership.
 
 ### Preview Ownership
 

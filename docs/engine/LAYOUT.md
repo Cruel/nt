@@ -311,8 +311,8 @@ Related docs:
 ```text
 docs/ui/RMLUI_RUNTIME_UI.md
 docs/ui/RMLUI_CUSTOM_COMPONENTS.md
-docs/editor/ENGINE_PREVIEW_COMMUNICATION.md
-docs/editor/EDITOR_RMLUI_LAYOUT_PREVIEW_TEMPLATE_SYSTEM_PLAN.md
+docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md
+a future editor RmlUi layout preview/template-system plan
 ```
 
 Useful legacy references:

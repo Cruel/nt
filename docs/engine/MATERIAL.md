@@ -269,7 +269,7 @@ engine/src/render/bgfx/bgfx_shader_program_cache.cpp
 Related docs:
 
 ```text
-docs/rendering/NOVELTEA_SHADER_MATERIAL_PLAN.md
+docs/rendering/plans/SHADER_MATERIAL_PLAN.md
 docs/rendering/RENDERING_STACK.md
 docs/engine/SHADER.md
 ```

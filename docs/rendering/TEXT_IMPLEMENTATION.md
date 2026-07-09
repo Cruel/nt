@@ -71,7 +71,7 @@ The first implementation is render-thread-owned. FreeType faces and HarfBuzz fon
 
 Rich text style metadata for bold, italic, underline, strike, font alias, and font size is preserved through `ActiveTextFrame` and `ActiveTextLayout`. The first renderer-backed ActiveText styling checkpoint uses renderer-side synthetic styling: bold is approximated with an offset glyph pass, italic is approximated with a glyph-quad shear, and underline/strike are approximated with decoration glyphs. This makes direct ActiveText visually distinguish common styles while keeping the API path open for real font-family resolution and FreeType-backed synthetic rasterization.
 
-The longer-term plan is tracked in [`TEXT_FONT_STYLE_PLAN.md`](TEXT_FONT_STYLE_PLAN.md). It separates concrete `FontHandle` values from logical font families, prefers registered real bold/italic faces when available, and falls back to synthetic style when only a regular TTF is provided.
+The longer-term plan is tracked in [`docs/rendering/plans/TEXT_FONT_STYLE_PLAN.md`](plans/TEXT_FONT_STYLE_PLAN.md). It separates concrete `FontHandle` values from logical font families, prefers registered real bold/italic faces when available, and falls back to synthetic style when only a regular TTF is provided.
 
 ## Deferred
 

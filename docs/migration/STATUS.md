@@ -64,7 +64,7 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
 ## Active Gaps
 
 - Next runtime work should follow
-  [`../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md`](../runtime/RUNTIME_SHELL_LAYOUT_PLAYBACK_IMPLEMENTATION_PLAN.md):
+  the runtime overview and state/playback docs:
   default/title Layout startup, menu overlays, pause UI, transitions, Layout-aware preview/playback,
   and command bridges from Lua/editor/test surfaces.
 - Preview recording remains incomplete. Runtime UI playback now provides the replay foundation and

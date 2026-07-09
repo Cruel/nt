@@ -120,7 +120,7 @@ debugging.
 ## Planned Full Game Preview and Recorder Tab
 
 The detailed implementation plan for the next editor/runtime slice lives in
-`docs/runtime/FULL_GAME_PREVIEW_DEBUGGER_TEST_RECORDER_IMPLEMENTATION_PLAN.md`.
+the runtime and preview docs.
 
 That plan expands the recorder concept into a full-game workbench tab with Debug and Recording modes.
 The tab should reuse the existing editor preview iframe transport, keep `web/widget.html` as the thin
