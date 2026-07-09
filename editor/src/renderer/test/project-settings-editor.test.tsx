@@ -44,6 +44,7 @@ function project() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
 });
@@ -119,5 +120,122 @@ describe('ProjectSettingsEditor', () => {
     expect(screen.queryByLabelText('Enable ComfyUI integration')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Server URL')).not.toBeInTheDocument();
     expect(useProjectStore.getState().document).not.toMatchObject({ settings: { comfyui: expect.anything() } });
+  });
+
+  it('imports a ComfyUI API workflow through the Project Settings wizard', async () => {
+    const workflowText = JSON.stringify({
+      76: { class_type: 'PrimitiveStringMultiline', inputs: { value: 'portrait' }, _meta: { title: 'noveltea.prompt' } },
+      9: { class_type: 'SaveImage', inputs: { images: ['8', 0], filename_prefix: 'NovelTea' }, _meta: { title: 'noveltea.output' } },
+    });
+    vi.mocked(window.noveltea.analyzeComfyUiWorkflowImport).mockResolvedValue({
+      ok: true,
+      diagnostics: [{ severity: 'warning', category: 'comfyui-workflows', path: '/object_info', message: 'ComfyUI object_info was unavailable; class compatibility could not be checked.' }],
+      analysis: {
+        nodes: [
+          { id: '76', classType: 'PrimitiveStringMultiline', title: 'noveltea.prompt', inputs: { value: 'portrait' } },
+          { id: '9', classType: 'SaveImage', title: 'noveltea.output', inputs: { images: ['8', 0], filename_prefix: 'NovelTea' } },
+        ],
+        links: [{ fromNodeId: '8', fromOutputIndex: 0, toNodeId: '9', toInputName: 'images' }],
+        classTypes: ['PrimitiveStringMultiline', 'SaveImage'],
+        diagnostics: [],
+        looksLikeApiWorkflow: true,
+        looksLikeSaveWorkflow: false,
+      },
+      roleCandidates: {
+        'image.generate': {
+          candidates: {
+            prompt: [{
+              semanticKey: 'prompt',
+              nodeId: '76',
+              classType: 'PrimitiveStringMultiline',
+              nodeTitle: 'noveltea.prompt',
+              inputName: 'value',
+              valueType: 'string',
+              confidence: 'high',
+              score: 125,
+              reasons: ['title marker', 'primitive text'],
+              currentValue: 'portrait',
+            }],
+            images: [{
+              semanticKey: 'images',
+              nodeId: '9',
+              classType: 'SaveImage',
+              nodeTitle: 'noveltea.output',
+              inputName: 'images',
+              valueType: 'image-list',
+              confidence: 'high',
+              score: 180,
+              reasons: ['title marker', 'SaveImage'],
+            }],
+          },
+        },
+      },
+    });
+    vi.mocked(window.noveltea.saveImportedComfyUiWorkflow).mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      workflowFile: 'portrait.workflow.json',
+      manifestFile: 'portrait.manifest.json',
+    });
+    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    render(<ProjectSettingsEditor tab={tab} />);
+
+    fireEvent.click(screen.getByText('Import Workflow'));
+    expect(await screen.findByText('Import ComfyUI Workflow')).toBeInTheDocument();
+    const file = new File([workflowText], 'portrait.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', { value: vi.fn().mockResolvedValue(workflowText) });
+    fireEvent.change(screen.getByLabelText('API workflow JSON'), { target: { files: [file] } });
+    await waitFor(() => expect(window.noveltea.analyzeComfyUiWorkflowImport).toHaveBeenCalledWith(expect.objectContaining({
+      projectFilePath: '/mock/project.json',
+      workflowJsonText: workflowText,
+    })));
+
+    for (let index = 0; index < 6; index += 1) {
+      fireEvent.click(screen.getByText('Next'));
+    }
+    expect(await screen.findByText('Save Import')).toBeEnabled();
+    fireEvent.click(screen.getByText('Save Import'));
+
+    await waitFor(() => expect(window.noveltea.saveImportedComfyUiWorkflow).toHaveBeenCalled());
+    const request = vi.mocked(window.noveltea.saveImportedComfyUiWorkflow).mock.calls[0]?.[0];
+    expect(request).toMatchObject({
+      projectFilePath: '/mock/project.json',
+      workflowFileName: 'portrait.workflow.json',
+      manifestFileName: 'portrait.manifest.json',
+      workflowJsonText: workflowText,
+      overwrite: false,
+    });
+    expect(request?.manifest).toMatchObject({
+      schemaVersion: 2,
+      id: 'portrait',
+      label: 'Portrait',
+      role: 'image.generate',
+      workflowFile: 'portrait.workflow.json',
+      bindings: {
+        prompt: {
+          nodeId: '76',
+          nodeTitle: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+          valueType: 'string',
+          selector: { title: 'noveltea.prompt', classType: 'PrimitiveStringMultiline', inputName: 'value' },
+        },
+      },
+      outputBindings: {
+        images: [{
+          nodeId: '9',
+          nodeTitle: 'noveltea.output',
+          classType: 'SaveImage',
+          outputName: 'images',
+          valueType: 'image-list',
+          primary: 'first',
+        }],
+      },
+      outputNodeIds: ['9'],
+      requiredNodeClasses: ['PrimitiveStringMultiline', 'SaveImage'],
+    });
+    await waitFor(() => expect(window.noveltea.listComfyUiWorkflows).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Imported portrait.workflow.json.')).toBeInTheDocument();
   });
 });

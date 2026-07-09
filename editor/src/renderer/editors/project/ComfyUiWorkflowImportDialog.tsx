@@ -1,0 +1,561 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { analyzeComfyUiWorkflowImport, saveImportedComfyUiWorkflow } from '@/comfyui/comfyui-service';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
+import type { ComfyUiBindingCandidate } from '../../../shared/comfyui-workflow-inference';
+import {
+  COMFYUI_WORKFLOW_ROLE_CATALOG,
+  SUPPORTED_COMFYUI_WORKFLOW_ROLES,
+  type ComfyUiAnalyzeWorkflowImportResponse,
+  type ComfyUiSemanticInput,
+  type ComfyUiWorkflowDefinition,
+  type ComfyUiWorkflowDiagnostic,
+  type ComfyUiWorkflowRole,
+  type ComfyUiWorkflowValueType,
+} from '../../../shared/comfyui-workflows';
+
+interface ComfyUiWorkflowImportDialogProps {
+  open: boolean;
+  projectFilePath: string | null;
+  onOpenChange: (open: boolean) => void;
+  onImported: (message: string, diagnostics: ComfyUiWorkflowDiagnostic[]) => void | Promise<void>;
+}
+
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type InputSelections = Partial<Record<ComfyUiSemanticInput, string>>;
+type DefaultsDraft = Partial<Record<ComfyUiSemanticInput, string>>;
+
+const unmappedValue = '__unmapped__';
+
+const stepLabels = [
+  'Source File',
+  'Role',
+  'Summary',
+  'Inputs',
+  'Outputs',
+  'Defaults',
+  'Review',
+] as const;
+
+function slugify(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/\.workflow$/u, '')
+    .replace(/\.manifest$/u, '')
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '');
+  return slug || 'imported-workflow';
+}
+
+function labelFromFileName(name: string) {
+  const base = name.replace(/\.json$/iu, '').replace(/\.workflow$/iu, '');
+  const words = base.split(/[^a-z0-9]+/iu).filter(Boolean);
+  if (!words.length) return 'Imported Workflow';
+  return words.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(' ');
+}
+
+function candidateKey(candidate: ComfyUiBindingCandidate) {
+  return `${candidate.nodeId}:${candidate.inputName}:${candidate.semanticKey}`;
+}
+
+function inputEntries(role: ComfyUiWorkflowRole) {
+  const inputs = COMFYUI_WORKFLOW_ROLE_CATALOG[role].contract.inputs;
+  return (Object.entries(inputs) as Array<[ComfyUiSemanticInput, typeof inputs[ComfyUiSemanticInput]]>)
+    .sort((left, right) => Number(right[1].required) - Number(left[1].required) || left[0].localeCompare(right[0]));
+}
+
+function roleCandidates(response: ComfyUiAnalyzeWorkflowImportResponse | null, role: ComfyUiWorkflowRole) {
+  return response?.roleCandidates[role]?.candidates ?? {};
+}
+
+function candidateLabel(candidate: ComfyUiBindingCandidate) {
+  const title = candidate.nodeTitle ? `${candidate.nodeTitle} ` : '';
+  return `${title}#${candidate.nodeId} ${candidate.classType}.${candidate.inputName}`;
+}
+
+function readableValue(value: unknown) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+}
+
+function defaultForCandidate(candidate: ComfyUiBindingCandidate | undefined, fallback: string | number | undefined, semanticKey: ComfyUiSemanticInput) {
+  const current = readableValue(candidate?.currentValue);
+  if (current !== null) return current;
+  if (fallback !== undefined) return String(fallback);
+  if (semanticKey === 'filenamePrefix') return 'NovelTea';
+  return '';
+}
+
+function confidenceVariant(confidence: ComfyUiBindingCandidate['confidence']) {
+  if (confidence === 'high') return 'default';
+  if (confidence === 'medium') return 'secondary';
+  return 'outline';
+}
+
+function diagnosticVariant(severity: ComfyUiWorkflowDiagnostic['severity']) {
+  if (severity === 'error') return 'destructive';
+  if (severity === 'warning') return 'secondary';
+  return 'outline';
+}
+
+function findCandidate(candidates: ComfyUiBindingCandidate[], key: string | undefined) {
+  return candidates.find((candidate) => candidateKey(candidate) === key);
+}
+
+function selectedInputCandidates(response: ComfyUiAnalyzeWorkflowImportResponse | null, role: ComfyUiWorkflowRole, selections: InputSelections) {
+  const candidates = roleCandidates(response, role);
+  const selected: Partial<Record<ComfyUiSemanticInput, ComfyUiBindingCandidate>> = {};
+  for (const [semanticKey, key] of Object.entries(selections) as Array<[ComfyUiSemanticInput, string]>) {
+    const candidate = findCandidate(candidates[semanticKey] ?? [], key);
+    if (candidate) selected[semanticKey] = candidate;
+  }
+  return selected;
+}
+
+function buildInitialInputSelections(response: ComfyUiAnalyzeWorkflowImportResponse | null, role: ComfyUiWorkflowRole): InputSelections {
+  const candidates = roleCandidates(response, role);
+  const selections: InputSelections = {};
+  for (const [semanticKey] of inputEntries(role)) {
+    const candidate = (candidates[semanticKey] ?? []).find((item) => item.confidence === 'high');
+    if (candidate) selections[semanticKey] = candidateKey(candidate);
+  }
+  return selections;
+}
+
+function buildInitialOutputs(response: ComfyUiAnalyzeWorkflowImportResponse | null, role: ComfyUiWorkflowRole) {
+  const candidates = roleCandidates(response, role).images ?? [];
+  const preferred = candidates.find((candidate) => candidate.classType === 'SaveImage') ?? candidates[0];
+  return preferred ? [candidateKey(preferred)] : [];
+}
+
+function selectorFor(candidate: ComfyUiBindingCandidate) {
+  return {
+    ...(candidate.nodeTitle ? { title: candidate.nodeTitle } : {}),
+    classType: candidate.classType,
+    inputName: candidate.inputName,
+  };
+}
+
+function buildManifest(options: {
+  role: ComfyUiWorkflowRole;
+  workflowId: string;
+  label: string;
+  description: string;
+  workflowFileName: string;
+  response: ComfyUiAnalyzeWorkflowImportResponse;
+  inputSelections: InputSelections;
+  outputSelections: string[];
+  defaultsDraft: DefaultsDraft;
+}): ComfyUiWorkflowDefinition {
+  const roleDefinition = COMFYUI_WORKFLOW_ROLE_CATALOG[options.role];
+  const candidates = roleCandidates(options.response, options.role);
+  const selectedInputs = selectedInputCandidates(options.response, options.role, options.inputSelections);
+  const selectedOutputs = options.outputSelections
+    .map((key) => findCandidate(candidates.images ?? [], key))
+    .filter((candidate): candidate is ComfyUiBindingCandidate => Boolean(candidate));
+
+  const bindings: ComfyUiWorkflowDefinition['bindings'] = {};
+  for (const [semanticKey, candidate] of Object.entries(selectedInputs) as Array<[ComfyUiSemanticInput, ComfyUiBindingCandidate]>) {
+    if (candidate.valueType === 'image-list') continue;
+    bindings[semanticKey] = {
+      nodeId: candidate.nodeId,
+      ...(candidate.nodeTitle ? { nodeTitle: candidate.nodeTitle } : {}),
+      classType: candidate.classType,
+      inputName: candidate.inputName,
+      valueType: candidate.valueType as ComfyUiWorkflowValueType,
+      selector: selectorFor(candidate),
+    };
+  }
+
+  const outputBindings = selectedOutputs.map((candidate) => ({
+    nodeId: candidate.nodeId,
+    ...(candidate.nodeTitle ? { nodeTitle: candidate.nodeTitle } : {}),
+    classType: candidate.classType,
+    outputName: 'images',
+    valueType: 'image-list' as const,
+    primary: 'first' as const,
+  }));
+
+  const defaults: ComfyUiWorkflowDefinition['defaults'] = { filenamePrefix: options.defaultsDraft.filenamePrefix || 'NovelTea' };
+  for (const [semanticKey, value] of Object.entries(options.defaultsDraft) as Array<[ComfyUiSemanticInput, string]>) {
+    if (semanticKey === 'filenamePrefix' || value.trim() === '') continue;
+    const input = roleDefinition.contract.inputs[semanticKey];
+    defaults[semanticKey] = input.type === 'string' ? value : Number(value);
+  }
+
+  return {
+    schemaVersion: 2,
+    id: options.workflowId,
+    label: options.label,
+    provider: 'comfyui',
+    role: options.role,
+    ...(options.description.trim() ? { description: options.description.trim() } : {}),
+    workflowFile: options.workflowFileName,
+    contract: {
+      inputs: roleDefinition.contract.inputs,
+      outputs: roleDefinition.contract.outputs,
+    },
+    requiredNodeClasses: [...(options.response.analysis?.classTypes ?? [])].sort(),
+    outputNodeIds: selectedOutputs.map((candidate) => candidate.nodeId),
+    bindings,
+    outputBindings: { images: outputBindings },
+    defaults,
+  };
+}
+
+function DiagnosticRows({ diagnostics }: { diagnostics: ComfyUiWorkflowDiagnostic[] }) {
+  if (!diagnostics.length) return <div className="text-xs text-muted-foreground">No diagnostics.</div>;
+  return (
+    <div className="space-y-1">
+      {diagnostics.map((diagnostic, index) => (
+        <div key={`${diagnostic.path}-${diagnostic.message}-${index}`} className="rounded border p-1.5 text-xs">
+          <Badge variant={diagnosticVariant(diagnostic.severity)}>{diagnostic.severity}</Badge>
+          <span className="ml-2 font-mono text-[10px] text-muted-foreground">{diagnostic.path}</span>
+          <div className="mt-1">{diagnostic.message}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function ComfyUiWorkflowImportDialog({ open, projectFilePath, onOpenChange, onImported }: ComfyUiWorkflowImportDialogProps) {
+  const config = useComfyUiStore((state) => state.config);
+  const [step, setStep] = useState<Step>(0);
+  const [fileName, setFileName] = useState('');
+  const [fileSize, setFileSize] = useState<number | null>(null);
+  const [workflowJsonText, setWorkflowJsonText] = useState('');
+  const [analyzing, setAnalyzing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [analysisResponse, setAnalysisResponse] = useState<ComfyUiAnalyzeWorkflowImportResponse | null>(null);
+  const [role, setRole] = useState<ComfyUiWorkflowRole>('image.generate');
+  const [workflowId, setWorkflowId] = useState('imported-workflow');
+  const [label, setLabel] = useState('Imported Workflow');
+  const [description, setDescription] = useState('');
+  const [overwrite, setOverwrite] = useState(false);
+  const [inputSelections, setInputSelections] = useState<InputSelections>({});
+  const [outputSelections, setOutputSelections] = useState<string[]>([]);
+  const [defaultsDraft, setDefaultsDraft] = useState<DefaultsDraft>({ filenamePrefix: 'NovelTea' });
+  const [saveDiagnostics, setSaveDiagnostics] = useState<ComfyUiWorkflowDiagnostic[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const candidates = roleCandidates(analysisResponse, role);
+  const workflowFileName = `${slugify(workflowId)}.workflow.json`;
+  const manifestFileName = `${slugify(workflowId)}.manifest.json`;
+  const selectedInputs = useMemo(() => selectedInputCandidates(analysisResponse, role, inputSelections), [analysisResponse, inputSelections, role]);
+  const manifest = useMemo(() => {
+    if (!analysisResponse?.ok || !analysisResponse.analysis) return null;
+    return buildManifest({ role, workflowId: slugify(workflowId), label, description, workflowFileName, response: analysisResponse, inputSelections, outputSelections, defaultsDraft });
+  }, [analysisResponse, defaultsDraft, description, inputSelections, label, outputSelections, role, workflowFileName, workflowId]);
+  const requiredInputsMissing = inputEntries(role).some(([semanticKey, input]) => input.required && !selectedInputs[semanticKey]);
+  const requiredOutputsMissing = outputSelections.length === 0;
+  const canContinue = analysisResponse?.ok && !analyzing;
+
+  useEffect(() => {
+    if (!open) {
+      setStep(0);
+      setFileName('');
+      setFileSize(null);
+      setWorkflowJsonText('');
+      setAnalyzing(false);
+      setSaving(false);
+      setAnalysisResponse(null);
+      setRole('image.generate');
+      setWorkflowId('imported-workflow');
+      setLabel('Imported Workflow');
+      setDescription('');
+      setOverwrite(false);
+      setInputSelections({});
+      setOutputSelections([]);
+      setDefaultsDraft({ filenamePrefix: 'NovelTea' });
+      setSaveDiagnostics([]);
+      setError(null);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setInputSelections(buildInitialInputSelections(analysisResponse, role));
+    setOutputSelections(buildInitialOutputs(analysisResponse, role));
+  }, [analysisResponse, role]);
+
+  useEffect(() => {
+    const nextDefaults: DefaultsDraft = { filenamePrefix: 'NovelTea' };
+    for (const [semanticKey, input] of inputEntries(role)) {
+      if (input.required || !selectedInputs[semanticKey]) continue;
+      nextDefaults[semanticKey] = defaultForCandidate(selectedInputs[semanticKey], input.defaultValue, semanticKey);
+    }
+    setDefaultsDraft(nextDefaults);
+  }, [role, selectedInputs]);
+
+  async function readWorkflowFile(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setSaveDiagnostics([]);
+    setFileName(file.name);
+    setFileSize(file.size);
+    const nextLabel = labelFromFileName(file.name);
+    setLabel(nextLabel);
+    setWorkflowId(slugify(nextLabel));
+    setAnalyzing(true);
+    try {
+      const text = await file.text();
+      setWorkflowJsonText(text);
+      if (!projectFilePath) throw new Error('Save the project before importing ComfyUI workflows.');
+      const response = await analyzeComfyUiWorkflowImport({ projectFilePath, workflowJsonText: text, config });
+      setAnalysisResponse(response);
+      setError(response.ok ? null : response.error ?? 'Workflow import analysis failed.');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Failed to read workflow file.';
+      setAnalysisResponse({ ok: false, roleCandidates: {}, diagnostics: [{ severity: 'error', category: 'comfyui-workflows', path: '/workflow', message }], error: message });
+      setError(message);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  function nextStep() {
+    if (step === 3 && requiredInputsMissing) return;
+    if (step === 4 && requiredOutputsMissing) return;
+    setStep((current) => Math.min(6, current + 1) as Step);
+  }
+
+  async function saveImport() {
+    if (!projectFilePath || !manifest || requiredInputsMissing || requiredOutputsMissing) return;
+    setSaving(true);
+    setError(null);
+    setSaveDiagnostics([]);
+    const response = await saveImportedComfyUiWorkflow({
+      projectFilePath,
+      workflowFileName,
+      manifestFileName,
+      workflowJsonText,
+      manifest,
+      overwrite,
+    });
+    setSaveDiagnostics(response.diagnostics);
+    setSaving(false);
+    if (!response.success) {
+      setError(response.error ?? 'Failed to save imported workflow.');
+      return;
+    }
+    await onImported(`Imported ${response.workflowFile ?? workflowFileName}.`, response.diagnostics);
+    onOpenChange(false);
+  }
+
+  function renderStep() {
+    if (step === 0) {
+      return (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="comfyui-workflow-json">API workflow JSON</Label>
+            <input
+              id="comfyui-workflow-json"
+              type="file"
+              accept=".json,application/json"
+              className="h-7 w-full min-w-0 rounded-md border border-input bg-input/20 px-2 py-0.5 text-xs"
+              onChange={(event) => void readWorkflowFile(event.currentTarget.files?.[0])}
+            />
+          </div>
+          {fileName ? <div className="rounded border p-2 text-xs">{fileName} {fileSize !== null ? <span className="text-muted-foreground">({fileSize.toLocaleString()} bytes)</span> : null}</div> : null}
+          {analyzing ? <div className="text-xs text-muted-foreground">Analyzing workflow...</div> : null}
+          {analysisResponse ? <DiagnosticRows diagnostics={analysisResponse.diagnostics} /> : null}
+        </div>
+      );
+    }
+    if (step === 1) {
+      const selectedRole = COMFYUI_WORKFLOW_ROLE_CATALOG[role];
+      return (
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1 md:col-span-2">
+            <Label>Role</Label>
+            <Select value={role} onValueChange={(value) => setRole(value as ComfyUiWorkflowRole)}>
+              <SelectTrigger className="w-full"><SelectValue>{selectedRole.label}</SelectValue></SelectTrigger>
+              <SelectContent align="start">
+                {SUPPORTED_COMFYUI_WORKFLOW_ROLES.map((nextRole) => (
+                  <SelectItem key={nextRole} value={nextRole}>{COMFYUI_WORKFLOW_ROLE_CATALOG[nextRole].label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{selectedRole.description}</p>
+          </div>
+          <div className="space-y-1">
+            <Label>Workflow label</Label>
+            <Input value={label} onChange={(event) => setLabel(event.currentTarget.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label>Workflow ID</Label>
+            <Input value={workflowId} onChange={(event) => setWorkflowId(slugify(event.currentTarget.value))} />
+          </div>
+          <div className="space-y-1 md:col-span-2">
+            <Label>Description</Label>
+            <Input value={description} onChange={(event) => setDescription(event.currentTarget.value)} />
+          </div>
+          <div className="space-y-1 md:col-span-2">
+            <div className="font-mono text-[11px] text-muted-foreground">{workflowFileName}</div>
+            <div className="font-mono text-[11px] text-muted-foreground">{manifestFileName}</div>
+          </div>
+          <label className="flex items-center gap-2 text-xs md:col-span-2">
+            <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.currentTarget.checked)} />
+            Overwrite existing workflow files with these names
+          </label>
+        </div>
+      );
+    }
+    if (step === 2) {
+      const roleCandidateCounts = Object.entries(candidates).map(([semanticKey, values]) => `${semanticKey}: ${values?.length ?? 0}`);
+      return (
+        <div className="space-y-3 text-xs">
+          <div className="grid gap-2 md:grid-cols-3">
+            <div className="rounded border p-2"><div className="text-muted-foreground">Nodes</div><div className="text-sm font-medium">{analysisResponse?.analysis?.nodes.length ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Class types</div><div className="text-sm font-medium">{analysisResponse?.analysis?.classTypes.length ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Candidates</div><div className="text-sm font-medium">{roleCandidateCounts.length}</div></div>
+          </div>
+          <div>
+            <Label>Class types</Label>
+            <div className="mt-1 flex flex-wrap gap-1">{analysisResponse?.analysis?.classTypes.map((classType) => <Badge key={classType} variant="outline">{classType}</Badge>)}</div>
+          </div>
+          <div>
+            <Label>Candidate counts</Label>
+            <div className="mt-1 text-muted-foreground">{roleCandidateCounts.join(', ') || 'No candidates detected.'}</div>
+          </div>
+          <DiagnosticRows diagnostics={analysisResponse?.diagnostics ?? []} />
+        </div>
+      );
+    }
+    if (step === 3) {
+      return (
+        <div className="space-y-3">
+          {inputEntries(role).map(([semanticKey, input]) => {
+            const options = candidates[semanticKey] ?? [];
+            const selected = selectedInputs[semanticKey];
+            return (
+              <div key={semanticKey} className="space-y-1 rounded border p-2">
+                <div className="flex items-center gap-2">
+                  <Label>{semanticKey}</Label>
+                  <Badge variant={input.required ? 'destructive' : 'outline'}>{input.required ? 'required' : 'optional'}</Badge>
+                  <span className="text-xs text-muted-foreground">{input.type}</span>
+                </div>
+                <Select value={inputSelections[semanticKey] ?? unmappedValue} onValueChange={(value) => setInputSelections((current) => ({ ...current, [semanticKey]: value === unmappedValue ? undefined : String(value) }))}>
+                  <SelectTrigger className="w-full"><SelectValue>{selected ? candidateLabel(selected) : 'Unmapped'}</SelectValue></SelectTrigger>
+                  <SelectContent align="start" className="max-h-80">
+                    {!input.required ? <SelectItem value={unmappedValue}>Unmapped</SelectItem> : null}
+                    {options.map((candidate) => (
+                      <SelectItem key={candidateKey(candidate)} value={candidateKey(candidate)}>
+                        {candidateLabel(candidate)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selected ? (
+                  <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+                    <Badge variant={confidenceVariant(selected.confidence)}>{selected.confidence}</Badge>
+                    <span>score {selected.score}</span>
+                    <span>{selected.reasons.join(', ')}</span>
+                    {readableValue(selected.currentValue) !== null ? <span>current {readableValue(selected.currentValue)}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {requiredInputsMissing ? <div className="text-xs text-destructive">Required inputs must be mapped before continuing.</div> : null}
+        </div>
+      );
+    }
+    if (step === 4) {
+      const outputs = candidates.images ?? [];
+      return (
+        <div className="space-y-3">
+          {outputs.map((candidate) => {
+            const key = candidateKey(candidate);
+            return (
+              <label key={key} className="flex items-start gap-2 rounded border p-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={outputSelections.includes(key)}
+                  onChange={(event) => setOutputSelections((current) => event.currentTarget.checked ? [...current, key] : current.filter((value) => value !== key))}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{candidateLabel(candidate)}</span>
+                  <span className="mt-1 flex flex-wrap gap-1 text-muted-foreground">
+                    <Badge variant={confidenceVariant(candidate.confidence)}>{candidate.confidence}</Badge>
+                    <span>score {candidate.score}</span>
+                    <span>{candidate.reasons.join(', ')}</span>
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+          {outputs.length === 0 ? <div className="text-xs text-muted-foreground">No image output candidates were detected.</div> : null}
+          {requiredOutputsMissing ? <div className="text-xs text-destructive">Select at least one image output.</div> : null}
+        </div>
+      );
+    }
+    if (step === 5) {
+      const editable = inputEntries(role).filter(([semanticKey, input]) => !input.required && selectedInputs[semanticKey]);
+      return (
+        <div className="grid gap-3 md:grid-cols-2">
+          {editable.map(([semanticKey, input]) => (
+            <div key={semanticKey} className="space-y-1">
+              <Label>{semanticKey}</Label>
+              <Input
+                type={input.type === 'string' || input.type === 'image' ? 'text' : 'number'}
+                value={defaultsDraft[semanticKey] ?? ''}
+                onChange={(event) => setDefaultsDraft((current) => ({ ...current, [semanticKey]: event.currentTarget.value }))}
+              />
+            </div>
+          ))}
+          {editable.length === 0 ? <div className="text-xs text-muted-foreground md:col-span-2">No mapped optional inputs have defaults.</div> : null}
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-3">
+        <div className="rounded border p-2 text-xs">
+          <div><span className="text-muted-foreground">Workflow:</span> {workflowFileName}</div>
+          <div><span className="text-muted-foreground">Manifest:</span> {manifestFileName}</div>
+        </div>
+        <DiagnosticRows diagnostics={[...(analysisResponse?.diagnostics ?? []), ...saveDiagnostics]} />
+        <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">{manifest ? JSON.stringify(manifest, null, 2) : 'Manifest is not ready.'}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Import ComfyUI Workflow</DialogTitle>
+          <DialogDescription>Import an API workflow export and generate a NovelTea manifest.</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-1">
+          {stepLabels.map((stepLabel, index) => (
+            <Badge key={stepLabel} variant={index === step ? 'default' : 'outline'}>{index + 1}. {stepLabel}</Badge>
+          ))}
+        </div>
+        {error ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div> : null}
+        <div className="min-h-0 overflow-auto pr-1">{renderStep()}</div>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={step === 0 || saving} onClick={() => setStep((current) => Math.max(0, current - 1) as Step)}>Back</Button>
+          {step < 6 ? (
+            <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && requiredOutputsMissing)} onClick={nextStep}>Next</Button>
+          ) : (
+            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || saving} onClick={() => void saveImport()}>{saving ? 'Saving...' : 'Save Import'}</Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

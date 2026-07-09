@@ -14,6 +14,7 @@ import { installComfyUiStarterWorkflows, listComfyUiWorkflows } from '@/comfyui/
 import { useProjectStore } from '@/project/project-store';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import { ComfyUiWorkflowImportDialog } from './ComfyUiWorkflowImportDialog';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { getSystemLayoutSetting, systemLayoutRoleValues, type SystemLayoutRole } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -96,6 +97,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowDiagnostics, setWorkflowDiagnostics] = useState<Array<{ severity: 'error' | 'warning' | 'info'; path: string; message: string }>>([]);
+  const [workflowImportOpen, setWorkflowImportOpen] = useState(false);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(null);
 
@@ -372,9 +374,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium">Project workflows</div>
-                    <div className="text-xs text-muted-foreground">Install bundled starter workflows into this project's workflows directory.</div>
+                    <div className="text-xs text-muted-foreground">Install bundled starters or import a ComfyUI API workflow export.</div>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => void installStarterWorkflows()}>Save Built-in Workflows to Project</Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setWorkflowImportOpen(true)}>Import Workflow</Button>
+                    <Button size="sm" variant="outline" onClick={() => void installStarterWorkflows()}>Save Built-in Workflows to Project</Button>
+                  </div>
                 </div>
                 {workflowMessage ? <div className="text-xs text-muted-foreground">{workflowMessage}</div> : null}
                 {workflowDiagnostics.length > 0 ? <div className="space-y-1">{workflowDiagnostics.map((diagnostic, index) => (
@@ -441,6 +446,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           setSystemLayout(systemLayoutSelectorRole, item.entityId);
         }}
         onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
+      />
+      <ComfyUiWorkflowImportDialog
+        open={workflowImportOpen}
+        projectFilePath={projectFilePath}
+        onOpenChange={setWorkflowImportOpen}
+        onImported={async (message, diagnostics) => {
+          setWorkflowMessage(message);
+          setWorkflowDiagnostics(diagnostics);
+          await refreshWorkflows();
+        }}
       />
     </div>
   );
