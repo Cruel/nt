@@ -82,11 +82,11 @@ describe('comfyui workflow import analysis', () => {
     const analysis = analyzeComfyUiApiWorkflow(bundledTextToImageWorkflow);
     const candidates = inferComfyUiWorkflowCandidates(analysis, 'image.generate');
 
-    expect(candidates.prompt?.[0]).toMatchObject({ nodeId: '76', inputName: 'value', confidence: 'medium' });
-    expect(candidates.width?.[0]).toMatchObject({ nodeId: '75:68', inputName: 'value' });
-    expect(candidates.height?.[0]).toMatchObject({ nodeId: '75:69', inputName: 'value' });
+    expect(candidates.prompt?.[0]).toMatchObject({ nodeId: '76', inputName: 'value', confidence: 'high' });
+    expect(candidates.width?.[0]).toMatchObject({ nodeId: '75:68', inputName: 'value', confidence: 'high' });
+    expect(candidates.height?.[0]).toMatchObject({ nodeId: '75:69', inputName: 'value', confidence: 'high' });
     expect(candidates.seed?.[0]).toMatchObject({ nodeId: '75:73', inputName: 'noise_seed', confidence: 'high' });
-    expect(candidates.steps?.[0]).toMatchObject({ nodeId: '75:62', inputName: 'steps', confidence: 'medium' });
+    expect(candidates.steps?.[0]).toMatchObject({ nodeId: '75:62', inputName: 'steps', confidence: 'high' });
     expect(candidates.filenamePrefix?.[0]).toMatchObject({ nodeId: '9', inputName: 'filename_prefix', confidence: 'high' });
     expect(candidates.images?.[0]).toMatchObject({ nodeId: '9', inputName: 'images', confidence: 'high' });
   });

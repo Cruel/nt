@@ -90,3 +90,41 @@ Project Settings adds typed validation for:
 - project icon refs, which must point to image assets.
 
 Missing default layout/font is not a validation error because built-in fallbacks exist. Missing entrypoint remains a general authoring warning but a package-export error.
+
+## ComfyUI Workflows
+
+Project Settings manages project-local ComfyUI workflow files under the authoring project's
+`workflows/` directory. The editor-wide ComfyUI server URL, enablement flag, and default workflow preferences remain
+in the Settings tab and are not written into the authoring project document.
+
+Use `Save Built-in Workflows to Project` to copy the bundled starter workflows into the project. Existing files are
+left in place, so this action is safe to run after a project already has workflow files.
+
+Use `Import Workflow` for custom ComfyUI workflows. The importer expects ComfyUI API workflow JSON exported with
+`File -> Export Workflow (API)`. Ordinary ComfyUI save files include visual editing data and are not the import
+format for this editor path.
+
+During import, choose the workflow role, confirm the input bindings, select the image output nodes NovelTea should
+import, set defaults for mapped optional inputs, then save. Output selection is explicit so complex workflows do not
+accidentally import preview or intermediate images from unrelated `SaveImage` or `PreviewImage` nodes.
+
+Renaming important ComfyUI nodes before export is optional but improves automatic binding and later repair. Recommended
+title markers are:
+
+```text
+noveltea.prompt
+noveltea.negativePrompt
+noveltea.sourceImage
+noveltea.maskImage
+noveltea.width
+noveltea.height
+noveltea.seed
+noveltea.steps
+noveltea.cfg
+noveltea.filenamePrefix
+noveltea.output
+```
+
+The installed workflow table shows valid and invalid project manifests. Use `Repair` when a manifest has stale node
+ids after re-exporting from ComfyUI, when selector metadata needs to be refreshed, or when diagnostics report missing
+input/output bindings. Repair normally updates only the NovelTea manifest; it does not replace the workflow JSON.

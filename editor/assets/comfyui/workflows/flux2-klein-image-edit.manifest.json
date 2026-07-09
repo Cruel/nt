@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "flux2-klein-image-edit",
   "label": "Flux 2 Klein Image Edit",
   "provider": "comfyui",
@@ -7,27 +8,100 @@
   "workflowFile": "flux2-klein-image-edit.workflow.json",
   "contract": {
     "inputs": {
-      "sourceImage": { "type": "image", "required": true },
-      "prompt": { "type": "string", "required": true },
-      "steps": { "type": "integer", "required": false },
-      "seed": { "type": "integer", "required": false }
+      "sourceImage": {
+        "type": "image",
+        "required": true
+      },
+      "prompt": {
+        "type": "string",
+        "required": true
+      },
+      "steps": {
+        "type": "integer",
+        "required": false
+      },
+      "seed": {
+        "type": "integer",
+        "required": false
+      }
     },
     "outputs": {
-      "images": { "type": "image-list", "required": true, "primary": "first" }
+      "images": {
+        "type": "image-list",
+        "required": true,
+        "primary": "first"
+      }
     }
   },
   "bindings": {
-    "sourceImage": { "nodeId": "76", "inputName": "image", "valueType": "image-upload-reference" },
-    "prompt": { "nodeId": "75:74", "inputName": "text", "valueType": "string" },
-    "seed": { "nodeId": "75:73", "inputName": "noise_seed", "valueType": "integer" },
-    "steps": { "nodeId": "75:62", "inputName": "steps", "valueType": "integer" },
-    "filenamePrefix": { "nodeId": "9", "inputName": "filename_prefix", "valueType": "string" }
+    "sourceImage": {
+      "nodeId": "76",
+      "nodeTitle": "noveltea.sourceImage",
+      "classType": "LoadImage",
+      "inputName": "image",
+      "valueType": "image-upload-reference",
+      "selector": {
+        "title": "noveltea.sourceImage",
+        "classType": "LoadImage",
+        "inputName": "image"
+      }
+    },
+    "prompt": {
+      "nodeId": "75:74",
+      "nodeTitle": "noveltea.prompt",
+      "classType": "CLIPTextEncode",
+      "inputName": "text",
+      "valueType": "string",
+      "selector": {
+        "title": "noveltea.prompt",
+        "classType": "CLIPTextEncode",
+        "inputName": "text"
+      }
+    },
+    "seed": {
+      "nodeId": "75:73",
+      "nodeTitle": "noveltea.seed",
+      "classType": "RandomNoise",
+      "inputName": "noise_seed",
+      "valueType": "integer",
+      "selector": {
+        "title": "noveltea.seed",
+        "classType": "RandomNoise",
+        "inputName": "noise_seed"
+      }
+    },
+    "steps": {
+      "nodeId": "75:62",
+      "nodeTitle": "noveltea.steps",
+      "classType": "Flux2Scheduler",
+      "inputName": "steps",
+      "valueType": "integer",
+      "selector": {
+        "title": "noveltea.steps",
+        "classType": "Flux2Scheduler",
+        "inputName": "steps"
+      }
+    },
+    "filenamePrefix": {
+      "nodeId": "9",
+      "nodeTitle": "noveltea.output",
+      "classType": "SaveImage",
+      "inputName": "filename_prefix",
+      "valueType": "string",
+      "selector": {
+        "title": "noveltea.output",
+        "classType": "SaveImage",
+        "inputName": "filename_prefix"
+      }
+    }
   },
   "defaults": {
     "steps": 4,
     "filenamePrefix": "NovelTea"
   },
-  "outputNodeIds": ["9"],
+  "outputNodeIds": [
+    "9"
+  ],
   "requiredNodeClasses": [
     "SaveImage",
     "LoadImage",
@@ -47,5 +121,18 @@
     "VAEDecode",
     "RandomNoise",
     "CFGGuider"
-  ]
+  ],
+  "outputBindings": {
+    "images": [
+      {
+        "nodeId": "9",
+        "nodeTitle": "noveltea.output",
+        "classType": "SaveImage",
+        "inputName": "images",
+        "valueType": "image-list",
+        "primary": "first",
+        "outputName": "images"
+      }
+    ]
+  }
 }

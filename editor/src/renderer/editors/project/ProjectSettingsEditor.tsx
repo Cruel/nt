@@ -190,12 +190,17 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
   async function installStarterWorkflows() {
     if (!projectFilePath) {
-      setWorkflowMessage('Save the project before installing starter workflows.');
+      setWorkflowMessage(t('comfyuiWorkflows.messages.saveProjectBeforeInstall'));
       return;
     }
     const response = await installComfyUiStarterWorkflows(projectFilePath);
     setWorkflowDiagnostics(response.diagnostics);
-    setWorkflowMessage(response.success ? `Copied ${response.copied.length} file${response.copied.length === 1 ? '' : 's'}; skipped ${response.skipped.length} existing file${response.skipped.length === 1 ? '' : 's'}.` : response.error ?? 'Failed to install starter workflows.');
+    setWorkflowMessage(response.success
+      ? t('comfyuiWorkflows.messages.installResult', {
+        copied: t('comfyuiWorkflows.messages.copiedFiles', { count: response.copied.length }),
+        skipped: t('comfyuiWorkflows.messages.skippedFiles', { count: response.skipped.length }),
+      })
+      : response.error ?? t('comfyuiWorkflows.messages.installFailed'));
     await refreshWorkflows();
   }
 
@@ -384,19 +389,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
           <Card id="project-settings-comfyui" data-workbench-anchor="projectSettings.comfyuiWorkflows">
             <CardHeader>
-              <CardTitle>ComfyUI Workflows</CardTitle>
-              <CardDescription>Install and validate project-local workflow files. Connection settings are editor preferences.</CardDescription>
+              <CardTitle>{t('comfyuiWorkflows.title')}</CardTitle>
+              <CardDescription>{t('comfyuiWorkflows.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2 rounded border p-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <div className="text-xs font-medium">Project workflows</div>
-                    <div className="text-xs text-muted-foreground">Install bundled starters or import a ComfyUI API workflow export.</div>
+                    <div className="text-xs font-medium">{t('comfyuiWorkflows.projectWorkflows.title')}</div>
+                    <div className="text-xs text-muted-foreground">{t('comfyuiWorkflows.projectWorkflows.description')}</div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setWorkflowImportOpen(true)}>Import Workflow</Button>
-                    <Button size="sm" variant="outline" onClick={() => void installStarterWorkflows()}>Save Built-in Workflows to Project</Button>
+                    <Button size="sm" variant="outline" onClick={() => setWorkflowImportOpen(true)}>{t('comfyuiWorkflows.actions.import')}</Button>
+                    <Button size="sm" variant="outline" onClick={() => void installStarterWorkflows()}>{t('comfyuiWorkflows.actions.installBuiltIns')}</Button>
                   </div>
                 </div>
                 {workflowMessage ? <div className="text-xs text-muted-foreground">{workflowMessage}</div> : null}
@@ -404,14 +409,14 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <table className="w-full min-w-[720px] text-left text-xs">
                     <thead className="border-b bg-muted/40 text-muted-foreground">
                       <tr>
-                        <th className="px-2 py-1 font-medium">Status</th>
-                        <th className="px-2 py-1 font-medium">Label</th>
-                        <th className="px-2 py-1 font-medium">Role</th>
-                        <th className="px-2 py-1 font-medium">ID</th>
-                        <th className="px-2 py-1 font-medium">Workflow</th>
-                        <th className="px-2 py-1 font-medium">Manifest</th>
-                        <th className="px-2 py-1 font-medium">Diagnostics</th>
-                        <th className="px-2 py-1 font-medium">Actions</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.status')}</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.label')}</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.role')}</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.id')}</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.workflow')}</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.manifest')}</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.diagnostics')}</th>
+                        <th className="px-2 py-1 font-medium">{t('comfyuiWorkflows.table.actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -420,22 +425,22 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                           <td className="px-2 py-1 align-top">
                             <Badge variant={entry.status === 'invalid' ? 'destructive' : entry.status === 'warning' ? 'secondary' : 'outline'}>{entry.status}</Badge>
                           </td>
-                          <td className="max-w-40 truncate px-2 py-1 align-top">{entry.label ?? 'Invalid manifest'}</td>
+                          <td className="max-w-40 truncate px-2 py-1 align-top">{entry.label ?? t('comfyuiWorkflows.table.invalidManifest')}</td>
                           <td className="px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.role ?? '-'}</td>
                           <td className="max-w-32 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.id ?? '-'}</td>
                           <td className="max-w-36 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.workflowFile ?? '-'}</td>
                           <td className="max-w-36 truncate px-2 py-1 align-top font-mono text-[10px] text-muted-foreground">{entry.manifestFile}</td>
-                          <td className="px-2 py-1 align-top">{entry.diagnostics.length ? `${entry.diagnostics.length} issue${entry.diagnostics.length === 1 ? '' : 's'}` : 'None'}</td>
+                          <td className="px-2 py-1 align-top">{entry.diagnostics.length ? t('comfyuiWorkflows.table.issueCount', { count: entry.diagnostics.length }) : t('comfyuiWorkflows.table.none')}</td>
                           <td className="px-2 py-1 align-top">
                             <div className="flex flex-wrap gap-1">
-                              <Button size="sm" variant="outline" disabled={!entry.repairable || !entry.workflowJsonText || !entry.definition} onClick={() => openRepair(entry)}>Repair</Button>
-                              <Button size="sm" variant="outline" onClick={revealWorkflowsFolder}>Reveal in Folder</Button>
+                              <Button size="sm" variant="outline" disabled={!entry.repairable || !entry.workflowJsonText || !entry.definition} onClick={() => openRepair(entry)}>{t('comfyuiWorkflows.actions.repair')}</Button>
+                              <Button size="sm" variant="outline" onClick={revealWorkflowsFolder}>{t('comfyuiWorkflows.actions.revealInFolder')}</Button>
                             </div>
                           </td>
                         </tr>
                       ))}
                       {workflowEntries.length === 0 ? (
-                        <tr><td colSpan={8} className="px-2 py-3 text-center text-muted-foreground">No project workflows installed.</td></tr>
+                        <tr><td colSpan={8} className="px-2 py-3 text-center text-muted-foreground">{t('comfyuiWorkflows.table.empty')}</td></tr>
                       ) : null}
                     </tbody>
                   </table>
@@ -447,12 +452,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>{diagnostic.severity}</Badge>
                         <span className="font-mono text-[10px] text-muted-foreground">{diagnostic.path}</span>
-                        {entry?.repairable && entry.workflowJsonText && entry.definition ? <Button size="sm" variant="outline" onClick={() => openRepair(entry)}>Repair</Button> : null}
+                        {entry?.repairable && entry.workflowJsonText && entry.definition ? <Button size="sm" variant="outline" onClick={() => openRepair(entry)}>{t('comfyuiWorkflows.actions.repair')}</Button> : null}
                       </div>
                       <div className="mt-1">{diagnostic.message}</div>
                     </div>
                   );
-                })}</div> : <div className="text-xs text-muted-foreground">No workflow diagnostics.</div>}
+                })}</div> : <div className="text-xs text-muted-foreground">{t('comfyuiWorkflows.diagnostics.empty')}</div>}
               </div>
             </CardContent>
           </Card>

@@ -35,7 +35,7 @@ before being considered production-quality translations.
 | `common` | Shared actions, booleans, generic field labels, loading text, unsaved project label | Source | Machine-unreviewed | Pseudo |
 | `menu` | Custom renderer application menu, window controls, About dialog labels | Source | Machine-unreviewed | Pseudo |
 | `settings` | Editor settings page, theme/language/window/workspace cards, code editor theme dialog | Source | Machine-unreviewed | Pseudo |
-| `workspace` | Sidebar utility labels, command palette strings, bottom panel labels and basic empty states | Source | Machine-unreviewed | Pseudo |
+| `workspace` | Sidebar utility labels, command palette strings, bottom panel labels, basic empty states, Project Settings ComfyUI workflow management | Source | Machine-unreviewed | Pseudo |
 
 ## Review Checklist
 
@@ -75,3 +75,4 @@ reviewer should check:
 | --- | --- | --- |
 | 2026-07-04 | Added `en-US` source resources and `pseudo` development resources for the first editor localization slice. | `en-US`: source; `pseudo`: pseudo. |
 | 2026-07-04 | Added `pt-BR` resources for the same initial namespaces using machine translation. | `pt-BR`: machine-unreviewed. |
+| 2026-07-08 | Added Project Settings ComfyUI workflow management and import/repair dialog copy to the `workspace` namespace. | `pt-BR` remains machine-unreviewed. |

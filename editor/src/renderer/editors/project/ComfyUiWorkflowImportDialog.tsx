@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,14 +42,14 @@ type DefaultsDraft = Partial<Record<ComfyUiSemanticInput, string>>;
 
 const unmappedValue = '__unmapped__';
 
-const stepLabels = [
-  'Source File',
-  'Role',
-  'Summary',
-  'Inputs',
-  'Outputs',
-  'Defaults',
-  'Review',
+const stepLabelKeys = [
+  'sourceFile',
+  'role',
+  'summary',
+  'inputs',
+  'outputs',
+  'defaults',
+  'review',
 ] as const;
 
 function slugify(value: string) {
@@ -266,8 +267,8 @@ function buildManifest(options: {
   };
 }
 
-function DiagnosticRows({ diagnostics }: { diagnostics: ComfyUiWorkflowDiagnostic[] }) {
-  if (!diagnostics.length) return <div className="text-xs text-muted-foreground">No diagnostics.</div>;
+function DiagnosticRows({ diagnostics, emptyMessage }: { diagnostics: ComfyUiWorkflowDiagnostic[]; emptyMessage: string }) {
+  if (!diagnostics.length) return <div className="text-xs text-muted-foreground">{emptyMessage}</div>;
   return (
     <div className="space-y-1">
       {diagnostics.map((diagnostic, index) => (
@@ -282,6 +283,7 @@ function DiagnosticRows({ diagnostics }: { diagnostics: ComfyUiWorkflowDiagnosti
 }
 
 export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry, onOpenChange, onImported }: ComfyUiWorkflowImportDialogProps) {
+  const { t } = useTranslation('workspace');
   const config = useComfyUiStore((state) => state.config);
   const mode = repairEntry ? 'repair' : 'import';
   const [step, setStep] = useState<Step>(0);
@@ -353,15 +355,15 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
     setAnalyzing(true);
     void analyzeComfyUiWorkflowImport({ projectFilePath: projectFilePath ?? '', workflowJsonText: repairEntry.workflowJsonText, config }).then((response) => {
       setAnalysisResponse(response);
-      setError(response.ok ? null : response.error ?? 'Workflow repair analysis failed.');
+      setError(response.ok ? null : response.error ?? t('comfyuiImport.errors.repairAnalysisFailed'));
       setInputSelections(buildRepairInputSelections(response, definition));
       setOutputSelections(buildRepairOutputs(response, definition));
     }).catch((caught) => {
-      const message = caught instanceof Error ? caught.message : 'Failed to analyze workflow for repair.';
+      const message = caught instanceof Error ? caught.message : t('comfyuiImport.errors.analyzeRepairFailed');
       setAnalysisResponse({ ok: false, roleCandidates: {}, diagnostics: [{ severity: 'error', category: 'comfyui-workflows', path: '/workflow', message }], error: message });
       setError(message);
     }).finally(() => setAnalyzing(false));
-  }, [config, open, projectFilePath, repairEntry]);
+  }, [config, open, projectFilePath, repairEntry, t]);
 
   useEffect(() => {
     if (mode === 'repair') return;
@@ -391,12 +393,12 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
     try {
       const text = await file.text();
       setWorkflowJsonText(text);
-      if (!projectFilePath) throw new Error('Save the project before importing ComfyUI workflows.');
+      if (!projectFilePath) throw new Error(t('comfyuiImport.errors.saveProjectBeforeImport'));
       const response = await analyzeComfyUiWorkflowImport({ projectFilePath, workflowJsonText: text, config });
       setAnalysisResponse(response);
-      setError(response.ok ? null : response.error ?? 'Workflow import analysis failed.');
+      setError(response.ok ? null : response.error ?? t('comfyuiImport.errors.importAnalysisFailed'));
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Failed to read workflow file.';
+      const message = caught instanceof Error ? caught.message : t('comfyuiImport.errors.readFailed');
       setAnalysisResponse({ ok: false, roleCandidates: {}, diagnostics: [{ severity: 'error', category: 'comfyui-workflows', path: '/workflow', message }], error: message });
       setError(message);
     } finally {
@@ -433,12 +435,12 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
     setSaveDiagnostics(response.diagnostics);
     setSaving(false);
     if (!response.success) {
-      setError(response.error ?? 'Failed to save imported workflow.');
+      setError(response.error ?? t('comfyuiImport.errors.saveFailed'));
       return;
     }
     await onImported(mode === 'repair'
-      ? `Repaired ${response.manifestFile ?? manifestFileName}.`
-      : `Imported ${response.workflowFile ?? workflowFileName}.`, response.diagnostics);
+      ? t('comfyuiImport.messages.repaired', { manifestFile: response.manifestFile ?? manifestFileName })
+      : t('comfyuiImport.messages.imported', { workflowFile: response.workflowFile ?? workflowFileName }), response.diagnostics);
     onOpenChange(false);
   }
 
@@ -447,7 +449,7 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
       return (
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label htmlFor="comfyui-workflow-json">API workflow JSON</Label>
+            <Label htmlFor="comfyui-workflow-json">{t('comfyuiImport.sourceFile.apiWorkflowJson')}</Label>
             <input
               id="comfyui-workflow-json"
               type="file"
@@ -456,9 +458,9 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
               onChange={(event) => void readWorkflowFile(event.currentTarget.files?.[0])}
             />
           </div>
-          {fileName ? <div className="rounded border p-2 text-xs">{fileName} {fileSize !== null ? <span className="text-muted-foreground">({fileSize.toLocaleString()} bytes)</span> : null}</div> : null}
-          {analyzing ? <div className="text-xs text-muted-foreground">Analyzing workflow...</div> : null}
-          {analysisResponse ? <DiagnosticRows diagnostics={analysisResponse.diagnostics} /> : null}
+          {fileName ? <div className="rounded border p-2 text-xs">{fileName} {fileSize !== null ? <span className="text-muted-foreground">{t('comfyuiImport.sourceFile.fileSize', { bytes: fileSize.toLocaleString() })}</span> : null}</div> : null}
+          {analyzing ? <div className="text-xs text-muted-foreground">{t('comfyuiImport.sourceFile.analyzing')}</div> : null}
+          {analysisResponse ? <DiagnosticRows diagnostics={analysisResponse.diagnostics} emptyMessage={t('comfyuiImport.diagnostics.empty')} /> : null}
         </div>
       );
     }
@@ -467,7 +469,7 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
       return (
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1 md:col-span-2">
-            <Label>Role</Label>
+            <Label>{t('comfyuiImport.metadata.role')}</Label>
             <Select value={role} onValueChange={(value) => setRole(value as ComfyUiWorkflowRole)}>
               <SelectTrigger className="w-full"><SelectValue>{selectedRole.label}</SelectValue></SelectTrigger>
               <SelectContent align="start">
@@ -479,15 +481,15 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
             <p className="text-xs text-muted-foreground">{selectedRole.description}</p>
           </div>
           <div className="space-y-1">
-            <Label>Workflow label</Label>
+            <Label>{t('comfyuiImport.metadata.workflowLabel')}</Label>
             <Input value={label} onChange={(event) => setLabel(event.currentTarget.value)} />
           </div>
           <div className="space-y-1">
-            <Label>Workflow ID</Label>
+            <Label>{t('comfyuiImport.metadata.workflowId')}</Label>
             <Input value={workflowId} onChange={(event) => setWorkflowId(slugify(event.currentTarget.value))} />
           </div>
           <div className="space-y-1 md:col-span-2">
-            <Label>Description</Label>
+            <Label>{t('comfyuiImport.metadata.description')}</Label>
             <Input value={description} onChange={(event) => setDescription(event.currentTarget.value)} />
           </div>
           <div className="space-y-1 md:col-span-2">
@@ -496,7 +498,7 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
           </div>
           {mode === 'import' ? <label className="flex items-center gap-2 text-xs md:col-span-2">
             <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.currentTarget.checked)} />
-            Overwrite existing workflow files with these names
+            {t('comfyuiImport.metadata.overwrite')}
           </label> : null}
         </div>
       );
@@ -506,19 +508,19 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
       return (
         <div className="space-y-3 text-xs">
           <div className="grid gap-2 md:grid-cols-3">
-            <div className="rounded border p-2"><div className="text-muted-foreground">Nodes</div><div className="text-sm font-medium">{analysisResponse?.analysis?.nodes.length ?? 0}</div></div>
-            <div className="rounded border p-2"><div className="text-muted-foreground">Class types</div><div className="text-sm font-medium">{analysisResponse?.analysis?.classTypes.length ?? 0}</div></div>
-            <div className="rounded border p-2"><div className="text-muted-foreground">Candidates</div><div className="text-sm font-medium">{roleCandidateCounts.length}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">{t('comfyuiImport.summary.nodes')}</div><div className="text-sm font-medium">{analysisResponse?.analysis?.nodes.length ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">{t('comfyuiImport.summary.classTypes')}</div><div className="text-sm font-medium">{analysisResponse?.analysis?.classTypes.length ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">{t('comfyuiImport.summary.candidates')}</div><div className="text-sm font-medium">{roleCandidateCounts.length}</div></div>
           </div>
           <div>
-            <Label>Class types</Label>
+            <Label>{t('comfyuiImport.summary.classTypes')}</Label>
             <div className="mt-1 flex flex-wrap gap-1">{analysisResponse?.analysis?.classTypes.map((classType) => <Badge key={classType} variant="outline">{classType}</Badge>)}</div>
           </div>
           <div>
-            <Label>Candidate counts</Label>
-            <div className="mt-1 text-muted-foreground">{roleCandidateCounts.join(', ') || 'No candidates detected.'}</div>
+            <Label>{t('comfyuiImport.summary.candidateCounts')}</Label>
+            <div className="mt-1 text-muted-foreground">{roleCandidateCounts.join(', ') || t('comfyuiImport.summary.noCandidates')}</div>
           </div>
-          <DiagnosticRows diagnostics={analysisResponse?.diagnostics ?? []} />
+          <DiagnosticRows diagnostics={analysisResponse?.diagnostics ?? []} emptyMessage={t('comfyuiImport.diagnostics.empty')} />
         </div>
       );
     }
@@ -532,13 +534,13 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
               <div key={semanticKey} className="space-y-1 rounded border p-2">
                 <div className="flex items-center gap-2">
                   <Label>{semanticKey}</Label>
-                  <Badge variant={input.required ? 'destructive' : 'outline'}>{input.required ? 'required' : 'optional'}</Badge>
+                  <Badge variant={input.required ? 'destructive' : 'outline'}>{input.required ? t('comfyuiImport.inputs.required') : t('comfyuiImport.inputs.optional')}</Badge>
                   <span className="text-xs text-muted-foreground">{input.type}</span>
                 </div>
                 <Select value={inputSelections[semanticKey] ?? unmappedValue} onValueChange={(value) => setInputSelections((current) => ({ ...current, [semanticKey]: value === unmappedValue ? undefined : String(value) }))}>
-                  <SelectTrigger className="w-full"><SelectValue>{selected ? candidateLabel(selected) : 'Unmapped'}</SelectValue></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue>{selected ? candidateLabel(selected) : t('comfyuiImport.inputs.unmapped')}</SelectValue></SelectTrigger>
                   <SelectContent align="start" className="max-h-80">
-                    {!input.required ? <SelectItem value={unmappedValue}>Unmapped</SelectItem> : null}
+                    {!input.required ? <SelectItem value={unmappedValue}>{t('comfyuiImport.inputs.unmapped')}</SelectItem> : null}
                     {options.map((candidate) => (
                       <SelectItem key={candidateKey(candidate)} value={candidateKey(candidate)}>
                         {candidateLabel(candidate)}
@@ -549,15 +551,15 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
                 {selected ? (
                   <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
                     <Badge variant={confidenceVariant(selected.confidence)}>{selected.confidence}</Badge>
-                    <span>score {selected.score}</span>
+                    <span>{t('comfyuiImport.candidates.score', { score: selected.score })}</span>
                     <span>{selected.reasons.join(', ')}</span>
-                    {readableValue(selected.currentValue) !== null ? <span>current {readableValue(selected.currentValue)}</span> : null}
+                    {readableValue(selected.currentValue) !== null ? <span>{t('comfyuiImport.candidates.current', { value: readableValue(selected.currentValue) })}</span> : null}
                   </div>
                 ) : null}
               </div>
             );
           })}
-          {requiredInputsMissing ? <div className="text-xs text-destructive">Required inputs must be mapped before continuing.</div> : null}
+          {requiredInputsMissing ? <div className="text-xs text-destructive">{t('comfyuiImport.inputs.requiredMissing')}</div> : null}
         </div>
       );
     }
@@ -578,15 +580,15 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
                   <span className="block font-medium">{candidateLabel(candidate)}</span>
                   <span className="mt-1 flex flex-wrap gap-1 text-muted-foreground">
                     <Badge variant={confidenceVariant(candidate.confidence)}>{candidate.confidence}</Badge>
-                    <span>score {candidate.score}</span>
+                    <span>{t('comfyuiImport.candidates.score', { score: candidate.score })}</span>
                     <span>{candidate.reasons.join(', ')}</span>
                   </span>
                 </span>
               </label>
             );
           })}
-          {outputs.length === 0 ? <div className="text-xs text-muted-foreground">No image output candidates were detected.</div> : null}
-          {requiredOutputsMissing ? <div className="text-xs text-destructive">Select at least one image output.</div> : null}
+          {outputs.length === 0 ? <div className="text-xs text-muted-foreground">{t('comfyuiImport.outputs.empty')}</div> : null}
+          {requiredOutputsMissing ? <div className="text-xs text-destructive">{t('comfyuiImport.outputs.requiredMissing')}</div> : null}
         </div>
       );
     }
@@ -604,18 +606,18 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
               />
             </div>
           ))}
-          {editable.length === 0 ? <div className="text-xs text-muted-foreground md:col-span-2">No mapped optional inputs have defaults.</div> : null}
+          {editable.length === 0 ? <div className="text-xs text-muted-foreground md:col-span-2">{t('comfyuiImport.defaults.empty')}</div> : null}
         </div>
       );
     }
     return (
       <div className="space-y-3">
         <div className="rounded border p-2 text-xs">
-          <div><span className="text-muted-foreground">Workflow:</span> {workflowFileName}</div>
-          <div><span className="text-muted-foreground">Manifest:</span> {mode === 'repair' ? repairEntry?.manifestFile : manifestFileName}</div>
+          <div><span className="text-muted-foreground">{t('comfyuiImport.review.workflow')}:</span> {workflowFileName}</div>
+          <div><span className="text-muted-foreground">{t('comfyuiImport.review.manifest')}:</span> {mode === 'repair' ? repairEntry?.manifestFile : manifestFileName}</div>
         </div>
-        <DiagnosticRows diagnostics={[...(analysisResponse?.diagnostics ?? []), ...saveDiagnostics]} />
-        <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">{manifest ? JSON.stringify(manifest, null, 2) : 'Manifest is not ready.'}</pre>
+        <DiagnosticRows diagnostics={[...(analysisResponse?.diagnostics ?? []), ...saveDiagnostics]} emptyMessage={t('comfyuiImport.diagnostics.empty')} />
+        <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">{manifest ? JSON.stringify(manifest, null, 2) : t('comfyuiImport.review.manifestNotReady')}</pre>
       </div>
     );
   }
@@ -624,22 +626,22 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{mode === 'repair' ? 'Repair ComfyUI Workflow' : 'Import ComfyUI Workflow'}</DialogTitle>
-          <DialogDescription>{mode === 'repair' ? 'Repair the NovelTea manifest for an installed ComfyUI workflow.' : 'Import an API workflow export and generate a NovelTea manifest.'}</DialogDescription>
+          <DialogTitle>{mode === 'repair' ? t('comfyuiImport.title.repair') : t('comfyuiImport.title.import')}</DialogTitle>
+          <DialogDescription>{mode === 'repair' ? t('comfyuiImport.description.repair') : t('comfyuiImport.description.import')}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap gap-1">
-          {stepLabels.map((stepLabel, index) => (
-            <Badge key={stepLabel} variant={index === step ? 'default' : 'outline'}>{index + 1}. {stepLabel}</Badge>
+          {stepLabelKeys.map((stepLabelKey, index) => (
+            <Badge key={stepLabelKey} variant={index === step ? 'default' : 'outline'}>{index + 1}. {t(`comfyuiImport.steps.${stepLabelKey}`)}</Badge>
           ))}
         </div>
         {error ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div> : null}
         <div className="min-h-0 overflow-auto pr-1">{renderStep()}</div>
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={step === 0 || (mode === 'repair' && step === 1) || saving} onClick={() => setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)}>Back</Button>
+          <Button type="button" variant="outline" disabled={step === 0 || (mode === 'repair' && step === 1) || saving} onClick={() => setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)}>{t('comfyuiImport.actions.back')}</Button>
           {step < 6 ? (
-            <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && requiredOutputsMissing)} onClick={nextStep}>Next</Button>
+            <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && requiredOutputsMissing)} onClick={nextStep}>{t('comfyuiImport.actions.next')}</Button>
           ) : (
-            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || saving} onClick={() => void saveImport()}>{saving ? 'Saving...' : mode === 'repair' ? 'Save Repair' : 'Save Import'}</Button>
+            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || saving} onClick={() => void saveImport()}>{saving ? t('comfyuiImport.actions.saving') : mode === 'repair' ? t('comfyuiImport.actions.saveRepair') : t('comfyuiImport.actions.saveImport')}</Button>
           )}
         </DialogFooter>
       </DialogContent>

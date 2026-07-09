@@ -23,37 +23,78 @@
   "commandPalette": {
     "actions": {
       "assets": {
-        "search": ["recursos", "navegador de recursos", "imagens áudio fontes", "assets", "asset browser", "images audio fonts"],
+        "search": [
+          "recursos",
+          "navegador de recursos",
+          "imagens áudio fontes",
+          "assets",
+          "asset browser",
+          "images audio fonts"
+        ],
         "subtitle": "Abrir navegador de recursos",
         "title": "Recursos"
       },
       "newProject": {
-        "search": ["novo projeto", "criar projeto", "criar projeto noveltea"],
+        "search": [
+          "novo projeto",
+          "criar projeto",
+          "criar projeto noveltea"
+        ],
         "subtitle": "Criar um novo projeto NovelTea",
         "title": "Novo Projeto"
       },
       "openProject": {
-        "search": ["abrir projeto", "abrir projeto existente", "projetos recentes"],
+        "search": [
+          "abrir projeto",
+          "abrir projeto existente",
+          "projetos recentes"
+        ],
         "subtitle": "Abrir um projeto existente",
         "title": "Abrir Projeto"
       },
       "settings": {
-        "search": ["configurações", "preferências", "configurações do editor", "settings", "editor settings", "preferences"],
+        "search": [
+          "configurações",
+          "preferências",
+          "configurações do editor",
+          "settings",
+          "editor settings",
+          "preferences"
+        ],
         "subtitle": "Abrir configurações do editor",
         "title": "Configurações"
       },
       "projectSettings": {
-        "search": ["configurações", "configurações do projeto", "preferências", "settings", "project settings", "preferences"],
+        "search": [
+          "configurações",
+          "configurações do projeto",
+          "preferências",
+          "settings",
+          "project settings",
+          "preferences"
+        ],
         "subtitle": "Abrir configurações do projeto",
         "title": "Configurações do projeto"
       },
       "tests": {
-        "search": ["testes", "testes de reprodução", "testes smoke", "tests", "playback tests", "smoke tests"],
+        "search": [
+          "testes",
+          "testes de reprodução",
+          "testes smoke",
+          "tests",
+          "playback tests",
+          "smoke tests"
+        ],
         "subtitle": "Abrir testes de reprodução",
         "title": "Testes"
       },
       "variables": {
-        "search": ["variáveis", "estado flags", "variables", "state flags"],
+        "search": [
+          "variáveis",
+          "estado flags",
+          "variables",
+          "state flags"
+        ],
         "subtitle": "Abrir editor de variáveis",
         "title": "Variáveis"
       }
@@ -92,5 +133,128 @@
   "sidebar": {
     "components": "Componentes",
     "settings": "Configurações"
+  },
+  "comfyuiWorkflows": {
+    "title": "Fluxos de trabalho ComfyUI",
+    "description": "Instale e valide arquivos de fluxo de trabalho locais do projeto. As configurações de conexão são preferências do editor.",
+    "projectWorkflows": {
+      "title": "Fluxos de trabalho do projeto",
+      "description": "Instale modelos iniciais incluídos ou importe uma exportação de fluxo de trabalho API do ComfyUI."
+    },
+    "actions": {
+      "import": "Importar fluxo de trabalho",
+      "installBuiltIns": "Salvar fluxos integrados no projeto",
+      "repair": "Reparar",
+      "revealInFolder": "Mostrar na pasta"
+    },
+    "messages": {
+      "saveProjectBeforeInstall": "Salve o projeto antes de instalar fluxos iniciais.",
+      "copiedFiles_one": "{{count}} arquivo copiado",
+      "copiedFiles_other": "{{count}} arquivos copiados",
+      "skippedFiles_one": "{{count}} arquivo existente ignorado",
+      "skippedFiles_other": "{{count}} arquivos existentes ignorados",
+      "installResult": "{{copied}}; {{skipped}}.",
+      "installFailed": "Falha ao instalar fluxos iniciais."
+    },
+    "table": {
+      "status": "Status",
+      "label": "Rótulo",
+      "role": "Função",
+      "id": "ID",
+      "workflow": "Fluxo",
+      "manifest": "Manifesto",
+      "diagnostics": "Diagnósticos",
+      "actions": "Ações",
+      "invalidManifest": "Manifesto inválido",
+      "issueCount_one": "{{count}} problema",
+      "issueCount_other": "{{count}} problemas",
+      "none": "Nenhum",
+      "empty": "Nenhum fluxo de trabalho do projeto instalado."
+    },
+    "diagnostics": {
+      "empty": "Nenhum diagnóstico de fluxo de trabalho."
+    }
+  },
+  "comfyuiImport": {
+    "title": {
+      "import": "Importar fluxo ComfyUI",
+      "repair": "Reparar fluxo ComfyUI"
+    },
+    "description": {
+      "import": "Importe uma exportação de fluxo API e gere um manifesto NovelTea.",
+      "repair": "Repare o manifesto NovelTea de um fluxo ComfyUI instalado."
+    },
+    "steps": {
+      "sourceFile": "Arquivo de origem",
+      "role": "Função",
+      "summary": "Resumo",
+      "inputs": "Entradas",
+      "outputs": "Saídas",
+      "defaults": "Padrões",
+      "review": "Revisão"
+    },
+    "actions": {
+      "back": "Voltar",
+      "next": "Avançar",
+      "saving": "Salvando...",
+      "saveImport": "Salvar importação",
+      "saveRepair": "Salvar reparo"
+    },
+    "errors": {
+      "saveProjectBeforeImport": "Salve o projeto antes de importar fluxos ComfyUI.",
+      "repairAnalysisFailed": "Falha na análise de reparo do fluxo.",
+      "analyzeRepairFailed": "Falha ao analisar o fluxo para reparo.",
+      "importAnalysisFailed": "Falha na análise de importação do fluxo.",
+      "readFailed": "Falha ao ler o arquivo de fluxo.",
+      "saveFailed": "Falha ao salvar o fluxo importado."
+    },
+    "messages": {
+      "imported": "{{workflowFile}} importado.",
+      "repaired": "{{manifestFile}} reparado."
+    },
+    "diagnostics": {
+      "empty": "Nenhum diagnóstico."
+    },
+    "sourceFile": {
+      "apiWorkflowJson": "JSON de fluxo API",
+      "fileSize": "({{bytes}} bytes)",
+      "analyzing": "Analisando fluxo..."
+    },
+    "metadata": {
+      "role": "Função",
+      "workflowLabel": "Rótulo do fluxo",
+      "workflowId": "ID do fluxo",
+      "description": "Descrição",
+      "overwrite": "Substituir arquivos de fluxo existentes com estes nomes"
+    },
+    "summary": {
+      "nodes": "Nós",
+      "classTypes": "Tipos de classe",
+      "candidates": "Candidatos",
+      "candidateCounts": "Contagem de candidatos",
+      "noCandidates": "Nenhum candidato detectado."
+    },
+    "inputs": {
+      "required": "obrigatório",
+      "optional": "opcional",
+      "unmapped": "Não mapeado",
+      "requiredMissing": "Entradas obrigatórias precisam ser mapeadas antes de continuar."
+    },
+    "outputs": {
+      "empty": "Nenhum candidato de saída de imagem foi detectado.",
+      "requiredMissing": "Selecione pelo menos uma saída de imagem."
+    },
+    "defaults": {
+      "empty": "Nenhuma entrada opcional mapeada tem padrões."
+    },
+    "candidates": {
+      "score": "pontuação {{score}}",
+      "current": "atual {{value}}"
+    },
+    "review": {
+      "workflow": "Fluxo",
+      "manifest": "Manifesto",
+      "manifestNotReady": "O manifesto ainda não está pronto."
+    }
   }
 }

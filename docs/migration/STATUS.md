@@ -277,3 +277,19 @@ contract and bound in the manifest. Bound `negativePrompt` and `cfg` inputs are 
 generate and edit workflows, defaults reset when workflows change, and hidden stale values are not
 queued. The main ComfyUI service mutates bound optional inputs before prompt submission and ignores
 unbound optional request fields. Focused tests, full Vitest coverage, lint, and typecheck pass.
+
+Latest editor ComfyUI workflow import Phase 8 verification:
+
+```sh
+pnpm exec vitest run src/renderer/test/comfyui-workflows.test.ts src/renderer/test/comfyui-workflow-import-analysis.test.ts src/renderer/test/comfyui-workflow-import-service.test.ts src/renderer/test/project-settings-editor.test.tsx src/renderer/test/i18n-resource-parity.test.ts
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+Project Settings and the new ComfyUI workflow import guide now document API workflow export,
+`noveltea.*` node markers, explicit output selection, bundled starter installation, and repair.
+Bundled Flux 2 Klein starter manifests are schema v2 with selector metadata and output bindings
+while retaining `outputNodeIds`; their NovelTea-controlled workflow node titles now use
+`noveltea.*` markers. Stable workflow-management UI copy moved into the `workspace` i18n namespace.
+Focused tests, full Vitest coverage, lint, and typecheck pass.

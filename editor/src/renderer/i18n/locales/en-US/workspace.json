@@ -23,37 +23,64 @@
   "commandPalette": {
     "actions": {
       "assets": {
-        "search": ["assets", "asset browser", "images audio fonts"],
+        "search": [
+          "assets",
+          "asset browser",
+          "images audio fonts"
+        ],
         "subtitle": "Open asset browser",
         "title": "Assets"
       },
       "newProject": {
-        "search": ["new project", "create project", "create noveltea project"],
+        "search": [
+          "new project",
+          "create project",
+          "create noveltea project"
+        ],
         "subtitle": "Create a new NovelTea project",
         "title": "New Project"
       },
       "openProject": {
-        "search": ["open project", "open existing project", "browse projects"],
+        "search": [
+          "open project",
+          "open existing project",
+          "browse projects"
+        ],
         "subtitle": "Open an existing project",
         "title": "Open Project"
       },
       "settings": {
-        "search": ["settings", "preferences", "editor settings"],
+        "search": [
+          "settings",
+          "preferences",
+          "editor settings"
+        ],
         "subtitle": "Open editor settings",
         "title": "Settings"
       },
       "projectSettings": {
-        "search": ["settings", "project settings", "preferences"],
+        "search": [
+          "settings",
+          "project settings",
+          "preferences"
+        ],
         "subtitle": "Open project settings",
         "title": "Project Settings"
       },
       "tests": {
-        "search": ["tests", "playback tests", "smoke tests"],
+        "search": [
+          "tests",
+          "playback tests",
+          "smoke tests"
+        ],
         "subtitle": "Open playback tests",
         "title": "Tests"
       },
       "variables": {
-        "search": ["variables", "state flags"],
+        "search": [
+          "variables",
+          "state flags"
+        ],
         "subtitle": "Open variables editor",
         "title": "Variables"
       }
@@ -92,5 +119,128 @@
   "sidebar": {
     "components": "Components",
     "settings": "Settings"
+  },
+  "comfyuiWorkflows": {
+    "title": "ComfyUI Workflows",
+    "description": "Install and validate project-local workflow files. Connection settings are editor preferences.",
+    "projectWorkflows": {
+      "title": "Project workflows",
+      "description": "Install bundled starters or import a ComfyUI API workflow export."
+    },
+    "actions": {
+      "import": "Import Workflow",
+      "installBuiltIns": "Save Built-in Workflows to Project",
+      "repair": "Repair",
+      "revealInFolder": "Reveal in Folder"
+    },
+    "messages": {
+      "saveProjectBeforeInstall": "Save the project before installing starter workflows.",
+      "copiedFiles_one": "{{count}} file copied",
+      "copiedFiles_other": "{{count}} files copied",
+      "skippedFiles_one": "{{count}} existing file skipped",
+      "skippedFiles_other": "{{count}} existing files skipped",
+      "installResult": "{{copied}}; {{skipped}}.",
+      "installFailed": "Failed to install starter workflows."
+    },
+    "table": {
+      "status": "Status",
+      "label": "Label",
+      "role": "Role",
+      "id": "ID",
+      "workflow": "Workflow",
+      "manifest": "Manifest",
+      "diagnostics": "Diagnostics",
+      "actions": "Actions",
+      "invalidManifest": "Invalid manifest",
+      "issueCount_one": "{{count}} issue",
+      "issueCount_other": "{{count}} issues",
+      "none": "None",
+      "empty": "No project workflows installed."
+    },
+    "diagnostics": {
+      "empty": "No workflow diagnostics."
+    }
+  },
+  "comfyuiImport": {
+    "title": {
+      "import": "Import ComfyUI Workflow",
+      "repair": "Repair ComfyUI Workflow"
+    },
+    "description": {
+      "import": "Import an API workflow export and generate a NovelTea manifest.",
+      "repair": "Repair the NovelTea manifest for an installed ComfyUI workflow."
+    },
+    "steps": {
+      "sourceFile": "Source File",
+      "role": "Role",
+      "summary": "Summary",
+      "inputs": "Inputs",
+      "outputs": "Outputs",
+      "defaults": "Defaults",
+      "review": "Review"
+    },
+    "actions": {
+      "back": "Back",
+      "next": "Next",
+      "saving": "Saving...",
+      "saveImport": "Save Import",
+      "saveRepair": "Save Repair"
+    },
+    "errors": {
+      "saveProjectBeforeImport": "Save the project before importing ComfyUI workflows.",
+      "repairAnalysisFailed": "Workflow repair analysis failed.",
+      "analyzeRepairFailed": "Failed to analyze workflow for repair.",
+      "importAnalysisFailed": "Workflow import analysis failed.",
+      "readFailed": "Failed to read workflow file.",
+      "saveFailed": "Failed to save imported workflow."
+    },
+    "messages": {
+      "imported": "Imported {{workflowFile}}.",
+      "repaired": "Repaired {{manifestFile}}."
+    },
+    "diagnostics": {
+      "empty": "No diagnostics."
+    },
+    "sourceFile": {
+      "apiWorkflowJson": "API workflow JSON",
+      "fileSize": "({{bytes}} bytes)",
+      "analyzing": "Analyzing workflow..."
+    },
+    "metadata": {
+      "role": "Role",
+      "workflowLabel": "Workflow label",
+      "workflowId": "Workflow ID",
+      "description": "Description",
+      "overwrite": "Overwrite existing workflow files with these names"
+    },
+    "summary": {
+      "nodes": "Nodes",
+      "classTypes": "Class types",
+      "candidates": "Candidates",
+      "candidateCounts": "Candidate counts",
+      "noCandidates": "No candidates detected."
+    },
+    "inputs": {
+      "required": "required",
+      "optional": "optional",
+      "unmapped": "Unmapped",
+      "requiredMissing": "Required inputs must be mapped before continuing."
+    },
+    "outputs": {
+      "empty": "No image output candidates were detected.",
+      "requiredMissing": "Select at least one image output."
+    },
+    "defaults": {
+      "empty": "No mapped optional inputs have defaults."
+    },
+    "candidates": {
+      "score": "score {{score}}",
+      "current": "current {{value}}"
+    },
+    "review": {
+      "workflow": "Workflow",
+      "manifest": "Manifest",
+      "manifestNotReady": "Manifest is not ready."
+    }
   }
 }
