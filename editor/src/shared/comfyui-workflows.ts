@@ -368,7 +368,7 @@ export interface ComfyUiInstallStarterWorkflowsResponse {
 }
 
 export interface ComfyUiAnalyzeWorkflowImportRequest {
-  projectFilePath: string;
+  projectFilePath?: string | null;
   workflowJsonText: string;
   config?: ComfyUiConfig;
 }

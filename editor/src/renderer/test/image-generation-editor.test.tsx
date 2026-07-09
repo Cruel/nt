@@ -87,7 +87,6 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   vi.mocked(window.noveltea.generateComfyUiImage).mockClear();
   vi.mocked(window.noveltea.editComfyUiImage).mockClear();
-  vi.mocked(window.noveltea.listComfyUiWorkflows).mockClear();
   vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockClear();
   mockWorkflowList([
     workflow({ id: 'flux2-klein-text-to-image', label: 'Flux 2 Klein Text to Image' }),

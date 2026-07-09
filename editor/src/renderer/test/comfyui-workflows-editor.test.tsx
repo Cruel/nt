@@ -80,6 +80,7 @@ beforeEach(() => {
   vi.mocked(window.noveltea.revealComfyUiWorkflow).mockResolvedValue(true);
   vi.mocked(window.noveltea.verifyComfyUiWorkflowLibrary).mockResolvedValue({ ok: true, success: true, checkedAt: 'now', verified: [], failed: [], skipped: [], entries: [], diagnostics: [] });
   vi.spyOn(window, 'confirm').mockReturnValue(true);
+
 });
 
 describe('ComfyUiWorkflowsEditor', () => {
@@ -93,7 +94,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(screen.getByText('Workflow file')).toBeInTheDocument();
     expect(screen.getByText('Manifest file')).toBeInTheDocument();
     expect(screen.getByText('Diagnostics')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import workflow' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import workflow' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /to Project/ })).not.toBeInTheDocument();
   });
 
@@ -176,5 +177,26 @@ describe('ComfyUiWorkflowsEditor', () => {
       projectFilePath: '/mock/project/game.json',
       force: true,
     }));
+  });
+  it('opens import and repair dialogs from manager actions', async () => {
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(response([
+      entry({ source: 'editor', id: 'custom', label: 'Custom Workflow', repairable: true, capabilities: {
+        canCopyToEditor: false,
+        canCopyToProject: true,
+        canDelete: true,
+        canRepair: true,
+        canReveal: true,
+      } }),
+    ]));
+
+    render(<ComfyUiWorkflowsEditor tab={tab} />);
+
+    expect(await screen.findByText('Custom Workflow')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Import workflow' }));
+    expect(await screen.findByText('Import ComfyUI Workflow')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Repair Custom Workflow/ }));
+    expect(await screen.findByText('Repair ComfyUI Workflow')).toBeInTheDocument();
   });
 });

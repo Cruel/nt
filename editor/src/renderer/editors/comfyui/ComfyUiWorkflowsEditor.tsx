@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Copy, FileSearch, FolderOpen, RefreshCw, Trash2, Upload, Wrench } from 'lucide-react';
+import { ComfyUiWorkflowImportDialog } from '@/editors/project/ComfyUiWorkflowImportDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { copyComfyUiWorkflow, deleteComfyUiWorkflow, listComfyUiWorkflowLibrary, revealComfyUiWorkflow, verifyComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
@@ -47,6 +48,8 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
   const [message, setMessage] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [repairEntry, setRepairEntry] = useState<ComfyUiWorkflowLibraryEntry | null>(null);
 
   useEffect(() => {
     let canceled = false;
@@ -72,6 +75,16 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
 
   function refresh() {
     setRefreshToken((value) => value + 1);
+  }
+
+  async function handleImported(nextMessage: string) {
+    setMessage(nextMessage);
+    invalidateComfyUiWorkflowVerification();
+    refresh();
+  }
+
+  function openRepair(entry: ComfyUiWorkflowLibraryEntry) {
+    setRepairEntry(entry);
   }
 
   function operationMessage(responseMessage: { success: boolean; error?: string; diagnostics?: Array<{ message?: string }> }, fallback: string) {
@@ -219,7 +232,7 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
                     </td>
                     <td className="px-3 py-2 align-top">
                       <div className="flex flex-wrap gap-1.5">
-                        <Button type="button" size="icon-sm" variant="outline" disabled title="Import workflow is added in Phase 8" aria-label="Import workflow">
+                        <Button type="button" size="icon-sm" variant="outline" disabled={busyAction !== null} onClick={() => setImportOpen(true)} title="Import workflow" aria-label="Import workflow">
                           <Upload className="size-3.5" />
                         </Button>
                         <Button type="button" size="icon-sm" variant="outline" disabled={busyAction !== null || !entry.capabilities.canCopyToEditor} onClick={() => void copyWorkflow(entry, 'editor')} title={entry.capabilities.canCopyToEditor ? 'Copy to Editor' : 'Copy to Editor unavailable'} aria-label={`Copy ${entry.label ?? entry.workflowKey} to Editor`}>
@@ -230,7 +243,7 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
                             <Copy className="size-3.5" />
                           </Button>
                         ) : null}
-                        <Button type="button" size="icon-sm" variant="outline" disabled title={entry.capabilities.canRepair ? 'Repair manifest is added in Phase 8' : 'Repair unavailable for this workflow'} aria-label={`Repair ${entry.label ?? entry.workflowKey}`}>
+                        <Button type="button" size="icon-sm" variant="outline" disabled={busyAction !== null || !entry.capabilities.canRepair} onClick={() => openRepair(entry)} title={entry.capabilities.canRepair ? 'Repair manifest' : 'Repair unavailable for this workflow'} aria-label={`Repair ${entry.label ?? entry.workflowKey}`}>
                           <Wrench className="size-3.5" />
                         </Button>
                         <Button type="button" size="icon-sm" variant="outline" disabled={busyAction !== null || !entry.capabilities.canReveal} onClick={() => void revealWorkflow(entry)} title={entry.capabilities.canReveal ? 'Reveal in folder' : 'Reveal unavailable'} aria-label={`Reveal ${entry.label ?? entry.workflowKey} in folder`}>
@@ -251,6 +264,20 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
           </div>
         ) : null}
       </div>
+      <ComfyUiWorkflowImportDialog
+        open={importOpen}
+        projectFilePath={projectFilePath}
+        repairEntry={null}
+        onOpenChange={setImportOpen}
+        onImported={handleImported}
+      />
+      <ComfyUiWorkflowImportDialog
+        open={Boolean(repairEntry)}
+        projectFilePath={projectFilePath}
+        repairEntry={repairEntry}
+        onOpenChange={(open) => { if (!open) setRepairEntry(null); }}
+        onImported={handleImported}
+      />
     </div>
   );
 }

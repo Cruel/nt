@@ -10,12 +10,8 @@ import type {
   ComfyUiAnalyzeWorkflowImportResponse,
   ComfyUiImportWorkflowToLibraryRequest,
   ComfyUiImportWorkflowToLibraryResponse,
-  ComfyUiInstallStarterWorkflowsResponse,
   ComfyUiRepairWorkflowInLibraryRequest,
   ComfyUiRepairWorkflowInLibraryResponse,
-  ComfyUiRepairWorkflowManifestRequest,
-  ComfyUiSaveImportedWorkflowRequest,
-  ComfyUiSaveImportedWorkflowResponse,
   ComfyUiVerifyWorkflowLibraryRequest,
   ComfyUiVerifyWorkflowLibraryResponse,
   ComfyUiWorkflowCopyRequest,
@@ -25,7 +21,6 @@ import type {
   ComfyUiWorkflowKey,
   ComfyUiWorkflowLibraryListRequest,
   ComfyUiWorkflowLibraryListResponse,
-  ComfyUiWorkflowListResponse,
 } from '../../shared/comfyui-workflows';
 
 export async function checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus> {
@@ -36,9 +31,6 @@ export async function getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQue
   return window.noveltea.getComfyUiQueue(config);
 }
 
-export async function listComfyUiWorkflows(projectFilePath: string): Promise<ComfyUiWorkflowListResponse> {
-  return window.noveltea.listComfyUiWorkflows(projectFilePath);
-}
 
 export async function listComfyUiWorkflowLibrary(request: ComfyUiWorkflowLibraryListRequest = {}): Promise<ComfyUiWorkflowLibraryListResponse> {
   return window.noveltea.listComfyUiWorkflowLibrary(request);
@@ -68,21 +60,12 @@ export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflo
   return window.noveltea.verifyComfyUiWorkflowLibrary(request);
 }
 
-export async function installComfyUiStarterWorkflows(projectFilePath: string): Promise<ComfyUiInstallStarterWorkflowsResponse> {
-  return window.noveltea.installComfyUiStarterWorkflows(projectFilePath);
-}
 
 export async function analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse> {
   return window.noveltea.analyzeComfyUiWorkflowImport(request);
 }
 
-export async function saveImportedComfyUiWorkflow(request: ComfyUiSaveImportedWorkflowRequest): Promise<ComfyUiSaveImportedWorkflowResponse> {
-  return window.noveltea.saveImportedComfyUiWorkflow(request);
-}
 
-export async function repairComfyUiWorkflowManifest(request: ComfyUiRepairWorkflowManifestRequest): Promise<ComfyUiSaveImportedWorkflowResponse> {
-  return window.noveltea.repairComfyUiWorkflowManifest(request);
-}
 
 export async function generateComfyUiImage(
   config: ComfyUiConfig,

@@ -104,9 +104,6 @@ async function writeFileAtomic(destination: string, contents: string) {
 }
 
 export async function analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse> {
-  if (!request.projectFilePath) {
-    return { ok: false, roleCandidates: {}, diagnostics: [diagnostic('/projectFilePath', 'Save the project before importing ComfyUI workflows.')], error: 'Project file path is required.' };
-  }
   const parsed = parseWorkflowJson(request.workflowJsonText);
   if (!parsed.ok) return { ok: false, roleCandidates: {}, diagnostics: parsed.diagnostics, error: parsed.error };
 

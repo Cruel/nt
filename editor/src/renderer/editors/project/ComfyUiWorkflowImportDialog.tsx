@@ -13,7 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { analyzeComfyUiWorkflowImport, repairComfyUiWorkflowManifest, saveImportedComfyUiWorkflow } from '@/comfyui/comfyui-service';
+import { analyzeComfyUiWorkflowImport, importComfyUiWorkflowToLibrary, repairComfyUiWorkflowInLibrary } from '@/comfyui/comfyui-service';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import type { ComfyUiBindingCandidate } from '../../../shared/comfyui-workflow-inference';
 import {
@@ -25,7 +25,7 @@ import {
   type ComfyUiWorkflowDefinition,
   type ComfyUiWorkflowRoleInputDefinition,
   type ComfyUiWorkflowDiagnostic,
-  type ComfyUiWorkflowListEntry,
+  type ComfyUiWorkflowLibraryEntry,
   type ComfyUiWorkflowRole,
   type ComfyUiWorkflowValueType,
 } from '../../../shared/comfyui-workflows';
@@ -33,7 +33,7 @@ import {
 interface ComfyUiWorkflowImportDialogProps {
   open: boolean;
   projectFilePath: string | null;
-  repairEntry?: ComfyUiWorkflowListEntry | null;
+  repairEntry?: ComfyUiWorkflowLibraryEntry | null;
   onOpenChange: (open: boolean) => void;
   onImported: (message: string, diagnostics: ComfyUiWorkflowDiagnostic[]) => void | Promise<void>;
 }
@@ -378,7 +378,7 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
     setSaveDiagnostics([]);
     setError(null);
     setAnalyzing(true);
-    void analyzeComfyUiWorkflowImport({ projectFilePath: projectFilePath ?? '', workflowJsonText: repairEntry.workflowJsonText, config }).then((response) => {
+    void analyzeComfyUiWorkflowImport({ projectFilePath, workflowJsonText: repairEntry.workflowJsonText, config }).then((response) => {
       setAnalysisResponse(response);
       setError(response.ok ? null : response.error ?? t('comfyuiImport.errors.repairAnalysisFailed'));
       setInputSelections(buildRepairInputSelections(response, definition));
@@ -418,7 +418,6 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
     try {
       const text = await file.text();
       setWorkflowJsonText(text);
-      if (!projectFilePath) throw new Error(t('comfyuiImport.errors.saveProjectBeforeImport'));
       const response = await analyzeComfyUiWorkflowImport({ projectFilePath, workflowJsonText: text, config });
       setAnalysisResponse(response);
       setError(response.ok ? null : response.error ?? t('comfyuiImport.errors.importAnalysisFailed'));
@@ -438,24 +437,28 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
   }
 
   async function saveImport() {
-    if (!projectFilePath || !manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected) return;
+    if (!manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected) return;
+    if (mode === 'repair' && repairEntry?.source === 'project' && !projectFilePath) {
+      setError(t('comfyuiImport.errors.saveProjectBeforeImport'));
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaveDiagnostics([]);
     const response = mode === 'repair' && repairEntry
-      ? await repairComfyUiWorkflowManifest({
+      ? await repairComfyUiWorkflowInLibrary({
+        workflowKey: repairEntry.workflowKey,
         projectFilePath,
-        manifestFileName: repairEntry.manifestFile,
         manifest: { ...manifest, workflowFile: repairEntry.definition?.workflowFile ?? manifest.workflowFile },
         overwrite: true,
       })
-      : await saveImportedComfyUiWorkflow({
-        projectFilePath,
+      : await importComfyUiWorkflowToLibrary({
         workflowFileName,
         manifestFileName,
         workflowJsonText,
         manifest,
         overwrite,
+        config,
       });
     setSaveDiagnostics(response.diagnostics);
     setSaving(false);

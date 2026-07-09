@@ -276,11 +276,20 @@ export async function writeComfyUiWorkflowVerificationCache(records: ComfyUiWork
   await fs.writeFile(cacheFile, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
 }
 
+function newestVerificationRecordsByPackageHash(records: ComfyUiWorkflowVerificationRecord[]) {
+  const byHash = new Map<string, ComfyUiWorkflowVerificationRecord>();
+  for (const record of records) {
+    const current = byHash.get(record.packageHash);
+    if (!current || record.checkedAt.localeCompare(current.checkedAt) >= 0) byHash.set(record.packageHash, record);
+  }
+  return byHash;
+}
+
 function applyVerificationCache(entries: ComfyUiWorkflowLibraryEntry[], records: ComfyUiWorkflowVerificationRecord[]) {
-  const byHash = new Map(records.map((record) => [`${record.workflowKey}:${record.packageHash}`, record]));
+  const byHash = newestVerificationRecordsByPackageHash(records);
   for (const entry of entries) {
     if (!entry.packageHash) continue;
-    const record = byHash.get(`${entry.workflowKey}:${entry.packageHash}`);
+    const record = byHash.get(entry.packageHash);
     if (!record) continue;
     entry.onlineStatus = record.status === 'verified' ? 'previously-verified' : 'failed';
     entry.verificationDiagnostics = record.diagnostics;
@@ -560,7 +569,13 @@ export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflo
     else failed.push(record);
   }
 
-  await writeComfyUiWorkflowVerificationCache([...verified, ...failed], request.projectFilePath, options);
+  if (objectInfo) {
+    const roots = resolveComfyUiWorkflowLibraryRoots(request.projectFilePath, options);
+    const existing = await readVerificationCache(roots.cacheFile);
+    const mergedByHash = newestVerificationRecordsByPackageHash(existing);
+    for (const record of [...verified, ...failed]) mergedByHash.set(record.packageHash, record);
+    await writeComfyUiWorkflowVerificationCache([...mergedByHash.values()], request.projectFilePath, options);
+  }
   const refreshed = await listComfyUiWorkflowLibrary({ projectFilePath: request.projectFilePath, includeOverridden: true }, options);
   const allDiagnostics = [...diagnostics, ...failed.flatMap((record) => record.diagnostics)];
   return {
