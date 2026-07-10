@@ -13,6 +13,11 @@ RuntimeShell::RuntimeShell() : m_dispatcher(*this) {}
 core::GameSessionLoadResult RuntimeShell::load_project(core::ProjectDocument project,
                                                        core::SaveDocument save)
 {
+    // Loading a project is also the runtime reset path. Tear down any mounted gameplay/menu
+    // documents and in-flight transitions before replacing the session so the newly mounted
+    // title document cannot remain underneath stale gameplay UI.
+    reset();
+
     auto result = m_host.load(std::move(project), std::move(save));
     m_last_diagnostics.clear();
     for (const auto& diagnostic : result.diagnostics) {

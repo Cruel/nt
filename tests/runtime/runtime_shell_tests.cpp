@@ -264,6 +264,30 @@ TEST_CASE("RuntimeShell loads project into title without ticking gameplay")
     CHECK(shell.host().current_mode_name() == std::string_view("none"));
 }
 
+TEST_CASE("RuntimeShell project reload clears gameplay state before returning to title")
+{
+    RuntimeShell shell;
+    shell.transitions().set_timed_transitions_enabled(true);
+    REQUIRE(shell.load_project(make_room_project()).success);
+    REQUIRE(shell.start_game().handled);
+    REQUIRE(shell.transitions().active());
+
+    shell.pause();
+    REQUIRE(shell.mode() == RuntimeShellMode::Paused);
+    REQUIRE(shell.paused());
+    REQUIRE(shell.host().current_mode_name() == std::string_view("room"));
+
+    auto reload = shell.load_project(make_room_project());
+
+    REQUIRE(reload.success);
+    CHECK(shell.mode() == RuntimeShellMode::Title);
+    CHECK_FALSE(shell.paused());
+    CHECK_FALSE(shell.transitions().active());
+    CHECK(shell.host().current_mode_name() == std::string_view("none"));
+    CHECK(shell.host().view_state().title.empty());
+    CHECK(shell.host().view_state().body.empty());
+}
+
 TEST_CASE("RuntimeShell start_game drains the loaded room entrypoint")
 {
     RuntimeShell shell;
