@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, Images, Pencil, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TagInput } from '@/components/tags/TagInput';
-import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { useCommandStore } from '@/commands/command-store';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
@@ -153,7 +153,15 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
           <h2 className="text-base font-semibold">Assets</h2>
         </div>
         <Button size="sm" className="h-7 gap-1.5 px-2.5" onClick={() => openTab(buildImageGenerationTab())}><Images className="h-3.5 w-3.5" /> Generate</Button>
-        <Input className="h-7 w-44 text-xs" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search assets" />
+        <SearchInput
+          className="w-44"
+          inputClassName="h-7 text-xs"
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search assets"
+          aria-label="Search assets"
+          clearAriaLabel="Clear asset search"
+        />
         <select className="h-7 rounded-md border border-input bg-background px-2 text-xs" value={kind} onChange={(event) => setKind(event.currentTarget.value)} aria-label="Asset type">
           <option value="all">All types</option>
           {kinds.map((value) => <option key={value} value={value}>{value}</option>)}

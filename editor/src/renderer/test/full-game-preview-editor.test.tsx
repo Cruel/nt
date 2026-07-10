@@ -10,6 +10,12 @@ import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
+vi.mock('react-resizable-panels', () => ({
+  Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Panel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Separator: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+}));
+
 class FakePort {
   onmessage: ((event: MessageEvent) => void) | null = null;
   closed = false;
@@ -178,6 +184,22 @@ async function postInputSnapshot(previewPort: FakePort, options: {
 }
 
 describe('FullGamePreviewEditor', () => {
+  it('visually and semantically marks the selected inspector mode', async () => {
+    const view = render(<FullGamePreviewEditor />);
+    const user = userEvent.setup();
+
+    const debug = await screen.findByRole('button', { name: 'Debug' });
+    const recording = screen.getByRole('button', { name: 'Recording' });
+    expect(debug).toHaveAttribute('aria-pressed', 'true');
+    expect(recording).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(recording);
+
+    expect(debug).toHaveAttribute('aria-pressed', 'false');
+    expect(recording).toHaveAttribute('aria-pressed', 'true');
+    view.unmount();
+  });
+
   it('presentation-pauses hidden Play without semantically stopping or resetting the runtime', async () => {
     const view = await renderConnectedPreviewInPane(false);
     await waitFor(() => expect(latestRequest(view.editorPort, 'set-preview-activity')).toBeDefined());
@@ -489,6 +511,52 @@ describe('FullGamePreviewEditor', () => {
     expect(screen.getByText('Inspect (1/1)')).toBeInTheDocument();
     await user.click(screen.getByText('Events & diagnostics'));
     expect(screen.getByText('Runtime snapshot refreshed')).toBeInTheDocument();
+  });
+
+  it('shows and filters the variable search when more than three variables exist', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.variables.alpha = { id: 'alpha', label: 'Alpha Flag', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' }, tags: [] };
+    project.variables.beta = { id: 'beta', label: 'Beta Count', data: { kind: 'variable', type: 'integer', defaultValue: 0, scope: 'global' }, tags: [] };
+    project.variables.gamma = { id: 'gamma', label: 'Gamma Name', data: { kind: 'variable', type: 'string', defaultValue: '', scope: 'global' }, tags: [] };
+    project.variables.delta = { id: 'delta', label: 'Delta Value', data: { kind: 'variable', type: 'number', defaultValue: 0, scope: 'global' }, tags: [] };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { previewPort } = await renderConnectedPreview();
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'runtime-debug-snapshot',
+        snapshot: {
+          loaded: true,
+          running: true,
+          shellMode: 'gameplay',
+          runtimeMode: 'room',
+          waiting: { kind: 'none', canContinue: false },
+          availableInputs: { continue: false, dialogueOptions: [], navigation: [], actions: [], selectedObjects: [], clickableTargets: [] },
+          variables: [
+            { id: 'alpha', label: 'alpha', type: 'boolean', value: false, defaultValue: false },
+            { id: 'beta', label: 'beta', type: 'integer', value: 2, defaultValue: 0 },
+            { id: 'gamma', label: 'gamma', type: 'string', value: 'hello', defaultValue: '' },
+            { id: 'delta', label: 'delta', type: 'number', value: 3.5, defaultValue: 0 },
+          ],
+          inventory: [],
+          selectedObjects: [],
+          diagnostics: [],
+          saveSnapshot: {},
+        },
+      });
+    });
+
+    await user.click(screen.getByText('Variables'));
+    const search = screen.getByRole('textbox', { name: 'Search variables' });
+    expect(search).toBeInTheDocument();
+
+    await user.type(search, 'gamma');
+    expect(screen.getByText('Gamma Name')).toBeInTheDocument();
+    expect(screen.queryByText('Alpha Flag')).not.toBeInTheDocument();
+    expect(screen.queryByText('Beta Count')).not.toBeInTheDocument();
+    expect(screen.queryByText('Delta Value')).not.toBeInTheDocument();
   });
 
   it('records semantic runtime inputs and keeps trace events separate', async () => {

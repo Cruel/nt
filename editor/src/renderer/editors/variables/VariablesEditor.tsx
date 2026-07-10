@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { Braces, Hash, List, Plus, Text, ToggleLeft, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
@@ -23,31 +26,6 @@ import {
   type VariableType,
 } from '../../../shared/project-schema/authoring-variables';
 
-function variableDataFromRecord(record: AuthoringRecordBase): VariableData | null {
-  return parseVariableData(record.data);
-}
-
-function createVariableDataFromText(
-  type: VariableType,
-  defaultText: string,
-  enumText: string,
-): { ok: true; data: VariableData } | { ok: false; message: string } {
-  const enumValues = type === 'enum' ? parseEnumValuesText(enumText) : undefined;
-  if (type === 'enum' && (!enumValues || enumValues.length === 0)) {
-    return { ok: false, message: 'Enum variables require at least one value.' };
-  }
-  const defaultResult = parseVariableDefaultText(type, defaultText, enumValues);
-  if (!defaultResult.ok) return defaultResult;
-  return {
-    ok: true,
-    data: {
-      ...defaultVariableData(type),
-      enumValues,
-      defaultValue: defaultResult.value,
-    },
-  };
-}
-
 function typeLabel(type: VariableType) {
   if (type === 'boolean') return 'Boolean';
   if (type === 'integer') return 'Integer';
@@ -56,151 +34,233 @@ function typeLabel(type: VariableType) {
   return 'Enum';
 }
 
-function VariableRow({
-  variableId,
-  record,
-  usages,
-  onDelete,
+function typeIcon(type: VariableType) {
+  if (type === 'boolean') return ToggleLeft;
+  if (type === 'integer' || type === 'number') return Hash;
+  if (type === 'string') return Text;
+  if (type === 'enum') return List;
+  return Braces;
+}
+
+function formatDefault(data: VariableData) {
+  if (data.type === 'string') return data.defaultValue === '' ? 'Empty string' : JSON.stringify(data.defaultValue);
+  return variableDefaultValueToText(data.defaultValue);
+}
+
+interface VariableDraft {
+  id: string;
+  label: string;
+  description: string;
+  type: VariableType;
+  defaultText: string;
+  enumText: string;
+}
+
+function draftForNewVariable(): VariableDraft {
+  return {
+    id: '',
+    label: '',
+    description: '',
+    type: 'boolean',
+    defaultText: 'false',
+    enumText: 'default',
+  };
+}
+
+function draftForVariable(id: string, record: AuthoringRecordBase, data: VariableData): VariableDraft {
+  return {
+    id,
+    label: record.label === id ? '' : record.label,
+    description: record.description ?? '',
+    type: data.type,
+    defaultText: variableDefaultValueToText(data.defaultValue),
+    enumText: data.enumValues?.join(', ') ?? 'default',
+  };
+}
+
+function dataFromDraft(draft: VariableDraft): { ok: true; data: VariableData } | { ok: false; message: string } {
+  const enumValues = draft.type === 'enum' ? parseEnumValuesText(draft.enumText) : undefined;
+  if (draft.type === 'enum' && (!enumValues || enumValues.length === 0)) {
+    return { ok: false, message: 'Enum variables require at least one value.' };
+  }
+  const parsed = parseVariableDefaultText(draft.type, draft.defaultText, enumValues);
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    data: {
+      ...defaultVariableData(draft.type),
+      ...(enumValues ? { enumValues } : {}),
+      defaultValue: parsed.value,
+    },
+  };
+}
+
+function VariableDialog({
+  open,
+  initialDraft,
+  title,
+  submitLabel,
+  onOpenChange,
+  onSubmit,
 }: {
-  variableId: string;
-  record: AuthoringRecordBase;
-  usages: ReturnType<typeof findUsages>;
-  onDelete: (variableId: string, usages: ReturnType<typeof findUsages>) => void;
+  open: boolean;
+  initialDraft: VariableDraft;
+  title: string;
+  submitLabel: string;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (draft: VariableDraft) => string | null;
 }) {
-  const executeCommand = useCommandStore((state) => state.executeCommand);
-  const setUsages = useEntityUsagesStore((state) => state.setUsages);
-  const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
-  const data = variableDataFromRecord(record);
-  const [label, setLabel] = useState(record.label);
-  const [description, setDescription] = useState(record.description ?? '');
-  const [renameId, setRenameId] = useState(variableId);
-  const [defaultText, setDefaultText] = useState(data ? variableDefaultValueToText(data.defaultValue) : '');
-  const [enumText, setEnumText] = useState(data?.enumValues?.join(', ') ?? '');
+  const [draft, setDraft] = useState(initialDraft);
   const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    setLabel(record.label);
-    setDescription(record.description ?? '');
-    setRenameId(variableId);
-    setDefaultText(data ? variableDefaultValueToText(data.defaultValue) : '');
-    setEnumText(data?.enumValues?.join(', ') ?? '');
-  }, [data, record.description, record.label, variableId]);
+  const reset = () => {
+    setDraft(initialDraft);
+    setMessage(null);
+  };
 
-  function run(command: Parameters<typeof executeCommand>[0]) {
-    const result = executeCommand(command);
-    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    setMessage(failure?.message ?? null);
-    return result.ok && !failure;
-  }
+  const changeType = (type: VariableType) => {
+    const defaults = defaultVariableData(type);
+    setDraft((current) => ({
+      ...current,
+      type,
+      defaultText: variableDefaultValueToText(defaults.defaultValue),
+      enumText: type === 'enum' ? 'default' : current.enumText,
+    }));
+  };
 
-  function updateMetadata() {
-    run({
-      type: 'entity.updateMetadata',
-      label: `Update variable ${variableId}`,
-      payload: {
-        collection: 'variables',
-        entityId: variableId,
-        label: label.trim() || variableId,
-        description: description.trim() || undefined,
-      },
-    });
-  }
-
-  function updateData(nextData: VariableData) {
-    run({
-      type: 'variable.replaceData',
-      label: `Update variable ${variableId}`,
-      payload: { variableId, data: nextData },
-    });
-  }
-
-  function updateType(nextType: VariableType) {
-    run({
-      type: 'variable.setType',
-      label: `Set variable ${variableId} type`,
-      payload: {
-        variableId,
-        type: nextType,
-        enumValues: nextType === 'enum' ? parseEnumValuesText(enumText || 'default') : undefined,
-      },
-    });
-  }
-
-  function updateDefault() {
-    if (!data) return;
-    const nextEnumValues = data.type === 'enum' ? parseEnumValuesText(enumText) : data.enumValues;
-    const parsed = parseVariableDefaultText(data.type, defaultText, nextEnumValues);
-    if (!parsed.ok) {
-      setMessage(parsed.message);
+  const submit = () => {
+    const failure = onSubmit(draft);
+    if (failure) {
+      setMessage(failure);
       return;
     }
-    updateData({ ...data, enumValues: nextEnumValues, defaultValue: parsed.value });
-  }
-
-  function rename() {
-    const toId = renameId.trim();
-    if (!toId || toId === variableId) return;
-    run({
-      type: 'entity.renameId',
-      label: `Rename variable ${variableId}`,
-      payload: { collection: 'variables', fromId: variableId, toId, label: label.trim() || undefined },
-    });
-  }
-
-  function showUsages() {
-    setUsages({ collection: 'variables', id: variableId }, usages);
-    setActiveBottomPanel('references');
-  }
-
-  if (!data) {
-    return (
-      <tr className="border-t align-top" data-workbench-anchor={`variable.row.${variableId}`}>
-        <td className="p-2 font-mono text-xs">{variableId}</td>
-        <td className="p-2" colSpan={5}>
-          <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Invalid variable data.</div>
-        </td>
-        <td className="p-2 text-right">
-          <span className="text-xs text-muted-foreground">Invalid data</span>
-        </td>
-      </tr>
-    );
-  }
+    onOpenChange(false);
+  };
 
   return (
-    <tr className="border-t align-top" data-workbench-anchor={`variable.row.${variableId}`}>
-      <td className="space-y-2 p-2">
-        <div className="font-mono text-xs">{variableId}</div>
-        <div className="flex gap-1">
-          <Input aria-label={`Rename ${variableId}`} value={renameId} onChange={(event) => setRenameId(event.currentTarget.value)} className="h-8 min-w-32 font-mono text-xs" />
-          <Button size="sm" variant="outline" onClick={rename} disabled={renameId.trim() === variableId}>Rename</Button>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) reset();
+        onOpenChange(nextOpen);
+      }}
+    >
+      <DialogPopup className="w-[min(560px,calc(100vw-2rem))]">
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>Variables are referenced from Lua and expressions by ID.</DialogDescription>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>ID</Label>
+            <Input
+              autoFocus
+              className="font-mono"
+              value={draft.id}
+              onChange={(event) => {
+                const id = event.currentTarget.value;
+                setDraft((current) => ({ ...current, id }));
+              }}
+              placeholder="has-key"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Label <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Input
+              value={draft.label}
+              onChange={(event) => {
+                const label = event.currentTarget.value;
+                setDraft((current) => ({ ...current, label }));
+              }}
+              placeholder="Uses the ID when empty"
+            />
+          </div>
         </div>
-      </td>
-      <td className="space-y-2 p-2">
-        <Input aria-label={`Label ${variableId}`} value={label} onChange={(event) => setLabel(event.currentTarget.value)} onBlur={updateMetadata} className="h-8" />
-        <Input aria-label={`Description ${variableId}`} value={description} onChange={(event) => setDescription(event.currentTarget.value)} onBlur={updateMetadata} placeholder="Description" className="h-8" />
-      </td>
-      <td className="p-2">
-        <Select value={data.type} onValueChange={(value) => updateType(value as VariableType)}>
-          {variableTypeValues.map((type) => <SelectItem key={type} value={type}>{typeLabel(type)}</SelectItem>)}
-        </Select>
-      </td>
-      <td className="space-y-2 p-2">
-        {data.type === 'enum' ? (
-          <Input aria-label={`Enum values ${variableId}`} value={enumText} onChange={(event) => setEnumText(event.currentTarget.value)} onBlur={updateDefault} placeholder="idle, active" className="h-8" />
+
+        <div className="space-y-1.5">
+          <Label>Description <span className="font-normal text-muted-foreground">(optional)</span></Label>
+          <Input
+            value={draft.description}
+            onChange={(event) => {
+              const description = event.currentTarget.value;
+              setDraft((current) => ({ ...current, description }));
+            }}
+            placeholder="What this variable represents"
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={draft.type} onValueChange={(value) => value && changeType(value as VariableType)}>
+              <SelectTrigger className="!h-8 w-full" aria-label="Type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {variableTypeValues.map((type) => <SelectItem key={type} value={type}>{typeLabel(type)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Default value</Label>
+            {draft.type === 'boolean' ? (
+              <div className="flex h-8 items-center gap-2">
+                <Switch
+                  checked={draft.defaultText === 'true'}
+                  onCheckedChange={(checked) => setDraft((current) => ({ ...current, defaultText: String(checked) }))}
+                  aria-label="Default value"
+                />
+                <span className="text-sm text-muted-foreground">{draft.defaultText}</span>
+              </div>
+            ) : draft.type === 'enum' ? (
+              <Select
+                value={draft.defaultText}
+                onValueChange={(value) => value && setDraft((current) => ({ ...current, defaultText: value }))}
+              >
+                <SelectTrigger className="!h-8 w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {parseEnumValuesText(draft.enumText).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                className="h-8"
+                type={draft.type === 'integer' || draft.type === 'number' ? 'number' : 'text'}
+                step={draft.type === 'integer' ? 1 : draft.type === 'number' ? 'any' : undefined}
+                value={draft.defaultText}
+                onChange={(event) => {
+                  const defaultText = event.currentTarget.value;
+                  setDraft((current) => ({ ...current, defaultText }));
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        {draft.type === 'enum' ? (
+          <div className="space-y-1.5">
+            <Label>Enum values</Label>
+            <Input
+              value={draft.enumText}
+              onChange={(event) => {
+                const enumText = event.currentTarget.value;
+                const values = parseEnumValuesText(enumText);
+                setDraft((current) => ({
+                  ...current,
+                  enumText,
+                  defaultText: values.includes(current.defaultText) ? current.defaultText : values[0] ?? '',
+                }));
+              }}
+              placeholder="idle, active, complete"
+            />
+          </div>
         ) : null}
-        <Input aria-label={`Default ${variableId}`} value={defaultText} onChange={(event) => setDefaultText(event.currentTarget.value)} onBlur={updateDefault} className="h-8" />
-        {message ? <div className="text-xs text-destructive">{message}</div> : null}
-      </td>
-      <td className="p-2">
-        <Button size="sm" variant="outline" onClick={showUsages}>{usages.length} usage{usages.length === 1 ? '' : 's'}</Button>
-      </td>
-      <td className="p-2">
-        <Badge variant="secondary">{data.scope ?? 'global'}</Badge>
-      </td>
-      <td className="space-x-2 whitespace-nowrap p-2 text-right">
-        <Button size="sm" variant="destructive" onClick={() => onDelete(variableId, usages)}>Delete</Button>
-      </td>
-    </tr>
+
+        {message ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{message}</div> : null}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={submit} disabled={!draft.id.trim()}>{submitLabel}</Button>
+        </div>
+      </DialogPopup>
+    </Dialog>
   );
 }
 
@@ -208,12 +268,10 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const [createId, setCreateId] = useState('');
-  const [createLabel, setCreateLabel] = useState('');
-  const [createType, setCreateType] = useState<VariableType>('boolean');
-  const [createDefault, setCreateDefault] = useState('false');
-  const [createEnumValues, setCreateEnumValues] = useState('default');
-  const [message, setMessage] = useState<string | null>(null);
+  const setUsages = useEntityUsagesStore((state) => state.setUsages);
+  const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
+  const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ variableId: string; usages: ReturnType<typeof findUsages> } | null>(null);
 
   const referenceIndex = useMemo(() => project ? buildReferenceIndex(project) : null, [project]);
@@ -221,101 +279,194 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
     if (!project || !referenceIndex) return [];
     return Object.entries(project.variables)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([id, record]) => ({ id, record, usages: findUsages(referenceIndex, { collection: 'variables', id }) }));
+      .flatMap(([id, record]) => {
+        const data = parseVariableData(record.data);
+        return data ? [{ id, record, data, usages: findUsages(referenceIndex, { collection: 'variables', id }) }] : [];
+      });
   }, [project, referenceIndex]);
-
-  useEffect(() => {
-    setCreateDefault(variableDefaultValueToText(defaultVariableData(createType).defaultValue));
-    setCreateEnumValues(createType === 'enum' ? 'default' : '');
-  }, [createType]);
 
   function run(command: Parameters<typeof executeCommand>[0]) {
     const result = executeCommand(command);
-    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    setMessage(failure?.message ?? null);
-    return result.ok && !failure;
+    return result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? (result.ok ? null : 'Command failed.');
   }
 
-  function createVariable() {
-    const entityId = createId.trim();
-    const data = createVariableDataFromText(createType, createDefault, createEnumValues);
-    if (!data.ok) {
-      setMessage(data.message);
-      return;
-    }
-    if (run({
+  function createVariable(draft: VariableDraft) {
+    const id = draft.id.trim();
+    const parsed = dataFromDraft(draft);
+    if (!parsed.ok) return parsed.message;
+    return run({
       type: 'entity.createRecord',
-      label: `Create variable ${entityId}`,
+      label: `Create variable ${id}`,
       payload: {
         collection: 'variables',
-        entityId,
-        label: createLabel.trim() || entityId,
-        data: data.data,
+        entityId: id,
+        label: draft.label.trim() || id,
+        description: draft.description.trim() || undefined,
+        data: parsed.data,
       },
-    })) {
-      setCreateId('');
-      setCreateLabel('');
-      setMessage(null);
+    });
+  }
+
+  function updateVariable(originalId: string, draft: VariableDraft) {
+    const nextId = draft.id.trim();
+    const parsed = dataFromDraft(draft);
+    if (!parsed.ok) return parsed.message;
+
+    if (nextId !== originalId) {
+      const renameFailure = run({
+        type: 'entity.renameId',
+        label: `Rename variable ${originalId}`,
+        payload: { collection: 'variables', fromId: originalId, toId: nextId, label: draft.label.trim() || nextId },
+      });
+      if (renameFailure) return renameFailure;
     }
+
+    const metadataFailure = run({
+      type: 'entity.updateMetadata',
+      label: `Update variable ${nextId}`,
+      payload: {
+        collection: 'variables',
+        entityId: nextId,
+        label: draft.label.trim() || nextId,
+        description: draft.description.trim() || undefined,
+      },
+    });
+    if (metadataFailure) return metadataFailure;
+
+    return run({
+      type: 'variable.replaceData',
+      label: `Update variable ${nextId}`,
+      payload: { variableId: nextId, data: parsed.data },
+    });
+  }
+
+  function showUsages(variableId: string, usages: ReturnType<typeof findUsages>) {
+    setUsages({ collection: 'variables', id: variableId }, usages);
+    setActiveBottomPanel('references');
   }
 
   function confirmDelete() {
     if (!deleteTarget) return;
-    if (run({
+    const failure = run({
       type: 'entity.deleteRecord',
       label: `Delete variable ${deleteTarget.variableId}`,
       payload: { collection: 'variables', entityId: deleteTarget.variableId, force: true },
-    })) {
-      setDeleteTarget(null);
-    }
+    });
+    if (!failure) setDeleteTarget(null);
   }
 
   if (!project) return <div className="p-4 text-sm text-muted-foreground">No authoring project loaded.</div>;
 
+  const editing = editingId ? variables.find((variable) => variable.id === editingId) ?? null : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
-      <div className="flex items-start justify-between gap-3" data-workbench-anchor="variable.summary">
-        <div>
+      <div className="flex items-center justify-between gap-3" data-workbench-anchor="variable.summary">
+        <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">Variables</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Author typed global state for later dialogue, scene, script, and UI conditions.</p>
+          <Badge variant="outline">{variables.length}</Badge>
         </div>
-        <Badge variant="outline">{variables.length} variable{variables.length === 1 ? '' : 's'}</Badge>
+        <Button size="sm" onClick={() => setCreating(true)}><Plus className="size-4" />New variable</Button>
       </div>
 
-      <section className="mt-4 rounded border p-3" data-workbench-anchor="variable.create">
-        <h3 className="text-sm font-medium">Create variable</h3>
-        <div className="mt-3 grid gap-2 lg:grid-cols-[160px_180px_150px_1fr_1fr_auto]">
-          <div className="space-y-1"><Label>ID</Label><Input value={createId} onChange={(event) => setCreateId(event.currentTarget.value)} placeholder="has-key" /></div>
-          <div className="space-y-1"><Label>Label</Label><Input value={createLabel} onChange={(event) => setCreateLabel(event.currentTarget.value)} placeholder="Has key" /></div>
-          <div className="space-y-1"><Label>Type</Label><Select value={createType} onValueChange={(value) => setCreateType(value as VariableType)}>{variableTypeValues.map((type) => <SelectItem key={type} value={type}>{typeLabel(type)}</SelectItem>)}</Select></div>
-          {createType === 'enum' ? <div className="space-y-1"><Label>Enum values</Label><Input value={createEnumValues} onChange={(event) => setCreateEnumValues(event.currentTarget.value)} placeholder="idle, active" /></div> : <div />}
-          <div className="space-y-1"><Label>Default</Label><Input value={createDefault} onChange={(event) => setCreateDefault(event.currentTarget.value)} /></div>
-          <div className="flex items-end"><Button onClick={createVariable}>Create</Button></div>
-        </div>
-        {message ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{message}</div> : null}
-      </section>
-
-      <section className="mt-4 min-h-0 rounded border" data-workbench-anchor="variable.rows">
+      <section className="mt-4 min-h-0 overflow-hidden rounded-md border" data-workbench-anchor="variable.rows">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
             <tr>
-              <th className="p-2">ID</th>
-              <th className="p-2">Metadata</th>
-              <th className="p-2">Type</th>
-              <th className="p-2">Default</th>
-              <th className="p-2">Usages</th>
-              <th className="p-2">Scope</th>
-              <th className="p-2 text-right">Actions</th>
+              <th className="w-px whitespace-nowrap px-3 py-2 text-center">Use</th>
+              <th className="whitespace-nowrap px-3 py-2">Variable</th>
+              <th className="w-px whitespace-nowrap px-2 py-2 text-center">Type</th>
+              <th className="whitespace-nowrap px-3 py-2">Default</th>
+              <th className="px-3 py-2">Description</th>
+              <th className="w-px"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {variables.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-sm text-muted-foreground">No variables yet.</td></tr> : null}
-            {variables.map((variable) => (
-              <VariableRow key={variable.id} variableId={variable.id} record={variable.record} usages={variable.usages} onDelete={(variableId, usages) => setDeleteTarget({ variableId, usages })} />
-            ))}
+            {variables.length === 0 ? (
+              <tr><td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">No variables yet.</td></tr>
+            ) : null}
+            {variables.map(({ id, record, data, usages }) => {
+              const Icon = typeIcon(data.type);
+              const displayLabel = record.label || id;
+              return (
+                <tr
+                  key={id}
+                  className="group/row cursor-pointer border-t align-middle hover:bg-muted/30"
+                  data-workbench-anchor={`variable.row.${id}`}
+                  onClick={() => setEditingId(id)}
+                >
+                  <td className="w-px whitespace-nowrap px-3 py-2 text-center">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 min-w-7 px-2 font-mono"
+                      onClick={(event) => { event.stopPropagation(); showUsages(id, usages); }}
+                      aria-label={`${usages.length} usages for ${id}`}
+                    >
+                      {usages.length}
+                    </Button>
+                  </td>
+                  <td className="max-w-64 whitespace-nowrap px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{displayLabel}</div>
+                      {displayLabel !== id ? <div className="truncate font-mono text-[11px] text-muted-foreground">{id}</div> : null}
+                    </div>
+                  </td>
+                  <td className="w-px whitespace-nowrap px-2 py-2 text-center">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger render={<span className="inline-flex size-7 items-center justify-center rounded text-muted-foreground" />}>
+                          <Icon className="size-4" />
+                        </TooltipTrigger>
+                        <TooltipContent>{typeLabel(data.type)}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </td>
+                  <td className="max-w-64 truncate whitespace-nowrap px-3 py-2 font-mono text-xs" title={formatDefault(data)}>{formatDefault(data)}</td>
+                  <td className="truncate px-3 py-2 text-muted-foreground" title={record.description}>{record.description || '—'}</td>
+                  <td className="sticky right-0 w-0 p-0 text-right">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      className="absolute right-1 top-1/2 z-10 -translate-y-1/2 bg-background/90 text-destructive opacity-0 shadow-sm backdrop-blur-sm transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover/row:opacity-100 focus-visible:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteTarget({ variableId: id, usages });
+                      }}
+                      aria-label={`Delete ${displayLabel}`}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </section>
+
+      <VariableDialog
+        key={creating ? 'create-open' : 'create-closed'}
+        open={creating}
+        initialDraft={draftForNewVariable()}
+        title="New variable"
+        submitLabel="Create variable"
+        onOpenChange={setCreating}
+        onSubmit={createVariable}
+      />
+
+      {editing ? (
+        <VariableDialog
+          key={editing.id}
+          open
+          initialDraft={draftForVariable(editing.id, editing.record, editing.data)}
+          title={`Edit ${editing.record.label || editing.id}`}
+          submitLabel="Save changes"
+          onOpenChange={(open) => { if (!open) setEditingId(null); }}
+          onSubmit={(draft) => updateVariable(editing.id, draft)}
+        />
+      ) : null}
 
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogPopup>
@@ -325,11 +476,6 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
               ? `This variable is referenced by ${deleteTarget.usages.length} usage${deleteTarget.usages.length === 1 ? '' : 's'}. Deleting it will leave missing references for validation to report.`
               : 'This variable has no known usages.'}
           </DialogDescription>
-          {deleteTarget?.usages.length ? (
-            <div className="max-h-40 space-y-1 overflow-auto rounded border p-2 font-mono text-xs text-muted-foreground">
-              {deleteTarget.usages.map((usage, index) => <div key={`${usage.path}-${index}`}>{usage.kind}: {usage.sourceCollection}/{usage.sourceId} {usage.path}</div>)}
-            </div>
-          ) : null}
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
             <Button size="sm" variant="destructive" onClick={confirmDelete}>Delete Variable</Button>

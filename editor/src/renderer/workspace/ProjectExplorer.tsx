@@ -15,7 +15,6 @@ import {
   Tags,
   Trash2,
   WholeWord,
-  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +22,7 @@ import { TagBadge } from '@/components/tags/TagBadge';
 import { TagInput } from '@/components/tags/TagInput';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import {
   DropdownMenuCheckboxItem,
@@ -734,41 +734,38 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     <div className="flex h-full min-h-0 flex-col">
       <ProjectHeading projectName={project.project.name.trim() || 'Project'} />
       <div className="border-b">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-8 rounded-none border-0 border-b bg-transparent pl-7 pr-24 text-xs focus-visible:ring-0" value={searchQuery} onChange={(event) => setSearchQuery(event.currentTarget.value)} placeholder="Search project" />
-          {searchQuery ? (
-            <button
-              type="button"
-              className="absolute right-13 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              aria-label="Clear project search"
-              title="Clear search"
-              onClick={() => setSearchQuery('')}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={`absolute right-7 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${exactMatch ? 'bg-accent text-accent-foreground' : ''}`}
-            aria-pressed={exactMatch}
-            aria-label="Toggle exact match"
-            title="Exact match"
-            onClick={() => setExactMatch(!exactMatch)}
-          >
-            <WholeWord className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            className={`absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${showTagFilter ? 'bg-accent text-accent-foreground' : ''}`}
-            aria-pressed={showTagFilter}
-            aria-label="Toggle tag filter"
-            title="Toggle tag filter"
-            onClick={() => setShowTagFilter(!showTagFilter)}
-          >
-            <Tags className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        <SearchInput
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+          placeholder="Search project"
+          aria-label="Search project"
+          clearAriaLabel="Clear project search"
+          inputClassName="h-8 rounded-none border-0 border-b bg-transparent pr-24 text-xs focus-visible:ring-0"
+          endActions={(
+            <>
+              <button
+                type="button"
+                className={`flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${exactMatch ? 'bg-accent text-accent-foreground' : ''}`}
+                aria-pressed={exactMatch}
+                aria-label="Toggle exact match"
+                title="Exact match"
+                onClick={() => setExactMatch(!exactMatch)}
+              >
+                <WholeWord className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                className={`flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${showTagFilter ? 'bg-accent text-accent-foreground' : ''}`}
+                aria-pressed={showTagFilter}
+                aria-label="Toggle tag filter"
+                title="Toggle tag filter"
+                onClick={() => setShowTagFilter(!showTagFilter)}
+              >
+                <Tags className="size-3.5" />
+              </button>
+            </>
+          )}
+        />
         {showTagFilter ? <TagInput className="text-xs [&>div:first-child]:min-h-8 [&>div:first-child]:rounded-none [&>div:first-child]:border-0 [&>div:first-child]:bg-transparent [&>div:first-child]:py-0 [&>div:first-child]:pl-2 [&>div:first-child]:pr-8 [&>div:first-child]:focus-within:ring-0" value={filterTags} onChange={setFilterTags} suggestions={tagSuggestions} placeholder="Filter by tag" allowCreate={false} /> : null}
         {searchResponse?.diagnostics.length ? <div className="text-xs text-destructive">{searchResponse.diagnostics[0]?.message}</div> : null}
       </div>

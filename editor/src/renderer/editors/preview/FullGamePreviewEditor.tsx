@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Group, Panel as ResizePanel } from 'react-resizable-panels';
 import {
   AlertTriangle,
+  Binary,
+  Braces,
   Bug,
   ChevronDown,
   Clipboard,
@@ -8,23 +11,37 @@ import {
   FastForward,
   FilePlus2,
   FolderOpen,
+  Hash,
+  List,
   MousePointer2,
   PackagePlus,
   RefreshCw,
   RotateCcw,
   Save,
   StepForward,
+  Text,
+  ToggleLeft,
+  X,
 } from 'lucide-react';
 import { EnginePreview, sanitizePreviewFpsCap, type EnginePreviewControlsContext } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
+import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { PanelResizeSeparator } from '@/components/resize-separator';
 import { useProjectStore } from '@/project/project-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
-import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import { buildDefaultRecordTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { visualForCollection } from '@/workspace/collection-visuals';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import { authoringCollectionMetadata, isAuthoringCollectionKey } from '../../../shared/project-schema/authoring-collections';
 import { selectedExportProfile } from '../../../shared/project-schema/authoring-export';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
 import { buildAuthoringRuntimeExport } from '../../../shared/project-schema/authoring-runtime-export';
@@ -344,7 +361,7 @@ function Panel({
   );
 }
 
-function RuntimeSummaryPanel({ snapshot, project }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null }) {
+function RuntimeSummaryPanel({ snapshot }: { snapshot: RuntimeDebugSnapshot | null }) {
   return (
     <Panel
       title="Runtime"
@@ -358,15 +375,37 @@ function RuntimeSummaryPanel({ snapshot, project }: { snapshot: RuntimeDebugSnap
         <Badge variant={snapshot?.waiting.kind === 'error' ? 'destructive' : 'outline'}>{snapshot?.waiting.kind ?? 'No snapshot'}</Badge>
       </div>
       <div className="space-y-1">
-        <InfoRow label="Shell mode" value={snapshot?.shellMode} />
-        <InfoRow label="Runtime mode" value={snapshot?.runtimeMode} />
-        <InfoRow label="Entrypoint" value={labelEntity(project, snapshot?.entrypoint)} />
-        <InfoRow label="Current entity" value={labelEntity(project, snapshot?.currentEntity)} />
-        <InfoRow label="Room" value={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : undefined} />
-        <InfoRow label="Dialogue" value={snapshot?.currentDialogueId ? fallbackLabel(snapshot.currentDialogueId, project?.dialogues[snapshot.currentDialogueId]?.label) : undefined} />
         <InfoRow label="Waiting reason" value={snapshot?.waiting.reason} />
       </div>
     </Panel>
+  );
+}
+
+function RuntimeEntityButton({ entity, project, label }: { entity: RuntimeDebugEntityRef | null | undefined; project: AuthoringProject | null; label: string }) {
+  if (!entity || !isAuthoringCollectionKey(entity.collection)) return null;
+  const metadata = authoringCollectionMetadata[entity.collection];
+  const visual = visualForCollection(entity.collection);
+  const Icon = visual.icon;
+  const title = labelEntity(project, entity);
+  const tab = buildDefaultRecordTab({
+    id: `${entity.collection}:${entity.id}`,
+    label: title,
+    type: metadata.nodeType,
+    collection: entity.collection,
+    entityId: entity.id,
+  });
+  if (!tab) return null;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-7 max-w-44 gap-1.5 px-2"
+      onClick={() => navigateToWorkbenchTarget({ tab })}
+      title={`${label}: ${title}`}
+    >
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${visual.colorClassName}`} />
+      <span className="truncate">{title}</span>
+    </Button>
   );
 }
 
@@ -380,13 +419,7 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
       summary={inputs ? `${inputs.dialogueOptions.length + inputs.navigation.length + inputs.actions.length + (inputs.continue ? 1 : 0)} available` : 'None'}
       defaultOpen
     >
-      <div className="flex flex-wrap gap-1">
-        <Badge variant={inputs?.continue ? 'default' : 'secondary'}>Continue {inputs?.continue ? 'yes' : 'no'}</Badge>
-        <Badge variant="outline">Choices {inputs?.dialogueOptions.length ?? 0}</Badge>
-        <Badge variant="outline">Navigation {inputs?.navigation.length ?? 0}</Badge>
-        <Badge variant="outline">Actions {inputs?.actions.length ?? 0}</Badge>
-      </div>
-      {inputs?.dialogueOptions.slice(0, 4).map((option) => (
+      {inputs?.dialogueOptions.map((option) => (
         <Button key={option.index} size="sm" variant="outline" className="w-full justify-start" disabled={!option.enabled || !controller} onClick={() => controller && onCommand(
           () => controller.selectDialogueOption(option.index),
           `Dialogue option ${option.index} sent`,
@@ -395,7 +428,7 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
           Choice {option.index}: {option.label}
         </Button>
       ))}
-      {inputs?.navigation.slice(0, 4).map((direction) => (
+      {inputs?.navigation.map((direction) => (
         <Button key={direction.index} size="sm" variant="outline" className="w-full justify-start" disabled={!direction.enabled || !controller} onClick={() => controller && onCommand(
           () => controller.navigateRuntime(direction.index),
           `Navigate ${direction.index} sent`,
@@ -404,7 +437,7 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
           Navigate {direction.index}: {direction.label}
         </Button>
       ))}
-      {inputs?.actions.slice(0, 4).map((action) => (
+      {inputs?.actions.map((action) => (
         <Button key={action.verbId} size="sm" variant="outline" className="w-full justify-start" disabled={!action.enabled || !controller} onClick={() => controller && onCommand(
           () => controller.runRuntimeAction(action.verbId, inputs.selectedObjects),
           `Action ${action.verbId} sent`,
@@ -413,7 +446,7 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
           {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
         </Button>
       ))}
-      {(inputs?.clickableTargets ?? []).map(uiClickTarget).filter((target): target is NonNullable<typeof target> => target !== null).slice(0, 4).map((target) => (
+      {(inputs?.clickableTargets ?? []).map(uiClickTarget).filter((target): target is NonNullable<typeof target> => target !== null).map((target) => (
         <Button key={`${target.documentId}:${target.selector}`} size="sm" variant="outline" className="w-full justify-start" disabled={!controller} onClick={() => controller && onCommand(
           () => Promise.resolve(),
           `Recorded UI click ${target.selector}`,
@@ -437,6 +470,24 @@ function parseDebugVariableDraft(type: string | undefined, text: string, enumVal
   }
 }
 
+function variableTypeIcon(type: string | undefined) {
+  switch (type) {
+    case 'boolean':
+      return ToggleLeft;
+    case 'integer':
+    case 'number':
+      return Hash;
+    case 'string':
+      return Text;
+    case 'enum':
+      return List;
+    case 'binary':
+      return Binary;
+    default:
+      return Braces;
+  }
+}
+
 function VariableDebugRow({
   variable,
   project,
@@ -453,37 +504,179 @@ function VariableDebugRow({
   const record = recordFor(project, 'variables', variable.id);
   const data = record ? parseVariableData(record.data) : null;
   const [draft, setDraft] = useState(variableDefaultValueToText(variable.value));
-  useEffect(() => setDraft(variableDefaultValueToText(variable.value)), [variable.value]);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setDraft(variableDefaultValueToText(variable.value));
+  }, [editing, variable.value]);
   const parsed = parseDebugVariableDraft(data?.type ?? variable.type, draft, data?.enumValues);
   const controller = controlsContext?.controller ?? null;
   const disabled = mutationDisabled || !controller;
+  const type = data?.type ?? variable.type;
+  const TypeIcon = variableTypeIcon(type);
+  const label = fallbackLabel(variable.id, record?.label ?? variable.label);
+  const defaultValue = data?.defaultValue ?? variable.defaultValue;
+  const commit = () => {
+    if (!controller || !parsed.ok || disabled) return;
+    onCommand(() => controller.setRuntimeVariable(variable.id, parsed.value), `Debug set ${variable.id}`);
+    setEditing(false);
+  };
+  const cancel = () => {
+    setDraft(variableDefaultValueToText(variable.value));
+    setEditing(false);
+  };
+  const setValue = (value: unknown) => {
+    if (!controller || disabled) return;
+    onCommand(() => controller.setRuntimeVariable(variable.id, value), `Debug set ${variable.id}`);
+    setEditing(false);
+  };
+  const editor = (() => {
+    if (!editing) return null;
+    if (type === 'enum') {
+      return (
+        <div className="flex min-w-0 flex-[1.25] items-center gap-1">
+          <select
+            autoFocus
+            className="h-7 min-w-0 flex-1 rounded border bg-background px-2 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+            value={draft}
+            onBlur={cancel}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDraft(value);
+              setValue(value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') cancel();
+            }}
+            aria-label={`Debug variable ${variable.id} value`}
+          >
+            {(data?.enumValues ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+          <Button type="button" size="icon-sm" variant="ghost" className="shrink-0" onClick={cancel} aria-label={`Cancel editing ${label}`}>
+            <X className="size-4" />
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <div className="flex min-w-0 flex-[1.25] items-center gap-1">
+        <input
+          autoFocus
+          type={type === 'integer' || type === 'number' ? 'number' : 'text'}
+          step={type === 'integer' ? '1' : type === 'number' ? 'any' : undefined}
+          className={`h-7 min-w-0 flex-1 rounded border bg-background px-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 ${!parsed.ok ? 'border-destructive' : ''}`}
+          value={draft}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={cancel}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit();
+            if (event.key === 'Escape') cancel();
+          }}
+          aria-label={`Debug variable ${variable.id} value`}
+          aria-invalid={!parsed.ok}
+          title={!parsed.ok ? parsed.message : undefined}
+        />
+        <Button type="button" size="icon-sm" variant="ghost" className="shrink-0" onClick={cancel} aria-label={`Cancel editing ${label}`}>
+          <X className="size-4" />
+        </Button>
+      </div>
+    );
+  })();
   return (
-    <div className="rounded-md border p-2 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">{fallbackLabel(variable.id, record?.label ?? variable.label)}</span>
-        <Badge variant={variable.dirty || variable.overridden ? 'default' : 'secondary'}>{variable.dirty || variable.overridden ? 'changed' : 'clean'}</Badge>
-      </div>
-      <div className="mt-1 font-mono text-[11px] text-muted-foreground">{variable.id}</div>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <InfoRow label="Type" value={data?.type ?? variable.type} />
-        <InfoRow label="Default" value={stringifyValue(data?.defaultValue ?? variable.defaultValue)} />
-      </div>
-      <Input className="mt-2 h-7 font-mono text-xs" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`Debug variable ${variable.id} value`} />
-      {!parsed.ok ? <div className="mt-1 text-[11px] text-destructive">{parsed.message}</div> : null}
-      <div className="mt-2 flex gap-2">
-        <Button size="sm" variant="secondary" disabled={disabled || !parsed.ok} onClick={() => controller && parsed.ok && onCommand(() => controller.setRuntimeVariable(variable.id, parsed.value), `Debug set ${variable.id}`)}>Debug set</Button>
-        <Button size="sm" variant="ghost" disabled={disabled} onClick={() => controller && onCommand(() => controller.resetRuntimeVariable(variable.id), `Debug reset ${variable.id}`)}>Debug reset</Button>
-      </div>
+    <div
+      className={`group flex h-8 items-center gap-2 border-b px-1 text-xs last:border-b-0 ${!editing && type !== 'boolean' && !disabled ? 'cursor-pointer hover:bg-muted/30' : ''}`}
+      onClick={() => {
+        if (!editing && type !== 'boolean' && !disabled) setEditing(true);
+      }}
+    >
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger render={<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground" />}>
+            <TypeIcon className="h-3.5 w-3.5" />
+          </TooltipTrigger>
+          <TooltipContent side="left" align="center" sideOffset={8} className="block max-w-72 space-y-1">
+            <div><span className="font-medium">Type:</span> {type ?? 'unknown'}</div>
+            <div><span className="font-medium">Default:</span> <span className="font-mono">{stringifyValue(defaultValue)}</span></div>
+            <div><span className="font-medium">ID:</span> <span className="font-mono">{variable.id}</span></div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <span className="min-w-0 flex-1 truncate font-medium" title={`${label} (${variable.id})`}>{label}</span>
+      {variable.dirty || variable.overridden ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title="Changed from default" /> : null}
+      {editing ? (
+        editor
+      ) : (
+        <>
+          {type === 'boolean' ? (
+            <Switch
+              checked={Boolean(variable.value)}
+              disabled={disabled}
+              onCheckedChange={(checked) => setValue(Boolean(checked))}
+              aria-label={`Set ${label}`}
+            />
+          ) : (
+            <span className="min-w-0 max-w-[45%] truncate font-mono text-muted-foreground" title={variableDefaultValueToText(variable.value)}>
+              {variableDefaultValueToText(variable.value)}
+            </span>
+          )}
+          <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              disabled={disabled}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (controller) onCommand(() => controller.resetRuntimeVariable(variable.id), `Debug reset ${variable.id}`);
+              }}
+              aria-label={`Reset ${label}`}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 function VariablesPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
-  const variables = snapshot?.variables ?? [];
+  const variables = useMemo(() => snapshot?.variables ?? [], [snapshot?.variables]);
+  const [query, setQuery] = useState('');
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredVariables = useMemo(() => {
+    if (!normalizedQuery) return variables;
+    return variables.filter((variable) => {
+      const record = recordFor(project, 'variables', variable.id);
+      const label = fallbackLabel(variable.id, record?.label ?? variable.label);
+      return [
+        variable.id,
+        label,
+        variable.type,
+        variableDefaultValueToText(variable.value),
+      ].some((value) => String(value).toLowerCase().includes(normalizedQuery));
+    });
+  }, [normalizedQuery, project, variables]);
   return (
     <Panel title="Variables" icon={<Database className="h-3.5 w-3.5" />} summary={`${variables.length}`}>
       {variables.length === 0 ? <div className="text-xs text-muted-foreground">No runtime variables in the latest snapshot.</div> : null}
-      {variables.map((variable) => <VariableDebugRow key={variable.id} variable={variable} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />)}
+      {variables.length > 0 ? (
+        <div className="space-y-2">
+          {variables.length > 3 ? (
+            <SearchInput
+              inputClassName="h-7"
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search variables"
+              aria-label="Search variables"
+              clearAriaLabel="Clear variable search"
+            />
+          ) : null}
+          <div className="max-h-[350px] overflow-y-auto">
+            {filteredVariables.map((variable) => <VariableDebugRow key={variable.id} variable={variable} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />)}
+            {filteredVariables.length === 0 ? <div className="px-2 py-3 text-center text-xs text-muted-foreground">No matching variables.</div> : null}
+          </div>
+        </div>
+      ) : null}
     </Panel>
   );
 }
@@ -504,9 +697,8 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
         <select className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs" value={selectedObjectId} onChange={(event) => setSelectedObjectId(event.target.value)} aria-label="Debug object to give">
           {objectIds.map((id) => <option key={id} value={id}>{labelById(project, 'objects', id)} ({id})</option>)}
         </select>
-        <Button size="sm" variant="secondary" disabled={disabled || !selectedObjectId} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(selectedObjectId), `Debug give ${selectedObjectId}`)}>Debug give</Button>
+        <Button className="!h-7 shrink-0" size="sm" variant="secondary" disabled={disabled || !selectedObjectId} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(selectedObjectId), `Debug give ${selectedObjectId}`)}>Debug give</Button>
       </div>
-      <div className="text-[11px] text-muted-foreground">Debug-only inventory mutations are disabled while recording.</div>
       {inventory.length === 0 ? <div className="text-xs text-muted-foreground">Inventory is empty in the latest snapshot.</div> : null}
       {inventory.map((item) => (
         <div key={item.id} className="rounded-md border p-2 text-xs">
@@ -531,32 +723,45 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
 }
 
 function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
-  const rooms = project ? Object.entries(project.rooms).slice(0, 6) : [];
   const objects = project ? Object.entries(project.objects).slice(0, 6) : [];
+  const roomItems = useMemo(() => filterSelectorItems(buildCommandPaletteItems(project), { collections: ['rooms'], includeActions: false }), [project]);
+  const [roomSelectorOpen, setRoomSelectorOpen] = useState(false);
   const controller = controlsContext?.controller ?? null;
   const debugDisabled = mutationDisabled || !controller;
   return (
-    <Panel
-      title="World tools"
-      icon={<MousePointer2 className="h-3.5 w-3.5" />}
-      summary={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : 'No room'}
-    >
-      <InfoRow label="Current room" value={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : undefined} />
-      <div className="text-xs font-medium">Debug-only teleport</div>
-      <div className="grid grid-cols-2 gap-1">
-        {rooms.map(([id, room]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(() => controller.teleportRuntimeRoom(id), `Debug teleport ${id}`)}>{room.label || id}</Button>)}
-      </div>
-      <div className="text-xs font-medium">Object helpers</div>
-      <div className="grid grid-cols-2 gap-1">
-        {objects.map(([id, object]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(id), `Debug give ${id}`)}>{object.label || id}</Button>)}
-      </div>
-      <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(
-        () => controller.clearRuntimeObjectSelection(),
-        'Object selection cleared',
-        { recordedAction: createRecordedAction('clear-object-selection', 'Clear object selection', { type: 'clear-object-selection' }) },
-      )}>Clear object selection</Button>
-      <div className="text-[11px] text-muted-foreground">Controls labeled Debug mutate runtime save state only for previewing and testing.</div>
-    </Panel>
+    <>
+      <Panel
+        title="World tools"
+        icon={<MousePointer2 className="h-3.5 w-3.5" />}
+        summary={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : 'No room'}
+      >
+        <Button size="sm" variant="secondary" disabled={debugDisabled || roomItems.length === 0} onClick={() => setRoomSelectorOpen(true)}>
+          Teleport to Room
+        </Button>
+        <div className="text-xs font-medium">Object helpers</div>
+        <div className="grid grid-cols-2 gap-1">
+          {objects.map(([id, object]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(id), `Debug give ${id}`)}>{object.label || id}</Button>)}
+        </div>
+        <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(
+          () => controller.clearRuntimeObjectSelection(),
+          'Object selection cleared',
+          { recordedAction: createRecordedAction('clear-object-selection', 'Clear object selection', { type: 'clear-object-selection' }) },
+        )}>Clear object selection</Button>
+      </Panel>
+      <SearchSelectorDialog
+        open={roomSelectorOpen}
+        title="Teleport to Room"
+        placeholder="Search rooms..."
+        emptyMessage="No rooms found."
+        items={roomItems}
+        selectedId={snapshot?.currentRoomId ? `record:rooms:${snapshot.currentRoomId}` : null}
+        onSelect={(item) => {
+          if (!controller || !item.entityId) return;
+          onCommand(() => controller.teleportRuntimeRoom(item.entityId!), `Debug teleport ${item.entityId}`);
+        }}
+        onOpenChange={setRoomSelectorOpen}
+      />
+    </>
   );
 }
 
@@ -716,7 +921,7 @@ function RuntimeInspector({ state, project, controlsContext, runtimeProjectState
   const mutationDisabled = mode === 'recording';
   const runtimeDisabled = controlsContext?.connectionState !== 'ready';
   return (
-    <aside className="flex h-full min-h-0 w-[340px] min-w-[300px] max-w-[400px] shrink-0 flex-col border-l bg-background">
+    <aside className="flex h-full min-h-0 w-full flex-col bg-background">
       <div className="shrink-0 border-b bg-background px-3 py-2">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -725,9 +930,25 @@ function RuntimeInspector({ state, project, controlsContext, runtimeProjectState
               {state.snapshot?.currentRoomId ? `In ${labelById(project, 'rooms', state.snapshot.currentRoomId)}` : 'Runtime tools and live state'}
             </div>
           </div>
-          <div className="flex rounded-md bg-muted p-0.5">
-            <Button className="h-7 px-2.5" size="sm" variant={mode === 'debug' ? 'secondary' : 'ghost'} onClick={() => onModeChange('debug')}>Debug</Button>
-            <Button className="h-7 px-2.5" size="sm" variant={mode === 'recording' ? 'secondary' : 'ghost'} onClick={() => onModeChange('recording')}>Recording</Button>
+          <div className="flex rounded-md border bg-muted/60 p-0.5" role="group" aria-label="Play inspector mode">
+            <Button
+              className={`h-7 px-2.5 ${mode === 'debug' ? 'bg-background text-foreground shadow-sm hover:bg-background' : 'text-muted-foreground'}`}
+              size="sm"
+              variant="ghost"
+              aria-pressed={mode === 'debug'}
+              onClick={() => onModeChange('debug')}
+            >
+              Debug
+            </Button>
+            <Button
+              className={`h-7 px-2.5 ${mode === 'recording' ? 'bg-background text-foreground shadow-sm hover:bg-background' : 'text-muted-foreground'}`}
+              size="sm"
+              variant="ghost"
+              aria-pressed={mode === 'recording'}
+              onClick={() => onModeChange('recording')}
+            >
+              Recording
+            </Button>
           </div>
         </div>
       </div>
@@ -736,7 +957,7 @@ function RuntimeInspector({ state, project, controlsContext, runtimeProjectState
         {mode === 'recording' ? (
           <RecorderPanel draft={recorderDraft} targetTestId={targetTestId} runtimeProjectFreshness={runtimeProjectState.freshness} onTargetTestIdChange={onTargetTestIdChange} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} onSaveNew={onRecorderSaveNew} onApplyExisting={onRecorderApplyExisting} onOpenSavedTest={onOpenSavedTest} />
         ) : null}
-        <RuntimeSummaryPanel snapshot={state.snapshot} project={project} />
+        <RuntimeSummaryPanel snapshot={state.snapshot} />
         <InputAvailabilityPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} onCommand={onCommand} />
         {mode === 'debug' ? (
           <>
@@ -752,8 +973,13 @@ function RuntimeInspector({ state, project, controlsContext, runtimeProjectState
   );
 }
 
-function FullGamePreviewTransportBar({ context, runtimeProjectState, canReloadLatestProject, onReloadLatestProject, onRuntimeCommand }: { context: EnginePreviewControlsContext; runtimeProjectState: FullGamePreviewRuntimeProjectState; canReloadLatestProject: boolean; onReloadLatestProject: () => void; onRuntimeCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
+function FullGamePreviewTransportBar({ context, runtimeProjectState, canReloadLatestProject, project, snapshot, onReloadLatestProject, onRuntimeCommand }: { context: EnginePreviewControlsContext; runtimeProjectState: FullGamePreviewRuntimeProjectState; canReloadLatestProject: boolean; project: AuthoringProject | null; snapshot: RuntimeDebugSnapshot | null; onReloadLatestProject: () => void; onRuntimeCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const runtimeDisabled = context.connectionState !== 'ready';
+  const currentRoom = snapshot?.currentRoomId
+    ? { type: 'room', id: snapshot.currentRoomId, collection: 'rooms', label: project?.rooms[snapshot.currentRoomId]?.label } as RuntimeDebugEntityRef
+    : null;
+  const currentEntityIsCurrentRoom = snapshot?.currentEntity?.collection === 'rooms'
+    && snapshot.currentEntity.id === snapshot.currentRoomId;
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
@@ -770,6 +996,10 @@ function FullGamePreviewTransportBar({ context, runtimeProjectState, canReloadLa
         <FastForward className="h-4 w-4" />
         Fast-forward
       </Button>
+      <div className="ml-auto flex min-w-0 items-center gap-1">
+        <RuntimeEntityButton entity={snapshot?.currentEntity} project={project} label="Current entity" />
+        {!currentEntityIsCurrentRoom ? <RuntimeEntityButton entity={currentRoom} project={project} label="Current room" /> : null}
+      </div>
       <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
         Cap
         <Input className="h-7 w-16" type="number" min="0" max="1000" step="1" value={context.fpsCap} onChange={(event) => context.setFpsCap(sanitizePreviewFpsCap(Number(event.target.value)))} />
@@ -1081,39 +1311,44 @@ export function FullGamePreviewEditor() {
   }, [openTab, project, recorderDraft.savedTestId]);
 
   return (
-    <div className="flex h-full min-h-0 bg-background">
-      <div className="min-w-0 flex-1">
+    <Group orientation="horizontal" className="h-full min-h-0 bg-background">
+      <ResizePanel id="full-game-preview-canvas" minSize="420px">
+        <div className="h-full min-w-0">
         <EnginePreview
           previewActivityRefreshOnVisible="runtime-debug"
           onPreviewMessage={handlePreviewMessage}
           renderControls={(context) => {
             controlsRef.current = context;
-            return <FullGamePreviewTransportBar context={context} runtimeProjectState={runtimeProjectState} canReloadLatestProject={canReloadLatestProject} onReloadLatestProject={reloadLatestRuntimeProject} onRuntimeCommand={handleRuntimeCommand} />;
+            return <FullGamePreviewTransportBar context={context} runtimeProjectState={runtimeProjectState} canReloadLatestProject={canReloadLatestProject} project={project} snapshot={state.snapshot} onReloadLatestProject={reloadLatestRuntimeProject} onRuntimeCommand={handleRuntimeCommand} />;
           }}
         />
-      </div>
-      <RuntimeInspector
-        state={state}
-        project={project}
-        controlsContext={controlsRef.current}
-        runtimeProjectState={runtimeProjectState}
-        canReloadLatestProject={canReloadLatestProject}
-        mode={mode}
-        recorderDraft={recorderDraft}
-        targetTestId={targetTestId}
-        onTargetTestIdChange={setTargetTestId}
-        onModeChange={setMode}
-        onCommand={handleRuntimeCommand}
-        onReloadLatestProject={reloadLatestRuntimeProject}
-        onRecorderStart={startRecording}
-        onRecorderStop={stopRecording}
-        onRecorderClear={clearRecording}
-        onRecorderUndoLast={undoLastRecordedAction}
-        onRecorderReplay={replayRecording}
-        onRecorderSaveNew={saveRecordingAsNewTest}
-        onRecorderApplyExisting={applyRecordingToExistingTest}
-        onOpenSavedTest={openSavedTest}
-      />
-    </div>
+        </div>
+      </ResizePanel>
+      <PanelResizeSeparator orientation="horizontal" aria-label="Resize Play Inspector" />
+      <ResizePanel id="full-game-preview-inspector" defaultSize="300px" minSize="260px" maxSize="55%">
+        <RuntimeInspector
+          state={state}
+          project={project}
+          controlsContext={controlsRef.current}
+          runtimeProjectState={runtimeProjectState}
+          canReloadLatestProject={canReloadLatestProject}
+          mode={mode}
+          recorderDraft={recorderDraft}
+          targetTestId={targetTestId}
+          onTargetTestIdChange={setTargetTestId}
+          onModeChange={setMode}
+          onCommand={handleRuntimeCommand}
+          onReloadLatestProject={reloadLatestRuntimeProject}
+          onRecorderStart={startRecording}
+          onRecorderStop={stopRecording}
+          onRecorderClear={clearRecording}
+          onRecorderUndoLast={undoLastRecordedAction}
+          onRecorderReplay={replayRecording}
+          onRecorderSaveNew={saveRecordingAsNewTest}
+          onRecorderApplyExisting={applyRecordingToExistingTest}
+          onOpenSavedTest={openSavedTest}
+        />
+      </ResizePanel>
+    </Group>
   );
 }
