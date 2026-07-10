@@ -73,7 +73,6 @@ interface RecordedTestDraft {
 }
 
 interface RuntimeCommandOptions {
-  running?: boolean;
   recordedAction?: RecordedRuntimeAction;
 }
 
@@ -262,11 +261,12 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   return `${base}-${index}`;
 }
 
-function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { runtimeProject: unknown | null; revision: string | null; entries: Omit<RuntimeLogEntry, 'id'>[]; ok: boolean } {
+function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { runtimeProject: unknown | null; previewAssets: Array<{ sourcePath: string; runtimePath: string }>; revision: string | null; entries: Omit<RuntimeLogEntry, 'id'>[]; ok: boolean } {
   if (!project) {
     return {
       ok: false,
       runtimeProject: null,
+      previewAssets: [],
       revision: null,
       entries: [{ label: 'No authoring project is open', detail: 'Open or create a project before using the Play tab.', severity: 'warning' }],
     };
@@ -280,6 +280,7 @@ function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { ru
   return {
     ok: exported.ok,
     runtimeProject: exported.runtimeProject ?? null,
+    previewAssets: exported.fileEntries.map((entry) => ({ sourcePath: entry.source, runtimePath: entry.packagePath })),
     revision: exported.runtimeProject ? runtimeProjectRevision(exported.runtimeProject) : null,
     entries,
   };
@@ -782,7 +783,6 @@ export function FullGamePreviewEditor() {
   const project = useMemo(() => isAuthoringProject(projectDocument) ? projectDocument : null, [projectDocument]);
   const executeCommand = useCommandStore((store) => store.executeCommand);
   const openTab = useWorkbenchStore((store) => store.openTab);
-  const setPreviewRunning = useWorkspaceStore((s) => s.setPreviewRunning);
   const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
   const [runtimeProjectState, setRuntimeProjectState] = useState<FullGamePreviewRuntimeProjectState>({
@@ -826,7 +826,7 @@ export function FullGamePreviewEditor() {
       }));
       return false;
     }
-    await context.controller.loadRuntimeProject(exported.runtimeProject);
+    await context.controller.loadRuntimeProject(exported.runtimeProject, exported.previewAssets);
     setRuntimeProjectState({
       loadedRuntimeProjectRevision: exported.revision,
       currentRuntimeProjectRevision: exported.revision,
@@ -879,13 +879,7 @@ export function FullGamePreviewEditor() {
   }, []);
 
   const handleRuntimeCommand = useCallback((command: RuntimeCommandFactory, label: string, options: RuntimeCommandOptions = {}) => {
-    if (options.running !== undefined) {
-      setPreviewRunning(options.running);
-      setPrimaryRuntimeReplay({
-        position: useWorkspaceStore.getState().previewPosition,
-        running: options.running,
-      });
-    }
+    setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition });
     setState((current) => ({ ...current, eventLog: addLogEntry(current.eventLog, { label, severity: 'info' }) }));
     const recordedAction = options.recordedAction;
     if (recordedAction) {
@@ -903,7 +897,7 @@ export function FullGamePreviewEditor() {
       command().then(() => requestDebugSnapshot(controlsRef.current)),
       label,
     );
-  }, [requestDebugSnapshot, setPreviewRunning, setPrimaryRuntimeReplay]);
+  }, [requestDebugSnapshot, setPrimaryRuntimeReplay]);
 
   const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
     const logEntry = previewMessageLabel(message);

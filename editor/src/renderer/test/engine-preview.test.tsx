@@ -41,7 +41,6 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
     useWorkspaceStore.setState({
       previewPosition: { x: 0.5, y: 0.5 },
-      previewRunning: true,
     previewConnectionState: 'disconnected',
     selectedRuntimeObjectId: null,
       lastPreviewEvent: null,

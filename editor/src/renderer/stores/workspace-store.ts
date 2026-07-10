@@ -79,7 +79,6 @@ interface WorkspaceState {
   playbackTests: PlaybackTestSummary[];
   selectedAssetId: string | null;
   previewPosition: PreviewPosition;
-  previewRunning: boolean;
   previewConnectionState: PreviewConnectionState;
   selectedRuntimeObjectId: string | null;
   lastPreviewEvent: PreviewToEditorMessage | null;
@@ -97,7 +96,6 @@ interface WorkspaceState {
   setPlaybackTests: (tests: PlaybackTestSummary[]) => void;
   setSelectedAssetId: (id: string | null) => void;
   setPreviewPosition: (position: PreviewPosition) => void;
-  setPreviewRunning: (running: boolean) => void;
   setPreviewConnectionState: (state: PreviewConnectionState) => void;
   setSelectedRuntimeObjectId: (id: string | null) => void;
   setLastPreviewEvent: (event: PreviewToEditorMessage | null) => void;
@@ -118,7 +116,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   playbackTests: [],
   selectedAssetId: null,
   previewPosition: { x: 0.5, y: 0.5 },
-  previewRunning: true,
   previewConnectionState: 'disconnected',
   selectedRuntimeObjectId: null,
   lastPreviewEvent: null,
@@ -136,7 +133,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   setPlaybackTests: (playbackTests) => set({ playbackTests }),
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   setPreviewPosition: (previewPosition) => set({ previewPosition }),
-  setPreviewRunning: (previewRunning) => set({ previewRunning }),
   setPreviewConnectionState: (previewConnectionState) => set({ previewConnectionState }),
   setSelectedRuntimeObjectId: (selectedRuntimeObjectId) => set({ selectedRuntimeObjectId }),
   setLastPreviewEvent: (lastPreviewEvent) => set({ lastPreviewEvent }),

@@ -195,10 +195,19 @@ function buildRooms(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
       .filter((roomPath) => roomPath.target?.$ref.id)
       .sort((left, right) => left.order - right.order)
       .map((roomPath) => [roomPath.enabled, runtimeRef(ENTITY_TYPE.room, roomPath.target!.$ref.id)]);
+    const backgroundAssetId = data.background.asset?.$ref.id;
+    const backgroundAssetData = backgroundAssetId ? parseAssetData(project.assets[backgroundAssetId]?.data) : null;
+    const properties: Record<string, unknown> = {};
+    if (backgroundAssetId && backgroundAssetData) {
+      properties.background = `project:/${assetPackagePath(backgroundAssetId, backgroundAssetData.kind, backgroundAssetData.source.path)}`;
+    }
+    if (data.background.color) properties.backgroundColor = data.background.color;
+    properties.backgroundFit = data.background.fit;
+
     rooms[roomId] = [
       roomId,
       '',
-      {},
+      properties,
       data.description.source,
       data.scripts.beforeEnter,
       data.scripts.afterEnter,

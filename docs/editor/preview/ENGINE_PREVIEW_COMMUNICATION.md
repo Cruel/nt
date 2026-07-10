@@ -187,6 +187,7 @@ Editor to preview:
 - `stop`
 - `request-state`
 - `runtime-reset`
+- `runtime-load-project`
 - `runtime-continue`
 - `runtime-dialogue-option`
 - `runtime-navigate`
@@ -217,6 +218,13 @@ Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 The `set-demo-position` and `reset-demo` commands remain compatibility commands
 for the current sandbox preview. New editor UI should prefer runtime-named
 commands.
+
+`runtime-load-project` may include preview-only asset mappings with a project-relative
+source path and the runtime package path. `web/widget.html` fetches those files from
+the loopback server and stages them into the Emscripten `project:/` mount before
+loading the runtime document. This keeps the live Play tab's asset layout identical
+to exported packages, where referenced images are stored under paths such as
+`textures/<asset>.<ext>`.
 
 The renderer-side `PreviewManager` owns preview session records, bounded entity
 preview requests, manager diagnostics, replay state, and thumbnail request/cache

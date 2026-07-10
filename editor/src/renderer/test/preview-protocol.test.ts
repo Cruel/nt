@@ -52,6 +52,7 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-bad-visible', active: true, visible: 'yes' })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-start', requestId: 'runtime-start' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project', project: { engine: 1 } })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project-assets', project: { engine: 1 }, assets: [{ sourcePath: 'assets/images/foyer.png', runtimePath: 'textures/foyer.png' }] })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project-bad' })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-stop', requestId: 'runtime-stop' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step' })).toBe(true);

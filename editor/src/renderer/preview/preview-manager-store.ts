@@ -51,7 +51,7 @@ interface PreviewManagerState {
   setSessionStatus: (sessionId: string, status: PreviewSessionStatus, now?: number) => void;
   setSessionCapabilities: (sessionId: string, capabilities: string[]) => void;
   setPrimaryTransport: (session: EnginePreviewSession | null) => void;
-  setPrimaryRuntimeReplay: (state: { position: PreviewPosition; running: boolean }) => void;
+  setPrimaryRuntimeReplay: (state: { position: PreviewPosition }) => void;
   setPreviewDocumentReplay: (sessionId: string, document: PreviewDocument, mode?: PreviewMode) => void;
   requestEntityPreview: (request: EntityPreviewRequest) => { ok: true; session: PreviewSessionRecord } | { ok: false; error: string };
   releasePreviewOwner: (ownerId: string, now?: number) => void;
@@ -70,7 +70,7 @@ function nowOr(value: number | undefined): number {
 
 function initialReplay(): PreviewReplayState {
   return {
-    primaryRuntime: { position: { x: 0.5, y: 0.5 }, running: true },
+    primaryRuntime: { position: { x: 0.5, y: 0.5 } },
     documentsBySessionId: {},
     modeBySessionId: {},
   };

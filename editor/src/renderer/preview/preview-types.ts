@@ -61,7 +61,6 @@ export type PreviewMode = 'runtime' | 'material' | 'layout' | 'room' | 'scene' |
 export interface PreviewReplayState {
   primaryRuntime: {
     position: PreviewPosition;
-    running: boolean;
   };
   documentsBySessionId: Record<string, PreviewDocument>;
   modeBySessionId: Record<string, PreviewMode>;

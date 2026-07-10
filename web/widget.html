@@ -610,8 +610,8 @@ thead, tbody, tfoot {
       return paths;
     }
 
-    async function stageProjectAsset(message, fs, projectRelativePath) {
-      const virtualPath = `/assets/project/${projectRelativePath}`;
+    async function stageProjectAsset(message, fs, projectRelativePath, runtimePath = projectRelativePath) {
+      const virtualPath = `/assets/project/${runtimePath}`;
       try {
         const response = await fetch(projectAssetFetchUrl(projectRelativePath), { cache: 'no-store' });
         if (!response.ok) {
@@ -643,7 +643,7 @@ thead, tbody, tfoot {
       return true;
     }
 
-    function loadRuntimeProject(message) {
+    async function loadRuntimeProject(message) {
       if (!nativeExportAvailable('noveltea_runtime_load_project')) {
         failCommand(message, 'Preview widget build does not export noveltea_runtime_load_project. Rebuild the editor preview.', { category: 'preview-export' });
         return;
@@ -652,6 +652,14 @@ thead, tbody, tfoot {
       if (!fs) {
         failCommand(message, 'Preview widget filesystem is unavailable. Rebuild the editor preview with FS exported.', { category: 'runtime-project' });
         return;
+      }
+      const assets = Array.isArray(message.assets) ? message.assets : [];
+      for (const asset of assets) {
+        if (!asset || !safeProjectAssetPath(asset.sourcePath) || !safeProjectAssetPath(asset.runtimePath)) {
+          failCommand(message, 'Runtime preview asset mapping is invalid.', { category: 'runtime-project' });
+          return;
+        }
+        if (!(await stageProjectAsset(message, fs, asset.sourcePath, asset.runtimePath))) return;
       }
       try {
         fs.mkdirTree('/assets/project');

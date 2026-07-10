@@ -209,7 +209,13 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'stop'; requestId: string }
   | { version: 1; type: 'request-state'; requestId: string }
   | { version: 1; type: 'runtime-reset'; requestId: string }
-  | { version: 1; type: 'runtime-load-project'; requestId: string; project: unknown }
+  | {
+      version: 1;
+      type: 'runtime-load-project';
+      requestId: string;
+      project: unknown;
+      assets?: Array<{ sourcePath: string; runtimePath: string }>;
+    }
   | { version: 1; type: 'runtime-start'; requestId: string }
   | { version: 1; type: 'runtime-stop'; requestId: string }
   | { version: 1; type: 'runtime-step'; requestId: string; deltaSeconds?: number }
@@ -563,7 +569,12 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'request-preview-state':
       return true;
     case 'runtime-load-project':
-      return 'project' in value;
+      return 'project' in value && (
+        value.assets === undefined
+        || (Array.isArray(value.assets) && value.assets.every((item) => isRecord(item)
+          && typeof item.sourcePath === 'string'
+          && typeof item.runtimePath === 'string'))
+      );
     case 'runtime-step':
       return value.deltaSeconds === undefined || (typeof value.deltaSeconds === 'number' && Number.isFinite(value.deltaSeconds) && value.deltaSeconds >= 0);
     case 'runtime-dialogue-option':

@@ -45,6 +45,10 @@ describe('authoring runtime export builder', () => {
         kitchen: expect.arrayContaining(['kitchen', 'A bright kitchen.', 'Kitchen']),
       },
     });
+    expect((result.runtimeProject as { room: Record<string, unknown[]> }).room.foyer?.[2]).toMatchObject({
+      background: 'project:/textures/foyer.png',
+      backgroundFit: 'cover',
+    });
     expect(result.runtimeProject).not.toHaveProperty('editor');
     expect(result.runtimeProject).not.toHaveProperty('tests');
     expect(result.fileEntries).toEqual([

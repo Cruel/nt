@@ -103,7 +103,7 @@ export function EnginePreview({
         setStatusMessage('Engine preview ready');
         const replay = usePreviewManagerStore.getState().replay.primaryRuntime;
         void controller.setPosition(replay.position).catch(() => undefined);
-        void (replay.running ? controller.play() : controller.stop()).catch(() => undefined);
+        void controller.play().catch(() => undefined);
       }
     },
     onMessage: handlePreviewMessage,
@@ -132,10 +132,7 @@ export function EnginePreview({
   useEffect(() => {
     if (!embedded) {
       ensurePrimaryRuntimeSession();
-      setPrimaryRuntimeReplay({
-        position: useWorkspaceStore.getState().previewPosition,
-        running: useWorkspaceStore.getState().previewRunning,
-      });
+      setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition });
     }
     setConnectionState('loading');
     setSessionStatus(sessionId, 'loading');

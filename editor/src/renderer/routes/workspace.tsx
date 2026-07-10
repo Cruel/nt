@@ -100,7 +100,6 @@ export function WorkspacePage() {
   const bottomPanelSizePercent = useBottomPanelStore((state) => state.sizePercent);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
   const setBottomPanelSizePercent = useBottomPanelStore((state) => state.setSizePercent);
-  const setPreviewRunning = useWorkspaceStore((state) => state.setPreviewRunning);
   const checkComfyUiConnection = useComfyUiStore((state) => state.checkConnection);
   const comfyUiConfig = useComfyUiStore((state) => state.config);
   const setComfyUiProgress = useComfyUiStore((state) => state.setProgress);
@@ -342,7 +341,6 @@ export function WorkspacePage() {
     setPlaybackTests([]);
     setLastPlaybackReport(null);
     setLastExportResult(null);
-    setPreviewRunning(false);
     setBottomPanelVisible(false);
     ignoredUntrackedAssetPaths.current = new Set();
     setUntrackedAssetFiles([]);
@@ -817,11 +815,9 @@ export function WorkspacePage() {
           break;
         case 'preview-play':
           openWorkbenchTab(buildFullGamePreviewTab());
-          setPreviewRunning(true);
           break;
         case 'preview-stop':
           openWorkbenchTab(buildFullGamePreviewTab());
-          setPreviewRunning(false);
           break;
         case 'undo':
           undoProjectCommand();
