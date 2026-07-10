@@ -1,6 +1,8 @@
+import { useRef } from 'react';
 import { Group, Panel } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { DirtyCloseDialog } from './DirtyCloseDialog';
+import { PersistentEditorHostLayer, PersistentEditorHostProvider } from './persistent-editor-host';
 import { WorkbenchGroup } from './WorkbenchGroup';
 import { WorkbenchTabDndContext } from './WorkbenchTabDndContext';
 import { useWorkbenchStore } from './workbench-store';
@@ -80,11 +82,15 @@ function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayou
 
 export function Workbench() {
   const layout = useWorkbenchStore((state) => state.layout);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   return (
-    <div className="h-full min-h-0 overflow-hidden bg-background">
-      <WorkbenchTabDndContext>
-        <WorkbenchLayoutRenderer node={layout} />
-      </WorkbenchTabDndContext>
+    <div ref={rootRef} className="relative h-full min-h-0 overflow-hidden bg-background" data-workbench-root>
+      <PersistentEditorHostProvider rootRef={rootRef}>
+        <WorkbenchTabDndContext>
+          <WorkbenchLayoutRenderer node={layout} />
+        </WorkbenchTabDndContext>
+        <PersistentEditorHostLayer />
+      </PersistentEditorHostProvider>
       <DirtyCloseDialog />
     </div>
   );

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { Workbench } from '@/workbench/Workbench';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -127,6 +128,32 @@ function renderGroup(model: WorkbenchGroupModel, tabs: WorkbenchTab[] = [playTab
   );
 }
 
+function replaceWorkbenchGroup(activeTabId: string | null, tabs: WorkbenchTab[] = [playTab, normalTab]) {
+  useWorkbenchStore.getState().replaceWorkbench({
+    layout: { kind: 'group', groupId: 'root' },
+    groupsById: { root: group(activeTabId, tabs.map((tab) => tab.id)) },
+    tabsById: Object.fromEntries(tabs.map((tab) => [tab.id, tab])),
+    activeGroupId: 'root',
+    recentlyClosedTabs: [],
+  });
+}
+
+function rect(left: number, top: number, width: number, height: number): DOMRect {
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+let rectSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   counters.normalMounts = 0;
   counters.normalUnmounts = 0;
@@ -138,22 +165,35 @@ beforeEach(() => {
     projectPath: '/mock',
     projectFilePath: '/mock/project.json',
   });
+  rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function mockRect(this: HTMLElement) {
+    if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
+    if (this.hasAttribute('data-workbench-persistent-editor-slot')) return rect(30, 60, 400, 300);
+    return rect(0, 0, 0, 0);
+  });
 });
+
+afterEach(() => rectSpy.mockRestore());
 
 describe('WorkbenchGroup mount policy rendering', () => {
   it('keeps the Play tab mounted across same-group tab switches', () => {
-    const view = renderGroup(group(playTab.id));
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
 
     expect(screen.getByTestId('play-editor')).toBeInTheDocument();
     expect(counters.playMounts).toBe(1);
+    const playEditor = screen.getByTestId('play-editor');
+    const playPane = playEditor.closest('[data-workbench-editor-pane]');
 
-    view.rerender(
-      <WorkbenchTabDndContext>
-        <WorkbenchGroup group={group(normalTab.id)} tabs={[playTab, normalTab]} />
-      </WorkbenchTabDndContext>,
-    );
+    act(() => useWorkbenchStore.getState().activateTab('root', normalTab.id));
 
     expect(screen.getByTestId('play-editor')).toBeInTheDocument();
+    expect(counters.playMounts).toBe(1);
+    expect(counters.playUnmounts).toBe(0);
+
+    act(() => useWorkbenchStore.getState().activateTab('root', playTab.id));
+
+    expect(screen.getByTestId('play-editor')).toBe(playEditor);
+    expect(screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]')).toBe(playPane);
     expect(counters.playMounts).toBe(1);
     expect(counters.playUnmounts).toBe(0);
   });
@@ -175,19 +215,17 @@ describe('WorkbenchGroup mount policy rendering', () => {
   });
 
   it('marks inactive keep-mounted panes aria-hidden, inert, and non-interactive', () => {
-    const view = renderGroup(group(playTab.id));
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
 
-    view.rerender(
-      <WorkbenchTabDndContext>
-        <WorkbenchGroup group={group(normalTab.id)} tabs={[playTab, normalTab]} />
-      </WorkbenchTabDndContext>,
-    );
+    act(() => useWorkbenchStore.getState().activateTab('root', normalTab.id));
 
     const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
     const normalPane = screen.getByTestId('normal-editor').closest('[data-workbench-editor-pane]');
 
     expect(playPane).toHaveAttribute('aria-hidden', 'true');
     expect(playPane).toHaveAttribute('inert');
+    expect(playPane).toHaveAttribute('data-hidden', 'true');
     expect(playPane).toHaveClass('invisible');
     expect(playPane).toHaveClass('pointer-events-none');
     expect(normalPane).not.toHaveAttribute('aria-hidden');
@@ -195,18 +233,38 @@ describe('WorkbenchGroup mount policy rendering', () => {
   });
 
   it('unmounts the keep-mounted tab when it is closed', () => {
-    const view = renderGroup(group(playTab.id));
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
 
     expect(screen.getByTestId('play-editor')).toBeInTheDocument();
 
-    view.rerender(
-      <WorkbenchTabDndContext>
-        <WorkbenchGroup group={group(normalTab.id, [normalTab.id])} tabs={[normalTab]} />
-      </WorkbenchTabDndContext>,
-    );
+    act(() => useWorkbenchStore.getState().closeTab('root', playTab.id));
 
     expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
     expect(counters.playUnmounts).toBe(1);
+  });
+
+  it('renders a slot instead of a group-owned editor for an active persistent tab', () => {
+    const view = renderGroup(group(playTab.id));
+
+    expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
+    expect(view.container.querySelector('[data-workbench-persistent-editor-slot="tab:full-game-preview"]')).toBeInTheDocument();
+  });
+
+  it('keeps an active persistent host hidden until its current slot has a valid rect', () => {
+    rectSpy.mockImplementation(function mockRect(this: HTMLElement) {
+      if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
+      return rect(0, 0, 0, 0);
+    });
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
+
+    const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
+    expect(playPane).toHaveAttribute('aria-hidden', 'true');
+    expect(playPane).toHaveAttribute('inert');
+    expect(playPane).toHaveAttribute('data-hidden', 'true');
+    expect(playPane).toHaveClass('invisible');
+    expect(playPane).toHaveClass('pointer-events-none');
   });
 
   it('reveals and flashes queued anchors after the active pane mounts', async () => {

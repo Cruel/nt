@@ -31,6 +31,11 @@ export interface ResolvedWorkbenchEditorPolicies {
   previewPersistence?: PreviewPersistence;
 }
 
+export interface ResolvedWorkbenchEditor {
+  registration: WorkbenchEditorRegistration;
+  policies: ResolvedWorkbenchEditorPolicies;
+}
+
 export interface WorkbenchEditorRegistry {
   resolve: (editorType: string) => WorkbenchEditorRegistration | null;
   list: () => WorkbenchEditorRegistration[];
@@ -60,6 +65,17 @@ export function resolveEditorPolicies(
     mountPolicy: registration.mountPolicy ?? 'active-only',
     previewHostPolicy: registration.previewHostPolicy ?? 'none',
     previewPersistence: registration.previewPersistence,
+  };
+}
+
+export function resolveWorkbenchEditor(
+  registry: WorkbenchEditorRegistry,
+  tab: Pick<WorkbenchTab, 'editorType'>,
+): ResolvedWorkbenchEditor {
+  const registration = registry.resolve(tab.editorType) ?? missingEditorRegistration;
+  return {
+    registration,
+    policies: resolveEditorPolicies(registration),
   };
 }
 
