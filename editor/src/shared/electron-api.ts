@@ -27,6 +27,7 @@ export interface NovelTeaElectronApi {
   requestAppWindowExit(): Promise<void>;
   completeAppWindowExit(): Promise<void>;
   onAppWindowBeforeClose(callback: () => void): () => void;
+  onEditorShortcut(callback: (command: EditorShortcutCommand) => void): () => void;
   isAppWindowMaximized(): Promise<boolean>;
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
   getEnginePreviewSession(): Promise<EnginePreviewSession>;
@@ -90,6 +91,7 @@ import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfy
 import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from './comfyui-generation';
 import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiAnalyzeWorkflowImportResponse, ComfyUiImportWorkflowToLibraryRequest, ComfyUiImportWorkflowToLibraryResponse, ComfyUiRepairWorkflowInLibraryRequest, ComfyUiRepairWorkflowInLibraryResponse, ComfyUiVerifyWorkflowLibraryRequest, ComfyUiVerifyWorkflowLibraryResponse, ComfyUiWorkflowCopyRequest, ComfyUiWorkflowCopyResponse, ComfyUiWorkflowDeleteRequest, ComfyUiWorkflowDeleteResponse, ComfyUiWorkflowKey, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowLibraryListResponse } from './comfyui-workflows';
 import type { EnginePreviewSession } from './preview-protocol';
+import type { EditorShortcutCommand } from './editor-shortcuts';
 import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from './project-asset-audit';
 import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {

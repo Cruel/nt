@@ -106,6 +106,36 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('handles an editor shortcut forwarded from a focused preview iframe', async () => {
+    render(<WorkspacePage />);
+    const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];
+
+    act(() => shortcutHandler?.('new'));
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Create NovelTea Project' })).toBeInTheDocument();
+  });
+
+  it('saves through the normal workspace command when a preview forwards the shortcut', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    render(<WorkspacePage />);
+    const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];
+
+    act(() => shortcutHandler?.('save'));
+
+    await waitFor(() => expect(window.noveltea.saveProject).toHaveBeenCalled());
+  });
+
   it('checks editor-wide ComfyUI connection even when no project is loaded', async () => {
     usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
 

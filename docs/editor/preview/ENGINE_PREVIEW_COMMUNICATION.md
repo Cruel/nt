@@ -25,6 +25,14 @@ There are two communication layers:
 - MessageChannel: used for live editor-to-engine commands and engine-to-editor
   events.
 
+Editor-owned keyboard shortcuts use Electron's
+`webContents.before-input-event` hook rather than the preview MessageChannel.
+When a preview iframe owns focus, the main process recognizes global editor
+commands such as New, Open, Save, close/reopen tab, command palette, and panel
+toggles, prevents delivery to the preview, and forwards a semantic command over
+typed preload IPC. Normal keys and context-sensitive editing shortcuts remain
+with the focused document.
+
 Zustand remains the authoritative editor-side state. The engine owns runtime
 state needed for rendering and hit testing.
 

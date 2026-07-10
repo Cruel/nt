@@ -59,6 +59,7 @@ Object.defineProperty(window, 'noveltea', {
     requestAppWindowExit: vi.fn().mockResolvedValue(undefined),
     completeAppWindowExit: vi.fn().mockResolvedValue(undefined),
     onAppWindowBeforeClose: vi.fn().mockReturnValue(() => {}),
+    onEditorShortcut: vi.fn().mockReturnValue(() => {}),
     isAppWindowMaximized: vi.fn().mockResolvedValue(false),
     setNativeWindowFrame: vi.fn().mockImplementation((nativeFrame: boolean) => Promise.resolve({
       version: '1.0.0',

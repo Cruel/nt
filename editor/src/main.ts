@@ -29,6 +29,7 @@ import type { ComfyUiConfig } from './shared/comfyui';
 import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
 import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiImportWorkflowToLibraryRequest, ComfyUiRepairWorkflowInLibraryRequest, ComfyUiVerifyWorkflowLibraryRequest, ComfyUiWorkflowCopyRequest, ComfyUiWorkflowDeleteRequest, ComfyUiWorkflowKey, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowRenameRequest } from './shared/comfyui-workflows';
 import type { CreateProjectRequest, PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
+import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 
 if (started) {
   app.quit();
@@ -185,6 +186,20 @@ function installWindowShortcuts(window: BrowserWindow) {
     if (key === '0' || code === 'Digit0' || code === 'Numpad0') {
       event.preventDefault();
       setWindowZoom(window, 1);
+      return;
+    }
+
+    // The renderer document cannot observe key events after focus enters a
+    // preview iframe. Intercept only child-frame shortcuts here so normal
+    // renderer focus keeps its DOM-aware handling (notably text editing).
+    const focusedFrame = window.webContents.focusedFrame;
+    if (!focusedFrame || focusedFrame === window.webContents.mainFrame) return;
+    const editorCommand = resolveEditorShortcutCommand(input);
+    if (editorCommand) {
+      event.preventDefault();
+      if (!input.isAutoRepeat) {
+        window.webContents.send(IPC_CHANNELS.EDITOR_SHORTCUT, editorCommand);
+      }
     }
   });
 }

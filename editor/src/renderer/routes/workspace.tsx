@@ -28,7 +28,7 @@ import { buildFullGamePreviewTab, buildProjectSettingsTab, buildTestDetailTabFor
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
-import { WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
+import { dispatchWorkspaceToolbarCommand, WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { authoringValidationSucceeded, validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
@@ -474,6 +474,27 @@ export function WorkspacePage() {
     })();
   }));
 
+  useEffect(() => window.noveltea.onEditorShortcut((command) => {
+    switch (command) {
+      case 'new':
+        dispatchWorkspaceToolbarCommand(
+          isAuthoringProject(useProjectStore.getState().document) ? 'new-entity' : 'new-project',
+        );
+        break;
+      case 'open-project':
+      case 'save':
+      case 'save-as':
+      case 'close-active-tab':
+      case 'reopen-closed-tab':
+      case 'command-palette':
+      case 'toggle-bottom-panel':
+        dispatchWorkspaceToolbarCommand(command);
+        break;
+      case 'toggle-sidebar':
+        break;
+    }
+  }));
+
   async function saveProject(saveAs = false) {
     if (!project) return false;
     setProjectSaving(true);
@@ -540,6 +561,9 @@ export function WorkspacePage() {
         } else {
           void openNewProjectDialog();
         }
+      } else if (event.key.toLowerCase() === 'o' && !event.shiftKey) {
+        event.preventDefault();
+        void openProject();
       } else if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         void saveProject(event.shiftKey);
@@ -810,6 +834,16 @@ export function WorkspacePage() {
           break;
         case 'save-as':
           void saveProject(true);
+          break;
+        case 'close-active-tab': {
+          const workbench = useWorkbenchStore.getState();
+          const group = workbench.groupsById[workbench.activeGroupId];
+          const tabId = group?.activeTabId;
+          if (group && tabId) useCloseGuardStore.getState().requestCloseTab(group.id, tabId);
+          break;
+        }
+        case 'reopen-closed-tab':
+          useWorkbenchStore.getState().reopenLastClosedTab();
           break;
         case 'toggle-bottom-panel':
           if (project) setBottomPanelVisible(!bottomPanelVisible);

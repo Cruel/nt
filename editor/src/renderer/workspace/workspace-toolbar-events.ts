@@ -17,6 +17,8 @@ export type WorkspaceToolbarCommand =
   | 'redo'
   | 'save'
   | 'save-as'
+  | 'close-active-tab'
+  | 'reopen-closed-tab'
   | 'toggle-bottom-panel'
   | 'command-palette';
 

@@ -15,6 +15,7 @@ export const IPC_CHANNELS = {
   REQUEST_APP_WINDOW_EXIT: 'noveltea:request-app-window-exit',
   COMPLETE_APP_WINDOW_EXIT: 'noveltea:complete-app-window-exit',
   APP_WINDOW_BEFORE_CLOSE: 'noveltea:app-window-before-close',
+  EDITOR_SHORTCUT: 'noveltea:editor-shortcut',
   IS_APP_WINDOW_MAXIMIZED: 'noveltea:is-app-window-maximized',
   SET_NATIVE_WINDOW_FRAME: 'noveltea:set-native-window-frame',
   GET_ENGINE_PREVIEW_SESSION: 'noveltea:get-engine-preview-session',

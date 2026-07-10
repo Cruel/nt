@@ -1,4 +1,4 @@
-import { useCallback, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { AppMenuBar } from './app-menu-bar';
 import { AppSidebar } from './app-sidebar';
 import { ResizeSeparatorOverlay } from './resize-separator';
@@ -23,6 +23,10 @@ export function AppShell({ children }: AppShellProps) {
   const sidebarWidth = useWorkspaceStore((s) => s.sidebarWidth);
   const setSidebarExpanded = useWorkspaceStore((s) => s.setSidebarExpanded);
   const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth);
+
+  useEffect(() => window.noveltea.onEditorShortcut((command) => {
+    if (command === 'toggle-sidebar') setSidebarExpanded(!useWorkspaceStore.getState().sidebarExpanded);
+  }), [setSidebarExpanded]);
 
   const onResizePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
     if (!sidebarExpanded || event.button !== 0) return;
