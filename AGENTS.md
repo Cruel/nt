@@ -139,13 +139,20 @@ Prefer small, named boundaries:
 
 ## Subagent Policy
 
-This repo intentionally allows `agents.max_depth = 2`. Use it for controlled delegation, not uncontrolled recursion.
+This repo intentionally uses `agents.max_depth = 1`. Only the root task may delegate; subagents must not spawn other agents. This avoids recursive fan-out, duplicated exploration, and unnecessary token use.
 
-Root tasks may spawn planner, explorer, worker, reviewer, and researcher agents. A first-level agent may spawn only narrow read-only explorer/researcher subagents when blocked by a concrete codebase or API question. First-level agents must not spawn implementation workers unless the parent explicitly asked for that chain.
+Subagents are optional specialists, not a default workflow. Use one only when independent parallel work, a bounded specialist task, or an isolated review is likely to save more effort than the extra context and coordination cost. Most small or already-understood tasks should remain single-agent.
 
-Second-level agents must not spawn more agents. They should answer the narrow question and stop.
+The root agent owns planning, architecture, integration, and final judgment because it has the complete user conversation and project decisions. Do not delegate those merely to create a role boundary.
 
-Use subagents heavily for read-only exploration, mapping, and review. Use only one writer agent per implementation slice.
+Available project agents:
+
+- `nt_scout`: GPT-5.6 Terra/low for one bounded read-only code-mapping or version-specific research question.
+- `nt_worker`: GPT-5.6 Terra/medium for one well-specified implementation slice after ownership and acceptance criteria are clear.
+- `nt_verifier`: GPT-5.6 Luna/medium for scoped builds, tests, acceptance checks, and failure triage without tracked-file edits.
+- `nt_reviewer`: GPT-5.6 Terra/high for independent semantic review at a meaningful integration boundary.
+
+Treat `agents.max_threads = 5` as a safety ceiling, not a target. Most tasks should use zero or one subagent; use two only when the work is genuinely independent. Use only one writer for an implementation slice. Do not run verification against files another agent is actively editing. Keep final integration and critical high-risk review in the root task, using Sol when its additional depth is justified.
 
 When delegating, require each subagent to return:
 
