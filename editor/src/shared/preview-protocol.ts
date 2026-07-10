@@ -58,6 +58,12 @@ export interface EnginePreviewSettings {
   fpsCap?: number;
 }
 
+export interface PreviewDisplayProfile {
+  aspectRatio: { width: number; height: number };
+  orientation: 'landscape' | 'portrait';
+  barColor: string;
+}
+
 export interface RuntimeDebugEntityRef {
   type: string;
   id: string;
@@ -237,6 +243,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
   | { version: 1; type: 'request-preview-state'; requestId: string }
   | { version: 1; type: 'set-engine-settings'; requestId: string; settings: EnginePreviewSettings }
+  | { version: 1; type: 'set-preview-display-profile'; requestId: string; profile: PreviewDisplayProfile | null; scaling: { mode: 'responsive' | 'reference'; logicalSize: { width: number; height: number } | null } }
   | { version: 1; type: 'set-preview-activity'; requestId: string; active: boolean; visible?: boolean }
   | { version: 1; type: 'set-preview-wheel-routing'; requestId: string; policy: PreviewWheelPolicy; routeId: string }
   | { version: 1; type: 'request-preview-snapshot'; requestId: string; snapshotId: string };
@@ -548,6 +555,14 @@ function isRuntimeDebugEvent(value: unknown): value is RuntimeDebugEvent {
   );
 }
 
+function isPreviewDisplayProfile(value: unknown): value is PreviewDisplayProfile {
+  if (!isRecord(value) || !isRecord(value.aspectRatio)) return false;
+  return Number.isInteger(value.aspectRatio.width) && Number(value.aspectRatio.width) > 0 && Number(value.aspectRatio.width) <= 10000
+    && Number.isInteger(value.aspectRatio.height) && Number(value.aspectRatio.height) > 0 && Number(value.aspectRatio.height) <= 10000
+    && (value.orientation === 'landscape' || value.orientation === 'portrait')
+    && typeof value.barColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.barColor);
+}
+
 export function isEditorToPreviewMessage(value: unknown): value is EditorToPreviewMessage {
   if (!isRecord(value) || value.version !== PREVIEW_PROTOCOL_VERSION || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
     return false;
@@ -601,6 +616,12 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return isPreviewMode(value.mode);
     case 'set-engine-settings':
       return isEnginePreviewSettings(value.settings);
+    case 'set-preview-display-profile': {
+      if (value.profile !== null && !isPreviewDisplayProfile(value.profile)) return false;
+      if (!isRecord(value.scaling) || (value.scaling.mode !== 'responsive' && value.scaling.mode !== 'reference')) return false;
+      const size = value.scaling.logicalSize;
+      return size === null || (isRecord(size) && Number.isInteger(size.width) && Number(size.width) > 0 && Number(size.width) <= 4096 && Number.isInteger(size.height) && Number(size.height) > 0 && Number(size.height) <= 4096);
+    }
     case 'set-preview-activity':
       return (
         typeof value.active === 'boolean' &&

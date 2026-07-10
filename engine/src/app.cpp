@@ -396,6 +396,32 @@ int noveltea_preview_show_editor_document(const char* kind, const char* data_jso
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
+int noveltea_preview_set_display_profile(int width, int height, int portrait,
+                                         unsigned int bar_color_rgba, int clear_override)
+{
+    if (!noveltea::g_preview_engine) {
+        return 0;
+    }
+    if (clear_override) {
+        noveltea::g_preview_engine->set_preview_display_override(std::nullopt);
+        return 1;
+    }
+    if (width <= 0 || height <= 0 || width > 10000 || height > 10000) {
+        return 0;
+    }
+    noveltea::DisplayProfile profile;
+    profile.aspect_ratio = noveltea::normalize_aspect_ratio(
+        {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)});
+    profile.orientation =
+        portrait ? noveltea::ScreenOrientation::Portrait : noveltea::ScreenOrientation::Landscape;
+    profile.bar_color_rgba = bar_color_rgba;
+    noveltea::g_preview_engine->set_preview_display_override(profile);
+    return 1;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
 int noveltea_runtime_load_project(const char* logical_path)
 {
     if (!noveltea::g_preview_engine || !logical_path) {

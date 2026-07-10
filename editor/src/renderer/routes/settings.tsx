@@ -190,6 +190,7 @@ export function SettingsPage() {
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const previewFpsCap = usePreferencesStore((s) => s.previewFpsCap);
+  const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
   const comfyUiConfig = usePreferencesStore((s) => s.comfyUiConfig);
   const setTheme = usePreferencesStore((s) => s.setTheme);
@@ -198,6 +199,7 @@ export function SettingsPage() {
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
   const setPreviewFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
+  const setPreviewDisplay = usePreferencesStore((s) => s.setPreviewDisplay);
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
   const setComfyUiConfig = usePreferencesStore((s) => s.setComfyUiConfig);
   const comfyUiStatus = useComfyUiStore((s) => s.status);
@@ -399,7 +401,15 @@ export function SettingsPage() {
               {t('settings:window.description')}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
+              <div className="space-y-1"><Label>Display profile</Label><Select value={previewDisplay.mode} onValueChange={(mode) => setPreviewDisplay(mode === 'custom' ? { mode: 'custom', aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', scaling: previewDisplay.scaling } : { mode: 'project', scaling: previewDisplay.scaling })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="project">Follow Project</SelectItem><SelectItem value="custom">Custom</SelectItem></SelectContent></Select></div>
+              {previewDisplay.mode === 'custom' ? <><div className="space-y-1"><Label>Orientation</Label><Select value={previewDisplay.orientation} onValueChange={(orientation) => setPreviewDisplay({ ...previewDisplay, orientation: orientation as 'landscape' | 'portrait' })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="landscape">Landscape</SelectItem><SelectItem value="portrait">Portrait</SelectItem></SelectContent></Select></div><div className="grid grid-cols-2 gap-2"><Input aria-label="Preview ratio width" type="number" min={1} max={10000} value={previewDisplay.aspectRatio.width} onChange={(event) => { const width = Number(event.currentTarget.value); if (width > 0) setPreviewDisplay({ ...previewDisplay, aspectRatio: { ...previewDisplay.aspectRatio, width } }); }} /><Input aria-label="Preview ratio height" type="number" min={1} max={10000} value={previewDisplay.aspectRatio.height} onChange={(event) => { const height = Number(event.currentTarget.value); if (height > 0) setPreviewDisplay({ ...previewDisplay, aspectRatio: { ...previewDisplay.aspectRatio, height } }); }} /></div></> : null}
+              <div className="space-y-1"><Label>Play scaling</Label><Select value={previewDisplay.scaling.play} onValueChange={(play) => setPreviewDisplay({ ...previewDisplay, scaling: { ...previewDisplay.scaling, play: play as 'responsive' | 'reference' } })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="responsive">Responsive layout test</SelectItem><SelectItem value="reference">Reference composition</SelectItem></SelectContent></Select></div>
+              <div className="space-y-1"><Label>Pooled preview scaling</Label><Select value={previewDisplay.scaling.pooled} onValueChange={(pooled) => setPreviewDisplay({ ...previewDisplay, scaling: { ...previewDisplay.scaling, pooled: pooled as 'responsive' | 'reference' } })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="reference">Reference composition</SelectItem><SelectItem value="responsive">Responsive layout test</SelectItem></SelectContent></Select></div>
+              <div className="space-y-1"><Label>Reference long axis</Label><Input type="number" min={320} max={4096} value={previewDisplay.scaling.referenceLongAxis} onChange={(event) => setPreviewDisplay({ ...previewDisplay, scaling: { ...previewDisplay.scaling, referenceLongAxis: Number(event.currentTarget.value) } })} /></div>
+              <div className="flex items-end justify-end"><Button type="button" size="sm" variant="outline" onClick={() => setPreviewDisplay({ mode: 'project', scaling: { play: 'responsive', pooled: 'reference', referenceLongAxis: 1280 } })}>Reset to Follow Project</Button></div>
+            </div>
             <div className="flex items-center justify-between gap-6">
               <div>
                 <Label htmlFor="native-window-frame">{t('settings:window.nativeFrame')}</Label>

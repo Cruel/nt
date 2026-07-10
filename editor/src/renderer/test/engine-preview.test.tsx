@@ -212,6 +212,21 @@ describe('EnginePreview', () => {
     });
   });
 
+  it('sends the complete effective display profile while following project defaults', async () => {
+    const { editorPort } = await renderConnectedPreview();
+    expect(editorPort.sent).toContainEqual({
+      version: 1,
+      type: 'set-preview-display-profile',
+      requestId: expect.any(String),
+      profile: {
+        aspectRatio: { width: 16, height: 9 },
+        orientation: 'landscape',
+        barColor: '#000000',
+      },
+      scaling: { mode: 'responsive', logicalSize: null },
+    });
+  });
+
   it('updates capabilities from ready and capabilities messages', async () => {
     const { previewPort } = await renderConnectedPreview();
     await act(async () => {

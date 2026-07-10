@@ -213,6 +213,7 @@ Editor to preview:
 - `load-preview-document`
 - `update-preview-document`
 - `set-preview-mode`
+- `set-preview-display-profile`
 - `request-preview-state`
 - `request-preview-snapshot`
 
@@ -231,6 +232,14 @@ Preview to editor:
 - `preview-object-hovered`
 
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
+
+Preview display configuration is replayable state. Editor previews send the effective project or
+custom display profile on every connection and whenever that profile changes, plus
+responsive/reference scaling metadata. This keeps Follow Project previews synchronized even when a
+running Play session intentionally retains an older runtime-project snapshot. `null` remains a
+protocol-level operation for clearing the override, but normal editor preview ownership always
+sends a complete effective profile. The editor owns iframe fitting and reference downscaling; the
+widget reports its actual surface and applies only the engine display-profile override.
 The `set-demo-position` and `reset-demo` commands remain compatibility commands
 for the current sandbox preview. New editor UI should prefer runtime-named
 commands.

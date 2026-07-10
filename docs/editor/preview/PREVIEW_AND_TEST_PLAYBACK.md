@@ -44,6 +44,11 @@ The current editor workspace is project-backed rather than mock-data-backed:
 - runtime preview controls send runtime-named input commands over the existing
   MessageChannel protocol.
 
+Editor preview preferences can follow the project display profile or supply a custom ratio and
+orientation without mutating project data. Play defaults to responsive scaling. Pooled derived
+previews default to a stable reference composition whose long axis is 1280 logical pixels, then
+uniformly scale the persistent iframe into a centered fitted slot.
+
 ## Authoring Tests Editor
 
 Milestone 16 adds a first-class authoring Tests Editor for records under the new

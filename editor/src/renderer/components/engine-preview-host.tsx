@@ -1,5 +1,7 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { PreviewConnectionState } from '../../shared/preview-protocol';
+import { fitPreviewRect, referencePreviewSize, type PreviewScalingMode } from '../../shared/preview-display';
+import type { ProjectDisplaySettings } from '../../shared/project-schema/authoring-project-settings';
 
 const BUILD_COMMAND = 'pnpm engine:preview:build';
 
@@ -15,6 +17,9 @@ interface EnginePreviewHostProps {
   className?: string;
   iframeClassName?: string;
   showConnectionOverlay?: boolean;
+  displayProfile?: ProjectDisplaySettings;
+  scalingMode?: PreviewScalingMode;
+  referenceLongAxis?: number;
 }
 
 export function EnginePreviewHost({
@@ -29,8 +34,26 @@ export function EnginePreviewHost({
   className = 'relative min-h-0 flex-1 bg-zinc-950',
   iframeClassName = 'h-full w-full border-0',
   showConnectionOverlay = !embedded,
+  displayProfile,
+  scalingMode = 'responsive',
+  referenceLongAxis = 1280,
 }: EnginePreviewHostProps) {
   const previewHostRef = useRef<HTMLDivElement | null>(null);
+  const [bounds, setBounds] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const element = previewHostRef.current;
+    if (!element) return undefined;
+    const update = () => setBounds({ width: element.clientWidth, height: element.clientHeight });
+    update();
+    if (!window.ResizeObserver) {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+    const observer = new window.ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     function handleWindowBlur() {
@@ -55,7 +78,7 @@ export function EnginePreviewHost({
   }
 
   return (
-    <div ref={previewHostRef} className={className}>
+    <div ref={previewHostRef} className={className} style={displayProfile ? { backgroundColor: displayProfile.barColor } : undefined}>
       {iframeSrc ? (
         <iframe
           key={iframeKey}
@@ -64,6 +87,14 @@ export function EnginePreviewHost({
           src={iframeSrc}
           sandbox="allow-scripts allow-same-origin"
           className={iframeClassName}
+          style={displayProfile && bounds.width > 0 && bounds.height > 0 ? (() => {
+            const rect = fitPreviewRect(bounds.width, bounds.height, displayProfile);
+            if (scalingMode === 'reference') {
+              const size = referencePreviewSize(displayProfile, referenceLongAxis);
+              return { position: 'absolute', left: rect.x, top: rect.y, width: size.width, height: size.height, transformOrigin: 'top left', transform: `scale(${Math.min(rect.width / size.width, rect.height / size.height)})` };
+            }
+            return { position: 'absolute', left: rect.x, top: rect.y, width: rect.width, height: rect.height };
+          })() : undefined}
           onPointerDown={scheduleContainingWorkbenchGroupActivation}
           onFocus={scheduleContainingWorkbenchGroupActivation}
           onLoad={onConnecting}

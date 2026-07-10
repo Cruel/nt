@@ -4,6 +4,11 @@ import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engi
 import { routePreviewWheelToScrollAncestors, type PreviewWheelMessage } from '@/preview/preview-wheel-routing';
 import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { useProjectStore } from '@/project/project-store';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { effectivePreviewDisplay } from '../../shared/preview-display';
 
 export type PreviewPanePolicy = 'pooled-per-tab-group';
 export type PooledPreviewPersistence = 'derived';
@@ -147,6 +152,10 @@ function PreviewHostSlot({
   onActivateOwnerTab?: (ownerTabId: string) => void;
   pointerEventsDisabled: boolean;
 }) {
+  const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
+  const projectDocument = useProjectStore((state) => state.document);
+  const projectDisplay = isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument).display : undefined;
+  const effectiveDisplay = effectivePreviewDisplay(previewDisplay, projectDisplay);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const activateOwningTab = useCallback(() => {
     if (host.lease) onActivateOwnerTab?.(host.lease.ownerTabId);
@@ -249,6 +258,9 @@ function PreviewHostSlot({
         onActivateContainingGroup={activateOwningTab}
         onConnecting={() => undefined}
         onError={() => undefined}
+        displayProfile={effectiveDisplay}
+        scalingMode={previewDisplay.scaling.pooled}
+        referenceLongAxis={previewDisplay.scaling.referenceLongAxis}
       />
     </div>
   );

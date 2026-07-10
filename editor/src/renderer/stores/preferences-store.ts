@@ -4,6 +4,7 @@ import type { CodeEditorThemeId } from '@/components/source/source-editor-theme-
 import type { EditorLanguage } from '@/i18n';
 import type { ComfyUiConfig } from '../../shared/comfyui';
 import { defaultComfyUiConfig, normalizeComfyUiConfig } from '../../shared/comfyui';
+import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE, normalizePreviewDisplayPreference, type PreviewDisplayPreference } from '../../shared/preview-display';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -21,6 +22,7 @@ interface PreferencesState {
   lastProjectPath: string | null;
   defaultProjectDirectory: string | null;
   comfyUiConfig: ComfyUiConfig;
+  previewDisplay: PreviewDisplayPreference;
   setTheme: (theme: Theme) => void;
   setLanguage: (language: EditorLanguage) => void;
   setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
@@ -30,6 +32,7 @@ interface PreferencesState {
   setLastProjectPath: (projectPath: string | null) => void;
   setDefaultProjectDirectory: (projectDirectory: string | null) => void;
   setComfyUiConfig: (patch: Partial<ComfyUiConfig>) => void;
+  setPreviewDisplay: (preference: PreviewDisplayPreference) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -44,6 +47,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       lastProjectPath: null,
       defaultProjectDirectory: null,
       comfyUiConfig: defaultComfyUiConfig(),
+      previewDisplay: DEFAULT_PREVIEW_DISPLAY_PREFERENCE,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
@@ -58,6 +62,7 @@ export const usePreferencesStore = create<PreferencesState>()(
           ...patch,
         }),
       })),
+      setPreviewDisplay: (previewDisplay) => set({ previewDisplay: normalizePreviewDisplayPreference(previewDisplay) }),
     }),
     {
       name: 'noveltea-preferences',
@@ -70,6 +75,7 @@ export const usePreferencesStore = create<PreferencesState>()(
           ...next,
           previewFpsCap: normalizePreviewFpsCap(next.previewFpsCap),
           comfyUiConfig: normalizeComfyUiConfig(next.comfyUiConfig),
+          previewDisplay: normalizePreviewDisplayPreference(next.previewDisplay),
         };
       },
     },

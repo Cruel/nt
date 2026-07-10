@@ -5,6 +5,7 @@ import {
   type EnginePreviewSettings,
   type EnginePreviewSession,
   type PreviewDocument,
+  type PreviewDisplayProfile,
   type PreviewMode,
   type PreviewPosition,
   type PreviewToEditorMessage,
@@ -164,6 +165,7 @@ export function usePreviewTransport({
     updatePreviewDocument: (document: PreviewDocument) => send({ type: 'update-preview-document', document }),
     setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
     setEngineSettings: (settings: EnginePreviewSettings) => send({ type: 'set-engine-settings', settings }),
+    setPreviewDisplayProfile: (profile: PreviewDisplayProfile | null, scaling: { mode: 'responsive' | 'reference'; logicalSize: { width: number; height: number } | null }) => send({ type: 'set-preview-display-profile', profile, scaling }),
     setPreviewActivity: (active: boolean, visible?: boolean) => (
       visible === undefined
         ? send({ type: 'set-preview-activity', active })

@@ -6,9 +6,13 @@ import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { normalizePreviewFpsCap, usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useProjectStore } from '@/project/project-store';
 import { useOptionalWorkbenchEditorLocation } from '@/workbench/workbench-editor-location';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { PreviewConnectionState, PreviewDocument, PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { effectivePreviewDisplay, referencePreviewSize } from '../../shared/preview-display';
 
 export function sanitizePreviewFpsCap(value: number) {
   return normalizePreviewFpsCap(value);
@@ -59,6 +63,11 @@ export function EnginePreview({
   const replayModes = usePreviewManagerStore((s) => s.replay.modeBySessionId);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const fpsCap = usePreferencesStore((s) => s.previewFpsCap);
+  const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
+  const projectDocument = useProjectStore((s) => s.document);
+  const projectDisplay = isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument).display : undefined;
+  const effectiveDisplay = effectivePreviewDisplay(previewDisplay, projectDisplay);
+  const scalingMode = embedded ? previewDisplay.scaling.pooled : previewDisplay.scaling.play;
   const setFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
@@ -161,6 +170,13 @@ export function EnginePreview({
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
+    const logicalSize = scalingMode === 'reference' ? referencePreviewSize(effectiveDisplay, previewDisplay.scaling.referenceLongAxis) : null;
+    void controller.setPreviewDisplayProfile(effectiveDisplay, { mode: scalingMode, logicalSize })
+      .catch((error: Error) => recordTransportError(error.message));
+  }, [connectionState, controller, effectiveDisplay, previewDisplay, recordTransportError, scalingMode]);
+
+  useEffect(() => {
+    if (connectionState !== 'ready') return;
     const sendActivity = async () => {
       await controller.setPreviewActivity(previewVisible, previewVisible);
       if (!previewVisible) return;
@@ -253,6 +269,9 @@ export function EnginePreview({
           setSessionStatus(sessionId, 'connecting');
         }}
         onError={recordTransportError}
+        displayProfile={effectiveDisplay}
+        scalingMode={scalingMode}
+        referenceLongAxis={previewDisplay.scaling.referenceLongAxis}
       />
     </div>
   );

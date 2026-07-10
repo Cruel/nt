@@ -726,7 +726,8 @@ bool Engine::load_runtime_project(const std::string& logical_path)
                         "[runtime] invalid /display; using 16:9 landscape with black bars");
         }
         m_display_profile = parsed_display.value_or(DisplayProfile{});
-        m_presentation = make_presentation_metrics(m_platform.surface(), m_display_profile);
+        m_presentation = make_presentation_metrics(
+            m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
         m_renderer.resize(m_presentation);
         m_runtime_ui.resize(m_presentation);
         project_title = json_string_or_empty(document.root(), core::project_ids::project_name);
@@ -1186,6 +1187,15 @@ void Engine::finish_frame_timing_sample()
 
 void Engine::resize(const SurfaceMetrics& surface) { resize_host(surface); }
 
+void Engine::set_preview_display_override(std::optional<DisplayProfile> profile)
+{
+    m_preview_display_override = std::move(profile);
+    m_presentation = make_presentation_metrics(
+        m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
+    m_renderer.resize(m_presentation);
+    m_runtime_ui.resize(m_presentation);
+}
+
 void Engine::resize_host(const SurfaceMetrics& surface)
 {
     const SurfaceMetrics sanitized = sanitize_surface_metrics(surface);
@@ -1199,7 +1209,8 @@ void Engine::resize_host(const SurfaceMetrics& surface)
     }
 
     m_platform.set_surface_metrics(sanitized);
-    m_presentation = make_presentation_metrics(sanitized, m_display_profile);
+    m_presentation = make_presentation_metrics(
+        sanitized, m_preview_display_override.value_or(m_display_profile));
     m_renderer.resize(m_presentation);
     m_runtime_ui.resize(m_presentation);
     const IntegerRect& viewport = m_presentation.host_logical_viewport;
