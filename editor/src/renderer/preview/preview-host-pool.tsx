@@ -54,7 +54,7 @@ interface PreviewHostLeaseInfo {
   rect?: PreviewHostRect;
 }
 
-interface PreviewHostPoolContextValue {
+export interface PreviewHostPoolApi {
   activeTabId: string | null;
   layerRef: RefObject<HTMLDivElement | null>;
   claimHost: (request: PreviewHostClaimRequest) => PreviewHostLease;
@@ -64,7 +64,7 @@ interface PreviewHostPoolContextValue {
   registerPlaceholder: (leaseId: string, element: HTMLElement | null) => void;
 }
 
-const PreviewHostPoolContext = createContext<PreviewHostPoolContextValue | null>(null);
+const PreviewHostPoolContext = createContext<PreviewHostPoolApi | null>(null);
 
 function nextPreviewHostId(groupId: string, index: number) {
   return `preview-host:${groupId}:${index + 1}`;
@@ -527,7 +527,7 @@ export function PreviewHostPoolProvider({
     };
   }, []);
 
-  const value = useMemo<PreviewHostPoolContextValue>(() => ({
+  const value = useMemo<PreviewHostPoolApi>(() => ({
     activeTabId,
     layerRef,
     claimHost,
@@ -565,6 +565,20 @@ export function usePreviewHostPool() {
   return context;
 }
 
+export function useOptionalPreviewHostPool() {
+  return useContext(PreviewHostPoolContext);
+}
+
+export function PreviewHostPoolBridge({
+  pool,
+  children,
+}: {
+  pool: PreviewHostPoolApi | null;
+  children: ReactNode;
+}) {
+  return <PreviewHostPoolContext.Provider value={pool}>{children}</PreviewHostPoolContext.Provider>;
+}
+
 export function PreviewPane({
   ownerTabId,
   paneId,
@@ -587,48 +601,43 @@ export function PreviewPane({
   onLease?: (lease: PreviewHostLease | null) => void;
 }) {
   const placeholderRef = useRef<HTMLDivElement | null>(null);
-  const leaseRef = useRef<PreviewHostLease | null>(null);
+  const leaseBindingRef = useRef<{ lease: PreviewHostLease; pool: PreviewHostPoolApi } | null>(null);
   const onLeaseRef = useRef(onLease);
-  const { activeTabId, layerRef, claimHost, releaseHost, updateHostRect, registerPlaceholder } = usePreviewHostPool();
-  const isActive = activeTabId === ownerTabId;
+  const pool = useOptionalPreviewHostPool();
+  const isActive = pool?.activeTabId === ownerTabId;
   onLeaseRef.current = onLease;
 
   const measureAndUpdate = useCallback(() => {
-    const lease = leaseRef.current;
+    const binding = leaseBindingRef.current;
     const placeholder = placeholderRef.current;
-    const layer = layerRef.current;
-    if (!lease || !placeholder || !layer) return;
-    updateHostRect(lease.leaseId, measureRect(placeholder, layer));
-  }, [layerRef, updateHostRect]);
+    const layer = binding?.pool.layerRef.current;
+    if (!binding || !placeholder || !layer) return;
+    binding.pool.updateHostRect(binding.lease.leaseId, measureRect(placeholder, layer));
+  }, []);
+
+  const releaseBinding = useCallback((binding: { lease: PreviewHostLease; pool: PreviewHostPoolApi }) => {
+    binding.pool.releaseHost(binding.lease.leaseId);
+    binding.pool.registerPlaceholder(binding.lease.leaseId, null);
+    if (leaseBindingRef.current === binding) leaseBindingRef.current = null;
+    onLeaseRef.current?.(null);
+  }, []);
 
   useLayoutEffect(() => {
-    if (!isActive) {
-      if (leaseRef.current) {
-        registerPlaceholder(leaseRef.current.leaseId, null);
-        releaseHost(leaseRef.current.leaseId);
-        leaseRef.current = null;
-        onLeaseRef.current?.(null);
-      }
-      return;
-    }
+    if (!pool || !isActive) return undefined;
     const placeholder = placeholderRef.current;
-    const layer = layerRef.current;
+    const layer = pool.layerRef.current;
     const initialRect = placeholder && layer ? measureRect(placeholder, layer) : undefined;
-    const lease = claimHost({ ownerTabId, paneId, mode, persistence, wheelPolicy, initialRect });
-    leaseRef.current = lease;
-    if (placeholder) registerPlaceholder(lease.leaseId, placeholder);
+    const lease = pool.claimHost({ ownerTabId, paneId, mode, persistence, wheelPolicy, initialRect });
+    const binding = { lease, pool };
+    leaseBindingRef.current = binding;
+    if (placeholder) pool.registerPlaceholder(lease.leaseId, placeholder);
     onLeaseRef.current?.(lease);
     measureAndUpdate();
-    return () => {
-      releaseHost(lease.leaseId);
-      registerPlaceholder(lease.leaseId, null);
-      if (leaseRef.current?.leaseId === lease.leaseId) leaseRef.current = null;
-      onLeaseRef.current?.(null);
-    };
-  }, [claimHost, isActive, layerRef, measureAndUpdate, mode, ownerTabId, paneId, persistence, registerPlaceholder, releaseHost, wheelPolicy]);
+    return () => releaseBinding(binding);
+  }, [isActive, measureAndUpdate, mode, ownerTabId, paneId, persistence, pool, releaseBinding, wheelPolicy]);
 
   useLayoutEffect(() => {
-    if (!isActive) return undefined;
+    if (!pool || !isActive) return undefined;
     const placeholder = placeholderRef.current;
     if (!placeholder) return undefined;
     measureAndUpdate();
@@ -639,12 +648,12 @@ export function PreviewPane({
     }
     const observer = new ResizeObserverCtor(measureAndUpdate);
     observer.observe(placeholder);
-    if (layerRef.current) observer.observe(layerRef.current);
+    if (pool.layerRef.current) observer.observe(pool.layerRef.current);
     return () => observer.disconnect();
-  }, [isActive, layerRef, measureAndUpdate]);
+  }, [isActive, measureAndUpdate, pool]);
 
   useLayoutEffect(() => {
-    if (!isActive) return undefined;
+    if (!pool || !isActive) return undefined;
     const placeholder = placeholderRef.current;
     if (!placeholder) return undefined;
 
@@ -672,7 +681,7 @@ export function PreviewPane({
       }
       window.removeEventListener('resize', scheduleUpdate);
     };
-  }, [isActive, measureAndUpdate]);
+  }, [isActive, measureAndUpdate, pool]);
 
   return (
     <div
@@ -685,6 +694,7 @@ export function PreviewPane({
       data-preview-pane-mode={mode}
       data-preview-pane-wheel-policy={wheelPolicy}
       data-preview-pane-active={isActive ? 'true' : undefined}
+      data-preview-pane-pool-available={pool ? 'true' : undefined}
     >
       {children}
     </div>

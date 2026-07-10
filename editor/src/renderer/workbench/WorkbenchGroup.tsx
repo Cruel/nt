@@ -5,6 +5,7 @@ import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
 import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
 import { PersistentEditorSlot } from './persistent-editor-host';
+import { WorkbenchGroupPreviewHostPoolRegistration } from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { WorkbenchTabs } from './WorkbenchTabs';
 import { workbenchTabDockDndId } from './WorkbenchTabDndContext';
@@ -37,6 +38,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
           activeTabId={activeTab?.id ?? null}
           onActivateOwnerTab={(ownerTabId) => activateTab(group.id, ownerTabId)}
         >
+          <WorkbenchGroupPreviewHostPoolRegistration groupId={group.id} />
           {activeTab ? (
             activeEditor?.policies.mountPolicy === 'keep-mounted-while-open' ? (
               <PersistentEditorSlot key={activeTab.id} tabId={activeTab.id} groupId={group.id} />

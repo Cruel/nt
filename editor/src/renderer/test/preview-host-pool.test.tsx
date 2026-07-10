@@ -1,6 +1,14 @@
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { PreviewHostPoolProvider, PreviewPane, type PreviewHostLease } from '@/preview/preview-host-pool';
+import {
+  PreviewHostPoolBridge,
+  PreviewHostPoolProvider,
+  PreviewPane,
+  usePreviewHostPool,
+  type PreviewHostLease,
+  type PreviewHostPoolApi,
+} from '@/preview/preview-host-pool';
 import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
@@ -87,6 +95,53 @@ function Harness({
   );
 }
 
+function PreviewHostPoolCapture({ onPool }: { onPool: (pool: PreviewHostPoolApi) => void }) {
+  const pool = usePreviewHostPool();
+  useLayoutEffect(() => onPool(pool), [onPool, pool]);
+  return null;
+}
+
+function MountedProbe({
+  onMount,
+  onUnmount,
+}: {
+  onMount: () => void;
+  onUnmount: () => void;
+}) {
+  useEffect(() => {
+    onMount();
+    return onUnmount;
+  }, [onMount, onUnmount]);
+  return <div data-testid="bridged-preview-probe" />;
+}
+
+function BridgeAvailabilityHarness({
+  available,
+  onLease,
+  onProbeMount,
+  onProbeUnmount,
+}: {
+  available: boolean;
+  onLease: (lease: PreviewHostLease | null) => void;
+  onProbeMount: () => void;
+  onProbeUnmount: () => void;
+}) {
+  const [pool, setPool] = useState<PreviewHostPoolApi | null>(null);
+
+  return (
+    <div style={{ position: 'relative', width: 800, height: 600 }}>
+      <PreviewHostPoolProvider groupId="group:bridge" activeTabId="tab:bridge">
+        <PreviewHostPoolCapture onPool={setPool} />
+      </PreviewHostPoolProvider>
+      <PreviewHostPoolBridge pool={available ? pool : null}>
+        <PreviewPane ownerTabId="tab:bridge" paneId="main" mode="room" onLease={onLease}>
+          <MountedProbe onMount={onProbeMount} onUnmount={onProbeUnmount} />
+        </PreviewPane>
+      </PreviewHostPoolBridge>
+    </div>
+  );
+}
+
 function hostElements(container: HTMLElement) {
   return [...container.querySelectorAll<HTMLElement>('[data-preview-host-id]')];
 }
@@ -162,6 +217,56 @@ describe('PreviewHostPool', () => {
     await waitFor(() => expect(hostElements(container)[0]).toHaveAttribute('data-preview-host-claimed', 'true'));
     expect(hostElements(container)).toHaveLength(1);
     expect(hostElements(container)[0]?.dataset.previewHostId).toBe(firstHostId);
+  });
+
+  it('releases and reclaims a lease when a bridged pool is temporarily unavailable without remounting the pane', async () => {
+    let lease: PreviewHostLease | null = null;
+    const onProbeMount = vi.fn();
+    const onProbeUnmount = vi.fn();
+    const { container, rerender } = render(
+      <BridgeAvailabilityHarness
+        available={true}
+        onLease={(nextLease) => { lease = nextLease; }}
+        onProbeMount={onProbeMount}
+        onProbeUnmount={onProbeUnmount}
+      />,
+    );
+
+    await waitFor(() => expect(lease).not.toBeNull());
+    const firstHost = hostElements(container)[0];
+    expect(firstHost).toHaveAttribute('data-preview-host-claimed', 'true');
+    expect(onProbeMount).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <BridgeAvailabilityHarness
+        available={false}
+        onLease={(nextLease) => { lease = nextLease; }}
+        onProbeMount={onProbeMount}
+        onProbeUnmount={onProbeUnmount}
+      />,
+    );
+
+    await waitFor(() => expect(lease).toBeNull());
+    await waitFor(() => expect(firstHost).not.toHaveAttribute('data-preview-host-claimed'));
+    expect(screen.getByTestId('bridged-preview-probe')).toBeInTheDocument();
+    expect(onProbeMount).toHaveBeenCalledTimes(1);
+    expect(onProbeUnmount).not.toHaveBeenCalled();
+
+    rerender(
+      <BridgeAvailabilityHarness
+        available={true}
+        onLease={(nextLease) => { lease = nextLease; }}
+        onProbeMount={onProbeMount}
+        onProbeUnmount={onProbeUnmount}
+      />,
+    );
+
+    await waitFor(() => expect(lease).not.toBeNull());
+    expect(hostElements(container)).toHaveLength(1);
+    expect(hostElements(container)[0]).toBe(firstHost);
+    expect(hostElements(container)[0]).toHaveAttribute('data-preview-host-claimed', 'true');
+    expect(onProbeMount).toHaveBeenCalledTimes(1);
+    expect(onProbeUnmount).not.toHaveBeenCalled();
   });
 
   it('sends inactive activity when a pooled host is released', async () => {

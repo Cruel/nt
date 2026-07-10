@@ -13,6 +13,7 @@ import {
 import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
 import { selectOpenPersistentWorkbenchTabs, selectWorkbenchTabGroupId } from './persistent-editor-selectors';
+import { WorkbenchGroupPreviewHostPoolBridge } from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchTab } from './workbench-types';
@@ -190,7 +191,7 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
     isVisible,
   };
 
-  return (
+  const editorPane = (
     <WorkbenchEditorPane
       tab={tab}
       registration={resolved.registration}
@@ -218,6 +219,14 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
         pointerEvents: 'none',
       }}
     />
+  );
+
+  if (resolved.policies.previewHostPolicy !== 'pooled-per-tab-group') return editorPane;
+
+  return (
+    <WorkbenchGroupPreviewHostPoolBridge groupId={groupId}>
+      {editorPane}
+    </WorkbenchGroupPreviewHostPoolBridge>
   );
 }
 
