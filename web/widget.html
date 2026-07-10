@@ -33,6 +33,8 @@
     let drainingCommands = false;
     let previewActivityActive = true;
     let previewActivityVisible = true;
+    let previewWheelPolicy = params.get('wheelPolicy') === 'editor-scroll' ? 'editor-scroll' : 'preview-input';
+    let previewWheelRouteId = '';
     const editorRuntimeProjectPath = '/assets/project/editor-runtime-project.json';
     const editorRuntimeProjectLogicalPath = 'project:/editor-runtime-project.json';
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
@@ -240,6 +242,41 @@ thead, tbody, tfoot {
       send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
       return true;
     }
+
+    function applyPreviewWheelRouting(message) {
+      if (!message || message.version !== protocolVersion || message.type !== 'set-preview-wheel-routing' || typeof message.requestId !== 'string') {
+        return false;
+      }
+      if ((message.policy !== 'editor-scroll' && message.policy !== 'preview-input') ||
+          typeof message.routeId !== 'string' || message.routeId.length === 0) {
+        failCommand(message, 'Invalid preview wheel routing command.', { category: 'preview-wheel' });
+        return true;
+      }
+      previewWheelPolicy = message.policy;
+      previewWheelRouteId = message.routeId;
+      send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      return true;
+    }
+
+    window.addEventListener('wheel', (event) => {
+      if (previewWheelPolicy !== 'editor-scroll') return;
+      if (event.ctrlKey || event.metaKey) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!port || !previewWheelRouteId) return;
+      send({
+        version: protocolVersion,
+        type: 'preview-wheel',
+        routeId: previewWheelRouteId,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+      });
+    }, { capture: true, passive: false });
 
     function sourceText(source) {
       return source && source.sourceMode === 'inline' && typeof source.sourceText === 'string' ? source.sourceText : '';
@@ -886,7 +923,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'runtime-load-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'preview-wheel-routing-v1', 'runtime-load-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
       });
       void drainCommands();
     }
@@ -897,7 +934,7 @@ thead, tbody, tfoot {
         if (port) port.close();
         port = nextPort;
         port.onmessage = function(event) {
-          if (applyPreviewActivity(event.data)) return;
+          if (applyPreviewActivity(event.data) || applyPreviewWheelRouting(event.data)) return;
           commandQueue.push(event.data);
           void drainCommands();
         };

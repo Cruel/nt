@@ -41,6 +41,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         previewControllers.nextResetPromise = null;
         return pending ?? Promise.resolve();
       }),
+      setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
       setPreviewMode: vi.fn((mode: string) => {
         previewControllers.setPreviewModeCalls.push(mode);
         return Promise.resolve();

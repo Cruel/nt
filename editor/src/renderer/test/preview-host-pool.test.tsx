@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PreviewHostPoolProvider, PreviewPane, type PreviewHostLease } from '@/preview/preview-host-pool';
+import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 const previewControllerMocks = vi.hoisted(() => ({
   setPreviewActivity: vi.fn().mockResolvedValue(undefined),
+  setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
   requestPreviewState: vi.fn().mockResolvedValue(undefined),
-  onMessages: [] as Array<(message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void>,
+  onMessages: [] as Array<(message: PreviewToEditorMessage) => void>,
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: (options: { onMessage: (message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void }) => {
+  useEnginePreview: (options: { onMessage: (message: PreviewToEditorMessage) => void }) => {
     previewControllerMocks.onMessages.push(options.onMessage);
     return {
       iframeRef: { current: null },
@@ -26,6 +29,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         sessionToken: 'test-token',
       }),
       setPreviewActivity: previewControllerMocks.setPreviewActivity,
+      setPreviewWheelRouting: previewControllerMocks.setPreviewWheelRouting,
       requestPreviewState: previewControllerMocks.requestPreviewState,
     };
   },
@@ -46,6 +50,7 @@ interface HarnessPane {
   ownerTabId: string;
   paneId: string;
   revealOnLease?: boolean;
+  wheelPolicy?: PreviewWheelPolicy;
   onLease?: (lease: PreviewHostLease | null) => void;
 }
 
@@ -59,7 +64,7 @@ function Harness({
   onActivateOwnerTab?: (ownerTabId: string) => void;
 }) {
   return (
-    <div style={{ position: 'relative', width: 800, height: 600 }}>
+    <div data-workbench-group-id="group:one" style={{ position: 'relative', width: 800, height: 600, overflowY: 'auto' }}>
       <PreviewHostPoolProvider groupId="group:one" activeTabId={activeTabId} onActivateOwnerTab={onActivateOwnerTab}>
         {panes.map((pane) => (
           <PreviewPane
@@ -67,6 +72,7 @@ function Harness({
             ownerTabId={pane.ownerTabId}
             paneId={pane.paneId}
             mode="room"
+            wheelPolicy={pane.wheelPolicy}
             className="h-48 w-64"
             onLease={(lease) => {
               if (lease && pane.revealOnLease) lease.reveal();
@@ -101,6 +107,7 @@ function testRect(left: number, top: number, width: number, height: number): DOM
 
 beforeEach(() => {
   previewControllerMocks.setPreviewActivity.mockClear();
+  previewControllerMocks.setPreviewWheelRouting.mockClear();
   previewControllerMocks.requestPreviewState.mockClear();
   previewControllerMocks.onMessages = [];
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
@@ -269,6 +276,107 @@ describe('PreviewHostPool', () => {
     });
 
     expect(onActivateOwnerTab).toHaveBeenCalledWith('tab:a');
+  });
+
+  it('configures iframe wheel routing with the current lease and routes matching messages from the placeholder', async () => {
+    let lease: PreviewHostLease | null = null;
+    const { container } = render(
+      <Harness
+        activeTabId="tab:a"
+        panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true, onLease: (next) => { lease = next; } }]}
+      />,
+    );
+    await waitFor(() => expect(lease).not.toBeNull());
+    await waitFor(() => expect(previewControllerMocks.setPreviewWheelRouting).toHaveBeenCalledWith('editor-scroll', lease!.leaseId));
+
+    const group = container.querySelector<HTMLElement>('[data-workbench-group-id="group:one"]')!;
+    Object.defineProperty(group, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(group, 'scrollHeight', { value: 500, configurable: true });
+
+    act(() => {
+      previewControllerMocks.onMessages.at(-1)?.({
+        version: 1,
+        type: 'preview-wheel',
+        routeId: lease!.leaseId,
+        deltaX: 0,
+        deltaY: 30,
+        deltaMode: 0,
+        shiftKey: false,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+      });
+    });
+    expect(group.scrollTop).toBe(30);
+  });
+
+  it('ignores matching wheel messages for preview-input leases', async () => {
+    let lease: PreviewHostLease | null = null;
+    const { container } = render(
+      <Harness
+        activeTabId="tab:a"
+        panes={[{
+          ownerTabId: 'tab:a',
+          paneId: 'main',
+          revealOnLease: true,
+          wheelPolicy: 'preview-input',
+          onLease: (next) => { lease = next; },
+        }]}
+      />,
+    );
+    await waitFor(() => expect(lease).not.toBeNull());
+    await waitFor(() => expect(previewControllerMocks.setPreviewWheelRouting).toHaveBeenCalledWith('preview-input', lease!.leaseId));
+
+    const group = container.querySelector<HTMLElement>('[data-workbench-group-id="group:one"]')!;
+    Object.defineProperty(group, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(group, 'scrollHeight', { value: 500, configurable: true });
+
+    act(() => {
+      previewControllerMocks.onMessages.at(-1)?.({
+        version: 1,
+        type: 'preview-wheel',
+        routeId: lease!.leaseId,
+        deltaX: 0,
+        deltaY: 30,
+        deltaMode: 0,
+        shiftKey: false,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+      });
+    });
+    expect(group.scrollTop).toBe(0);
+  });
+
+  it('ignores stale wheel route ids for editor-scroll leases', async () => {
+    let lease: PreviewHostLease | null = null;
+    const { container } = render(
+      <Harness
+        activeTabId="tab:a"
+        panes={[{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true, onLease: (next) => { lease = next; } }]}
+      />,
+    );
+    await waitFor(() => expect(lease).not.toBeNull());
+
+    const group = container.querySelector<HTMLElement>('[data-workbench-group-id="group:one"]')!;
+    Object.defineProperty(group, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(group, 'scrollHeight', { value: 500, configurable: true });
+
+    act(() => {
+      previewControllerMocks.onMessages.at(-1)?.({
+        version: 1,
+        type: 'preview-wheel',
+        routeId: 'preview-lease:stale',
+        deltaX: 0,
+        deltaY: 30,
+        deltaMode: 0,
+        shiftKey: false,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+      });
+    });
+    expect(group.scrollTop).toBe(0);
   });
 
   it('retries lease sends while the preview transport is still connecting', async () => {

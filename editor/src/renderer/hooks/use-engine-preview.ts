@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useEnginePreviewHost } from '@/hooks/use-engine-preview-host';
 import { usePreviewTransport } from '@/hooks/use-preview-transport';
 import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 export function useEnginePreview({
   embedded = false,
@@ -9,14 +10,16 @@ export function useEnginePreview({
   onMessage,
   onError,
   timeoutMs = 5000,
+  wheelPolicy,
 }: {
   embedded?: boolean;
   onReady: () => void;
   onMessage: (message: PreviewToEditorMessage) => void;
   onError: (message: string) => void;
   timeoutMs?: number;
+  wheelPolicy?: PreviewWheelPolicy;
 }) {
-  const host = useEnginePreviewHost({ embedded });
+  const host = useEnginePreviewHost({ embedded, wheelPolicy });
   const { iframeRef, iframeKey, iframeSrc, session, loadSession: loadHostSession } = host;
   const transport = usePreviewTransport({
     iframeRef,

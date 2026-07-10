@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
+import { routePreviewWheelToScrollAncestors, type PreviewWheelMessage } from '@/preview/preview-wheel-routing';
 import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 export type PreviewPanePolicy = 'pooled-per-tab-group';
 export type PooledPreviewPersistence = 'derived';
@@ -18,6 +20,7 @@ export interface PreviewHostClaimRequest {
   paneId: string;
   mode: PreviewMode;
   persistence?: PooledPreviewPersistence;
+  wheelPolicy?: PreviewWheelPolicy;
   initialRect?: PreviewHostRect;
 }
 
@@ -27,6 +30,7 @@ export interface PreviewHostLease {
   ownerTabId: string;
   paneId: string;
   mode: PreviewMode;
+  wheelPolicy: PreviewWheelPolicy;
   reveal(): void;
   send<TResult>(command: (controller: EnginePreviewController) => Promise<TResult>): Promise<TResult>;
 }
@@ -45,6 +49,7 @@ interface PreviewHostLeaseInfo {
   ownerTabId: string;
   paneId: string;
   mode: PreviewMode;
+  wheelPolicy: PreviewWheelPolicy;
   visible: boolean;
   rect?: PreviewHostRect;
 }
@@ -56,6 +61,7 @@ interface PreviewHostPoolContextValue {
   releaseHost: (leaseId: string) => void;
   revealHost: (leaseId: string) => void;
   updateHostRect: (leaseId: string, rect: PreviewHostRect | undefined) => void;
+  registerPlaceholder: (leaseId: string, element: HTMLElement | null) => void;
 }
 
 const PreviewHostPoolContext = createContext<PreviewHostPoolContextValue | null>(null);
@@ -130,12 +136,14 @@ function PreviewHostSlot({
   host,
   registerController,
   registerHostElement,
+  routeWheel,
   onActivateOwnerTab,
   pointerEventsDisabled,
 }: {
   host: PreviewHostRecord;
   registerController: (hostId: string, controller: EnginePreviewController | null) => void;
   registerHostElement: (hostId: string, element: HTMLElement | null) => void;
+  routeWheel: (hostId: string, message: PreviewWheelMessage) => void;
   onActivateOwnerTab?: (ownerTabId: string) => void;
   pointerEventsDisabled: boolean;
 }) {
@@ -145,9 +153,11 @@ function PreviewHostSlot({
   }, [host.lease, onActivateOwnerTab]);
   const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
     if (message.type === 'preview-interacted') activateOwningTab();
-  }, [activateOwningTab]);
+    if (message.type === 'preview-wheel') routeWheel(host.hostId, message);
+  }, [activateOwningTab, host.hostId, routeWheel]);
   const controller = useEnginePreview({
     embedded: true,
+    wheelPolicy: 'editor-scroll',
     onReady: () => undefined,
     onMessage: handlePreviewMessage,
     onError: () => undefined,
@@ -162,6 +172,32 @@ function PreviewHostSlot({
   useEffect(() => {
     void loadSession().catch(() => undefined);
   }, [loadSession]);
+
+  useEffect(() => {
+    const leaseId = host.lease?.leaseId;
+    const wheelPolicy = host.lease?.wheelPolicy;
+    if (!leaseId || !wheelPolicy) return undefined;
+    const setPreviewWheelRouting = controller.setPreviewWheelRouting;
+    let cancelled = false;
+    let retryTimer = 0;
+    const startedAt = Date.now();
+    const configure = () => {
+      void setPreviewWheelRouting(wheelPolicy, leaseId).catch((error: unknown) => {
+        if (
+          !cancelled
+          && isPreviewNotConnectedError(error)
+          && Date.now() - startedAt <= 5000
+        ) {
+          retryTimer = window.setTimeout(configure, 16);
+        }
+      });
+    };
+    configure();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [controller, host.lease?.leaseId, host.lease?.wheelPolicy]);
 
   const rect = host.lease?.rect;
   const isVisible = Boolean(host.lease?.visible && rect);
@@ -242,6 +278,7 @@ export function PreviewHostPoolProvider({
   const layerRef = useRef<HTMLDivElement | null>(null);
   const controllersRef = useRef(new Map<string, EnginePreviewController>());
   const hostElementsRef = useRef(new Map<string, HTMLElement>());
+  const placeholdersByLeaseRef = useRef(new Map<string, HTMLElement>());
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
   const reservedHostIdsRef = useRef(new Set<string>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
@@ -259,6 +296,14 @@ export function PreviewHostPoolProvider({
     else hostElementsRef.current.delete(hostId);
   }, []);
 
+  const registerPlaceholder = useCallback((leaseId: string, element: HTMLElement | null) => {
+    if (element) {
+      placeholdersByLeaseRef.current.set(leaseId, element);
+    } else {
+      placeholdersByLeaseRef.current.delete(leaseId);
+    }
+  }, []);
+
   const isCurrentLease = useCallback((leaseId: string, hostId: string) => {
     return hostsRef.current.some((host) => host.hostId === hostId && host.lease?.leaseId === leaseId);
   }, []);
@@ -269,10 +314,30 @@ export function PreviewHostPoolProvider({
       for (const command of pending) command.cancelled = true;
       pendingByLeaseRef.current.delete(leaseId);
     }
+    placeholdersByLeaseRef.current.delete(leaseId);
     setHosts((current) => current.map((host) => (
       host.lease?.leaseId === leaseId ? { ...host, lease: null } : host
     )));
   }, []);
+
+  const routeWheel = useCallback((hostId: string, message: PreviewWheelMessage) => {
+    const host = hostsRef.current.find((candidate) => candidate.hostId === hostId);
+    const lease = host?.lease;
+    if (
+      !lease
+      || lease.leaseId !== message.routeId
+      || lease.ownerTabId !== activeTabId
+      || lease.wheelPolicy !== 'editor-scroll'
+      || !lease.visible
+      || message.ctrlKey
+      || message.metaKey
+    ) {
+      return;
+    }
+    const placeholder = placeholdersByLeaseRef.current.get(lease.leaseId);
+    if (!placeholder?.isConnected) return;
+    routePreviewWheelToScrollAncestors(placeholder, message);
+  }, [activeTabId]);
 
   const updateHostRect = useCallback((leaseId: string, rect: PreviewHostRect | undefined) => {
     const hostForLease = hostsRef.current.find((host) => host.lease?.leaseId === leaseId);
@@ -383,6 +448,7 @@ export function PreviewHostPoolProvider({
                 ownerTabId: request.ownerTabId,
                 paneId: request.paneId,
                 mode: request.mode,
+                wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
                 visible: false,
                 rect: request.initialRect,
               },
@@ -398,6 +464,7 @@ export function PreviewHostPoolProvider({
             ownerTabId: request.ownerTabId,
             paneId: request.paneId,
             mode: request.mode,
+            wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
             visible: false,
             rect: request.initialRect,
           },
@@ -410,6 +477,7 @@ export function PreviewHostPoolProvider({
       ownerTabId: request.ownerTabId,
       paneId: request.paneId,
       mode: request.mode,
+      wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
       reveal: () => revealHost(leaseId),
       send: (command) => sendForLease(leaseId, claimedHostId, command),
     };
@@ -466,7 +534,8 @@ export function PreviewHostPoolProvider({
     releaseHost,
     revealHost,
     updateHostRect,
-  }), [activeTabId, claimHost, releaseHost, revealHost, updateHostRect]);
+    registerPlaceholder,
+  }), [activeTabId, claimHost, registerPlaceholder, releaseHost, revealHost, updateHostRect]);
 
   return (
     <PreviewHostPoolContext.Provider value={value}>
@@ -478,6 +547,7 @@ export function PreviewHostPoolProvider({
             host={host}
             registerController={registerController}
             registerHostElement={registerHostElement}
+            routeWheel={routeWheel}
             onActivateOwnerTab={onActivateOwnerTab}
             pointerEventsDisabled={previewPointerEventsDisabled}
           />
@@ -500,6 +570,7 @@ export function PreviewPane({
   paneId,
   policy = 'pooled-per-tab-group',
   persistence = 'derived',
+  wheelPolicy = 'editor-scroll',
   mode,
   children,
   className = 'relative min-h-0 flex-1 overflow-hidden bg-zinc-950',
@@ -509,6 +580,7 @@ export function PreviewPane({
   paneId: string;
   policy?: PreviewPanePolicy;
   persistence?: PooledPreviewPersistence;
+  wheelPolicy?: PreviewWheelPolicy;
   mode: PreviewMode;
   children?: ReactNode;
   className?: string;
@@ -517,7 +589,7 @@ export function PreviewPane({
   const placeholderRef = useRef<HTMLDivElement | null>(null);
   const leaseRef = useRef<PreviewHostLease | null>(null);
   const onLeaseRef = useRef(onLease);
-  const { activeTabId, layerRef, claimHost, releaseHost, updateHostRect } = usePreviewHostPool();
+  const { activeTabId, layerRef, claimHost, releaseHost, updateHostRect, registerPlaceholder } = usePreviewHostPool();
   const isActive = activeTabId === ownerTabId;
   onLeaseRef.current = onLease;
 
@@ -532,6 +604,7 @@ export function PreviewPane({
   useLayoutEffect(() => {
     if (!isActive) {
       if (leaseRef.current) {
+        registerPlaceholder(leaseRef.current.leaseId, null);
         releaseHost(leaseRef.current.leaseId);
         leaseRef.current = null;
         onLeaseRef.current?.(null);
@@ -541,16 +614,18 @@ export function PreviewPane({
     const placeholder = placeholderRef.current;
     const layer = layerRef.current;
     const initialRect = placeholder && layer ? measureRect(placeholder, layer) : undefined;
-    const lease = claimHost({ ownerTabId, paneId, mode, persistence, initialRect });
+    const lease = claimHost({ ownerTabId, paneId, mode, persistence, wheelPolicy, initialRect });
     leaseRef.current = lease;
+    if (placeholder) registerPlaceholder(lease.leaseId, placeholder);
     onLeaseRef.current?.(lease);
     measureAndUpdate();
     return () => {
       releaseHost(lease.leaseId);
+      registerPlaceholder(lease.leaseId, null);
       if (leaseRef.current?.leaseId === lease.leaseId) leaseRef.current = null;
       onLeaseRef.current?.(null);
     };
-  }, [claimHost, isActive, layerRef, measureAndUpdate, mode, ownerTabId, paneId, persistence, releaseHost]);
+  }, [claimHost, isActive, layerRef, measureAndUpdate, mode, ownerTabId, paneId, persistence, registerPlaceholder, releaseHost, wheelPolicy]);
 
   useLayoutEffect(() => {
     if (!isActive) return undefined;
@@ -608,6 +683,7 @@ export function PreviewPane({
       data-preview-pane-policy={policy}
       data-preview-pane-persistence={persistence}
       data-preview-pane-mode={mode}
+      data-preview-pane-wheel-policy={wheelPolicy}
       data-preview-pane-active={isActive ? 'true' : undefined}
     >
       {children}

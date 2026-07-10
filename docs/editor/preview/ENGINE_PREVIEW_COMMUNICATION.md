@@ -290,6 +290,41 @@ own `previewDocument` directly so switching tabs does not replay a previous
 shader or layout document. The full runtime preview tab may still use the default
 `chrome="runtime"` variant with runtime controls and primary preview replay.
 
+### Embedded preview wheel ownership
+
+Pooled derived authoring previews use `wheelPolicy="editor-scroll"` by default.
+Their iframe hosts live in an absolute preview layer rather than inside the
+editor's logical scroll hierarchy, so ordinary browser scroll chaining cannot
+identify the correct editor container.
+
+`web/widget.html` installs a capture-phase, non-passive wheel listener before
+the generated Emscripten script. For `editor-scroll` previews, that listener
+calls `preventDefault()` and `stopImmediatePropagation()` before SDL's canvas
+listener runs, then sends a typed `preview-wheel` event over the existing
+preview `MessageChannel`.
+
+Each pooled claim configures the iframe with `set-preview-wheel-routing`, which
+includes the current lease ID as the wheel route ID. The iframe includes that
+route ID in every `preview-wheel` event. This lets the pool reject messages
+queued by a previous owner after a warm host has been reassigned.
+
+The renderer verifies that the route ID still identifies the current, visible,
+active `editor-scroll` lease. It then resolves the corresponding `PreviewPane`
+placeholder and applies the delta to its nearest eligible scroll
+ancestor, chaining residual movement outward at scroll boundaries. Routing must
+start from the placeholder, never from the absolute iframe host. Pixel deltas
+remain fractional; line and page deltas are normalized in the renderer.
+
+Dedicated full-game/runtime previews use `preview-input`, so their wheel input
+continues to reach SDL/RmlUi normally. Ctrl/Meta-modified wheel gestures are
+left on the preview input path instead of being converted into editor scrolling.
+
+Do not route embedded-preview wheel input through Electron's
+`webContents.before-mouse-event`. That event was not delivered consistently for
+wheel input under the supported WSLg development environment. The iframe-side
+listener avoids native coordinate hit testing and does not depend on iframe
+focus.
+
 Startup flags remain valid for coarse engine boot configuration only, such as
 `--preview-widget`, `--demo none`, `--no-imgui`, or test fixtures. They should
 not be used for editor owned content like the current layout's RML, RCSS, or Lua

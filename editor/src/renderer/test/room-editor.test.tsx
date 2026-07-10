@@ -25,6 +25,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
       origin: 'http://127.0.0.1:5000',
       sessionToken: 'test-token',
     }),
+    setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
     setPreviewMode: vi.fn().mockResolvedValue(undefined),
     loadPreviewDocument: vi.fn().mockResolvedValue(undefined),
   }),

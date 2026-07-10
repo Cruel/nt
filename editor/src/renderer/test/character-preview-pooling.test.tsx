@@ -29,6 +29,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
       sessionToken: 'test-token',
     },
     loadSession: previewControllerMocks.loadSession,
+    setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
     setPreviewMode: previewControllerMocks.setPreviewMode,
     loadPreviewDocument: previewControllerMocks.loadPreviewDocument,
   }),

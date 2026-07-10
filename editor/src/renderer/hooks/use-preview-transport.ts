@@ -12,6 +12,7 @@ import {
   isPreviewToEditorMessage,
   validatePreviewHandshake,
 } from '../../shared/preview-protocol';
+import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 type EditorCommandWithoutRequest = EditorToPreviewMessage extends infer Message
   ? Message extends EditorToPreviewMessage
@@ -167,6 +168,9 @@ export function usePreviewTransport({
       visible === undefined
         ? send({ type: 'set-preview-activity', active })
         : send({ type: 'set-preview-activity', active, visible })
+    ),
+    setPreviewWheelRouting: (policy: PreviewWheelPolicy, routeId: string) => (
+      send({ type: 'set-preview-wheel-routing', policy, routeId })
     ),
     requestPreviewState: () => send({ type: 'request-preview-state' }),
     requestPreviewSnapshot: (snapshotId: string) => send({ type: 'request-preview-snapshot', snapshotId }),

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { EnginePreviewSession } from '../../shared/preview-protocol';
+import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 function appendSessionParams(url: string, params: Record<string, string | number | boolean | undefined>) {
   const next = new URL(url);
@@ -11,9 +12,10 @@ function appendSessionParams(url: string, params: Record<string, string | number
 
 interface EnginePreviewHostOptions {
   embedded: boolean;
+  wheelPolicy?: PreviewWheelPolicy;
 }
 
-export function useEnginePreviewHost({ embedded }: EnginePreviewHostOptions) {
+export function useEnginePreviewHost({ embedded, wheelPolicy = 'preview-input' }: EnginePreviewHostOptions) {
   const [session, setSession] = useState<EnginePreviewSession | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -30,9 +32,9 @@ export function useEnginePreviewHost({ embedded }: EnginePreviewHostOptions) {
   const iframeSrc = useMemo(() => {
     if (!session) return null;
     return embedded
-      ? appendSessionParams(session.url, { demo: 'none', noImgui: '1', maxDpr: '1' })
+      ? appendSessionParams(session.url, { demo: 'none', noImgui: '1', maxDpr: '1', wheelPolicy })
       : session.url;
-  }, [embedded, session]);
+  }, [embedded, session, wheelPolicy]);
 
   return useMemo(() => ({
     iframeRef,

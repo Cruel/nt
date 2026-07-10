@@ -1,3 +1,5 @@
+import type { PreviewWheelPolicy } from './preview-wheel-routing';
+
 export const PREVIEW_PROTOCOL_VERSION = 1;
 
 export interface PreviewPosition {
@@ -230,6 +232,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'request-preview-state'; requestId: string }
   | { version: 1; type: 'set-engine-settings'; requestId: string; settings: EnginePreviewSettings }
   | { version: 1; type: 'set-preview-activity'; requestId: string; active: boolean; visible?: boolean }
+  | { version: 1; type: 'set-preview-wheel-routing'; requestId: string; policy: PreviewWheelPolicy; routeId: string }
   | { version: 1; type: 'request-preview-snapshot'; requestId: string; snapshotId: string };
 
 export type PreviewToEditorMessage =
@@ -246,6 +249,18 @@ export type PreviewToEditorMessage =
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }
+  | {
+      version: 1;
+      type: 'preview-wheel';
+      routeId: string;
+      deltaX: number;
+      deltaY: number;
+      deltaMode: 0 | 1 | 2;
+      shiftKey: boolean;
+      ctrlKey: boolean;
+      altKey: boolean;
+      metaKey: boolean;
+    }
   | { version: 1; type: 'fps-counter'; fps: number; frameTimeMs: number; fpsCap: number }
   | {
       version: 1;
@@ -580,6 +595,12 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
         typeof value.active === 'boolean' &&
         (value.visible === undefined || typeof value.visible === 'boolean')
       );
+    case 'set-preview-wheel-routing':
+      return (
+        (value.policy === 'editor-scroll' || value.policy === 'preview-input') &&
+        typeof value.routeId === 'string' &&
+        value.routeId.length > 0
+      );
     case 'request-preview-snapshot':
       return typeof value.snapshotId === 'string';
     default:
@@ -632,6 +653,20 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return typeof value.objectId === 'string' && (value.position === undefined || isPosition(value.position));
     case 'preview-interacted':
       return value.interaction === 'pointer' || value.interaction === 'focus';
+    case 'preview-wheel':
+      return (
+        typeof value.routeId === 'string' &&
+        value.routeId.length > 0 &&
+        typeof value.deltaX === 'number' &&
+        Number.isFinite(value.deltaX) &&
+        typeof value.deltaY === 'number' &&
+        Number.isFinite(value.deltaY) &&
+        (value.deltaMode === 0 || value.deltaMode === 1 || value.deltaMode === 2) &&
+        typeof value.shiftKey === 'boolean' &&
+        typeof value.ctrlKey === 'boolean' &&
+        typeof value.altKey === 'boolean' &&
+        typeof value.metaKey === 'boolean'
+      );
     case 'fps-counter':
       return (
         typeof value.fps === 'number' &&

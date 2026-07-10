@@ -29,6 +29,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         origin: 'http://127.0.0.1:5000',
         sessionToken: `test-token-${previewControllers.created}`,
       }),
+      setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
       setPreviewMode: vi.fn((mode: string) => {
         previewControllers.setPreviewModeCalls.push(mode);
         const pending = previewControllers.nextSetPreviewModePromise;
