@@ -6,6 +6,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
+#include <SDL3/SDL_events.h>
 
 #include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/assets/asset_source.hpp>
@@ -704,6 +705,47 @@ TEST_CASE("RuntimeUI playback click rejects hidden documents")
     auto result = fixture.ui.playback_click({.document_id = "doc", .selector = "#target"});
     CHECK(result.status == RuntimeUiPlaybackClickStatus::DocumentHidden);
     CHECK_FALSE(result.dispatched);
+}
+
+TEST_CASE("RuntimeUI maps host pointer input into the game viewport and rejects bars")
+{
+    HeadlessUiFixture fixture(
+        "body { margin: 0; } #target { position: absolute; left: 10px; top: 10px; width: "
+        "100px; height: 40px; }");
+    const PresentationMetrics presentation =
+        make_presentation_metrics(make_surface_metrics(1000, 800, 1000, 800));
+    fixture.ui.resize(presentation);
+    REQUIRE(fixture.ui.load_document_from_memory(
+        "doc", rml_with_body("<button id=\"target\">Go</button>"), "memory://test.rml", true));
+    fixture.ui.begin_frame(0.0f);
+
+    int clicks = 0;
+    REQUIRE(fixture.ui.add_event_listener("doc", "target", "click", [&clicks] { ++clicks; }) != 0);
+
+    const auto click = [&](float x, float y) {
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = x;
+        motion.motion.y = y;
+        (void)fixture.ui.process_event(motion, presentation);
+
+        SDL_Event down{};
+        down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+        down.button.button = SDL_BUTTON_LEFT;
+        down.button.x = x;
+        down.button.y = y;
+        (void)fixture.ui.process_event(down, presentation);
+
+        SDL_Event up = down;
+        up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        (void)fixture.ui.process_event(up, presentation);
+    };
+
+    click(20.0f, 20.0f);
+    CHECK(clicks == 0);
+
+    click(20.0f, static_cast<float>(presentation.host_logical_viewport.y + 20));
+    CHECK(clicks == 1);
 }
 
 TEST_CASE("RuntimeUI playback click rejects disabled targets")

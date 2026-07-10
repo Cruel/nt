@@ -182,7 +182,8 @@ bool Renderer::initialize(const RendererConfig& config)
 #endif
     init.platformData = pd;
     init.callback = &s_renderer_callback;
-    const SurfaceMetrics surface = sanitize_surface_metrics(config.surface);
+    const PresentationMetrics presentation = config.presentation;
+    const SurfaceMetrics surface = sanitize_surface_metrics(presentation.host_surface);
     init.resolution.width = static_cast<uint32_t>(surface.framebuffer_width);
     init.resolution.height = static_cast<uint32_t>(surface.framebuffer_height);
     // Keep swapchain MSAA off. RmlUi resolves its own offscreen MSAA before final presentation,
@@ -194,54 +195,69 @@ bool Renderer::initialize(const RendererConfig& config)
         return false;
     }
 
-    m_surface = surface;
+    m_presentation = presentation;
+    m_bar_color_rgba = config.bar_color_rgba;
     m_vsync = config.vsync;
     m_assets = config.assets;
     m_initialized = true;
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
-    bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x4040c0ff, 1.0f, 0);
-    bgfx::setViewRect(ViewGameLayerBackground, 0, 0,
-                      static_cast<uint16_t>(m_surface.framebuffer_width),
-                      static_cast<uint16_t>(m_surface.framebuffer_height));
+    bgfx::setViewClear(ViewPresentationClear, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, m_bar_color_rgba,
+                       1.0f, 0);
 
     create_triangle();
     create_2d();
     create_text();
 
     SDL_Log("[renderer] bgfx initialized: %s logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
-            renderer_name(), m_surface.logical_width, m_surface.logical_height,
-            m_surface.framebuffer_width, m_surface.framebuffer_height, m_surface.scale_x,
-            m_surface.scale_y);
+            renderer_name(), m_presentation.game_surface.logical_width,
+            m_presentation.game_surface.logical_height,
+            m_presentation.game_surface.framebuffer_width,
+            m_presentation.game_surface.framebuffer_height, m_presentation.game_surface.scale_x,
+            m_presentation.game_surface.scale_y);
     return true;
 }
 
 void Renderer::begin_frame()
 {
-    const auto fb_w = static_cast<uint16_t>(m_surface.framebuffer_width);
-    const auto fb_h = static_cast<uint16_t>(m_surface.framebuffer_height);
+    const auto& host = m_presentation.host_surface;
+    const auto& game = m_presentation.game_surface;
+    const auto& viewport = m_presentation.host_framebuffer_viewport;
+    const auto fb_x = static_cast<uint16_t>(viewport.x);
+    const auto fb_y = static_cast<uint16_t>(viewport.y);
+    const auto fb_w = static_cast<uint16_t>(viewport.width);
+    const auto fb_h = static_cast<uint16_t>(viewport.height);
+
+    bgfx::setViewClear(ViewPresentationClear, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, m_bar_color_rgba,
+                       1.0f, 0);
+    bgfx::setViewRect(ViewPresentationClear, 0, 0, static_cast<uint16_t>(host.framebuffer_width),
+                      static_cast<uint16_t>(host.framebuffer_height));
+    bgfx::touch(ViewPresentationClear);
 
     // Game layer views — Background clears, successive layers composite over.
     bgfx::setViewClear(ViewGameLayerBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
                        1.0f, 0);
-    bgfx::setViewRect(ViewGameLayerBackground, 0, 0, fb_w, fb_h);
-    bgfx::setViewRect(ViewGameLayerMain, 0, 0, fb_w, fb_h);
-    bgfx::setViewRect(ViewGameLayerForeground, 0, 0, fb_w, fb_h);
-    bgfx::setViewRect(ViewGameLayerUIOverlay, 0, 0, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameLayerBackground, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameLayerMain, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameLayerForeground, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameLayerUIOverlay, fb_x, fb_y, fb_w, fb_h);
 
-    bgfx::setViewRect(ViewTextLab, 0, 0, fb_w, fb_h);
-    bgfx::setViewRect(ViewActiveText, 0, 0, fb_w, fb_h);
-    bgfx::setViewRect(ViewDebugUI, 0, 0, fb_w, fb_h);
+    bgfx::setViewRect(ViewTextLab, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewRect(ViewActiveText, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewRect(ViewGameTransition, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(host.framebuffer_width),
+                      static_cast<uint16_t>(host.framebuffer_height));
 
     float ortho[16];
-    make_ortho(ortho, static_cast<float>(m_surface.logical_width),
-               static_cast<float>(m_surface.logical_height));
+    make_ortho(ortho, static_cast<float>(game.logical_width),
+               static_cast<float>(game.logical_height));
     bgfx::setViewTransform(ViewGameLayerBackground, nullptr, ortho);
     bgfx::setViewTransform(ViewGameLayerMain, nullptr, ortho);
     bgfx::setViewTransform(ViewGameLayerForeground, nullptr, ortho);
     bgfx::setViewTransform(ViewGameLayerUIOverlay, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setViewTransform(ViewActiveText, nullptr, ortho);
+    bgfx::setViewTransform(ViewGameTransition, nullptr, ortho);
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::dbgTextClear();
@@ -275,7 +291,7 @@ Renderer::ScissorRect Renderer::current_scissor() const
 
 void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position)
 {
-    if (!m_initialized || m_surface.logical_width <= 0 || m_surface.logical_height <= 0)
+    if (!m_initialized || surface().logical_width <= 0 || surface().logical_height <= 0)
         return;
 
     if (bgfx::isValid(bgfx::VertexBufferHandle{m_triangle_vb}) &&
@@ -283,9 +299,9 @@ void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position
         bgfx::isValid(bgfx::ProgramHandle{m_triangle_program})) {
         constexpr float half_width = 48.0f;
         constexpr float half_height = 42.0f;
-        const float usable_width = static_cast<float>(m_surface.logical_width) - half_width * 2.0f;
+        const float usable_width = static_cast<float>(surface().logical_width) - half_width * 2.0f;
         const float usable_height =
-            static_cast<float>(m_surface.logical_height) - half_height * 2.0f;
+            static_cast<float>(surface().logical_height) - half_height * 2.0f;
         const float x = half_width + position.x * (usable_width > 0.0f ? usable_width : 0.0f);
         const float y = half_height + position.y * (usable_height > 0.0f ? usable_height : 0.0f);
         const float transform[16] = {
@@ -310,21 +326,23 @@ void Renderer::end_frame()
 
 void Renderer::request_screenshot(const std::string& path) { m_pending_screenshot = path; }
 
-void Renderer::resize(const SurfaceMetrics& surface)
+void Renderer::resize(const PresentationMetrics& presentation)
 {
     if (!m_initialized)
         return;
 
-    m_surface = sanitize_surface_metrics(surface);
+    m_presentation = presentation;
+    const SurfaceMetrics& host = m_presentation.host_surface;
 
-    bgfx::reset(static_cast<uint32_t>(m_surface.framebuffer_width),
-                static_cast<uint32_t>(m_surface.framebuffer_height),
-                (m_vsync ? BGFX_RESET_VSYNC : 0));
-    bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(m_surface.framebuffer_width),
-                      static_cast<uint16_t>(m_surface.framebuffer_height));
-    SDL_Log("[renderer] resized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
-            m_surface.logical_width, m_surface.logical_height, m_surface.framebuffer_width,
-            m_surface.framebuffer_height, m_surface.scale_x, m_surface.scale_y);
+    bgfx::reset(static_cast<uint32_t>(host.framebuffer_width),
+                static_cast<uint32_t>(host.framebuffer_height), (m_vsync ? BGFX_RESET_VSYNC : 0));
+    bgfx::setViewRect(ViewPresentationClear, 0, 0, static_cast<uint16_t>(host.framebuffer_width),
+                      static_cast<uint16_t>(host.framebuffer_height));
+    SDL_Log("[renderer] resized host=%dx%d game=%dx%d viewport=(%d,%d %dx%d)", host.logical_width,
+            host.logical_height, surface().logical_width, surface().logical_height,
+            m_presentation.host_framebuffer_viewport.x, m_presentation.host_framebuffer_viewport.y,
+            m_presentation.host_framebuffer_viewport.width,
+            m_presentation.host_framebuffer_viewport.height);
     resize_text();
 }
 

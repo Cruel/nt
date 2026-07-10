@@ -62,6 +62,8 @@ public:
     int run();
     bool tick();
     void resize(const SurfaceMetrics& surface);
+    void resize_host(const SurfaceMetrics& surface);
+    const PresentationMetrics& presentation() const { return m_presentation; }
     void shutdown();
     void request_stop();
     void set_demo_position(float normalized_x, float normalized_y);
@@ -105,6 +107,8 @@ private:
     assets::AssetManager m_assets;
     AudioSystem m_audio;
     Platform m_platform;
+    DisplayProfile m_display_profile{};
+    PresentationMetrics m_presentation{};
     Renderer m_renderer;
     TweenService m_tweens;
     script::ScriptRuntime m_scripts;

@@ -130,16 +130,16 @@ Rml::Element* resolve_playback_target(Rml::ElementDocument& doc, const std::stri
 
     const auto attr_start = selector.find('[');
     const auto attr_end = selector.find(']', attr_start == std::string::npos ? 0 : attr_start);
-    if (attr_start != std::string::npos && attr_end != std::string::npos && attr_end > attr_start + 1) {
+    if (attr_start != std::string::npos && attr_end != std::string::npos &&
+        attr_end > attr_start + 1) {
         const auto tag = attr_start == 0 ? std::string("*") : selector.substr(0, attr_start);
         auto attr = selector.substr(attr_start + 1, attr_end - attr_start - 1);
         std::string expected;
         if (const auto equals = attr.find('='); equals != std::string::npos) {
             expected = attr.substr(equals + 1);
             attr = attr.substr(0, equals);
-            if (expected.size() >= 2 &&
-                ((expected.front() == '"' && expected.back() == '"') ||
-                 (expected.front() == '\'' && expected.back() == '\''))) {
+            if (expected.size() >= 2 && ((expected.front() == '"' && expected.back() == '"') ||
+                                         (expected.front() == '\'' && expected.back() == '\''))) {
                 expected = expected.substr(1, expected.size() - 2);
             }
         }
@@ -622,6 +622,9 @@ RuntimeUI::~RuntimeUI() { shutdown(); }
 
 void RuntimeUI::cleanup_state()
 {
+    m_pointer_inside = false;
+    m_active_touches.clear();
+    m_last_event_consumed = false;
     if (!m_state)
         return;
     if (m_state->context) {
@@ -714,7 +717,7 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         m_state->render_interface = new HeadlessRenderInterface;
     } else {
         m_state->render_interface =
-            new ui::rmlui::BgfxRenderInterface(m_surface, *assets, shader_materials);
+            new ui::rmlui::BgfxRenderInterface(m_presentation, *assets, shader_materials);
     }
     auto* bgfx_render_interface =
         dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface);
@@ -781,27 +784,139 @@ void RuntimeUI::set_rmlui_base_direct_compatibility(bool enabled)
     }
 }
 
-bool RuntimeUI::process_event(const SDL_Event& event)
+bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics& presentation)
 {
     m_last_event_consumed = false;
-    if (m_state && m_state->context) {
-        m_last_event_consumed =
-            ui::rmlui::process_sdl_event(*m_state->context, m_state->window, event);
-        return m_last_event_consumed;
+    if (!m_state || !m_state->context) {
+        return false;
     }
-    return false;
+
+    SDL_Event transformed = event;
+    const auto transform_pointer = [&](float x, float y) -> std::optional<Vec2> {
+        return host_to_game_logical({x, y}, presentation);
+    };
+    switch (event.type) {
+    case SDL_EVENT_MOUSE_MOTION: {
+        const auto point = transform_pointer(event.motion.x, event.motion.y);
+        if (!point) {
+            if (m_pointer_inside) {
+                m_pointer_inside = false;
+                SDL_Event leave{};
+                leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+                return ui::rmlui::process_sdl_event(*m_state->context, m_state->window, leave);
+            }
+            return false;
+        }
+        m_pointer_inside = true;
+        transformed.motion.x = point->x;
+        transformed.motion.y = point->y;
+        break;
+    }
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP: {
+        const auto point = transform_pointer(event.button.x, event.button.y);
+        if (!point) {
+            if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+                const bool release_consumed =
+                    ui::rmlui::process_sdl_event(*m_state->context, m_state->window, transformed);
+                m_pointer_inside = false;
+                SDL_Event leave{};
+                leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+                const bool leave_consumed =
+                    ui::rmlui::process_sdl_event(*m_state->context, m_state->window, leave);
+                m_last_event_consumed = release_consumed || leave_consumed;
+                return m_last_event_consumed;
+            }
+            return false;
+        }
+        m_pointer_inside = true;
+        transformed.button.x = point->x;
+        transformed.button.y = point->y;
+        break;
+    }
+    case SDL_EVENT_MOUSE_WHEEL: {
+        const auto point = transform_pointer(event.wheel.mouse_x, event.wheel.mouse_y);
+        if (!point) {
+            if (m_pointer_inside) {
+                m_pointer_inside = false;
+                SDL_Event leave{};
+                leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+                m_last_event_consumed =
+                    ui::rmlui::process_sdl_event(*m_state->context, m_state->window, leave);
+                return m_last_event_consumed;
+            }
+            return false;
+        }
+        m_pointer_inside = true;
+        break;
+    }
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED: {
+        const std::uint64_t touch_id = static_cast<std::uint64_t>(event.tfinger.fingerID);
+        const SurfaceMetrics& host = presentation.host_surface;
+        const auto point = transform_pointer(event.tfinger.x * host.logical_width,
+                                             event.tfinger.y * host.logical_height);
+        if (!point) {
+            if (event.type != SDL_EVENT_FINGER_DOWN && m_active_touches.erase(touch_id) > 0) {
+                transformed.type = SDL_EVENT_FINGER_CANCELED;
+                transformed.tfinger.x = 0.0f;
+                transformed.tfinger.y = 0.0f;
+                break;
+            }
+            return false;
+        }
+        if (event.type == SDL_EVENT_FINGER_DOWN) {
+            m_active_touches.insert(touch_id);
+        } else if (!m_active_touches.contains(touch_id)) {
+            return false;
+        } else if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
+            m_active_touches.erase(touch_id);
+        }
+        transformed.tfinger.x = point->x / presentation.game_surface.logical_width;
+        transformed.tfinger.y = point->y / presentation.game_surface.logical_height;
+        break;
+    }
+    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+        m_pointer_inside = false;
+        break;
+    default:
+        break;
+    }
+
+    m_last_event_consumed =
+        ui::rmlui::process_sdl_event(*m_state->context, m_state->window, transformed);
+    return m_last_event_consumed;
 }
 
-void RuntimeUI::resize(const SurfaceMetrics& surface)
+void RuntimeUI::resize(const PresentationMetrics& presentation)
 {
-    m_surface = sanitize_surface_metrics(surface);
+    if (m_state && m_state->context) {
+        if (m_pointer_inside) {
+            SDL_Event leave{};
+            leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+            (void)ui::rmlui::process_sdl_event(*m_state->context, m_state->window, leave);
+        }
+        for (const std::uint64_t touch_id : m_active_touches) {
+            SDL_Event cancel{};
+            cancel.type = SDL_EVENT_FINGER_CANCELED;
+            cancel.tfinger.fingerID = touch_id;
+            (void)ui::rmlui::process_sdl_event(*m_state->context, m_state->window, cancel);
+        }
+    }
+    m_pointer_inside = false;
+    m_active_touches.clear();
+
+    m_surface = sanitize_surface_metrics(presentation.game_surface);
+    m_presentation = presentation;
     if (m_state && m_state->context) {
         m_state->context->SetDimensions(
             Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
         m_state->context->SetDensityIndependentPixelRatio(m_surface.scale_x);
         if (auto* render =
                 dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
-            render->resize(m_surface);
+            render->resize(presentation);
         }
     }
 }
@@ -1304,7 +1419,8 @@ RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackCl
     }
 
     if (has_runtime_activation_attribute(*target) && m_state->runtime_command_dispatcher) {
-        auto make_command = [](std::string name, nlohmann::json payload = nlohmann::json::object()) {
+        auto make_command = [](std::string name,
+                               nlohmann::json payload = nlohmann::json::object()) {
             RuntimeCommand command;
             command.source = RuntimeCommandSource::RmlUiEvent;
             command.domain = domain_from_command_name(name);
@@ -1337,11 +1453,13 @@ RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackCl
         if (command) {
             auto dispatch = m_state->runtime_command_dispatcher->dispatch(std::move(*command));
             m_state->show_title_diagnostic(dispatch.diagnostics);
-            m_state->runtime_view.apply(m_state->runtime_host ? m_state->runtime_host->last_commands()
-                                                               : std::vector<core::ControllerCommand>{});
+            m_state->runtime_view.apply(m_state->runtime_host
+                                            ? m_state->runtime_host->last_commands()
+                                            : std::vector<core::ControllerCommand>{});
             m_state->refresh_runtime_document();
             result.dispatched = dispatch.handled;
-            result.message = dispatch.handled ? "dispatched ui-click" : "ui-click command was not handled";
+            result.message =
+                dispatch.handled ? "dispatched ui-click" : "ui-click command was not handled";
             return result;
         }
     }

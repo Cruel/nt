@@ -11,6 +11,12 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 - `DebugUI` owns Dear ImGui developer/debug overlay only.
 - Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale/glow metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
+The engine presents game content through a centered 16:9 viewport inside the complete host surface.
+The renderer clears the host to the presentation-bar color, restricts game, text, ActiveText, and
+runtime-UI views to the fitted framebuffer rectangle, and retains Dear ImGui as a host-surface
+overlay. Logical layout uses the fitted game dimensions; swapchain reset and screenshots use the
+complete host dimensions.
+
 ## External Renderer Package
 
 NovelTea consumes `rmlui-bgfx` as an external package through `rmlui_bgfx::rmlui_bgfx`. The NovelTea side should only document and maintain the integration boundary:

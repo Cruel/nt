@@ -8,6 +8,12 @@ Describe how NovelTea runtime views are built with RmlUi and driven by backend-n
 
 RmlUi is the general runtime UI layer. Generic screens should use RML/RCSS and ordinary controls where sufficient. Complex game widgets should be C++-backed RmlUi components when they need custom layout, rendering, hit testing, or animation behavior.
 
+RmlUi context dimensions describe the fitted game viewport rather than the complete host window.
+Mouse and touch positions are transformed from host coordinates before dispatch; presentation bars
+reject new pointer input, leaving a viewport clears hover state, and captured releases or active
+touches are completed or cancelled safely. The bgfx adapter offsets only final backbuffer passes;
+offscreen layer, filter, and composite targets remain viewport-local.
+
 ## Asset Lookup Order
 
 Runtime UI documents and stylesheets are resolved using an explicit project/theme/system fallback policy:

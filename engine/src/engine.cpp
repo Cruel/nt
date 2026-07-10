@@ -862,11 +862,13 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
 
     const NativeWindowHandles handles = m_platform.native_window_handles();
+    m_presentation = make_presentation_metrics(m_platform.surface(), m_display_profile);
 
     RendererConfig rcfg;
     rcfg.native_display = handles.display;
     rcfg.native_window = handles.window;
-    rcfg.surface = m_platform.surface();
+    rcfg.presentation = m_presentation;
+    rcfg.bar_color_rgba = m_display_profile.bar_color_rgba;
     rcfg.vsync = config.vsync;
     rcfg.assets = &m_assets;
 
@@ -913,7 +915,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
 
     const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
-    m_runtime_ui.resize(m_platform.surface());
+    m_runtime_ui.resize(m_presentation);
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
                                  &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
@@ -1130,10 +1132,12 @@ void Engine::finish_frame_timing_sample()
     m_fps_sample_start_counter = now;
 }
 
-void Engine::resize(const SurfaceMetrics& surface)
+void Engine::resize(const SurfaceMetrics& surface) { resize_host(surface); }
+
+void Engine::resize_host(const SurfaceMetrics& surface)
 {
     const SurfaceMetrics sanitized = sanitize_surface_metrics(surface);
-    const SurfaceMetrics previous = m_renderer.surface();
+    const SurfaceMetrics previous = m_presentation.host_surface;
     if (previous.logical_width == sanitized.logical_width &&
         previous.logical_height == sanitized.logical_height &&
         previous.framebuffer_width == sanitized.framebuffer_width &&
@@ -1143,11 +1147,13 @@ void Engine::resize(const SurfaceMetrics& surface)
     }
 
     m_platform.set_surface_metrics(sanitized);
-    m_renderer.resize(sanitized);
-    m_runtime_ui.resize(sanitized);
-    SDL_Log("[surface] logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f", sanitized.logical_width,
+    m_presentation = make_presentation_metrics(sanitized, m_display_profile);
+    m_renderer.resize(m_presentation);
+    m_runtime_ui.resize(m_presentation);
+    const IntegerRect& viewport = m_presentation.host_logical_viewport;
+    SDL_Log("[surface] host=%dx%d framebuffer=%dx%d game=(%d,%d %dx%d)", sanitized.logical_width,
             sanitized.logical_height, sanitized.framebuffer_width, sanitized.framebuffer_height,
-            sanitized.scale_x, sanitized.scale_y);
+            viewport.x, viewport.y, viewport.width, viewport.height);
 }
 
 void Engine::handle_events()
@@ -1159,7 +1165,7 @@ void Engine::handle_events()
         if (m_debug_ui_enabled) {
             m_debug_ui.process_event(event, m_platform.surface());
         }
-        const bool ui_consumed = m_runtime_ui.process_event(event);
+        const bool ui_consumed = m_runtime_ui.process_event(event, m_presentation);
 
         switch (event.type) {
         case SDL_EVENT_QUIT:
@@ -1211,8 +1217,14 @@ void Engine::handle_events()
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            m_pointer_position = {event.button.x, event.button.y};
-            m_pointer_valid = true;
+            if (const auto point =
+                    host_to_game_logical({event.button.x, event.button.y}, m_presentation)) {
+                m_pointer_position = *point;
+                m_pointer_valid = true;
+            } else {
+                m_pointer_valid = false;
+                break;
+            }
             if (ui_consumed)
                 break;
             std::printf(
@@ -1220,19 +1232,29 @@ void Engine::handle_events()
                 event.button.button, event.button.x, event.button.y, m_platform.logical_width(),
                 m_platform.logical_height(), m_platform.scale_x(), m_platform.scale_y());
             if (!m_runtime_shell.layouts().blocks_game_input()) {
-                handle_mouse_down(event.button.x, event.button.y, event.button.button);
+                handle_mouse_down(m_pointer_position.x, m_pointer_position.y, event.button.button);
             }
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
-            m_pointer_position = {event.button.x, event.button.y};
-            m_pointer_valid = true;
+            if (const auto point =
+                    host_to_game_logical({event.button.x, event.button.y}, m_presentation)) {
+                m_pointer_position = *point;
+                m_pointer_valid = true;
+            } else {
+                m_pointer_valid = false;
+            }
             if (ui_consumed)
                 break;
             break;
         case SDL_EVENT_MOUSE_MOTION:
-            m_pointer_position = {event.motion.x, event.motion.y};
-            m_pointer_valid = true;
+            if (const auto point =
+                    host_to_game_logical({event.motion.x, event.motion.y}, m_presentation)) {
+                m_pointer_position = *point;
+                m_pointer_valid = true;
+            } else {
+                m_pointer_valid = false;
+            }
             if (ui_consumed)
                 break;
             break;
@@ -1367,7 +1389,7 @@ void Engine::process_runtime_result(core::RuntimeInputResult& result)
 void Engine::render()
 {
     if (m_debug_ui_enabled) {
-        m_debug_ui.begin_frame(m_renderer.surface());
+        m_debug_ui.begin_frame(m_presentation.host_surface);
     }
     m_runtime_ui.begin_frame(m_platform.delta_time());
     ShaderStandardInputs shader_inputs;

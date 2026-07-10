@@ -31,7 +31,8 @@ class BgfxTypedAssetLoader;
 struct RendererConfig {
     void* native_display = nullptr;
     void* native_window = nullptr;
-    SurfaceMetrics surface{};
+    PresentationMetrics presentation{};
+    std::uint32_t bar_color_rgba = 0x000000ff;
     bool vsync = true;
     const char* title = "NovelTea";
     const assets::AssetManager* assets = nullptr;
@@ -48,7 +49,7 @@ public:
     bool initialize(const RendererConfig& config);
     void begin_frame();
     void end_frame();
-    void resize(const SurfaceMetrics& surface);
+    void resize(const PresentationMetrics& presentation);
     void shutdown();
     void request_screenshot(const std::string& path);
 
@@ -71,13 +72,14 @@ public:
     const char* renderer_name() const;
     const char* texture_status() const { return m_texture_status.c_str(); }
     bool is_initialized() const { return m_initialized; }
-    const SurfaceMetrics& surface() const { return m_surface; }
-    int logical_width() const { return m_surface.logical_width; }
-    int logical_height() const { return m_surface.logical_height; }
-    int framebuffer_width() const { return m_surface.framebuffer_width; }
-    int framebuffer_height() const { return m_surface.framebuffer_height; }
-    float scale_x() const { return m_surface.scale_x; }
-    float scale_y() const { return m_surface.scale_y; }
+    const SurfaceMetrics& surface() const { return m_presentation.game_surface; }
+    const PresentationMetrics& presentation() const { return m_presentation; }
+    int logical_width() const { return surface().logical_width; }
+    int logical_height() const { return surface().logical_height; }
+    int framebuffer_width() const { return surface().framebuffer_width; }
+    int framebuffer_height() const { return surface().framebuffer_height; }
+    float scale_x() const { return surface().scale_x; }
+    float scale_y() const { return surface().scale_y; }
     [[deprecated("Use logical_width()")]] int width() const { return logical_width(); }
     [[deprecated("Use logical_height()")]] int height() const { return logical_height(); }
 
@@ -112,7 +114,8 @@ private:
     ShaderStandardInputs m_shader_standard_inputs{};
     bool m_initialized = false;
     bool m_vsync = true;
-    SurfaceMetrics m_surface{};
+    PresentationMetrics m_presentation{};
+    std::uint32_t m_bar_color_rgba = 0x000000ff;
 
     // Scissor stack (logical coords, pushed at logical coords, converted on pop).
     std::vector<ScissorRect> m_scissor_stack;

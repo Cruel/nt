@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "noveltea/active_text_layout.hpp"
@@ -72,8 +73,8 @@ public:
                     bool load_demo_document = true, script::ScriptRuntime* scripts = nullptr,
                     const ShaderMaterialProject* shader_materials = nullptr,
                     bool headless_render = false);
-    bool process_event(const SDL_Event& event);
-    void resize(const SurfaceMetrics& surface);
+    bool process_event(const SDL_Event& event, const PresentationMetrics& presentation);
+    void resize(const PresentationMetrics& presentation);
     void begin_frame(float delta_time);
     void end_frame();
     void shutdown();
@@ -133,6 +134,9 @@ private:
     bool m_initialized = false;
     bool m_last_event_consumed = false;
     SurfaceMetrics m_surface{};
+    PresentationMetrics m_presentation{};
+    bool m_pointer_inside = false;
+    std::unordered_set<std::uint64_t> m_active_touches;
 };
 
 } // namespace noveltea

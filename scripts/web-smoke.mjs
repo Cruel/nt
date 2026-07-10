@@ -19,8 +19,8 @@ function parseArgs(argv) {
   const options = {
     buildDir: 'build/web-debug',
     threshold: 'readback_gallery_debug',
-    frames: 6,
-    minPerfLines: 1,
+    frames: 12,
+    minPerfLines: 2,
     label: 'web-debug',
   };
 
@@ -48,8 +48,8 @@ function parseArgs(argv) {
         `Options:\n` +
         `  --build-dir <path>       Web sandbox build directory (default: build/web-debug)\n` +
         `  --threshold <name>       Threshold set from scripts/web-smoke-thresholds.json\n` +
-        `  --frames <count>         Runtime frame count URL flag (default: 6)\n` +
-        `  --min-perf-lines <count> Required captured [perf] lines (default: 1)\n` +
+        `  --frames <count>         Runtime frame count URL flag (default: 12)\n` +
+        `  --min-perf-lines <count> Required captured [perf] lines (default: 2)\n` +
         `  --label <text>           Label printed in smoke output\n`);
       process.exit(0);
     } else {

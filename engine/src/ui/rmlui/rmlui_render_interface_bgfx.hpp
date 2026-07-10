@@ -20,13 +20,13 @@ namespace noveltea::ui::rmlui {
 
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
-    BgfxRenderInterface(const SurfaceMetrics& surface, const assets::AssetManager& assets,
+    BgfxRenderInterface(const PresentationMetrics& presentation, const assets::AssetManager& assets,
                         const ShaderMaterialProject* shader_materials = nullptr);
     ~BgfxRenderInterface() override;
 
     explicit operator bool() const;
 
-    void resize(const SurfaceMetrics& surface);
+    void resize(const PresentationMetrics& presentation);
     void begin_frame();
     void end_frame();
     void set_perf_logging_enabled(bool enabled);

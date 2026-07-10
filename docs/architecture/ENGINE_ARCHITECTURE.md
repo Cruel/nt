@@ -63,6 +63,31 @@ The owned subsystems have these current responsibilities:
 
 `Engine` is intentionally the composition root. New runtime services should be wired explicitly from `Engine` or from a narrow facade owned by `Engine`, not discovered through a global service locator.
 
+## Host Surface And Game Viewport
+
+`Platform` reports the complete host surface: the SDL window, browser canvas, Android usable
+surface, or editor iframe canvas. `Engine` combines those host metrics with its active
+`DisplayProfile` and owns the resulting `PresentationMetrics`.
+
+The current Phase 1-2 profile is the fallback 16:9 landscape profile. The fitted game viewport is
+centered inside the host using deterministic integer contain fitting. The constrained dimension is
+floored; centering floors the leading margin, leaving any odd spare pixel in the right or bottom
+bar. Framebuffer edges are then rounded to nearest from the fitted logical edges rather than by
+rounding an independent framebuffer size. Rendering and input therefore use the same boundaries at
+fractional display scales.
+
+`Renderer` resets the swapchain and captures screenshots at the full host framebuffer size. It
+clears that full framebuffer to the presentation-bar color, then restricts game layers, direct text,
+ActiveText, runtime transitions, and RmlUi's final backbuffer passes to the fitted game rectangle.
+Game projections and responsive layout use the fitted game logical dimensions. Dear ImGui remains
+a host-sized overlay and receives untransformed host input.
+
+`RuntimeUI` receives host SDL events together with `PresentationMetrics`. Mouse and touch positions
+are transformed into game logical coordinates before RmlUi dispatch. New input in presentation bars
+is rejected, pointer exit clears hover state, captured mouse release remains deliverable, and active
+touches are cancelled consistently when they leave the viewport. Wheel routing uses the coordinates
+carried by the SDL wheel event rather than stale hover state.
+
 ## Initialization Order
 
 `Engine::initialize` currently initializes in this order:
@@ -71,7 +96,8 @@ The owned subsystems have these current responsibilities:
 2. Initialize `Platform`.
 3. Configure asset mounts.
 4. Query native window handles from `Platform`.
-5. Initialize `Renderer` with native handles, surface metrics, vsync, and `AssetManager`.
+5. Resolve presentation metrics and initialize `Renderer` with native handles, host/game viewport
+   metrics, vsync, and `AssetManager`.
 6. Initialize optional Lua `ScriptRuntime` with `AssetManager`.
 7. Resize and initialize `RuntimeUI`, passing `AssetManager`, native SDL window, demo-document flag, and optional `ScriptRuntime`.
 8. Optionally load the requested RmlUi document.
@@ -128,7 +154,12 @@ Each `Engine::tick` performs:
 3. `render()`
 4. quit and frame-limit checks
 
-Event handling polls SDL events from `Platform`. Events are offered to `DebugUI` first when enabled, then to `RuntimeUI`. If RmlUi consumes key or pointer events, game/platform fallback handling for those events is skipped. Window size, pixel size, and display scale changes refresh surface metrics and call `Engine::resize`, which updates `Platform`, `Renderer`, and `RuntimeUI`.
+Event handling polls SDL events from `Platform`. Events are offered to `DebugUI` first when enabled,
+then to `RuntimeUI`. Debug UI input remains in host coordinates. Runtime pointer and touch input is
+mapped through the fitted viewport before RmlUi or game fallback handling sees it. If RmlUi consumes
+key or pointer events, game/platform fallback handling for those events is skipped. Window size,
+pixel size, and display scale changes refresh host metrics and call `Engine::resize_host`, which
+recomputes presentation metrics before updating `Platform`, `Renderer`, and `RuntimeUI`.
 
 `Engine::update` is gated by the preview-running flag. When a runtime project is loaded, it ticks `RuntimeSessionHost` and forwards the host's latest controller commands to `RuntimeUI::apply_controller_commands`.
 

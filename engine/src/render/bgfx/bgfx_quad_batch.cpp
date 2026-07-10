@@ -121,8 +121,8 @@ void Renderer::draw_fullscreen_color(Color color)
     }
 
     QuadCommand command;
-    command.rect = {0.0f, 0.0f, static_cast<float>(m_surface.logical_width),
-                    static_cast<float>(m_surface.logical_height)};
+    command.rect = {0.0f, 0.0f, static_cast<float>(surface().logical_width),
+                    static_cast<float>(surface().logical_height)};
     command.color = color;
     if (!set_quad_buffers(command)) {
         return;
@@ -132,7 +132,7 @@ void Renderer::draw_fullscreen_color(Color color)
     bgfx::setUniform(bgfx::UniformHandle{m_use_texture_uniform}, use_texture_uniform);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
     bgfx::setScissor(UINT16_MAX);
-    bgfx::submit(ViewDebugUI, bgfx::ProgramHandle{m_quad_program});
+    bgfx::submit(ViewGameTransition, bgfx::ProgramHandle{m_quad_program});
 }
 
 void Renderer::create_2d()
@@ -233,10 +233,10 @@ bool Renderer::submit_material_quad(const QuadCommand& command)
 
     const auto scissor = current_scissor();
     if (scissor.active) {
-        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * m_surface.scale_x));
-        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * m_surface.scale_y));
-        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * m_surface.scale_x));
-        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * m_surface.scale_y));
+        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * surface().scale_x));
+        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * surface().scale_y));
+        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * surface().scale_x));
+        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * surface().scale_y));
         bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
     } else {
         bgfx::setScissor(UINT16_MAX);
@@ -266,10 +266,10 @@ void Renderer::submit_default_quad(const QuadCommand& command)
     const auto scissor = current_scissor();
     if (scissor.active) {
         // Convert logical coords to framebuffer pixels.
-        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * m_surface.scale_x));
-        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * m_surface.scale_y));
-        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * m_surface.scale_x));
-        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * m_surface.scale_y));
+        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * surface().scale_x));
+        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * surface().scale_y));
+        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * surface().scale_x));
+        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * surface().scale_y));
         bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
     } else {
         bgfx::setScissor(UINT16_MAX);

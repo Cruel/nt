@@ -789,7 +789,7 @@ void Renderer::create_text()
         return;
     }
     auto* text = new BgfxTextRenderer(*m_assets);
-    text->resize(m_surface);
+    text->resize(surface());
     if (!text->initialize()) {
         delete text;
         m_text_renderer = nullptr;
@@ -828,7 +828,7 @@ void Renderer::resize_text()
 {
     auto* text = static_cast<BgfxTextRenderer*>(m_text_renderer);
     if (text) {
-        text->resize(m_surface);
+        text->resize(surface());
     }
 }
 
@@ -893,7 +893,7 @@ void Renderer::draw_demo_text(float time_seconds)
     }
     const FontHandle font{m_default_text_font};
     const float title_box_height =
-        clamp_logical(static_cast<float>(m_surface.logical_height) * 0.15f, 72.0f, 150.0f);
+        clamp_logical(static_cast<float>(surface().logical_height) * 0.15f, 72.0f, 150.0f);
     const float title_size = clamp_logical(title_box_height * 0.55f, 28.0f, 72.0f);
 
     auto draw = [&](std::string value, Rect bounds, float size, Color color,
