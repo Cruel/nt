@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Workbench } from '@/workbench/Workbench';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
@@ -465,6 +465,61 @@ describe('WorkbenchGroup mount policy rendering', () => {
     expect(counters.playUnmounts).toBe(0);
   });
 
+  it('tracks split resizing every frame and disables iframe-backed host input until the resize ends', async () => {
+    let slotLeft = 30;
+    let slotWidth = 400;
+    rectSpy.mockImplementation(function mockRect(this: HTMLElement) {
+      if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
+      if (this.getAttribute('data-workbench-group-id') === 'root' && this.hasAttribute('data-workbench-persistent-editor-slot')) {
+        return rect(slotLeft, 60, slotWidth, 300);
+      }
+      return rect(430, 60, 380, 300);
+    });
+    replaceSplitWorkbench({
+      rootTabIds: [playTab.id],
+      rootActiveTabId: playTab.id,
+      targetTabIds: [normalTab.id],
+      targetActiveTabId: normalTab.id,
+      tabs: [playTab, normalTab],
+    });
+    render(<Workbench />);
+
+    const playPane = screen.getByTestId('play-editor').closest<HTMLElement>('[data-workbench-editor-pane]')!;
+    const resizeHandle = document.querySelector<HTMLElement>('[data-workbench-resize-handle]')!;
+    const hostLayer = document.querySelector<HTMLElement>('[data-workbench-persistent-editor-host-layer]')!;
+    expect(playPane).toHaveStyle({ left: '20px', width: '400px', pointerEvents: 'auto' });
+    expect(resizeHandle).toHaveClass('z-10');
+    expect(hostLayer).toHaveClass('z-[1]');
+
+    act(() => {
+      fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 430, clientY: 200 });
+    });
+    expect(playPane).toHaveStyle({ pointerEvents: 'none' });
+
+    slotLeft = 50;
+    slotWidth = 275;
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    });
+
+    expect(playPane).toHaveStyle({ left: '40px', width: '275px', pointerEvents: 'none' });
+
+    act(() => {
+      fireEvent.pointerUp(window, { button: 0, clientX: 325, clientY: 200 });
+    });
+
+    expect(playPane).toHaveStyle({ left: '40px', width: '275px', pointerEvents: 'auto' });
+
+    slotLeft = 70;
+    slotWidth = 250;
+    fireEvent(window, new Event('resize'));
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    });
+
+    expect(playPane).toHaveStyle({ left: '60px', width: '250px' });
+  });
+
   it('keeps stale old-group placement hidden until a new slot generation is measured', () => {
     let targetSlotHasRect = false;
     rectSpy.mockImplementation(function mockRect(this: HTMLElement) {
@@ -522,6 +577,32 @@ describe('WorkbenchGroup mount policy rendering', () => {
     expect(secondaryPane).toHaveAttribute('data-workbench-group-id', 'target');
     expect(counters.playMounts).toBe(1);
     expect(counters.secondaryMounts).toBe(1);
+  });
+
+  it('activates the current group from pointer and focus interaction after a persistent editor moves', () => {
+    replaceSplitWorkbench({
+      rootTabIds: [playTab.id, delayedTab.id],
+      rootActiveTabId: playTab.id,
+      targetTabIds: [normalTab.id],
+      targetActiveTabId: normalTab.id,
+      tabs: [playTab, normalTab, delayedTab],
+    });
+    render(<Workbench />);
+    const playEditor = screen.getByTestId('play-editor');
+
+    act(() => useWorkbenchStore.getState().moveTab({
+      tabId: playTab.id,
+      fromGroupId: 'root',
+      toGroupId: 'target',
+    }));
+    act(() => useWorkbenchStore.setState({ activeGroupId: 'root' }));
+
+    fireEvent.pointerDown(playEditor);
+    expect(useWorkbenchStore.getState().activeGroupId).toBe('target');
+
+    act(() => useWorkbenchStore.setState({ activeGroupId: 'root' }));
+    fireEvent.focus(playEditor);
+    expect(useWorkbenchStore.getState().activeGroupId).toBe('target');
   });
 
   it('reveals and flashes queued anchors after the active pane mounts', async () => {

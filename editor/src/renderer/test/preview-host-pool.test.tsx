@@ -66,14 +66,21 @@ function Harness({
   activeTabId,
   panes,
   onActivateOwnerTab,
+  pointerEventsDisabled,
 }: {
   activeTabId: string | null;
   panes: HarnessPane[];
   onActivateOwnerTab?: (ownerTabId: string) => void;
+  pointerEventsDisabled?: boolean;
 }) {
   return (
     <div data-workbench-group-id="group:one" style={{ position: 'relative', width: 800, height: 600, overflowY: 'auto' }}>
-      <PreviewHostPoolProvider groupId="group:one" activeTabId={activeTabId} onActivateOwnerTab={onActivateOwnerTab}>
+      <PreviewHostPoolProvider
+        groupId="group:one"
+        activeTabId={activeTabId}
+        onActivateOwnerTab={onActivateOwnerTab}
+        pointerEventsDisabled={pointerEventsDisabled}
+      >
         {panes.map((pane) => (
           <PreviewPane
             key={`${pane.ownerTabId}:${pane.paneId}`}
@@ -306,6 +313,28 @@ describe('PreviewHostPool', () => {
 
     await waitFor(() => expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true));
     await waitFor(() => expect(previewControllerMocks.requestPreviewState).toHaveBeenCalled());
+  });
+
+  it('disables pooled iframe pointer events during an external workbench interaction without releasing the lease', async () => {
+    const panes = [{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }];
+    const { container, rerender } = render(
+      <Harness activeTabId="tab:a" panes={panes} pointerEventsDisabled={false} />,
+    );
+
+    await waitFor(() => expect(hostElements(container)[0]).toHaveStyle({ pointerEvents: 'auto' }));
+    const host = hostElements(container)[0];
+    const leaseId = host.dataset.previewHostLeaseId;
+
+    rerender(<Harness activeTabId="tab:a" panes={panes} pointerEventsDisabled={true} />);
+
+    await waitFor(() => expect(host).toHaveStyle({ pointerEvents: 'none' }));
+    expect(host).toHaveAttribute('data-preview-host-claimed', 'true');
+    expect(host).toHaveAttribute('data-preview-host-lease-id', leaseId);
+
+    rerender(<Harness activeTabId="tab:a" panes={panes} pointerEventsDisabled={false} />);
+
+    await waitFor(() => expect(host).toHaveStyle({ pointerEvents: 'auto' }));
+    expect(host).toHaveAttribute('data-preview-host-lease-id', leaseId);
   });
 
   it('persists host position updates when the measured size is unchanged', async () => {

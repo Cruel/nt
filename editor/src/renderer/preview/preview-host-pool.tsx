@@ -268,11 +268,13 @@ export function PreviewHostPoolProvider({
   groupId,
   activeTabId,
   onActivateOwnerTab,
+  pointerEventsDisabled = false,
   children,
 }: {
   groupId: string;
   activeTabId: string | null;
   onActivateOwnerTab?: (ownerTabId: string) => void;
+  pointerEventsDisabled?: boolean;
   children: ReactNode;
 }) {
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -282,7 +284,7 @@ export function PreviewHostPoolProvider({
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
   const reservedHostIdsRef = useRef(new Set<string>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
-  const [previewPointerEventsDisabled, setPreviewPointerEventsDisabled] = useState(false);
+  const [resizePointerEventsDisabled, setResizePointerEventsDisabled] = useState(false);
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
 
@@ -506,12 +508,12 @@ export function PreviewHostPoolProvider({
       return Boolean(classed);
     };
 
-    const stopResizeDrag = () => setPreviewPointerEventsDisabled(false);
+    const stopResizeDrag = () => setResizePointerEventsDisabled(false);
 
     const onPointerDown = (event: PointerEvent) => {
       if (!startsResizeDrag(event.target)) return;
 
-      setPreviewPointerEventsDisabled(true);
+      setResizePointerEventsDisabled(true);
       window.addEventListener('pointerup', stopResizeDrag, { once: true });
       window.addEventListener('pointercancel', stopResizeDrag, { once: true });
       window.addEventListener('blur', stopResizeDrag, { once: true });
@@ -549,7 +551,7 @@ export function PreviewHostPoolProvider({
             registerHostElement={registerHostElement}
             routeWheel={routeWheel}
             onActivateOwnerTab={onActivateOwnerTab}
-            pointerEventsDisabled={previewPointerEventsDisabled}
+            pointerEventsDisabled={pointerEventsDisabled || resizePointerEventsDisabled}
           />
         ))}
       </div>

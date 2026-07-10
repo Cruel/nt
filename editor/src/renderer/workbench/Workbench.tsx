@@ -2,7 +2,11 @@ import { useRef } from 'react';
 import { Group, Panel } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { DirtyCloseDialog } from './DirtyCloseDialog';
-import { PersistentEditorHostLayer, PersistentEditorHostProvider } from './persistent-editor-host';
+import {
+  PersistentEditorHostLayer,
+  PersistentEditorHostProvider,
+  useOptionalPersistentEditorLayoutCoordinator,
+} from './persistent-editor-host';
 import { WorkbenchGroupServicesProvider } from './workbench-group-services';
 import { WorkbenchGroup } from './WorkbenchGroup';
 import { WorkbenchTabDndContext } from './WorkbenchTabDndContext';
@@ -21,13 +25,14 @@ function currentSplitSizesByChild(node: Extract<WorkbenchLayoutNode, { kind: 'sp
 }
 
 function ResizeHandle({ orientation }: { orientation: 'horizontal' | 'vertical' }) {
-  return <PanelResizeSeparator orientation={orientation} />;
+  return <PanelResizeSeparator orientation={orientation} data-workbench-resize-handle />;
 }
 
 function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayoutNode; path?: string }) {
   const groupsById = useWorkbenchStore((state) => state.groupsById);
   const tabsById = useWorkbenchStore((state) => state.tabsById);
   const setSplitSizesByChild = useWorkbenchStore((state) => state.setSplitSizesByChild);
+  const layoutCoordinator = useOptionalPersistentEditorLayoutCoordinator();
 
   if (node.kind === 'group') {
     const group = groupsById[node.groupId];
@@ -47,6 +52,7 @@ function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayou
         defaultSize={`${node.sizesByChild?.[key] ?? 100 / node.children.length}%`}
         minSize="180px"
         onResize={(panelSize) => {
+          layoutCoordinator?.notifyLayoutChanged();
           if (!Number.isFinite(panelSize.asPercentage) || panelSize.asPercentage <= 0) return;
           const pending = pendingSplitSizesByChild.get(node.id) ?? currentSplitSizesByChild(node);
           pending[key] = panelSize.asPercentage;
@@ -66,6 +72,7 @@ function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayou
       orientation={node.direction}
       className="h-full w-full"
       onLayoutChanged={(_layout, meta) => {
+        layoutCoordinator?.notifyLayoutChanged();
         if (!meta.isUserInteraction) return;
         const pending = pendingSplitSizesByChild.get(node.id);
         pendingSplitSizesByChild.delete(node.id);

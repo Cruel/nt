@@ -14,9 +14,10 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { editorIconClassNameForTab, editorIconForType } from './editor-registry';
+import { useOptionalPersistentEditorLayoutCoordinator } from './persistent-editor-host';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchState, WorkbenchTab } from './workbench-types';
 
@@ -373,6 +374,11 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
   const moveTabWithinGroup = useWorkbenchStore((state) => state.moveTabWithinGroup);
   const activeTab = useWorkbenchStore((state) => activeDrag ? state.tabsById[activeDrag.tabId] ?? null : null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const layoutCoordinator = useOptionalPersistentEditorLayoutCoordinator();
+
+  useEffect(() => () => {
+    layoutCoordinator?.setInteractionActive('tab-drag', false);
+  }, [layoutCoordinator]);
 
   function updateDropIndicator(event: WorkbenchTabDragEvent) {
     const activeData = event.active.data.current;
@@ -397,6 +403,7 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
   }
 
   function clearDragState() {
+    layoutCoordinator?.setInteractionActive('tab-drag', false);
     setActiveDrag(null);
     setDropIndicator(null);
     setGroupDropIndicator(null);
@@ -405,7 +412,10 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
 
   function handleDragStart(event: DragStartEvent) {
     const activeData = event.active.data.current;
-    if (isWorkbenchTabDragData(activeData)) setActiveDrag(activeData);
+    if (isWorkbenchTabDragData(activeData)) {
+      layoutCoordinator?.setInteractionActive('tab-drag', true);
+      setActiveDrag(activeData);
+    }
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -413,11 +423,16 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
     const workbench = useWorkbenchStore.getState();
     const dockTarget = isWorkbenchTabDragData(activeData) ? dockTargetFromEvent(event, workbench) : null;
     const target = isWorkbenchTabDragData(activeData) && !dockTarget ? dropTargetFromEvent(event, activeData, workbench) : null;
-    clearDragState();
-    if (!isWorkbenchTabDragData(activeData)) return;
+    if (!isWorkbenchTabDragData(activeData)) {
+      clearDragState();
+      return;
+    }
 
     const sourceGroup = workbench.groupsById[activeData.groupId];
-    if (!sourceGroup || !sourceGroup.tabIds.includes(activeData.tabId)) return;
+    if (!sourceGroup || !sourceGroup.tabIds.includes(activeData.tabId)) {
+      clearDragState();
+      return;
+    }
 
     if (dockTarget) {
       dockTabToGroupEdge({
@@ -426,19 +441,26 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
         targetGroupId: dockTarget.groupId,
         edge: dockTarget.edge,
       });
+      clearDragState();
       return;
     }
 
-    if (!target) return;
+    if (!target) {
+      clearDragState();
+      return;
+    }
 
     const targetGroup = workbench.groupsById[target.groupId];
-    if (!targetGroup) return;
+    if (!targetGroup) {
+      clearDragState();
+      return;
+    }
 
     if (target.groupId === activeData.groupId) {
       const sourceIndex = sourceGroup.tabIds.indexOf(activeData.tabId);
       const toIndex = target.index > sourceIndex ? target.index - 1 : target.index;
-      if (toIndex === sourceIndex) return;
-      moveTabWithinGroup(target.groupId, activeData.tabId, toIndex);
+      if (toIndex !== sourceIndex) moveTabWithinGroup(target.groupId, activeData.tabId, toIndex);
+      clearDragState();
       return;
     }
 
@@ -448,6 +470,7 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
       toGroupId: target.groupId,
       toIndex: Math.max(0, Math.min(target.index, targetGroup.tabIds.length)),
     });
+    clearDragState();
   }
 
   const overlay = (

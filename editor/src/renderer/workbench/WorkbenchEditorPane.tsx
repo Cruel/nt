@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties, type RefObject } from 'react';
 import {
   WorkbenchEditorLocationProvider,
   type WorkbenchEditorLocation,
@@ -16,6 +16,7 @@ interface WorkbenchEditorPaneProps {
   restoreMode?: 'when-active' | 'initial-mount';
   className?: string;
   style?: CSSProperties;
+  elementRef?: RefObject<HTMLDivElement | null>;
   onFocusCapture?: () => void;
   onPointerDownCapture?: () => void;
 }
@@ -28,6 +29,7 @@ export function WorkbenchEditorPane({
   restoreMode = 'when-active',
   className,
   style,
+  elementRef,
   onFocusCapture,
   onPointerDownCapture,
 }: WorkbenchEditorPaneProps) {
@@ -35,6 +37,10 @@ export function WorkbenchEditorPane({
   const paneRef = useRef<HTMLDivElement | null>(null);
   const restoredOnMountRef = useRef(false);
   const isVisible = location.isVisible;
+  const setPaneElement = useCallback((element: HTMLDivElement | null) => {
+    paneRef.current = element;
+    if (elementRef) elementRef.current = element;
+  }, [elementRef]);
 
   useEffect(() => {
     if (restoreMode === 'initial-mount') {
@@ -62,7 +68,7 @@ export function WorkbenchEditorPane({
   return (
     <WorkbenchEditorLocationProvider location={location}>
       <div
-        ref={paneRef}
+        ref={setPaneElement}
         aria-hidden={isVisible ? undefined : true}
         className={`${isVisible ? 'h-full min-h-0' : 'pointer-events-none invisible h-full min-h-0'}${className ? ` ${className}` : ''}`}
         data-hidden={isVisible ? undefined : true}

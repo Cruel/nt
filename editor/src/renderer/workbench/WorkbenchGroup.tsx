@@ -4,7 +4,7 @@ import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
 import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
-import { PersistentEditorSlot } from './persistent-editor-host';
+import { PersistentEditorSlot, usePersistentEditorLayoutInteractionActive } from './persistent-editor-host';
 import { WorkbenchGroupPreviewHostPoolRegistration } from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { WorkbenchTabs } from './WorkbenchTabs';
@@ -27,6 +27,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
     data: { kind: 'workbench-tab-dock-group', groupId: group.id },
   });
   const activeEditor = activeTab ? resolveWorkbenchEditor(defaultEditorRegistry, activeTab) : null;
+  const layoutInteractionActive = usePersistentEditorLayoutInteractionActive();
 
   return (
     // The data attribute lets nested iframe widgets activate their containing group via postMessage activity.
@@ -37,6 +38,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
           groupId={group.id}
           activeTabId={activeTab?.id ?? null}
           onActivateOwnerTab={(ownerTabId) => activateTab(group.id, ownerTabId)}
+          pointerEventsDisabled={layoutInteractionActive}
         >
           <WorkbenchGroupPreviewHostPoolRegistration groupId={group.id} />
           {activeTab ? (

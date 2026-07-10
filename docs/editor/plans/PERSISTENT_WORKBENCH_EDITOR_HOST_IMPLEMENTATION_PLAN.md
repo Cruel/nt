@@ -4,17 +4,20 @@
 
 Temporary active implementation plan.
 
-Phases 1 through 4 are implemented. Persistent editor policy/location selection
+Phases 1 through 5 are implemented. Persistent editor policy/location selection
 is centralized, open persistent editors are owned by a stable workbench host
 layer and displayed through generation-checked group slots, and cross-group
 moves, edge docking, and source-group pruning preserve the mounted host without
 restoring captured tab state over live state. Group preview-host pools now
 register through a narrow workbench service registry, and persistent editors
 with `pooled-per-tab-group` previews release and reclaim group leases without
-remounting their editor subtree. Phases 5 and 6 remain open; in particular,
-continuous resize-drag positioning polish is not part of the completed slice.
-Slot and root resize observation is already in place because newly created split
-panels settle after their first layout pass.
+remounting their editor subtree. Persistent hosts now receive explicit layout
+change notifications, follow split-resize drags through direct per-frame DOM
+placement, and disable dedicated and pooled iframe pointer input during resize
+and tab-drag interactions. Host layering remains below resize handles and drag
+overlays, and moved hosts continue to activate their current group from pointer
+and focus interaction. Phase 6 remains open for cleanup, durable documentation,
+manual application verification, and removal of this temporary plan.
 
 Delete this file after the implementation is complete, the acceptance criteria
 are verified, and the durable behavior is documented in the editor workbench
