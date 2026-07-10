@@ -7,12 +7,17 @@ import { defaultComfyUiConfig, normalizeComfyUiConfig } from '../../shared/comfy
 
 export type Theme = 'system' | 'light' | 'dark';
 
+export function normalizePreviewFpsCap(value: number) {
+  return Number.isFinite(value) ? Math.min(1000, Math.max(0, Math.trunc(value))) : 0;
+}
+
 interface PreferencesState {
   theme: Theme;
   language: EditorLanguage;
   codeEditorTheme: CodeEditorThemeId;
   restoreLastProjectOnStart: boolean;
   showPreviewFpsCounter: boolean;
+  previewFpsCap: number;
   lastProjectPath: string | null;
   defaultProjectDirectory: string | null;
   comfyUiConfig: ComfyUiConfig;
@@ -21,6 +26,7 @@ interface PreferencesState {
   setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
   setRestoreLastProjectOnStart: (restore: boolean) => void;
   setShowPreviewFpsCounter: (show: boolean) => void;
+  setPreviewFpsCap: (cap: number) => void;
   setLastProjectPath: (projectPath: string | null) => void;
   setDefaultProjectDirectory: (projectDirectory: string | null) => void;
   setComfyUiConfig: (patch: Partial<ComfyUiConfig>) => void;
@@ -34,6 +40,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
+      previewFpsCap: 0,
       lastProjectPath: null,
       defaultProjectDirectory: null,
       comfyUiConfig: defaultComfyUiConfig(),
@@ -42,6 +49,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
       setRestoreLastProjectOnStart: (restore) => set({ restoreLastProjectOnStart: restore }),
       setShowPreviewFpsCounter: (show) => set({ showPreviewFpsCounter: show }),
+      setPreviewFpsCap: (previewFpsCap) => set({ previewFpsCap: normalizePreviewFpsCap(previewFpsCap) }),
       setLastProjectPath: (lastProjectPath) => set({ lastProjectPath }),
       setDefaultProjectDirectory: (defaultProjectDirectory) => set({ defaultProjectDirectory }),
       setComfyUiConfig: (patch) => set((state) => ({
@@ -60,6 +68,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         } as PreferencesState;
         return {
           ...next,
+          previewFpsCap: normalizePreviewFpsCap(next.previewFpsCap),
           comfyUiConfig: normalizeComfyUiConfig(next.comfyUiConfig),
         };
       },

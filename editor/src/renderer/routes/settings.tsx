@@ -189,6 +189,7 @@ export function SettingsPage() {
   const codeEditorTheme = usePreferencesStore((s) => s.codeEditorTheme);
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
+  const previewFpsCap = usePreferencesStore((s) => s.previewFpsCap);
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
   const comfyUiConfig = usePreferencesStore((s) => s.comfyUiConfig);
   const setTheme = usePreferencesStore((s) => s.setTheme);
@@ -196,6 +197,7 @@ export function SettingsPage() {
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
+  const setPreviewFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
   const setComfyUiConfig = usePreferencesStore((s) => s.setComfyUiConfig);
   const comfyUiStatus = useComfyUiStore((s) => s.status);
@@ -345,7 +347,7 @@ export function SettingsPage() {
               {t('settings:codeEditor.description')}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
             <div className="flex items-center justify-between gap-6">
               <div>
                 <Label>{t('settings:codeEditor.editorTheme')}</Label>
@@ -426,7 +428,7 @@ export function SettingsPage() {
               {t('settings:workspace.description')}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
             <div className="grid gap-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -488,6 +490,24 @@ export function SettingsPage() {
                 id="show-preview-fps-counter"
                 checked={showPreviewFpsCounter}
                 onCheckedChange={setShowPreviewFpsCounter}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="preview-fps-cap">{t('settings:preview.fpsCap')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:preview.fpsCapDescription')}
+                </p>
+              </div>
+              <Input
+                id="preview-fps-cap"
+                className="w-24"
+                type="number"
+                min="0"
+                max="1000"
+                step="1"
+                value={previewFpsCap}
+                onChange={(event) => setPreviewFpsCap(Number(event.currentTarget.value))}
               />
             </div>
           </CardContent>

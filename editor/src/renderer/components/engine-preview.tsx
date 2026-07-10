@@ -4,13 +4,13 @@ import { latestPreviewReplay, previewDocumentTarget, useEnginePreviewStatusBridg
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
-import { usePreferencesStore } from '@/stores/preferences-store';
+import { normalizePreviewFpsCap, usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { PreviewConnectionState, PreviewDocument, PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 export function sanitizePreviewFpsCap(value: number) {
-  return Number.isFinite(value) ? Math.min(1000, Math.max(0, Math.trunc(value))) : 0;
+  return normalizePreviewFpsCap(value);
 }
 
 export type EnginePreviewConnectionState = PreviewConnectionState;
@@ -57,6 +57,8 @@ export function EnginePreview({
   const replayDocuments = usePreviewManagerStore((s) => s.replay.documentsBySessionId);
   const replayModes = usePreviewManagerStore((s) => s.replay.modeBySessionId);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
+  const fpsCap = usePreferencesStore((s) => s.previewFpsCap);
+  const setFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
   const activateGroup = useWorkbenchStore((s) => s.activateGroup);
@@ -69,14 +71,13 @@ export function EnginePreview({
   } = useEnginePreviewStatusBridge({ embedded, sessionId, onPreviewMessage });
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [localConnectionState, setLocalConnectionState] = useState<EnginePreviewConnectionState>('loading');
-  const [fpsCap, setFpsCap] = useState(0);
   const [previewVisible, setPreviewVisible] = useState(true);
   const connectionState = embedded ? localConnectionState : globalConnectionState;
   const setConnectionState = useCallback((next: EnginePreviewConnectionState) => {
     if (embedded) setLocalConnectionState(next);
     else setGlobalConnectionState(next);
   }, [embedded, setGlobalConnectionState]);
-  const setSanitizedFpsCap = useCallback((value: number) => setFpsCap(sanitizePreviewFpsCap(value)), []);
+  const setSanitizedFpsCap = useCallback((value: number) => setFpsCap(value), [setFpsCap]);
 
   const activateContainingWorkbenchGroup = useCallback((groupId?: string) => {
     const nextGroupId = groupId ?? wrapperRef.current?.closest<HTMLElement>('[data-workbench-group-id]')?.dataset.workbenchGroupId;

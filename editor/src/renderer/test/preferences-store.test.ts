@@ -9,6 +9,7 @@ describe('preferences-store', () => {
       codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
+      previewFpsCap: 0,
       lastProjectPath: null,
       defaultProjectDirectory: null,
     });
@@ -21,6 +22,7 @@ describe('preferences-store', () => {
     expect(state.codeEditorTheme).toBe('noveltea');
     expect(state.restoreLastProjectOnStart).toBe(true);
     expect(state.showPreviewFpsCounter).toBe(false);
+    expect(state.previewFpsCap).toBe(0);
     expect(state.lastProjectPath).toBe(null);
     expect(state.defaultProjectDirectory).toBe(null);
   });
@@ -45,6 +47,15 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
   });
 
+  it('stores and normalizes the editor-wide preview FPS cap', () => {
+    usePreferencesStore.getState().setPreviewFpsCap(59.9);
+    expect(usePreferencesStore.getState().previewFpsCap).toBe(59);
+    usePreferencesStore.getState().setPreviewFpsCap(5000);
+    expect(usePreferencesStore.getState().previewFpsCap).toBe(1000);
+    usePreferencesStore.getState().setPreviewFpsCap(-10);
+    expect(usePreferencesStore.getState().previewFpsCap).toBe(0);
+  });
+
   it('updates the code editor theme', () => {
     usePreferencesStore.getState().setCodeEditorTheme('monokai');
     expect(usePreferencesStore.getState().codeEditorTheme).toBe('monokai');
@@ -65,9 +76,11 @@ describe('preferences-store', () => {
   it('persists to localStorage', () => {
     // Zustand persist middleware writes to localStorage on state change
     usePreferencesStore.getState().setTheme('dark');
+    usePreferencesStore.getState().setPreviewFpsCap(30);
     const stored = localStorage.getItem('noveltea-preferences');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored!);
     expect(parsed.state.theme).toBe('dark');
+    expect(parsed.state.previewFpsCap).toBe(30);
   });
 });

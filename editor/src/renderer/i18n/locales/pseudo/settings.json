@@ -44,6 +44,8 @@
   },
   "preview": {
     "description": "⟦Runtime preview diagnostics and overlays⟧",
+    "fpsCap": "⟦Preview FPS cap⟧",
+    "fpsCapDescription": "⟦Applies to all editor preview widgets. Use 0 for display-paced rendering with no additional engine cap.⟧",
     "showFpsCounter": "⟦Show FPS counter⟧",
     "showFpsCounterDescription": "⟦Displays the engine frame rate overlay in editor preview widgets. Preview is display-paced unless an engine FPS cap is lower.⟧",
     "title": "⟦Preview⟧"
