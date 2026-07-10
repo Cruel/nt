@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from '@/routes/settings';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -41,6 +41,12 @@ function activeWorkflow(id: string, role: ComfyUiWorkflowRole): ComfyUiWorkflowA
   };
 }
 
+async function renderSettingsPage() {
+  await act(async () => {
+    render(<SettingsPage />);
+  });
+}
+
 describe('SettingsPage code editor theme selector', () => {
   beforeEach(() => {
     vi.spyOn(window.noveltea, 'getAppInfo').mockReturnValue(new Promise(() => {}) as ReturnType<typeof window.noveltea.getAppInfo>);
@@ -70,8 +76,8 @@ describe('SettingsPage code editor theme selector', () => {
     vi.spyOn(window.noveltea, 'selectDirectory').mockResolvedValue('/tmp/NovelTea');
   });
 
-  it('opens a preview dialog and applies the cycled theme', () => {
-    render(<SettingsPage />);
+  it('opens a preview dialog and applies the cycled theme', async () => {
+    await renderSettingsPage();
 
     fireEvent.click(screen.getByRole('button', { name: /NovelTea/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -84,8 +90,8 @@ describe('SettingsPage code editor theme selector', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('does not persist preview cycling when cancelled', () => {
-    render(<SettingsPage />);
+  it('does not persist preview cycling when cancelled', async () => {
+    await renderSettingsPage();
 
     fireEvent.click(screen.getByRole('button', { name: /NovelTea/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Next editor theme' }));
@@ -94,16 +100,16 @@ describe('SettingsPage code editor theme selector', () => {
     expect(usePreferencesStore.getState().codeEditorTheme).toBe('noveltea');
   });
 
-  it('renders the editor language selector options', () => {
-    render(<SettingsPage />);
+  it('renders the editor language selector options', async () => {
+    await renderSettingsPage();
 
     fireEvent.click(screen.getAllByRole('combobox')[0]!);
     expect(screen.getByRole('option', { name: 'Pseudo-localized' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Portuguese (Brazil)' })).toBeInTheDocument();
   });
 
-  it('toggles the preview FPS counter preference', () => {
-    render(<SettingsPage />);
+  it('toggles the preview FPS counter preference', async () => {
+    await renderSettingsPage();
 
     fireEvent.click(screen.getByRole('switch', { name: 'Show FPS counter' }));
     expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);

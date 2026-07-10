@@ -9,8 +9,10 @@ beforeEach(() => {
 });
 
 describe('AppMenuBar', () => {
-  it('hides project-only toolbar icons when no project is open', () => {
-    render(<AppMenuBar />);
+  it('hides project-only toolbar icons when no project is open', async () => {
+    await act(async () => {
+      render(<AppMenuBar />);
+    });
 
     expect(screen.queryByTitle('Play debug game')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Undo')).not.toBeInTheDocument();
@@ -18,12 +20,14 @@ describe('AppMenuBar', () => {
     expect(screen.queryByTitle('Save')).not.toBeInTheDocument();
   });
 
-  it('shows project-only toolbar icons when a project is open', () => {
+  it('shows project-only toolbar icons when a project is open', async () => {
     act(() => {
       useProjectStore.getState().loadUnsavedProjectDocument(createAuthoringProject());
     });
 
-    render(<AppMenuBar />);
+    await act(async () => {
+      render(<AppMenuBar />);
+    });
 
     expect(screen.getByTitle('Play / Debug Game')).toBeInTheDocument();
     expect(screen.getByTitle('Undo')).toBeInTheDocument();

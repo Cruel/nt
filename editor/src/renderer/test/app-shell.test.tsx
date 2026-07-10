@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { AppShell } from '@/components/app-shell';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { editorI18n } from '@/i18n';
@@ -31,31 +31,37 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('AppShell', () => {
-  it('renders children', () => {
-    renderWithProviders(
-      <AppShell>
-        <div data-testid="child">Hello</div>
-      </AppShell>,
-    );
+  it('renders children', async () => {
+    await act(async () => {
+      renderWithProviders(
+        <AppShell>
+          <div data-testid="child">Hello</div>
+        </AppShell>,
+      );
+    });
     expect(screen.getByTestId('child')).toHaveTextContent('Hello');
   });
 
-  it('renders the application menu across the top chrome', () => {
-    renderWithProviders(
-      <AppShell>
-        <div />
-      </AppShell>,
-    );
+  it('renders the application menu across the top chrome', async () => {
+    await act(async () => {
+      renderWithProviders(
+        <AppShell>
+          <div />
+        </AppShell>,
+      );
+    });
     expect(screen.getByLabelText('Application menu')).toBeInTheDocument();
   });
 
   it('renders translated chrome labels after a language switch', async () => {
-    await editorI18n.changeLanguage('pt-BR');
-    renderWithProviders(
-      <AppShell>
-        <div />
-      </AppShell>,
-    );
+    await act(async () => {
+      await editorI18n.changeLanguage('pt-BR');
+      renderWithProviders(
+        <AppShell>
+          <div />
+        </AppShell>,
+      );
+    });
     expect(screen.getByLabelText('Menu do aplicativo')).toBeInTheDocument();
   });
 });
