@@ -15,6 +15,7 @@ import { buildProjectSearchIndex } from '../../../shared/project-search/project-
 import { searchProjectIndex } from '../../../shared/project-search/project-search';
 import { AssetPreview } from './AssetPreview';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
 
 interface AssetListItem {
   id: string;
@@ -79,7 +80,9 @@ function AssetContextMenu({ state, projectFilePath, onClose }: { state: AssetCon
   );
 }
 
-export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
+const ASSET_LIBRARY_TAB_STATE_SCHEMA = 'noveltea.editor.asset-library-tab-state';
+
+export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const openTab = useWorkbenchStore((state) => state.openTab);
@@ -90,6 +93,24 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
   const [contextMenu, setContextMenu] = useState<AssetContextMenuState | null>(null);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  useWorkbenchEditorTabState(tab.id, useMemo(() => ({
+    captureTabState: (): WorkbenchTabStatePayload => ({
+      schema: ASSET_LIBRARY_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: { query, kind, selectedTags },
+    }),
+    restoreTabState: (state: WorkbenchTabStatePayload) => {
+      if (state.schema !== ASSET_LIBRARY_TAB_STATE_SCHEMA || state.schemaVersion !== 1) return;
+      const payload = state.payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const values = payload as Record<string, unknown>;
+      if (typeof values.query === 'string') setQuery(values.query);
+      if (typeof values.kind === 'string') setKind(values.kind);
+      if (Array.isArray(values.selectedTags) && values.selectedTags.every((tag: unknown) => typeof tag === 'string')) {
+        setSelectedTags(values.selectedTags as string[]);
+      }
+    },
+  }), [kind, query, selectedTags]));
   const executeCommand = useCommandStore((store) => store.executeCommand);
   const allAssets = useMemo(() => {
     if (!project) return [];

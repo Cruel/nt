@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const tab: WorkbenchTab = {
@@ -31,6 +32,7 @@ function project() {
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
+  clearWorkbenchTabStates();
   vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({ url: 'data:image/png;base64,bW9jaw==', absolutePath: '/mock/project/assets/images/logo.png' });
 });
 
@@ -58,6 +60,19 @@ describe('AssetLibraryEditor', () => {
     fireEvent.change(screen.getByPlaceholderText('Filter by tag'), { target: { value: 'Hero,' } });
     expect(screen.getByText('Logo')).toBeInTheDocument();
     expect(screen.queryByText('Click')).not.toBeInTheDocument();
+  });
+
+  it('restores filters after the active-only editor remounts', () => {
+    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    const view = render(<AssetLibraryEditor tab={tab} />);
+    fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'audio' } });
+    captureWorkbenchTabState(tab.id);
+    view.unmount();
+
+    render(<AssetLibraryEditor tab={tab} />);
+    expect(screen.getByLabelText('Asset type')).toHaveValue('audio');
+    expect(screen.getByText('Click')).toBeInTheDocument();
+    expect(screen.queryByText('Logo')).not.toBeInTheDocument();
   });
 
   it('renames an asset inline through the command bus', async () => {

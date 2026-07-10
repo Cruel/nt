@@ -15,6 +15,7 @@ import { buildReferenceIndex, findUsages } from '../../../shared/project-schema/
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildImageGenerationTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
 import { AssetPreview } from './AssetPreview';
 
 function lookupAsset(project: unknown, assetId: string | undefined) {
@@ -36,6 +37,22 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const [renameTo, setRenameTo] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  useWorkbenchEditorTabState(tab.id, useMemo(() => ({
+    captureTabState: (): WorkbenchTabStatePayload => ({
+      schema: 'noveltea.editor.asset-detail-tab-state',
+      schemaVersion: 1,
+      payload: { aliasDraft, renameFrom, renameTo },
+    }),
+    restoreTabState: (state: WorkbenchTabStatePayload) => {
+      if (state.schema !== 'noveltea.editor.asset-detail-tab-state' || state.schemaVersion !== 1) return;
+      const payload = state.payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const values = payload as Record<string, unknown>;
+      if (typeof values.aliasDraft === 'string') setAliasDraft(values.aliasDraft);
+      if (typeof values.renameFrom === 'string') setRenameFrom(values.renameFrom);
+      if (typeof values.renameTo === 'string') setRenameTo(values.renameTo);
+    },
+  }), [aliasDraft, renameFrom, renameTo]));
 
   const stableUsages = useMemo(() => {
     if (!assetId || !isAuthoringProject(project)) return [];

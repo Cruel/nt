@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Copy, FolderOpen, MoreHorizontal, Pencil, RefreshCw, Trash2, Upload, Wrench, X } from 'lucide-react';
 import { ComfyUiWorkflowImportDialog } from '@/editors/project/ComfyUiWorkflowImportDialog';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { invalidateComfyUiWorkflowVerification } from '@/comfyui/comfyui-workflow-library-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
 import type { ComfyUiWorkflowLibraryEntry, ComfyUiWorkflowLibraryListResponse } from '../../../shared/comfyui-workflows';
 
 function sourceLabel(source: string) {
@@ -58,7 +59,9 @@ function statusLights(entry: ComfyUiWorkflowLibraryEntry, comfyUiState: string) 
   ] as const;
 }
 
-export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
+const COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA = 'noveltea.editor.comfyui-workflows-tab-state';
+
+export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
   const [showOverridden, setShowOverridden] = useState(false);
@@ -71,6 +74,21 @@ export function ComfyUiWorkflowsEditor(_props: WorkbenchEditorProps) {
   const [repairEntry, setRepairEntry] = useState<ComfyUiWorkflowLibraryEntry | null>(null);
   const [editingWorkflowKey, setEditingWorkflowKey] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  useWorkbenchEditorTabState(tab.id, useMemo(() => ({
+    captureTabState: (): WorkbenchTabStatePayload => ({
+      schema: COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: { showOverridden },
+    }),
+    restoreTabState: (state: WorkbenchTabStatePayload) => {
+      if (state.schema !== COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA || state.schemaVersion !== 1) return;
+      const payload = state.payload;
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const values = payload as Record<string, unknown>;
+        if (typeof values.showOverridden === 'boolean') setShowOverridden(values.showOverridden);
+      }
+    },
+  }), [showOverridden]));
 
   useEffect(() => {
     let canceled = false;

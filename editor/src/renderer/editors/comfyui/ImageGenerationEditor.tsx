@@ -14,6 +14,7 @@ import { useComfyUiGenerationStore, type GeneratedImageRevision } from '@/comfyu
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
 import type { ComfyUiSemanticInput, ComfyUiWorkflowActiveEntry, ComfyUiWorkflowDefinition } from '../../../shared/comfyui-workflows';
 import { defaultAssetIdFromFilename, parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -148,6 +149,53 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const [generateQueuedFeedback, setGenerateQueuedFeedback] = useState(false);
   const [editQueuedFeedback, setEditQueuedFeedback] = useState(false);
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | null>(null);
+  const tabStateHandle = useMemo(() => ({
+    captureTabState: (): WorkbenchTabStatePayload => ({
+      schema: 'noveltea.editor.image-generation-tab-state',
+      schemaVersion: 1,
+      payload: {
+        prompt,
+        editPrompt,
+        generateNegativePrompt,
+        editNegativePrompt,
+        generateWidth,
+        generateHeight,
+        generateSteps,
+        generateSeed,
+        generateCfg,
+        editSteps,
+        editSeed,
+        editCfg,
+        generateWorkflowKey,
+        editWorkflowKey,
+      },
+    }),
+    restoreTabState: (state: WorkbenchTabStatePayload) => {
+      if (state.schema !== 'noveltea.editor.image-generation-tab-state' || state.schemaVersion !== 1) return;
+      const payload = state.payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const values = payload as Record<string, unknown>;
+      const restoreString = (key: string, setter: (value: string) => void) => {
+        const value = values[key];
+        if (typeof value === 'string') setter(value);
+      };
+      restoreString('prompt', setPrompt);
+      restoreString('editPrompt', setEditPrompt);
+      restoreString('generateNegativePrompt', setGenerateNegativePrompt);
+      restoreString('editNegativePrompt', setEditNegativePrompt);
+      restoreString('generateWidth', setGenerateWidth);
+      restoreString('generateHeight', setGenerateHeight);
+      restoreString('generateSteps', setGenerateSteps);
+      restoreString('generateSeed', setGenerateSeed);
+      restoreString('generateCfg', setGenerateCfg);
+      restoreString('editSteps', setEditSteps);
+      restoreString('editSeed', setEditSeed);
+      restoreString('editCfg', setEditCfg);
+      restoreString('generateWorkflowKey', setGenerateWorkflowKey);
+      restoreString('editWorkflowKey', setEditWorkflowKey);
+    },
+  }), [editCfg, editNegativePrompt, editPrompt, editSeed, editSteps, editWorkflowKey, generateCfg, generateHeight, generateNegativePrompt, generateSeed, generateSteps, generateWidth, generateWorkflowKey, prompt]);
+  useWorkbenchEditorTabState(tab.id, tabStateHandle);
   const mounted = useRef(true);
   const generateQueuedFeedbackTimer = useRef<number | null>(null);
   const editQueuedFeedbackTimer = useRef<number | null>(null);

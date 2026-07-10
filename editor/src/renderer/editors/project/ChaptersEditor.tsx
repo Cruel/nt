@@ -9,10 +9,13 @@ import { authoringCollectionMetadata, isAuthoringCollectionKey } from '../../../
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import { recordTargetKey } from '@/workspace/project-explorer-store';
+import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
 
 function commandSucceeded(result: ReturnType<ReturnType<typeof useCommandStore.getState>['executeCommand']>) {
   return result.ok && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
+
+const CHAPTERS_TAB_STATE_SCHEMA = 'noveltea.editor.chapters-tab-state';
 
 export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
@@ -33,6 +36,24 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
     () => Object.entries(chapters.records).sort(([, left], [, right]) => (left.label || left.id).localeCompare(right.label || right.id)),
     [chapters.records],
   );
+
+  useWorkbenchEditorTabState(tab.id, useMemo(() => ({
+    captureTabState: (): WorkbenchTabStatePayload => ({
+      schema: CHAPTERS_TAB_STATE_SCHEMA,
+      schemaVersion: 1,
+      payload: { chapterId, label, color, selected: [...selected] },
+    }),
+    restoreTabState: (state: WorkbenchTabStatePayload) => {
+      if (state.schema !== CHAPTERS_TAB_STATE_SCHEMA || state.schemaVersion !== 1) return;
+      const payload = state.payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const values = payload as Record<string, unknown>;
+      if (typeof values.chapterId === 'string') setChapterId(values.chapterId);
+      if (typeof values.label === 'string') setLabel(values.label);
+      if (typeof values.color === 'string') setColor(values.color);
+      if (Array.isArray(values.selected) && values.selected.every((id: unknown) => typeof id === 'string')) setSelected(new Set(values.selected as string[]));
+    },
+  }), [chapterId, color, label, selected]));
 
   useEffect(() => {
     setMessage(null);

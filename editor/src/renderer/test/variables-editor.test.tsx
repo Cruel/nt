@@ -6,13 +6,30 @@ import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
+import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
 
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  clearWorkbenchTabStates();
 });
 
 describe('VariablesEditor', () => {
+  it('restores an unfinished creation draft after remount', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    const tab = { id: 'tab:variables', title: 'Variables', editorType: 'variables' };
+    const view = render(<VariablesEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'New variable' }));
+    await user.type(screen.getByPlaceholderText('has-key'), 'unfinished-score');
+    captureWorkbenchTabState(tab.id);
+    view.unmount();
+
+    render(<VariablesEditor tab={tab} />);
+    expect(screen.getByPlaceholderText('has-key')).toHaveValue('unfinished-score');
+  });
+
   it('renders existing variables and creates new variables through the shared dialog', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();

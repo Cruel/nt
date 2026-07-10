@@ -14,6 +14,7 @@ import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
 import { isAuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
 import {
   defaultVariableData,
@@ -102,6 +103,8 @@ function VariableDialog({
   submitLabel,
   onOpenChange,
   onSubmit,
+  draft,
+  onDraftChange,
 }: {
   open: boolean;
   initialDraft: VariableDraft;
@@ -109,23 +112,24 @@ function VariableDialog({
   submitLabel: string;
   onOpenChange: (open: boolean) => void;
   onSubmit: (draft: VariableDraft) => string | null;
+  draft: VariableDraft;
+  onDraftChange: (draft: VariableDraft) => void;
 }) {
-  const [draft, setDraft] = useState(initialDraft);
   const [message, setMessage] = useState<string | null>(null);
 
   const reset = () => {
-    setDraft(initialDraft);
+    onDraftChange(initialDraft);
     setMessage(null);
   };
 
   const changeType = (type: VariableType) => {
     const defaults = defaultVariableData(type);
-    setDraft((current) => ({
-      ...current,
+    onDraftChange({
+      ...draft,
       type,
       defaultText: variableDefaultValueToText(defaults.defaultValue),
-      enumText: type === 'enum' ? 'default' : current.enumText,
-    }));
+      enumText: type === 'enum' ? 'default' : draft.enumText,
+    });
   };
 
   const submit = () => {
@@ -158,7 +162,7 @@ function VariableDialog({
               value={draft.id}
               onChange={(event) => {
                 const id = event.currentTarget.value;
-                setDraft((current) => ({ ...current, id }));
+                onDraftChange({ ...draft, id });
               }}
               placeholder="has-key"
             />
@@ -169,7 +173,7 @@ function VariableDialog({
               value={draft.label}
               onChange={(event) => {
                 const label = event.currentTarget.value;
-                setDraft((current) => ({ ...current, label }));
+                onDraftChange({ ...draft, label });
               }}
               placeholder="Uses the ID when empty"
             />
@@ -182,7 +186,7 @@ function VariableDialog({
             value={draft.description}
             onChange={(event) => {
               const description = event.currentTarget.value;
-              setDraft((current) => ({ ...current, description }));
+              onDraftChange({ ...draft, description });
             }}
             placeholder="What this variable represents"
           />
@@ -204,7 +208,7 @@ function VariableDialog({
               <div className="flex h-8 items-center gap-2">
                 <Switch
                   checked={draft.defaultText === 'true'}
-                  onCheckedChange={(checked) => setDraft((current) => ({ ...current, defaultText: String(checked) }))}
+                  onCheckedChange={(checked) => onDraftChange({ ...draft, defaultText: String(checked) })}
                   aria-label="Default value"
                 />
                 <span className="text-sm text-muted-foreground">{draft.defaultText}</span>
@@ -212,7 +216,7 @@ function VariableDialog({
             ) : draft.type === 'enum' ? (
               <Select
                 value={draft.defaultText}
-                onValueChange={(value) => value && setDraft((current) => ({ ...current, defaultText: value }))}
+                onValueChange={(value) => value && onDraftChange({ ...draft, defaultText: value })}
               >
                 <SelectTrigger className="!h-8 w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -227,7 +231,7 @@ function VariableDialog({
                 value={draft.defaultText}
                 onChange={(event) => {
                   const defaultText = event.currentTarget.value;
-                  setDraft((current) => ({ ...current, defaultText }));
+                  onDraftChange({ ...draft, defaultText });
                 }}
               />
             )}
@@ -242,11 +246,11 @@ function VariableDialog({
               onChange={(event) => {
                 const enumText = event.currentTarget.value;
                 const values = parseEnumValuesText(enumText);
-                setDraft((current) => ({
-                  ...current,
+                onDraftChange({
+                  ...draft,
                   enumText,
-                  defaultText: values.includes(current.defaultText) ? current.defaultText : values[0] ?? '',
-                }));
+                  defaultText: values.includes(draft.defaultText) ? draft.defaultText : values[0] ?? '',
+                });
               }}
               placeholder="idle, active, complete"
             />
@@ -264,14 +268,26 @@ function VariableDialog({
   );
 }
 
-export function VariablesEditor(_props: WorkbenchEditorProps) {
+function parseVariableDraft(value: unknown): VariableDraft | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const draft = value as Record<string, unknown>;
+  if (!variableTypeValues.includes(draft.type as VariableType)) return null;
+  for (const key of ['id', 'label', 'description', 'defaultText', 'enumText']) {
+    if (typeof draft[key] !== 'string') return null;
+  }
+  return draft as unknown as VariableDraft;
+}
+
+export function VariablesEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const [creating, setCreating] = useState(false);
+  const [creatingDraft, setCreatingDraft] = useState(draftForNewVariable);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState<VariableDraft | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ variableId: string; usages: ReturnType<typeof findUsages> } | null>(null);
 
   const referenceIndex = useMemo(() => project ? buildReferenceIndex(project) : null, [project]);
@@ -284,6 +300,26 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
         return data ? [{ id, record, data, usages: findUsages(referenceIndex, { collection: 'variables', id }) }] : [];
       });
   }, [project, referenceIndex]);
+
+  useWorkbenchEditorTabState(tab.id, useMemo(() => ({
+    captureTabState: (): WorkbenchTabStatePayload => ({
+      schema: 'noveltea.editor.variables-tab-state',
+      schemaVersion: 1,
+      payload: { creating, creatingDraft, editingId, editingDraft },
+    }),
+    restoreTabState: (state: WorkbenchTabStatePayload) => {
+      if (state.schema !== 'noveltea.editor.variables-tab-state' || state.schemaVersion !== 1) return;
+      const payload = state.payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const values = payload as Record<string, unknown>;
+      const restoredCreatingDraft = parseVariableDraft(values.creatingDraft);
+      const restoredEditingDraft = parseVariableDraft(values.editingDraft);
+      setCreating(values.creating === true && !!restoredCreatingDraft);
+      if (restoredCreatingDraft) setCreatingDraft(restoredCreatingDraft);
+      setEditingId(typeof values.editingId === 'string' && restoredEditingDraft ? values.editingId : null);
+      setEditingDraft(restoredEditingDraft);
+    },
+  }), [creating, creatingDraft, editingDraft, editingId]));
 
   function run(command: Parameters<typeof executeCommand>[0]) {
     const result = executeCommand(command);
@@ -366,7 +402,7 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
           <h2 className="text-lg font-semibold">Variables</h2>
           <Badge variant="outline">{variables.length}</Badge>
         </div>
-        <Button size="sm" onClick={() => setCreating(true)}><Plus className="size-4" />New variable</Button>
+        <Button size="sm" onClick={() => { setCreatingDraft(draftForNewVariable()); setCreating(true); }}><Plus className="size-4" />New variable</Button>
       </div>
 
       <section className="mt-4 min-h-0 overflow-hidden rounded-md border" data-workbench-anchor="variable.rows">
@@ -393,7 +429,7 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
                   key={id}
                   className="group/row cursor-pointer border-t align-middle hover:bg-muted/30"
                   data-workbench-anchor={`variable.row.${id}`}
-                  onClick={() => setEditingId(id)}
+                  onClick={() => { setEditingDraft(draftForVariable(id, record, data)); setEditingId(id); }}
                 >
                   <td className="w-px whitespace-nowrap px-3 py-2 text-center">
                     <Button
@@ -454,6 +490,8 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
         submitLabel="Create variable"
         onOpenChange={setCreating}
         onSubmit={createVariable}
+        draft={creatingDraft}
+        onDraftChange={setCreatingDraft}
       />
 
       {editing ? (
@@ -465,6 +503,8 @@ export function VariablesEditor(_props: WorkbenchEditorProps) {
           submitLabel="Save changes"
           onOpenChange={(open) => { if (!open) setEditingId(null); }}
           onSubmit={(draft) => updateVariable(editing.id, draft)}
+          draft={editingDraft ?? draftForVariable(editing.id, editing.record, editing.data)}
+          onDraftChange={setEditingDraft}
         />
       ) : null}
 
