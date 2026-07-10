@@ -95,4 +95,12 @@ describe('project settings operations', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     expect(executeCommand(state, { type: 'project.setComfyUi', payload: { enabled: true } }).ok).toBe(false);
   });
+
+  it('normalizes display settings through an undoable atomic command', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
+    const result = executeCommand(state, { type: 'project.setDisplay', payload: { aspectRatio: { width: 1920, height: 1080 }, orientation: 'portrait', barColor: '#AABBCC' } });
+    expect(result.ok).toBe(true);
+    expect(result.state.document).toMatchObject({ settings: { display: { aspectRatio: { width: 16, height: 9 }, orientation: 'portrait', barColor: '#aabbcc' } } });
+    expect(undoCommand(result.state).state.document).not.toHaveProperty('settings.display');
+  });
 });

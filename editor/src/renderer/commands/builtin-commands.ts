@@ -36,6 +36,7 @@ import { replaceTestDataPatches } from '@/project/test-operations';
 import { replaceLayoutDataPatches } from '@/project/layout-operations';
 import {
   setProjectDefaultFontPatches,
+  setProjectDisplayPatches,
   setProjectEntrypointPatches,
   setProjectIconPatches,
   setProjectStartupPatches,
@@ -45,6 +46,7 @@ import {
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
 import { systemLayoutRoleValues } from '../../shared/project-schema/authoring-layouts';
+import { MAX_ASPECT_RATIO_COMPONENT } from '../../shared/project-schema/authoring-project-settings';
 import {
   assignChaptersPatches,
   createChapterPatches,
@@ -287,6 +289,14 @@ const setSystemLayoutSchema = z.object({
 const projectMetadataSchema = z.object({ name: z.string().optional(), version: z.string().optional(), author: z.string().optional(), description: z.string().optional() });
 const projectEntrypointSchema = z.object({ target: z.object({ collection: z.string().min(1), id: entityIdSchema }).nullable() });
 const projectStartupSchema = z.object({ initScript: z.string() });
+const projectDisplaySchema = z.object({
+  aspectRatio: z.object({
+    width: z.number().int().positive().max(MAX_ASPECT_RATIO_COMPONENT),
+    height: z.number().int().positive().max(MAX_ASPECT_RATIO_COMPONENT),
+  }),
+  orientation: z.enum(['landscape', 'portrait']),
+  barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+});
 const projectDefaultFontSchema = z.object({ assetId: entityIdSchema.nullable() });
 const projectTitleScreenSchema = z.object({
   titleImageId: entityIdSchema.nullable().optional(),
@@ -396,6 +406,9 @@ export const projectSetEntrypointCommand: CommandHandler = ({ document, payload 
 export const projectSetStartupCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectStartupSchema, payload, (parsed) => setProjectStartupPatches(document, parsed));
 
+export const projectSetDisplayCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectDisplaySchema, payload, (parsed) => setProjectDisplayPatches(document, parsed));
+
 export const projectSetSystemLayoutCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(setSystemLayoutSchema, payload, (parsed) => setProjectSystemLayoutPatches(document, parsed));
 
@@ -467,6 +480,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.updateMetadata': projectUpdateMetadataCommand,
     'project.setEntrypoint': projectSetEntrypointCommand,
     'project.setStartup': projectSetStartupCommand,
+    'project.setDisplay': projectSetDisplayCommand,
     'project.setSystemLayout': projectSetSystemLayoutCommand,
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
@@ -517,6 +531,7 @@ export function labelForCommand(type: string): string {
     case 'project.updateMetadata': return 'Update project metadata';
     case 'project.setEntrypoint': return 'Set project entrypoint';
     case 'project.setStartup': return 'Update project startup';
+    case 'project.setDisplay': return 'Update project display';
     case 'project.setSystemLayout': return 'Set project system layout';
     case 'project.setDefaultFont': return 'Set project default font';
     case 'project.setTitleScreen': return 'Update title screen settings';

@@ -39,6 +39,10 @@ variants fail during export instead of silently falling back at runtime. The res
 success, diagnostics, byte count, manifest JSON, and checksum summary without exposing
 archive-library types.
 
+The runtime `game` document and package manifest both include the normalized project display
+profile (`aspect_ratio`, `orientation`, and `bar_color`). Runtime loading treats the game document
+as authoritative and falls back to 16:9 landscape with black bars for older or invalid projects.
+
 `fileEntries` are the preferred editor-authoring path for referenced assets because they avoid
 copying broad project asset directories into runtime packages. Each entry provides an absolute
 source file and a runtime package path, for example:

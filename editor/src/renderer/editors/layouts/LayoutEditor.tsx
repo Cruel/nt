@@ -360,14 +360,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 {layoutPreviewBackgroundValues.map((background) => <SelectItem key={background} value={background}>{background}</SelectItem>)}
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label>Preview width</Label>
-              <Input type="number" value={data.preview.width} onChange={(event) => commit({ ...data, preview: { ...data.preview, width: Number(event.currentTarget.value) } }, 'Set layout preview width')} />
-            </div>
-            <div className="space-y-1">
-              <Label>Preview height</Label>
-              <Input type="number" value={data.preview.height} onChange={(event) => commit({ ...data, preview: { ...data.preview, height: Number(event.currentTarget.value) } }, 'Set layout preview height')} />
-            </div>
+            <p className="text-xs text-muted-foreground md:col-span-2">Preview aspect and orientation follow Project Settings. Legacy per-layout preview dimensions are retained when loading older documents but are no longer editable.</p>
           </section>
 
           <section className="space-y-3 rounded border p-3" data-workbench-anchor="layout.source.rml">

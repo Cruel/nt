@@ -251,6 +251,9 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     options.created_by = json.value("createdBy", std::string("noveltea-editor"));
     options.include_checksums = json.value("includeChecksums", true);
     options.strip_shader_sources = json.value("stripShaderSources", true);
+    if (auto display = json.find("display"); display != json.end() && display->is_object()) {
+        options.display = *display;
+    }
     options.shader_asset_root = json.value("shaderAssetRoot", std::string{});
     if (auto metadata = json.find("shaderMaterialMetadata"); metadata != json.end()) {
         options.shader_material_metadata = *metadata;

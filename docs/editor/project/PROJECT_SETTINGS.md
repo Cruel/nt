@@ -54,7 +54,16 @@ settings.titleScreen.showAuthor
 settings.titleScreen.subtitle
 settings.titleScreen.startLabel
 settings.app.icon
+settings.display.aspectRatio
+settings.display.orientation
+settings.display.barColor
 ```
+
+Display settings default to a normalized 16:9 landscape viewport with black presentation bars.
+The Display card provides common presets, custom positive integer ratio components, landscape or
+portrait orientation, and bar color. These settings constrain aspect ratio; they are not a fixed
+rendering resolution. Changes use the command bus and therefore participate in undo/redo and dirty
+state.
 
 ## Built-In Fallbacks
 

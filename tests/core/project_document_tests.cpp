@@ -388,6 +388,11 @@ TEST_CASE("ProjectPackageWriter exports runtime package with manifest and legacy
     options.asset_roots.push_back(PackageExportAssetRoot{temp / "project", ""});
     options.shader_asset_root = temp / "shaders";
     options.shader_variants = {"glsl-120"};
+    options.display = nlohmann::json::object({
+        {"aspect_ratio", {{"width", 9}, {"height", 16}}},
+        {"orientation", "portrait"},
+        {"bar_color", "#123456"},
+    });
 
     std::vector<std::byte> bytes;
     const auto exported = ProjectPackageWriter::write_to_memory(project, options, bytes);
@@ -421,6 +426,7 @@ TEST_CASE("ProjectPackageWriter exports runtime package with manifest and legacy
     CHECK(manifest["project"]["name"] == "Packaged Game");
     CHECK(manifest["project"]["version"] == "2.0");
     CHECK(manifest["shader_variants"] == nlohmann::json::array({"glsl-120"}));
+    CHECK(manifest["display"] == *options.display);
     CHECK(manifest["checksums"]["game"] == exported.checksums.at("game"));
 
     std::filesystem::remove_all(temp);

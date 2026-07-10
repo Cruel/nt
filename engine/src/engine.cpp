@@ -42,6 +42,49 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
 
 constexpr uint32_t kMaxFpsCap = 1000;
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
+constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
+
+std::optional<DisplayProfile> display_profile_from_project(const nlohmann::json& root)
+{
+    const auto display = root.find("display");
+    if (display == root.end()) {
+        return DisplayProfile{};
+    }
+    if (!display->is_object()) {
+        return std::nullopt;
+    }
+    const auto ratio = display->find("aspect_ratio");
+    const auto orientation = display->find("orientation");
+    const auto color = display->find("bar_color");
+    if (ratio == display->end() || !ratio->is_object() || orientation == display->end() ||
+        !orientation->is_string() || color == display->end() || !color->is_string()) {
+        return std::nullopt;
+    }
+    const auto width = ratio->value("width", 0u);
+    const auto height = ratio->value("height", 0u);
+    const auto orientation_value = orientation->get<std::string>();
+    const auto color_value = color->get<std::string>();
+    if (width == 0 || height == 0 || width > kMaxAspectRatioComponent ||
+        height > kMaxAspectRatioComponent ||
+        (orientation_value != "landscape" && orientation_value != "portrait") ||
+        color_value.size() != 7 || color_value.front() != '#' ||
+        !std::all_of(color_value.begin() + 1, color_value.end(),
+                     [](unsigned char value) { return std::isxdigit(value) != 0; })) {
+        return std::nullopt;
+    }
+    std::uint32_t rgb = 0;
+    try {
+        rgb = static_cast<std::uint32_t>(std::stoul(color_value.substr(1), nullptr, 16));
+    } catch (...) {
+        return std::nullopt;
+    }
+    DisplayProfile profile;
+    profile.aspect_ratio = normalize_aspect_ratio({width, height});
+    profile.orientation = orientation_value == "portrait" ? ScreenOrientation::Portrait
+                                                          : ScreenOrientation::Landscape;
+    profile.bar_color_rgba = (rgb << 8u) | 0xffu;
+    return profile;
+}
 
 uint32_t sanitize_fps_cap(uint32_t frames_per_second)
 {
@@ -677,6 +720,15 @@ bool Engine::load_runtime_project(const std::string& logical_path)
     std::string project_title;
     std::string start_label;
     auto load_document = [&](core::ProjectDocument document) {
+        const auto parsed_display = display_profile_from_project(document.root());
+        if (!parsed_display) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "[runtime] invalid /display; using 16:9 landscape with black bars");
+        }
+        m_display_profile = parsed_display.value_or(DisplayProfile{});
+        m_presentation = make_presentation_metrics(m_platform.surface(), m_display_profile);
+        m_renderer.resize(m_presentation);
+        m_runtime_ui.resize(m_presentation);
         project_title = json_string_or_empty(document.root(), core::project_ids::project_name);
         start_label = title_start_label(document.root());
         assets::FontAssetConfig font_config;

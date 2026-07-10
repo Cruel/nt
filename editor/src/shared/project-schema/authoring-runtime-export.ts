@@ -13,6 +13,7 @@ import { getSystemLayoutSetting, parseLayoutData, type SystemLayoutRole } from '
 import { parseVariableData } from './authoring-variables';
 import { buildShaderMaterialProject } from './shader-material-project';
 import type { PackageExportOptions, ToolDiagnostic } from '../editor-tooling';
+import { normalizeProjectDisplaySettings, projectSettingsFromProject } from './authoring-project-settings';
 
 export interface ExportFileEntry {
   source: string;
@@ -30,6 +31,7 @@ export interface ExportManifestPreview {
   assetCount: number;
   shaderVariants: string[];
   requiredShaderBinaryPaths: string[];
+  display?: { aspect_ratio: { width: number; height: number }; orientation: 'landscape' | 'portrait'; bar_color: string };
 }
 
 export interface AuthoringRuntimeExportBuildOptions {
@@ -629,6 +631,12 @@ export function buildAuthoringRuntimeExport(
   options: AuthoringRuntimeExportBuildOptions,
 ): AuthoringRuntimeExportBuildResult {
   const diagnostics: ToolDiagnostic[] = [];
+  const displaySettings = normalizeProjectDisplaySettings(projectSettingsFromProject(project).display);
+  const runtimeDisplay = {
+    aspect_ratio: displaySettings.aspectRatio,
+    orientation: displaySettings.orientation,
+    bar_color: displaySettings.barColor,
+  };
   const runtimeProject: Record<string, unknown> = {
     engine: 1,
     name: project.project.name,
@@ -644,6 +652,7 @@ export function buildAuthoringRuntimeExport(
     script: buildScripts(project),
     properties: buildVariableDefaults(project, diagnostics),
     startInv: [],
+    display: runtimeDisplay,
   };
 
   const runtimeUiPlaybackLayouts = buildRuntimeUiPlaybackLayouts(project, diagnostics);
@@ -682,6 +691,7 @@ export function buildAuthoringRuntimeExport(
     assetCount: fileEntries.length,
     shaderVariants,
     requiredShaderBinaryPaths,
+    display: runtimeDisplay,
   };
   const packageOptions: PackageExportOptions = {
     kind: options.profile.kind,
@@ -694,6 +704,7 @@ export function buildAuthoringRuntimeExport(
     shaderMaterialMetadata,
     requiredShaderBinaryPaths,
     fileEntries: fileEntries.map((entry) => ({ source: entry.source, packagePath: entry.packagePath })),
+    display: runtimeDisplay,
   };
 
   return {

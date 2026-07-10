@@ -56,6 +56,8 @@ describe('authoring runtime export builder', () => {
     ]);
     expect(result.packageOptions.fileEntries).toEqual([{ source: '/project/assets/images/foyer.png', packagePath: 'textures/foyer.png' }]);
     expect(result.packageOptions.shaderVariants).toEqual([]);
+    expect(result.runtimeProject).toMatchObject({ display: { aspect_ratio: { width: 16, height: 9 }, orientation: 'landscape', bar_color: '#000000' } });
+    expect(result.packageOptions.display).toEqual({ aspect_ratio: { width: 16, height: 9 }, orientation: 'landscape', bar_color: '#000000' });
     expect(result.manifestPreview).toMatchObject({ projectName: 'Export Demo', assetCount: 1, shaderVariants: [] });
   });
 

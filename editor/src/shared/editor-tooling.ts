@@ -55,6 +55,7 @@ export interface PackageExportOptions {
   requiredShaderBinaryPaths?: string[];
   assetRoots?: Array<{ root: string; packagePrefix?: string }>;
   fileEntries?: Array<{ source: string; packagePath: string }>;
+  display?: { aspect_ratio: { width: number; height: number }; orientation: 'landscape' | 'portrait'; bar_color: string };
 }
 
 export interface PackageExportResponse {

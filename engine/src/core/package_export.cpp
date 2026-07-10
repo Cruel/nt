@@ -350,6 +350,9 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
         {"name", options.project_name},
         {"version", options.project_version},
     });
+    if (options.display) {
+        manifest["display"] = *options.display;
+    }
     manifest["shader_variants"] = options.shader_variants;
     if (options.shader_material_metadata) {
         manifest["shader_materials"] = nlohmann::json::object({

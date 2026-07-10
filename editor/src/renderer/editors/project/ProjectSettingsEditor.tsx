@@ -17,7 +17,7 @@ import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/comma
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { getSystemLayoutSetting, systemLayoutRoleValues, type SystemLayoutRole } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { projectSettingsFromProject, validateTypedProjectSettings } from '../../../shared/project-schema/authoring-project-settings';
+import { DEFAULT_PROJECT_DISPLAY_SETTINGS, projectSettingsFromProject, validateTypedProjectSettings, type ProjectDisplaySettings } from '../../../shared/project-schema/authoring-project-settings';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
 import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
@@ -181,6 +181,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     runProjectCommand('project.setIcon', { assetId }, 'Set project icon');
   }
 
+  function setDisplay(display: ProjectDisplaySettings) {
+    runProjectCommand('project.setDisplay', display, 'Update project display');
+  }
+
   function openWorkflowManager() {
     navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
   }
@@ -297,6 +301,50 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   {fontAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.label} ({asset.id})</option>)}
                 </select>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card data-workbench-anchor="projectSettings.display">
+            <CardHeader>
+              <CardTitle>Display</CardTitle>
+              <CardDescription>Constrain the game viewport aspect; this does not set a fixed rendering resolution.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="display-aspect-preset">Aspect ratio</Label>
+                <select
+                  id="display-aspect-preset"
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value={['16:9', '16:10', '4:3', '3:2', '21:9'].includes(`${settings.display.aspectRatio.width}:${settings.display.aspectRatio.height}`) ? `${settings.display.aspectRatio.width}:${settings.display.aspectRatio.height}` : 'custom'}
+                  onChange={(event) => {
+                    if (event.currentTarget.value === 'custom') return;
+                    const [width, height] = event.currentTarget.value.split(':').map(Number);
+                    setDisplay({ ...settings.display, aspectRatio: { width, height } });
+                  }}
+                >
+                  {['16:9', '16:10', '4:3', '3:2', '21:9'].map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="display-orientation">Orientation</Label>
+                <select id="display-orientation" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={settings.display.orientation} onChange={(event) => setDisplay({ ...settings.display, orientation: event.currentTarget.value as ProjectDisplaySettings['orientation'] })}>
+                  <option value="landscape">Landscape</option>
+                  <option value="portrait">Portrait</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1"><Label>Ratio width</Label><Input type="number" min={1} max={10000} value={settings.display.aspectRatio.width} onChange={(event) => { const width = Number(event.currentTarget.value); if (Number.isInteger(width) && width > 0) setDisplay({ ...settings.display, aspectRatio: { ...settings.display.aspectRatio, width } }); }} /></div>
+                <div className="space-y-1"><Label>Ratio height</Label><Input type="number" min={1} max={10000} value={settings.display.aspectRatio.height} onChange={(event) => { const height = Number(event.currentTarget.value); if (Number.isInteger(height) && height > 0) setDisplay({ ...settings.display, aspectRatio: { ...settings.display.aspectRatio, height } }); }} /></div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="display-bar-color">Presentation bar color</Label>
+                <Input id="display-bar-color" type="color" value={settings.display.barColor} onChange={(event) => setDisplay({ ...settings.display, barColor: event.currentTarget.value })} />
+              </div>
+              <div className="flex items-center text-xs text-muted-foreground">
+                Effective ratio: {settings.display.orientation === 'landscape' ? `${settings.display.aspectRatio.width}:${settings.display.aspectRatio.height}` : `${settings.display.aspectRatio.height}:${settings.display.aspectRatio.width}`} {settings.display.orientation}
+              </div>
+              <div className="flex justify-end"><Button type="button" size="sm" variant="outline" onClick={() => setDisplay({ ...DEFAULT_PROJECT_DISPLAY_SETTINGS })}>Reset to default</Button></div>
             </CardContent>
           </Card>
 

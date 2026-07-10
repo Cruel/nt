@@ -57,6 +57,7 @@ struct PackageExportOptions {
     std::set<std::string> required_shader_binary_paths;
     bool strip_shader_sources = true;
     bool include_checksums = true;
+    std::optional<nlohmann::json> display;
 };
 
 struct PackageExportResult {

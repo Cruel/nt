@@ -1,7 +1,7 @@
 import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { toJsonValue, type JsonValue } from '@/project/json-value';
 import { layoutRecordRef, systemLayoutRoleValues, type SystemLayoutRole } from '../../shared/project-schema/authoring-layouts';
-import { assetRef, roomEntrypointRef } from '../../shared/project-schema/authoring-project-settings';
+import { assetRef, normalizeProjectDisplaySettings, roomEntrypointRef, type ProjectDisplaySettings } from '../../shared/project-schema/authoring-project-settings';
 import { isAuthoringProject, type ReferenceTarget } from '../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { isTagColor, normalizeTagKey, normalizeTagName } from '../../shared/project-schema/authoring-tags';
@@ -23,6 +23,8 @@ export interface SetProjectEntrypointPayload {
 export interface SetProjectStartupPayload {
   initScript: string;
 }
+
+export type SetProjectDisplayPayload = ProjectDisplaySettings;
 
 export interface SetProjectSystemLayoutPayload {
   role: SystemLayoutRole;
@@ -120,6 +122,20 @@ export function setProjectStartupPatches(document: unknown, payload: SetProjectS
   ensureSettingsObject(patches, documentValue, '/settings/startup');
   patches.push(patchValue(documentValue, '/settings/startup/initScript', payload.initScript));
   return { patches, affectedPaths: ['/settings/startup/initScript'] };
+}
+
+export function setProjectDisplayPatches(document: unknown, payload: SetProjectDisplayPayload): EntityOperationResult {
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  try {
+    const value = normalizeProjectDisplaySettings(payload);
+    const documentValue = toJsonValue(document);
+    return {
+      patches: [patchValue(documentValue, '/settings/display', value)],
+      affectedPaths: ['/settings/display'],
+    };
+  } catch {
+    return { patches: [], diagnostics: [error('Display settings are invalid.', '/settings/display')] };
+  }
 }
 
 export function setProjectSystemLayoutPatches(document: unknown, payload: SetProjectSystemLayoutPayload): EntityOperationResult {

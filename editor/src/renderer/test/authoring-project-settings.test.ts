@@ -26,7 +26,16 @@ describe('authoring project settings', () => {
     expect(settings.text.defaultFont).toBeNull();
     expect(settings.titleScreen).toMatchObject({ showProjectTitle: true, showAuthor: false, startLabel: 'Start' });
     expect(settings.startup.initScript).toBe('');
+    expect(settings.display).toEqual({ aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' });
     expect(settings).not.toHaveProperty('comfyui');
+  });
+
+  it('rejects malformed display settings', () => {
+    const project = createAuthoringProject();
+    project.settings.display = { aspectRatio: { width: 0, height: 9 }, orientation: 'sideways', barColor: 'black' };
+    expect(validateTypedProjectSettings(project)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'error', path: expect.stringContaining('/settings/display') }),
+    ]));
   });
 
   it('validates project-level layout, font, image, and icon refs', () => {

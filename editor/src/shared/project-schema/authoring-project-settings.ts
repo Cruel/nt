@@ -30,6 +30,40 @@ export const projectAppSettingsSchema = z.object({
   icon: imageAssetRefSchema.default(null),
 });
 
+export const DEFAULT_PROJECT_DISPLAY_SETTINGS = {
+  aspectRatio: { width: 16, height: 9 },
+  orientation: 'landscape',
+  barColor: '#000000',
+} as const;
+export const MAX_ASPECT_RATIO_COMPONENT = 10_000;
+
+const aspectRatioComponentSchema = z.number().int().positive().max(MAX_ASPECT_RATIO_COMPONENT);
+export const projectDisplaySettingsSchema = z.object({
+  aspectRatio: z.object({ width: aspectRatioComponentSchema, height: aspectRatioComponentSchema }),
+  orientation: z.enum(['landscape', 'portrait']),
+  barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Bar color must be a six-digit hex color.'),
+}).strict();
+
+export type ProjectDisplaySettings = z.infer<typeof projectDisplaySettingsSchema>;
+
+function greatestCommonDivisor(a: number, b: number): number {
+  while (b !== 0) [a, b] = [b, a % b];
+  return a;
+}
+
+export function normalizeProjectDisplaySettings(value: unknown): ProjectDisplaySettings {
+  const parsed = projectDisplaySettingsSchema.parse(value ?? DEFAULT_PROJECT_DISPLAY_SETTINGS);
+  const divisor = greatestCommonDivisor(parsed.aspectRatio.width, parsed.aspectRatio.height);
+  return {
+    aspectRatio: {
+      width: parsed.aspectRatio.width / divisor,
+      height: parsed.aspectRatio.height / divisor,
+    },
+    orientation: parsed.orientation,
+    barColor: parsed.barColor.toLowerCase(),
+  };
+}
+
 export const typedProjectSettingsSchema = z.object({
   startup: projectStartupSettingsSchema.default({ initScript: '' }),
   ui: z.object({ systemLayouts: systemLayoutSettingsSchema }).default({ systemLayouts: {} }),
@@ -42,6 +76,7 @@ export const typedProjectSettingsSchema = z.object({
     startLabel: 'Start',
   }),
   app: projectAppSettingsSchema.default({ icon: null }),
+  display: projectDisplaySettingsSchema.default(DEFAULT_PROJECT_DISPLAY_SETTINGS),
 }).passthrough();
 
 export type AssetRecordRef = z.infer<typeof assetRecordRefSchema>;
