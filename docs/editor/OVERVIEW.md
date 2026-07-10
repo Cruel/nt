@@ -16,6 +16,10 @@ Use this entrypoint before changing the Electron editor under `editor/`. It rout
 
 Workbench navigation, deep links, diagnostics, tab state, and preview ownership rules are currently centralized in `docs/editor/AGENT_GUIDE.md`.
 
+- `docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md` — lifecycle, placement,
+  visibility, group-service bridging, teardown, and verification for editors
+  that remain mounted while open.
+
 Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`. If the system grows enough to need a dedicated document, create one under `docs/editor/workbench/` and link it here instead of adding one-off navigation rules to individual editor docs.
 
 ## Preview and Test Playback

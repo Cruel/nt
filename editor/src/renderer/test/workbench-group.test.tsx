@@ -335,6 +335,44 @@ describe('WorkbenchGroup mount policy rendering', () => {
     expect(counters.playUnmounts).toBe(1);
   });
 
+  it('tears down persistent hosts for close-all, close-others, and project close', () => {
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
+
+    act(() => useWorkbenchStore.getState().closeAllTabsInGroup('root'));
+    expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
+    expect(counters.playUnmounts).toBe(1);
+
+    act(() => replaceWorkbenchGroup(playTab.id));
+    expect(screen.getByTestId('play-editor')).toBeInTheDocument();
+    act(() => useWorkbenchStore.getState().closeOtherTabs('root', normalTab.id));
+    expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
+    expect(counters.playUnmounts).toBe(2);
+
+    act(() => replaceWorkbenchGroup(playTab.id));
+    expect(screen.getByTestId('play-editor')).toBeInTheDocument();
+    act(() => useWorkbenchStore.getState().closeProjectTabs());
+    expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
+    expect(counters.playUnmounts).toBe(3);
+  });
+
+  it('tears down on reset and creates a new host when a closed tab is reopened', () => {
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
+    const firstEditor = screen.getByTestId('play-editor');
+
+    act(() => useWorkbenchStore.getState().closeTab('root', playTab.id));
+    expect(counters.playUnmounts).toBe(1);
+    act(() => useWorkbenchStore.getState().reopenLastClosedTab());
+    const reopenedEditor = screen.getByTestId('play-editor');
+    expect(reopenedEditor).not.toBe(firstEditor);
+    expect(counters.playMounts).toBe(2);
+
+    act(() => useWorkbenchStore.getState().resetWorkbench());
+    expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
+    expect(counters.playUnmounts).toBe(2);
+  });
+
   it('renders a slot instead of a group-owned editor for an active persistent tab', () => {
     const view = renderGroup(group(playTab.id));
 

@@ -52,9 +52,21 @@ Do not duplicate diagnostic card markup across editors when adding new diagnosti
 
 Open tabs should preserve expected user-facing state: scroll positions, source-editor selection/scroll, selected panels, split sizes, graph viewports, and similar state. See the editor agent guide before changing tab mounting, restoration, or preview ownership.
 
+Editors registered as `keep-mounted-while-open` are owned by the stable
+workbench host layer, not a tab group. Moving or docking one must preserve its
+React subtree and live resources; cross-group state capture must not be restored
+over that still-mounted state. See
+`docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md` for the complete contract.
+
 ### Preview Ownership
 
 Preview iframe/runtime ownership must follow the preview pooling plan. Derived entity previews should not create ad-hoc iframe hosts when a pooled `PreviewPane`/`PreviewHostPool` path exists or is planned for that editor type. Stateful runtime previews should keep their dedicated lifecycle explicit.
+
+Persistent editor ownership and group preview pooling are compatible but
+distinct. A persistent editor with a pooled preview keeps its editor subtree
+while transferring its preview lease through the group-service bridge. The Play
+editor instead owns a dedicated preview for its open-tab lifetime. See
+`docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
 
 ### Localization
 

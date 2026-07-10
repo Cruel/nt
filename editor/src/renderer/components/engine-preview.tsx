@@ -6,6 +6,7 @@ import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { normalizePreviewFpsCap, usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useOptionalWorkbenchEditorLocation } from '@/workbench/workbench-editor-location';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { PreviewConnectionState, PreviewDocument, PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
@@ -61,6 +62,7 @@ export function EnginePreview({
   const setFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
+  const editorLocation = useOptionalWorkbenchEditorLocation();
   const activateGroup = useWorkbenchStore((s) => s.activateGroup);
   const {
     handlePreviewMessage: bridgePreviewMessage,
@@ -80,9 +82,11 @@ export function EnginePreview({
   const setSanitizedFpsCap = useCallback((value: number) => setFpsCap(value), [setFpsCap]);
 
   const activateContainingWorkbenchGroup = useCallback((groupId?: string) => {
-    const nextGroupId = groupId ?? wrapperRef.current?.closest<HTMLElement>('[data-workbench-group-id]')?.dataset.workbenchGroupId;
+    const nextGroupId = groupId
+      ?? editorLocation?.groupId
+      ?? wrapperRef.current?.closest<HTMLElement>('[data-workbench-group-id]')?.dataset.workbenchGroupId;
     if (nextGroupId) activateGroup(nextGroupId);
-  }, [activateGroup]);
+  }, [activateGroup, editorLocation?.groupId]);
 
   const recordTransportError = useCallback((message: string) => {
     bridgeTransportError(message, setConnectionState);

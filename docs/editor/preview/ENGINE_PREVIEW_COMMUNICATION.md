@@ -36,6 +36,22 @@ with the focused document.
 Zustand remains the authoritative editor-side state. The engine owns runtime
 state needed for rendering and hit testing.
 
+## Workbench Preview Lifetime
+
+The Play editor is registered as a persistent workbench editor with a
+`dedicated-while-open` preview. Its editor subtree, iframe, MessageChannel, and
+runtime are owned by the stable workbench host layer rather than by the current
+tab group. Moving or edge-docking the tab changes only measured placement and
+explicit group location; it must not recreate the iframe or reload the preview
+session.
+
+Inactive Play hosts remain mounted but hidden, inert, and presentation-paused.
+Closing the tab, closing or switching the project, or resetting the workbench
+still tears the host down. Derived entity previews remain pooled per tab group;
+a persistent editor using such a preview transfers only its pool lease when it
+moves. The full lifecycle and placement contract is documented in
+`docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
+
 ## Electron IPC
 
 The renderer asks the Electron main process for a preview session through the
