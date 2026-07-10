@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
 import type { AssetData } from '../../../shared/project-schema/authoring-assets';
 
@@ -25,8 +26,9 @@ function kindLabel(kind: AssetData['kind']) {
   }
 }
 
-export function AssetPreview({ label, data, compact = false }: AssetPreviewProps) {
+export function AssetPreview({ assetId, label, data, compact = false }: AssetPreviewProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const deletedAsset = useAssetTrashStore((state) => state.deletedAssets[assetId]);
   const [assetUrl, setAssetUrl] = useState<string | null>(null);
   const [absolutePath, setAbsolutePath] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function AssetPreview({ label, data, compact = false }: AssetPreviewProps
         if (!canceled) setLoadError(error instanceof Error ? error.message : 'Asset URL could not be resolved.');
       });
     return () => { canceled = true; };
-  }, [canResolve, data.source.path, projectFilePath]);
+  }, [canResolve, data.source.path, deletedAsset, projectFilePath]);
 
   if (compact) {
     return (

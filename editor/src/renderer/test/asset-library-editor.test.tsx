@@ -60,4 +60,18 @@ describe('AssetLibraryEditor', () => {
     expect(screen.queryByText('Click')).not.toBeInTheDocument();
   });
 
+  it('renames an asset inline through the command bus', async () => {
+    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    render(<AssetLibraryEditor tab={tab} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit name for Logo' }));
+    const input = screen.getByRole('textbox', { name: 'Edit name for Logo' });
+    fireEvent.change(input, { target: { value: 'Brand Logo' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(screen.getByText('Brand Logo')).toBeInTheDocument());
+    expect(screen.queryByText('Logo')).not.toBeInTheDocument();
+    expect((useProjectStore.getState().document as ReturnType<typeof project>).assets.logo.label).toBe('Brand Logo');
+  });
+
 });

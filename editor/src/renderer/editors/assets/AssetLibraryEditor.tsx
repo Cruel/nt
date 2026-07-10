@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Images, Pencil, Trash2 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { ExternalLink, Images, Pencil, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TagInput } from '@/components/tags/TagInput';
 import { Input } from '@/components/ui/input';
@@ -63,8 +62,7 @@ function AssetContextMenu({ state, projectFilePath, onClose }: { state: AssetCon
 
   return (
     <div className="fixed z-50 min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg" style={{ left: state.x, top: state.y }} onClick={(event) => event.stopPropagation()}>
-      <button className={itemClass} onClick={() => { openTab(buildAssetDetailTabForRecord(asset.id, asset.label)); onClose(); }}><Pencil className="h-3.5 w-3.5" /> Open</button>
-      <button className={itemClass} onClick={() => { openTab(buildImageGenerationTab()); onClose(); }}><Images className="h-3.5 w-3.5" /> Generate Image</button>
+      <button className={itemClass} onClick={() => { openTab(buildAssetDetailTabForRecord(asset.id, asset.label)); onClose(); }}><ExternalLink className="h-3.5 w-3.5" /> Open</button>
       <button
         className={itemClass}
         disabled={asset.data?.kind !== 'image'}
@@ -90,6 +88,9 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
   const [kind, setKind] = useState('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [contextMenu, setContextMenu] = useState<AssetContextMenuState | null>(null);
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const executeCommand = useCommandStore((store) => store.executeCommand);
   const allAssets = useMemo(() => {
     if (!project) return [];
     return Object.entries(project.assets)
@@ -119,55 +120,119 @@ export function AssetLibraryEditor(_props: WorkbenchEditorProps) {
   const kinds = useMemo(() => [...new Set(allAssets.map((asset) => asset.data?.kind).filter(Boolean))].sort(), [allAssets]);
   const tagSuggestions = useMemo(() => project ? collectProjectTags(project, selectedTags) : [], [project, selectedTags]);
 
+  function beginRename(asset: AssetListItem) {
+    setEditingAssetId(asset.id);
+    setEditingName(asset.label);
+  }
+
+  function cancelRename() {
+    setEditingAssetId(null);
+    setEditingName('');
+  }
+
+  function saveRename(asset: AssetListItem) {
+    const nextName = editingName.trim();
+    if (!nextName || nextName === asset.label) {
+      cancelRename();
+      return;
+    }
+    const result = executeCommand({
+      type: 'entity.updateMetadata',
+      label: `Rename asset ${asset.label}`,
+      payload: { collection: 'assets', entityId: asset.id, label: nextName },
+    });
+    if (!result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) cancelRename();
+  }
+
   if (!project) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to browse assets.</div>;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background p-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 pb-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold">Assets</h2>
-          <p className="text-xs text-muted-foreground">Global asset pool. Select an asset to open its detail tab.</p>
+          <h2 className="text-base font-semibold">Assets</h2>
         </div>
-        <Button size="sm" className="h-8 gap-2" onClick={() => openTab(buildImageGenerationTab())}><Images className="h-3.5 w-3.5" /> Generate Image</Button>
-        <Input className="h-8 w-56" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search assets" />
-        <select className="h-8 rounded-md border border-input bg-background px-2 text-xs" value={kind} onChange={(event) => setKind(event.currentTarget.value)} aria-label="Asset type">
+        <Button size="sm" className="h-7 gap-1.5 px-2.5" onClick={() => openTab(buildImageGenerationTab())}><Images className="h-3.5 w-3.5" /> Generate</Button>
+        <Input className="h-7 w-44 text-xs" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search assets" />
+        <select className="h-7 rounded-md border border-input bg-background px-2 text-xs" value={kind} onChange={(event) => setKind(event.currentTarget.value)} aria-label="Asset type">
           <option value="all">All types</option>
           {kinds.map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
-        <TagInput className="min-w-64 max-w-sm flex-1" value={selectedTags} onChange={setSelectedTags} suggestions={tagSuggestions} placeholder="Filter by tag" allowCreate={false} />
+        <TagInput className="min-w-48 max-w-xs flex-1" value={selectedTags} onChange={setSelectedTags} suggestions={tagSuggestions} placeholder="Filter by tag" allowCreate={false} />
       </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {assets.map((asset) => (
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-1">
+          {assets.map((asset) => (
           <div
             key={asset.id}
-            className="rounded border p-3 text-left transition-colors hover:bg-accent"
+            className="group min-w-0 rounded-md border border-transparent p-1.5 text-left transition-colors hover:border-border hover:bg-accent/50"
             onContextMenu={(event) => { event.preventDefault(); setContextMenu({ asset, x: event.clientX, y: event.clientY }); }}
           >
-            <div className="flex items-start gap-3">
+            <div className="space-y-1.5">
               <button
                 type="button"
-                className="h-20 w-20 shrink-0 overflow-hidden rounded border bg-muted/30 text-left"
+                className="block aspect-square w-full overflow-hidden rounded border bg-muted/30 text-left transition-shadow group-hover:border-muted-foreground/30 group-hover:shadow-sm"
                 onClick={() => openTab(buildAssetDetailTabForRecord(asset.id, asset.label))}
                 aria-label={`Open ${asset.label}`}
               >
-                {asset.data ? <AssetPreview assetId={asset.id} label={asset.label} data={asset.data} compact /> : null}
+                {asset.data ? <AssetPreview assetId={asset.id} label={asset.label} data={asset.data} compact /> : <span className="flex h-full items-center justify-center text-xs text-muted-foreground">Invalid</span>}
               </button>
-              <button
-                type="button"
-                className="min-w-0 flex-1 text-left"
-                onClick={() => openTab(buildAssetDetailTabForRecord(asset.id, asset.label))}
-              >
-                <div className="truncate font-medium">{asset.label}</div>
-                <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{asset.id}</div>
-                {asset.data ? <Badge variant="secondary" className="mt-2">{asset.data.kind}</Badge> : <Badge variant="destructive" className="mt-2">invalid</Badge>}
-                <div className="mt-2 truncate text-xs text-muted-foreground">{asset.data?.source.path ?? 'Invalid asset data'}</div>
-              </button>
+              <div className="group/name relative flex h-6 min-w-0 items-center">
+                {editingAssetId === asset.id ? (
+                  <div className="absolute inset-0 z-20 flex items-center gap-0.5 bg-background">
+                  <input
+                    autoFocus
+                    className="h-6 min-w-0 flex-1 rounded border bg-background px-1.5 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                    value={editingName}
+                    onChange={(event) => setEditingName(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') saveRename(asset);
+                      if (event.key === 'Escape') cancelRename();
+                    }}
+                    aria-label={`Edit name for ${asset.label}`}
+                  />
+                  <Button type="button" size="icon-sm" variant="ghost" className="size-6 shrink-0" onClick={cancelRename} aria-label="Cancel asset name edit">
+                    <X className="size-3.5" />
+                  </Button>
+                  </div>
+                ) : (
+                  <>
+                  <button
+                    type="button"
+                    className="block min-w-0 flex-1 truncate px-0.5 text-left text-xs font-medium hover:text-foreground group-hover:pr-6"
+                    onClick={() => openTab(buildAssetDetailTabForRecord(asset.id, asset.label))}
+                    title={asset.label}
+                  >
+                    {asset.label}
+                  </button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    className="invisible absolute right-0 top-1/2 z-10 size-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:visible group-hover:opacity-100 focus-visible:visible focus-visible:opacity-100"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      beginRename(asset);
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      beginRename(asset);
+                    }}
+                    aria-label={`Edit name for ${asset.label}`}
+                  >
+                    <Pencil className="size-3" />
+                  </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        ))}
+          ))}
+        </div>
+        {assets.length === 0 ? <div className="mt-3 rounded border p-3 text-sm text-muted-foreground">No assets match the current filter.</div> : null}
       </div>
       <AssetContextMenu state={contextMenu} projectFilePath={projectFilePath} onClose={() => setContextMenu(null)} />
-      {assets.length === 0 ? <div className="mt-8 rounded border p-4 text-sm text-muted-foreground">No assets match the current filter.</div> : null}
     </div>
   );
 }
