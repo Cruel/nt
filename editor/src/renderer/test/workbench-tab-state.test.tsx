@@ -2,13 +2,16 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildEditorProjectStateSnapshot, restoreEditorProjectState } from '@/workbench/project-editor-state';
 import {
+  captureWorkbenchTabState,
   clearWorkbenchTabStates,
   registerWorkbenchTabStateHandle,
   serializeWorkbenchTabStates,
   setWorkbenchTabState,
+  useWorkbenchEditorTabState,
   useWorkbenchTabStateStore,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { Workbench } from '@/workbench/Workbench';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
@@ -53,6 +56,12 @@ const lifecycle = vi.hoisted(() => ({
   restoredValues: [] as Array<{ tabId: string; value: string }>,
 }));
 
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 vi.mock('@/workbench/default-editors', async () => {
   const React = await import('react');
   const tabState = await import('@/workbench/workbench-tab-state');
@@ -73,12 +82,13 @@ vi.mock('@/workbench/default-editors', async () => {
   }
 
   function TestKeepMountedEditor({ tab }: { tab: WorkbenchTab }) {
-    tabState.useWorkbenchEditorTabState(tab.id, {
+    const handle = React.useMemo(() => ({
       captureTabState: () => state(lifecycle.currentValues.get(tab.id) ?? 'keep-mounted'),
-      restoreTabState: (nextState) => {
+      restoreTabState: (nextState: WorkbenchTabStatePayload) => {
         lifecycle.restoredValues.push({ tabId: tab.id, value: payloadValue(nextState) ?? 'missing' });
       },
-    });
+    }), [tab.id]);
+    tabState.useWorkbenchEditorTabState(tab.id, handle);
     return <div data-testid={`editor-${tab.id}`}>{tab.title}</div>;
   }
 
@@ -124,7 +134,53 @@ function renderGroup(model: WorkbenchGroupModel, tabs: WorkbenchTab[]) {
   );
 }
 
+function ChangingHandleEditor({
+  tabId,
+  version,
+  onRestore,
+}: {
+  tabId: string;
+  version: number;
+  onRestore: (value: string) => void;
+}) {
+  useWorkbenchEditorTabState(tabId, {
+    captureTabState: () => state(`captured:${version}`),
+    restoreTabState: (nextState) => onRestore(`${version}:${payloadValue(nextState)}`),
+  });
+  return <div>Version {version}</div>;
+}
+
+function replaceSplitWorkbench(first: WorkbenchTab, second: WorkbenchTab) {
+  useWorkbenchStore.getState().replaceWorkbench({
+    layout: {
+      kind: 'split',
+      id: 'split:test',
+      direction: 'horizontal',
+      children: [
+        { kind: 'group', groupId: ROOT_GROUP_ID },
+        { kind: 'group', groupId: 'group:target' },
+      ],
+    },
+    groupsById: {
+      [ROOT_GROUP_ID]: group(first.id, [first.id]),
+      'group:target': {
+        id: 'group:target',
+        tabIds: [second.id],
+        activeTabId: second.id,
+        activationHistory: [second.id],
+      },
+    },
+    tabsById: {
+      [first.id]: first,
+      [second.id]: second,
+    },
+    activeGroupId: ROOT_GROUP_ID,
+    recentlyClosedTabs: [],
+  });
+}
+
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', ResizeObserverMock);
   clearWorkbenchTabStates();
   lifecycle.currentValues.clear();
   lifecycle.restoredValues = [];
@@ -177,6 +233,20 @@ describe('workbench tab-state registry', () => {
     });
 
     expect(restores).toEqual(['pending']);
+  });
+
+  it('keeps registration stable while using the latest handle callbacks', async () => {
+    const tabId = 'tab:changing-handle';
+    const restores: string[] = [];
+    setWorkbenchTabState(tabId, state('saved'));
+    const view = render(<ChangingHandleEditor tabId={tabId} version={1} onRestore={(value) => restores.push(value)} />);
+
+    await waitFor(() => expect(restores).toEqual(['1:saved']));
+    view.rerender(<ChangingHandleEditor tabId={tabId} version={2} onRestore={(value) => restores.push(value)} />);
+
+    expect(restores).toEqual(['1:saved']);
+    captureWorkbenchTabState(tabId);
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tabId])).toBe('captured:2');
   });
 });
 
@@ -252,6 +322,46 @@ describe('workbench tab-state lifecycle', () => {
 
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toBeUndefined();
     expect(lifecycle.restoredValues).toEqual([]);
+  });
+
+  it('captures but does not restore live persistent state during a cross-group move', () => {
+    const persistent = {
+      ...rawTab('persistent'),
+      editorType: 'test-keep-mounted-editor',
+    };
+    const target = rawTab('target');
+    replaceSplitWorkbench(persistent, target);
+    render(<Workbench />);
+    lifecycle.currentValues.set(persistent.id, 'live-persistent-state');
+
+    act(() => useWorkbenchStore.getState().moveTab({
+      tabId: persistent.id,
+      fromGroupId: ROOT_GROUP_ID,
+      toGroupId: 'group:target',
+    }));
+
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[persistent.id])).toBe('live-persistent-state');
+    expect(lifecycle.restoredValues).toEqual([]);
+  });
+
+  it('restores an active-only editor after a real cross-group remount', async () => {
+    const moving = rawTab('moving');
+    const target = rawTab('target');
+    replaceSplitWorkbench(moving, target);
+    render(<Workbench />);
+    lifecycle.currentValues.set(moving.id, 'captured-before-move');
+
+    act(() => useWorkbenchStore.getState().moveTab({
+      tabId: moving.id,
+      fromGroupId: ROOT_GROUP_ID,
+      toGroupId: 'group:target',
+    }));
+
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[moving.id])).toBe('captured-before-move');
+    await waitFor(() => expect(lifecycle.restoredValues).toContainEqual({
+      tabId: moving.id,
+      value: 'captured-before-move',
+    }));
   });
 
   it('retains recently closed tab state, restores on reopen, and expires trimmed entries', () => {

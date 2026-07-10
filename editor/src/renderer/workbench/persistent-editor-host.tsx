@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useLayoutEffect,
   useMemo,
@@ -27,6 +28,7 @@ interface PersistentEditorSlotRegistry {
   allocateGeneration: () => number;
   getSlot: (tabId: string) => PersistentEditorSlotRegistration | null;
   getVersion: () => number;
+  isCurrent: (slot: PersistentEditorSlotRegistration) => boolean;
   registerSlot: (slot: PersistentEditorSlotRegistration) => () => void;
   subscribe: (listener: () => void) => () => void;
 }
@@ -46,6 +48,7 @@ function createPersistentEditorSlotRegistry(): PersistentEditorSlotRegistry {
     allocateGeneration: () => nextGeneration++,
     getSlot: (tabId) => slotsByTabId.get(tabId) ?? null,
     getVersion: () => version,
+    isCurrent: (slot) => slotsByTabId.get(slot.tabId) === slot,
     registerSlot: (slot) => {
       slotsByTabId.set(slot.tabId, slot);
       notify();
@@ -107,6 +110,7 @@ export function PersistentEditorSlot({ tabId, groupId }: { tabId: string; groupI
 interface PersistentEditorPlacement {
   groupId: string;
   slotGeneration: number;
+  slotElement: HTMLDivElement;
   left: number;
   top: number;
   width: number;
@@ -125,7 +129,7 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
   const [placement, setPlacement] = useState<PersistentEditorPlacement | null>(null);
   const resolved = resolveWorkbenchEditor(defaultEditorRegistry, tab);
 
-  useLayoutEffect(() => {
+  const measurePlacement = useCallback(() => {
     const root = rootRef.current;
     const slot = slots.getSlot(tab.id);
     if (!root || !groupId || !isActiveInGroup || !slot || slot.groupId !== groupId || !slot.element.isConnected) {
@@ -134,19 +138,38 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
     }
     const rootRect = root.getBoundingClientRect();
     const slotRect = slot.element.getBoundingClientRect();
-    if (slotRect.width <= 0 || slotRect.height <= 0) {
+    if (
+      !slots.isCurrent(slot)
+      || slot.groupId !== groupId
+      || !slot.element.isConnected
+      || slotRect.width <= 0
+      || slotRect.height <= 0
+    ) {
       setPlacement(null);
       return;
     }
     setPlacement({
       groupId,
       slotGeneration: slot.generation,
+      slotElement: slot.element,
       left: slotRect.left - rootRect.left,
       top: slotRect.top - rootRect.top,
       width: slotRect.width,
       height: slotRect.height,
     });
-  }, [groupId, isActiveInGroup, rootRef, slotVersion, slots, tab.id]);
+  }, [groupId, isActiveInGroup, rootRef, slots, tab.id]);
+
+  useLayoutEffect(() => {
+    measurePlacement();
+    const root = rootRef.current;
+    const slot = slots.getSlot(tab.id);
+    if (!root || !slot || slot.groupId !== groupId) return undefined;
+
+    const resizeObserver = new ResizeObserver(measurePlacement);
+    resizeObserver.observe(root);
+    resizeObserver.observe(slot.element);
+    return () => resizeObserver.disconnect();
+  }, [groupId, measurePlacement, rootRef, slotVersion, slots, tab.id]);
 
   const currentSlot = slots.getSlot(tab.id);
   const isVisible = Boolean(
@@ -156,6 +179,8 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
     && currentSlot
     && currentSlot.groupId === groupId
     && currentSlot.generation === placement.slotGeneration
+    && currentSlot.element === placement.slotElement
+    && currentSlot.element.isConnected
     && placement.groupId === groupId,
   );
   const location = {

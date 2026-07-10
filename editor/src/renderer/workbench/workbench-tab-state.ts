@@ -231,7 +231,21 @@ export function useWorkbenchEditorTabState<TTabState extends WorkbenchTabStatePa
   tabId: string,
   handle: WorkbenchEditorTabStateHandle<TTabState>,
 ): void {
-  useEffect(() => registerWorkbenchTabStateHandle(tabId, handle), [handle, tabId]);
+  const latestHandleRef = useRef(handle);
+  latestHandleRef.current = handle;
+
+  const stableHandleRef = useRef<WorkbenchEditorTabStateHandle<TTabState> | null>(null);
+  if (!stableHandleRef.current) {
+    stableHandleRef.current = {
+      captureTabState: () => latestHandleRef.current.captureTabState(),
+      restoreTabState: (state) => latestHandleRef.current.restoreTabState(state),
+    };
+  }
+
+  useEffect(
+    () => registerWorkbenchTabStateHandle(tabId, stableHandleRef.current!),
+    [tabId],
+  );
 }
 
 export function setWorkbenchTabState(tabId: string, state: WorkbenchTabStatePayload): void {

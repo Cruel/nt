@@ -174,29 +174,27 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     pruneWorkbenchTabStates(tabStateKeepIds(next));
     return toStoreState(next);
   }),
+  // Structural moves keep snapshots current, but restoration belongs to a newly
+  // registered editor handle. Restoring here would overwrite live persistent state.
   splitGroup: (options) => set((state) => {
     captureActiveGroupTab(state, options.sourceGroupId);
     const next = splitWorkbenchGroup(state, options, createId);
-    restoreWorkbenchTabState(next.groupsById[next.activeGroupId]?.activeTabId ?? '');
     return toStoreState(next);
   }),
   setSplitSizesByChild: (splitId, sizesByChild) => set((state) => toStoreState(setWorkbenchSplitSizesByChild(state, splitId, sizesByChild))),
   dockTabToGroupEdge: (options) => set((state) => {
     captureWorkbenchTabState(options.tabId);
     const next = dockWorkbenchTabToGroupEdge(state, options, createId);
-    restoreWorkbenchTabState(options.tabId);
     return toStoreState(next);
   }),
   moveTab: (options) => set((state) => {
     captureWorkbenchTabState(options.tabId);
     const next = moveWorkbenchTab(state, options);
-    if (options.activate !== false) restoreWorkbenchTabState(options.tabId);
     return toStoreState(next);
   }),
   moveTabWithinGroup: (groupId, tabId, toIndex) => set((state) => {
     captureWorkbenchTabState(tabId);
     const next = moveWorkbenchTabWithinGroup(state, groupId, tabId, toIndex);
-    restoreWorkbenchTabState(tabId);
     return toStoreState(next);
   }),
   setTabDirty: (tabId, dirty) => set((state) => toStoreState(setWorkbenchTabDirty(state, tabId, dirty))),

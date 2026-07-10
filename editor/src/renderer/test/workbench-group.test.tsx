@@ -13,6 +13,8 @@ const counters = vi.hoisted(() => ({
   normalUnmounts: 0,
   playMounts: 0,
   playUnmounts: 0,
+  secondaryMounts: 0,
+  secondaryUnmounts: 0,
 }));
 
 vi.mock('@/workbench/default-editors', async () => {
@@ -34,13 +36,24 @@ vi.mock('@/workbench/default-editors', async () => {
   }
 
   function PlayEditor() {
+    const [localValue, setLocalValue] = React.useState(0);
     React.useEffect(() => {
       counters.playMounts += 1;
       return () => {
         counters.playUnmounts += 1;
       };
     }, []);
-    return <button data-testid="play-editor">Play editor</button>;
+    return <button data-testid="play-editor" onClick={() => setLocalValue((value) => value + 1)}>Play editor {localValue}</button>;
+  }
+
+  function SecondaryPersistentEditor() {
+    React.useEffect(() => {
+      counters.secondaryMounts += 1;
+      return () => {
+        counters.secondaryUnmounts += 1;
+      };
+    }, []);
+    return <div data-testid="secondary-persistent-editor">Secondary persistent editor</div>;
   }
 
   function DelayedAnchorEditor() {
@@ -76,6 +89,16 @@ vi.mock('@/workbench/default-editors', async () => {
             component: NormalEditor,
           };
         }
+        if (editorType === 'secondary-persistent-editor') {
+          return {
+            type: 'secondary-persistent-editor',
+            label: 'Secondary',
+            component: SecondaryPersistentEditor,
+            mountPolicy: 'keep-mounted-while-open',
+            previewHostPolicy: 'dedicated-while-open',
+            previewPersistence: 'stateful',
+          };
+        }
         if (editorType === 'delayed-editor') {
           return {
             type: 'delayed-editor',
@@ -103,6 +126,13 @@ const normalTab: WorkbenchTab = {
   title: 'Normal',
   editorType: 'normal-editor',
   resource: { kind: 'record', stableId: 'record:rooms:foyer', collection: 'rooms', entityId: 'foyer' },
+};
+
+const secondaryPersistentTab: WorkbenchTab = {
+  id: 'tab:secondary-persistent',
+  title: 'Secondary',
+  editorType: 'secondary-persistent-editor',
+  resource: { kind: 'tool', stableId: 'tool:secondary-persistent' },
 };
 
 const delayedTab: WorkbenchTab = {
@@ -138,6 +168,39 @@ function replaceWorkbenchGroup(activeTabId: string | null, tabs: WorkbenchTab[] 
   });
 }
 
+function replaceSplitWorkbench({
+  rootTabIds,
+  rootActiveTabId,
+  targetTabIds,
+  targetActiveTabId,
+  tabs,
+}: {
+  rootTabIds: string[];
+  rootActiveTabId: string | null;
+  targetTabIds: string[];
+  targetActiveTabId: string | null;
+  tabs: WorkbenchTab[];
+}) {
+  useWorkbenchStore.getState().replaceWorkbench({
+    layout: {
+      kind: 'split',
+      id: 'split:test',
+      direction: 'horizontal',
+      children: [
+        { kind: 'group', groupId: 'root' },
+        { kind: 'group', groupId: 'target' },
+      ],
+    },
+    groupsById: {
+      root: { id: 'root', tabIds: rootTabIds, activeTabId: rootActiveTabId },
+      target: { id: 'target', tabIds: targetTabIds, activeTabId: targetActiveTabId },
+    },
+    tabsById: Object.fromEntries(tabs.map((tab) => [tab.id, tab])),
+    activeGroupId: 'root',
+    recentlyClosedTabs: [],
+  });
+}
+
 function rect(left: number, top: number, width: number, height: number): DOMRect {
   return {
     x: left,
@@ -154,11 +217,36 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
 
 let rectSpy: ReturnType<typeof vi.spyOn>;
 
+class ResizeObserverMock {
+  static observers = new Set<ResizeObserverMock>();
+
+  callback: ResizeObserverCallback;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    ResizeObserverMock.observers.add(this);
+  }
+
+  static notify() {
+    for (const observer of ResizeObserverMock.observers) observer.callback([], observer as unknown as ResizeObserver);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {
+    ResizeObserverMock.observers.delete(this);
+  }
+}
+
 beforeEach(() => {
+  ResizeObserverMock.observers.clear();
+  vi.stubGlobal('ResizeObserver', ResizeObserverMock);
   counters.normalMounts = 0;
   counters.normalUnmounts = 0;
   counters.playMounts = 0;
   counters.playUnmounts = 0;
+  counters.secondaryMounts = 0;
+  counters.secondaryUnmounts = 0;
   useWorkbenchStore.getState().resetWorkbench();
   useProjectStore.getState().loadProjectDocument({
     document: { schema: 'noveltea.authoring.project', rooms: {} },
@@ -172,7 +260,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => rectSpy.mockRestore());
+afterEach(() => {
+  rectSpy.mockRestore();
+  vi.unstubAllGlobals();
+});
 
 describe('WorkbenchGroup mount policy rendering', () => {
   it('keeps the Play tab mounted across same-group tab switches', () => {
@@ -265,6 +356,172 @@ describe('WorkbenchGroup mount policy rendering', () => {
     expect(playPane).toHaveAttribute('data-hidden', 'true');
     expect(playPane).toHaveClass('invisible');
     expect(playPane).toHaveClass('pointer-events-none');
+  });
+
+  it('preserves the persistent host, pane, and local state when moving between groups', () => {
+    replaceSplitWorkbench({
+      rootTabIds: [normalTab.id, playTab.id],
+      rootActiveTabId: playTab.id,
+      targetTabIds: [delayedTab.id],
+      targetActiveTabId: delayedTab.id,
+      tabs: [playTab, normalTab, delayedTab],
+    });
+    render(<Workbench />);
+
+    const playEditor = screen.getByTestId('play-editor');
+    const playPane = playEditor.closest('[data-workbench-editor-pane]');
+    act(() => playEditor.click());
+    expect(playEditor).toHaveTextContent('Play editor 1');
+
+    act(() => useWorkbenchStore.getState().moveTab({
+      tabId: playTab.id,
+      fromGroupId: 'root',
+      toGroupId: 'target',
+    }));
+
+    expect(screen.getByTestId('play-editor')).toBe(playEditor);
+    expect(playEditor.closest('[data-workbench-editor-pane]')).toBe(playPane);
+    expect(playEditor).toHaveTextContent('Play editor 1');
+    expect(playPane).toHaveAttribute('data-workbench-group-id', 'target');
+    expect(counters.playMounts).toBe(1);
+    expect(counters.playUnmounts).toBe(0);
+  });
+
+  it('preserves the persistent host when moving it prunes the empty source group', () => {
+    replaceSplitWorkbench({
+      rootTabIds: [playTab.id],
+      rootActiveTabId: playTab.id,
+      targetTabIds: [normalTab.id],
+      targetActiveTabId: normalTab.id,
+      tabs: [playTab, normalTab],
+    });
+    render(<Workbench />);
+    const playEditor = screen.getByTestId('play-editor');
+    const playPane = playEditor.closest('[data-workbench-editor-pane]');
+
+    act(() => useWorkbenchStore.getState().moveTab({
+      tabId: playTab.id,
+      fromGroupId: 'root',
+      toGroupId: 'target',
+    }));
+
+    expect(useWorkbenchStore.getState().groupsById.root).toBeUndefined();
+    expect(screen.getByTestId('play-editor')).toBe(playEditor);
+    expect(playEditor.closest('[data-workbench-editor-pane]')).toBe(playPane);
+    expect(counters.playMounts).toBe(1);
+    expect(counters.playUnmounts).toBe(0);
+  });
+
+  it.each(['left', 'right', 'top', 'bottom'] as const)(
+    'preserves the persistent host when docking to the %s creates a split',
+    (edge) => {
+      replaceWorkbenchGroup(playTab.id);
+      render(<Workbench />);
+      const playEditor = screen.getByTestId('play-editor');
+      const playPane = playEditor.closest('[data-workbench-editor-pane]');
+
+      act(() => useWorkbenchStore.getState().dockTabToGroupEdge({
+        tabId: playTab.id,
+        fromGroupId: 'root',
+        targetGroupId: 'root',
+        edge,
+      }));
+
+      expect(useWorkbenchStore.getState().layout.kind).toBe('split');
+      expect(screen.getByTestId('play-editor')).toBe(playEditor);
+      expect(playEditor.closest('[data-workbench-editor-pane]')).toBe(playPane);
+      expect(counters.playMounts).toBe(1);
+      expect(counters.playUnmounts).toBe(0);
+    },
+  );
+
+  it('remeasures a persistent host after a newly created split settles', () => {
+    let splitHasSettled = false;
+    rectSpy.mockImplementation(function mockRect(this: HTMLElement) {
+      if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
+      if (this.hasAttribute('data-workbench-persistent-editor-slot')) {
+        return splitHasSettled ? rect(30, 60, 390, 300) : rect(30, 60, 780, 300);
+      }
+      return rect(0, 0, 0, 0);
+    });
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
+    const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
+    expect(playPane).toHaveStyle({ width: '780px' });
+
+    act(() => useWorkbenchStore.getState().dockTabToGroupEdge({
+      tabId: playTab.id,
+      fromGroupId: 'root',
+      targetGroupId: 'root',
+      edge: 'left',
+    }));
+    expect(playPane).toHaveStyle({ width: '780px' });
+
+    splitHasSettled = true;
+    act(() => ResizeObserverMock.notify());
+
+    expect(playPane).toHaveStyle({ width: '390px' });
+    expect(counters.playMounts).toBe(1);
+    expect(counters.playUnmounts).toBe(0);
+  });
+
+  it('keeps stale old-group placement hidden until a new slot generation is measured', () => {
+    let targetSlotHasRect = false;
+    rectSpy.mockImplementation(function mockRect(this: HTMLElement) {
+      if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
+      if (this.getAttribute('data-workbench-group-id') === 'root') return rect(30, 60, 300, 300);
+      if (this.getAttribute('data-workbench-group-id') === 'target' && targetSlotHasRect) return rect(430, 60, 300, 300);
+      return rect(0, 0, 0, 0);
+    });
+    replaceSplitWorkbench({
+      rootTabIds: [delayedTab.id, playTab.id],
+      rootActiveTabId: playTab.id,
+      targetTabIds: [normalTab.id],
+      targetActiveTabId: normalTab.id,
+      tabs: [playTab, normalTab, delayedTab],
+    });
+    render(<Workbench />);
+    const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
+    const oldGeneration = document.querySelector('[data-workbench-persistent-editor-slot]')?.getAttribute('data-workbench-slot-generation');
+
+    act(() => useWorkbenchStore.getState().moveTab({
+      tabId: playTab.id,
+      fromGroupId: 'root',
+      toGroupId: 'target',
+    }));
+
+    expect(playPane).toHaveAttribute('aria-hidden', 'true');
+    expect(playPane).toHaveAttribute('data-hidden', 'true');
+    expect(playPane).toHaveStyle({ pointerEvents: 'none' });
+
+    targetSlotHasRect = true;
+    act(() => useWorkbenchStore.getState().activateTab('target', normalTab.id));
+    act(() => useWorkbenchStore.getState().activateTab('target', playTab.id));
+
+    const newSlot = document.querySelector('[data-workbench-persistent-editor-slot]');
+    expect(newSlot?.getAttribute('data-workbench-slot-generation')).not.toBe(oldGeneration);
+    expect(playPane).not.toHaveAttribute('aria-hidden');
+    expect(playPane).toHaveAttribute('data-workbench-group-id', 'target');
+  });
+
+  it('mounts and reveals one persistent editor in each split group', () => {
+    replaceSplitWorkbench({
+      rootTabIds: [playTab.id],
+      rootActiveTabId: playTab.id,
+      targetTabIds: [secondaryPersistentTab.id],
+      targetActiveTabId: secondaryPersistentTab.id,
+      tabs: [playTab, secondaryPersistentTab],
+    });
+    render(<Workbench />);
+
+    const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
+    const secondaryPane = screen.getByTestId('secondary-persistent-editor').closest('[data-workbench-editor-pane]');
+    expect(playPane).not.toHaveAttribute('aria-hidden');
+    expect(secondaryPane).not.toHaveAttribute('aria-hidden');
+    expect(playPane).toHaveAttribute('data-workbench-group-id', 'root');
+    expect(secondaryPane).toHaveAttribute('data-workbench-group-id', 'target');
+    expect(counters.playMounts).toBe(1);
+    expect(counters.secondaryMounts).toBe(1);
   });
 
   it('reveals and flashes queued anchors after the active pane mounts', async () => {
