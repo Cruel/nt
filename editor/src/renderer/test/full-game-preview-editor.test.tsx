@@ -138,6 +138,46 @@ function cloneProject<T>(project: T): T {
   return JSON.parse(JSON.stringify(project)) as T;
 }
 
+async function postInputSnapshot(previewPort: FakePort, options: {
+  continue?: boolean;
+  navigation?: Array<{ index: number; label: string; enabled: boolean }>;
+  dialogueOptions?: Array<{ index: number; label: string; enabled: boolean }>;
+} = {}) {
+  const waitingKind = options.dialogueOptions?.length
+    ? 'choice'
+    : options.navigation?.length
+      ? 'navigation'
+      : options.continue
+        ? 'continue'
+        : 'none';
+  await act(async () => {
+    previewPort.postMessage({
+      version: 1,
+      type: 'runtime-debug-snapshot',
+      snapshot: {
+        loaded: true,
+        running: true,
+        shellMode: 'gameplay',
+        runtimeMode: 'room',
+        waiting: { kind: waitingKind, canContinue: options.continue ?? false, reason: 'test input available' },
+        availableInputs: {
+          continue: options.continue ?? false,
+          dialogueOptions: options.dialogueOptions ?? [],
+          navigation: options.navigation ?? [],
+          actions: [],
+          selectedObjects: [],
+          clickableTargets: [],
+        },
+        variables: [],
+        inventory: [],
+        selectedObjects: [],
+        diagnostics: [],
+        saveSnapshot: {},
+      },
+    });
+  });
+}
+
 describe('FullGamePreviewEditor', () => {
   it('presentation-pauses hidden Play without semantically stopping or resetting the runtime', async () => {
     const view = await renderConnectedPreviewInPane(false);
@@ -292,70 +332,25 @@ describe('FullGamePreviewEditor', () => {
     expect(requests(editorPort, 'runtime-load-project')).toHaveLength(1);
   });
 
-  it('owns the runtime transport controls and sends runtime commands', async () => {
+  it('keeps only the supported runtime transport controls in the toolbar', async () => {
     const user = userEvent.setup();
     const { editorPort } = await renderConnectedPreview();
-    await user.click(screen.getByLabelText('Start runtime'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-start',
-      requestId: expect.any(String),
-    });
-    expect(useWorkspaceStore.getState().previewRunning).toBe(true);
 
-    await user.click(screen.getByLabelText('Stop runtime'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-stop',
-      requestId: expect.any(String),
-    });
-    expect(useWorkspaceStore.getState().previewRunning).toBe(false);
-
-    await user.click(screen.getByLabelText('Step runtime'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-step',
-      requestId: expect.any(String),
-    });
-    await user.click(screen.getByText('Continue'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-continue',
-      requestId: expect.any(String),
-    });
+    expect(screen.getByLabelText('Reload engine preview')).toBeInTheDocument();
+    expect(screen.getByLabelText('Restart with latest project')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reset runtime')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Start runtime')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Stop runtime')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Step runtime')).not.toBeInTheDocument();
+    expect(screen.queryByText('Nav 0')).not.toBeInTheDocument();
+    expect(screen.queryByText('Choice 0')).not.toBeInTheDocument();
+    expect(screen.queryByText('Action')).not.toBeInTheDocument();
 
     await user.click(screen.getByText('Fast-forward'));
     expect(editorPort.sent).toContainEqual({
       version: 1,
       type: 'runtime-fast-forward-to-input',
       requestId: expect.any(String),
-    });
-  });
-
-  it('keeps existing gameplay/debug input probes in the full-game preview tab', async () => {
-    const user = userEvent.setup();
-    const { editorPort } = await renderConnectedPreview();
-    await user.click(screen.getByText('Nav 0'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-navigate',
-      requestId: expect.any(String),
-      direction: 0,
-    });
-    await user.click(screen.getByText('Choice 0'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-dialogue-option',
-      requestId: expect.any(String),
-      optionIndex: 0,
-    });
-    await user.click(screen.getByText('Action'));
-    expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-run-action',
-      requestId: expect.any(String),
-      verbId: 'look',
-      objectIds: [],
     });
   });
 
@@ -391,8 +386,11 @@ describe('FullGamePreviewEditor', () => {
     }));
 
     const initialSnapshotRequests = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot').length;
-    await user.click(screen.getByText('Continue'));
-    const continueRequest = editorPort.sent.find((message) => (message as { type?: string }).type === 'runtime-continue') as { requestId: string };
+    await postInputSnapshot(previewPort, {
+      dialogueOptions: [{ index: 0, label: 'Continue test', enabled: true }],
+    });
+    await user.click(screen.getByText('Choice 0: Continue test'));
+    const continueRequest = editorPort.sent.find((message) => (message as { type?: string }).type === 'runtime-dialogue-option') as { requestId: string };
     await act(async () => {
       previewPort.postMessage({ version: 1, type: 'command-result', requestId: continueRequest.requestId, ok: true });
     });
@@ -404,6 +402,7 @@ describe('FullGamePreviewEditor', () => {
   });
 
   it('logs fast-forward stop diagnostics and uses the final snapshot', async () => {
+    const user = userEvent.setup();
     const { editorPort, previewPort } = await renderConnectedPreview();
     const request = editorPort.sent.find((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot') as { requestId: string } | undefined;
     expect(request).toBeDefined();
@@ -439,12 +438,14 @@ describe('FullGamePreviewEditor', () => {
       });
     });
 
+    await user.click(screen.getByText('Events & diagnostics'));
     await waitFor(() => expect(screen.getByText('Fast-forward stopped')).toBeInTheDocument());
     expect(screen.getByText(/budget-exhausted/)).toBeInTheDocument();
     expect(screen.getByText('continue')).toBeInTheDocument();
   });
 
   it('renders runtime debug snapshots with authoring metadata labels', async () => {
+    const user = userEvent.setup();
     const project = createAuthoringProject();
     project.variables.flag = { id: 'flag', label: 'Has Key', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' }, tags: [] };
     project.rooms.foyer = { id: 'foyer', label: 'Grand Foyer', data: {}, tags: [] };
@@ -482,9 +483,12 @@ describe('FullGamePreviewEditor', () => {
     });
 
     await waitFor(() => expect(screen.getAllByText('Grand Foyer').length).toBeGreaterThan(0));
+    await user.click(screen.getByText('Variables'));
+    await user.click(screen.getByText('Inventory'));
     expect(screen.getByText('Has Key')).toBeInTheDocument();
     expect(screen.getAllByText('Brass Key').length).toBeGreaterThan(0);
     expect(screen.getByText('Inspect (1/1)')).toBeInTheDocument();
+    await user.click(screen.getByText('Events & diagnostics'));
     expect(screen.getByText('Runtime snapshot refreshed')).toBeInTheDocument();
   });
 
@@ -492,16 +496,20 @@ describe('FullGamePreviewEditor', () => {
     const user = userEvent.setup();
     const { editorPort, previewPort } = await renderConnectedPreview();
 
+    await postInputSnapshot(previewPort, {
+      dialogueOptions: [{ index: 0, label: 'Accept', enabled: true }],
+    });
+
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
-    await user.click(screen.getByText('Continue'));
+    await user.click(screen.getByText('Choice 0: Accept'));
 
-    await waitFor(() => expect(screen.getByText('1. Continue')).toBeInTheDocument());
-    expect(screen.getAllByText(/"type": "continue"/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Recorded Continue')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
+    expect(screen.getAllByText(/"type": "dialogue-option"/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Recorded Choice 0')).toBeInTheDocument();
 
     await act(async () => {
-      previewPort.postMessage({ version: 1, type: 'command-result', requestId: latestRequest(editorPort, 'runtime-continue')!.requestId, ok: true });
+      previewPort.postMessage({ version: 1, type: 'command-result', requestId: latestRequest(editorPort, 'runtime-dialogue-option')!.requestId, ok: true });
       previewPort.postMessage({ version: 1, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: 'trace-only warning' } });
     });
 
@@ -513,22 +521,29 @@ describe('FullGamePreviewEditor', () => {
     const user = userEvent.setup();
     const { editorPort, previewPort } = await renderConnectedPreview();
 
+    await postInputSnapshot(previewPort, {
+      navigation: [
+        { index: 0, label: 'North', enabled: true },
+        { index: 1, label: 'South', enabled: true },
+      ],
+    });
+
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
-    await user.click(screen.getByText('Continue'));
-    await user.click(screen.getByText('Nav 0'));
-    await waitFor(() => expect(screen.getByText('2. Navigate 0')).toBeInTheDocument());
+    await user.click(screen.getByText('Navigate 0: North'));
+    await user.click(screen.getByText('Navigate 1: South'));
+    await waitFor(() => expect(screen.getByText('2. Navigate 1')).toBeInTheDocument());
 
     await user.click(screen.getByText('Undo Last'));
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-reset')).toBeDefined());
     await resolveLatest(editorPort, previewPort, 'runtime-reset');
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-continue')).toBeDefined());
-    await resolveLatest(editorPort, previewPort, 'runtime-continue');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-navigate')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-navigate');
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
     await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
 
-    await waitFor(() => expect(screen.queryByText('2. Navigate 0')).not.toBeInTheDocument());
-    expect(screen.getByText('1. Continue')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('2. Navigate 1')).not.toBeInTheDocument());
+    expect(screen.getByText('1. Navigate 0')).toBeInTheDocument();
     expect(screen.getByText('Undo last recorded action')).toBeInTheDocument();
     const resetCount = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-reset').length;
     expect(resetCount).toBeGreaterThan(0);
@@ -538,9 +553,13 @@ describe('FullGamePreviewEditor', () => {
     const user = userEvent.setup();
     const { editorPort, previewPort } = await renderConnectedPreview();
 
+    await postInputSnapshot(previewPort, {
+      dialogueOptions: [{ index: 0, label: 'Accept', enabled: true }],
+    });
+
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
-    await user.click(screen.getByText('Choice 0'));
+    await user.click(screen.getByText('Choice 0: Accept'));
     await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
     await user.click(screen.getByText('Stop'));
 
@@ -555,6 +574,7 @@ describe('FullGamePreviewEditor', () => {
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
     await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
 
+    await user.click(screen.getByText('Events & diagnostics'));
     expect(screen.getByText('Replaying 1 recorded action')).toBeInTheDocument();
   });
 });

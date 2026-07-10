@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bug,
+  ChevronDown,
   Clipboard,
   Database,
   FastForward,
@@ -9,17 +10,14 @@ import {
   FolderOpen,
   MousePointer2,
   PackagePlus,
-  Play,
   RefreshCw,
   RotateCcw,
   Save,
-  Square,
   StepForward,
 } from 'lucide-react';
 import { EnginePreview, sanitizePreviewFpsCap, type EnginePreviewControlsContext } from '@/components/engine-preview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useProjectStore } from '@/project/project-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
@@ -313,23 +311,46 @@ function InfoRow({ label, value }: { label: string; value: string | number | boo
   );
 }
 
-function Panel({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function Panel({
+  title,
+  icon,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  summary?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <Card className="rounded-none border-x-0 border-t-0 shadow-none">
-      <CardHeader className="px-3 py-2">
-        <CardTitle className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {icon}
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2 px-3 pb-3 pt-0">{children}</CardContent>
-    </Card>
+    <section className="border-b">
+      <button
+        type="button"
+        className="flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-muted/40"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="text-muted-foreground">{icon}</span>
+        <span className="min-w-0 flex-1 truncate text-xs font-medium">{title}</span>
+        {summary ? <span className="truncate text-[11px] text-muted-foreground">{summary}</span> : null}
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      {open ? <div className="space-y-2 px-3 pb-3">{children}</div> : null}
+    </section>
   );
 }
 
 function RuntimeSummaryPanel({ snapshot, project }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null }) {
   return (
-    <Panel title="Runtime summary" icon={<Bug className="h-3.5 w-3.5" />}>
+    <Panel
+      title="Runtime"
+      icon={<Bug className="h-3.5 w-3.5" />}
+      summary={snapshot ? `${snapshot.running ? 'Running' : 'Stopped'} · ${snapshot.waiting.kind}` : 'No snapshot'}
+      defaultOpen
+    >
       <div className="flex flex-wrap gap-1">
         <Badge variant={snapshot?.loaded ? 'default' : 'secondary'}>{snapshot?.loaded ? 'Loaded' : 'Unloaded'}</Badge>
         <Badge variant={snapshot?.running ? 'default' : 'secondary'}>{snapshot?.running ? 'Running' : 'Stopped'}</Badge>
@@ -352,7 +373,12 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
   const controller = controlsContext?.controller ?? null;
   const inputs = snapshot?.availableInputs;
   return (
-    <Panel title="Available inputs" icon={<StepForward className="h-3.5 w-3.5" />}>
+    <Panel
+      title="Player input"
+      icon={<StepForward className="h-3.5 w-3.5" />}
+      summary={inputs ? `${inputs.dialogueOptions.length + inputs.navigation.length + inputs.actions.length + (inputs.continue ? 1 : 0)} available` : 'None'}
+      defaultOpen
+    >
       <div className="flex flex-wrap gap-1">
         <Badge variant={inputs?.continue ? 'default' : 'secondary'}>Continue {inputs?.continue ? 'yes' : 'no'}</Badge>
         <Badge variant="outline">Choices {inputs?.dialogueOptions.length ?? 0}</Badge>
@@ -454,7 +480,7 @@ function VariableDebugRow({
 function VariablesPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const variables = snapshot?.variables ?? [];
   return (
-    <Panel title="Variables" icon={<Database className="h-3.5 w-3.5" />}>
+    <Panel title="Variables" icon={<Database className="h-3.5 w-3.5" />} summary={`${variables.length}`}>
       {variables.length === 0 ? <div className="text-xs text-muted-foreground">No runtime variables in the latest snapshot.</div> : null}
       {variables.map((variable) => <VariableDebugRow key={variable.id} variable={variable} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />)}
     </Panel>
@@ -472,7 +498,7 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
   const controller = controlsContext?.controller ?? null;
   const disabled = mutationDisabled || !controller;
   return (
-    <Panel title="Inventory" icon={<PackagePlus className="h-3.5 w-3.5" />}>
+    <Panel title="Inventory" icon={<PackagePlus className="h-3.5 w-3.5" />} summary={`${inventory.length}`}>
       <div className="flex gap-2">
         <select className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs" value={selectedObjectId} onChange={(event) => setSelectedObjectId(event.target.value)} aria-label="Debug object to give">
           {objectIds.map((id) => <option key={id} value={id}>{labelById(project, 'objects', id)} ({id})</option>)}
@@ -509,7 +535,11 @@ function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisa
   const controller = controlsContext?.controller ?? null;
   const debugDisabled = mutationDisabled || !controller;
   return (
-    <Panel title="Room and object tools" icon={<MousePointer2 className="h-3.5 w-3.5" />}>
+    <Panel
+      title="World tools"
+      icon={<MousePointer2 className="h-3.5 w-3.5" />}
+      summary={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : 'No room'}
+    >
       <InfoRow label="Current room" value={snapshot?.currentRoomId ? labelById(project, 'rooms', snapshot.currentRoomId) : undefined} />
       <div className="text-xs font-medium">Debug-only teleport</div>
       <div className="grid grid-cols-2 gap-1">
@@ -532,7 +562,7 @@ function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisa
 function SaveSnapshotPanel({ snapshot }: { snapshot: RuntimeDebugSnapshot | null }) {
   const json = snapshot ? stringifyValue(snapshot.saveSnapshot) : '{}';
   return (
-    <Panel title="Save snapshot" icon={<Save className="h-3.5 w-3.5" />}>
+    <Panel title="Save data" icon={<Save className="h-3.5 w-3.5" />} summary={snapshot ? 'Available' : 'Unavailable'}>
       <Button size="sm" variant="outline" disabled={!snapshot} onClick={() => void navigator.clipboard?.writeText(json)}>
         <Clipboard className="h-3.5 w-3.5" />
         Copy JSON
@@ -544,7 +574,7 @@ function SaveSnapshotPanel({ snapshot }: { snapshot: RuntimeDebugSnapshot | null
 
 function EventLogPanel({ entries, diagnostics }: { entries: RuntimeLogEntry[]; diagnostics: RuntimeDebugSnapshot['diagnostics'] }) {
   return (
-    <Panel title="Runtime event log">
+    <Panel title="Events & diagnostics" summary={`${diagnostics.length + entries.length}`}>
       {diagnostics.slice(0, 8).map((diagnostic, index) => (
         <div key={`${diagnostic.message}-${index}`} className="rounded-md border p-2 text-xs">
           <Badge variant={diagnostic.severity === 'error' ? 'destructive' : diagnostic.severity === 'warning' ? 'secondary' : 'outline'}>{diagnostic.severity}</Badge>
@@ -598,7 +628,12 @@ function RecorderPanel({
   const canSave = !isRecording && !isReplaying && draft.actions.length > 0;
   const recordingStale = isRecording && runtimeProjectFreshness === 'stale';
   return (
-    <Panel title="Recorder" icon={<FilePlus2 className="h-3.5 w-3.5" />}>
+    <Panel
+      title="Recorder"
+      icon={<FilePlus2 className="h-3.5 w-3.5" />}
+      summary={`${draft.actions.length} actions · ${draft.mode}`}
+      defaultOpen
+    >
       <div className="flex flex-wrap gap-1">
         <Badge variant={isRecording ? 'default' : draft.mode === 'failed' ? 'destructive' : 'secondary'}>{draft.mode}</Badge>
         <Badge variant="outline">{draft.actions.length} action{draft.actions.length === 1 ? '' : 's'}</Badge>
@@ -680,24 +715,38 @@ function RuntimeInspector({ state, project, controlsContext, runtimeProjectState
   const mutationDisabled = mode === 'recording';
   const runtimeDisabled = controlsContext?.connectionState !== 'ready';
   return (
-    <aside className="flex w-[360px] min-w-[320px] max-w-[420px] shrink-0 flex-col overflow-auto border-l bg-background">
-      <div className="flex min-h-10 items-center justify-between gap-2 border-b px-3 py-2">
-        <div className="text-sm font-semibold">Runtime Inspector</div>
-        <div className="flex gap-1">
-          <Button size="sm" variant={mode === 'debug' ? 'secondary' : 'ghost'} onClick={() => onModeChange('debug')}>Debug</Button>
-          <Button size="sm" variant={mode === 'recording' ? 'secondary' : 'ghost'} onClick={() => onModeChange('recording')}>Recording</Button>
+    <aside className="flex h-full min-h-0 w-[340px] min-w-[300px] max-w-[400px] shrink-0 flex-col border-l bg-background">
+      <div className="shrink-0 border-b bg-background px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">Play Inspector</div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              {state.snapshot?.currentRoomId ? `In ${labelById(project, 'rooms', state.snapshot.currentRoomId)}` : 'Runtime tools and live state'}
+            </div>
+          </div>
+          <div className="flex rounded-md bg-muted p-0.5">
+            <Button className="h-7 px-2.5" size="sm" variant={mode === 'debug' ? 'secondary' : 'ghost'} onClick={() => onModeChange('debug')}>Debug</Button>
+            <Button className="h-7 px-2.5" size="sm" variant={mode === 'recording' ? 'secondary' : 'ghost'} onClick={() => onModeChange('recording')}>Recording</Button>
+          </div>
         </div>
       </div>
       {runtimeProjectState.freshness === 'stale' ? <RuntimeProjectStaleWarning onReloadLatest={onReloadLatestProject} disabled={runtimeDisabled || !canReloadLatestProject} /> : null}
-      <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">Debug-only mutation controls directly alter preview runtime state. Recording mode disables them by default.</div>
-      <RecorderPanel draft={recorderDraft} targetTestId={targetTestId} runtimeProjectFreshness={runtimeProjectState.freshness} onTargetTestIdChange={onTargetTestIdChange} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} onSaveNew={onRecorderSaveNew} onApplyExisting={onRecorderApplyExisting} onOpenSavedTest={onOpenSavedTest} />
-      <RuntimeSummaryPanel snapshot={state.snapshot} project={project} />
-      <InputAvailabilityPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} onCommand={onCommand} />
-      <VariablesPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
-      <InventoryPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
-      <RoomObjectToolsPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
-      <SaveSnapshotPanel snapshot={state.snapshot} />
-      <EventLogPanel entries={state.eventLog} diagnostics={state.snapshot?.diagnostics ?? []} />
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {mode === 'recording' ? (
+          <RecorderPanel draft={recorderDraft} targetTestId={targetTestId} runtimeProjectFreshness={runtimeProjectState.freshness} onTargetTestIdChange={onTargetTestIdChange} onStart={onRecorderStart} onStop={onRecorderStop} onClear={onRecorderClear} onUndoLast={onRecorderUndoLast} onReplay={onRecorderReplay} onSaveNew={onRecorderSaveNew} onApplyExisting={onRecorderApplyExisting} onOpenSavedTest={onOpenSavedTest} />
+        ) : null}
+        <RuntimeSummaryPanel snapshot={state.snapshot} project={project} />
+        <InputAvailabilityPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} onCommand={onCommand} />
+        {mode === 'debug' ? (
+          <>
+            <VariablesPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
+            <InventoryPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
+            <RoomObjectToolsPanel snapshot={state.snapshot} project={project} controlsContext={controlsContext} mutationDisabled={mutationDisabled} onCommand={onCommand} />
+            <SaveSnapshotPanel snapshot={state.snapshot} />
+          </>
+        ) : null}
+        <EventLogPanel entries={state.eventLog} diagnostics={state.snapshot?.diagnostics ?? []} />
+      </div>
     </aside>
   );
 }
@@ -716,57 +765,9 @@ function FullGamePreviewTransportBar({ context, runtimeProjectState, canReloadLa
       <Button size="sm" variant="ghost" onClick={() => onRuntimeCommand(() => context.controller.runtimeReset(), 'Runtime reset')} disabled={runtimeDisabled} aria-label="Reset runtime">
         <RotateCcw className="h-4 w-4" />
       </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.startRuntime(), 'Runtime started', { running: true })} disabled={runtimeDisabled} aria-label="Start runtime">
-        <Play className="h-4 w-4" />
-      </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.stopRuntime(), 'Runtime stopped', { running: false })} disabled={runtimeDisabled} aria-label="Stop runtime">
-        <Square className="h-4 w-4" />
-      </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.stepRuntime(), 'Runtime stepped')} disabled={runtimeDisabled} aria-label="Step runtime">
-        <StepForward className="h-4 w-4" />
-      </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
-        () => context.controller.continueRuntime(),
-        'Continue input sent',
-        { recordedAction: createRecordedAction('continue', 'Continue', { type: 'continue' }) },
-      )} disabled={runtimeDisabled}>
-        <StepForward className="h-4 w-4" />
-        Continue
-      </Button>
       <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(() => context.controller.fastForwardRuntimeToInput(), 'Fast-forward requested')} disabled={runtimeDisabled}>
         <FastForward className="h-4 w-4" />
         Fast-forward
-      </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
-        () => context.controller.navigateRuntime(0),
-        'Navigate 0 sent',
-        { recordedAction: createRecordedAction('navigate', 'Navigate 0', { type: 'navigate', direction: 0 }) },
-      )} disabled={runtimeDisabled}>Nav 0</Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
-        () => context.controller.selectDialogueOption(0),
-        'Dialogue option 0 sent',
-        { recordedAction: createRecordedAction('dialogue-option', 'Choice 0', { type: 'dialogue-option', optionIndex: 0 }) },
-      )} disabled={runtimeDisabled}>Choice 0</Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
-        () => context.controller.selectRuntimeObject('lamp'),
-        'Object selection sent',
-        { recordedAction: createRecordedAction('select-object', 'Select lamp', { type: 'select-object', objectId: 'lamp' }) },
-      )} disabled={runtimeDisabled}>
-        <MousePointer2 className="h-4 w-4" />
-        Select
-      </Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
-        () => context.controller.clearRuntimeObjectSelection(),
-        'Object selection cleared',
-        { recordedAction: createRecordedAction('clear-object-selection', 'Clear object selection', { type: 'clear-object-selection' }) },
-      )} disabled={runtimeDisabled}>Clear</Button>
-      <Button size="sm" variant="outline" onClick={() => onRuntimeCommand(
-        () => context.controller.runRuntimeAction('look', []),
-        'Action input sent',
-        { recordedAction: createRecordedAction('run-action', 'Run look', { type: 'run-action', verbId: 'look', objectIds: [] }) },
-      )} disabled={runtimeDisabled}>
-        <MousePointer2 className="h-4 w-4" />
-        Action
       </Button>
       <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
         Cap
