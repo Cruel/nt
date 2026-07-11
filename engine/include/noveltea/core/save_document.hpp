@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -76,6 +77,20 @@ public:
 
 private:
     std::unordered_map<int, SaveDocument> m_slots;
+};
+
+class FilesystemSaveSlotStore final : public SaveSlotStore {
+public:
+    explicit FilesystemSaveSlotStore(std::filesystem::path root);
+    [[nodiscard]] bool has_slot(SaveSlotId slot) const override;
+    [[nodiscard]] SaveSlotResult read_slot(SaveSlotId slot) const override;
+    [[nodiscard]] SaveSlotResult write_slot(SaveSlotId slot, const SaveDocument& save) override;
+    void delete_slot(SaveSlotId slot) override;
+    [[nodiscard]] const std::filesystem::path& root() const noexcept { return m_root; }
+
+private:
+    [[nodiscard]] std::filesystem::path slot_path(SaveSlotId slot) const;
+    std::filesystem::path m_root;
 };
 
 struct Profile {

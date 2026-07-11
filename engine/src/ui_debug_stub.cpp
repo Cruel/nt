@@ -30,4 +30,6 @@ void DebugUI::shutdown() {}
 
 void DebugUI::log_printf(const char* fmt, ...) { (void)fmt; }
 
+void DebugUI::set_perf_logging_enabled(bool enabled) { (void)enabled; }
+
 } // namespace noveltea

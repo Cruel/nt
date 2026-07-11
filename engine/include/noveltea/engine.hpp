@@ -49,6 +49,7 @@ struct EngineRunConfig {
     bool show_fps_counter = false;
     std::vector<std::string> audio_sfx_paths;
     std::vector<std::string> audio_track_specs;
+    core::SaveSlotStore* save_slot_store = nullptr;
 };
 
 class Engine {

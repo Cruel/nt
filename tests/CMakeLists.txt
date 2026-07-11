@@ -12,6 +12,7 @@ add_executable(noveltea_core_tests
     core/legacy_entity_schema_tests.cpp
     core/project_document_tests.cpp
     core/project_model_tests.cpp
+    core/player_bootstrap_tests.cpp
     core/project_validator_tests.cpp
     core/rich_text_tests.cpp
     core/runtime_controller_tests.cpp

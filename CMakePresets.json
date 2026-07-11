@@ -34,7 +34,8 @@
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed",
-                "NOVELTEA_ENABLE_RENDER_PERF": "OFF"
+                "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
             }
         },
         {
@@ -50,7 +51,8 @@
                 "VCPKG_TARGET_TRIPLET": "x64-windows-static",
                 "VCPKG_HOST_TRIPLET": "x64-windows",
                 "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
-                "NOVELTEA_ENABLE_RENDER_PERF": "OFF"
+                "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
             }
         },
         {
@@ -65,7 +67,8 @@
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/macos-release/vcpkg_installed",
                 "VCPKG_TARGET_TRIPLET": "arm64-osx",
                 "VCPKG_HOST_TRIPLET": "arm64-osx",
-                "NOVELTEA_ENABLE_RENDER_PERF": "OFF"
+                "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
             }
         },
         {
@@ -98,7 +101,8 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
                 "BUILD_TESTING": "OFF",
-                "NOVELTEA_ENABLE_RENDER_PERF": "OFF"
+                "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
             }
         },
         {

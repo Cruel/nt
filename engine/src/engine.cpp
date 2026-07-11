@@ -1009,6 +1009,9 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         }
     }
 
+    if (run_config.save_slot_store) {
+        m_runtime_shell.host().set_save_slot_store(run_config.save_slot_store);
+    }
     if (!run_config.runtime_project.empty() && !load_runtime_project(run_config.runtime_project)) {
         rollback();
         return false;

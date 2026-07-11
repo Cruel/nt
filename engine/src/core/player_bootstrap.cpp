@@ -1,0 +1,329 @@
+#include <noveltea/core/player_bootstrap.hpp>
+
+#include <algorithm>
+#include <array>
+#include <fstream>
+#include <iterator>
+#include <set>
+
+#include <nlohmann/json.hpp>
+
+#define MINIZ_NO_ZLIB_APIS
+#if __has_include(<miniz/miniz.h>)
+#include <miniz/miniz.h>
+#else
+#include <miniz.h>
+#endif
+
+namespace noveltea::core {
+namespace {
+
+using json = nlohmann::json;
+constexpr std::array<std::string_view, 10> known_capabilities = {
+    "network.client", "external-url", "clipboard.read", "clipboard.write",   "gamepad",
+    "vibration",      "microphone",   "notifications",  "custom-url-scheme", "billing"};
+
+void fail(PlayerBootstrapResult& result, PlayerBootstrapError category, std::string path,
+          std::string message)
+{
+    result.diagnostics.push_back({category, std::move(path), std::move(message)});
+}
+
+bool exact_keys(const json& value, std::initializer_list<std::string_view> required,
+                std::initializer_list<std::string_view> optional, PlayerBootstrapResult& result,
+                std::string_view path)
+{
+    if (!value.is_object()) {
+        fail(result, PlayerBootstrapError::ConfigParse, std::string(path), "expected object");
+        return false;
+    }
+    std::set<std::string> allowed;
+    for (auto key : required)
+        allowed.emplace(key);
+    for (auto key : optional)
+        allowed.emplace(key);
+    bool ok = true;
+    for (auto key : required) {
+        if (!value.contains(std::string(key))) {
+            fail(result, PlayerBootstrapError::ConfigParse,
+                 std::string(path) + "/" + std::string(key), "missing required field");
+            ok = false;
+        }
+    }
+    for (const auto& [key, unused] : value.items()) {
+        if (!allowed.contains(key)) {
+            fail(result, PlayerBootstrapError::ConfigParse, std::string(path) + "/" + key,
+                 "unknown field");
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+std::vector<std::byte> read_file(const std::filesystem::path& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+        return {};
+    std::vector<std::byte> result;
+    for (char value; file.get(value);)
+        result.push_back(static_cast<std::byte>(static_cast<unsigned char>(value)));
+    return result;
+}
+
+constexpr std::array<std::uint32_t, 64> sha_k = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+std::uint32_t rotr(std::uint32_t v, unsigned n) { return (v >> n) | (v << (32 - n)); }
+
+bool verify_manifest(std::span<const std::byte> bytes, PlayerBootstrapResult& result)
+{
+    mz_zip_archive archive{};
+    if (!mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0)) {
+        fail(result, PlayerBootstrapError::PackageContent, "/package",
+             "package is not a valid ZIP archive");
+        return false;
+    }
+    const int index = mz_zip_reader_locate_file(&archive, "manifest.json", nullptr, 0);
+    if (index < 0) {
+        mz_zip_reader_end(&archive);
+        fail(result, PlayerBootstrapError::PackageContent, "/package/manifest.json",
+             "package manifest is missing");
+        return false;
+    }
+    size_t size = 0;
+    void* data = mz_zip_reader_extract_to_heap(&archive, static_cast<mz_uint>(index), &size, 0);
+    mz_zip_reader_end(&archive);
+    if (!data) {
+        fail(result, PlayerBootstrapError::PackageContent, "/package/manifest.json",
+             "package manifest cannot be read");
+        return false;
+    }
+    json manifest = json::parse(static_cast<const char*>(data),
+                                static_cast<const char*>(data) + size, nullptr, false);
+    mz_free(data);
+    if (!manifest.is_object() || manifest.value("format", "") != "noveltea.runtime-package" ||
+        manifest.value("format_version", 0) != 1) {
+        fail(result, PlayerBootstrapError::PackageContent, "/package/manifest.json",
+             "unsupported runtime package manifest");
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool is_safe_player_relative_path(std::string_view path)
+{
+    if (path.empty() || path.front() == '/' || path.find('\\') != path.npos ||
+        path.find(':') != path.npos)
+        return false;
+    std::size_t begin = 0;
+    while (begin <= path.size()) {
+        const auto end = path.find('/', begin);
+        const auto part = path.substr(begin, end == path.npos ? path.size() - begin : end - begin);
+        if (part.empty() || part == "." || part == "..")
+            return false;
+        if (end == path.npos)
+            break;
+        begin = end + 1;
+    }
+    return true;
+}
+
+std::string sha256_hex(std::span<const std::byte> input)
+{
+    std::vector<std::uint8_t> data;
+    data.reserve(input.size() + 72);
+    for (auto byte : input)
+        data.push_back(std::to_integer<std::uint8_t>(byte));
+    const std::uint64_t bit_size = static_cast<std::uint64_t>(data.size()) * 8;
+    data.push_back(0x80);
+    while (data.size() % 64 != 56)
+        data.push_back(0);
+    for (int shift = 56; shift >= 0; shift -= 8)
+        data.push_back(static_cast<std::uint8_t>(bit_size >> shift));
+    std::array<std::uint32_t, 8> h = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                                      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    for (std::size_t offset = 0; offset < data.size(); offset += 64) {
+        std::array<std::uint32_t, 64> w{};
+        for (int i = 0; i < 16; ++i) {
+            const auto p = offset + static_cast<std::size_t>(i) * 4;
+            w[i] = (std::uint32_t(data[p]) << 24) | (std::uint32_t(data[p + 1]) << 16) |
+                   (std::uint32_t(data[p + 2]) << 8) | data[p + 3];
+        }
+        for (int i = 16; i < 64; ++i) {
+            const auto s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+            const auto s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        auto [a, b, c, d, e, f, g, hh] = h;
+        for (int i = 0; i < 64; ++i) {
+            const auto s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            const auto ch = (e & f) ^ (~e & g);
+            const auto t1 = hh + s1 + ch + sha_k[i] + w[i];
+            const auto s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            const auto maj = (a & b) ^ (a & c) ^ (b & c);
+            const auto t2 = s0 + maj;
+            hh = g;
+            g = f;
+            f = e;
+            e = d + t1;
+            d = c;
+            c = b;
+            b = a;
+            a = t1 + t2;
+        }
+        h[0] += a;
+        h[1] += b;
+        h[2] += c;
+        h[3] += d;
+        h[4] += e;
+        h[5] += f;
+        h[6] += g;
+        h[7] += hh;
+    }
+    constexpr char hex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(64);
+    for (auto word : h)
+        for (int shift = 28; shift >= 0; shift -= 4)
+            out.push_back(hex[(word >> shift) & 15]);
+    return out;
+}
+
+PlayerBootstrapResult parse_player_config(std::string_view text)
+{
+    PlayerBootstrapResult result;
+    auto root = json::parse(text.begin(), text.end(), nullptr, false);
+    if (!exact_keys(root,
+                    {"format", "formatVersion", "displayName", "applicationId", "saveNamespace",
+                     "versionName", "package", "capabilities", "display"},
+                    {"defaultLocale"}, result, ""))
+        return result;
+    try {
+        if (root.at("format") != "noveltea.player-config" || root.at("formatVersion") != 1)
+            fail(result, PlayerBootstrapError::ConfigParse, "/formatVersion",
+                 "unsupported player config format");
+        auto& config = result.config;
+        config.display_name = root.at("displayName").get<std::string>();
+        config.application_id = root.at("applicationId").get<std::string>();
+        config.save_namespace = root.at("saveNamespace").get<std::string>();
+        config.version_name = root.at("versionName").get<std::string>();
+        config.default_locale = root.value("defaultLocale", std::string());
+        const auto& package = root.at("package");
+        exact_keys(package, {"path", "sha256", "runtimePackageApi"}, {}, result, "/package");
+        config.package_path = package.at("path").get<std::string>();
+        config.package_sha256 = package.at("sha256").get<std::string>();
+        config.runtime_package_api = package.at("runtimePackageApi").get<std::uint32_t>();
+        const auto& display = root.at("display");
+        exact_keys(display, {"aspectRatio", "orientation", "barColor"}, {}, result, "/display");
+        exact_keys(display.at("aspectRatio"), {"width", "height"}, {}, result,
+                   "/display/aspectRatio");
+        config.display.aspect_width = display.at("aspectRatio").at("width").get<std::uint32_t>();
+        config.display.aspect_height = display.at("aspectRatio").at("height").get<std::uint32_t>();
+        config.display.orientation = display.at("orientation").get<std::string>();
+        config.display.bar_color = display.at("barColor").get<std::string>();
+        config.capabilities = root.at("capabilities").get<std::vector<std::string>>();
+        if (config.display_name.empty() || config.application_id.empty() ||
+            config.save_namespace.empty() || config.version_name.empty())
+            fail(result, PlayerBootstrapError::ConfigParse, "",
+                 "identity strings must not be empty");
+        if (!is_safe_player_relative_path(config.package_path.generic_string()))
+            fail(result, PlayerBootstrapError::ConfigParse, "/package/path",
+                 "package path must be normalized and relative");
+        if (config.package_sha256.size() != 64 ||
+            !std::all_of(config.package_sha256.begin(), config.package_sha256.end(),
+                         [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }))
+            fail(result, PlayerBootstrapError::ConfigParse, "/package/sha256",
+                 "SHA-256 must be 64 lowercase hexadecimal characters");
+        if (config.display.aspect_width == 0 || config.display.aspect_height == 0 ||
+            (config.display.orientation != "landscape" && config.display.orientation != "portrait"))
+            fail(result, PlayerBootstrapError::ConfigParse, "/display", "invalid display metadata");
+        std::set<std::string> unique;
+        for (const auto& capability : config.capabilities) {
+            if (std::find(known_capabilities.begin(), known_capabilities.end(), capability) ==
+                known_capabilities.end())
+                fail(result, PlayerBootstrapError::Capability, "/capabilities",
+                     "unknown capability: " + capability);
+            if (!unique.insert(capability).second)
+                fail(result, PlayerBootstrapError::Capability, "/capabilities",
+                     "duplicate capability: " + capability);
+        }
+    } catch (const json::exception& error) {
+        fail(result, PlayerBootstrapError::ConfigParse, "",
+             std::string("invalid player config: ") + error.what());
+    }
+    return result;
+}
+
+PlayerBootstrapResult load_and_verify_player(const std::filesystem::path& config_path,
+                                             std::span<const std::string> supported)
+{
+    std::ifstream config_file(config_path, std::ios::binary);
+    if (!config_file) {
+        PlayerBootstrapResult result;
+        fail(result, PlayerBootstrapError::ConfigDiscovery, config_path.string(),
+             "player config was not found");
+        return result;
+    }
+    std::string text{std::istreambuf_iterator<char>(config_file), std::istreambuf_iterator<char>()};
+    auto result = parse_player_config(text);
+    if (!result.success())
+        return result;
+    if (result.config.runtime_package_api != runtime_package_api_version)
+        fail(result, PlayerBootstrapError::PackageApi, "/package/runtimePackageApi",
+             "unsupported runtime package API");
+    for (const auto& capability : result.config.capabilities) {
+        if (std::find(supported.begin(), supported.end(), capability) == supported.end())
+            fail(result, PlayerBootstrapError::Capability, "/capabilities",
+                 "player template does not support: " + capability);
+    }
+    if (!result.success())
+        return result;
+    const auto package_path = config_path.parent_path() / result.config.package_path;
+    result.package_bytes = read_file(package_path);
+    if (result.package_bytes.empty()) {
+        fail(result, PlayerBootstrapError::PackageDiscovery, package_path.string(),
+             "game package was not found or is empty");
+        return result;
+    }
+    if (sha256_hex(result.package_bytes) != result.config.package_sha256) {
+        fail(result, PlayerBootstrapError::PackageChecksum, package_path.string(),
+             "game package checksum does not match player config");
+        return result;
+    }
+    verify_manifest(result.package_bytes, result);
+    return result;
+}
+
+const char* player_bootstrap_error_name(PlayerBootstrapError error) noexcept
+{
+    switch (error) {
+    case PlayerBootstrapError::ConfigDiscovery:
+        return "config-discovery";
+    case PlayerBootstrapError::ConfigParse:
+        return "config-parse";
+    case PlayerBootstrapError::PackageDiscovery:
+        return "package-discovery";
+    case PlayerBootstrapError::PackageChecksum:
+        return "package-checksum";
+    case PlayerBootstrapError::PackageApi:
+        return "package-api";
+    case PlayerBootstrapError::Capability:
+        return "capability";
+    case PlayerBootstrapError::PackageContent:
+        return "package-content";
+    case PlayerBootstrapError::WritableRoot:
+        return "writable-root";
+    }
+    return "unknown";
+}
+
+} // namespace noveltea::core

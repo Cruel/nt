@@ -4,6 +4,13 @@ This document describes the current `Cruel/nt` runtime architecture as it exists
 
 ## Current Shape
 
+The repository has separate application shells. `noveltea-sandbox` retains demos, preview
+integration, and diagnostic controls. `noveltea-player` validates the shared bootstrap contract and
+runtime package before engine initialization, discovers packaged inputs relative to the executable
+or platform resource base, and supplies identity-scoped cache and save roots. Release configurations
+disable Dear ImGui devtools by default, and the player does not link the sandbox application's C
+preview command surface.
+
 The sandbox executable enters through `apps/sandbox/main.cpp`, constructs `noveltea::App`, and calls `App::run(argc, argv)`. `App` owns one `Engine` instance. `Engine` owns the runtime subsystems directly and is the current composition root.
 
 The top-level path is:

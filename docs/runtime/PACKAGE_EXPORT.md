@@ -68,5 +68,11 @@ metadata, application/save identity, locale, and normalized capabilities. Later 
 resolve it relative to the platform artifact rather than the process working directory and must
 validate its format version, checksum, and package API before mounting `project:/`.
 
-Player template descriptors advertise an inclusive supported package-API range. Phase 0 defines
-and tests this contract only; current sandbox startup remains unchanged.
+Player template descriptors advertise an inclusive supported package-API range. The dedicated
+`noveltea-player` implements version 1 of this boundary: it discovers `player.json` relative to the
+executable (or platform resource base), rejects unsafe package paths and unsupported capabilities
+or API versions, verifies the package SHA-256 and `manifest.json`, and only then mounts the game.
+The sandbox command-line startup remains unchanged.
+
+Player saves use `FilesystemSaveSlotStore` below an identity-scoped platform preference directory.
+Writes use a temporary file and replacement, so installed files and `game.ntpkg` remain read-only.

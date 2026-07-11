@@ -2,6 +2,8 @@
 
 #include <noveltea/core/project_ids.hpp>
 
+#include <fstream>
+
 namespace noveltea::core {
 namespace {
 
@@ -234,6 +236,81 @@ SaveSlotResult MemorySaveSlotStore::write_slot(SaveSlotId slot, const SaveDocume
 }
 
 void MemorySaveSlotStore::delete_slot(SaveSlotId slot) { m_slots.erase(slot.value); }
+
+FilesystemSaveSlotStore::FilesystemSaveSlotStore(std::filesystem::path root)
+    : m_root(std::move(root))
+{
+}
+
+std::filesystem::path FilesystemSaveSlotStore::slot_path(SaveSlotId slot) const
+{
+    return m_root / (slot.is_autosave() ? "autosave.ntsav"
+                                        : "slot-" + std::to_string(slot.value) + ".ntsav");
+}
+
+bool FilesystemSaveSlotStore::has_slot(SaveSlotId slot) const
+{
+    std::error_code error;
+    return std::filesystem::is_regular_file(slot_path(slot), error);
+}
+
+SaveSlotResult FilesystemSaveSlotStore::read_slot(SaveSlotId slot) const
+{
+    SaveSlotResult result;
+    std::ifstream file(slot_path(slot), std::ios::binary);
+    if (!file) {
+        add_error(result.errors, "/slot", "save slot does not exist or cannot be read");
+        return result;
+    }
+    std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    auto parsed = SaveDocument::parse_json_text(text, result.errors);
+    if (!parsed)
+        return result;
+    result.success = true;
+    result.save = std::move(*parsed);
+    return result;
+}
+
+SaveSlotResult FilesystemSaveSlotStore::write_slot(SaveSlotId slot, const SaveDocument& save)
+{
+    SaveSlotResult result;
+    std::error_code error;
+    std::filesystem::create_directories(m_root, error);
+    if (error) {
+        add_error(result.errors, "/slot", "failed to create save directory: " + error.message());
+        return result;
+    }
+    const auto destination = slot_path(slot);
+    const auto temporary = destination.string() + ".tmp";
+    {
+        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+        if (!file || !(file << save.dump()) || !file.flush()) {
+            std::filesystem::remove(temporary, error);
+            add_error(result.errors, "/slot", "failed to write temporary save file");
+            return result;
+        }
+    }
+    std::filesystem::rename(temporary, destination, error);
+    if (error) {
+        std::filesystem::remove(destination, error);
+        error.clear();
+        std::filesystem::rename(temporary, destination, error);
+    }
+    if (error) {
+        std::filesystem::remove(temporary, error);
+        add_error(result.errors, "/slot", "failed to replace save file transactionally");
+        return result;
+    }
+    result.success = true;
+    result.save = save;
+    return result;
+}
+
+void FilesystemSaveSlotStore::delete_slot(SaveSlotId slot)
+{
+    std::error_code error;
+    std::filesystem::remove(slot_path(slot), error);
+}
 
 SettingsDocument::SettingsDocument() : m_root(json::object()) {}
 SettingsDocument::SettingsDocument(json root) : m_root(std::move(root)) {}

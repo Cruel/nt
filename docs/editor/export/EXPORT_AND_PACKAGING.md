@@ -6,6 +6,12 @@ The editor export workflow turns a NovelTea authoring project into a runtime pac
 
 ## Current V1 Scope
 
+The native `noveltea-player` target is the reusable player-template entrypoint. A staged desktop
+player contains `player.json` and its referenced sidecar `game.ntpkg`; discovery does not depend on
+the launch working directory. The player validates config format version 1, runtime-package API 1,
+capabilities, package SHA-256, and the runtime package manifest before mounting content. Branding,
+template staging, archives, and signing remain in later platform-export phases.
+
 Milestone 17 implements a first vertical slice:
 
 - export profile defaults for runtime packages;
