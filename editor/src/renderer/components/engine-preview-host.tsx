@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject, type WheelEventHandler } from 'react';
 import type { PreviewConnectionState } from '../../shared/preview-protocol';
 import { fitPreviewRect, referencePreviewSize, type PreviewScalingMode } from '../../shared/preview-display';
 import type { ProjectDisplaySettings } from '../../shared/project-schema/authoring-project-settings';
@@ -20,6 +20,7 @@ interface EnginePreviewHostProps {
   displayProfile?: ProjectDisplaySettings;
   scalingMode?: PreviewScalingMode;
   referenceLongAxis?: number;
+  onWheel?: WheelEventHandler<HTMLDivElement>;
 }
 
 export function EnginePreviewHost({
@@ -37,6 +38,7 @@ export function EnginePreviewHost({
   displayProfile,
   scalingMode = 'responsive',
   referenceLongAxis = 1280,
+  onWheel,
 }: EnginePreviewHostProps) {
   const previewHostRef = useRef<HTMLDivElement | null>(null);
   const [bounds, setBounds] = useState({ width: 0, height: 0 });
@@ -78,7 +80,7 @@ export function EnginePreviewHost({
   }
 
   return (
-    <div ref={previewHostRef} className={className} style={displayProfile ? { backgroundColor: displayProfile.barColor } : undefined}>
+    <div ref={previewHostRef} className={className} style={displayProfile ? { backgroundColor: displayProfile.barColor } : undefined} onWheel={onWheel}>
       {iframeSrc ? (
         <iframe
           key={iframeKey}

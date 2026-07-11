@@ -164,6 +164,23 @@ function PreviewHostSlot({
     if (message.type === 'preview-interacted') activateOwningTab();
     if (message.type === 'preview-wheel') routeWheel(host.hostId, message);
   }, [activateOwningTab, host.hostId, routeWheel]);
+  const handleHostWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const lease = host.lease;
+    if (!lease || lease.wheelPolicy !== 'editor-scroll') return;
+    event.preventDefault();
+    routeWheel(host.hostId, {
+      version: 1,
+      type: 'preview-wheel',
+      routeId: lease.leaseId,
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode === 1 || event.deltaMode === 2 ? event.deltaMode : 0,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      metaKey: event.metaKey,
+    });
+  }, [host.hostId, host.lease, routeWheel]);
   const controller = useEnginePreview({
     embedded: true,
     wheelPolicy: 'editor-scroll',
@@ -261,6 +278,7 @@ function PreviewHostSlot({
         displayProfile={effectiveDisplay}
         scalingMode={previewDisplay.scaling.pooled}
         referenceLongAxis={previewDisplay.scaling.referenceLongAxis}
+        onWheel={handleHostWheel}
       />
     </div>
   );
@@ -662,6 +680,10 @@ export function PreviewPane({
     }
     const observer = new ResizeObserverCtor(measureAndUpdate);
     observer.observe(placeholder);
+    for (let current = placeholder.parentElement; current; current = current.parentElement) {
+      observer.observe(current);
+      if (current === pool.layerRef.current?.parentElement) break;
+    }
     if (pool.layerRef.current) observer.observe(pool.layerRef.current);
     return () => observer.disconnect();
   }, [isActive, measureAndUpdate, pool]);
