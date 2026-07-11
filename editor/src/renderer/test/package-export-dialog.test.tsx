@@ -6,6 +6,8 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { usePackageExportStore } from '@/export/package-export-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useProjectStore } from '@/project/project-store';
+import { useCommandStore } from '@/commands/command-store';
 
 function exportableProject() {
   const project = createAuthoringProject({ name: 'Dialog Export' });
@@ -13,13 +15,36 @@ function exportableProject() {
   room.description.source = 'Ready.';
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: room };
   project.entrypoint = { collection: 'rooms', id: 'foyer' };
+  project.assets.icon = {
+    id: 'icon',
+    label: 'Icon',
+    tags: [],
+    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/icon.png' }, aliases: [] },
+  };
+  (project.settings.app as Record<string, unknown>).icon = { $ref: { collection: 'assets', id: 'icon' } };
   return project;
+}
+
+function installedLinuxTemplateResult() {
+  const sha = 'a'.repeat(64);
+  return {
+    success: true as const,
+    token: 'linux-x64/build-1',
+    diagnostics: [],
+    template: {
+      status: 'installed' as const,
+      entry: { format: 'noveltea.template-registry' as const, formatVersion: 1 as const, templateId: 'linux-x64', buildId: 'build-1', descriptorSha256: sha, archiveSha256: sha, installedAt: new Date(0).toISOString(), origin: 'test', trust: 'official' as const, verified: true },
+      descriptor: { format: 'noveltea.player-template' as const, formatVersion: 1 as const, templateId: 'linux-x64', buildId: 'build-1', engineVersion: '1', platform: 'linux' as const, architecture: 'x64' as const, minimumPlatformVersion: 'test', graphicsBackends: ['opengl' as const], shaderVariants: ['glsl-120' as const], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: [], buildFlavor: 'release' as const, packageAccessModes: ['sidecar' as const], files: [{ path: 'player', size: 1, mode: 493, sha256: sha, role: 'player' as const }], runtimeDependencies: [], artifacts: { archive: 'template.tar', symbols: 'symbols.tar', sbom: 'SBOM.json', notices: 'NOTICE.txt' }, provenance: { provider: 'github-attestation' as const, source: 'test' }, host: { assembly: 'any' as const, requiresToolchain: false, tools: [] } },
+    },
+  };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   usePackageExportStore.getState().clear();
   useWorkspaceStore.getState().setLastExportResult(null);
+  useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   vi.mocked(window.noveltea.selectPackageOutputPath).mockResolvedValue('/project/dialog-export.ntpkg');
   vi.mocked(window.noveltea.exportPackage).mockResolvedValue({
     ok: true,
@@ -29,9 +54,84 @@ beforeEach(() => {
     byteCount: 256,
     checksums: { game: 'abcd' },
   });
+  vi.mocked(window.noveltea.resolvePlayerTemplate).mockResolvedValue({ success: false, diagnostics: [{ code: 'template-missing', path: '/template', message: 'No compatible template is installed.' }] });
 });
 
 describe('PackageExportDialog', () => {
+  it('renders the embedded export surface without requiring dialog context', () => {
+    render(
+      <PackageExportDialog
+        embedded
+        initialMode="platform"
+        open
+        onOpenChange={vi.fn()}
+        project={exportableProject()}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Export Project' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Manage Profiles' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Duplicate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Profile name')).not.toBeInTheDocument();
+  });
+
+  it('keeps profile editing in the dedicated profile manager', () => {
+    render(
+      <PackageExportDialog
+        embedded
+        profileManagementOnly
+        initialMode="platform"
+        open
+        onOpenChange={vi.fn()}
+        project={exportableProject()}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Export Profiles' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Duplicate' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+    expect(screen.getByText('Profile name')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export Project' })).not.toBeInTheDocument();
+  });
+
+  it('performs profile CRUD through command-backed project settings', async () => {
+    const project = exportableProject();
+    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/project', projectFilePath: '/project/project.json' });
+    render(
+      <PackageExportDialog
+        embedded
+        profileManagementOnly
+        initialMode="platform"
+        open
+        onOpenChange={vi.fn()}
+        project={project}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Platform export profile' })).toHaveValue('platform-2'));
+    const profileNameInput = screen.getAllByDisplayValue('Platform Export 2').find((element) => element.tagName === 'INPUT');
+    expect(profileNameInput).toBeDefined();
+    fireEvent.change(profileNameInput!, { target: { value: 'Android Store' } });
+    await waitFor(() => expect(profileNameInput).toHaveValue('Android Store'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Platform export profile' })).toHaveValue('platform-2-copy'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Platform export profile' })).toHaveValue('linux-release'));
+    expect(useCommandStore.getState().history.entries.length).toBeGreaterThanOrEqual(4);
+  });
+
   it('renders export profile controls and runs an export workflow', async () => {
     render(
       <PackageExportDialog
@@ -151,5 +251,33 @@ describe('PackageExportDialog', () => {
     await waitFor(() => expect(screen.getByText('Last export failed')).toBeInTheDocument());
     expect(screen.getByText('Package file entry source does not exist.')).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it('runs the playable platform workflow without requiring a manual staging request', async () => {
+    vi.mocked(window.noveltea.resolvePlayerTemplate).mockResolvedValue(installedLinuxTemplateResult());
+    vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({ ok: true, success: true, cancelled: false, operationId: 'test', outputDirectory: '/project/dist/linux-release', diagnostics: [] });
+
+    render(<PackageExportDialog open onOpenChange={vi.fn()} project={exportableProject()} projectRoot="/project" projectFilePath="/project/project.json" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Playable Platform Export' }));
+    await waitFor(() => expect(screen.getByText('linux-x64@build-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
+    await waitFor(() => expect(window.noveltea.exportProjectToPlatform).toHaveBeenCalled());
+    const request = vi.mocked(window.noveltea.exportProjectToPlatform).mock.calls[0]![0];
+    expect(request).toMatchObject({ profileId: 'linux-release', templateToken: 'linux-x64/build-1', projectRoot: '/project' });
+  });
+
+  it('cancels an active playable export through the platform cancellation service', async () => {
+    vi.mocked(window.noveltea.resolvePlayerTemplate).mockResolvedValue(installedLinuxTemplateResult());
+    let finishExport!: (value: Awaited<ReturnType<typeof window.noveltea.exportProjectToPlatform>>) => void;
+    vi.mocked(window.noveltea.exportProjectToPlatform).mockImplementation(() => new Promise((resolve) => { finishExport = resolve; }));
+
+    render(<PackageExportDialog open onOpenChange={vi.fn()} project={exportableProject()} projectRoot="/project" projectFilePath="/project/project.json" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Playable Platform Export' }));
+    await waitFor(() => expect(screen.getByText('linux-x64@build-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
+    const cancel = await screen.findByRole('button', { name: 'Cancel Export' });
+    fireEvent.click(cancel);
+    await waitFor(() => expect(window.noveltea.cancelPlatformExport).toHaveBeenCalledWith(expect.stringMatching(/^editor-/)));
+    finishExport({ ok: false, success: false, cancelled: true, operationId: 'test', diagnostics: [] });
   });
 });

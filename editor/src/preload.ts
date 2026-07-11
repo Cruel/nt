@@ -12,6 +12,7 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
   selectPackageOutputPath: (defaultPath: string | null = null) =>
     ipcRenderer.invoke(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, defaultPath),
+  selectTemplateArchivePath: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_TEMPLATE_ARCHIVE_PATH),
   showItemInFolder: (path: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SHOW_ITEM_IN_FOLDER, path),
   previewExportedPackage: (packagePath: string) =>
@@ -62,6 +63,12 @@ const api: NovelTeaElectronApi = {
   exportPackage: (project: unknown, outputPath: string, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PACKAGE, project, outputPath, options),
   stagePlatformExport: (request) => ipcRenderer.invoke(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, request),
+  exportProjectToPlatform: (request) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM, request),
+  onPlatformExportProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: unknown) => callback(progress as never);
+    ipcRenderer.on(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, listener);
+  },
   cancelPlatformExport: (operationId: string) => ipcRenderer.invoke(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, operationId),
   listPlayerTemplates: (query = {}) => ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, query),
   inspectPlayerTemplate: (templateId, buildId) => ipcRenderer.invoke(IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE, templateId, buildId),

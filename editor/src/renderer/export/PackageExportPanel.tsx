@@ -122,12 +122,33 @@ function ShaderOutputs({ result }: { result: PackageExportWorkflowResult }) {
 function PlatformStageSummary({ result }: { result: PackageExportWorkflowResult }) {
   const staged = result.platformStageResult; if (!staged?.deployment || !staged.manifest) return null;
   const counts = staged.manifest.files.reduce<Record<string, number>>((value, entry) => ({ ...value, [entry.origin]: (value[entry.origin] ?? 0) + 1 }), {});
+  const verificationLevel = staged.success
+    ? staged.diagnostics.some((item) => item.code.includes('smoke') || item.code.includes('launch')) ? 'launch-smoke' : 'structural'
+    : 'failed';
   return <section className="space-y-2"><div className="font-medium">Platform staging</div><div className="grid grid-cols-2 gap-2 rounded border p-2 text-xs">
     <div>Target <span className="font-mono text-muted-foreground">{staged.deployment.target}/{staged.deployment.architecture}</span></div>
     <div>Template <span className="font-mono text-muted-foreground">{staged.deployment.templateId}@{staged.deployment.buildId}</span></div>
+    <div>Profile <span className="font-mono text-muted-foreground">{result.platformProfile?.label ?? '—'}</span></div>
+    <div>Verification <span className="font-mono text-muted-foreground">{verificationLevel}</span></div>
     <div>Files <span className="font-mono text-muted-foreground">{staged.manifest.files.length}</span></div>
     <div>Capabilities <span className="font-mono text-muted-foreground">{staged.deployment.capabilities.join(', ') || 'none'}</span></div>
-  </div><div className="flex flex-wrap gap-1">{Object.entries(counts).sort().map(([origin, count]) => <Badge key={origin} variant="outline">{origin}: {count}</Badge>)}</div></section>;
+  </div><div className="flex flex-wrap gap-1">{Object.entries(counts).sort().map(([origin, count]) => <Badge key={origin} variant="outline">{origin}: {count}</Badge>)}</div>
+  {staged.artifacts?.length ? <div className="space-y-1">{staged.artifacts.map((artifact) => <div key={`${artifact.kind}:${artifact.path}`} className="flex items-center gap-2 rounded border p-2"><Badge variant="outline">{artifact.kind}</Badge><span className="min-w-0 flex-1 truncate font-mono">{artifact.path}</span><Button size="sm" variant="outline" className="h-7" onClick={() => window.noveltea.showItemInFolder(artifact.path)}>Reveal</Button></div>)}</div> : null}</section>;
+}
+
+function PlatformNextSteps({ result }: { result: PackageExportWorkflowResult }) {
+  const target = result.platformStageResult?.deployment?.target;
+  if (!target || !result.outputPath) return null;
+  const message = target === 'web'
+    ? 'Serve the exported directory over HTTP(S); opening index.html through file:// is unsupported. See DEPLOYMENT.md in the export.'
+    : target === 'android'
+      ? 'Install the generated APK on a device/emulator, or upload the AAB to a testing track. Signing and store submission are separate release steps.'
+      : target === 'macos'
+        ? 'Test the app bundle on macOS. Unsigned bundles may require local security approval; signing/notarization are separate release steps.'
+        : target === 'windows'
+          ? 'Extract the archive when applicable and run the generated executable on Windows. Signing is a separate release step.'
+          : 'Extract the archive when applicable and run the generated executable on a compatible Linux system.';
+  return <section className="space-y-2"><div className="font-medium">Run or deploy</div><div className="rounded border p-2 text-xs text-muted-foreground">{message}</div></section>;
 }
 
 export function PackageExportPanel() {
@@ -166,14 +187,15 @@ export function PackageExportPanel() {
         <Badge variant={result.success ? 'default' : result.ok ? 'secondary' : 'destructive'}>
           {running ? stage : result.success ? 'exported' : 'failed'}
         </Badge>
-        <span className="font-medium">{result.profile?.label ?? 'Package Export'}</span>
+        <span className="font-medium">{result.platformProfile?.label ?? result.profile?.label ?? 'Package Export'}</span>
         {result.outputPath ? <span className="truncate font-mono text-muted-foreground">{result.outputPath}</span> : null}
         <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => setShowRaw(!showRaw)}>{showRaw ? 'Hide Raw' : 'Show Raw'}</Button>
         {result.outputPath ? <Button size="sm" variant="outline" className="h-7" onClick={() => window.noveltea.showItemInFolder(result.outputPath!)}>Reveal</Button> : null}
-        {result.outputPath && result.success ? <Button size="sm" className="h-7" onClick={previewPackage}>Preview Package</Button> : null}
+        {result.outputPath && result.success && !result.platformStageResult ? <Button size="sm" className="h-7" onClick={previewPackage}>Preview Package</Button> : null}
       </div>
       <ManifestSummary result={result} />
       <PlatformStageSummary result={result} />
+      <PlatformNextSteps result={result} />
       <Diagnostics result={result} />
       <PackageEntries result={result} />
       <FileEntries result={result} />

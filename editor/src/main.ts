@@ -26,6 +26,8 @@ import {
 import { createProject, saveProject, saveProjectAs } from './main/services/project-file-service';
 import { cancelPlatformExport, redactPlatformStageResult, stagePlatformExport } from './main/services/platform-staging-service';
 import { configureTemplateRegistryRoot, inspectPlayerTemplate, installPlayerTemplate, listPlayerTemplates, removePlayerTemplate, resolvePlayerTemplate } from './main/services/template-registry-service';
+import { parseExportCommandArguments, runExportCommand } from './cli/export-command';
+import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
@@ -283,6 +285,19 @@ function createWindow() {
 
 app.whenReady().then(() => {
   configureTemplateRegistryRoot(path.join(app.getPath('userData'), 'player-templates', 'v1'));
+  if (process.argv.includes('--export-project')) {
+    void (async () => {
+      try {
+        const command = await runExportCommand(parseExportCommandArguments(process.argv.slice(2)));
+        process.stdout.write(command.output);
+        app.exit(command.exitCode);
+      } catch (error) {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        app.exit(64);
+      }
+    })();
+    return;
+  }
   if (process.argv.includes('--stage-platform-export')) {
     let input = '';
     process.stdin.setEncoding('utf8');
@@ -344,6 +359,19 @@ app.whenReady().then(() => {
       ],
     });
     return result.canceled ? null : (result.filePath ?? null);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SELECT_TEMPLATE_ARCHIVE_PATH, async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Install NovelTea Player Template',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Template archives', extensions: ['zip', 'tar', 'gz', 'tgz', 'xz'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
   ipcMain.handle(IPC_CHANNELS.SHOW_ITEM_IN_FOLDER, (_event: Electron.IpcMainInvokeEvent, itemPath: string) => {
@@ -489,6 +517,10 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, request: PlatformStageRequest) => stagePlatformExport(request));
+  ipcMain.handle(IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM, (event: Electron.IpcMainInvokeEvent, request) => exportProjectToPlatform(
+    request,
+    (progress) => event.sender.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
+  ));
   ipcMain.handle(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, operationId: string) => cancelPlatformExport(operationId));
   ipcMain.handle(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, (_event, query = {}) => listPlayerTemplates(query));
   ipcMain.handle(IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE, (_event, templateId: string, buildId: string) => inspectPlayerTemplate(templateId, buildId));

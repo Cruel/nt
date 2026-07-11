@@ -2,13 +2,18 @@ import { create } from 'zustand';
 import type { PackageExportResponse, ShaderCompileDiagnostic, ShaderCompileOutput, ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
 import type { ExportFileEntry, ExportManifestPreview } from '../../shared/project-schema/authoring-runtime-export';
-import type { PlatformStageResult } from '../../shared/project-schema/platform-export-contracts';
+import type { PlatformExportProfile, PlatformStageResult } from '../../shared/project-schema/platform-export-contracts';
 
 export type ExportWorkflowStage =
   | 'idle'
   | 'validating'
   | 'building-runtime-project'
   | 'compiling-shaders'
+  | 'resolving-template'
+  | 'generating-metadata'
+  | 'staging'
+  | 'finalizing'
+  | 'verifying'
   | 'writing-package'
   | 'previewing-package'
   | 'complete'
@@ -31,6 +36,7 @@ export interface PackageExportWorkflowResult {
   byteCount?: number;
   checksums?: Record<string, string>;
   platformStageResult?: PlatformStageResult;
+  platformProfile?: PlatformExportProfile;
 }
 
 interface PackageExportStoreState {

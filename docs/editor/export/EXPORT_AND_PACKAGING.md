@@ -177,7 +177,7 @@ failed
 
 Validation errors stop the workflow before shader compilation or native package writing. Runtime export conversion errors stop the workflow before native package writing. Shader compile errors stop the workflow before package writing. Native package diagnostics are merged into the final export result.
 
-When project-level settings block export, such as a missing entrypoint or a non-room entrypoint, the Package Export dialog keeps the workflow in preflight, disables `Export Package`, shows the diagnostics inline, and exposes `Open Project Settings` so the user can fix the project setup without editing JSON.
+When project-level settings block export, such as a missing entrypoint, icon, or a non-room entrypoint, the Export workbench tab keeps the workflow in preflight, disables export, shows the diagnostics inline, and exposes `Open Project Settings` so the user can fix the project setup without editing JSON.
 
 ## Export Profiles
 
@@ -207,7 +207,7 @@ Default runtime package profile:
 }
 ```
 
-Profile parsing supports `project.settings.export`, but V1 does not yet include a full command-backed export profile editor. The dialog uses the selected/default profile and lets the user adjust output path, shader variants, and key toggles for the current export run.
+Runtime package profile parsing supports `project.settings.export`. Playable platform profiles are managed separately under `project.settings.platformExport` through the command-backed Export workbench tab.
 
 Phase 0 also defines strict, versioned platform-export contracts in
 `editor/src/shared/project-schema/platform-export-contracts.ts`. Platform profiles are a separate
@@ -302,13 +302,47 @@ docs/editor/project/PROJECT_SETTINGS.md
 editor/src/renderer/editors/project/ProjectSettingsEditor.tsx
 ```
 
-Project Settings is accessible from `Project > Project Settings…` and from the Package Export dialog when project settings block export.
+Project Settings is accessible from `Project > Project Settings…` and from the Export tab when project settings block export.
 
-Export dialog:
+Export workbench tab:
 
 ```text
+editor/src/renderer/editors/project/PlatformExportEditor.tsx
 editor/src/renderer/export/PackageExportDialog.tsx
 ```
+
+`File > Package Export…` and `Project > Package Export…` open a stable project-scoped **Export**
+workbench tab. The tab is scrollable, resizable with the workbench, and supports two explicit modes:
+
+- **Runtime Package (`.ntpkg`)** writes the data-only runtime package.
+- **Playable Platform Export** selects a committed platform profile and runs runtime-package export,
+  compatible-template resolution, platform staging/finalization, and verification as one workflow.
+
+Platform profiles are stored under `project.settings.platformExport`. **Settings → Export** links to
+a separate project-scoped **Export Profiles** workbench tab for profile creation, duplication,
+deletion, renaming, target selection, debug/release flavor, debug-symbol policy, architecture/ABI,
+artifact format, package-access mode, compression, capabilities, and target-specific
+Web/Android/Desktop settings. Profile changes use the command bus and are committed with the
+project so CI and other contributors can reference stable profile IDs. The main Export tab only
+selects a profile and links to this manager; it does not duplicate profile creation or editing.
+
+Machine-specific export configuration is editor-wide under **Settings → Export**. This includes the
+default output root, Android SDK/NDK, Java, CMake, signing identity, and credential-store reference.
+These values are persisted in the editor preferences store and are never serialized into a project.
+The last chosen output directory and explicit compatible-template choice are typed
+per-project/per-profile local preferences; the output falls back to the editor-wide default output
+root when no project-specific choice exists.
+
+The platform preflight shows target, architecture, artifact kind, application identity, and the
+resolved template/build ID. Installed templates are labeled by trust/compatibility status and only
+compatible, non-corrupt templates are selectable. When no compatible template is installed, export
+is blocked and the tab provides **Install Template…**. Template archives are verified by the
+template registry before they become eligible for export.
+
+Main-process orchestration emits operation-scoped progress for validation, shader compilation,
+runtime conversion, template resolution, package writing, metadata/icon generation, staging,
+finalization, and verification. Cancellation is checked throughout orchestration and staging,
+removes temporary output, and preserves any previously published artifact.
 
 Structured bottom panel:
 
@@ -327,6 +361,7 @@ selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>
 showItemInFolder(path: string): Promise<void>
 previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>
   stagePlatformExport(request: PlatformStageRequest): Promise<PlatformStageResult>
+  exportProjectToPlatform(request: ProjectPlatformExportRequest): Promise<PlatformStageResult>
   cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>
   listPlayerTemplates(query?: TemplateRegistryQuery): Promise<InstalledTemplate[]>
   inspectPlayerTemplate(templateId: string, buildId: string): Promise<InstalledTemplate | null>
@@ -335,7 +370,31 @@ previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>
   resolvePlayerTemplate(request: TemplateResolveRequest): Promise<TemplateResolveResult>
 ```
 
-Packaged editor builds also expose the same service noninteractively without opening a window:
+Packaged editor builds expose the project/profile workflow noninteractively without opening an
+editor window:
+
+```sh
+noveltea-editor --export-project \
+  --project /path/to/project.json \
+  --profile linux-release \
+  --output /path/to/dist/game \
+  --config /path/to/editor-local-export.json \
+  --json
+```
+
+The command loads and validates the project, selects the committed platform profile, builds the
+runtime package, resolves a compatible installed template, runs the same staging/finalization
+service used by the editor, prints structured diagnostics/provenance, and returns stable exit codes:
+
+- `0`: success;
+- `2`: invalid project/profile or runtime conversion failure;
+- `3`: missing/incompatible/corrupt template;
+- `4`: unavailable host toolchain;
+- `5`: packaging/finalization failure;
+- `6`: cancellation;
+- `64`: invalid command arguments.
+
+The lower-level staging contract remains available for service tests and advanced integration:
 
 ```sh
 noveltea-editor --stage-platform-export < request.json
@@ -347,10 +406,8 @@ runtime conversion, shader compilation, and `.ntpkg` writing have succeeded. Dir
 must run the same package-export checks first; the staging service rejects requests without that
 readiness result rather than treating an arbitrary existing package path as certified.
 
-The command writes a structured, recursively redacted result to stdout and returns a nonzero status
-for invalid requests or unsuccessful staging. This is the phase-4 headless editor-tool entrypoint;
-release automation may provide a `noveltea-editor-tool stage-platform-export` launcher alias when
-the platform templates are published in phase 5.
+The low-level command writes a structured, recursively redacted result to stdout and returns a
+nonzero status for invalid requests or unsuccessful staging. It is not the normal user-facing CLI.
 
 `previewExportedPackage` currently returns a precise unsupported diagnostic. Actual package preview should be connected to the engine preview server once loading exported `.ntpkg` files through the preview session is safe.
 
@@ -375,9 +432,7 @@ build/linux-debug/tests/noveltea_render_tests
 
 ## Known Follow-Up Work
 
-- Persist export profile edits through command-backed project settings updates.
 - Add full scene and dialogue runtime export conversion.
 - Add package preview loading through the engine preview server.
 - Add shader tool path preferences or better automatic shaderc discovery.
 - Add more granular asset reachability based on runtime-converted records.
-- Add platform-specific packaging workflows after runtime package export is stable.

@@ -140,6 +140,74 @@ const androidProfileSchema = platformProfileBase.extend({
 
 export const platformExportProfileSchema = z.discriminatedUnion('target', [desktopProfileSchema, webProfileSchema, androidProfileSchema]);
 
+export const projectPlatformExportSettingsSchema = z.object({
+  selectedProfileId: z.string().min(1),
+  profiles: z.array(platformExportProfileSchema).min(1),
+}).strict();
+
+export type ProjectPlatformExportSettings = z.infer<typeof projectPlatformExportSettingsSchema>;
+
+export function defaultPlatformExportProfile(target: ExportPlatform = 'linux'): PlatformExportProfile {
+  const common = {
+    format: PLATFORM_EXPORT_PROFILE_FORMAT,
+    formatVersion: PLATFORM_EXPORT_PROFILE_FORMAT_VERSION,
+    id: `${target}-release`,
+    label: `${target[0]!.toUpperCase()}${target.slice(1)} Release`,
+    buildFlavor: 'release' as const,
+    compression: 'default' as const,
+    includeDebugSymbols: false,
+    capabilityOverrides: [] as ExportCapability[],
+  };
+  if (target === 'web') {
+    return platformExportProfileSchema.parse({
+      ...common,
+      target,
+      architecture: 'wasm32',
+      packageAccess: 'web-fetch',
+      web: { artifact: 'directory-zip', threaded: false, pwa: true, display: 'standalone', basePath: '/', serviceWorker: 'disabled' },
+    });
+  }
+  if (target === 'android') {
+    return platformExportProfileSchema.parse({
+      ...common,
+      target,
+      architecture: 'arm64',
+      packageAccess: 'android-asset',
+      android: { artifact: 'apk', abi: 'arm64-v8a', minSdk: 24 },
+    });
+  }
+  if (target === 'macos') {
+    return platformExportProfileSchema.parse({
+      ...common,
+      target,
+      architecture: 'arm64',
+      packageAccess: 'bundle-resource',
+      desktop: { artifact: 'app-bundle', executableName: 'Game' },
+    });
+  }
+  return platformExportProfileSchema.parse({
+    ...common,
+    target,
+    architecture: 'x64',
+    packageAccess: 'sidecar',
+    desktop: { artifact: target === 'windows' ? 'zip' : 'tar', executableName: 'game' },
+  });
+}
+
+export function defaultProjectPlatformExportSettings(): ProjectPlatformExportSettings {
+  const profile = defaultPlatformExportProfile('linux');
+  return { selectedProfileId: profile.id, profiles: [profile] };
+}
+
+export function parseProjectPlatformExportSettings(value: unknown): ProjectPlatformExportSettings {
+  const parsed = projectPlatformExportSettingsSchema.safeParse(value);
+  if (!parsed.success) return defaultProjectPlatformExportSettings();
+  const selectedProfileId = parsed.data.profiles.some((profile) => profile.id === parsed.data.selectedProfileId)
+    ? parsed.data.selectedProfileId
+    : parsed.data.profiles[0]!.id;
+  return { ...parsed.data, selectedProfileId };
+}
+
 export const editorExportLocalStateSchema = z.object({
   format: z.literal(EDITOR_EXPORT_LOCAL_STATE_FORMAT),
   formatVersion: z.literal(EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION),
@@ -231,6 +299,41 @@ export interface PlatformStageResult {
   artifacts?: Array<{ kind: 'directory' | 'archive' | 'appimage' | 'app-bundle' | 'dmg' | 'symbols'; path: string; size?: number }>;
   webMetrics?: { compressedDownloadBytes: number; uncompressedPackageBytes: number; estimatedPeakStartupBytes: number };
   diagnostics: PlatformStageDiagnostic[]; deployment?: PlatformDeploymentModel; manifest?: PlatformExportManifest;
+}
+
+export interface ProjectPlatformExportRequest {
+  projectPath?: string;
+  project?: unknown;
+  projectRoot?: string;
+  profileId: string;
+  outputDirectory: string;
+  operationId?: string;
+  templateToken?: string;
+  localState?: {
+    androidSdk?: string;
+    androidNdk?: string;
+    javaHome?: string;
+    cmake?: string;
+    signingIdentity?: string;
+    credentialReference?: string;
+  };
+}
+
+export type PlatformExportProgressStage =
+  | 'validating'
+  | 'compiling-shaders'
+  | 'building-runtime-project'
+  | 'resolving-template'
+  | 'writing-package'
+  | 'generating-metadata'
+  | 'staging'
+  | 'finalizing'
+  | 'verifying';
+
+export interface PlatformExportProgressEvent {
+  operationId: string;
+  stage: PlatformExportProgressStage;
+  message: string;
 }
 
 export const parsePlayerBootstrapConfig = (value: unknown): PlayerBootstrapConfig => playerBootstrapConfigSchema.parse(value);

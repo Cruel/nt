@@ -24,9 +24,8 @@ import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { buildEditorProjectStateSnapshot, clearLocalEditorSessionSnapshot, mergeEditorProjectState, restoreEditorProjectState, restoreNoProjectEditorSession, saveLocalEditorSessionSnapshot } from '@/workbench/project-editor-state';
-import { buildFullGamePreviewTab, buildProjectSettingsTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import { buildFullGamePreviewTab, buildPlatformExportTab, buildProjectSettingsTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { dispatchWorkspaceToolbarCommand, WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -79,7 +78,6 @@ interface WorkspaceAlert {
 export function WorkspacePage() {
   const [, setBusy] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
-  const [packageExportOpen, setPackageExportOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('New Project');
@@ -768,7 +766,7 @@ export function WorkspacePage() {
 
   function exportRuntimePackage() {
     setLastExportResult(null);
-    setPackageExportOpen(true);
+    openWorkbenchTab(buildPlatformExportTab());
     setBottomPanelVisible(true);
     useBottomPanelStore.getState().setActivePanelId('package-export');
   }
@@ -956,13 +954,6 @@ export function WorkspacePage() {
         </DialogPopup>
       </Dialog>
       <CommandPaletteDialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} project={isAuthoringProject(project) ? project : null} onOpenTab={openWorkbenchTab} />
-      <PackageExportDialog
-        open={packageExportOpen}
-        onOpenChange={setPackageExportOpen}
-        project={isAuthoringProject(project) ? project : null}
-        projectRoot={projectPath}
-        projectFilePath={projectFilePath}
-      />
       <UntrackedAssetsDialog
         open={untrackedAssetDialogOpen && untrackedAssetFiles.length > 0}
         onOpenChange={setUntrackedAssetDialogOpen}

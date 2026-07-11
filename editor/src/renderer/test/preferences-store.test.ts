@@ -12,6 +12,9 @@ describe('preferences-store', () => {
       previewFpsCap: 0,
       lastProjectPath: null,
       defaultProjectDirectory: null,
+      exportPreferences: {
+        defaultOutputDirectory: '', androidSdk: '', androidNdk: '', javaHome: '', cmake: '', signingIdentity: '', credentialReference: '', profileOutputDirectories: {}, profileTemplateTokens: {},
+      },
     });
   });
 
@@ -25,6 +28,9 @@ describe('preferences-store', () => {
     expect(state.previewFpsCap).toBe(0);
     expect(state.lastProjectPath).toBe(null);
     expect(state.defaultProjectDirectory).toBe(null);
+    expect(state.exportPreferences.defaultOutputDirectory).toBe('');
+    expect(state.exportPreferences.profileOutputDirectories).toEqual({});
+    expect(state.exportPreferences.profileTemplateTokens).toEqual({});
   });
 
   it('updates theme', () => {
@@ -71,6 +77,21 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe('/tmp/NovelTea');
     usePreferencesStore.getState().setDefaultProjectDirectory(null);
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
+  });
+
+  it('stores editor-wide export tooling outside project data', () => {
+    usePreferencesStore.getState().setExportPreferences({
+      defaultOutputDirectory: '/tmp/exports',
+      androidSdk: '/opt/android-sdk',
+      signingIdentity: 'Developer ID Application',
+    });
+    expect(usePreferencesStore.getState().exportPreferences).toMatchObject({
+      defaultOutputDirectory: '/tmp/exports',
+      androidSdk: '/opt/android-sdk',
+      signingIdentity: 'Developer ID Application',
+    });
+    const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
+    expect(persisted.state.exportPreferences.androidSdk).toBe('/opt/android-sdk');
   });
 
   it('persists to localStorage', () => {

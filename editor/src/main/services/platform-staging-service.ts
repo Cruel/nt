@@ -20,7 +20,8 @@ const run = promisify(execFile);
 const diagnostic = (code: string, pathValue: string, message: string): PlatformStageDiagnostic => ({ severity: 'error', code, path: pathValue, message });
 
 export function cancelPlatformExport(operationId: string) { cancellations.add(operationId); return { cancelled: true }; }
-function checkCancelled(operationId: string) { if (cancellations.has(operationId)) throw new Error('NOVELTEA_EXPORT_CANCELLED'); }
+export function checkPlatformExportCancelled(operationId: string) { if (cancellations.has(operationId)) throw new Error('NOVELTEA_EXPORT_CANCELLED'); }
+export function clearPlatformExportCancellation(operationId: string) { cancellations.delete(operationId); }
 function safeRoot(root: string, relative: string) { const resolved = path.resolve(root, relative); if (resolved !== path.resolve(root) && !resolved.startsWith(`${path.resolve(root)}${path.sep}`)) throw new Error(`Path '${relative}' escapes its root.`); return resolved; }
 async function listFiles(root: string, prefix = ''): Promise<string[]> {
   const output: string[] = [];
@@ -529,7 +530,7 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
   let appImageBackedUp = false;
   let dmgBackedUp = false;
   try {
-    cancellations.delete(request.operationId); checkCancelled(request.operationId);
+    checkPlatformExportCancelled(request.operationId);
     if (request.runtimePackageReadiness?.validated !== true || request.runtimePackageReadiness.blockingDiagnosticCount !== 0) {
       return {
         ok: false,
@@ -563,10 +564,10 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     const disk = await statfs(path.dirname(path.resolve(request.outputDirectory))); if (Number(disk.bavail) * Number(disk.bsize) < estimated * 2) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics: [diagnostic('insufficient-disk-space', '/outputDirectory', 'Not enough disk space to build and atomically replace staging output.')], deployment: built.model };
     await rm(temp, { recursive: true, force: true }); await rm(backup, { recursive: true, force: true }); await mkdir(temp, { recursive: true });
     const files: StagedFileEntry[] = []; const dependencyKinds = new Map(descriptor.runtimeDependencies.map((item) => [item.path, item.kind === 'notice' ? 'notice' as const : item.kind === 'library' ? 'native-dependency' as const : 'system-asset' as const]));
-    for (const file of templateFiles) { checkCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(templateRoot, file), temp, file, classifyTemplate(file, dependencyKinds), `template:${descriptor.templateId}`)); }
+    for (const file of templateFiles) { checkPlatformExportCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(templateRoot, file), temp, file, classifyTemplate(file, dependencyKinds), `template:${descriptor.templateId}`)); }
     files.push(await copyFileTracked(request.packagePath, temp, 'game.ntpkg', 'runtime-package', 'game.ntpkg'));
-    if (request.systemAssetsRoot) for (const file of await listFiles(request.systemAssetsRoot)) { checkCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(request.systemAssetsRoot, file), temp, path.posix.join('assets/system', file), 'system-asset', file)); }
-    checkCancelled(request.operationId);
+    if (request.systemAssetsRoot) for (const file of await listFiles(request.systemAssetsRoot)) { checkPlatformExportCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(request.systemAssetsRoot, file), temp, path.posix.join('assets/system', file), 'system-asset', file)); }
+    checkPlatformExportCancelled(request.operationId);
     const iconResult = await generateAppIcons({ sourcePath: request.iconSourcePath!, stagingRoot: path.join(temp, '.icons'), platforms: [request.profile.target === 'linux' ? 'linux' : request.profile.target === 'web' ? 'web' : request.profile.target === 'android' ? 'android' : request.profile.target === 'windows' ? 'windows' : 'macos'] });
     diagnostics.push(...iconResult.diagnostics.map((item) => ({ severity: item.severity, code: item.code, path: '/icon', message: item.message })));
     const iconTargets = iconResult.files.map((icon) => path.posix.join('icons', path.relative(path.join(temp, '.icons'), icon.path).split(path.sep).join('/')));
@@ -589,7 +590,7 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     files.sort((a, b) => a.path.localeCompare(b.path));
     const manifest: PlatformExportManifest = { format: PLATFORM_EXPORT_MANIFEST_FORMAT, formatVersion: PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION, deployment: built.model, files };
     const manifestPath = request.profile.target === 'macos' ? 'Contents/Resources/export-manifest.json' : 'export-manifest.json';
-    await writeFile(safeRoot(temp, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 }); checkCancelled(request.operationId);
+    await writeFile(safeRoot(temp, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 }); checkPlatformExportCancelled(request.operationId);
     const symbolFiles = windows?.symbolFiles ?? linux?.symbolFiles ?? macos?.symbolFiles ?? [];
     if (symbolArchivePath && symbolArchiveTemp && symbolFiles.length) {
       const symbolStage = `${temp}.symbols`;
@@ -605,11 +606,11 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
       if (request.profile.target === 'linux') await run('cmake', ['-E', 'tar', 'czf', symbolArchiveTemp, '.'], { cwd: symbolStage });
       else await run('cmake', ['-E', 'tar', 'cf', symbolArchiveTemp, '--format=zip', '.'], { cwd: symbolStage });
       await rm(symbolStage, { recursive: true, force: true });
-      checkCancelled(request.operationId);
+    checkPlatformExportCancelled(request.operationId);
     }
     if (linux && appImageTemp) {
       await buildLinuxAppImage(temp, appImageTemp, request, linux);
-      checkCancelled(request.operationId);
+    checkPlatformExportCancelled(request.operationId);
     }
     if (macos && request.macosSigning) {
       if (process.platform !== 'darwin') throw new Error('macOS signing requires a macOS host.');
@@ -653,12 +654,12 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
         await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', appName], { cwd: macosArchiveRoot });
         await rm(macosArchiveRoot, { recursive: true, force: true });
       } else await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', '.'], { cwd: temp });
-      checkCancelled(request.operationId);
+    checkPlatformExportCancelled(request.operationId);
     }
     if (macos && dmgTemp && request.macosDmg) {
       await rm(dmgTemp, { force: true });
       await run(request.macosDmg.command, [...request.macosDmg.args, temp, dmgTemp]);
-      checkCancelled(request.operationId);
+      checkPlatformExportCancelled(request.operationId);
     }
     if (existsSync(request.outputDirectory)) { await rename(request.outputDirectory, backup); backedUp = true; }
     if (archivePath && archiveBackup && existsSync(archivePath)) { await rename(archivePath, archiveBackup); archiveBackedUp = true; }
@@ -711,7 +712,7 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     if (appImagePath && appImageBackedUp && appImageBackup && !existsSync(appImagePath) && existsSync(appImageBackup)) await rename(appImageBackup, appImagePath);
     if (dmgPath && dmgBackedUp && dmgBackup && !existsSync(dmgPath) && existsSync(dmgBackup)) await rename(dmgBackup, dmgPath);
     return { ok: false, success: false, cancelled, operationId: request.operationId, diagnostics: cancelled ? [...diagnostics, { severity: 'info', code: 'cancelled', path: '/staging', message: 'Platform export was cancelled.' }] : diagnostics };
-  } finally { cancellations.delete(request.operationId); }
+  } finally { clearPlatformExportCancellation(request.operationId); }
 }
 
 export function redactPlatformStageResult(value: unknown): unknown {

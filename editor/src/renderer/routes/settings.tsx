@@ -19,7 +19,7 @@ import {
   usePreferencesStore,
   type Theme,
 } from '@/stores/preferences-store';
-import { buildComfyUiWorkflowsTab } from '@/workbench/editor-registry';
+import { buildComfyUiWorkflowsTab, buildPlatformExportProfilesTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { ChevronLeft, ChevronRight, Code2, FolderOpen, Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
 import type { ComfyUiWorkflowActiveEntry, ComfyUiWorkflowRole } from '../../shared/comfyui-workflows';
@@ -193,6 +193,7 @@ export function SettingsPage() {
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
   const comfyUiConfig = usePreferencesStore((s) => s.comfyUiConfig);
+  const exportPreferences = usePreferencesStore((s) => s.exportPreferences);
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
@@ -202,6 +203,7 @@ export function SettingsPage() {
   const setPreviewDisplay = usePreferencesStore((s) => s.setPreviewDisplay);
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
   const setComfyUiConfig = usePreferencesStore((s) => s.setComfyUiConfig);
+  const setExportPreferences = usePreferencesStore((s) => s.setExportPreferences);
   const comfyUiStatus = useComfyUiStore((s) => s.status);
   const checkComfyUiConnection = useComfyUiStore((s) => s.checkConnection);
   const [nativeFrame, setNativeFrame] = useState(false);
@@ -280,6 +282,18 @@ export function SettingsPage() {
 
   function openComfyUiWorkflows() {
     navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
+  }
+
+  function openExportProfiles() {
+    navigateToWorkbenchTarget({ tab: buildPlatformExportProfilesTab() });
+  }
+
+  async function chooseDefaultExportDirectory() {
+    const directory = await window.noveltea.selectDirectory({
+      title: 'Select default export directory',
+      defaultPath: exportPreferences.defaultOutputDirectory || null,
+    });
+    if (directory) setExportPreferences({ defaultOutputDirectory: directory });
   }
 
   async function testComfyUiConnection() {
@@ -523,6 +537,43 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
+        <Card data-workbench-anchor="settings.export">
+          <CardHeader>
+            <CardTitle>Export</CardTitle>
+            <CardDescription>
+              Configure machine-wide export tools and defaults. Project export profiles remain committed with each project.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-5">
+            <div className="grid gap-2">
+              <div>
+                <Label htmlFor="default-export-directory">Default output directory</Label>
+                <p className="text-xs text-muted-foreground">Used as the starting location for projects that do not yet have a local output choice.</p>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <Input id="default-export-directory" className="font-mono text-[11px]" value={exportPreferences.defaultOutputDirectory} onChange={(event) => setExportPreferences({ defaultOutputDirectory: event.currentTarget.value })} />
+                <Button type="button" variant="outline" onClick={chooseDefaultExportDirectory}><FolderOpen />Browse…</Button>
+                <Button type="button" variant="outline" size="icon" aria-label="Reset default export directory" onClick={() => setExportPreferences({ defaultOutputDirectory: '' })}><RotateCcw /></Button>
+              </div>
+            </div>
+            <div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
+              <div className="space-y-1"><Label htmlFor="export-android-sdk">Android SDK</Label><Input id="export-android-sdk" className="font-mono text-[11px]" value={exportPreferences.androidSdk} onChange={(event) => setExportPreferences({ androidSdk: event.currentTarget.value })} placeholder="ANDROID_HOME" /></div>
+              <div className="space-y-1"><Label htmlFor="export-android-ndk">Android NDK</Label><Input id="export-android-ndk" className="font-mono text-[11px]" value={exportPreferences.androidNdk} onChange={(event) => setExportPreferences({ androidNdk: event.currentTarget.value })} placeholder="NDK root" /></div>
+              <div className="space-y-1"><Label htmlFor="export-java-home">Java home</Label><Input id="export-java-home" className="font-mono text-[11px]" value={exportPreferences.javaHome} onChange={(event) => setExportPreferences({ javaHome: event.currentTarget.value })} placeholder="JAVA_HOME" /></div>
+              <div className="space-y-1"><Label htmlFor="export-cmake">CMake</Label><Input id="export-cmake" className="font-mono text-[11px]" value={exportPreferences.cmake} onChange={(event) => setExportPreferences({ cmake: event.currentTarget.value })} placeholder="cmake executable or directory" /></div>
+              <div className="space-y-1"><Label htmlFor="export-signing-identity">Signing identity</Label><Input id="export-signing-identity" value={exportPreferences.signingIdentity} onChange={(event) => setExportPreferences({ signingIdentity: event.currentTarget.value })} placeholder="Certificate or signing identity" /></div>
+              <div className="space-y-1"><Label htmlFor="export-credential-reference">Credential reference</Label><Input id="export-credential-reference" value={exportPreferences.credentialReference} onChange={(event) => setExportPreferences({ credentialReference: event.currentTarget.value })} placeholder="Credential-store reference; never a secret" /></div>
+            </div>
+            <div className="flex items-center justify-between gap-6 rounded-md border p-3">
+              <div>
+                <Label>Project export profiles</Label>
+                <p className="text-xs text-muted-foreground">Create and edit reproducible target profiles for the currently open project.</p>
+              </div>
+              <Button type="button" variant="outline" onClick={openExportProfiles}>Manage Export Profiles</Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card data-workbench-anchor="settings.comfyui">
           <CardHeader>
             <CardTitle>{t('settings:comfyui.title')}</CardTitle>
@@ -611,6 +662,15 @@ export function SettingsPage() {
               setShowPreviewFpsCounter(false);
               setDefaultProjectDirectoryError(null);
               setDefaultProjectDirectory(null);
+              setExportPreferences({
+                defaultOutputDirectory: '',
+                androidSdk: '',
+                androidNdk: '',
+                javaHome: '',
+                cmake: '',
+                signingIdentity: '',
+                credentialReference: '',
+              });
               updateComfyUiConfig({
                 enabled: false,
                 serverUrl: 'http://127.0.0.1:8000',

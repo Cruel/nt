@@ -16,6 +16,7 @@ export interface NovelTeaElectronApi {
   selectDirectory(options?: { title?: string; defaultPath?: string | null }): Promise<string | null>;
   selectProjectDirectory(): Promise<string | null>;
   selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>;
+  selectTemplateArchivePath(): Promise<string | null>;
   showItemInFolder(path: string): Promise<void>;
   previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>;
   openExternal(url: string): Promise<void>;
@@ -46,6 +47,8 @@ export interface NovelTeaElectronApi {
     options?: PackageExportOptions,
   ): Promise<PackageExportResponse>;
   stagePlatformExport(request: import('./project-schema/platform-export-contracts').PlatformStageRequest): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
+  exportProjectToPlatform(request: import('./project-schema/platform-export-contracts').ProjectPlatformExportRequest): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
+  onPlatformExportProgress(callback: (event: import('./project-schema/platform-export-contracts').PlatformExportProgressEvent) => void): () => void;
   cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>;
   listPlayerTemplates(query?: import('./project-schema/platform-export-contracts').TemplateRegistryQuery): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate[]>;
   inspectPlayerTemplate(templateId: string, buildId: string): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate | null>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssetsEditorTab, buildComfyUiWorkflowsTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildTestsEditorTab, buildVariablesEditorTab, resolveEditorPolicies, type WorkbenchEditorRegistration } from '@/workbench/editor-registry';
+import { buildAssetsEditorTab, buildComfyUiWorkflowsTab, buildDefaultRecordTab, buildFullGamePreviewTab, buildPlatformExportProfilesTab, buildPlatformExportTab, buildTestsEditorTab, buildVariablesEditorTab, resolveEditorPolicies, type WorkbenchEditorRegistration } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
 import type { AssetNode } from '@/stores/workspace-store';
 
@@ -8,6 +8,7 @@ describe('editor registry', () => {
     expect(defaultEditorRegistry.resolve('engine-preview')?.label).toBe('Engine Preview');
     expect(defaultEditorRegistry.resolve('full-game-preview')?.label).toBe('Play');
     expect(defaultEditorRegistry.resolve('comfyui-workflows')?.label).toBe('ComfyUI Workflows');
+    expect(defaultEditorRegistry.resolve('platform-export')?.label).toBe('Export');
     expect(defaultEditorRegistry.resolve('placeholder-entity')?.label).toBe('Placeholder Entity');
     expect(defaultEditorRegistry.resolve('raw-json')).toBeNull();
   });
@@ -73,6 +74,25 @@ describe('editor registry', () => {
       editorType: 'full-game-preview',
       resource: { stableId: 'preview:full-game' },
     });
+  });
+
+  it('builds platform export as a stable project-scoped workbench tab', () => {
+    expect(buildPlatformExportTab()).toEqual({
+      id: 'tab:platform-export',
+      title: 'Export',
+      editorType: 'platform-export',
+      resource: { kind: 'project', stableId: 'project:platform-export' },
+    });
+  });
+
+  it('builds export profile management as a separate project-scoped tab', () => {
+    expect(buildPlatformExportProfilesTab()).toEqual({
+      id: 'tab:platform-export-profiles',
+      title: 'Export Profiles',
+      editorType: 'platform-export-profiles',
+      resource: { kind: 'project', stableId: 'project:platform-export-profiles' },
+    });
+    expect(defaultEditorRegistry.resolve('platform-export-profiles')?.label).toBe('Export Profiles');
   });
 
   it('builds the global ComfyUI workflows tab descriptor', () => {

@@ -8,6 +8,39 @@ import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE, normalizePreviewDisplayPreference, 
 
 export type Theme = 'system' | 'light' | 'dark';
 
+export interface ExportPreferences {
+  defaultOutputDirectory: string;
+  androidSdk: string;
+  androidNdk: string;
+  javaHome: string;
+  cmake: string;
+  signingIdentity: string;
+  credentialReference: string;
+  profileOutputDirectories: Record<string, string>;
+  profileTemplateTokens: Record<string, string>;
+}
+
+export const DEFAULT_EXPORT_PREFERENCES: ExportPreferences = {
+  defaultOutputDirectory: '',
+  androidSdk: '',
+  androidNdk: '',
+  javaHome: '',
+  cmake: '',
+  signingIdentity: '',
+  credentialReference: '',
+  profileOutputDirectories: {},
+  profileTemplateTokens: {},
+};
+
+export function normalizeExportPreferences(value: Partial<ExportPreferences> | null | undefined): ExportPreferences {
+  return {
+    ...DEFAULT_EXPORT_PREFERENCES,
+    ...(value ?? {}),
+    profileOutputDirectories: { ...(value?.profileOutputDirectories ?? {}) },
+    profileTemplateTokens: { ...(value?.profileTemplateTokens ?? {}) },
+  };
+}
+
 export function normalizePreviewFpsCap(value: number) {
   return Number.isFinite(value) ? Math.min(1000, Math.max(0, Math.trunc(value))) : 0;
 }
@@ -23,6 +56,7 @@ interface PreferencesState {
   defaultProjectDirectory: string | null;
   comfyUiConfig: ComfyUiConfig;
   previewDisplay: PreviewDisplayPreference;
+  exportPreferences: ExportPreferences;
   setTheme: (theme: Theme) => void;
   setLanguage: (language: EditorLanguage) => void;
   setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
@@ -33,6 +67,7 @@ interface PreferencesState {
   setDefaultProjectDirectory: (projectDirectory: string | null) => void;
   setComfyUiConfig: (patch: Partial<ComfyUiConfig>) => void;
   setPreviewDisplay: (preference: PreviewDisplayPreference) => void;
+  setExportPreferences: (patch: Partial<ExportPreferences>) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -48,6 +83,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       defaultProjectDirectory: null,
       comfyUiConfig: defaultComfyUiConfig(),
       previewDisplay: DEFAULT_PREVIEW_DISPLAY_PREFERENCE,
+      exportPreferences: DEFAULT_EXPORT_PREFERENCES,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
@@ -63,6 +99,12 @@ export const usePreferencesStore = create<PreferencesState>()(
         }),
       })),
       setPreviewDisplay: (previewDisplay) => set({ previewDisplay: normalizePreviewDisplayPreference(previewDisplay) }),
+      setExportPreferences: (patch) => set((state) => ({
+        exportPreferences: normalizeExportPreferences({
+          ...state.exportPreferences,
+          ...patch,
+        }),
+      })),
     }),
     {
       name: 'noveltea-preferences',
@@ -76,6 +118,7 @@ export const usePreferencesStore = create<PreferencesState>()(
           previewFpsCap: normalizePreviewFpsCap(next.previewFpsCap),
           comfyUiConfig: normalizeComfyUiConfig(next.comfyUiConfig),
           previewDisplay: normalizePreviewDisplayPreference(next.previewDisplay),
+          exportPreferences: normalizeExportPreferences(next.exportPreferences),
         };
       },
     },
