@@ -250,6 +250,15 @@ The canonical cross-platform acceptance fixture lives under `editor/src/renderer
 It intentionally records RmlUi mounting, audio playback, and save/reload as certification blockers
 until those reachable behaviors have complete runtime conversion and artifact smoke coverage.
 
+Phase 10 certification uses the versioned contract in
+`editor/src/shared/project-schema/platform-export-certification.ts`. A certification report is
+bound to one template ID and build ID and must provide passing evidence for descriptor file roles,
+actual artifact claims, system-asset closure, transactional rollback, the representative fixture's
+runtime behaviors, compatible and incompatible updates, release hygiene, symbols, notices, SBOM,
+and reproducibility. Every package API, capability, and artifact format claimed by the descriptor
+must be exercised. Missing/skipped evidence and documented host gaps deliberately fail the release
+gate; they remain visible constraints instead of being converted into a green structural check.
+
 ## Authoring-to-Runtime Export Builder
 
 The pure builder lives in:
