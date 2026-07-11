@@ -233,6 +233,12 @@ Packaged editor builds also expose the same service noninteractively without ope
 noveltea-editor --stage-platform-export < request.json
 ```
 
+The request must include `runtimePackageReadiness` with `validated: true` and a zero
+`blockingDiagnosticCount`. The complete UI workflow supplies this only after authoring validation,
+runtime conversion, shader compilation, and `.ntpkg` writing have succeeded. Direct/headless callers
+must run the same package-export checks first; the staging service rejects requests without that
+readiness result rather than treating an arbitrary existing package path as certified.
+
 The command writes a structured, recursively redacted result to stdout and returns a nonzero status
 for invalid requests or unsuccessful staging. This is the phase-4 headless editor-tool entrypoint;
 release automation may provide a `noveltea-editor-tool stage-platform-export` launcher alias when

@@ -140,6 +140,10 @@ export interface PlatformExportManifest {
 export interface PlatformStageRequest {
   operationId: string; profile: PlatformExportProfile; templateRoot: string; outputDirectory: string;
   packagePath: string; iconSourcePath?: string; systemAssetsRoot?: string;
+  runtimePackageReadiness: {
+    validated: boolean;
+    blockingDiagnosticCount: number;
+  };
   identity: { displayName: string; applicationId: string; saveNamespace: string; versionName: string; defaultLocale?: string };
   display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>; capabilities?: ExportCapability[]; runtimePackageApi: number;
   host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };

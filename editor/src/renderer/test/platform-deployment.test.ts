@@ -9,14 +9,14 @@ describe('platform deployment model', () => {
   it('derives deterministic platform metadata and preserves display metadata', () => {
     expect(capabilityMetadata(['network.client', 'vibration']).androidPermissions).toEqual(['android.permission.INTERNET', 'android.permission.VIBRATE']);
     const display = { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape' as const, barColor: '#000000' };
-    const result = buildPlatformDeployment({ operationId: 'op', profile, templateRoot: '/local/template', outputDirectory: '/local/out', packagePath: '/local/game.ntpkg', iconSourcePath: '/local/icon.png', identity: { displayName: 'Game', applicationId: 'com.example.game', saveNamespace: 'com.example.game', versionName: '1.0' }, display, capabilities: [], runtimePackageApi: 1 }, descriptor);
+    const result = buildPlatformDeployment({ operationId: 'op', profile, templateRoot: '/local/template', outputDirectory: '/local/out', packagePath: '/local/game.ntpkg', iconSourcePath: '/local/icon.png', runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 }, identity: { displayName: 'Game', applicationId: 'com.example.game', saveNamespace: 'com.example.game', versionName: '1.0' }, display, capabilities: [], runtimePackageApi: 1 }, descriptor);
     expect(result.diagnostics).toEqual([]);
     expect(result.model?.display).toEqual(display);
     expect(result.model?.capabilityMetadata.webRequirements).toEqual(['network']);
   });
 
   it('blocks invalid identity, missing icon, and incompatible templates', () => {
-    const result = buildPlatformDeployment({ operationId: 'op', profile, templateRoot: '', outputDirectory: '', packagePath: '', identity: { displayName: '', applicationId: 'bad', saveNamespace: 'bad', versionName: '1' }, display: { aspectRatio: { width: 1, height: 1 }, orientation: 'portrait', barColor: '#000000' }, runtimePackageApi: 2 }, { ...descriptor, platform: 'windows' });
+    const result = buildPlatformDeployment({ operationId: 'op', profile, templateRoot: '', outputDirectory: '', packagePath: '', runtimePackageReadiness: { validated: false, blockingDiagnosticCount: 1 }, identity: { displayName: '', applicationId: 'bad', saveNamespace: 'bad', versionName: '1' }, display: { aspectRatio: { width: 1, height: 1 }, orientation: 'portrait', barColor: '#000000' }, runtimePackageApi: 2 }, { ...descriptor, platform: 'windows' });
     expect(result.diagnostics.map((item) => item.code)).toEqual(expect.arrayContaining(['invalid-app-identity', 'missing-icon', 'incompatible-template', 'incompatible-package-api']));
   });
 });

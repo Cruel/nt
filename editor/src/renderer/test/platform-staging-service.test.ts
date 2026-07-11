@@ -13,8 +13,18 @@ async function fixture() {
   const templateRoot = path.join(root, 'template'); fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true }); fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'player');
   fs.writeFileSync(path.join(templateRoot, 'template.json'), JSON.stringify({ format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'linux-x64', buildId: 'build-1', platform: 'linux', architecture: 'x64', minimumPlatformVersion: 'provisional', graphicsBackends: ['opengl'], shaderVariants: ['glsl-120'], runtimePackageApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: [], buildFlavor: 'release', runtimeDependencies: [], host: { assembly: 'any', requiresToolchain: false, tools: [] } }));
   const packagePath = path.join(root, 'game.ntpkg'); fs.writeFileSync(packagePath, 'package'); const iconSourcePath = path.join(root, 'icon.png'); await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#ff0000' } }).png().toFile(iconSourcePath);
-  const request: PlatformStageRequest = { operationId: 'one', profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'linux', label: 'Linux', target: 'linux', architecture: 'x64', packageAccess: 'sidecar', buildFlavor: 'release', compression: 'default', includeDebugSymbols: false, capabilityOverrides: [], desktop: { artifact: 'tar', executableName: 'game' } }, templateRoot, outputDirectory: path.join(root, 'out'), packagePath, iconSourcePath, identity: { displayName: 'Game', applicationId: 'com.example.game', saveNamespace: 'com.example.game', versionName: '1' }, display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' }, runtimePackageApi: 1 };
+  const request: PlatformStageRequest = { operationId: 'one', profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'linux', label: 'Linux', target: 'linux', architecture: 'x64', packageAccess: 'sidecar', buildFlavor: 'release', compression: 'default', includeDebugSymbols: false, capabilityOverrides: [], desktop: { artifact: 'tar', executableName: 'game' } }, templateRoot, outputDirectory: path.join(root, 'out'), packagePath, iconSourcePath, runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 }, identity: { displayName: 'Game', applicationId: 'com.example.game', saveNamespace: 'com.example.game', versionName: '1', defaultLocale: 'en-US' }, display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' }, runtimePackageApi: 1 };
   return { root, request };
+}
+
+function outputBytes(root: string, prefix = ''): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const entry of fs.readdirSync(path.join(root, prefix), { withFileTypes: true })) {
+    const relative = path.posix.join(prefix.split(path.sep).join('/'), entry.name);
+    if (entry.isDirectory()) Object.assign(result, outputBytes(root, relative));
+    else result[relative] = fs.readFileSync(path.join(root, relative)).toString('base64');
+  }
+  return result;
 }
 
 describe('platform staging service', () => {
@@ -22,12 +32,29 @@ describe('platform staging service', () => {
     const { request } = await fixture(); fs.mkdirSync(request.outputDirectory); fs.writeFileSync(path.join(request.outputDirectory, 'old'), 'old');
     const first = await stagePlatformExport(request); expect(first.success).toBe(true); expect(fs.existsSync(path.join(request.outputDirectory, 'old'))).toBe(false);
     expect(first.manifest?.files.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256))).toBe(true);
+    const firstBytes = outputBytes(request.outputDirectory);
     const second = await stagePlatformExport({ ...request, operationId: 'two' }); expect(second.manifest).toEqual(first.manifest);
+    expect(outputBytes(request.outputDirectory)).toEqual(firstBytes);
     expect(JSON.parse(fs.readFileSync(path.join(request.outputDirectory, 'export-manifest.json'), 'utf8')).deployment.applicationId).toBe('com.example.game');
+    expect(JSON.parse(fs.readFileSync(path.join(request.outputDirectory, 'player.json'), 'utf8')).defaultLocale).toBe('en-US');
   });
 
   it('rejects sandbox content without touching previous output', async () => {
     const { request } = await fixture(); fs.mkdirSync(path.join(request.templateRoot, 'sandbox')); fs.writeFileSync(path.join(request.templateRoot, 'sandbox/demo.txt'), 'demo'); fs.mkdirSync(request.outputDirectory); fs.writeFileSync(path.join(request.outputDirectory, 'keep'), 'yes');
     const result = await stagePlatformExport(request); expect(result.success).toBe(false); expect(result.diagnostics.some((item) => item.code === 'sandbox-content')).toBe(true); expect(fs.readFileSync(path.join(request.outputDirectory, 'keep'), 'utf8')).toBe('yes');
+  });
+
+  it('rejects missing icons and packages without successful runtime readiness', async () => {
+    const { request } = await fixture();
+    const notReady = await stagePlatformExport({
+      ...request,
+      runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 1 },
+    });
+    expect(notReady.success).toBe(false);
+    expect(notReady.diagnostics.some((item) => item.code === 'runtime-package-not-ready')).toBe(true);
+
+    const missingIcon = await stagePlatformExport({ ...request, operationId: 'missing-icon', iconSourcePath: undefined });
+    expect(missingIcon.success).toBe(false);
+    expect(missingIcon.diagnostics.some((item) => item.code === 'missing-icon')).toBe(true);
   });
 });

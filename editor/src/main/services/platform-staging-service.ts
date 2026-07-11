@@ -40,13 +40,27 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
   let backedUp = false;
   try {
     cancellations.delete(request.operationId); checkCancelled(request.operationId);
+    if (request.runtimePackageReadiness?.validated !== true || request.runtimePackageReadiness.blockingDiagnosticCount !== 0) {
+      return {
+        ok: false,
+        success: false,
+        cancelled: false,
+        operationId: request.operationId,
+        diagnostics: [diagnostic(
+          'runtime-package-not-ready',
+          '/runtimePackageReadiness',
+          'Platform staging requires a runtime package produced by a successful validation and conversion workflow with no blocking diagnostics.',
+        )],
+      };
+    }
     const descriptorPath = path.join(request.templateRoot, descriptorName);
     if (!existsSync(descriptorPath)) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics: [diagnostic('missing-template', '/templateRoot', `Template must contain ${descriptorName}.`)] };
     const descriptor = parseTemplateDescriptor(JSON.parse(await readFile(descriptorPath, 'utf8')));
     const built = buildPlatformDeployment(request, descriptor); diagnostics.push(...built.diagnostics);
     if (!built.model) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics };
     if (!existsSync(request.packagePath)) diagnostics.push(diagnostic('missing-package', '/packagePath', 'Runtime package does not exist.'));
-    if (request.iconSourcePath && !existsSync(request.iconSourcePath)) diagnostics.push(diagnostic('missing-icon', '/iconSourcePath', 'Application icon does not exist.'));
+    if (!request.iconSourcePath) diagnostics.push(diagnostic('missing-icon', '/iconSourcePath', 'Application icon is required for platform staging.'));
+    else if (!existsSync(request.iconSourcePath)) diagnostics.push(diagnostic('missing-icon', '/iconSourcePath', 'Application icon does not exist.'));
     const templateFiles = (await listFiles(request.templateRoot)).filter((file) => file !== descriptorName);
     for (const file of templateFiles) if (forbidden.test(file)) diagnostics.push(diagnostic('sandbox-content', `/template/${file}`, `Sandbox/demo content '${file}' is forbidden.`));
     for (const dependency of descriptor.runtimeDependencies) if (!templateFiles.includes(dependency.path)) diagnostics.push(diagnostic('missing-template-dependency', `/template/${dependency.path}`, `Declared template dependency '${dependency.path}' is missing.`));
@@ -71,7 +85,7 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     for (let index = 0; index < iconResult.files.length; index += 1) { const icon = iconResult.files[index]!; files.push(await copyFileTracked(icon.path, temp, iconTargets[index]!, 'icon', icon.kind)); }
     await rm(path.join(temp, '.icons'), { recursive: true, force: true });
     const packageEntry = files.find((item) => item.origin === 'runtime-package')!;
-    const player = { format: 'noveltea.player-config', formatVersion: 1, displayName: built.model.displayName, applicationId: built.model.applicationId, saveNamespace: built.model.saveNamespace, versionName: built.model.versionName, package: { path: 'game.ntpkg', sha256: packageEntry.sha256, runtimePackageApi: request.runtimePackageApi }, capabilities: built.model.capabilities, display: built.model.display };
+    const player = { format: 'noveltea.player-config', formatVersion: 1, displayName: built.model.displayName, applicationId: built.model.applicationId, saveNamespace: built.model.saveNamespace, versionName: built.model.versionName, ...(request.identity.defaultLocale ? { defaultLocale: request.identity.defaultLocale } : {}), package: { path: 'game.ntpkg', sha256: packageEntry.sha256, runtimePackageApi: request.runtimePackageApi }, capabilities: built.model.capabilities, display: built.model.display };
     const playerData = Buffer.from(`${JSON.stringify(player, null, 2)}\n`); await writeFile(path.join(temp, 'player.json'), playerData); files.push({ path: 'player.json', origin: 'generated-metadata', originId: 'player-config', size: playerData.length, mode: 0o644, sha256: sha256(playerData) });
     files.sort((a, b) => a.path.localeCompare(b.path));
     const manifest: PlatformExportManifest = { format: PLATFORM_EXPORT_MANIFEST_FORMAT, formatVersion: PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION, deployment: built.model, files };

@@ -30,5 +30,8 @@ export async function runPlatformExportWorkflow(packageOptions: Omit<RunPackageE
     ok: false, success: false, cancelled: false, operationId: request.operationId,
     diagnostics: packaged.diagnostics.map((item) => ({ severity: item.severity, code: item.category ?? 'runtime-package', path: item.path, message: item.message })),
   };
-  return runPlatformStageWorkflow(request);
+  return runPlatformStageWorkflow({
+    ...request,
+    runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+  });
 }
