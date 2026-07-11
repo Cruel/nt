@@ -34,10 +34,17 @@ suite('Android player template integration', () => {
     });
     const output = process.env.NOVELTEA_ANDROID_EXPORT_OUTPUT ?? path.join(root, 'Output ü space');
     const configPath = path.join(fixture.projectRoot, 'android-toolchain.json');
-    await writeFile(configPath, `${JSON.stringify({ androidSdk: process.env.ANDROID_SDK_ROOT!, androidNdk: process.env.ANDROID_NDK_ROOT!, javaHome: process.env.JAVA_HOME!, cmake: process.env.ANDROID_CMAKE_ROOT! })}\n`);
+    await writeFile(configPath, `${JSON.stringify({
+      androidSdk: process.env.ANDROID_SDK_ROOT!,
+      androidNdk: process.env.ANDROID_NDK_ROOT!,
+      javaHome: process.env.JAVA_HOME!,
+      cmake: process.env.ANDROID_CMAKE_ROOT!,
+      shaderc: process.env.NOVELTEA_SHADERC!,
+      bgfxShaderIncludeDir: process.env.NOVELTEA_BGFX_SHADER_INCLUDE_DIR!,
+    })}\n`);
     const command = await runExportCommand({ projectPath: fixture.projectPath, profileId: fixture.profile.id, outputDirectory: output, configPath, json: true });
     const result = command.result;
-    expect(command.exitCode).toBe(0);
+    expect(command.exitCode, command.output).toBe(0);
     expect(result.success, JSON.stringify(result.diagnostics, null, 2)).toBe(true);
     const expectedKinds = artifact === 'both' ? ['apk', 'aab'] : [artifact];
     expect(result.artifacts?.map((item) => item.kind)).toEqual(expect.arrayContaining(expectedKinds));

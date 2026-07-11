@@ -5,6 +5,7 @@
 #include <noveltea/core/project_document.hpp>
 #include <noveltea/core/save_document.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -46,6 +47,29 @@ std::string player_config_for(std::span<const std::byte> package)
            sha256_hex(package) +
            R"(","runtimePackageApi":1},"capabilities":[],"display":{"aspectRatio":{"width":16,"height":9},"orientation":"landscape","barColor":"#000000"}})";
 }
+
+void write_file(const std::filesystem::path& path, std::span<const std::byte> contents)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream file(path, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(contents.data()),
+               static_cast<std::streamsize>(contents.size()));
+    REQUIRE(file.good());
+}
+
+void write_file(const std::filesystem::path& path, std::string_view contents)
+{
+    write_file(path, std::as_bytes(std::span(contents.data(), contents.size())));
+}
+
+bool has_diagnostic(const PlayerBootstrapResult& result, PlayerBootstrapError category,
+                    std::string_view message)
+{
+    return std::ranges::any_of(result.diagnostics, [&](const auto& diagnostic) {
+        return diagnostic.category == category &&
+               diagnostic.message.find(message) != std::string::npos;
+    });
+}
 } // namespace
 
 TEST_CASE("player bootstrap parses the shared version one contract")
@@ -68,6 +92,85 @@ TEST_CASE("player bootstrap rejects unknown fields and unsafe package paths")
     CHECK_FALSE(unknown.success());
     CHECK_FALSE(is_safe_player_relative_path("../game.ntpkg"));
     CHECK(is_safe_player_relative_path("packages/game.ntpkg"));
+}
+
+TEST_CASE("packaged player bootstrap failures have specific actionable diagnostics")
+{
+    const auto root = temporary_directory();
+    const auto config_path = root / "player.json";
+    const auto package_path = root / "game.ntpkg";
+    const auto package = package_fixture("1");
+    const auto valid_config = player_config_for(package);
+
+    SECTION("missing player config")
+    {
+        const auto result = load_and_verify_player(config_path);
+        CHECK(has_diagnostic(result, PlayerBootstrapError::ConfigDiscovery,
+                             "player config was not found"));
+    }
+
+    SECTION("malformed player config")
+    {
+        write_file(config_path, "{");
+        const auto result = load_and_verify_player(config_path);
+        CHECK(has_diagnostic(result, PlayerBootstrapError::ConfigParse, "expected object"));
+    }
+
+    SECTION("unsupported player config API")
+    {
+        auto config = valid_config;
+        config.replace(config.find("\"formatVersion\":1"),
+                       std::string_view("\"formatVersion\":1").size(), "\"formatVersion\":2");
+        write_file(config_path, config);
+        const auto result = load_and_verify_player(config_path);
+        CHECK(has_diagnostic(result, PlayerBootstrapError::ConfigParse,
+                             "unsupported player config format"));
+    }
+
+    SECTION("missing game package")
+    {
+        write_file(config_path, valid_config);
+        const auto result = load_and_verify_player(config_path);
+        CHECK(has_diagnostic(result, PlayerBootstrapError::PackageDiscovery,
+                             "game package was not found or is empty"));
+    }
+
+    SECTION("game package checksum mismatch")
+    {
+        write_file(config_path, valid_config);
+        write_file(package_path, "not the exported package");
+        const auto result = load_and_verify_player(config_path);
+        CHECK(has_diagnostic(result, PlayerBootstrapError::PackageChecksum,
+                             "checksum does not match"));
+    }
+
+    SECTION("unsupported runtime package API")
+    {
+        auto config = valid_config;
+        config.replace(config.find("\"runtimePackageApi\":1"),
+                       std::string_view("\"runtimePackageApi\":1").size(),
+                       "\"runtimePackageApi\":2");
+        write_file(config_path, config);
+        write_file(package_path, package);
+        const auto result = load_and_verify_player(config_path);
+        CHECK(has_diagnostic(result, PlayerBootstrapError::PackageApi,
+                             "unsupported runtime package API"));
+    }
+
+    SECTION("missing required capability support")
+    {
+        auto config = valid_config;
+        config.replace(config.find("\"capabilities\":[]"),
+                       std::string_view("\"capabilities\":[]").size(),
+                       "\"capabilities\":[\"gamepad\"]");
+        write_file(config_path, config);
+        write_file(package_path, package);
+        const auto result = load_and_verify_player(config_path);
+        CHECK(has_diagnostic(result, PlayerBootstrapError::Capability,
+                             "player template does not support: gamepad"));
+    }
+
+    std::filesystem::remove_all(root);
 }
 
 TEST_CASE("SHA-256 implementation matches a standard vector")

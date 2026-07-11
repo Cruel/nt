@@ -179,6 +179,13 @@ path, validates `Info.plist` and Mach-O dependency closure, launches the `.app` 
 LaunchServices, then launches its executable from an unrelated working directory and verifies that
 the packaged runtime project reaches the engine main loop.
 
+Finalized Web exports are exercised with `pnpm web:certify-export`. The harness serves export
+directories at their declared root or nested base paths, launches them in Chromium, verifies the
+single declared hashed runtime package and its request path, confirms runtime initialization stays
+behind the Start gesture, waits for the player-ready marker, and can write machine-readable raw
+evidence. Release CI generates separate canonical root and `/nested/game/` exports before invoking
+this harness. Certification fails closed if startup does not reach the ready marker.
+
 ## Workflow Stages
 
 Renderer workflow files:
@@ -234,6 +241,10 @@ Default runtime package profile:
 ```
 
 Runtime package profile parsing supports `project.settings.export`. Playable platform profiles are managed separately under `project.settings.platformExport` through the command-backed Export workbench tab.
+After a playable export reaches successful final publication, the editor records the exported
+application ID and save namespace in `settings.app.lastExportedIdentity` through command-backed
+project state. Failed and cancelled exports do not change this history. Subsequent identity changes
+therefore remain visible through the shared project validation diagnostics.
 
 Phase 0 also defines strict, versioned platform-export contracts in
 `editor/src/shared/project-schema/platform-export-contracts.ts`. Platform profiles are a separate

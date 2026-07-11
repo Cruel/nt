@@ -1,5 +1,9 @@
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useCommandStore } from '@/commands/command-store';
+import { useProjectStore } from '@/project/project-store';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import type { PlatformExportProfile, PlatformStageRequest, PlatformStageResult, ProjectPlatformExportRequest } from '../../shared/project-schema/platform-export-contracts';
 import { emptyPackageExportResult, usePackageExportStore, type PackageExportWorkflowResult } from './package-export-store';
 import { runPackageExportWorkflow, type RunPackageExportWorkflowOptions } from './package-export-workflow';
@@ -23,6 +27,27 @@ export async function runPlatformStageWorkflow(request: PlatformStageRequest): P
 }
 
 export function cancelPlatformStageWorkflow(operationId: string) { return window.noveltea.cancelPlatformExport(operationId); }
+
+function recordSuccessfulExportIdentity(project: AuthoringProject) {
+  const liveProject = useProjectStore.getState().document as AuthoringProject | null;
+  if (!liveProject) return;
+  const exportedSettings = projectSettingsFromProject(project);
+  const liveApp = (liveProject.settings as Record<string, unknown>).app as Record<string, unknown> | undefined;
+  useCommandStore.getState().executeCommand({
+    type: 'project.replaceAtPath',
+    label: 'Record successful platform export identity',
+    payload: {
+      path: '/settings/app',
+      value: {
+        ...liveApp,
+        lastExportedIdentity: {
+          applicationId: exportedSettings.app.applicationId,
+          saveNamespace: exportedSettings.app.saveNamespace,
+        },
+      },
+    },
+  });
+}
 
 export async function runProjectPlatformExportWorkflow(request: ProjectPlatformExportRequest, profile: PlatformExportProfile): Promise<PlatformStageResult> {
   const store = usePackageExportStore.getState();
@@ -56,6 +81,7 @@ export async function runProjectPlatformExportWorkflow(request: ProjectPlatformE
   workspace.setStatusMessage(staged.cancelled ? 'Platform export cancelled' : staged.success ? `Exported ${profile.label}` : 'Platform export failed');
   workspace.addTimelineEntry({ source: 'export', message: staged.success ? `Exported ${profile.label}` : staged.cancelled ? 'Platform export cancelled' : 'Platform export failed', detail: result });
   useBottomPanelStore.getState().setActivePanelId('package-export');
+  if (staged.success && request.project) recordSuccessfulExportIdentity(request.project as AuthoringProject);
   return staged;
 }
 

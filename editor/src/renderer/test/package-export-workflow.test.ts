@@ -7,6 +7,9 @@ import { runProjectPlatformExportWorkflow } from '@/export/platform-export-workf
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { usePackageExportStore } from '@/export/package-export-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useProjectStore } from '@/project/project-store';
+import { useCommandStore } from '@/commands/command-store';
+import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 
 function validProject() {
   const project = createAuthoringProject({ name: 'Workflow Demo' });
@@ -22,6 +25,8 @@ beforeEach(() => {
   usePackageExportStore.getState().clear();
   useWorkspaceStore.getState().setLastExportResult(null);
   useWorkspaceStore.getState().setStatusMessage('');
+  useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   vi.mocked(window.noveltea.exportPackage).mockResolvedValue({
     ok: true,
     success: true,
@@ -84,5 +89,41 @@ describe('package export workflow', () => {
 
     expect(observedStages).toEqual(['resolving-template', 'resolving-template']);
     expect(usePackageExportStore.getState().stage).toBe('complete');
+  });
+
+  it('records export identity only after successful final publication', async () => {
+    const project = validProject();
+    project.settings.app = {
+      ...(project.settings.app as Record<string, unknown>),
+      applicationId: 'org.example.workflow',
+      saveNamespace: 'workflow-save',
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({
+      ok: true, success: true, cancelled: false, operationId: 'successful-export', diagnostics: [],
+    });
+
+    await runProjectPlatformExportWorkflow({
+      operationId: 'successful-export', project, projectRoot: '/project', profileId: 'linux-release', outputDirectory: '/project/dist/linux-release',
+    }, defaultPlatformExportProfile('linux'));
+
+    expect(projectSettingsFromProject(useProjectStore.getState().document as typeof project).app.lastExportedIdentity).toEqual({
+      applicationId: 'org.example.workflow', saveNamespace: 'workflow-save',
+    });
+  });
+
+  it.each([
+    { label: 'failed', result: { ok: false, success: false, cancelled: false, operationId: 'failed-export', diagnostics: [] } },
+    { label: 'cancelled', result: { ok: false, success: false, cancelled: true, operationId: 'cancelled-export', diagnostics: [] } },
+  ])('does not record export identity after a $label export', async ({ result }) => {
+    const project = validProject();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue(result);
+
+    await runProjectPlatformExportWorkflow({
+      operationId: result.operationId, project, projectRoot: '/project', profileId: 'linux-release', outputDirectory: '/project/dist/linux-release',
+    }, defaultPlatformExportProfile('linux'));
+
+    expect(projectSettingsFromProject(useProjectStore.getState().document as typeof project).app.lastExportedIdentity).toBeUndefined();
   });
 });

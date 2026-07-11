@@ -41,4 +41,14 @@ describe('platform export acceptance fixture materializer', () => {
     expect(firstProject.settings.app.android.versionCode).toBe(1);
     expect(secondProject.settings.app.android.versionCode).toBe(2);
   });
+
+  it('materializes a configured nested Web deployment profile', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-web-nested-'));
+    roots.push(root);
+    const fixture = await materializePlatformExportAcceptanceFixture({
+      root, target: 'web', webBasePath: '/nested/game/', fontSourcePath,
+    });
+    expect(fixture.profile.target).toBe('web');
+    if (fixture.profile.target === 'web') expect(fixture.profile.web.basePath).toBe('/nested/game/');
+  });
 });

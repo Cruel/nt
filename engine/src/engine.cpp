@@ -803,18 +803,19 @@ bool Engine::load_runtime_project(const std::string& logical_path)
 
     const auto& bytes = blob.value->bytes;
     const std::string text(bytes.begin(), bytes.end());
-    try {
-        auto json = nlohmann::json::parse(text);
+    auto json = nlohmann::json::parse(text, nullptr, false);
+    if (!json.is_discarded()) {
         if (!load_document(core::ProjectDocument(std::move(json)))) {
             return false;
         }
-    } catch (const std::exception& ex) {
+    } else {
         std::vector<core::legacy::PackageError> errors;
         auto package = core::legacy::ProjectPackageReader::read(
             std::span<const std::uint8_t>(bytes.data(), bytes.size()), errors);
         if (!package) {
-            std::fprintf(stderr, "[engine] runtime project parse failed: %s: %s\n",
-                         logical_path.c_str(), ex.what());
+            std::fprintf(stderr,
+                         "[engine] runtime project is neither JSON nor a valid package: %s\n",
+                         logical_path.c_str());
             for (const auto& error : errors) {
                 std::fprintf(stderr, "[engine] legacy package import failed: %s\n",
                              error.message.c_str());

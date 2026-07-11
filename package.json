@@ -6,7 +6,8 @@
   "scripts": {
     "web:smoke": "node scripts/web-smoke.mjs --build-dir build/web-debug --threshold readback_gallery_debug --frames 12 --min-perf-lines 2 --label web-debug",
     "web:smoke:debug": "node scripts/web-smoke.mjs --build-dir build/web-debug --threshold readback_gallery_debug --frames 12 --min-perf-lines 2 --label web-debug",
-    "web:smoke:profile": "node scripts/web-smoke.mjs --build-dir build/web-profile --threshold readback_gallery_profile --frames 180 --min-perf-lines 2 --label web-profile"
+    "web:smoke:profile": "node scripts/web-smoke.mjs --build-dir build/web-profile --threshold readback_gallery_profile --frames 180 --min-perf-lines 2 --label web-profile",
+    "web:certify-export": "node scripts/web-export-certification.mjs"
   },
   "devDependencies": {
     "playwright": "^1.55.0"

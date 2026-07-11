@@ -425,6 +425,26 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm vitest run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
+      - name: Export canonical fixture at nested Web base path
+        working-directory: editor
+        env:
+          NOVELTEA_CANONICAL_EXPORT_TARGET: web
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-release.zip
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web-nested
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-nested-export
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-nested-fixture-evidence.json
+          NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
+          NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
+          NOVELTEA_WEB_BASE_PATH: /nested/game/
+        run: pnpm vitest run src/renderer/test/platform-export-canonical-integration.test.ts
+
+      - name: Certify finalized Web exports in Chromium
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+          pnpm web:certify-export --case root:/:dist/canonical-web-export --case nested:/nested/game/:dist/canonical-web-nested-export --output dist/noveltea-web-browser-certification.json
+
       - name: Generate Web platform certification report
         run: |
           archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-release.zip' -print -quit)

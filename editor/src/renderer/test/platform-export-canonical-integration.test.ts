@@ -43,6 +43,7 @@ suite('canonical platform export integration', () => {
       buildFlavor: (process.env.NOVELTEA_ANDROID_FLAVOR as 'debug' | 'release' | undefined) ?? 'release',
       androidAbi: (process.env.NOVELTEA_ANDROID_ABI as 'arm64-v8a' | 'x86_64' | undefined),
       androidArtifact: (process.env.NOVELTEA_ANDROID_ARTIFACT as 'apk' | 'aab' | 'both' | undefined),
+      webBasePath: process.env.NOVELTEA_WEB_BASE_PATH,
       fontSourcePath: path.resolve(process.cwd(), '../apps/sandbox/assets/rmlui/LiberationSans.ttf'),
     });
     const outputDirectory = process.env.NOVELTEA_CANONICAL_EXPORT_OUTPUT ?? path.join(root, 'Output ü space');

@@ -15,6 +15,7 @@ export interface MaterializePlatformExportAcceptanceFixtureOptions {
   buildFlavor?: 'debug' | 'release';
   androidAbi?: 'arm64-v8a' | 'x86_64';
   androidArtifact?: 'apk' | 'aab' | 'both';
+  webBasePath?: string;
   contentRevision?: number;
   fontSourcePath: string;
 }
@@ -57,7 +58,7 @@ function profileFor(options: MaterializePlatformExportAcceptanceFixtureOptions):
       format: 'noveltea.platform-export-profile', formatVersion: 1,
       id: 'canonical-web', label: 'Canonical Web', target: 'web', architecture: 'wasm32',
       packageAccess: 'web-fetch', buildFlavor: flavor, compression: 'default', includeDebugSymbols: false,
-      capabilityOverrides: [], web: { artifact: 'directory-zip', threaded: false, pwa: true, display: 'standalone', basePath: '/', serviceWorker: 'offline' },
+      capabilityOverrides: [], web: { artifact: 'directory-zip', threaded: false, pwa: true, display: 'standalone', basePath: options.webBasePath ?? '/', serviceWorker: 'offline' },
     });
   }
   if (options.target === 'android') {
