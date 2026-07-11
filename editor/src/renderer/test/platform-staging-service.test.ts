@@ -7,7 +7,7 @@ import { stagePlatformExport } from '../../main/services/platform-staging-servic
 import { PLATFORM_EXPORT_PROFILE_FORMAT, TEMPLATE_DESCRIPTOR_FORMAT, type PlatformStageRequest } from '../../shared/project-schema/platform-export-contracts';
 import { configureTemplateRegistryRoot, templateRootForToken } from '../../main/services/template-registry-service';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as ResEdit from 'resedit';
 import { installPlayerTemplate } from '../../main/services/template-registry-service';
 
@@ -15,6 +15,8 @@ const roots: string[] = [];
 const linuxTemplateArchive = process.env.NOVELTEA_LINUX_TEMPLATE_ARCHIVE;
 const linuxRuntimePackage = process.env.NOVELTEA_LINUX_RUNTIME_PACKAGE;
 const linuxAppImageTool = process.env.NOVELTEA_LINUX_APPIMAGE_TOOL;
+const macosTemplateArchive = process.env.NOVELTEA_MACOS_TEMPLATE_ARCHIVE;
+const macosRuntimePackage = process.env.NOVELTEA_MACOS_RUNTIME_PACKAGE;
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 async function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-stage-')); roots.push(root);
@@ -125,6 +127,84 @@ describe('platform staging service', () => {
     const metadata = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'WINDOWS_METADATA.json'), 'utf8')); expect(metadata.resourceMutationComplete).toBe(true); expect(metadata.signingCommandHook.configured).toBe(true);
     const manifest = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'export-manifest.json'), 'utf8')); const executableEntry = manifest.files.find((entry: { path: string }) => entry.path === 'Tea Game.exe');
     expect(executableEntry.sha256).toBe(createHash('sha256').update(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))).digest('hex'));
+  });
+
+  it('assembles a macOS app bundle with capability-scoped metadata and separate dSYM output', async () => {
+    const { root, request } = await fixture();
+    const registry = path.join(root, 'macos-registry'); configureTemplateRegistryRoot(registry);
+    const templateToken = 'macos-arm64/build-1'; const templateRoot = templateRootForToken(templateToken);
+    fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(templateRoot, 'assets/system/fonts'), { recursive: true });
+    fs.mkdirSync(path.join(templateRoot, 'symbols/noveltea-player.dSYM/Contents/Resources/DWARF'), { recursive: true });
+    fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'mach-o-player', { mode: 0o755 });
+    fs.writeFileSync(path.join(templateRoot, 'assets/system/fonts/LiberationSans.ttf'), 'font');
+    fs.writeFileSync(path.join(templateRoot, 'symbols/noveltea-player.dSYM/Contents/Resources/DWARF/noveltea-player'), 'symbols');
+    const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+    const sourceFiles = [
+      { path: 'bin/player', role: 'player', mode: 0o755 },
+      { path: 'assets/system/fonts/LiberationSans.ttf', role: 'system-asset', mode: 0o644 },
+      { path: 'symbols/noveltea-player.dSYM/Contents/Resources/DWARF/noveltea-player', role: 'symbol', mode: 0o644 },
+    ];
+    const entries = sourceFiles.map((item) => { const data = fs.readFileSync(path.join(templateRoot, item.path)); return { ...item, size: data.length, sha256: sha(data) }; });
+    const descriptor = { format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'macos-arm64', buildId: 'build-1', engineVersion: '1', platform: 'macos', architecture: 'arm64', minimumPlatformVersion: 'macOS 13', graphicsBackends: ['metal'], shaderVariants: ['glsl-120'], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: ['network.client', 'microphone'], buildFlavor: 'release', packageAccessModes: ['bundle-resource'], files: entries, runtimeDependencies: [{ path: 'bin/player', kind: 'library' }, { path: 'assets/system/fonts/LiberationSans.ttf', kind: 'asset' }], macosDependencies: ['/usr/lib/libSystem.B.dylib'], macosRpaths: [], macosMachO: [{ path: 'bin/player', dependencies: ['/usr/lib/libSystem.B.dylib'], rpaths: [], uuid: '00000000-0000-0000-0000-000000000001' }], artifacts: { archive: 'macos.tar.gz', symbols: 'macos-symbols.tar.gz', sbom: 'SBOM.cdx.json', notices: 'THIRD_PARTY_NOTICES.txt' }, provenance: { provider: 'local', source: 'test' }, host: { assembly: 'any', requiresToolchain: false, tools: [] } };
+    const descriptorData = Buffer.from(JSON.stringify(descriptor));
+    fs.writeFileSync(path.join(templateRoot, 'template.json'), descriptorData);
+    fs.writeFileSync(path.join(templateRoot, '.noveltea-template.json'), JSON.stringify({ format: 'noveltea.template-registry', formatVersion: 1, templateId: 'macos-arm64', buildId: 'build-1', descriptorSha256: sha(descriptorData), archiveSha256: 'a'.repeat(64), installedAt: new Date().toISOString(), origin: 'test', trust: 'local-untrusted', verified: true }));
+    const macRequest: PlatformStageRequest = { ...request, operationId: 'macos', templateToken, outputDirectory: path.join(root, 'Tea Game.app'), profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'macos', label: 'macOS', target: 'macos', architecture: 'arm64', packageAccess: 'bundle-resource', buildFlavor: 'release', compression: 'default', includeDebugSymbols: true, capabilityOverrides: [], desktop: { artifact: 'app-bundle', executableName: 'TeaGame' } }, capabilities: [], identity: { ...request.identity, displayName: 'Tea Game', shortName: 'Tea', versionName: '1.2.3', defaultLocale: 'en-US' } };
+    const result = await stagePlatformExport(macRequest);
+    expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(result.artifacts?.some((item) => item.kind === 'app-bundle')).toBe(true);
+    expect(fs.existsSync(path.join(macRequest.outputDirectory, 'Contents/MacOS/TeaGame'))).toBe(true);
+    expect(fs.existsSync(path.join(macRequest.outputDirectory, 'Contents/Resources/player.json'))).toBe(true);
+    expect(fs.existsSync(path.join(macRequest.outputDirectory, 'Contents/Resources/game.ntpkg'))).toBe(true);
+    expect(fs.existsSync(path.join(macRequest.outputDirectory, 'Contents/Resources/AppIcon.icns'))).toBe(true);
+    const plist = fs.readFileSync(path.join(macRequest.outputDirectory, 'Contents/Info.plist'), 'utf8');
+    expect(plist).toContain('<string>com.example.game</string>');
+    expect(plist).not.toContain('NSMicrophoneUsageDescription');
+    expect(fs.existsSync(path.join(macRequest.outputDirectory, 'Contents/Resources/NovelTea.entitlements'))).toBe(false);
+    expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
+    const archiveListing = spawnSync('cmake', ['-E', 'tar', 'tf', result.archivePath!], { encoding: 'utf8' });
+    expect(archiveListing.status, archiveListing.stderr).toBe(0);
+    expect(archiveListing.stdout).toContain('Tea Game.app/Contents/Info.plist');
+    expect(result.symbolArchivePath && fs.existsSync(result.symbolArchivePath)).toBe(true);
+    expect(fs.existsSync(path.join(macRequest.outputDirectory, 'symbols'))).toBe(false);
+
+    const microphoneOutput = path.join(root, 'Tea Game Microphone.app');
+    const microphone = await stagePlatformExport({
+      ...macRequest,
+      operationId: 'macos-microphone',
+      outputDirectory: microphoneOutput,
+      capabilities: ['microphone'],
+      identity: { ...macRequest.identity, macosMicrophoneUsageDescription: 'Voice input is used for spoken choices.' },
+    });
+    expect(microphone.success, JSON.stringify(microphone.diagnostics)).toBe(true);
+    const microphonePlist = fs.readFileSync(path.join(microphoneOutput, 'Contents/Info.plist'), 'utf8');
+    expect(microphonePlist).toContain('NSMicrophoneUsageDescription');
+    expect(microphonePlist).toContain('Voice input is used for spoken choices.');
+    expect(fs.existsSync(path.join(microphoneOutput, 'Contents/Resources/NovelTea.entitlements'))).toBe(false);
+  });
+
+  it('preserves the previous macOS artifact set when a DMG hook fails', async () => {
+    const { root, request } = await fixture();
+    const registry = path.join(root, 'macos-rollback-registry'); configureTemplateRegistryRoot(registry);
+    const templateToken = 'macos-arm64/build-rollback'; const templateRoot = templateRootForToken(templateToken);
+    fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'mach-o-player', { mode: 0o755 });
+    const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+    const player = fs.readFileSync(path.join(templateRoot, 'bin/player'));
+    const descriptor = { format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'macos-arm64', buildId: 'build-rollback', engineVersion: '1', platform: 'macos', architecture: 'arm64', minimumPlatformVersion: 'macOS 13', graphicsBackends: ['metal'], shaderVariants: ['glsl-120'], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: [], buildFlavor: 'release', packageAccessModes: ['bundle-resource'], files: [{ path: 'bin/player', role: 'player', mode: 0o755, size: player.length, sha256: sha(player) }], runtimeDependencies: [{ path: 'bin/player', kind: 'library' }], macosDependencies: ['/usr/lib/libSystem.B.dylib'], macosRpaths: [], macosMachO: [{ path: 'bin/player', dependencies: ['/usr/lib/libSystem.B.dylib'], rpaths: [], uuid: '00000000-0000-0000-0000-000000000002' }], artifacts: { archive: 'macos.tar.gz', symbols: 'macos-symbols.tar.gz', sbom: 'SBOM.cdx.json', notices: 'THIRD_PARTY_NOTICES.txt' }, provenance: { provider: 'local', source: 'test' }, host: { assembly: 'any', requiresToolchain: false, tools: [] } };
+    const descriptorData = Buffer.from(JSON.stringify(descriptor)); fs.writeFileSync(path.join(templateRoot, 'template.json'), descriptorData);
+    fs.writeFileSync(path.join(templateRoot, '.noveltea-template.json'), JSON.stringify({ format: 'noveltea.template-registry', formatVersion: 1, templateId: 'macos-arm64', buildId: 'build-rollback', descriptorSha256: sha(descriptorData), archiveSha256: 'a'.repeat(64), installedAt: new Date().toISOString(), origin: 'test', trust: 'local-untrusted', verified: true }));
+    const outputDirectory = path.join(root, 'Rollback Game.app');
+    fs.mkdirSync(outputDirectory); fs.writeFileSync(path.join(outputDirectory, 'keep'), 'old-app');
+    fs.writeFileSync(`${outputDirectory}.zip`, 'old-zip');
+    fs.writeFileSync(path.join(root, 'Rollback Game.dmg'), 'old-dmg');
+    const result = await stagePlatformExport({ ...request, operationId: 'macos-rollback', templateToken, outputDirectory, profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'macos', label: 'macOS', target: 'macos', architecture: 'arm64', packageAccess: 'bundle-resource', buildFlavor: 'release', compression: 'default', includeDebugSymbols: false, capabilityOverrides: [], desktop: { artifact: 'app-bundle', executableName: 'Game' } }, macosDmg: { command: process.execPath, args: ['-e', 'process.exit(7)'] } });
+    expect(result.success).toBe(false);
+    expect(result.diagnostics.some((item) => item.code === 'staging-failed')).toBe(true);
+    expect(fs.readFileSync(path.join(outputDirectory, 'keep'), 'utf8')).toBe('old-app');
+    expect(fs.readFileSync(`${outputDirectory}.zip`, 'utf8')).toBe('old-zip');
+    expect(fs.readFileSync(path.join(root, 'Rollback Game.dmg'), 'utf8')).toBe('old-dmg');
   });
 });
 
@@ -365,5 +445,66 @@ describe.runIf(process.platform === 'linux' && !!linuxTemplateArchive && !!linux
         }
       }
     }, 60_000);
+  },
+);
+
+describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!macosRuntimePackage)(
+  'macOS app bundle native smoke',
+  () => {
+    it('launches the real unsigned app bundle and verifies metadata and dependency closure', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'NovelTea macOS export 茶 ')); roots.push(root);
+      configureTemplateRegistryRoot(path.join(root, 'template registry'));
+      const installed = await installPlayerTemplate({ archivePath: macosTemplateArchive!, origin: 'release-ci-smoke' });
+      expect(installed.success, installed.diagnostics.map((item) => item.message).join('\n')).toBe(true);
+      const iconSourcePath = path.join(root, 'icon.png');
+      await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#553399' } }).png().toFile(iconSourcePath);
+      const outputDirectory = path.join(root, 'Tea Game 茶.app');
+      const result = await stagePlatformExport({
+        operationId: 'macos-native-smoke',
+        profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'macos-native-smoke', label: 'macOS native smoke', target: 'macos', architecture: 'arm64', packageAccess: 'bundle-resource', buildFlavor: 'release', compression: 'default', includeDebugSymbols: true, capabilityOverrides: [], desktop: { artifact: 'app-bundle', executableName: 'TeaGame' } },
+        templateToken: `${installed.entry!.templateId}/${installed.entry!.buildId}`,
+        outputDirectory,
+        packagePath: macosRuntimePackage!,
+        iconSourcePath,
+        runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+        identity: { displayName: 'Tea Game 茶', shortName: 'Tea Game', applicationId: 'com.noveltea.macos-smoke', saveNamespace: `com.noveltea.macos-smoke-${Date.now()}`, versionName: '1.0.0', defaultLocale: 'en-US' },
+        display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' },
+        capabilities: ['network.client'], runtimePackageApi: 1,
+      });
+      expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
+      expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
+      expect(result.symbolArchivePath && fs.existsSync(result.symbolArchivePath)).toBe(true);
+      const executable = path.join(outputDirectory, 'Contents/MacOS/TeaGame');
+      const plist = path.join(outputDirectory, 'Contents/Info.plist');
+      expect(spawnSync('plutil', ['-lint', plist]).status).toBe(0);
+      const dependencies = spawnSync('otool', ['-L', executable], { encoding: 'utf8' });
+      expect(dependencies.status, dependencies.stderr).toBe(0);
+      expect(dependencies.stdout).not.toMatch(/\/Users\/|\/tmp\/|\/build\//);
+      const launch = spawnSync('open', ['-n', outputDirectory], { encoding: 'utf8' });
+      expect(launch.status, launch.stderr).toBe(0);
+      let launchedByBundle = false;
+      const bundleDeadline = Date.now() + 10_000;
+      while (Date.now() < bundleDeadline) {
+        const processLookup = spawnSync('pgrep', ['-f', `${outputDirectory}/Contents/MacOS/TeaGame`], { encoding: 'utf8' });
+        if (processLookup.status === 0 && processLookup.stdout.trim()) {
+          launchedByBundle = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      expect(launchedByBundle).toBe(true);
+      spawnSync('pkill', ['-f', `${outputDirectory}/Contents/MacOS/TeaGame`]);
+      const child = spawn(executable, [], { cwd: os.tmpdir(), stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = ''; child.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
+      try {
+        const deadline = Date.now() + 20_000;
+        while (Date.now() < deadline && !stderr.includes('[engine] entering main loop') && child.exitCode === null) await new Promise((resolve) => setTimeout(resolve, 250));
+        expect(stderr, `exit=${child.exitCode}`).toContain('[engine] entering main loop');
+        expect(stderr).toContain('[engine] loaded runtime project: project:/game.ntpkg');
+        expect(stderr).not.toContain('Engine initialization failed');
+      } finally {
+        if (child.exitCode === null) child.kill();
+      }
+    }, 30_000);
   },
 );

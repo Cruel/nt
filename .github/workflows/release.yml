@@ -193,13 +193,13 @@ jobs:
         run: cmake -DNOVELTEA_TEMPLATE_PRESET=${{ matrix.preset }} -DNOVELTEA_TEMPLATE_PLATFORM=${{ matrix.platform }} -DNOVELTEA_TEMPLATE_ARCH=${{ matrix.arch }} -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaPlayerTemplate.cmake
 
       - name: Set up pnpm for desktop export smoke
-        if: runner.os == 'Windows' || matrix.platform == 'linux'
+        if: runner.os == 'Windows' || matrix.platform == 'linux' || matrix.platform == 'macos'
         uses: pnpm/action-setup@v6
         with:
           version: 10.32.1
 
       - name: Set up Node.js for desktop export smoke
-        if: runner.os == 'Windows' || matrix.platform == 'linux'
+        if: runner.os == 'Windows' || matrix.platform == 'linux' || matrix.platform == 'macos'
         uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -207,7 +207,7 @@ jobs:
           cache-dependency-path: editor/pnpm-lock.yaml
 
       - name: Install editor dependencies for desktop export smoke
-        if: runner.os == 'Windows' || matrix.platform == 'linux'
+        if: runner.os == 'Windows' || matrix.platform == 'linux' || matrix.platform == 'macos'
         working-directory: editor
         run: pnpm install --frozen-lockfile
 
@@ -261,6 +261,14 @@ jobs:
           done
           test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" || { cat "$RUNNER_TEMP/weston.log"; exit 1; }
           pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
+
+      - name: Finalize and launch macOS app bundle export
+        if: matrix.platform == 'macos'
+        working-directory: editor
+        env:
+          NOVELTEA_MACOS_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-release.tar.gz
+          NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/macos-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
+        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
 
       - name: Attest player template archives
         uses: actions/attest-build-provenance@v3

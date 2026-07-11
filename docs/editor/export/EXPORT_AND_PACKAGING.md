@@ -119,6 +119,40 @@ AppImage under a Unicode/space-containing path, and launches both artifacts from
 working directory under X11 and headless Wayland. The smoke also verifies that `game.ntpkg` and
 packaged `system:/` assets resolve relative to the installed player rather than the build tree.
 
+### macOS app bundles
+
+macOS profiles finalize the immutable player template into a conventional `.app` tree. The player
+is installed under `Contents/MacOS`, while `player.json`, `game.ntpkg`, system assets, notices,
+localized `InfoPlist.strings`, the generated ICNS icon, and the export manifest are installed under
+`Contents/Resources`. Bundled dylibs are placed in `Contents/Frameworks`; template-recorded Mach-O
+dependencies and rpaths are rejected when they point to build-tree or other nonportable absolute
+locations, and install names are normalized to `@rpath` on macOS hosts.
+
+`Info.plist`, entitlements, and privacy-purpose strings are derived from the normalized deployment
+model. Capabilities that do not require macOS metadata add nothing; microphone access emits only the
+audio-input entitlement as an external signing input and an explicitly supplied user-facing purpose
+string. Entitlement source files are not shipped inside the application bundle. Bundle mutation
+finishes before optional signing, notarization, stapling, archive, or DMG hooks run. Nested dylibs
+are signed before the sealed application bundle, and post-staple verification checks the staple,
+signature, and Gatekeeper assessment. Unsigned `.app` and ZIP artifacts remain available without
+secrets.
+
+Template descriptors record dependencies, rpaths, and UUIDs for every staged Mach-O binary rather
+than only the main executable. Finalization validates and rewrites that complete closure. The ZIP
+contains the named `.app` wrapper instead of a bare `Contents` directory. Generated dSYMs are
+UUID-checked against the player, removed from the application, and published separately with the
+template build ID when symbols are requested.
+
+The in-bundle export manifest describes the finalized unsigned payload. Signing and notarization are
+sealed distribution transformations over that payload; signature blobs are intentionally not folded
+back into the signed manifest because doing so would invalidate the bundle signature. Phase 9 owns
+the external signing/notarization report and signed-artifact provenance.
+
+Release CI builds the real arm64 template on macOS, finalizes an unsigned bundle in a Unicode/space
+path, validates `Info.plist` and Mach-O dependency closure, launches the `.app` through
+LaunchServices, then launches its executable from an unrelated working directory and verifies that
+the packaged runtime project reaches the engine main loop.
+
 ## Workflow Stages
 
 Renderer workflow files:

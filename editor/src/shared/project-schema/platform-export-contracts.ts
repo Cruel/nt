@@ -92,6 +92,14 @@ export const templateDescriptorSchema = z.object({
   windowsImports: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9_.-]+\.dll$/)).optional(),
   linuxNeeded: z.array(z.string().trim().min(1)).optional(),
   linuxRpaths: z.array(z.string().trim().min(1)).optional(),
+  macosDependencies: z.array(z.string().trim().min(1)).optional(),
+  macosRpaths: z.array(z.string().trim().min(1)).optional(),
+  macosMachO: z.array(z.object({
+    path: relativeArtifactPathSchema,
+    dependencies: z.array(z.string().trim().min(1)),
+    rpaths: z.array(z.string().trim().min(1)),
+    uuid: z.string().trim().min(1).optional(),
+  }).strict()).optional(),
   artifacts: z.object({ archive: z.string().trim().min(1), symbols: z.string().trim().min(1), sbom: relativeArtifactPathSchema, notices: relativeArtifactPathSchema }).strict(),
   provenance: z.object({ provider: z.enum(['github-attestation', 'local']), subjectDigest: z.string().regex(/^[0-9a-f]{64}$/).optional(), source: z.string().trim().min(1) }).strict(),
   host: z.object({ assembly: z.enum(['any', 'windows', 'linux', 'macos']), requiresToolchain: z.boolean(), tools: z.array(z.string().trim().min(1)).default([]) }).strict(),
@@ -206,17 +214,21 @@ export interface PlatformStageRequest {
     displayName: string; shortName?: string; applicationId: string; saveNamespace: string;
     versionName: string; defaultLocale?: string; themeColor?: string; backgroundColor?: string;
     webManifestId?: string; linuxDesktopId?: string;
+    macosCategory?: string; macosMicrophoneUsageDescription?: string;
   };
   display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>; capabilities?: ExportCapability[]; runtimePackageApi: number;
   host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };
   windowsSigning?: { command: string; args: string[] };
   linuxAppImageTool?: string;
+  macosSigning?: { identity: string; entitlementsPath?: string };
+  macosNotarization?: { command: string; args: string[] };
+  macosDmg?: { command: string; args: string[] };
 }
 export interface PlatformStageResult {
   ok: boolean; success: boolean; cancelled: boolean; operationId: string; outputDirectory?: string;
   archivePath?: string;
   symbolArchivePath?: string;
-  artifacts?: Array<{ kind: 'directory' | 'archive' | 'appimage' | 'symbols'; path: string; size?: number }>;
+  artifacts?: Array<{ kind: 'directory' | 'archive' | 'appimage' | 'app-bundle' | 'dmg' | 'symbols'; path: string; size?: number }>;
   webMetrics?: { compressedDownloadBytes: number; uncompressedPackageBytes: number; estimatedPeakStartupBytes: number };
   diagnostics: PlatformStageDiagnostic[]; deployment?: PlatformDeploymentModel; manifest?: PlatformExportManifest;
 }

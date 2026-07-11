@@ -63,6 +63,136 @@ function desktopEntryEscape(value: string) {
   return value.replaceAll('\\', '\\\\').replaceAll('\n', '\\n');
 }
 
+function plistEscape(value: string) {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+}
+
+function macosEntitlements(capabilities: readonly string[]) {
+  const entries: string[] = [];
+  if (capabilities.includes('microphone')) entries.push('  <key>com.apple.security.device.audio-input</key>\n  <true/>');
+  if (!entries.length) return undefined;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n${entries.join('\n')}\n</dict>\n</plist>\n`;
+}
+
+async function finalizeMacosStage(
+  stage: string,
+  request: PlatformStageRequest,
+  files: StagedFileEntry[],
+  descriptor: Awaited<ReturnType<typeof verifyTemplateToken>>['descriptor'],
+) {
+  if (request.profile.target !== 'macos') return undefined;
+  if (!request.outputDirectory.toLowerCase().endsWith('.app')) {
+    throw new Error('macOS app bundle output must use the .app extension.');
+  }
+  if (request.profile.packageAccess !== 'bundle-resource') {
+    throw new Error('macOS exports require bundle-resource package access.');
+  }
+  if (!descriptor.macosDependencies || !descriptor.macosRpaths || !descriptor.macosMachO) {
+    throw new Error('macOS template must declare per-binary Mach-O dependencies, runtime paths, and UUIDs.');
+  }
+  const playerDescriptor = descriptor.files.find((item) => item.role === 'player');
+  if (!playerDescriptor) throw new Error('macOS template must declare a player file role.');
+  const playerEntry = files.find((item) => item.path === playerDescriptor.path);
+  if (!playerEntry) throw new Error(`macOS player '${playerDescriptor.path}' was not staged.`);
+  if ((playerEntry.mode & 0o111) === 0) throw new Error('macOS player template is not executable.');
+
+  const executableName = request.profile.desktop.executableName;
+  if (!/^[A-Za-z0-9._+-]+$/.test(executableName) || executableName === '.' || executableName === '..') {
+    throw new Error('macOS executable name may contain only letters, numbers, dot, underscore, plus, and hyphen.');
+  }
+  const bundleId = request.identity.applicationId;
+  if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId)) throw new Error(`macOS bundle ID '${bundleId}' is invalid.`);
+  const resources = 'Contents/Resources';
+  const macos = 'Contents/MacOS';
+  const frameworks = 'Contents/Frameworks';
+
+  const moveEntry = async (entry: StagedFileEntry, target: string) => {
+    await mkdir(path.dirname(safeRoot(stage, target)), { recursive: true });
+    await rename(safeRoot(stage, entry.path), safeRoot(stage, target));
+    entry.path = target;
+  };
+  await moveEntry(playerEntry, `${macos}/${executableName}`);
+  playerEntry.mode |= 0o111;
+  await chmod(safeRoot(stage, playerEntry.path), playerEntry.mode);
+  const packageEntry = files.find((item) => item.origin === 'runtime-package');
+  if (!packageEntry) throw new Error('macOS staging is missing the runtime package.');
+  await moveEntry(packageEntry, `${resources}/game.ntpkg`);
+
+  for (const entry of files.filter((item) => item.path.startsWith('assets/'))) {
+    await moveEntry(entry, `${resources}/${entry.path}`);
+  }
+  const iconEntry = files.find((item) => item.origin === 'icon' && item.path.endsWith('/macos/AppIcon.icns'));
+  if (!iconEntry) throw new Error('macOS icon generation did not produce AppIcon.icns.');
+  await moveEntry(iconEntry, `${resources}/AppIcon.icns`);
+
+  const nativeEntries = files.filter((item) => item.origin === 'native-dependency' && /\.dylib$/i.test(item.path));
+  for (const entry of nativeEntries) await moveEntry(entry, `${frameworks}/${path.posix.basename(entry.path)}`);
+  for (const entry of files.filter((item) => !item.path.startsWith('Contents/') && !item.path.startsWith('symbols/'))) {
+    await moveEntry(entry, `${resources}/${entry.path}`);
+  }
+  const bundledNames = new Set(nativeEntries.map((item) => path.posix.basename(item.path)));
+  const systemDependency = (value: string) => value.startsWith('/System/Library/') || value.startsWith('/usr/lib/');
+  const stagedMachO = new Map<string, string>();
+  stagedMachO.set(playerDescriptor.path, playerEntry.path);
+  for (const entry of nativeEntries) {
+    const original = descriptor.files.find((item) => item.role === 'native-dependency' && path.posix.basename(item.path) === path.posix.basename(entry.path));
+    if (original) stagedMachO.set(original.path, entry.path);
+  }
+  const missingMachO = descriptor.macosMachO.filter((item) => !stagedMachO.has(item.path));
+  if (missingMachO.length) throw new Error(`macOS template Mach-O inventory references unstaged files: ${missingMachO.map((item) => item.path).join(', ')}`);
+  const unresolved = descriptor.macosMachO.flatMap((binary) => binary.dependencies
+    .filter((dependency) => !systemDependency(dependency) && !bundledNames.has(path.posix.basename(dependency)))
+    .map((dependency) => `${binary.path}: ${dependency}`));
+  if (unresolved.length) throw new Error(`macOS player has unresolved or nonportable Mach-O dependencies: ${unresolved.join(', ')}`);
+  const badRpath = descriptor.macosMachO.flatMap((binary) => binary.rpaths.map((value) => ({ binary: binary.path, value })))
+    .find(({ value }) => value.startsWith('/') || value.includes('/build/') || value.includes('/Users/') || value.includes('/tmp/'));
+  if (badRpath) throw new Error(`macOS template contains nonportable runtime path '${badRpath.value}' in '${badRpath.binary}'.`);
+
+  if (process.platform === 'darwin') {
+    for (const binary of descriptor.macosMachO) {
+      const stagedPath = stagedMachO.get(binary.path)!;
+      const absolute = safeRoot(stage, stagedPath);
+      const isPlayer = binary.path === playerDescriptor.path;
+      if (!isPlayer) {
+        const name = path.posix.basename(stagedPath);
+        await run('install_name_tool', ['-id', `@rpath/${name}`, absolute]);
+      }
+      for (const dependency of binary.dependencies) {
+        const name = path.posix.basename(dependency);
+        if (!bundledNames.has(name)) continue;
+        const replacement = isPlayer ? `@rpath/${name}` : `@loader_path/${name}`;
+        if (dependency !== replacement) await run('install_name_tool', ['-change', dependency, replacement, absolute]);
+      }
+    }
+    if (nativeEntries.length && !descriptor.macosRpaths.includes('@executable_path/../Frameworks')) {
+      await run('install_name_tool', ['-add_rpath', '@executable_path/../Frameworks', safeRoot(stage, playerEntry.path)]);
+    }
+  }
+
+  const capabilities = request.capabilities ?? [];
+  if (capabilities.includes('microphone') && !request.identity.macosMicrophoneUsageDescription) {
+    throw new Error('macOS microphone capability requires a microphone usage description.');
+  }
+  const privacy = capabilities.includes('microphone')
+    ? `  <key>NSMicrophoneUsageDescription</key>\n  <string>${plistEscape(request.identity.macosMicrophoneUsageDescription!)}</string>\n`
+    : '';
+  const infoPlist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>CFBundleDevelopmentRegion</key>\n  <string>${plistEscape(request.identity.defaultLocale ?? 'en')}</string>\n  <key>CFBundleDisplayName</key>\n  <string>${plistEscape(request.identity.displayName)}</string>\n  <key>CFBundleExecutable</key>\n  <string>${plistEscape(executableName)}</string>\n  <key>CFBundleIconFile</key>\n  <string>AppIcon</string>\n  <key>CFBundleIdentifier</key>\n  <string>${plistEscape(bundleId)}</string>\n  <key>CFBundleInfoDictionaryVersion</key>\n  <string>6.0</string>\n  <key>CFBundleName</key>\n  <string>${plistEscape(request.identity.shortName ?? request.identity.displayName)}</string>\n  <key>CFBundlePackageType</key>\n  <string>APPL</string>\n  <key>CFBundleShortVersionString</key>\n  <string>${plistEscape(request.identity.versionName)}</string>\n  <key>CFBundleVersion</key>\n  <string>${plistEscape(request.identity.versionName)}</string>\n  <key>LSApplicationCategoryType</key>\n  <string>${plistEscape(request.identity.macosCategory ?? 'public.app-category.games')}</string>\n  <key>LSMinimumSystemVersion</key>\n  <string>13.0</string>\n  <key>NSHighResolutionCapable</key>\n  <true/>\n${privacy}</dict>\n</plist>\n`;
+  files.push(await writeGenerated(stage, 'Contents/Info.plist', infoPlist, 'macos-info-plist'));
+  const locale = request.identity.defaultLocale ?? 'en';
+  files.push(await writeGenerated(stage, `${resources}/${locale}.lproj/InfoPlist.strings`, `CFBundleDisplayName = "${request.identity.displayName.replaceAll('"', '\\"')}";\n`, 'macos-localized-info'));
+  const entitlements = macosEntitlements(capabilities);
+
+  const symbolEntries = files.filter((item) => item.path.startsWith('symbols/'));
+  const symbolFiles: Array<{ path: string; data: Buffer }> = [];
+  for (const symbol of symbolEntries) {
+    symbolFiles.push({ path: symbol.path.slice('symbols/'.length), data: await readFile(safeRoot(stage, symbol.path)) });
+    await rm(safeRoot(stage, symbol.path), { force: true });
+    files.splice(files.indexOf(symbol), 1);
+  }
+  await rm(safeRoot(stage, 'symbols'), { recursive: true, force: true });
+  return { executablePath: playerEntry.path, entitlements, frameworkPaths: nativeEntries.map((item) => item.path), symbolFiles };
+}
+
 async function finalizeLinuxStage(
   stage: string,
   request: PlatformStageRequest,
@@ -376,12 +506,13 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
   const diagnostics: PlatformStageDiagnostic[] = [];
   const temp = `${request.outputDirectory}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const backup = `${request.outputDirectory}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-  const archivePath = request.profile.target === 'web' || request.profile.target === 'windows'
+  const archivePath = request.profile.target === 'web' || request.profile.target === 'windows' || request.profile.target === 'macos'
     ? `${request.outputDirectory}.zip`
     : request.profile.target === 'linux' ? `${request.outputDirectory}.tar.gz` : undefined;
   const archiveTemp = archivePath ? `${archivePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   const archiveBackup = archivePath ? `${archivePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
-  const symbolArchivePath = (request.profile.target === 'windows' || request.profile.target === 'linux') && request.profile.includeDebugSymbols
+  const macosArchiveRoot = request.profile.target === 'macos' ? `${temp}.archive-root` : undefined;
+  const symbolArchivePath = (request.profile.target === 'windows' || request.profile.target === 'linux' || request.profile.target === 'macos') && request.profile.includeDebugSymbols
     ? `${request.outputDirectory}-symbols.${request.profile.target === 'linux' ? 'tar.gz' : 'zip'}` : undefined;
   const symbolArchiveTemp = symbolArchivePath ? `${symbolArchivePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   const symbolArchiveBackup = symbolArchivePath ? `${symbolArchivePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
@@ -389,10 +520,14 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     ? `${request.outputDirectory}.AppImage` : undefined;
   const appImageTemp = appImagePath ? `${appImagePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   const appImageBackup = appImagePath ? `${appImagePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const dmgPath = request.profile.target === 'macos' && request.macosDmg ? `${request.outputDirectory.replace(/\.app$/i, '')}.dmg` : undefined;
+  const dmgTemp = dmgPath ? `${dmgPath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const dmgBackup = dmgPath ? `${dmgPath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   let backedUp = false;
   let archiveBackedUp = false;
   let symbolArchiveBackedUp = false;
   let appImageBackedUp = false;
+  let dmgBackedUp = false;
   try {
     cancellations.delete(request.operationId); checkCancelled(request.operationId);
     if (request.runtimePackageReadiness?.validated !== true || request.runtimePackageReadiness.blockingDiagnosticCount !== 0) {
@@ -443,27 +578,28 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     const webMetrics = await finalizeWebStage(temp, request, files);
     const windows = await finalizeWindowsStage(temp, request, files, descriptor);
     const linux = await finalizeLinuxStage(temp, request, files, descriptor);
+    const macos = await finalizeMacosStage(temp, { ...request, capabilities: built.model.capabilities }, files, descriptor);
     if (windows) await runWindowsSigningHook(temp, request, files, windows.targetPath);
     const packageEntry = files.find((item) => item.origin === 'runtime-package')!;
-    const playerConfigPath = linux ? path.posix.join(path.posix.dirname(linux.executablePath), 'player.json') : 'player.json';
+    const playerConfigPath = linux ? path.posix.join(path.posix.dirname(linux.executablePath), 'player.json')
+      : macos ? 'Contents/Resources/player.json' : 'player.json';
     const packageFromConfig = path.posix.relative(path.posix.dirname(playerConfigPath), packageEntry.path);
     const player = { format: 'noveltea.player-config', formatVersion: 1, displayName: built.model.displayName, applicationId: built.model.applicationId, saveNamespace: built.model.saveNamespace, versionName: built.model.versionName, ...(request.identity.defaultLocale ? { defaultLocale: request.identity.defaultLocale } : {}), package: { path: packageFromConfig, sha256: packageEntry.sha256, runtimePackageApi: request.runtimePackageApi }, capabilities: built.model.capabilities, display: built.model.display };
     const playerData = Buffer.from(`${JSON.stringify(player, null, 2)}\n`); await writeFile(safeRoot(temp, playerConfigPath), playerData); files.push({ path: playerConfigPath, origin: 'generated-metadata', originId: 'player-config', size: playerData.length, mode: 0o644, sha256: sha256(playerData) });
     files.sort((a, b) => a.path.localeCompare(b.path));
     const manifest: PlatformExportManifest = { format: PLATFORM_EXPORT_MANIFEST_FORMAT, formatVersion: PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION, deployment: built.model, files };
-    await writeFile(path.join(temp, 'export-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 }); checkCancelled(request.operationId);
-    if (archivePath && archiveTemp) {
-      await rm(archiveTemp, { force: true });
-      if (request.profile.target === 'linux') await run('cmake', ['-E', 'tar', 'czf', archiveTemp, '.'], { cwd: temp });
-      else await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', '.'], { cwd: temp });
-      checkCancelled(request.operationId);
-    }
-    const symbolFiles = windows?.symbolFiles ?? linux?.symbolFiles ?? [];
+    const manifestPath = request.profile.target === 'macos' ? 'Contents/Resources/export-manifest.json' : 'export-manifest.json';
+    await writeFile(safeRoot(temp, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 }); checkCancelled(request.operationId);
+    const symbolFiles = windows?.symbolFiles ?? linux?.symbolFiles ?? macos?.symbolFiles ?? [];
     if (symbolArchivePath && symbolArchiveTemp && symbolFiles.length) {
       const symbolStage = `${temp}.symbols`;
       await rm(symbolStage, { recursive: true, force: true });
       await mkdir(symbolStage, { recursive: true });
-      for (const symbol of symbolFiles) await writeFile(path.join(symbolStage, symbol.path), symbol.data, { mode: 0o644 });
+      for (const symbol of symbolFiles) {
+        const target = path.join(symbolStage, symbol.path);
+        await mkdir(path.dirname(target), { recursive: true });
+        await writeFile(target, symbol.data, { mode: 0o644 });
+      }
       await writeFile(path.join(symbolStage, 'BUILD_ID'), `${descriptor.buildId}\n`, { mode: 0o644 });
       await rm(symbolArchiveTemp, { force: true });
       if (request.profile.target === 'linux') await run('cmake', ['-E', 'tar', 'czf', symbolArchiveTemp, '.'], { cwd: symbolStage });
@@ -475,33 +611,89 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
       await buildLinuxAppImage(temp, appImageTemp, request, linux);
       checkCancelled(request.operationId);
     }
+    if (macos && request.macosSigning) {
+      if (process.platform !== 'darwin') throw new Error('macOS signing requires a macOS host.');
+      for (const frameworkPath of macos.frameworkPaths) {
+        await run('codesign', ['--force', '--options', 'runtime', '--sign', request.macosSigning.identity, safeRoot(temp, frameworkPath)]);
+      }
+      const signingArgs = ['--force', '--options', 'runtime'];
+      let generatedEntitlementsPath: string | undefined;
+      const entitlements = request.macosSigning.entitlementsPath ?? (macos.entitlements ? `${temp}.entitlements.plist` : undefined);
+      if (!request.macosSigning.entitlementsPath && macos.entitlements && entitlements) {
+        generatedEntitlementsPath = entitlements;
+        await writeFile(generatedEntitlementsPath, macos.entitlements, { mode: 0o600 });
+      }
+      if (entitlements) signingArgs.push('--entitlements', entitlements);
+      signingArgs.push('--sign', request.macosSigning.identity, temp);
+      try {
+        await run('codesign', signingArgs);
+        await run('codesign', ['--verify', '--deep', '--strict', temp]);
+      } finally {
+        if (generatedEntitlementsPath) await rm(generatedEntitlementsPath, { force: true });
+      }
+    }
+    if (macos && request.macosNotarization) {
+      if (!request.macosSigning) throw new Error('macOS notarization requires a signed bundle.');
+      await run(request.macosNotarization.command, [...request.macosNotarization.args, temp]);
+      if (process.platform === 'darwin') {
+        await run('xcrun', ['stapler', 'staple', temp]);
+        await run('xcrun', ['stapler', 'validate', temp]);
+        await run('codesign', ['--verify', '--deep', '--strict', temp]);
+        await run('spctl', ['--assess', '--type', 'execute', '--verbose=2', temp]);
+      }
+    }
+    if (archivePath && archiveTemp) {
+      await rm(archiveTemp, { force: true });
+      if (request.profile.target === 'linux') await run('cmake', ['-E', 'tar', 'czf', archiveTemp, '.'], { cwd: temp });
+      else if (request.profile.target === 'macos' && macosArchiveRoot) {
+        await rm(macosArchiveRoot, { recursive: true, force: true });
+        await mkdir(macosArchiveRoot, { recursive: true });
+        const appName = path.basename(request.outputDirectory);
+        await run('cmake', ['-E', 'copy_directory', temp, path.join(macosArchiveRoot, appName)]);
+        await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', appName], { cwd: macosArchiveRoot });
+        await rm(macosArchiveRoot, { recursive: true, force: true });
+      } else await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', '.'], { cwd: temp });
+      checkCancelled(request.operationId);
+    }
+    if (macos && dmgTemp && request.macosDmg) {
+      await rm(dmgTemp, { force: true });
+      await run(request.macosDmg.command, [...request.macosDmg.args, temp, dmgTemp]);
+      checkCancelled(request.operationId);
+    }
     if (existsSync(request.outputDirectory)) { await rename(request.outputDirectory, backup); backedUp = true; }
     if (archivePath && archiveBackup && existsSync(archivePath)) { await rename(archivePath, archiveBackup); archiveBackedUp = true; }
     if (symbolArchivePath && symbolArchiveBackup && existsSync(symbolArchivePath)) { await rename(symbolArchivePath, symbolArchiveBackup); symbolArchiveBackedUp = true; }
     if (appImagePath && appImageBackup && existsSync(appImagePath)) { await rename(appImagePath, appImageBackup); appImageBackedUp = true; }
+    if (dmgPath && dmgBackup && existsSync(dmgPath)) { await rename(dmgPath, dmgBackup); dmgBackedUp = true; }
     try {
       await rename(temp, request.outputDirectory);
       if (archivePath && archiveTemp) await rename(archiveTemp, archivePath);
       if (symbolArchivePath && symbolArchiveTemp && existsSync(symbolArchiveTemp)) await rename(symbolArchiveTemp, symbolArchivePath);
       if (appImagePath && appImageTemp) await rename(appImageTemp, appImagePath);
+      if (dmgPath && dmgTemp) await rename(dmgTemp, dmgPath);
     } catch (error) {
       await rm(request.outputDirectory, { recursive: true, force: true });
       if (archivePath) await rm(archivePath, { force: true });
       if (symbolArchivePath) await rm(symbolArchivePath, { force: true });
       if (appImagePath) await rm(appImagePath, { force: true });
+      if (dmgPath) await rm(dmgPath, { force: true });
       if (backedUp && existsSync(backup)) await rename(backup, request.outputDirectory);
       if (archiveBackedUp && archiveBackup && existsSync(archiveBackup)) await rename(archiveBackup, archivePath!);
       if (symbolArchiveBackedUp && symbolArchiveBackup && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath!);
       if (appImageBackedUp && appImageBackup && existsSync(appImageBackup)) await rename(appImageBackup, appImagePath!);
+      if (dmgBackedUp && dmgBackup && existsSync(dmgBackup)) await rename(dmgBackup, dmgPath!);
       throw error;
     }
     if (backedUp) await rm(backup, { recursive: true, force: true });
     if (archiveBackedUp && archiveBackup) await rm(archiveBackup, { force: true });
     if (symbolArchiveBackedUp && symbolArchiveBackup) await rm(symbolArchiveBackup, { force: true });
     if (appImageBackedUp && appImageBackup) await rm(appImageBackup, { force: true });
+    if (dmgBackedUp && dmgBackup) await rm(dmgBackup, { force: true });
     const artifacts: NonNullable<PlatformStageResult['artifacts']> = [{ kind: 'directory', path: request.outputDirectory }];
     if (archivePath) artifacts.push({ kind: 'archive', path: archivePath, size: (await stat(archivePath)).size });
     if (appImagePath) artifacts.push({ kind: 'appimage', path: appImagePath, size: (await stat(appImagePath)).size });
+    if (request.profile.target === 'macos') artifacts[0] = { kind: 'app-bundle', path: request.outputDirectory };
+    if (dmgPath) artifacts.push({ kind: 'dmg', path: dmgPath, size: (await stat(dmgPath)).size });
     if (symbolArchivePath && existsSync(symbolArchivePath)) artifacts.push({ kind: 'symbols', path: symbolArchivePath, size: (await stat(symbolArchivePath)).size });
     return { ok: true, success: true, cancelled: false, operationId: request.operationId, outputDirectory: request.outputDirectory, archivePath, symbolArchivePath: symbolArchivePath && existsSync(symbolArchivePath) ? symbolArchivePath : undefined, artifacts, webMetrics, diagnostics, deployment: built.model, manifest };
   } catch (error) {
@@ -509,12 +701,15 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     if (!cancelled && !(error instanceof Error && error.message === 'NOVELTEA_EXPORT_DIAGNOSTIC')) diagnostics.push(diagnostic('staging-failed', '/staging', error instanceof Error ? error.message : String(error)));
     await rm(temp, { recursive: true, force: true });
     if (archiveTemp) await rm(archiveTemp, { force: true });
+    if (macosArchiveRoot) await rm(macosArchiveRoot, { recursive: true, force: true });
     if (symbolArchiveTemp) await rm(symbolArchiveTemp, { force: true });
     if (appImageTemp) await rm(appImageTemp, { force: true });
+    if (dmgTemp) await rm(dmgTemp, { force: true });
     if (backedUp && !existsSync(request.outputDirectory) && existsSync(backup)) await rename(backup, request.outputDirectory);
     if (archivePath && archiveBackedUp && archiveBackup && !existsSync(archivePath) && existsSync(archiveBackup)) await rename(archiveBackup, archivePath);
     if (symbolArchivePath && symbolArchiveBackedUp && symbolArchiveBackup && !existsSync(symbolArchivePath) && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath);
     if (appImagePath && appImageBackedUp && appImageBackup && !existsSync(appImagePath) && existsSync(appImageBackup)) await rename(appImageBackup, appImagePath);
+    if (dmgPath && dmgBackedUp && dmgBackup && !existsSync(dmgPath) && existsSync(dmgBackup)) await rename(dmgBackup, dmgPath);
     return { ok: false, success: false, cancelled, operationId: request.operationId, diagnostics: cancelled ? [...diagnostics, { severity: 'info', code: 'cancelled', path: '/staging', message: 'Platform export was cancelled.' }] : diagnostics };
   } finally { cancellations.delete(request.operationId); }
 }
