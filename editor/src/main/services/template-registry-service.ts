@@ -21,8 +21,16 @@ const issue = (code: string, pathValue: string, message: string): TemplateCompat
 export function configureTemplateRegistryRoot(root: string) { registryRoot = path.resolve(root); }
 export function templateRootForToken(token: string): string {
   const match = /^([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)$/.exec(token);
-  if (!match) throw new Error('Invalid installed-template token.');
-  return path.join(registryRoot, match[1]!, match[2]!);
+  if (!match || match[1] === '.' || match[1] === '..' || match[2] === '.' || match[2] === '..') {
+    throw new Error('Invalid installed-template token.');
+  }
+  const root = path.resolve(registryRoot);
+  const candidate = path.resolve(root, match[1], match[2]);
+  const relative = path.relative(root, candidate);
+  if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
+    throw new Error('Installed-template token escapes the registry root.');
+  }
+  return candidate;
 }
 async function files(root: string, prefix = ''): Promise<string[]> {
   const output: string[] = [];

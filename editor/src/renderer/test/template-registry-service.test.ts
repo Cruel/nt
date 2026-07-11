@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { configureTemplateRegistryRoot, installPlayerTemplate, listPlayerTemplates, removePlayerTemplate, resolvePlayerTemplate } from '../../main/services/template-registry-service';
+import { configureTemplateRegistryRoot, installPlayerTemplate, listPlayerTemplates, removePlayerTemplate, resolvePlayerTemplate, templateRootForToken } from '../../main/services/template-registry-service';
 import { parsePlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 
 const roots: string[] = []; const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
@@ -14,6 +14,20 @@ function archiveFixture() {
 }
 const profile = parsePlatformExportProfile({ format: 'noveltea.platform-export-profile', formatVersion: 1, id: 'linux', label: 'Linux', target: 'linux', architecture: 'x64', buildFlavor: 'release', packageAccess: 'sidecar', desktop: { artifact: 'tar', executableName: 'game' } });
 describe('template registry service', () => {
+  it('rejects template tokens that contain dot path segments', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-template-token-'));
+    roots.push(root);
+    const registry = path.join(root, 'registry');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, 'keep.txt'), 'keep');
+    configureTemplateRegistryRoot(registry);
+
+    expect(() => templateRootForToken('../outside')).toThrow('Invalid installed-template token');
+    expect(() => templateRootForToken('template/..')).toThrow('Invalid installed-template token');
+    await expect(removePlayerTemplate('..', 'outside')).rejects.toThrow('Invalid installed-template token');
+    expect(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8')).toBe('keep');
+  });
   it('installs, discovers, resolves, and removes verified local templates', async () => { const { archive } = archiveFixture(); const installed = await installPlayerTemplate({ archivePath: archive, origin: 'test' }); expect(installed.success).toBe(true); expect(installed.entry?.trust).toBe('local-untrusted'); expect(await listPlayerTemplates()).toHaveLength(1); const resolved = await resolvePlayerTemplate({ requirements: { profile, runtimePackageApi: 1, playerConfigApi: 1, shaderVariants: ['glsl-120'], graphicsBackends: ['opengl'], capabilities: [], requiredFeatures: ['lua'] } }); expect(resolved.success).toBe(true); expect(resolved.diagnostics[0]?.code).toBe('template-untrusted'); expect((await removePlayerTemplate('linux-x64-release', 'build-1')).removed).toBe(true); });
   it('rejects a corrupted archive checksum and provenance mismatch', async () => { const { archive } = archiveFixture(); expect((await installPlayerTemplate({ archivePath: archive, archiveSha256: 'a'.repeat(64) })).success).toBe(false); const actual = hash(fs.readFileSync(archive)); const result = await installPlayerTemplate({ archivePath: archive, officialProvenance: { archiveSha256: actual, descriptorSha256: 'b'.repeat(64), source: 'release' } }); expect(result.success).toBe(false); });
 });
