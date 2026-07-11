@@ -119,6 +119,28 @@ AppImage under a Unicode/space-containing path, and launches both artifacts from
 working directory under X11 and headless Wayland. The smoke also verifies that `game.ntpkg` and
 packaged `system:/` assets resolve relative to the installed player rather than the build tree.
 
+## Android Export Boundary
+
+Android profiles support APK, AAB, or combined output, require architecture/ABI agreement, and use
+`android-private-copy` by default. Android template descriptors declare their immutable Gradle
+layout, insertion roots, stable native identity, supported ABIs/artifacts/package modes, SDK range,
+and exact certified toolchain versions. Compatibility is checked before export.
+
+Android requests are dispatched to the dedicated Android exporter rather than generic platform
+staging. Its preflight probes Java, the template Gradle wrapper, SDK platform and build tools,
+NDK Clang, CMake, and bundletool individually; adb is optional and only gates device smoke tests.
+The exporter copies the immutable template into a private temporary Gradle project, generates the
+manifest/resources/icons/bootstrap assets and provenance, builds only the requested APK/AAB tasks,
+inspects their manifest/ABI/ELF/alignment/checksum/signature closure, derives an APK set for AAB
+inspection, and atomically publishes the complete artifact/report set.
+
+Android-private-copy is implemented by the player: it reads `assets/noveltea/bootstrap/player.json`
+and `game.ntpkg`, verifies them, then atomically materializes the package into checksum-keyed
+app-private storage before the normal filesystem bootstrap runs. This keeps saves outside package
+materializations. Device certification remains incomplete: CI wiring exists for x86_64 and scheduled
+arm64 coverage, but the AAB-derived install/launch and full representative-fixture gates are still
+tracked in Phase 8 of the platform-export plan.
+
 ### macOS app bundles
 
 macOS profiles finalize the immutable player template into a conventional `.app` tree. The player

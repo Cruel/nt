@@ -22,7 +22,7 @@ env:
   ANDROID_API_LEVEL: "35"
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
   ANDROID_CMAKE_VERSION: "3.31.6"
-  ANDROID_NDK_VERSION: "27.3.13750724"
+  ANDROID_NDK_VERSION: "28.2.13676358"
 
 jobs:
   shader-assets:
@@ -446,57 +446,66 @@ jobs:
           name: noveltea-release-shader-assets
           path: build/prebuilt-shader-assets
 
-      - name: Prepare signing properties
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
-        run: |
-          version="${RELEASE_TAG#v}"
-          echo "NOVELTEA_ANDROID_RELEASE_FLAVOR=unsigned-internal" >> "$GITHUB_ENV"
-          echo "NOVELTEA_VERSION_NAME=$version" >> "$GITHUB_ENV"
-          echo "NOVELTEA_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$RELEASE_STORE_PASSWORD" && -n "$RELEASE_KEY_ALIAS" && -n "$RELEASE_KEY_PASSWORD" ]]; then
-            mkdir -p "$RUNNER_TEMP/android-signing"
-            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/android-signing/release.keystore"
-            echo "NOVELTEA_ANDROID_RELEASE_FLAVOR=signed" >> "$GITHUB_ENV"
-            {
-              echo "NOVELTEA_RELEASE_STORE_FILE=$RUNNER_TEMP/android-signing/release.keystore"
-              echo "NOVELTEA_RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
-              echo "NOVELTEA_RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS"
-              echo "NOVELTEA_RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
-            } >> "$GITHUB_ENV"
-          fi
-
-      - name: Build Android release APK
+      - name: Build unsigned Android player template source
         working-directory: android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: |
-          args=(
-            --no-daemon
-            :app:assembleRelease
-            -PnovelteaCompileShaders=OFF
-            -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets"
-            -PnovelteaVersionName="$NOVELTEA_VERSION_NAME"
-            -PnovelteaVersionCode="$NOVELTEA_VERSION_CODE"
-            -PnovelteaUseCcache=true
-          )
-          if [[ "$NOVELTEA_ANDROID_RELEASE_FLAVOR" == "signed" ]]; then
-            args+=(
-              -PnovelteaReleaseStoreFile="$NOVELTEA_RELEASE_STORE_FILE"
-              -PnovelteaReleaseStorePassword="$NOVELTEA_RELEASE_STORE_PASSWORD"
-              -PnovelteaReleaseKeyAlias="$NOVELTEA_RELEASE_KEY_ALIAS"
-              -PnovelteaReleaseKeyPassword="$NOVELTEA_RELEASE_KEY_PASSWORD"
-            )
-          fi
-          ./gradlew "${args[@]}"
+          ./gradlew --no-daemon :app:assembleRelease -PnovelteaAbi=arm64-v8a -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
+          ./gradlew --no-daemon :app:assembleDebug -PnovelteaAbi=x86_64 -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
 
-      - name: Stage Android artifact
+      - name: Download checksum-pinned bundletool
+        run: |
+          mkdir -p build/tools
+          curl -fL -o build/tools/bundletool-all-1.18.1.jar https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+          echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
+
+      - name: Package official Android player templates
+        run: |
+          cmake -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -DNOVELTEA_ANDROID_ABI=arm64-v8a -DNOVELTEA_ANDROID_FLAVOR=release -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
+          cmake -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -DNOVELTEA_ANDROID_ABI=x86_64 -DNOVELTEA_ANDROID_FLAVOR=debug -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
+
+      - name: Install pnpm and editor dependencies
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+
+      - name: Install editor dependencies
+        working-directory: editor
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache vcpkg SDK for headless export tool
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            build/linux-debug/vcpkg_installed
+          key: ${{ runner.os }}-android-release-editor-tool-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+
+      - name: Build headless editor export tool
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"; fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+          cmake --preset linux-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
+          cmake --build --preset linux-debug --target noveltea-editor-tool
+
+      - name: Export and inspect release APK plus AAB through editor orchestration
+        working-directory: editor
         env:
-          NOVELTEA_ANDROID_RELEASE_FLAVOR: ${{ env.NOVELTEA_ANDROID_RELEASE_FLAVOR }}
-        run: .github/package-release.sh android "$RELEASE_TAG"
+          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
+          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-arm64-v8a-release.tar.gz
+          NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
+          NOVELTEA_ANDROID_ABI: arm64-v8a
+          NOVELTEA_ANDROID_FLAVOR: release
+          NOVELTEA_ANDROID_ARTIFACT: both
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
+          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-release-integration
+          NOVELTEA_ANDROID_EXPORT_OUTPUT: ${{ github.workspace }}/dist/android-release-fixture
+        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts
 
       - name: Upload Android release artifact
         uses: actions/upload-artifact@v7
@@ -594,6 +603,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
@@ -613,6 +624,11 @@ jobs:
 
       - name: Generate checksums
         run: .github/package-release.sh checksums "$RELEASE_TAG"
+
+      - name: Attest complete player template set
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/noveltea-player-template-*
 
       - name: Create GitHub Release
         env:

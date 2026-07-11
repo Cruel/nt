@@ -19,7 +19,18 @@ export function evaluateTemplateCompatibility(descriptor: TemplateDescriptor, re
     const requiredThreadingFeature = profile.web.threaded ? 'web-threads' : 'web-single-threaded';
     if (!descriptor.compiledFeatures.includes(requiredThreadingFeature)) add('template-web-threading-mismatch', '/compiledFeatures', `Template is missing required Web build feature '${requiredThreadingFeature}'.`);
   }
+  if (profile.target === 'android') {
+    const android = descriptor.android;
+    if (!android) add('template-android-contract-missing', '/android', 'Android template is missing its platform contract.');
+    else {
+      if (!android.supportedAbis.includes(profile.android.abi)) add('template-android-abi-mismatch', '/android/supportedAbis', `Template does not support ABI '${profile.android.abi}'.`);
+      const artifacts = profile.android.artifact === 'both' ? ['apk', 'aab'] as const : [profile.android.artifact];
+      for (const artifact of artifacts) if (!android.artifactKinds.includes(artifact)) add('template-android-artifact-mismatch', '/android/artifactKinds', `Template does not support Android artifact '${artifact}'.`);
+      if (!android.packageAccessModes.includes(profile.packageAccess)) add('template-android-package-access-mismatch', '/android/packageAccessModes', `Android template does not support package access mode '${profile.packageAccess}'.`);
+      if (profile.android.minSdk < android.minimumSdk.minimum || profile.android.minSdk > android.minimumSdk.maximum) add('template-android-sdk-mismatch', '/android/minimumSdk', `Requested minimum SDK ${profile.android.minSdk} is outside the template range ${android.minimumSdk.minimum}-${android.minimumSdk.maximum}.`);
+    }
+  }
   if (requirements.host && descriptor.host.assembly !== 'any' && descriptor.host.assembly !== requirements.host.platform) add('template-host-mismatch', '/host/assembly', `Template assembly requires a ${descriptor.host.assembly} host.`);
-  if (requirements.host && descriptor.host.requiresToolchain) for (const tool of descriptor.host.tools) if (!requirements.host.availableTools.includes(tool)) add('template-toolchain-missing', '/host/tools', `Required tool '${tool}' is unavailable.`);
+  if (requirements.host && descriptor.host.requiresToolchain && profile.target !== 'android') for (const tool of descriptor.host.tools) if (!requirements.host.availableTools.includes(tool)) add('template-toolchain-missing', '/host/tools', `Required tool '${tool}' is unavailable.`);
   return { compatible: diagnostics.length === 0, diagnostics };
 }

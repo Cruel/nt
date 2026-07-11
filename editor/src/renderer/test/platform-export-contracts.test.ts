@@ -33,4 +33,14 @@ describe('platform export contracts', () => {
     const state = parseEditorExportLocalState({ format: EDITOR_EXPORT_LOCAL_STATE_FORMAT, formatVersion: EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION, lastOutputDirectory: '/home/me/exports', templateRoots: ['/opt/noveltea/templates'], toolchains: { androidSdk: '/opt/android' }, signing: { keystorePath: '/secure/release.jks', secretReferences: { storePassword: 'keychain:noveltea/store' } } });
     expect(state.signing.secretReferences.storePassword).toBe('keychain:noveltea/store');
   });
+
+  it('round-trips Android artifact selections and rejects architecture/ABI mismatches', () => {
+    const base = { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'android', label: 'Android', target: 'android', architecture: 'arm64', buildFlavor: 'release', packageAccess: 'android-private-copy', android: { artifact: 'apk', abi: 'arm64-v8a', minSdk: 24 } } as const;
+    for (const artifact of ['apk', 'aab', 'both'] as const) {
+      const parsed = parsePlatformExportProfile({ ...base, android: { ...base.android, artifact } });
+      expect(parsed.target === 'android' && parsed.android.artifact).toBe(artifact);
+    }
+    expect(() => parsePlatformExportProfile({ ...base, android: { ...base.android, abi: 'x86_64' } })).toThrow(/requires ABI/);
+    expect(() => parsePlatformExportProfile({ ...base, architecture: 'x86_64', android: { ...base.android, artifact: 'aab', abi: 'x86_64' } })).toThrow(/arm64-v8a/);
+  });
 });

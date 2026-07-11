@@ -284,7 +284,16 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  configureTemplateRegistryRoot(path.join(app.getPath('userData'), 'player-templates', 'v1'));
+  configureTemplateRegistryRoot(process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ?? path.join(app.getPath('userData'), 'player-templates', 'v1'));
+  if (process.argv.includes('--install-player-template')) {
+    void (async () => {
+      const index = process.argv.indexOf('--template'); const archivePath = index >= 0 ? process.argv[index + 1] : undefined;
+      if (!archivePath) { process.stderr.write('Usage: NovelTea Editor --install-player-template --template <archive>\n'); app.exit(64); return; }
+      const result = await installPlayerTemplate({ archivePath, origin: 'headless-cli' });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`); app.exit(result.success ? 0 : 1);
+    })();
+    return;
+  }
   if (process.argv.includes('--export-project')) {
     void (async () => {
       try {

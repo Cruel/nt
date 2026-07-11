@@ -74,5 +74,12 @@ executable (or platform resource base), rejects unsafe package paths and unsuppo
 or API versions, verifies the package SHA-256 and `manifest.json`, and only then mounts the game.
 The sandbox command-line startup remains unchanged.
 
+Android packages the config and payload below `assets/noveltea/bootstrap/`. The player reads those
+bytes through SDL packaged-asset IO, applies the same config, API, checksum, and manifest validator,
+then atomically materializes `player.json` and `game.ntpkg` below a checksum-keyed directory in the
+application preference root. Valid existing materializations are reused; incomplete or corrupt
+copies are rebuilt. Old package versions are removed only after the replacement verifies, while
+the identity-scoped save/config/cache/log directories remain independent of package checksums.
+
 Player saves use `FilesystemSaveSlotStore` below an identity-scoped platform preference directory.
 Writes use a temporary file and replacement, so installed files and `game.ntpkg` remain read-only.

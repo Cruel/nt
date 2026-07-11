@@ -32,5 +32,19 @@ export function buildPlatformDeployment(request: PlatformStageRequest, descripto
   const compatibility = evaluateTemplateCompatibility(descriptor, { profile: request.profile, runtimePackageApi: request.runtimePackageApi, playerConfigApi: 1, shaderVariants: [], graphicsBackends: [], capabilities: capabilities as never, requiredFeatures: [], host: request.host });
   for (const item of compatibility.diagnostics) error(item.code, `/template${item.path}`, item.message);
   if (diagnostics.some((item) => item.severity === 'error')) return { diagnostics };
-  return { diagnostics, model: { target: request.profile.target, architecture: request.profile.architecture, buildFlavor: request.profile.buildFlavor, applicationId: request.identity.applicationId, displayName: request.identity.displayName, versionName: request.identity.versionName, saveNamespace: request.identity.saveNamespace, capabilities: capabilities as PlatformDeploymentModel['capabilities'], capabilityMetadata: capabilityMetadata(capabilities), display: request.display, packageAccess: request.profile.packageAccess, templateId: descriptor.templateId, buildId: descriptor.buildId, runtimePackageApi: request.runtimePackageApi } };
+  const android = request.profile.target === 'android' && descriptor.android ? {
+    applicationId: request.identity.applicationId,
+    versionCode: request.identity.androidVersionCode ?? 1,
+    versionName: request.identity.versionName,
+    allowBackup: request.identity.androidAllowBackup ?? false,
+    isGame: request.identity.androidIsGame ?? true,
+    minSdk: request.profile.android.minSdk,
+    targetSdk: descriptor.android.targetSdk,
+    compileSdk: descriptor.android.compileSdk,
+    abi: request.profile.android.abi,
+    artifacts: request.profile.android.artifact === 'both' ? ['apk', 'aab'] as Array<'apk' | 'aab'> : [request.profile.android.artifact],
+    packageAccess: request.profile.packageAccess,
+    orientation: request.display.orientation,
+  } : undefined;
+  return { diagnostics, model: { target: request.profile.target, architecture: request.profile.architecture, buildFlavor: request.profile.buildFlavor, applicationId: request.identity.applicationId, displayName: request.identity.displayName, versionName: request.identity.versionName, saveNamespace: request.identity.saveNamespace, capabilities: capabilities as PlatformDeploymentModel['capabilities'], capabilityMetadata: capabilityMetadata(capabilities), display: request.display, packageAccess: request.profile.packageAccess, templateId: descriptor.templateId, buildId: descriptor.buildId, runtimePackageApi: request.runtimePackageApi, android } };
 }

@@ -5,11 +5,10 @@
 
     <application
         android:allowBackup="false"
-        android:label="NovelTea"
         android:hasCode="true">
 
         <activity
-            android:name="com.example.noveltea.MainActivity"
+            android:name="org.noveltea.player.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true"
             android:theme="@style/AppTheme"
@@ -17,7 +16,7 @@
 
             <meta-data
                 android:name="android.app.lib_name"
-                android:value="noveltea-sandbox" />
+                android:value="noveltea-player" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

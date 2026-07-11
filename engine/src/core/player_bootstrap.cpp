@@ -4,6 +4,7 @@
 #include <array>
 #include <fstream>
 #include <iterator>
+#include <chrono>
 #include <set>
 
 #include <nlohmann/json.hpp>
@@ -274,6 +275,25 @@ PlayerBootstrapResult load_and_verify_player(const std::filesystem::path& config
         return result;
     }
     std::string text{std::istreambuf_iterator<char>(config_file), std::istreambuf_iterator<char>()};
+    auto parsed = parse_player_config(text);
+    if (!parsed.success())
+        return parsed;
+    const auto package_path = config_path.parent_path() / parsed.config.package_path;
+    const auto package_bytes = read_file(package_path);
+    auto result = verify_player_config_and_package(text, package_bytes, supported);
+    if (package_bytes.empty() && result.diagnostics.empty())
+        fail(result, PlayerBootstrapError::PackageDiscovery, package_path.string(),
+             "game package was not found or is empty");
+    for (auto& diagnostic : result.diagnostics)
+        if (diagnostic.path == "/package")
+            diagnostic.path = package_path.string();
+    return result;
+}
+
+PlayerBootstrapResult verify_player_config_and_package(std::string_view text,
+                                                       std::span<const std::byte> package_bytes,
+                                                       std::span<const std::string> supported)
+{
     auto result = parse_player_config(text);
     if (!result.success())
         return result;
@@ -287,20 +307,112 @@ PlayerBootstrapResult load_and_verify_player(const std::filesystem::path& config
     }
     if (!result.success())
         return result;
-    const auto package_path = config_path.parent_path() / result.config.package_path;
-    result.package_bytes = read_file(package_path);
+    result.package_bytes.assign(package_bytes.begin(), package_bytes.end());
     if (result.package_bytes.empty()) {
-        fail(result, PlayerBootstrapError::PackageDiscovery, package_path.string(),
+        fail(result, PlayerBootstrapError::PackageDiscovery, "/package",
              "game package was not found or is empty");
         return result;
     }
     if (sha256_hex(result.package_bytes) != result.config.package_sha256) {
-        fail(result, PlayerBootstrapError::PackageChecksum, package_path.string(),
+        fail(result, PlayerBootstrapError::PackageChecksum, "/package",
              "game package checksum does not match player config");
         return result;
     }
     verify_manifest(result.package_bytes, result);
     return result;
+}
+
+PlayerBootstrapMaterializationResult
+materialize_packaged_player(const std::filesystem::path& bootstrap_root,
+                            std::string_view asset_prefix, const PlayerBootstrapAssetReader& reader,
+                            std::span<const std::string> supported)
+{
+    PlayerBootstrapMaterializationResult output;
+    auto prefix = std::string(asset_prefix);
+    if (!prefix.empty() && prefix.back() != '/')
+        prefix.push_back('/');
+    const auto config_bytes = reader(prefix + "player.json");
+    if (config_bytes.empty()) {
+        fail(output.bootstrap, PlayerBootstrapError::ConfigDiscovery, prefix + "player.json",
+             "packaged player config was not found or is empty");
+        return output;
+    }
+    const std::string config_text(reinterpret_cast<const char*>(config_bytes.data()),
+                                  config_bytes.size());
+    auto parsed = parse_player_config(config_text);
+    if (!parsed.success()) {
+        output.bootstrap = std::move(parsed);
+        return output;
+    }
+    const auto package_asset = prefix + parsed.config.package_path.generic_string();
+    const auto package_bytes = reader(package_asset);
+    output.bootstrap = verify_player_config_and_package(config_text, package_bytes, supported);
+    if (!output.bootstrap.success())
+        return output;
+
+    const auto final_root = bootstrap_root / output.bootstrap.config.package_sha256;
+    const auto final_config = final_root / "player.json";
+    if (std::filesystem::is_regular_file(final_config)) {
+        auto existing = load_and_verify_player(final_config, supported);
+        if (existing.success()) {
+            output.bootstrap = std::move(existing);
+            output.config_path = final_config;
+            return output;
+        }
+        std::error_code discard_error;
+        std::filesystem::remove_all(final_root, discard_error);
+    }
+
+    std::error_code error;
+    std::filesystem::create_directories(bootstrap_root, error);
+    const auto nonce = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    const auto temporary_root = bootstrap_root / (".incoming-" + nonce);
+    std::filesystem::remove_all(temporary_root, error);
+    error.clear();
+    std::filesystem::create_directories(temporary_root, error);
+    if (!error) {
+        std::ofstream config_file(temporary_root / "player.json", std::ios::binary);
+        config_file.write(config_text.data(), static_cast<std::streamsize>(config_text.size()));
+        std::ofstream package_file(temporary_root / output.bootstrap.config.package_path,
+                                   std::ios::binary);
+        package_file.write(reinterpret_cast<const char*>(package_bytes.data()),
+                           static_cast<std::streamsize>(package_bytes.size()));
+        if (!config_file || !package_file)
+            error = std::make_error_code(std::errc::io_error);
+    }
+    if (!error) {
+        auto staged = load_and_verify_player(temporary_root / "player.json", supported);
+        if (!staged.success()) {
+            output.bootstrap = std::move(staged);
+            error = std::make_error_code(std::errc::invalid_argument);
+        }
+    }
+    if (!error) {
+        std::filesystem::rename(temporary_root, final_root, error);
+        if (error && std::filesystem::is_directory(final_root)) {
+            error.clear();
+            std::filesystem::remove_all(temporary_root, error);
+            error.clear();
+        }
+    }
+    if (error) {
+        std::filesystem::remove_all(temporary_root, error);
+        if (output.bootstrap.diagnostics.empty())
+            fail(output.bootstrap, PlayerBootstrapError::Materialization, bootstrap_root.string(),
+                 "could not atomically materialize the packaged game");
+        return output;
+    }
+    output.config_path = final_config;
+    output.copied = true;
+    for (const auto& entry : std::filesystem::directory_iterator(bootstrap_root, error)) {
+        if (error)
+            break;
+        if (entry.is_directory() && entry.path() != final_root &&
+            !entry.path().filename().string().starts_with(".incoming-"))
+            std::filesystem::remove_all(entry.path(), error);
+    }
+    output.bootstrap = load_and_verify_player(final_config, supported);
+    return output;
 }
 
 const char* player_bootstrap_error_name(PlayerBootstrapError error) noexcept
@@ -322,6 +434,8 @@ const char* player_bootstrap_error_name(PlayerBootstrapError error) noexcept
         return "package-content";
     case PlayerBootstrapError::WritableRoot:
         return "writable-root";
+    case PlayerBootstrapError::Materialization:
+        return "materialization";
     }
     return "unknown";
 }

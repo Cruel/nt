@@ -117,14 +117,23 @@ export async function generateAppIcons(request: IconGenerationRequest): Promise<
   }
   if (platforms.has('android')) {
     const legacy = request.overrides?.androidLegacy ?? request.sourcePath;
-    for (const [density, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi', 144], ['xxxhdpi', 192]] as const) add('android', 'legacy', await write(request.stagingRoot, `android/res/mipmap-${density}/ic_launcher.png`, await png(legacy, size)), request.overrides?.androidLegacy ? 'override' : 'generated', size);
+    for (const [density, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi', 144], ['xxxhdpi', 192]] as const) {
+      const icon = await png(legacy, size);
+      add('android', 'legacy', await write(request.stagingRoot, `android/res/mipmap-${density}/ic_launcher.png`, icon), request.overrides?.androidLegacy ? 'override' : 'generated', size);
+      add('android', 'round', await write(request.stagingRoot, `android/res/mipmap-${density}/ic_launcher_round.png`, icon), request.overrides?.androidLegacy ? 'override' : 'generated', size);
+    }
     const foreground = request.overrides?.androidForeground ?? request.sourcePath;
     for (const [density, size] of [['mdpi', 108], ['hdpi', 162], ['xhdpi', 216], ['xxhdpi', 324], ['xxxhdpi', 432]] as const) add('android', 'adaptive-foreground', await write(request.stagingRoot, `android/res/mipmap-${density}/ic_launcher_foreground.png`, await png(foreground, size)), request.overrides?.androidForeground ? 'override' : 'generated', size);
     const bg = request.overrides?.androidBackground;
     const backgroundXml = bg ? `<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/ic_launcher_background_image" android:gravity="fill" />\n` : `<color xmlns:android="http://schemas.android.com/apk/res/android" android:color="${background}" />\n`;
     if (bg) add('android', 'adaptive-background', await write(request.stagingRoot, 'android/res/drawable/ic_launcher_background_image.png', await png(bg, 432)), 'override', 432);
     await write(request.stagingRoot, 'android/res/drawable/ic_launcher_background.xml', backgroundXml);
-    for (const qualifier of ['mipmap-anydpi-v26', 'mipmap-anydpi-v33']) add('android', 'adaptive-xml', await write(request.stagingRoot, `android/res/${qualifier}/ic_launcher.xml`, `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@mipmap/ic_launcher_foreground"/></adaptive-icon>\n`), 'generated');
+    for (const qualifier of ['mipmap-anydpi-v26', 'mipmap-anydpi-v33']) {
+      const monochrome = qualifier.endsWith('v33') ? '<monochrome android:drawable="@mipmap/ic_launcher_foreground"/>' : '';
+      const xml = `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@mipmap/ic_launcher_foreground"/>${monochrome}</adaptive-icon>\n`;
+      add('android', 'adaptive-xml', await write(request.stagingRoot, `android/res/${qualifier}/ic_launcher.xml`, xml), 'generated');
+      add('android', 'round-adaptive-xml', await write(request.stagingRoot, `android/res/${qualifier}/ic_launcher_round.xml`, xml), 'generated');
+    }
     diagnostics.push(...[await safeAreaDiagnostic(foreground, 'android', 0.185)].filter((value): value is IconGenerationDiagnostic => value !== null));
   }
   if (platforms.has('windows')) {

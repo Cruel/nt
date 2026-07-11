@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,6 +23,7 @@ enum class PlayerBootstrapError {
     Capability,
     PackageContent,
     WritableRoot,
+    Materialization,
 };
 
 struct PlayerBootstrapDiagnostic {
@@ -57,10 +59,28 @@ struct PlayerBootstrapResult {
     [[nodiscard]] bool success() const noexcept { return diagnostics.empty(); }
 };
 
+using PlayerBootstrapAssetReader =
+    std::function<std::vector<std::byte>(std::string_view asset_path)>;
+
+struct PlayerBootstrapMaterializationResult {
+    PlayerBootstrapResult bootstrap;
+    std::filesystem::path config_path;
+    bool copied = false;
+    [[nodiscard]] bool success() const noexcept { return bootstrap.success(); }
+};
+
 [[nodiscard]] PlayerBootstrapResult parse_player_config(std::string_view json_text);
 [[nodiscard]] PlayerBootstrapResult
 load_and_verify_player(const std::filesystem::path& config_path,
                        std::span<const std::string> supported_capabilities = {});
+[[nodiscard]] PlayerBootstrapResult
+verify_player_config_and_package(std::string_view config_text,
+                                 std::span<const std::byte> package_bytes,
+                                 std::span<const std::string> supported_capabilities = {});
+[[nodiscard]] PlayerBootstrapMaterializationResult
+materialize_packaged_player(const std::filesystem::path& bootstrap_root,
+                            std::string_view asset_prefix, const PlayerBootstrapAssetReader& reader,
+                            std::span<const std::string> supported_capabilities = {});
 [[nodiscard]] std::string sha256_hex(std::span<const std::byte> bytes);
 [[nodiscard]] bool is_safe_player_relative_path(std::string_view path);
 [[nodiscard]] const char* player_bootstrap_error_name(PlayerBootstrapError error) noexcept;

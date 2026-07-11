@@ -269,7 +269,7 @@ if(NOT TARGET rmlui_bgfx::rmlui_bgfx)
 endif()
 
 add_subdirectory(engine)
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_subdirectory(tools/editor_tool)
 endif()
 

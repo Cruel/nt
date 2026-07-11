@@ -24,7 +24,7 @@ env:
   ANDROID_API_LEVEL: "35"
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
   ANDROID_CMAKE_VERSION: "3.31.6"
-  ANDROID_NDK_VERSION: "27.3.13750724"
+  ANDROID_NDK_VERSION: "28.2.13676358"
 
 permissions:
   contents: read
@@ -190,6 +190,13 @@ jobs:
       - name: Unit tests
         run: xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure
 
+      - name: Upload headless editor tool
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-linux-editor-tool
+          path: build/linux-debug/tools/editor_tool/noveltea-editor-tool
+          if-no-files-found: error
+
       - name: Headless sandbox smoke
         run: |
           xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
@@ -204,7 +211,7 @@ jobs:
   web:
     name: Web / Emscripten
     runs-on: ubuntu-24.04
-    needs: shader-assets
+    needs: [shader-assets, linux]
     timeout-minutes: 90
 
     steps:
@@ -277,6 +284,28 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
+      - name: Download headless editor tool
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-linux-editor-tool
+          path: build/linux-debug/tools/editor_tool
+
+      - name: Install pnpm and editor dependencies
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+
+      - name: Install editor dependencies
+        working-directory: editor
+        run: pnpm install --frozen-lockfile
+
+      - name: Download checksum-pinned bundletool
+        run: |
+          mkdir -p build/tools
+          curl -fL -o build/tools/bundletool-all-1.18.1.jar https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+          echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
+          chmod +x build/linux-debug/tools/editor_tool/noveltea-editor-tool
+
       - name: Configure and build web release preview
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
@@ -310,7 +339,7 @@ jobs:
   android:
     name: Android
     runs-on: ubuntu-24.04
-    needs: shader-assets
+    needs: [shader-assets, linux]
     timeout-minutes: 90
 
     steps:
@@ -398,11 +427,33 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
+      - name: Download headless editor tool
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-linux-editor-tool
+          path: build/linux-debug/tools/editor_tool
+
+      - name: Install pnpm and editor dependencies
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+
+      - name: Install editor dependencies
+        working-directory: editor
+        run: pnpm install --frozen-lockfile
+
+      - name: Download checksum-pinned bundletool
+        run: |
+          mkdir -p build/tools
+          curl -fL -o build/tools/bundletool-all-1.18.1.jar https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+          echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
+          chmod +x build/linux-debug/tools/editor_tool/noveltea-editor-tool
+
       - name: Build Android debug APK
         working-directory: android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew --no-daemon :app:assembleDebug -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
+        run: ./gradlew --no-daemon :app:assembleDebug -PnovelteaAbi=x86_64 -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
 
       - name: Verify Android packaged assets
         working-directory: android
@@ -412,17 +463,93 @@ jobs:
             unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/system/shaders/bgfx/essl-300/${shader}\.vs\.bin"
             unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/system/shaders/bgfx/essl-300/${shader}\.fs\.bin"
           done
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/LiberationSans.ttf'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/demo.rml'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/lua_demo.rml'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/project/rmlui/lua_demo.lua'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'lib/x86_64/libnoveltea-player.so'
+          ! unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -Eiq 'sandbox|assets/project|lua_demo'
 
-      - name: Upload debug APK
+      - name: Package immutable x86_64 Android player template
+        run: cmake -DNOVELTEA_RELEASE_TAG=ci-${GITHUB_SHA} -DNOVELTEA_ANDROID_ABI=x86_64 -DNOVELTEA_ANDROID_FLAVOR=debug -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
+
+      - name: Export fixture revisions through shared editor orchestration
+        working-directory: editor
+        env:
+          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
+          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-ci-${{ github.sha }}-android-x86_64-debug.tar.gz
+          NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
+          NOVELTEA_ANDROID_ABI: x86_64
+          NOVELTEA_ANDROID_FLAVOR: debug
+          NOVELTEA_ANDROID_ARTIFACT: apk
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
+          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-integration
+        run: |
+          NOVELTEA_ANDROID_FIXTURE_REVISION=1 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ github.workspace }}/dist/android-fixture-v1" pnpm vitest run src/renderer/test/android-export-integration.test.ts
+          NOVELTEA_ANDROID_FIXTURE_REVISION=2 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ github.workspace }}/dist/android-fixture-v2" pnpm vitest run src/renderer/test/android-export-integration.test.ts
+
+      - name: Upload immutable debug template and export reports
         uses: actions/upload-artifact@v7
         with:
-          name: noveltea-android-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: noveltea-android-debug-export
+          path: |
+            dist/noveltea-player-template-*-android-x86_64-debug.tar.gz
+            dist/android-x86_64-debug.*
           if-no-files-found: error
+
+      - name: Upload first exported APK revision
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-android-fixture-v1
+          path: dist/android-fixture-v1
+          if-no-files-found: error
+
+      - name: Upload updated exported APK revision
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-android-fixture-v2
+          path: dist/android-fixture-v2
+          if-no-files-found: error
+
+  android-emulator:
+    name: Android emulator API ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    needs: android
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [24, 35]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Download first exported APK revision
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-android-fixture-v1
+          path: android-fixture-v1
+      - name: Download updated exported APK revision
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-android-fixture-v2
+          path: android-fixture-v2
+      - name: Install emulator image
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" emulator platform-tools "platforms;android-${{ matrix.api }}" "system-images;android-${{ matrix.api }};google_apis;x86_64"
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n noveltea-ci -k "system-images;android-${{ matrix.api }};google_apis;x86_64" --force
+      - name: Launch emulator and certify lifecycle/update behavior
+        run: |
+          "$ANDROID_HOME/emulator/emulator" -avd noveltea-ci -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data >/tmp/noveltea-emulator.log 2>&1 &
+          apk_v1=$(find android-fixture-v1 -name '*.apk' -print -quit)
+          apk_v2=$(find android-fixture-v2 -name '*.apk' -print -quit)
+          test -n "$apk_v1"
+          test -n "$apk_v2"
+          .github/android-emulator-smoke.sh "$apk_v1" "$apk_v2"
 
   editor:
     name: Editor / Electron

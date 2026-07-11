@@ -3,11 +3,31 @@ plugins {
 }
 
 android {
-    namespace "com.example.noveltea"
+    namespace "org.noveltea.player"
     compileSdk 35
 
-    def ciVersionCode = providers.gradleProperty("novelteaVersionCode").orElse("1").get().toInteger()
-    def ciVersionName = providers.gradleProperty("novelteaVersionName").orElse("0.1.0").get()
+    def generatedRoot = providers.gradleProperty("novelteaGeneratedRoot")
+            .map { file(it) }.orElse(file("$buildDir/noveltea-generated")).get()
+    def generatedProperties = new Properties()
+    def generatedPropertiesPath = providers.gradleProperty("novelteaGeneratedProperties").orNull
+    if (generatedPropertiesPath != null) {
+        def generatedPropertiesFile = file(generatedPropertiesPath)
+        if (!generatedPropertiesFile.isFile()) {
+            throw new GradleException("novelteaGeneratedProperties does not name a regular file.")
+        }
+        generatedPropertiesFile.withInputStream { generatedProperties.load(it) }
+    }
+    def generatedValue = { String key, String fallback ->
+        providers.gradleProperty(key).orElse(generatedProperties.getProperty(key, fallback)).get()
+    }
+
+    def ciVersionCode = generatedValue("novelteaVersionCode", "1").toInteger()
+    def ciVersionName = generatedValue("novelteaVersionName", "0.0.0-template")
+    def generatedApplicationId = generatedValue("novelteaApplicationId", "org.noveltea.player.template")
+    def generatedAbi = generatedValue("novelteaAbi", "arm64-v8a")
+    if (!(generatedAbi in ["arm64-v8a", "x86_64"])) {
+        throw new GradleException("novelteaAbi must be 'arm64-v8a' or 'x86_64'.")
+    }
     def releaseStoreFile = providers.gradleProperty("novelteaReleaseStoreFile").orNull
     def releaseStorePassword = providers.gradleProperty("novelteaReleaseStorePassword").orNull
     def releaseKeyAlias = providers.gradleProperty("novelteaReleaseKeyAlias").orNull
@@ -19,8 +39,7 @@ android {
             file(releaseStoreFile).exists()
     def useDebugSigningForRelease = providers.gradleProperty("novelteaUseDebugSigningForRelease")
             .orElse("false").get().toBoolean()
-    def requestedOrientation = providers.gradleProperty("novelteaOrientation")
-            .orElse("landscape").get().toLowerCase()
+    def requestedOrientation = generatedValue("novelteaOrientation", "landscape").toLowerCase()
     if (!(requestedOrientation in ["landscape", "portrait"])) {
         throw new GradleException("novelteaOrientation must be 'landscape' or 'portrait'.")
     }
@@ -33,17 +52,17 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.example.noveltea"
+        applicationId generatedApplicationId
         minSdk 24
         targetSdk 35
         versionCode ciVersionCode
         versionName ciVersionName
         manifestPlaceholders = [novelteaScreenOrientation: androidScreenOrientation]
-        ndkVersion "27.3.13750724"
+        ndkVersion "28.2.13676358"
 
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_SANDBOX=ON", "-DBUILD_TESTING=OFF"
+                arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_PLAYER=ON", "-DNOVELTEA_BUILD_SANDBOX=OFF", "-DBUILD_TESTING=OFF"
                 arguments "-DNOVELTEA_COMPILE_SHADERS=OFF"
                 if (project.hasProperty("novelteaUseCcache")) {
                     arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
@@ -51,7 +70,7 @@ android {
             }
         }
         ndk {
-            abiFilters "arm64-v8a", "armeabi-v7a", "x86_64"
+            abiFilters generatedAbi
         }
     }
 
@@ -83,6 +102,13 @@ android {
 
     sourceSets {
         main {
+            def generatedManifest = file("${generatedRoot}/AndroidManifest.xml")
+            if (generatedManifest.isFile()) {
+                manifest.srcFile generatedManifest
+            }
+            java.srcDirs += file("${generatedRoot}/java")
+            res.srcDirs += file("${generatedRoot}/res")
+            assets.srcDirs += file("${generatedRoot}/assets")
             assets.srcDirs += file("$buildDir/generated/runtime-assets/noveltea")
         }
     }
@@ -181,16 +207,8 @@ tasks.register("compileNovelTeaShaderAssets") {
     }
 }
 
-tasks.register("stageNovelTeaProjectAssets", Sync) {
-    from file("../../apps/sandbox/assets")
-    into file("$buildDir/generated/noveltea/project")
-}
-
 tasks.register("stageNovelTeaRuntimeAssets", Sync) {
-    dependsOn("stageNovelTeaProjectAssets", "compileNovelTeaShaderAssets")
-    from(file("$buildDir/generated/noveltea/project")) {
-        into "project"
-    }
+    dependsOn("compileNovelTeaShaderAssets")
     from(file("../../engine/assets/system")) {
         into "system"
     }

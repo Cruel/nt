@@ -70,6 +70,20 @@ std::filesystem::path writable_base(const std::string& save_namespace)
 #endif
 }
 
+#if defined(SDL_PLATFORM_ANDROID)
+std::vector<std::byte> read_packaged_asset(std::string_view asset_path)
+{
+    std::size_t size = 0;
+    void* data = SDL_LoadFile(std::string(asset_path).c_str(), &size);
+    if (!data)
+        return {};
+    const auto* begin = static_cast<const std::byte*>(data);
+    std::vector<std::byte> bytes(begin, begin + size);
+    SDL_free(data);
+    return bytes;
+}
+#endif
+
 std::filesystem::path packaged_system_asset_root(const std::filesystem::path& player_config)
 {
 #if defined(__EMSCRIPTEN__) || defined(SDL_PLATFORM_ANDROID)
@@ -105,8 +119,30 @@ int fail_startup(const noveltea::core::PlayerBootstrapResult& result)
 
 int main(int argc, char** argv)
 {
-    const auto path = config_path(argc, argv);
-    auto bootstrap = noveltea::core::load_and_verify_player(path);
+    std::filesystem::path path;
+    noveltea::core::PlayerBootstrapResult bootstrap;
+#if defined(SDL_PLATFORM_ANDROID)
+    const auto config_bytes = read_packaged_asset("noveltea/bootstrap/player.json");
+    const std::string config_text(reinterpret_cast<const char*>(config_bytes.data()),
+                                  config_bytes.size());
+    auto packaged_config = noveltea::core::parse_player_config(config_text);
+    if (!packaged_config.success())
+        return fail_startup(packaged_config);
+    const auto app_roots = writable_base(packaged_config.config.save_namespace);
+    if (app_roots.empty()) {
+        packaged_config.diagnostics.push_back(
+            {noveltea::core::PlayerBootstrapError::WritableRoot, "",
+             "could not resolve the application writable directory"});
+        return fail_startup(packaged_config);
+    }
+    auto materialized = noveltea::core::materialize_packaged_player(
+        app_roots / "bootstrap", "noveltea/bootstrap", read_packaged_asset);
+    bootstrap = std::move(materialized.bootstrap);
+    path = std::move(materialized.config_path);
+#else
+    path = config_path(argc, argv);
+    bootstrap = noveltea::core::load_and_verify_player(path);
+#endif
     if (!bootstrap.success())
         return fail_startup(bootstrap);
 
@@ -156,6 +192,8 @@ int main(int argc, char** argv)
         log << "Engine initialization failed\n";
         return 3;
     }
+    SDL_Log("NOVELTEA_PLAYER_READY application=%s package=%s",
+            bootstrap.config.application_id.c_str(), bootstrap.config.package_sha256.c_str());
     const int result = engine.run();
     engine.shutdown();
 #if defined(__EMSCRIPTEN__)

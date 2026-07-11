@@ -2,7 +2,8 @@ import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import { compileShaders, exportPackage, openProject } from './editor-tool-service';
 import { checkPlatformExportCancelled, clearPlatformExportCancellation, stagePlatformExport } from './platform-staging-service';
-import { resolvePlayerTemplate } from './template-registry-service';
+import { resolvePlayerTemplate, templateRootForToken, verifyTemplateToken } from './template-registry-service';
+import { exportAndroidPlatform } from './android-export-service';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
@@ -78,12 +79,16 @@ export async function exportProjectToPlatform(
   }
 
   const runtimeProfile = selectedExportProfile(project);
+  const targetShaderVariants = profile.target === 'android' || profile.target === 'web'
+    ? runtimeProfile.shaderVariants.filter((variant) => variant === 'essl-300')
+    : runtimeProfile.shaderVariants;
+  const targetRuntimeProfile = { ...runtimeProfile, shaderVariants: targetShaderVariants.length ? targetShaderVariants : profile.target === 'android' || profile.target === 'web' ? ['essl-300' as const] : runtimeProfile.shaderVariants };
   const resolvedIconPath = iconPath(project, projectRoot);
   if (!resolvedIconPath) {
     return failure(operationId, [diagnostic('icon-missing', '/settings/app/icon', 'A valid project icon is required for playable platform export.')]);
   }
   let exportProject = project;
-  if (runtimeProfile.compileShadersBeforeExport && hasAuthoringShadersOrMaterials(project)) {
+  if (targetRuntimeProfile.compileShadersBeforeExport && hasAuthoringShadersOrMaterials(project)) {
     checkPlatformExportCancelled(operationId);
     progress('compiling-shaders', 'Compiling required shader variants');
     const shaderProject = buildShaderMaterialProject(project);
@@ -91,7 +96,7 @@ export async function exportProjectToPlatform(
       projectRoot,
       outputRoot: path.join(projectRoot, '.noveltea', 'build'),
       cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
-      shaderVariants: runtimeProfile.shaderVariants,
+      shaderVariants: targetRuntimeProfile.shaderVariants,
     }) as { success?: boolean; diagnostics?: Array<{ severity: string; message: string; path?: string }>; outputs?: Array<{ shader: string; stage: string; variant: string; runtimePath: string }> };
     if (!response.success || response.diagnostics?.some((item) => item.severity === 'error')) {
       return failure(operationId, (response.diagnostics ?? []).map((item) => diagnostic('shader-compilation-failed', item.path ?? '/shaders', item.message)));
@@ -109,7 +114,7 @@ export async function exportProjectToPlatform(
   }
   progress('building-runtime-project', 'Building the runtime project');
   checkPlatformExportCancelled(operationId);
-  const built = buildAuthoringRuntimeExport(exportProject, { projectRoot, profile: runtimeProfile });
+  const built = buildAuthoringRuntimeExport(exportProject, { projectRoot, profile: targetRuntimeProfile });
   if (!built.ok || !built.runtimeProject) {
     return failure(operationId, built.diagnostics.map((item) => diagnostic(item.category ?? 'runtime-conversion-failed', item.path, item.message)));
   }
@@ -129,7 +134,7 @@ export async function exportProjectToPlatform(
     profile,
     runtimePackageApi: 1,
     playerConfigApi: 1,
-    shaderVariants: runtimeProfile.shaderVariants,
+    shaderVariants: targetRuntimeProfile.shaderVariants,
     graphicsBackends: [],
     capabilities: profile.capabilityOverrides,
     requiredFeatures: [],
@@ -138,6 +143,7 @@ export async function exportProjectToPlatform(
   if (!resolved.success || !resolved.token) {
     return failure(operationId, resolved.diagnostics.map((item) => diagnostic(item.code, item.path, item.message)));
   }
+  const verifiedTemplate = resolved.template ?? await verifyTemplateToken(resolved.token);
 
   const packagePath = `${path.resolve(request.outputDirectory)}.game.ntpkg`;
   try {
@@ -152,7 +158,7 @@ export async function exportProjectToPlatform(
     progress('generating-metadata', 'Generating icons and platform metadata');
     checkPlatformExportCancelled(operationId);
     progress('staging', 'Staging player, package, assets, and dependencies');
-    const result = await stagePlatformExport({
+    const stageRequest = {
       operationId,
       profile,
       templateToken: resolved.token,
@@ -171,12 +177,20 @@ export async function exportProjectToPlatform(
         backgroundColor: settings.app.launchBackgroundColor,
         webManifestId: settings.app.web.manifestId,
         linuxDesktopId: settings.app.desktop.linuxDesktopId,
+        androidVersionCode: settings.app.android.versionCode ?? settings.app.buildNumber,
+        androidAllowBackup: settings.app.android.allowBackup,
+        androidIsGame: settings.app.android.isGame,
+        localized: settings.app.localized,
       },
       display: settings.display,
       capabilities: profile.capabilityOverrides,
       runtimePackageApi: 1,
       host,
-    });
+      androidToolchain: request.localState,
+    } satisfies Parameters<typeof stagePlatformExport>[0];
+    const result = profile.target === 'android'
+      ? await exportAndroidPlatform(stageRequest, verifiedTemplate.descriptor, templateRootForToken(resolved.token))
+      : await stagePlatformExport(stageRequest);
     progress('finalizing', 'Finalizing platform artifacts');
     progress('verifying', 'Verifying generated artifacts and manifests');
     return result;

@@ -1,0 +1,104 @@
+name: Android arm64 16 KiB certification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * 1"
+
+concurrency:
+  group: android-arm64-certification
+  cancel-in-progress: true
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-linux
+  VCPKG_HOST_TRIPLET: x64-linux
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
+  ANDROID_API_LEVEL: "35"
+  ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
+  ANDROID_CMAKE_VERSION: "3.31.6"
+  ANDROID_NDK_VERSION: "28.2.13676358"
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+      - name: Install host and Android tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake curl zip unzip tar git autoconf automake autoconf-archive libtool bison flex
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" platform-tools emulator "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}" "system-images;android-${ANDROID_API_LEVEL};google_apis;arm64-v8a"
+      - name: Resolve pinned build support files
+        run: |
+          mkdir -p android/app/libs build/tools .cache/shaderc
+          curl -fL -o /tmp/sdl.zip https://github.com/libsdl-org/SDL/releases/download/release-3.4.10/SDL3-devel-3.4.10-android.zip
+          unzip -p /tmp/sdl.zip SDL3-3.4.10.aar > android/app/libs/SDL3-3.4.10.aar
+          curl -fL -o build/tools/bundletool-all-1.18.1.jar https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+          echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
+          curl -fL -o .cache/shaderc/shaderc.tar.gz https://github.com/Cruel/nt-tools/releases/download/r1/bgfx-shaderc-linux-x64.tar.gz
+          tar -xzf .cache/shaderc/shaderc.tar.gz -C .cache/shaderc
+          echo "SHADERC=${{ github.workspace }}/.cache/shaderc/bin/shaderc" >> "$GITHUB_ENV"
+          echo "BGFX_SHADER_INCLUDE=${{ github.workspace }}/.cache/shaderc/include/bgfx" >> "$GITHUB_ENV"
+      - name: Build arm64 release player template source
+        working-directory: android
+        run: ./gradlew --no-daemon :app:assembleRelease -PnovelteaAbi=arm64-v8a -Pshaderc="$SHADERC" -PbgfxShaderInclude="$BGFX_SHADER_INCLUDE"
+      - name: Package immutable arm64 release template
+        run: cmake -DNOVELTEA_RELEASE_TAG=arm64-cert-${GITHUB_SHA} -DNOVELTEA_ANDROID_ABI=arm64-v8a -DNOVELTEA_ANDROID_FLAVOR=release -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
+      - name: Build headless editor tool
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+          cmake --preset linux-debug -G Ninja -DBUILD_TESTING=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/android/app/build/generated/noveltea/shaders"
+          cmake --build --preset linux-debug --target noveltea-editor-tool
+          cd editor && pnpm install --frozen-lockfile
+      - name: Export two arm64 APK+AAB package revisions
+        working-directory: editor
+        env:
+          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
+          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-arm64-cert-${{ github.sha }}-android-arm64-v8a-release.tar.gz
+          NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
+          NOVELTEA_ANDROID_ABI: arm64-v8a
+          NOVELTEA_ANDROID_FLAVOR: release
+          NOVELTEA_ANDROID_ARTIFACT: both
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
+          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-arm64-integration
+        run: |
+          NOVELTEA_ANDROID_FIXTURE_REVISION=1 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ runner.temp }}/arm64-v1" pnpm vitest run src/renderer/test/android-export-integration.test.ts
+          NOVELTEA_ANDROID_FIXTURE_REVISION=2 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ runner.temp }}/arm64-v2" pnpm vitest run src/renderer/test/android-export-integration.test.ts
+      - name: Derive debug-signed APK sets from exported AABs
+        run: |
+          for revision in arm64-v1 arm64-v2; do
+            aab=$(find "${{ runner.temp }}/$revision" -name '*.aab' -print -quit)
+            test -n "$aab"
+            java -jar build/tools/bundletool-all-1.18.1.jar build-apks --bundle="$aab" --output="${{ runner.temp }}/$revision.apks" --mode=universal --overwrite
+            unzip -p "${{ runner.temp }}/$revision.apks" universal.apk > "${{ runner.temp }}/$revision-universal.apk"
+            test -s "${{ runner.temp }}/$revision-universal.apk"
+            if unzip -l "$aab" | grep -Eiq 'sandbox|lua_demo|preview|editor[-_ ]ipc|recorder'; then
+              echo 'Forbidden development surface found in exported AAB' >&2
+              exit 1
+            fi
+          done
+      - name: Launch AAB-derived APKs on the 16 KiB arm64 emulator
+        run: |
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n noveltea-arm64 -k "system-images;android-${ANDROID_API_LEVEL};google_apis;arm64-v8a" --force
+          "$ANDROID_HOME/emulator/emulator" -avd noveltea-arm64 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data >/tmp/noveltea-arm64-emulator.log 2>&1 &
+          apk_v1="${{ runner.temp }}/arm64-v1-universal.apk"
+          apk_v2="${{ runner.temp }}/arm64-v2-universal.apk"
+          .github/android-emulator-smoke.sh "$apk_v1" "$apk_v2" org.example.androidfixture arm64-v8a

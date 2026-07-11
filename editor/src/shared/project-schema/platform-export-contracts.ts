@@ -41,6 +41,41 @@ export const normalizedPlatformDisplayMetadataSchema = z.object({
   barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
 }).strict();
 
+const androidArtifactKindSchema = z.enum(['apk', 'aab', 'both']);
+const androidAbiSchema = z.enum(['arm64-v8a', 'x86_64']);
+const androidPackageAccessSchema = z.enum(['android-asset', 'android-private-copy']);
+
+const androidTemplateDescriptorSchema = z.object({
+  gradleProjectRoot: relativeArtifactPathSchema,
+  applicationModule: z.string().trim().min(1),
+  gradleWrapperPath: relativeArtifactPathSchema,
+  bundletoolPath: relativeArtifactPathSchema,
+  insertionRoots: z.object({
+    generatedSource: relativeArtifactPathSchema,
+    resources: relativeArtifactPathSchema,
+    assets: relativeArtifactPathSchema,
+  }).strict(),
+  namespace: z.string().trim().min(1),
+  activityClass: z.string().trim().min(1),
+  nativeLibraryName: z.string().trim().min(1),
+  supportedAbis: z.array(androidAbiSchema).min(1),
+  artifactKinds: z.array(z.enum(['apk', 'aab'])).min(1),
+  packageAccessModes: z.array(androidPackageAccessSchema).min(1),
+  minimumSdk: z.object({ minimum: z.number().int().positive(), maximum: z.number().int().positive() }).strict()
+    .refine(({ minimum, maximum }) => minimum <= maximum, 'Minimum SDK range is inverted.'),
+  targetSdk: z.number().int().positive(),
+  compileSdk: z.number().int().positive(),
+  toolchain: z.object({
+    gradle: z.string().min(1), androidGradlePlugin: z.string().min(1), java: z.string().min(1),
+    buildTools: z.string().min(1), ndk: z.string().min(1), cmake: z.string().min(1), bundletool: z.string().min(1),
+  }).strict(),
+  roles: z.object({
+    manifest: z.array(relativeArtifactPathSchema), nativeLibraries: z.array(relativeArtifactPathSchema),
+    runtimeAssets: z.array(relativeArtifactPathSchema), notices: z.array(relativeArtifactPathSchema),
+    supportFiles: z.array(relativeArtifactPathSchema),
+  }).strict(),
+}).strict();
+
 export const playerBootstrapConfigSchema = z.object({
   format: z.literal(PLAYER_CONFIG_FORMAT),
   formatVersion: z.literal(PLAYER_CONFIG_FORMAT_VERSION),
@@ -103,7 +138,11 @@ export const templateDescriptorSchema = z.object({
   artifacts: z.object({ archive: z.string().trim().min(1), symbols: z.string().trim().min(1), sbom: relativeArtifactPathSchema, notices: relativeArtifactPathSchema }).strict(),
   provenance: z.object({ provider: z.enum(['github-attestation', 'local']), subjectDigest: z.string().regex(/^[0-9a-f]{64}$/).optional(), source: z.string().trim().min(1) }).strict(),
   host: z.object({ assembly: z.enum(['any', 'windows', 'linux', 'macos']), requiresToolchain: z.boolean(), tools: z.array(z.string().trim().min(1)).default([]) }).strict(),
-}).strict();
+  android: androidTemplateDescriptorSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.platform === 'android' && !value.android) context.addIssue({ code: 'custom', path: ['android'], message: 'Android templates require an Android descriptor section.' });
+  if (value.platform !== 'android' && value.android) context.addIssue({ code: 'custom', path: ['android'], message: 'Only Android templates may declare an Android descriptor section.' });
+});
 
 const platformProfileBase = z.object({
   format: z.literal(PLATFORM_EXPORT_PROFILE_FORMAT),
@@ -134,9 +173,15 @@ const webProfileSchema = platformProfileBase.extend({
   }).strict(),
 }).strict();
 const androidProfileSchema = platformProfileBase.extend({
-  target: z.literal('android'), architecture: z.enum(['arm64', 'x86_64']), packageAccess: z.enum(['android-asset', 'android-private-copy']),
-  android: z.object({ artifact: z.enum(['apk', 'aab']), abi: z.enum(['arm64-v8a', 'x86_64']), minSdk: z.number().int().min(24) }).strict(),
-}).strict();
+  target: z.literal('android'), architecture: z.enum(['arm64', 'x86_64']), packageAccess: androidPackageAccessSchema,
+  android: z.object({ artifact: androidArtifactKindSchema, abi: androidAbiSchema, minSdk: z.number().int().min(24) }).strict(),
+}).strict().superRefine((value, context) => {
+  const expectedAbi = value.architecture === 'arm64' ? 'arm64-v8a' : 'x86_64';
+  if (value.android.abi !== expectedAbi) context.addIssue({ code: 'custom', path: ['android', 'abi'], message: `Architecture '${value.architecture}' requires ABI '${expectedAbi}'.` });
+  if ((value.android.artifact === 'aab' || value.android.artifact === 'both') && value.buildFlavor === 'release' && value.android.abi !== 'arm64-v8a') {
+    context.addIssue({ code: 'custom', path: ['android', 'abi'], message: 'Release AAB exports require the arm64-v8a ABI.' });
+  }
+});
 
 export const platformExportProfileSchema = z.discriminatedUnion('target', [desktopProfileSchema, webProfileSchema, androidProfileSchema]);
 
@@ -172,7 +217,7 @@ export function defaultPlatformExportProfile(target: ExportPlatform = 'linux'): 
       ...common,
       target,
       architecture: 'arm64',
-      packageAccess: 'android-asset',
+      packageAccess: 'android-private-copy',
       android: { artifact: 'apk', abi: 'arm64-v8a', minSdk: 24 },
     });
   }
@@ -266,6 +311,11 @@ export interface PlatformDeploymentModel {
   displayName: string; versionName: string; saveNamespace: string; capabilities: ExportCapability[];
   capabilityMetadata: PlatformCapabilityMetadata; display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>;
   packageAccess: string; templateId: string; buildId: string; runtimePackageApi: number;
+  android?: {
+    applicationId: string; versionCode: number; versionName: string; allowBackup: boolean; isGame: boolean;
+    minSdk: number; targetSdk: number; compileSdk: number; abi: 'arm64-v8a' | 'x86_64';
+    artifacts: Array<'apk' | 'aab'>; packageAccess: 'android-asset' | 'android-private-copy'; orientation: 'landscape' | 'portrait';
+  };
 }
 export interface PlatformExportManifest {
   format: typeof PLATFORM_EXPORT_MANIFEST_FORMAT; formatVersion: typeof PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION;
@@ -283,6 +333,8 @@ export interface PlatformStageRequest {
     versionName: string; defaultLocale?: string; themeColor?: string; backgroundColor?: string;
     webManifestId?: string; linuxDesktopId?: string;
     macosCategory?: string; macosMicrophoneUsageDescription?: string;
+    androidVersionCode?: number; androidAllowBackup?: boolean; androidIsGame?: boolean;
+    localized?: Record<string, { displayName?: string; shortName?: string; description?: string }>;
   };
   display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>; capabilities?: ExportCapability[]; runtimePackageApi: number;
   host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };
@@ -291,12 +343,13 @@ export interface PlatformStageRequest {
   macosSigning?: { identity: string; entitlementsPath?: string };
   macosNotarization?: { command: string; args: string[] };
   macosDmg?: { command: string; args: string[] };
+  androidToolchain?: { androidSdk?: string; androidNdk?: string; javaHome?: string; cmake?: string };
 }
 export interface PlatformStageResult {
   ok: boolean; success: boolean; cancelled: boolean; operationId: string; outputDirectory?: string;
   archivePath?: string;
   symbolArchivePath?: string;
-  artifacts?: Array<{ kind: 'directory' | 'archive' | 'appimage' | 'app-bundle' | 'dmg' | 'symbols'; path: string; size?: number }>;
+  artifacts?: Array<{ kind: 'directory' | 'archive' | 'appimage' | 'app-bundle' | 'dmg' | 'symbols' | 'apk' | 'aab' | 'apk-set'; path: string; size?: number }>;
   webMetrics?: { compressedDownloadBytes: number; uncompressedPackageBytes: number; estimatedPeakStartupBytes: number };
   diagnostics: PlatformStageDiagnostic[]; deployment?: PlatformDeploymentModel; manifest?: PlatformExportManifest;
 }
