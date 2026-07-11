@@ -25,6 +25,7 @@ import {
 } from './main/services/editor-tool-service';
 import { createProject, saveProject, saveProjectAs } from './main/services/project-file-service';
 import { cancelPlatformExport, redactPlatformStageResult, stagePlatformExport } from './main/services/platform-staging-service';
+import { configureTemplateRegistryRoot, inspectPlayerTemplate, installPlayerTemplate, listPlayerTemplates, removePlayerTemplate, resolvePlayerTemplate } from './main/services/template-registry-service';
 import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
@@ -281,6 +282,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  configureTemplateRegistryRoot(path.join(app.getPath('userData'), 'player-templates', 'v1'));
   if (process.argv.includes('--stage-platform-export')) {
     let input = '';
     process.stdin.setEncoding('utf8');
@@ -488,6 +490,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, request: PlatformStageRequest) => stagePlatformExport(request));
   ipcMain.handle(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, operationId: string) => cancelPlatformExport(operationId));
+  ipcMain.handle(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, (_event, query = {}) => listPlayerTemplates(query));
+  ipcMain.handle(IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE, (_event, templateId: string, buildId: string) => inspectPlayerTemplate(templateId, buildId));
+  ipcMain.handle(IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE, (_event, request) => installPlayerTemplate(request));
+  ipcMain.handle(IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE, (_event, templateId: string, buildId: string) => removePlayerTemplate(templateId, buildId));
+  ipcMain.handle(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, (_event, request) => resolvePlayerTemplate(request));
 
   ipcMain.handle(
     IPC_CHANNELS.COMPILE_SHADERS,

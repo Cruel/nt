@@ -10,7 +10,8 @@ The native `noveltea-player` target is the reusable player-template entrypoint. 
 player contains `player.json` and its referenced sidecar `game.ntpkg`; discovery does not depend on
 the launch working directory. The player validates config format version 1, runtime-package API 1,
 capabilities, package SHA-256, and the runtime package manifest before mounting content. Branding,
-template staging, archives, and signing remain in later platform-export phases.
+template staging and verified template installation are implemented; final per-game archives and
+signing remain in later platform-export phases.
 
 Milestone 17 implements a first vertical slice:
 
@@ -37,9 +38,9 @@ target. Source dimension/color-space and adaptive or maskable safe-area problems
 structured diagnostics; platform exporters will invoke this service when their staging workflows
 are implemented.
 
-Phase 4 adds unsigned platform staging. Callers provide an unpacked player-template root containing
-`template.json`, a completed `game.ntpkg`, a canonical icon, local output directory, and the selected
-shareable platform profile. The shared deployment builder validates identity, package API, target,
+Phase 4 adds unsigned platform staging. Callers provide an opaque token for a template installed by
+the phase-5 registry, a completed `game.ntpkg`, a canonical icon, local output directory, and the
+selected shareable platform profile. The shared deployment builder validates identity, package API, target,
 architecture, build flavor, capabilities, host/toolchain requirements, and target path portability.
 
 The main-process staging service builds a sibling temporary directory, rejects traversal, symlinks,
@@ -47,8 +48,26 @@ and sandbox/demo content, generates icons and `player.json`, and records determi
 modes, sizes, and SHA-256 values in `export-manifest.json`. Completion atomically replaces the prior
 staging directory; failure or cancellation preserves the prior successful output. Absolute template,
 package, icon, system-asset, and output paths remain request-local and are not written to profiles or
-provenance. Template discovery/install, final archives, signing, and runnable certification remain
-phase 5 and later work.
+provenance. Final per-game archives, signing, and runnable certification remain later work.
+
+## Player Template Registry
+
+The main process owns a versioned template registry under the editor user-data directory. Renderer
+and headless callers see template IDs and opaque resolution tokens, never installed filesystem
+paths. Local archives are installed transactionally after archive-path, entry-count, expanded-size,
+symlink, collision, descriptor inventory, mode, size, and SHA-256 validation. Local archives are
+reported as untrusted; a template is reported as official only when its archive and descriptor
+digests match GitHub release provenance supplied by the registry index.
+
+Compatibility evaluation covers target, architecture, build flavor, package access, runtime-package
+and player-config APIs, graphics backends, shader variants, capabilities, compiled features, host,
+and required tools. Staging repeats installed-file integrity verification immediately before copying
+the template, so post-install changes block export with an actionable diagnostic.
+
+Official desktop releases publish templates for Linux x64, Windows x64, and macOS arm64. Each
+template has a canonical descriptor, exact file and native-dependency inventory, full vcpkg-derived
+CycloneDX SBOM, collected third-party notices, separate build-ID-matched symbols, SHA-256 release
+metadata, a release registry index, and GitHub artifact provenance attestations.
 
 ## Workflow Stages
 
@@ -223,8 +242,13 @@ The renderer uses narrow Electron APIs:
 selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>
 showItemInFolder(path: string): Promise<void>
 previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>
-stagePlatformExport(request: PlatformStageRequest): Promise<PlatformStageResult>
-cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>
+  stagePlatformExport(request: PlatformStageRequest): Promise<PlatformStageResult>
+  cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>
+  listPlayerTemplates(query?: TemplateRegistryQuery): Promise<InstalledTemplate[]>
+  inspectPlayerTemplate(templateId: string, buildId: string): Promise<InstalledTemplate | null>
+  installPlayerTemplate(request: TemplateInstallRequest): Promise<TemplateInstallResult>
+  removePlayerTemplate(templateId: string, buildId: string): Promise<{ removed: boolean }>
+  resolvePlayerTemplate(request: TemplateResolveRequest): Promise<TemplateResolveResult>
 ```
 
 Packaged editor builds also expose the same service noninteractively without opening a window:

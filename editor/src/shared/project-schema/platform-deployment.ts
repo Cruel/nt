@@ -1,5 +1,6 @@
 import type { PlatformCapabilityMetadata, PlatformDeploymentModel, PlatformStageDiagnostic, PlatformStageRequest, TemplateDescriptor } from './platform-export-contracts';
 import { applicationIdPattern } from './authoring-project-settings';
+import { evaluateTemplateCompatibility } from './template-compatibility';
 
 const mapping: Record<string, Partial<PlatformCapabilityMetadata>> = {
   'network.client': { androidPermissions: ['android.permission.INTERNET'], webRequirements: ['network'] },
@@ -27,13 +28,9 @@ export function buildPlatformDeployment(request: PlatformStageRequest, descripto
   if (!applicationIdPattern.test(request.identity.applicationId)) error('invalid-app-identity', '/identity/applicationId', 'Application ID must be a stable reverse-DNS identifier.');
   if (!request.identity.displayName.trim()) error('invalid-app-identity', '/identity/displayName', 'Display name is required.');
   if (!request.iconSourcePath) error('missing-icon', '/iconSourcePath', 'A canonical application icon is required.');
-  if (descriptor.platform !== request.profile.target || descriptor.architecture !== request.profile.architecture) error('incompatible-template', '/template', 'Template target or architecture does not match the export profile.');
-  if (descriptor.buildFlavor !== request.profile.buildFlavor) error('incompatible-template', '/template/buildFlavor', 'Template build flavor does not match the export profile.');
-  if (request.runtimePackageApi < descriptor.runtimePackageApi.minimum || request.runtimePackageApi > descriptor.runtimePackageApi.maximum) error('incompatible-package-api', '/runtimePackageApi', 'Runtime package API is not supported by the template.');
-  if (request.host && descriptor.host.assembly !== 'any' && descriptor.host.assembly !== request.host.platform) error('unsupported-host', '/host/platform', `Template assembly requires a ${descriptor.host.assembly} host.`);
-  if (request.host && descriptor.host.requiresToolchain) for (const tool of descriptor.host.tools) if (!request.host.availableTools.includes(tool)) error('missing-toolchain', '/host/availableTools', `Required tool '${tool}' is unavailable.`);
   const capabilities = sorted([...(request.capabilities ?? []), ...request.profile.capabilityOverrides]);
-  for (const capability of capabilities) if (!descriptor.capabilities.includes(capability as never)) error('unsupported-capability', '/capabilities', `Template does not support capability '${capability}'.`);
+  const compatibility = evaluateTemplateCompatibility(descriptor, { profile: request.profile, runtimePackageApi: request.runtimePackageApi, playerConfigApi: 1, shaderVariants: [], graphicsBackends: [], capabilities: capabilities as never, requiredFeatures: [], host: request.host });
+  for (const item of compatibility.diagnostics) error(item.code, `/template${item.path}`, item.message);
   if (diagnostics.some((item) => item.severity === 'error')) return { diagnostics };
   return { diagnostics, model: { target: request.profile.target, architecture: request.profile.architecture, buildFlavor: request.profile.buildFlavor, applicationId: request.identity.applicationId, displayName: request.identity.displayName, versionName: request.identity.versionName, saveNamespace: request.identity.saveNamespace, capabilities: capabilities as PlatformDeploymentModel['capabilities'], capabilityMetadata: capabilityMetadata(capabilities), display: request.display, packageAccess: request.profile.packageAccess, templateId: descriptor.templateId, buildId: descriptor.buildId, runtimePackageApi: request.runtimePackageApi } };
 }

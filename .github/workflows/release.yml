@@ -78,6 +78,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -180,7 +182,20 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
-          cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox
+          cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox noveltea-player
+
+      - name: Audit player dependency closure
+        shell: pwsh
+        run: cmake -DNOVELTEA_PLAYER="${{ github.workspace }}/build/${{ matrix.preset }}/apps/player/noveltea-player${{ matrix.platform == 'windows' && '.exe' || '' }}" -P cmake/AuditNovelTeaPlayerDependencies.cmake
+
+      - name: Package player template and symbols
+        shell: pwsh
+        run: cmake -DNOVELTEA_TEMPLATE_PRESET=${{ matrix.preset }} -DNOVELTEA_TEMPLATE_PLATFORM=${{ matrix.platform }} -DNOVELTEA_TEMPLATE_ARCH=${{ matrix.arch }} -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaPlayerTemplate.cmake
+
+      - name: Attest player template archives
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/noveltea-player-template-*
 
       - name: Stage desktop sandbox artifact
         shell: pwsh
@@ -500,6 +515,9 @@ jobs:
           pattern: noveltea-*-release-dist
           path: dist
           merge-multiple: true
+
+      - name: Generate player template registry index
+        run: node .github/generate-template-registry.mjs dist "$RELEASE_TAG"
 
       - name: Generate checksums
         run: .github/package-release.sh checksums "$RELEASE_TAG"

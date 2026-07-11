@@ -4,8 +4,9 @@ import { lstat, mkdir, readFile, readdir, rename, rm, stat, statfs, writeFile } 
 import path from 'node:path';
 import { generateAppIcons } from './icon-generation-service';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
-import { parseTemplateDescriptor, PLATFORM_EXPORT_MANIFEST_FORMAT, PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION, type PlatformExportManifest, type PlatformStageDiagnostic, type PlatformStageRequest, type PlatformStageResult, type StagedFileEntry, type StagedFileOrigin } from '../../shared/project-schema/platform-export-contracts';
+import { PLATFORM_EXPORT_MANIFEST_FORMAT, PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION, type PlatformExportManifest, type PlatformStageDiagnostic, type PlatformStageRequest, type PlatformStageResult, type StagedFileEntry, type StagedFileOrigin } from '../../shared/project-schema/platform-export-contracts';
 import { validateTargetPaths } from '../../shared/project-schema/target-path-portability';
+import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
 
 const cancellations = new Set<string>();
 const descriptorName = 'template.json';
@@ -53,26 +54,27 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
         )],
       };
     }
-    const descriptorPath = path.join(request.templateRoot, descriptorName);
-    if (!existsSync(descriptorPath)) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics: [diagnostic('missing-template', '/templateRoot', `Template must contain ${descriptorName}.`)] };
-    const descriptor = parseTemplateDescriptor(JSON.parse(await readFile(descriptorPath, 'utf8')));
+    let descriptor;
+    let templateRoot;
+    try { templateRoot = templateRootForToken(request.templateToken); ({ descriptor } = await verifyTemplateToken(request.templateToken)); }
+    catch (error) { return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics: [diagnostic('invalid-installed-template', '/templateToken', error instanceof Error ? error.message : String(error))] }; }
     const built = buildPlatformDeployment(request, descriptor); diagnostics.push(...built.diagnostics);
     if (!built.model) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics };
     if (!existsSync(request.packagePath)) diagnostics.push(diagnostic('missing-package', '/packagePath', 'Runtime package does not exist.'));
     if (!request.iconSourcePath) diagnostics.push(diagnostic('missing-icon', '/iconSourcePath', 'Application icon is required for platform staging.'));
     else if (!existsSync(request.iconSourcePath)) diagnostics.push(diagnostic('missing-icon', '/iconSourcePath', 'Application icon does not exist.'));
-    const templateFiles = (await listFiles(request.templateRoot)).filter((file) => file !== descriptorName);
+    const templateFiles = (await listFiles(templateRoot)).filter((file) => file !== descriptorName && file !== '.noveltea-template.json');
     for (const file of templateFiles) if (forbidden.test(file)) diagnostics.push(diagnostic('sandbox-content', `/template/${file}`, `Sandbox/demo content '${file}' is forbidden.`));
     for (const dependency of descriptor.runtimeDependencies) if (!templateFiles.includes(dependency.path)) diagnostics.push(diagnostic('missing-template-dependency', `/template/${dependency.path}`, `Declared template dependency '${dependency.path}' is missing.`));
     const prospective = [...templateFiles.map((targetPath) => ({ sourceId: `template:${targetPath}`, targetPath })), { sourceId: 'runtime-package', targetPath: 'game.ntpkg' }];
     diagnostics.push(...validateTargetPaths(prospective, request.profile.target).map((item) => diagnostic(item.code, '/staging', item.message)));
     if (diagnostics.some((item) => item.severity === 'error')) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics, deployment: built.model };
     let estimated = (await stat(request.packagePath)).size;
-    for (const file of templateFiles) estimated += (await stat(safeRoot(request.templateRoot, file))).size;
+    for (const file of templateFiles) estimated += (await stat(safeRoot(templateRoot, file))).size;
     const disk = await statfs(path.dirname(path.resolve(request.outputDirectory))); if (Number(disk.bavail) * Number(disk.bsize) < estimated * 2) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics: [diagnostic('insufficient-disk-space', '/outputDirectory', 'Not enough disk space to build and atomically replace staging output.')], deployment: built.model };
     await rm(temp, { recursive: true, force: true }); await rm(backup, { recursive: true, force: true }); await mkdir(temp, { recursive: true });
     const files: StagedFileEntry[] = []; const dependencyKinds = new Map(descriptor.runtimeDependencies.map((item) => [item.path, item.kind === 'notice' ? 'notice' as const : item.kind === 'library' ? 'native-dependency' as const : 'system-asset' as const]));
-    for (const file of templateFiles) { checkCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(request.templateRoot, file), temp, file, classifyTemplate(file, dependencyKinds), `template:${descriptor.templateId}`)); }
+    for (const file of templateFiles) { checkCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(templateRoot, file), temp, file, classifyTemplate(file, dependencyKinds), `template:${descriptor.templateId}`)); }
     files.push(await copyFileTracked(request.packagePath, temp, 'game.ntpkg', 'runtime-package', 'game.ntpkg'));
     if (request.systemAssetsRoot) for (const file of await listFiles(request.systemAssetsRoot)) { checkCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(request.systemAssetsRoot, file), temp, path.posix.join('assets/system', file), 'system-asset', file)); }
     checkCancelled(request.operationId);

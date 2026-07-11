@@ -47,6 +47,11 @@ export interface NovelTeaElectronApi {
   ): Promise<PackageExportResponse>;
   stagePlatformExport(request: import('./project-schema/platform-export-contracts').PlatformStageRequest): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
   cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>;
+  listPlayerTemplates(query?: import('./project-schema/platform-export-contracts').TemplateRegistryQuery): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate[]>;
+  inspectPlayerTemplate(templateId: string, buildId: string): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate | null>;
+  installPlayerTemplate(request: import('./project-schema/platform-export-contracts').TemplateInstallRequest): Promise<import('./project-schema/platform-export-contracts').TemplateInstallResult>;
+  removePlayerTemplate(templateId: string, buildId: string): Promise<{ removed: boolean }>;
+  resolvePlayerTemplate(request: import('./project-schema/platform-export-contracts').TemplateResolveRequest): Promise<import('./project-schema/platform-export-contracts').TemplateResolveResult>;
   compileShaders(shaderProject: unknown, options?: ShaderCompileOptions): Promise<ShaderCompileResponse>;
   saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
   saveProjectAs(project: unknown, defaultPath?: string | null, currentProjectFilePath?: string | null): Promise<SaveProjectResponse>;
