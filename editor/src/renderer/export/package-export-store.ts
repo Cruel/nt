@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { PackageExportResponse, ShaderCompileDiagnostic, ShaderCompileOutput, ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
 import type { ExportFileEntry, ExportManifestPreview } from '../../shared/project-schema/authoring-runtime-export';
+import type { PlatformStageResult } from '../../shared/project-schema/platform-export-contracts';
 
 export type ExportWorkflowStage =
   | 'idle'
@@ -29,6 +30,7 @@ export interface PackageExportWorkflowResult {
   manifest?: unknown;
   byteCount?: number;
   checksums?: Record<string, string>;
+  platformStageResult?: PlatformStageResult;
 }
 
 interface PackageExportStoreState {

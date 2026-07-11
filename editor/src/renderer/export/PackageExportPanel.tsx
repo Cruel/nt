@@ -119,6 +119,17 @@ function ShaderOutputs({ result }: { result: PackageExportWorkflowResult }) {
   );
 }
 
+function PlatformStageSummary({ result }: { result: PackageExportWorkflowResult }) {
+  const staged = result.platformStageResult; if (!staged?.deployment || !staged.manifest) return null;
+  const counts = staged.manifest.files.reduce<Record<string, number>>((value, entry) => ({ ...value, [entry.origin]: (value[entry.origin] ?? 0) + 1 }), {});
+  return <section className="space-y-2"><div className="font-medium">Platform staging</div><div className="grid grid-cols-2 gap-2 rounded border p-2 text-xs">
+    <div>Target <span className="font-mono text-muted-foreground">{staged.deployment.target}/{staged.deployment.architecture}</span></div>
+    <div>Template <span className="font-mono text-muted-foreground">{staged.deployment.templateId}@{staged.deployment.buildId}</span></div>
+    <div>Files <span className="font-mono text-muted-foreground">{staged.manifest.files.length}</span></div>
+    <div>Capabilities <span className="font-mono text-muted-foreground">{staged.deployment.capabilities.join(', ') || 'none'}</span></div>
+  </div><div className="flex flex-wrap gap-1">{Object.entries(counts).sort().map(([origin, count]) => <Badge key={origin} variant="outline">{origin}: {count}</Badge>)}</div></section>;
+}
+
 export function PackageExportPanel() {
   const [showRaw, setShowRaw] = useState(false);
   const storeResult = usePackageExportStore((state) => state.lastResult);
@@ -162,6 +173,7 @@ export function PackageExportPanel() {
         {result.outputPath && result.success ? <Button size="sm" className="h-7" onClick={previewPackage}>Preview Package</Button> : null}
       </div>
       <ManifestSummary result={result} />
+      <PlatformStageSummary result={result} />
       <Diagnostics result={result} />
       <PackageEntries result={result} />
       <FileEntries result={result} />

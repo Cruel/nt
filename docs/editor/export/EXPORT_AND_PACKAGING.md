@@ -37,6 +37,19 @@ target. Source dimension/color-space and adaptive or maskable safe-area problems
 structured diagnostics; platform exporters will invoke this service when their staging workflows
 are implemented.
 
+Phase 4 adds unsigned platform staging. Callers provide an unpacked player-template root containing
+`template.json`, a completed `game.ntpkg`, a canonical icon, local output directory, and the selected
+shareable platform profile. The shared deployment builder validates identity, package API, target,
+architecture, build flavor, capabilities, host/toolchain requirements, and target path portability.
+
+The main-process staging service builds a sibling temporary directory, rejects traversal, symlinks,
+and sandbox/demo content, generates icons and `player.json`, and records deterministic file origins,
+modes, sizes, and SHA-256 values in `export-manifest.json`. Completion atomically replaces the prior
+staging directory; failure or cancellation preserves the prior successful output. Absolute template,
+package, icon, system-asset, and output paths remain request-local and are not written to profiles or
+provenance. Template discovery/install, final archives, signing, and runnable certification remain
+phase 5 and later work.
+
 ## Workflow Stages
 
 Renderer workflow files:
@@ -210,7 +223,20 @@ The renderer uses narrow Electron APIs:
 selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>
 showItemInFolder(path: string): Promise<void>
 previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>
+stagePlatformExport(request: PlatformStageRequest): Promise<PlatformStageResult>
+cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>
 ```
+
+Packaged editor builds also expose the same service noninteractively without opening a window:
+
+```sh
+noveltea-editor --stage-platform-export < request.json
+```
+
+The command writes a structured, recursively redacted result to stdout and returns a nonzero status
+for invalid requests or unsuccessful staging. This is the phase-4 headless editor-tool entrypoint;
+release automation may provide a `noveltea-editor-tool stage-platform-export` launcher alias when
+the platform templates are published in phase 5.
 
 `previewExportedPackage` currently returns a precise unsupported diagnostic. Actual package preview should be connected to the engine preview server once loading exported `.ntpkg` files through the preview session is safe.
 

@@ -29,6 +29,8 @@ export const IPC_CHANNELS = {
   RUN_PLAYBACK_SPEC: 'noveltea:run-playback-spec',
   RUN_UI_PLAYBACK_SPEC: 'noveltea:run-ui-playback-spec',
   EXPORT_PACKAGE: 'noveltea:export-package',
+  STAGE_PLATFORM_EXPORT: 'noveltea:stage-platform-export',
+  CANCEL_PLATFORM_EXPORT: 'noveltea:cancel-platform-export',
   COMPILE_SHADERS: 'noveltea:compile-shaders',
   SAVE_PROJECT: 'noveltea:save-project',
   SAVE_PROJECT_AS: 'noveltea:save-project-as',

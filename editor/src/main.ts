@@ -24,6 +24,8 @@ import {
   validateProject,
 } from './main/services/editor-tool-service';
 import { createProject, saveProject, saveProjectAs } from './main/services/project-file-service';
+import { cancelPlatformExport, redactPlatformStageResult, stagePlatformExport } from './main/services/platform-staging-service';
+import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
@@ -279,6 +281,25 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (process.argv.includes('--stage-platform-export')) {
+    let input = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk: string) => { input += chunk; });
+    process.stdin.on('end', () => {
+      void (async () => {
+        try {
+          const result = await stagePlatformExport(JSON.parse(input || '{}') as PlatformStageRequest);
+          process.stdout.write(`${JSON.stringify(redactPlatformStageResult(result), null, 2)}\n`);
+          app.exit(result.success ? 0 : 1);
+        } catch (error) {
+          process.stdout.write(`${JSON.stringify({ ok: false, success: false, diagnostics: [{ severity: 'error', code: 'invalid-request', path: '/', message: error instanceof Error ? error.message : String(error) }] }, null, 2)}\n`);
+          app.exit(1);
+        }
+      })();
+    });
+    process.stdin.resume();
+    return;
+  }
   installApplicationMenu();
 
   ipcMain.handle(IPC_CHANNELS.GET_APP_INFO, () => getAppInfoPayload());
@@ -464,6 +485,9 @@ app.whenReady().then(() => {
       options: unknown,
     ) => exportPackage(project, outputPath, options as PackageExportOptions),
   );
+
+  ipcMain.handle(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, request: PlatformStageRequest) => stagePlatformExport(request));
+  ipcMain.handle(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, operationId: string) => cancelPlatformExport(operationId));
 
   ipcMain.handle(
     IPC_CHANNELS.COMPILE_SHADERS,

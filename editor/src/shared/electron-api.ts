@@ -45,6 +45,8 @@ export interface NovelTeaElectronApi {
     outputPath: string,
     options?: PackageExportOptions,
   ): Promise<PackageExportResponse>;
+  stagePlatformExport(request: import('./project-schema/platform-export-contracts').PlatformStageRequest): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
+  cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>;
   compileShaders(shaderProject: unknown, options?: ShaderCompileOptions): Promise<ShaderCompileResponse>;
   saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
   saveProjectAs(project: unknown, defaultPath?: string | null, currentProjectFilePath?: string | null): Promise<SaveProjectResponse>;

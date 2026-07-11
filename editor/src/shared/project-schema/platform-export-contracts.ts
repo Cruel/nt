@@ -8,6 +8,8 @@ export const PLATFORM_EXPORT_PROFILE_FORMAT = 'noveltea.platform-export-profile'
 export const PLATFORM_EXPORT_PROFILE_FORMAT_VERSION = 1 as const;
 export const EDITOR_EXPORT_LOCAL_STATE_FORMAT = 'noveltea.editor-export-local-state' as const;
 export const EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION = 1 as const;
+export const PLATFORM_EXPORT_MANIFEST_FORMAT = 'noveltea.platform-export-manifest' as const;
+export const PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION = 1 as const;
 
 export const exportCapabilityValues = [
   'network.client', 'external-url', 'clipboard.read', 'clipboard.write', 'gamepad',
@@ -117,6 +119,35 @@ export type PlayerBootstrapConfig = z.infer<typeof playerBootstrapConfigSchema>;
 export type TemplateDescriptor = z.infer<typeof templateDescriptorSchema>;
 export type PlatformExportProfile = z.infer<typeof platformExportProfileSchema>;
 export type EditorExportLocalState = z.infer<typeof editorExportLocalStateSchema>;
+
+export const stagedFileOriginValues = ['template', 'runtime-package', 'system-asset', 'icon', 'native-dependency', 'notice', 'generated-metadata'] as const;
+export type StagedFileOrigin = (typeof stagedFileOriginValues)[number];
+export interface PlatformStageDiagnostic { severity: 'info' | 'warning' | 'error'; code: string; path: string; message: string }
+export interface StagedFileEntry { path: string; origin: StagedFileOrigin; originId: string; size: number; mode: number; sha256: string }
+export interface PlatformCapabilityMetadata {
+  androidPermissions: string[]; androidFeatures: string[]; webRequirements: string[]; desktopFeatures: string[];
+}
+export interface PlatformDeploymentModel {
+  target: ExportPlatform; architecture: string; buildFlavor: 'debug' | 'release'; applicationId: string;
+  displayName: string; versionName: string; saveNamespace: string; capabilities: ExportCapability[];
+  capabilityMetadata: PlatformCapabilityMetadata; display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>;
+  packageAccess: string; templateId: string; buildId: string; runtimePackageApi: number;
+}
+export interface PlatformExportManifest {
+  format: typeof PLATFORM_EXPORT_MANIFEST_FORMAT; formatVersion: typeof PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION;
+  deployment: PlatformDeploymentModel; files: StagedFileEntry[];
+}
+export interface PlatformStageRequest {
+  operationId: string; profile: PlatformExportProfile; templateRoot: string; outputDirectory: string;
+  packagePath: string; iconSourcePath?: string; systemAssetsRoot?: string;
+  identity: { displayName: string; applicationId: string; saveNamespace: string; versionName: string; defaultLocale?: string };
+  display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>; capabilities?: ExportCapability[]; runtimePackageApi: number;
+  host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };
+}
+export interface PlatformStageResult {
+  ok: boolean; success: boolean; cancelled: boolean; operationId: string; outputDirectory?: string;
+  diagnostics: PlatformStageDiagnostic[]; deployment?: PlatformDeploymentModel; manifest?: PlatformExportManifest;
+}
 
 export const parsePlayerBootstrapConfig = (value: unknown): PlayerBootstrapConfig => playerBootstrapConfigSchema.parse(value);
 export const parseTemplateDescriptor = (value: unknown): TemplateDescriptor => templateDescriptorSchema.parse(value);
