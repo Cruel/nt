@@ -14,6 +14,13 @@ if(EXISTS "${NOVELTEA_ENGINE_ASSET_SOURCE}")
     file(COPY "${NOVELTEA_ENGINE_ASSET_SOURCE}/" DESTINATION "${_tmp}/system")
 endif()
 
+set(_system_font_source "${NOVELTEA_PROJECT_ASSET_SOURCE}/rmlui/LiberationSans.ttf")
+if(NOT EXISTS "${_system_font_source}")
+    message(FATAL_ERROR "Missing required NovelTea system font: ${_system_font_source}")
+endif()
+file(MAKE_DIRECTORY "${_tmp}/system/fonts")
+file(COPY_FILE "${_system_font_source}" "${_tmp}/system/fonts/LiberationSans.ttf")
+
 file(COPY "${NOVELTEA_SHADER_ASSET_SOURCE}/shaders" DESTINATION "${_tmp}/system")
 set(_legacy_package_source "${NOVELTEA_PROJECT_ASSET_SOURCE}/projects/runtime_phase9_package")
 if(EXISTS "${_legacy_package_source}/game")

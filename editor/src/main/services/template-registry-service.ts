@@ -33,7 +33,7 @@ async function files(root: string, prefix = ''): Promise<string[]> {
     else if (entry.isFile()) output.push(relative);
     else throw new Error(`Non-regular archive entry '${relative}' is forbidden.`);
   }
-  return output.sort();
+  return output.sort((a, b) => a.localeCompare(b));
 }
 function safeArchiveName(value: string) {
   const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');

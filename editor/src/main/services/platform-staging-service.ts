@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
@@ -49,6 +49,130 @@ async function writeGenerated(stage: string, target: string, data: string | Buff
   await mkdir(path.dirname(destination), { recursive: true });
   await writeFile(destination, buffer, { mode: 0o644 });
   return { path: target, origin: 'generated-metadata', originId, size: buffer.length, mode: 0o644, sha256: sha256(buffer) };
+}
+
+function linuxDesktopId(request: PlatformStageRequest) {
+  const value = request.identity.linuxDesktopId ?? request.identity.applicationId;
+  if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(value)) {
+    throw new Error(`Linux desktop ID '${value}' is invalid.`);
+  }
+  return value;
+}
+
+function desktopEntryEscape(value: string) {
+  return value.replaceAll('\\', '\\\\').replaceAll('\n', '\\n');
+}
+
+async function finalizeLinuxStage(
+  stage: string,
+  request: PlatformStageRequest,
+  files: StagedFileEntry[],
+  descriptor: Awaited<ReturnType<typeof verifyTemplateToken>>['descriptor'],
+) {
+  if (request.profile.target !== 'linux') return undefined;
+  const playerDescriptor = descriptor.files.find((item) => item.role === 'player');
+  if (!playerDescriptor) throw new Error('Linux template must declare a player file role.');
+  const playerEntry = files.find((item) => item.path === playerDescriptor.path);
+  if (!playerEntry) throw new Error(`Linux player '${playerDescriptor.path}' was not staged.`);
+  if ((playerEntry.mode & 0o111) === 0) throw new Error('Linux player template is not executable.');
+
+  const executableName = request.profile.desktop.executableName;
+  if (!/^[A-Za-z0-9._+-]+$/.test(executableName) || executableName === '.' || executableName === '..') {
+    throw new Error('Linux executable name may contain only letters, numbers, dot, underscore, plus, and hyphen.');
+  }
+  const executablePath = path.posix.join(path.posix.dirname(playerEntry.path), executableName);
+  if (playerEntry.path !== executablePath) {
+    await rename(safeRoot(stage, playerEntry.path), safeRoot(stage, executablePath));
+    playerEntry.path = executablePath;
+  }
+  await chmod(safeRoot(stage, executablePath), playerEntry.mode | 0o111);
+  playerEntry.mode |= 0o111;
+
+  const packageEntry = files.find((item) => item.origin === 'runtime-package');
+  if (!packageEntry) throw new Error('Linux staging is missing the runtime package.');
+  const packagePath = path.posix.join(path.posix.dirname(executablePath), 'game.ntpkg');
+  if (packageEntry.path !== packagePath) {
+    await rename(safeRoot(stage, packageEntry.path), safeRoot(stage, packagePath));
+    packageEntry.path = packagePath;
+  }
+
+  if (!descriptor.linuxNeeded || !descriptor.linuxRpaths) {
+    throw new Error('Linux template must declare ELF NEEDED entries and runtime paths.');
+  }
+  const forbiddenRpath = descriptor.linuxRpaths.find((item) => item.startsWith('/') || /(^|:)(?:\/home|\/tmp|[^:]*build\/)/.test(item));
+  if (forbiddenRpath) throw new Error(`Linux template contains nonportable runtime path '${forbiddenRpath}'.`);
+  const nativeLibraries = new Set(files
+    .filter((item) => item.origin === 'native-dependency' && item.path !== playerEntry.path && /\.so(?:\.|$)/.test(item.path))
+    .map((item) => path.posix.basename(item.path)));
+  const systemLibraries = [/^linux-vdso/, /^ld-linux/, /^libc\.so/, /^libm\.so/, /^libdl\.so/, /^libpthread\.so/, /^librt\.so/, /^libgcc_s\.so/, /^libstdc\+\+\.so/, /^libX/, /^libxcb/, /^libwayland-/, /^libxkbcommon/, /^libGL/, /^libEGL/, /^libdrm/, /^libasound/, /^libpulse/, /^libudev/, /^libdbus-/, /^libfontconfig/, /^libfreetype/, /^libz\.so/];
+  const unresolved = descriptor.linuxNeeded.filter((name) =>
+    !nativeLibraries.has(name) && !systemLibraries.some((pattern) => pattern.test(name)),
+  );
+  if (unresolved.length) throw new Error(`Linux player has unresolved non-system ELF dependencies: ${unresolved.join(', ')}`);
+  if (nativeLibraries.size && !descriptor.linuxRpaths.some((item) => item.includes('$ORIGIN'))) {
+    throw new Error('Linux templates with bundled native libraries must use an $ORIGIN-relative runtime path.');
+  }
+
+  const id = linuxDesktopId(request);
+  const iconEntries = files.filter((item) => item.origin === 'icon' && item.path.includes('/linux/hicolor/'));
+  if (!iconEntries.length) throw new Error('Linux icon generation did not produce hicolor icons.');
+  for (const entry of iconEntries) {
+    const match = entry.path.match(/linux\/hicolor\/(\d+x\d+)\/apps\/app\.png$/);
+    if (!match) continue;
+    const target = `share/icons/hicolor/${match[1]}/apps/${id}.png`;
+    await mkdir(path.dirname(safeRoot(stage, target)), { recursive: true });
+    await rename(safeRoot(stage, entry.path), safeRoot(stage, target));
+    entry.path = target;
+  }
+  const desktopPath = `share/applications/${id}.desktop`;
+  const desktop = `[Desktop Entry]\nType=Application\nVersion=1.0\nName=${desktopEntryEscape(request.identity.displayName)}\nExec=${executableName}\nIcon=${id}\nTerminal=false\nCategories=Game;\nStartupNotify=true\nX-NovelTea-ApplicationId=${desktopEntryEscape(request.identity.applicationId)}\nX-NovelTea-SaveNamespace=${desktopEntryEscape(request.identity.saveNamespace)}\n`;
+  files.push(await writeGenerated(stage, desktopPath, desktop, 'linux-desktop-entry'));
+
+  const launcherPath = executableName;
+  const launcher = `#!/bin/sh\nset -eu\nROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexec "$ROOT/${executablePath}" "$@"\n`;
+  const launcherEntry = await writeGenerated(stage, launcherPath, launcher, 'linux-launcher');
+  launcherEntry.mode = 0o755;
+  await chmod(safeRoot(stage, launcherPath), 0o755);
+  files.push(launcherEntry);
+
+  const symbolEntries = descriptor.files.filter((item) => item.role === 'symbol' || /\.debug$/i.test(item.path));
+  const symbolFiles: Array<{ path: string; data: Buffer }> = [];
+  for (const symbol of symbolEntries) {
+    const entry = files.find((item) => item.path === symbol.path);
+    if (!entry) continue;
+    symbolFiles.push({ path: path.posix.basename(entry.path), data: await readFile(safeRoot(stage, entry.path)) });
+    await rm(safeRoot(stage, entry.path), { force: true });
+    files.splice(files.indexOf(entry), 1);
+  }
+  files.push(await writeGenerated(stage, 'LINUX_METADATA.json', `${JSON.stringify({
+    applicationId: request.identity.applicationId,
+    saveNamespace: request.identity.saveNamespace,
+    desktopId: id,
+    executable: launcherPath,
+    player: executablePath,
+    buildId: descriptor.buildId,
+    needed: descriptor.linuxNeeded,
+    rpaths: descriptor.linuxRpaths,
+  }, null, 2)}\n`, 'linux-metadata'));
+  return { executableName, executablePath, desktopPath, iconEntries, symbolFiles };
+}
+
+async function buildLinuxAppImage(stage: string, output: string, request: PlatformStageRequest, linux: NonNullable<Awaited<ReturnType<typeof finalizeLinuxStage>>>) {
+  const appDir = `${stage}.AppDir`;
+  await rm(appDir, { recursive: true, force: true });
+  await mkdir(appDir, { recursive: true });
+  for (const file of await listFiles(stage)) await copyFileTracked(safeRoot(stage, file), appDir, file, 'template', 'appimage-stage');
+  await writeFile(path.join(appDir, 'AppRun'), `#!/bin/sh\nset -eu\nHERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexec "$HERE/${linux.executablePath}" "$@"\n`, { mode: 0o755 });
+  const desktopSource = safeRoot(stage, linux.desktopPath);
+  await writeFile(path.join(appDir, `${linuxDesktopId(request)}.desktop`), await readFile(desktopSource), { mode: 0o644 });
+  const largestIcon = [...linux.iconEntries].sort((a, b) => b.size - a.size)[0];
+  if (!largestIcon) throw new Error('Cannot build AppImage without a generated Linux icon.');
+  await writeFile(path.join(appDir, `${linuxDesktopId(request)}.png`), await readFile(safeRoot(stage, largestIcon.path)), { mode: 0o644 });
+  const tool = request.linuxAppImageTool ?? 'appimagetool';
+  await rm(output, { force: true });
+  try { await run(tool, [appDir, output], { cwd: path.dirname(stage), env: { ...process.env, ARCH: request.profile.architecture === 'arm64' ? 'aarch64' : 'x86_64' } }); }
+  catch (error) { throw new Error(`AppImage creation requires a working appimagetool (${error instanceof Error ? error.message : String(error)}).`); }
+  await rm(appDir, { recursive: true, force: true });
 }
 
 function parseWindowsVersion(versionName: string): [number, number, number, number] {
@@ -252,15 +376,23 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
   const diagnostics: PlatformStageDiagnostic[] = [];
   const temp = `${request.outputDirectory}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const backup = `${request.outputDirectory}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-  const archivePath = request.profile.target === 'web' || request.profile.target === 'windows' ? `${request.outputDirectory}.zip` : undefined;
+  const archivePath = request.profile.target === 'web' || request.profile.target === 'windows'
+    ? `${request.outputDirectory}.zip`
+    : request.profile.target === 'linux' ? `${request.outputDirectory}.tar.gz` : undefined;
   const archiveTemp = archivePath ? `${archivePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   const archiveBackup = archivePath ? `${archivePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
-  const symbolArchivePath = request.profile.target === 'windows' && request.profile.includeDebugSymbols ? `${request.outputDirectory}-symbols.zip` : undefined;
+  const symbolArchivePath = (request.profile.target === 'windows' || request.profile.target === 'linux') && request.profile.includeDebugSymbols
+    ? `${request.outputDirectory}-symbols.${request.profile.target === 'linux' ? 'tar.gz' : 'zip'}` : undefined;
   const symbolArchiveTemp = symbolArchivePath ? `${symbolArchivePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   const symbolArchiveBackup = symbolArchivePath ? `${symbolArchivePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const appImagePath = request.profile.target === 'linux' && request.profile.desktop.artifact === 'appimage'
+    ? `${request.outputDirectory}.AppImage` : undefined;
+  const appImageTemp = appImagePath ? `${appImagePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const appImageBackup = appImagePath ? `${appImagePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   let backedUp = false;
   let archiveBackedUp = false;
   let symbolArchiveBackedUp = false;
+  let appImageBackedUp = false;
   try {
     cancellations.delete(request.operationId); checkCancelled(request.operationId);
     if (request.runtimePackageReadiness?.validated !== true || request.runtimePackageReadiness.blockingDiagnosticCount !== 0) {
@@ -300,7 +432,7 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     files.push(await copyFileTracked(request.packagePath, temp, 'game.ntpkg', 'runtime-package', 'game.ntpkg'));
     if (request.systemAssetsRoot) for (const file of await listFiles(request.systemAssetsRoot)) { checkCancelled(request.operationId); files.push(await copyFileTracked(safeRoot(request.systemAssetsRoot, file), temp, path.posix.join('assets/system', file), 'system-asset', file)); }
     checkCancelled(request.operationId);
-    const iconResult = await generateAppIcons({ sourcePath: request.iconSourcePath!, stagingRoot: path.join(temp, '.icons'), platforms: [request.profile.target === 'web' || request.profile.target === 'linux' ? 'web' : request.profile.target === 'android' ? 'android' : request.profile.target === 'windows' ? 'windows' : 'macos'] });
+    const iconResult = await generateAppIcons({ sourcePath: request.iconSourcePath!, stagingRoot: path.join(temp, '.icons'), platforms: [request.profile.target === 'linux' ? 'linux' : request.profile.target === 'web' ? 'web' : request.profile.target === 'android' ? 'android' : request.profile.target === 'windows' ? 'windows' : 'macos'] });
     diagnostics.push(...iconResult.diagnostics.map((item) => ({ severity: item.severity, code: item.code, path: '/icon', message: item.message })));
     const iconTargets = iconResult.files.map((icon) => path.posix.join('icons', path.relative(path.join(temp, '.icons'), icon.path).split(path.sep).join('/')));
     const allTargets = [...files.map((item) => ({ sourceId: item.originId, targetPath: item.path })), ...iconTargets.map((targetPath) => ({ sourceId: `icon:${targetPath}`, targetPath })), { sourceId: 'player-config', targetPath: 'player.json' }, { sourceId: 'export-manifest', targetPath: 'export-manifest.json' }];
@@ -310,50 +442,66 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     await rm(path.join(temp, '.icons'), { recursive: true, force: true });
     const webMetrics = await finalizeWebStage(temp, request, files);
     const windows = await finalizeWindowsStage(temp, request, files, descriptor);
+    const linux = await finalizeLinuxStage(temp, request, files, descriptor);
     if (windows) await runWindowsSigningHook(temp, request, files, windows.targetPath);
     const packageEntry = files.find((item) => item.origin === 'runtime-package')!;
-    const player = { format: 'noveltea.player-config', formatVersion: 1, displayName: built.model.displayName, applicationId: built.model.applicationId, saveNamespace: built.model.saveNamespace, versionName: built.model.versionName, ...(request.identity.defaultLocale ? { defaultLocale: request.identity.defaultLocale } : {}), package: { path: packageEntry.path, sha256: packageEntry.sha256, runtimePackageApi: request.runtimePackageApi }, capabilities: built.model.capabilities, display: built.model.display };
-    const playerData = Buffer.from(`${JSON.stringify(player, null, 2)}\n`); await writeFile(path.join(temp, 'player.json'), playerData); files.push({ path: 'player.json', origin: 'generated-metadata', originId: 'player-config', size: playerData.length, mode: 0o644, sha256: sha256(playerData) });
+    const playerConfigPath = linux ? path.posix.join(path.posix.dirname(linux.executablePath), 'player.json') : 'player.json';
+    const packageFromConfig = path.posix.relative(path.posix.dirname(playerConfigPath), packageEntry.path);
+    const player = { format: 'noveltea.player-config', formatVersion: 1, displayName: built.model.displayName, applicationId: built.model.applicationId, saveNamespace: built.model.saveNamespace, versionName: built.model.versionName, ...(request.identity.defaultLocale ? { defaultLocale: request.identity.defaultLocale } : {}), package: { path: packageFromConfig, sha256: packageEntry.sha256, runtimePackageApi: request.runtimePackageApi }, capabilities: built.model.capabilities, display: built.model.display };
+    const playerData = Buffer.from(`${JSON.stringify(player, null, 2)}\n`); await writeFile(safeRoot(temp, playerConfigPath), playerData); files.push({ path: playerConfigPath, origin: 'generated-metadata', originId: 'player-config', size: playerData.length, mode: 0o644, sha256: sha256(playerData) });
     files.sort((a, b) => a.path.localeCompare(b.path));
     const manifest: PlatformExportManifest = { format: PLATFORM_EXPORT_MANIFEST_FORMAT, formatVersion: PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION, deployment: built.model, files };
     await writeFile(path.join(temp, 'export-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 }); checkCancelled(request.operationId);
     if (archivePath && archiveTemp) {
       await rm(archiveTemp, { force: true });
-      await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', '.'], { cwd: temp });
+      if (request.profile.target === 'linux') await run('cmake', ['-E', 'tar', 'czf', archiveTemp, '.'], { cwd: temp });
+      else await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', '.'], { cwd: temp });
       checkCancelled(request.operationId);
     }
-    if (symbolArchivePath && symbolArchiveTemp && windows?.symbolFiles.length) {
+    const symbolFiles = windows?.symbolFiles ?? linux?.symbolFiles ?? [];
+    if (symbolArchivePath && symbolArchiveTemp && symbolFiles.length) {
       const symbolStage = `${temp}.symbols`;
       await rm(symbolStage, { recursive: true, force: true });
       await mkdir(symbolStage, { recursive: true });
-      for (const symbol of windows.symbolFiles) await writeFile(path.join(symbolStage, symbol.path), symbol.data, { mode: 0o644 });
+      for (const symbol of symbolFiles) await writeFile(path.join(symbolStage, symbol.path), symbol.data, { mode: 0o644 });
       await writeFile(path.join(symbolStage, 'BUILD_ID'), `${descriptor.buildId}\n`, { mode: 0o644 });
       await rm(symbolArchiveTemp, { force: true });
-      await run('cmake', ['-E', 'tar', 'cf', symbolArchiveTemp, '--format=zip', '.'], { cwd: symbolStage });
+      if (request.profile.target === 'linux') await run('cmake', ['-E', 'tar', 'czf', symbolArchiveTemp, '.'], { cwd: symbolStage });
+      else await run('cmake', ['-E', 'tar', 'cf', symbolArchiveTemp, '--format=zip', '.'], { cwd: symbolStage });
       await rm(symbolStage, { recursive: true, force: true });
+      checkCancelled(request.operationId);
+    }
+    if (linux && appImageTemp) {
+      await buildLinuxAppImage(temp, appImageTemp, request, linux);
       checkCancelled(request.operationId);
     }
     if (existsSync(request.outputDirectory)) { await rename(request.outputDirectory, backup); backedUp = true; }
     if (archivePath && archiveBackup && existsSync(archivePath)) { await rename(archivePath, archiveBackup); archiveBackedUp = true; }
     if (symbolArchivePath && symbolArchiveBackup && existsSync(symbolArchivePath)) { await rename(symbolArchivePath, symbolArchiveBackup); symbolArchiveBackedUp = true; }
+    if (appImagePath && appImageBackup && existsSync(appImagePath)) { await rename(appImagePath, appImageBackup); appImageBackedUp = true; }
     try {
       await rename(temp, request.outputDirectory);
       if (archivePath && archiveTemp) await rename(archiveTemp, archivePath);
       if (symbolArchivePath && symbolArchiveTemp && existsSync(symbolArchiveTemp)) await rename(symbolArchiveTemp, symbolArchivePath);
+      if (appImagePath && appImageTemp) await rename(appImageTemp, appImagePath);
     } catch (error) {
       await rm(request.outputDirectory, { recursive: true, force: true });
       if (archivePath) await rm(archivePath, { force: true });
       if (symbolArchivePath) await rm(symbolArchivePath, { force: true });
+      if (appImagePath) await rm(appImagePath, { force: true });
       if (backedUp && existsSync(backup)) await rename(backup, request.outputDirectory);
       if (archiveBackedUp && archiveBackup && existsSync(archiveBackup)) await rename(archiveBackup, archivePath!);
       if (symbolArchiveBackedUp && symbolArchiveBackup && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath!);
+      if (appImageBackedUp && appImageBackup && existsSync(appImageBackup)) await rename(appImageBackup, appImagePath!);
       throw error;
     }
     if (backedUp) await rm(backup, { recursive: true, force: true });
     if (archiveBackedUp && archiveBackup) await rm(archiveBackup, { force: true });
     if (symbolArchiveBackedUp && symbolArchiveBackup) await rm(symbolArchiveBackup, { force: true });
+    if (appImageBackedUp && appImageBackup) await rm(appImageBackup, { force: true });
     const artifacts: NonNullable<PlatformStageResult['artifacts']> = [{ kind: 'directory', path: request.outputDirectory }];
     if (archivePath) artifacts.push({ kind: 'archive', path: archivePath, size: (await stat(archivePath)).size });
+    if (appImagePath) artifacts.push({ kind: 'appimage', path: appImagePath, size: (await stat(appImagePath)).size });
     if (symbolArchivePath && existsSync(symbolArchivePath)) artifacts.push({ kind: 'symbols', path: symbolArchivePath, size: (await stat(symbolArchivePath)).size });
     return { ok: true, success: true, cancelled: false, operationId: request.operationId, outputDirectory: request.outputDirectory, archivePath, symbolArchivePath: symbolArchivePath && existsSync(symbolArchivePath) ? symbolArchivePath : undefined, artifacts, webMetrics, diagnostics, deployment: built.model, manifest };
   } catch (error) {
@@ -362,9 +510,11 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     await rm(temp, { recursive: true, force: true });
     if (archiveTemp) await rm(archiveTemp, { force: true });
     if (symbolArchiveTemp) await rm(symbolArchiveTemp, { force: true });
+    if (appImageTemp) await rm(appImageTemp, { force: true });
     if (backedUp && !existsSync(request.outputDirectory) && existsSync(backup)) await rename(backup, request.outputDirectory);
     if (archivePath && archiveBackedUp && archiveBackup && !existsSync(archivePath) && existsSync(archiveBackup)) await rename(archiveBackup, archivePath);
     if (symbolArchivePath && symbolArchiveBackedUp && symbolArchiveBackup && !existsSync(symbolArchivePath) && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath);
+    if (appImagePath && appImageBackedUp && appImageBackup && !existsSync(appImagePath) && existsSync(appImageBackup)) await rename(appImageBackup, appImagePath);
     return { ok: false, success: false, cancelled, operationId: request.operationId, diagnostics: cancelled ? [...diagnostics, { severity: 'info', code: 'cancelled', path: '/staging', message: 'Platform export was cancelled.' }] : diagnostics };
   } finally { cancellations.delete(request.operationId); }
 }

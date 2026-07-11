@@ -33,7 +33,7 @@ The runtime conversion is intentionally narrow. Room entrypoints are supported. 
 App-icon generation is available as a headless main-process service in
 `editor/src/main/services/icon-generation-service.ts`. It accepts a canonical image and staging
 root, emits a typed output manifest, and generates Web PNG/favicons, Android density/adaptive
-resources, Windows ICO, and macOS ICNS files. Platform override inputs bypass generation for their
+resources, Linux hicolor PNGs, Windows ICO, and macOS ICNS files. Platform override inputs bypass generation for their
 target. Source dimension/color-space and adaptive or maskable safe-area problems are returned as
 structured diagnostics; platform exporters will invoke this service when their staging workflows
 are implemented.
@@ -48,7 +48,8 @@ and sandbox/demo content, generates icons and `player.json`, and records determi
 modes, sizes, and SHA-256 values in `export-manifest.json`. Completion atomically replaces the prior
 staging directory; failure or cancellation preserves the prior successful output. Absolute template,
 package, icon, system-asset, and output paths remain request-local and are not written to profiles or
-provenance. Final per-game archives, signing, and runnable certification remain later work.
+provenance. Web, Windows, and Linux finalizers now publish platform-native artifacts; signing and
+the remaining platform finalizers remain later work.
 
 ## Player Template Registry
 
@@ -90,6 +91,33 @@ updates and avoiding collisions between NovelTea games on one origin. IDBFS moun
 The default template is single-threaded and does not require cross-origin isolation. Threaded output
 must resolve to a separately compiled compatible template; its generated deployment guide must call
 out the required COOP and COEP headers.
+
+## Linux Portable Export
+
+The Linux finalizer consumes an immutable Linux player template and publishes a normalized portable
+application directory plus a `.tar.gz` archive. The template descriptor records the player's ELF
+`NEEDED` entries and runtime paths. Finalization rejects undeclared non-system dependencies,
+nonportable absolute/build-tree RPATHs, non-executable player inputs, and bundled libraries without
+an `$ORIGIN`-relative lookup path.
+
+The portable tree retains the template's `bin/` layout. A root launcher resolves the export directory
+independently of the current working directory, while `bin/player.json` references the root
+`game.ntpkg` through a normalized relative path. Generated desktop integration consists of a
+validated reverse-DNS desktop ID, a freedesktop `.desktop` entry, and hicolor icons from 16 through
+512 pixels. The desktop entry and generated metadata carry the same application ID and save
+namespace as `player.json`.
+
+Profiles selecting `appimage` still receive the portable tarball. AppImage is an additional artifact
+built from the same finalized tree through machine-local `appimagetool`; a missing tool blocks only
+an AppImage-requesting profile. AppImage, directory, tarball, and optional symbols are built before
+publication and replaced as one rollback-safe artifact set. Build-ID-matched `.debug` files are
+removed from the player tree and emitted separately when the profile requests symbols.
+
+Official Linux x64 templates are built on Ubuntu 22.04 and audited against a maximum glibc 2.35
+symbol baseline. Release CI packages the real template, finalizes both the portable tree and
+AppImage under a Unicode/space-containing path, and launches both artifacts from an unrelated
+working directory under X11 and headless Wayland. The smoke also verifies that `game.ntpkg` and
+packaged `system:/` assets resolve relative to the installed player rather than the build tree.
 
 ## Workflow Stages
 

@@ -70,6 +70,24 @@ std::filesystem::path writable_base(const std::string& save_namespace)
 #endif
 }
 
+std::filesystem::path packaged_system_asset_root(const std::filesystem::path& player_config)
+{
+#if defined(__EMSCRIPTEN__) || defined(SDL_PLATFORM_ANDROID)
+    (void)player_config;
+    return {};
+#else
+    const auto config_directory = player_config.parent_path();
+    for (const auto& candidate : {
+             config_directory / "assets" / "system",
+             config_directory.parent_path() / "assets" / "system",
+         }) {
+        if (std::filesystem::is_directory(candidate))
+            return candidate;
+    }
+    return {};
+#endif
+}
+
 int fail_startup(const noveltea::core::PlayerBootstrapResult& result)
 {
     std::string message = "The game could not start.\n\n";
@@ -121,6 +139,7 @@ int main(int argc, char** argv)
     run.enable_debug_ui = false;
     run.demo_mode = noveltea::DemoMode::None;
     run.project_asset_root = path.parent_path();
+    run.system_asset_root = packaged_system_asset_root(path);
     run.cache_asset_root = roots / "cache";
     run.runtime_project = "project:/" + bootstrap.config.package_path.generic_string();
     run.save_slot_store = &saves;

@@ -86,7 +86,7 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
             preset: linux-release
             triplet: x64-linux
             host_triplet: x64-linux
@@ -113,7 +113,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build ccache cmake pkg-config curl zip unzip tar git libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols libltdl-dev libxtst-dev autoconf automake autoconf-archive libtool bison flex
+          sudo apt-get install -y build-essential ninja-build ccache cmake pkg-config curl zip unzip tar git libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols weston libltdl-dev libxtst-dev autoconf automake autoconf-archive libtool bison flex
 
       - name: Install macOS packages
         if: runner.os == 'macOS'
@@ -186,30 +186,38 @@ jobs:
 
       - name: Audit player dependency closure
         shell: pwsh
-        run: cmake -DNOVELTEA_PLAYER="${{ github.workspace }}/build/${{ matrix.preset }}/apps/player/noveltea-player${{ matrix.platform == 'windows' && '.exe' || '' }}" -P cmake/AuditNovelTeaPlayerDependencies.cmake
+        run: cmake -DNOVELTEA_PLAYER="${{ github.workspace }}/build/${{ matrix.preset }}/apps/player/noveltea-player${{ matrix.platform == 'windows' && '.exe' || '' }}" ${{ matrix.platform == 'linux' && '-DNOVELTEA_MAX_GLIBC_VERSION=2.35' || '' }} -P cmake/AuditNovelTeaPlayerDependencies.cmake
 
       - name: Package player template and symbols
         shell: pwsh
         run: cmake -DNOVELTEA_TEMPLATE_PRESET=${{ matrix.preset }} -DNOVELTEA_TEMPLATE_PLATFORM=${{ matrix.platform }} -DNOVELTEA_TEMPLATE_ARCH=${{ matrix.arch }} -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaPlayerTemplate.cmake
 
-      - name: Set up pnpm for Windows export smoke
-        if: runner.os == 'Windows'
+      - name: Set up pnpm for desktop export smoke
+        if: runner.os == 'Windows' || matrix.platform == 'linux'
         uses: pnpm/action-setup@v6
         with:
           version: 10.32.1
 
-      - name: Set up Node.js for Windows export smoke
-        if: runner.os == 'Windows'
+      - name: Set up Node.js for desktop export smoke
+        if: runner.os == 'Windows' || matrix.platform == 'linux'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: editor/pnpm-lock.yaml
 
-      - name: Install editor dependencies for Windows export smoke
-        if: runner.os == 'Windows'
+      - name: Install editor dependencies for desktop export smoke
+        if: runner.os == 'Windows' || matrix.platform == 'linux'
         working-directory: editor
         run: pnpm install --frozen-lockfile
+
+      - name: Install appimagetool for Linux export smoke
+        if: matrix.platform == 'linux'
+        run: |
+          curl -L --fail --retry 3 \
+            -o "$RUNNER_TEMP/appimagetool.AppImage" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$RUNNER_TEMP/appimagetool.AppImage"
 
       - name: Finalize and launch Windows portable export
         if: runner.os == 'Windows'
@@ -219,6 +227,40 @@ jobs:
           NOVELTEA_WINDOWS_TEMPLATE_ARCHIVE: ${{ github.workspace }}\dist\noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-release.zip
           NOVELTEA_WINDOWS_RUNTIME_PACKAGE: ${{ github.workspace }}\build\windows-release\runtime-assets\project\projects\runtime_phase9_package.ntpkg
         run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
+
+      - name: Finalize and launch Linux portable export on X11
+        if: matrix.platform == 'linux'
+        working-directory: editor
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          NOVELTEA_LINUX_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
+          NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
+          NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
+        run: xvfb-run -a pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
+
+      - name: Finalize and launch Linux portable export on Wayland
+        if: matrix.platform == 'linux'
+        working-directory: editor
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          NOVELTEA_LINUX_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
+          NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
+          NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
+          SDL_VIDEODRIVER: wayland
+          WAYLAND_DISPLAY: wayland-noveltea
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/noveltea-weston-runtime
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          weston --backend=headless-backend.so --socket="$WAYLAND_DISPLAY" --idle-time=0 >"$RUNNER_TEMP/weston.log" 2>&1 &
+          weston_pid=$!
+          trap 'kill "$weston_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do
+            test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" && break
+            sleep 0.25
+          done
+          test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" || { cat "$RUNNER_TEMP/weston.log"; exit 1; }
+          pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
 
       - name: Attest player template archives
         uses: actions/attest-build-provenance@v3

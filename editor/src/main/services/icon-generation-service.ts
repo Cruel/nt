@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import sharp, { type Metadata } from 'sharp';
 
-export type IconPlatform = 'web' | 'android' | 'windows' | 'macos';
+export type IconPlatform = 'web' | 'linux' | 'android' | 'windows' | 'macos';
 
 export interface IconGenerationDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -86,7 +86,7 @@ async function safeAreaDiagnostic(source: string, platform: IconPlatform, inset:
 export async function generateAppIcons(request: IconGenerationRequest): Promise<IconGenerationResult> {
   const diagnostics: IconGenerationDiagnostic[] = [];
   const files: GeneratedIconFile[] = [];
-  const platforms = new Set(request.platforms ?? ['web', 'android', 'windows', 'macos']);
+  const platforms = new Set(request.platforms ?? ['web', 'linux', 'android', 'windows', 'macos']);
   let metadata: Metadata;
   try { metadata = await sharp(request.sourcePath, { failOn: 'error' }).metadata(); }
   catch (error) { return { ok: false, files, diagnostics: [{ severity: 'error', code: 'unreadable-source', message: `Cannot read app icon: ${error instanceof Error ? error.message : String(error)}` }] }; }
@@ -105,6 +105,15 @@ export async function generateAppIcons(request: IconGenerationRequest): Promise<
     for (const size of [16, 32, 180, 192, 512]) add('web', size <= 32 ? 'favicon' : 'icon', await write(request.stagingRoot, `web/icons/icon-${size}.png`, await png(source, size)), request.overrides?.web ? 'override' : 'generated', size);
     add('web', 'favicon', await write(request.stagingRoot, 'web/favicon.ico', ico(await Promise.all([16, 32].map(async (size) => ({ size, data: await png(source, size) }))))), request.overrides?.web ? 'override' : 'generated');
     diagnostics.push(...[await safeAreaDiagnostic(source, 'web', 0.1)].filter((value): value is IconGenerationDiagnostic => value !== null));
+  }
+  if (platforms.has('linux')) {
+    for (const size of [16, 32, 48, 64, 128, 256, 512]) {
+      add('linux', 'hicolor', await write(
+        request.stagingRoot,
+        `linux/hicolor/${size}x${size}/apps/app.png`,
+        await png(request.sourcePath, size),
+      ), 'generated', size);
+    }
   }
   if (platforms.has('android')) {
     const legacy = request.overrides?.androidLegacy ?? request.sourcePath;

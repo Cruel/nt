@@ -12,12 +12,15 @@ import * as ResEdit from 'resedit';
 import { installPlayerTemplate } from '../../main/services/template-registry-service';
 
 const roots: string[] = [];
+const linuxTemplateArchive = process.env.NOVELTEA_LINUX_TEMPLATE_ARCHIVE;
+const linuxRuntimePackage = process.env.NOVELTEA_LINUX_RUNTIME_PACKAGE;
+const linuxAppImageTool = process.env.NOVELTEA_LINUX_APPIMAGE_TOOL;
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 async function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-stage-')); roots.push(root);
-  configureTemplateRegistryRoot(path.join(root, 'registry')); const templateToken = 'linux-x64/build-1'; const templateRoot = templateRootForToken(templateToken); fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true }); fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'player');
+  configureTemplateRegistryRoot(path.join(root, 'registry')); const templateToken = 'linux-x64/build-1'; const templateRoot = templateRootForToken(templateToken); fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true }); fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'player', { mode: 0o755 });
   const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex'); const player = fs.readFileSync(path.join(templateRoot, 'bin/player')); const mode = fs.statSync(path.join(templateRoot, 'bin/player')).mode & 0o777;
-  const descriptor = { format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'linux-x64', buildId: 'build-1', engineVersion: '1', platform: 'linux', architecture: 'x64', minimumPlatformVersion: 'provisional', graphicsBackends: ['opengl'], shaderVariants: ['glsl-120'], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: [], buildFlavor: 'release', packageAccessModes: ['sidecar'], files: [{ path: 'bin/player', size: player.length, mode, sha256: sha(player) }], runtimeDependencies: [], artifacts: { archive: 'linux.tar.gz', symbols: 'linux-symbols.tar.gz', sbom: 'SBOM.cdx.json', notices: 'THIRD_PARTY_NOTICES.txt' }, provenance: { provider: 'local', source: 'test' }, host: { assembly: 'any', requiresToolchain: false, tools: [] } }; const descriptorData = Buffer.from(JSON.stringify(descriptor));
+  const descriptor = { format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'linux-x64', buildId: 'build-1', engineVersion: '1', platform: 'linux', architecture: 'x64', minimumPlatformVersion: 'provisional', graphicsBackends: ['opengl'], shaderVariants: ['glsl-120'], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: [], buildFlavor: 'release', packageAccessModes: ['sidecar'], files: [{ path: 'bin/player', size: player.length, mode, sha256: sha(player), role: 'player' }], runtimeDependencies: [], linuxNeeded: [], linuxRpaths: [], artifacts: { archive: 'linux.tar.gz', symbols: 'linux-symbols.tar.gz', sbom: 'SBOM.cdx.json', notices: 'THIRD_PARTY_NOTICES.txt' }, provenance: { provider: 'local', source: 'test' }, host: { assembly: 'any', requiresToolchain: false, tools: [] } }; const descriptorData = Buffer.from(JSON.stringify(descriptor));
   fs.writeFileSync(path.join(templateRoot, 'template.json'), descriptorData); fs.writeFileSync(path.join(templateRoot, '.noveltea-template.json'), JSON.stringify({ format: 'noveltea.template-registry', formatVersion: 1, templateId: 'linux-x64', buildId: 'build-1', descriptorSha256: sha(descriptorData), archiveSha256: 'a'.repeat(64), installedAt: new Date().toISOString(), origin: 'test', trust: 'local-untrusted', verified: true }));
   const packagePath = path.join(root, 'game.ntpkg'); fs.writeFileSync(packagePath, 'package'); const iconSourcePath = path.join(root, 'icon.png'); await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#ff0000' } }).png().toFile(iconSourcePath);
   const request: PlatformStageRequest = { operationId: 'one', profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'linux', label: 'Linux', target: 'linux', architecture: 'x64', packageAccess: 'sidecar', buildFlavor: 'release', compression: 'default', includeDebugSymbols: false, capabilityOverrides: [], desktop: { artifact: 'tar', executableName: 'game' } }, templateToken, outputDirectory: path.join(root, 'out'), packagePath, iconSourcePath, runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 }, identity: { displayName: 'Game', applicationId: 'com.example.game', saveNamespace: 'com.example.game', versionName: '1', defaultLocale: 'en-US' }, display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' }, runtimePackageApi: 1 };
@@ -37,13 +40,18 @@ function outputBytes(root: string, prefix = ''): Record<string, string> {
 describe('platform staging service', () => {
   it('builds deterministic provenance and replaces a previous output', async () => {
     const { request } = await fixture(); fs.mkdirSync(request.outputDirectory); fs.writeFileSync(path.join(request.outputDirectory, 'old'), 'old');
-    const first = await stagePlatformExport(request); expect(first.success).toBe(true); expect(fs.existsSync(path.join(request.outputDirectory, 'old'))).toBe(false);
+    const first = await stagePlatformExport(request); expect(first.success, JSON.stringify(first.diagnostics)).toBe(true); expect(fs.existsSync(path.join(request.outputDirectory, 'old'))).toBe(false);
     expect(first.manifest?.files.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256))).toBe(true);
     const firstBytes = outputBytes(request.outputDirectory);
     const second = await stagePlatformExport({ ...request, operationId: 'two' }); expect(second.manifest).toEqual(first.manifest);
     expect(outputBytes(request.outputDirectory)).toEqual(firstBytes);
     expect(JSON.parse(fs.readFileSync(path.join(request.outputDirectory, 'export-manifest.json'), 'utf8')).deployment.applicationId).toBe('com.example.game');
-    expect(JSON.parse(fs.readFileSync(path.join(request.outputDirectory, 'player.json'), 'utf8')).defaultLocale).toBe('en-US');
+    expect(JSON.parse(fs.readFileSync(path.join(request.outputDirectory, 'bin/player.json'), 'utf8')).defaultLocale).toBe('en-US');
+    expect(JSON.parse(fs.readFileSync(path.join(request.outputDirectory, 'bin/player.json'), 'utf8')).package.path).toBe('game.ntpkg');
+    expect(fs.statSync(path.join(request.outputDirectory, 'game')).mode & 0o111).not.toBe(0);
+    expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(true);
+    expect(fs.existsSync(path.join(request.outputDirectory, 'share/applications/com.example.game.desktop'))).toBe(true);
+    expect(fs.existsSync(path.join(request.outputDirectory, 'share/icons/hicolor/512x512/apps/com.example.game.png'))).toBe(true);
   });
 
   it('rejects sandbox content without touching previous output', async () => {
@@ -217,5 +225,145 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
         fs.rmSync(path.join(process.env.APPDATA!, 'NovelTea', saveNamespace), { recursive: true, force: true });
       }
     }, 30_000);
+  },
+);
+
+describe.runIf(process.platform === 'linux' && !!linuxTemplateArchive && !!linuxRuntimePackage && !!linuxAppImageTool)(
+  'Linux portable export native smoke',
+  () => {
+    it('launches the real finalized export from Unicode/space paths and an unrelated working directory', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'NovelTea Linux export 茶 '));
+      roots.push(root);
+      configureTemplateRegistryRoot(path.join(root, 'template registry'));
+      const installed = await installPlayerTemplate({
+        archivePath: linuxTemplateArchive!,
+        origin: 'release-ci-smoke',
+      });
+      expect(installed.success, installed.diagnostics.map((item) => item.message).join('\n')).toBe(true);
+      expect(installed.entry).toBeDefined();
+
+      const iconSourcePath = path.join(root, 'icon source.png');
+      await sharp({
+        create: { width: 1024, height: 1024, channels: 4, background: '#553399' },
+      }).png().toFile(iconSourcePath);
+      const saveNamespace = `com.noveltea.linux-smoke-${Date.now()}`;
+      const outputDirectory = path.join(root, 'Exported Game 茶');
+      const result = await stagePlatformExport({
+        operationId: 'linux-native-smoke',
+        profile: {
+          format: PLATFORM_EXPORT_PROFILE_FORMAT,
+          formatVersion: 1,
+          id: 'linux-native-smoke',
+          label: 'Linux native smoke',
+          target: 'linux',
+          architecture: 'x64',
+          packageAccess: 'sidecar',
+          buildFlavor: 'release',
+          compression: 'default',
+          includeDebugSymbols: true,
+          capabilityOverrides: [],
+          desktop: { artifact: 'appimage', executableName: 'tea-game' },
+        },
+        templateToken: `${installed.entry!.templateId}/${installed.entry!.buildId}`,
+        outputDirectory,
+        packagePath: linuxRuntimePackage!,
+        iconSourcePath,
+        runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+        identity: {
+          displayName: 'Tea Game 茶',
+          applicationId: 'com.noveltea.linux-smoke',
+          saveNamespace,
+          versionName: '1.0.0',
+          defaultLocale: 'en-US',
+        },
+        display: {
+          aspectRatio: { width: 16, height: 9 },
+          orientation: 'landscape',
+          barColor: '#000000',
+        },
+        runtimePackageApi: 1,
+        linuxAppImageTool,
+      });
+      expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
+      expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
+      expect(result.symbolArchivePath && fs.existsSync(result.symbolArchivePath)).toBe(true);
+      const appImagePath = `${outputDirectory}.AppImage`;
+      expect(fs.existsSync(appImagePath)).toBe(true);
+
+      const desktop = fs.readFileSync(
+        path.join(outputDirectory, 'share/applications/com.noveltea.linux-smoke.desktop'),
+        'utf8',
+      );
+      expect(desktop).toContain('X-NovelTea-ApplicationId=com.noveltea.linux-smoke');
+      expect(desktop).toContain(`X-NovelTea-SaveNamespace=${saveNamespace}`);
+
+      const unrelatedWorkingDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'NovelTea unrelated cwd '));
+      const xdgDataHome = path.join(root, 'xdg data');
+      const home = path.join(root, 'home');
+      fs.mkdirSync(home, { recursive: true });
+      roots.push(unrelatedWorkingDirectory);
+      const child = spawn(path.join(outputDirectory, 'tea-game'), [], {
+        cwd: unrelatedWorkingDirectory,
+        env: { ...process.env, HOME: home, XDG_DATA_HOME: xdgDataHome },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      let stderr = '';
+      child.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
+      try {
+        const deadline = Date.now() + 20_000;
+        while (Date.now() < deadline) {
+          if (stderr.includes('[engine] entering main loop')) break;
+          if (child.exitCode !== null) break;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        expect(stderr, `exit=${child.exitCode}`).toContain('[engine] entering main loop');
+        expect(stderr).toContain('[engine] loaded runtime project: project:/game.ntpkg');
+        expect(stderr).not.toContain('asset not found while reading system:/');
+        expect(stderr).not.toContain('Engine initialization failed');
+        expect(child.exitCode).toBeNull();
+      } finally {
+        if (child.exitCode === null) {
+          child.kill();
+          await Promise.race([
+            new Promise<void>((resolve) => child.once('exit', () => resolve())),
+            new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+          ]);
+        }
+      }
+
+      const appImageChild = spawn(appImagePath, [], {
+        cwd: unrelatedWorkingDirectory,
+        env: {
+          ...process.env,
+          APPIMAGE_EXTRACT_AND_RUN: '1',
+          HOME: home,
+          XDG_DATA_HOME: xdgDataHome,
+        },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      let appImageStderr = '';
+      appImageChild.stderr?.on('data', (chunk) => { appImageStderr += chunk.toString(); });
+      try {
+        const deadline = Date.now() + 20_000;
+        while (Date.now() < deadline) {
+          if (appImageStderr.includes('[engine] entering main loop')) break;
+          if (appImageChild.exitCode !== null) break;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        expect(appImageStderr, `exit=${appImageChild.exitCode}`).toContain('[engine] entering main loop');
+        expect(appImageStderr).toContain('[engine] loaded runtime project: project:/game.ntpkg');
+        expect(appImageStderr).not.toContain('asset not found while reading system:/');
+        expect(appImageStderr).not.toContain('Engine initialization failed');
+        expect(appImageChild.exitCode).toBeNull();
+      } finally {
+        if (appImageChild.exitCode === null) {
+          appImageChild.kill();
+          await Promise.race([
+            new Promise<void>((resolve) => appImageChild.once('exit', () => resolve())),
+            new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+          ]);
+        }
+      }
+    }, 60_000);
   },
 );
