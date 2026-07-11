@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateTargetPaths } from '../../shared/project-schema/target-path-portability';
-import { portabilityFixtureEntries } from './fixtures/platform-export-acceptance';
+import { portabilityFixtureEntries } from '../../shared/project-schema/platform-export-acceptance-fixture';
 
 describe('target path portability', () => {
   it('reports stable diagnostics for the canonical hostile paths', () => {

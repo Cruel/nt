@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 const FORMAT = 'noveltea-platform-certification';
+const RESULTS_FORMAT = 'noveltea-platform-certification-results';
 const VERSION = 1;
 const FIXTURE_ID = 'platform-export-acceptance';
 const universalChecks = [
@@ -95,6 +96,14 @@ function validate(descriptor, report) {
   requireEqual('template.target', report.template?.target, descriptor.platform);
   requireEqual('template.architecture', report.template?.architecture, descriptor.architecture);
   requireEqual('template.buildFlavor', report.template?.buildFlavor, descriptor.buildFlavor);
+  requireEqual('environment.target', report.environment?.target, descriptor.platform);
+  for (const field of ['sourceRevision']) if (!report.template?.[field]) errors.push(`template.${field} is required.`);
+  for (const field of ['revision', 'sha256', 'runtimePackageSha256', 'profileSha256']) {
+    if (!report.fixture?.[field]) errors.push(`fixture.${field} is required.`);
+  }
+  for (const field of ['workflow', 'runId', 'job', 'runnerOs', 'runnerArch', 'target']) {
+    if (!report.environment?.[field]) errors.push(`environment.${field} is required.`);
+  }
   const exercised = report.exercised ?? {};
   const contains = (field, value) => Array.isArray(exercised[field]) && exercised[field].includes(value);
   for (let api = descriptor.runtimePackageApi.minimum; api <= descriptor.runtimePackageApi.maximum; api += 1) if (!contains('packageApis', api)) errors.push(`Package API ${api} was not exercised.`);
@@ -104,29 +113,62 @@ function validate(descriptor, report) {
     ['shaderVariants', descriptor.shaderVariants], ['compiledFeatures', descriptor.compiledFeatures],
     ['packageAccessModes', descriptor.packageAccessModes], ['artifactFormats', expectedArtifactFormats(descriptor)],
   ]) for (const value of values ?? []) if (!contains(field, value)) errors.push(`${field} '${value}' was not exercised.`);
-  const evidence = new Map((report.evidence ?? []).map((item) => [item.check, item]));
+  const evidenceItems = report.evidence ?? [];
+  const evidence = new Map();
+  const artifactOwners = new Map();
+  for (const item of evidenceItems) {
+    if (evidence.has(item.check)) errors.push(`Duplicate evidence for '${item.check}'.`);
+    evidence.set(item.check, item);
+    if (item.artifact) {
+      const owner = artifactOwners.get(item.artifact);
+      if (owner && owner !== item.check) errors.push(`Evidence artifact '${item.artifact}' is reused by unrelated checks '${owner}' and '${item.check}'.`);
+      artifactOwners.set(item.artifact, item.check);
+    }
+    if (item.target !== descriptor.platform) errors.push(`Evidence '${item.check}' targets '${item.target}', expected '${descriptor.platform}'.`);
+    if (item.environment?.target !== descriptor.platform) errors.push(`Evidence '${item.check}' environment targets '${item.environment?.target}', expected '${descriptor.platform}'.`);
+    for (const field of ['workflow', 'runId', 'job', 'runnerOs', 'runnerArch', 'target']) {
+      if (item.environment?.[field] !== report.environment?.[field]) errors.push(`Evidence '${item.check}' environment.${field} does not match the report environment.`);
+    }
+    if (!item.test) errors.push(`Evidence '${item.check}' does not identify its exact test or verifier.`);
+    if (!item.environment?.workflow || !item.environment?.runId || !item.environment?.job || !item.environment?.runnerOs || !item.environment?.runnerArch) {
+      errors.push(`Evidence '${item.check}' does not identify a complete target environment.`);
+    }
+  }
   for (const check of new Set([...universalChecks, ...(targetChecks[descriptor.platform] ?? []), `${descriptor.platform}-system-assets`])) {
     const item = evidence.get(check);
     if (!item) errors.push(`Missing evidence '${check}'.`);
     else if (item.status !== 'passed') errors.push(`Evidence '${check}' is ${item.status}.`);
-    else if (!item.producer || !item.command || !item.artifact || !item.artifactSha256) errors.push(`Evidence '${check}' is not bound to a producer, command, and hashed artifact.`);
+    else if (!item.producer || !item.command || !item.test || !item.artifact || !item.artifactSha256) errors.push(`Evidence '${check}' is not bound to a test, producer, command, and hashed artifact.`);
   }
   if ((report.hostGaps ?? []).length) errors.push(`Certification contains host gaps: ${report.hostGaps.map((item) => item.check).join(', ')}.`);
   return errors;
 }
 
 async function create(options) {
-  for (const name of ['archive', 'fixture', 'evidence', 'output', 'source-revision']) if (!options[name]) throw new Error(`create requires --${name}.`);
+  for (const name of ['archive', 'fixture', 'results', 'output', 'source-revision']) if (!options[name]) throw new Error(`create requires --${name}.`);
   const archive = path.resolve(options.archive);
   const fixture = path.resolve(options.fixture);
   const outputPath = path.resolve(options.output);
-  const evidenceInput = JSON.parse(await readFile(path.resolve(options.evidence), 'utf8'));
+  const evidenceInput = JSON.parse(await readFile(path.resolve(options.results), 'utf8'));
+  if (evidenceInput.format !== RESULTS_FORMAT || evidenceInput.formatVersion !== VERSION) {
+    throw new Error(`Results input must use ${RESULTS_FORMAT} version ${VERSION}.`);
+  }
+  if (!Array.isArray(evidenceInput.evidence) || evidenceInput.evidence.length === 0) {
+    throw new Error('Results input must contain explicit per-check evidence records.');
+  }
+  for (const field of ['fixtureRevision', 'runtimePackageSha256', 'profileSha256', 'environment', 'exercised']) {
+    if (!evidenceInput[field]) throw new Error(`Results input requires '${field}'.`);
+  }
   const { descriptor, descriptorSha256 } = await descriptorFromArchive(archive);
   const evidence = [];
-  for (const item of evidenceInput.evidence ?? []) {
+  for (const item of evidenceInput.evidence) {
     const artifact = path.resolve(item.artifact);
     if (!(await stat(artifact)).isFile()) throw new Error(`Evidence artifact '${artifact}' is not a file.`);
-    evidence.push({ ...item, artifact: path.relative(path.dirname(outputPath), artifact).split(path.sep).join('/'), artifactSha256: await fileHash(artifact) });
+    evidence.push({
+      ...item,
+      artifact: path.relative(path.dirname(outputPath), artifact).split(path.sep).join('/'),
+      artifactSha256: await fileHash(artifact),
+    });
   }
   const report = {
     format: FORMAT,
@@ -142,7 +184,14 @@ async function create(options) {
       archiveSha256: await fileHash(archive),
       sourceRevision: options['source-revision'],
     },
-    fixture: { id: FIXTURE_ID, revision: evidenceInput.fixtureRevision, sha256: await fileHash(fixture) },
+    fixture: {
+      id: FIXTURE_ID,
+      revision: evidenceInput.fixtureRevision,
+      sha256: await fileHash(fixture),
+      runtimePackageSha256: evidenceInput.runtimePackageSha256,
+      profileSha256: evidenceInput.profileSha256,
+    },
+    environment: evidenceInput.environment,
     exercised: evidenceInput.exercised,
     evidence,
     hostGaps: evidenceInput.hostGaps ?? [],
@@ -150,37 +199,6 @@ async function create(options) {
   const errors = validate(descriptor, report);
   if (errors.length) throw new Error(`Certification report is incomplete:\n- ${errors.join('\n- ')}`);
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
-}
-
-async function evidence(options) {
-  for (const name of ['archive', 'artifact', 'output', 'command', 'producer', 'fixture-revision']) if (!options[name]) throw new Error(`evidence requires --${name}.`);
-  const { descriptor } = await descriptorFromArchive(path.resolve(options.archive));
-  const checks = [...new Set([...universalChecks, ...(targetChecks[descriptor.platform] ?? []), `${descriptor.platform}-system-assets`])];
-  const artifact = path.resolve(options.artifact);
-  if (!(await stat(artifact)).isFile()) throw new Error(`Evidence artifact '${artifact}' is not a file.`);
-  const payload = {
-    fixtureRevision: options['fixture-revision'],
-    exercised: {
-      packageApis: Array.from({ length: descriptor.runtimePackageApi.maximum - descriptor.runtimePackageApi.minimum + 1 }, (_, index) => descriptor.runtimePackageApi.minimum + index),
-      playerConfigApis: Array.from({ length: descriptor.playerConfigApi.maximum - descriptor.playerConfigApi.minimum + 1 }, (_, index) => descriptor.playerConfigApi.minimum + index),
-      capabilities: descriptor.capabilities,
-      artifactFormats: expectedArtifactFormats(descriptor),
-      graphicsBackends: descriptor.graphicsBackends,
-      shaderVariants: descriptor.shaderVariants,
-      compiledFeatures: descriptor.compiledFeatures,
-      packageAccessModes: descriptor.packageAccessModes,
-    },
-    evidence: checks.map((check) => ({
-      check,
-      status: 'passed',
-      detail: `Verified by ${options.command}`,
-      artifact,
-      producer: options.producer,
-      command: options.command,
-    })),
-    hostGaps: [],
-  };
-  await writeFile(path.resolve(options.output), `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 async function verify(options) {
@@ -231,10 +249,9 @@ async function verifySet(options) {
 async function main() {
   const options = args(process.argv.slice(2));
   if (options.subcommand === 'create') await create(options);
-  else if (options.subcommand === 'evidence') await evidence(options);
   else if (options.subcommand === 'verify') await verify(options);
   else if (options.subcommand === 'verify-set') await verifySet(options);
-  else throw new Error('Usage: platform-certification.mjs <evidence|create|verify|verify-set> ...');
+  else throw new Error('Usage: platform-certification.mjs <create|verify|verify-set> ...');
 }
 
 main().catch((error) => fail(error instanceof Error ? error.message : String(error)));

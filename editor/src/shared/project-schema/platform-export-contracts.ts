@@ -372,6 +372,8 @@ export interface ProjectPlatformExportRequest {
   operationId?: string;
   templateToken?: string;
   localState?: {
+    shaderc?: string;
+    bgfxShaderIncludeDir?: string;
     androidSdk?: string;
     androidNdk?: string;
     javaHome?: string;

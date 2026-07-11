@@ -10,10 +10,20 @@ const evidenceSchema = z.object({
   check: z.string().trim().min(1),
   status: checkStatusSchema,
   detail: z.string().trim().min(1),
-  artifact: z.string().trim().min(1).optional(),
-  artifactSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  test: z.string().trim().min(1),
+  target: z.enum(exportPlatformValues),
+  artifact: z.string().trim().min(1),
+  artifactSha256: z.string().regex(/^[0-9a-f]{64}$/),
   producer: z.string().trim().min(1),
   command: z.string().trim().min(1),
+  environment: z.object({
+    workflow: z.string().trim().min(1),
+    runId: z.string().trim().min(1),
+    job: z.string().trim().min(1),
+    runnerOs: z.string().trim().min(1),
+    runnerArch: z.string().trim().min(1),
+    target: z.enum(exportPlatformValues),
+  }).strict(),
 }).strict();
 
 export const platformCertificationReportSchema = z.object({
@@ -26,7 +36,21 @@ export const platformCertificationReportSchema = z.object({
     descriptorSha256: z.string().regex(/^[0-9a-f]{64}$/), archiveSha256: z.string().regex(/^[0-9a-f]{64}$/),
     sourceRevision: z.string().min(1),
   }).strict(),
-  fixture: z.object({ id: z.literal(PLATFORM_CERTIFICATION_FIXTURE_ID), revision: z.string().min(1), sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(),
+  fixture: z.object({
+    id: z.literal(PLATFORM_CERTIFICATION_FIXTURE_ID),
+    revision: z.string().min(1),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    runtimePackageSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    profileSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  }).strict(),
+  environment: z.object({
+    workflow: z.string().trim().min(1),
+    runId: z.string().trim().min(1),
+    job: z.string().trim().min(1),
+    runnerOs: z.string().trim().min(1),
+    runnerArch: z.string().trim().min(1),
+    target: z.enum(exportPlatformValues),
+  }).strict(),
   exercised: z.object({
     packageApis: z.array(z.number().int().nonnegative()), capabilities: z.array(z.string()),
     playerConfigApis: z.array(z.number().int().nonnegative()), artifactFormats: z.array(z.string()),
@@ -89,7 +113,16 @@ export function certifyTemplateDescriptor(descriptorValue: unknown, reportValue:
   for (const mode of descriptor.packageAccessModes) if (!report.exercised.packageAccessModes.includes(mode)) diagnostics.push({ code: 'certification-package-access-unexercised', path: '/exercised/packageAccessModes', message: `Descriptor package access mode '${mode}' was not exercised.` });
   for (const format of descriptorArtifactFormats(descriptor)) if (!report.exercised.artifactFormats.includes(format)) diagnostics.push({ code: 'certification-artifact-unexercised', path: '/exercised/artifactFormats', message: `Claimed artifact format '${format}' was not exercised.` });
 
-  const evidence = new Map(report.evidence.map((item) => [item.check, item]));
+  const evidence = new Map<string, (typeof report.evidence)[number]>();
+  const artifactOwners = new Map<string, string>();
+  for (const item of report.evidence) {
+    if (evidence.has(item.check)) diagnostics.push({ code: 'certification-evidence-duplicate', path: '/evidence', message: `Certification check '${item.check}' has duplicate evidence.` });
+    evidence.set(item.check, item);
+    const owner = artifactOwners.get(item.artifact);
+    if (owner && owner !== item.check) diagnostics.push({ code: 'certification-evidence-artifact-reused', path: '/evidence', message: `Evidence artifact '${item.artifact}' is reused by unrelated checks '${owner}' and '${item.check}'.` });
+    artifactOwners.set(item.artifact, item.check);
+    if (item.target !== descriptor.platform || item.environment.target !== descriptor.platform) diagnostics.push({ code: 'certification-evidence-target-mismatch', path: `/evidence/${item.check}`, message: `Evidence '${item.check}' does not match target '${descriptor.platform}'.` });
+  }
   const required = [...universalChecks, ...targetChecks[descriptor.platform], `${descriptor.platform}-system-assets`];
   for (const check of new Set(required)) {
     const item = evidence.get(check);

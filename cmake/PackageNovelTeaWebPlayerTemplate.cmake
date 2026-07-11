@@ -32,6 +32,14 @@ endif()
 find_program(NODE_EXECUTABLE node REQUIRED)
 execute_process(COMMAND "${NODE_EXECUTABLE}" "${root}/cmake/generate-player-template-metadata.mjs" "${build}/vcpkg_installed" "${stage}" "${NOVELTEA_RELEASE_TAG}" "${build}" COMMAND_ERROR_IS_FATAL ANY)
 
+# Web template payloads are data files, not host executables. Normalize modes
+# before descriptor generation and ZIP creation so secure installation sees the
+# same permissions declared by template.json on every archive host.
+file(GLOB_RECURSE staged_mode_files LIST_DIRECTORIES false "${stage}/*")
+foreach(staged_mode_file IN LISTS staged_mode_files)
+  file(CHMOD "${staged_mode_file}" PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+endforeach()
+
 file(GLOB_RECURSE staged_files RELATIVE "${stage}" "${stage}/*")
 list(SORT staged_files)
 set(file_entries "")

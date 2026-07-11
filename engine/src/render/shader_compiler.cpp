@@ -19,6 +19,14 @@
 namespace noveltea {
 namespace {
 
+constexpr std::string_view kDefaultVaryingDefinition = R"sc(vec2 a_position  : POSITION;
+vec4 a_color0     : COLOR0;
+vec2 a_texcoord0  : TEXCOORD0;
+
+vec2 v_texcoord0  : TEXCOORD0;
+vec4 v_color0     : COLOR0;
+)sc";
+
 constexpr std::uint64_t fnv_offset = 14695981039346656037ull;
 constexpr std::uint64_t fnv_prime = 1099511628211ull;
 
@@ -414,6 +422,15 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
             }
 
             for (const auto& variant : options.variants) {
+                const auto varying_path = source_path->parent_path() / "varying.def.sc";
+                if (!std::filesystem::exists(varying_path) &&
+                    !write_text_file_if_changed(varying_path, kDefaultVaryingDefinition)) {
+                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                   ShaderCompileDiagnosticCode::SourceWriteFailed, shader.id,
+                                   stage.stage, variant.name, varying_path, {}, {}, 0,
+                                   "Failed to write the default shader varying definition.");
+                    continue;
+                }
                 const auto runtime_path = runtime_binary_path(shader.id, stage.stage, variant.name);
                 const auto output_path = options.output_root / runtime_path;
                 const auto cache_key =
@@ -448,6 +465,8 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     variant.platform,
                     "--profile",
                     variant.profile,
+                    "--varyingdef",
+                    varying_path.string(),
                     "-i",
                     source_path->parent_path().string(),
                     "-i",

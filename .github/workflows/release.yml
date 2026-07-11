@@ -223,7 +223,14 @@ jobs:
         env:
           NOVELTEA_WINDOWS_TEMPLATE_ARCHIVE: ${{ github.workspace }}\dist\noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-release.zip
           NOVELTEA_WINDOWS_RUNTIME_PACKAGE: ${{ github.workspace }}\build\windows-release\runtime-assets\project\projects\runtime_phase9_package.ntpkg
-        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+          NOVELTEA_CANONICAL_EXPORT_TARGET: windows
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}\dist\noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-release.zip
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}\noveltea-canonical-windows
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}\dist\canonical-windows-export
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}\dist\canonical-windows-fixture-evidence.json
+          NOVELTEA_SHADERC: ${{ github.workspace }}\build\windows-release\vcpkg_installed\x64-windows\tools\bgfx\shaderc.exe
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}\build\windows-release\vcpkg_installed\x64-windows\include\bgfx
+        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Finalize and launch Linux portable export on X11
         if: matrix.platform == 'linux'
@@ -233,7 +240,14 @@ jobs:
           NOVELTEA_LINUX_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
           NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
           NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
-        run: xvfb-run -a pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+          NOVELTEA_CANONICAL_EXPORT_TARGET: linux
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-linux
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-export
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-fixture-evidence.json
+          NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux/tools/bgfx/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux/include/bgfx
+        run: xvfb-run -a pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Finalize and launch Linux portable export on Wayland
         if: matrix.platform == 'linux'
@@ -265,25 +279,26 @@ jobs:
         env:
           NOVELTEA_MACOS_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-release.tar.gz
           NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/macos-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
-        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+          NOVELTEA_CANONICAL_EXPORT_TARGET: macos
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-release.tar.gz
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-macos
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/Platform Export Acceptance.app
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-macos-fixture-evidence.json
+          NOVELTEA_SHADERC: ${{ github.workspace }}/build/macos-release/vcpkg_installed/arm64-osx/tools/bgfx/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/macos-release/vcpkg_installed/arm64-osx/include/bgfx
+        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Generate desktop platform certification report
         shell: pwsh
         run: |
           $archive = Get-ChildItem "dist/noveltea-player-template-*-${{ matrix.platform }}-${{ matrix.arch }}-release.*" | Where-Object { $_.Name -notmatch 'symbols' } | Select-Object -First 1
           if (!$archive) { throw "Player template archive was not found" }
-          $evidenceArtifact = "dist/noveltea-${{ matrix.platform }}-${{ matrix.arch }}-certification-evidence.txt"
-          @(
-            "source=$env:GITHUB_SHA"
-            "platform=${{ matrix.platform }}"
-            "architecture=${{ matrix.arch }}"
-            "template=$($archive.Name)"
-            "desktop export, dependency audit, native launch, symbol, notice, SBOM, rollback, and reproducibility checks passed"
-          ) | Set-Content -Encoding utf8 $evidenceArtifact
-          $evidence = "dist/noveltea-${{ matrix.platform }}-${{ matrix.arch }}-certification-evidence.json"
+          $results = "dist/noveltea-certification-results-${{ matrix.platform }}-${{ matrix.arch }}-release.json"
+          if (!(Test-Path $results)) {
+            throw "Explicit per-check certification results are missing: $results. Release certification fails closed until real target checks generate this file."
+          }
           $report = "dist/noveltea-platform-certification-${{ matrix.platform }}-${{ matrix.arch }}-release.json"
-          node scripts/platform-certification.mjs evidence --archive $archive.FullName --artifact $evidenceArtifact --output $evidence --command "release desktop integration and native smoke" --producer "github-actions/release/desktop-sandbox" --fixture-revision "$env:GITHUB_SHA"
-          node scripts/platform-certification.mjs create --archive $archive.FullName --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence $evidence --output $report --source-revision "$env:GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive $archive.FullName --fixture editor/src/shared/project-schema/platform-export-acceptance-fixture.ts --results $results --output $report --source-revision "$env:GITHUB_SHA"
           node scripts/platform-certification.mjs verify --archive $archive.FullName --report $report
 
       - name: Attest player template archives
@@ -390,26 +405,34 @@ jobs:
           cache: pnpm
           cache-dependency-path: editor/pnpm-lock.yaml
 
+      - name: Build host editor tool for canonical Web export
+        run: |
+          cmake --preset linux-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
+          cmake --build --preset linux-debug --target noveltea-editor-tool
+
       - name: Validate canonical export fixture for Web certification
         working-directory: editor
+        env:
+          NOVELTEA_CANONICAL_EXPORT_TARGET: web
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-release.zip
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-export
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-fixture-evidence.json
+          NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
+          NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
         run: |
           pnpm install --frozen-lockfile
-          pnpm vitest run src/renderer/test/platform-export-acceptance-fixture.test.ts
+          pnpm vitest run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Generate Web platform certification report
         run: |
           archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-release.zip' -print -quit)
           test -n "$archive"
-          evidence_artifact=dist/noveltea-web-wasm32-certification-evidence.txt
-          printf '%s\n' \
-            "source=$GITHUB_SHA" \
-            "template=$(basename "$archive")" \
-            "Web player surface, runtime closure, root/subdirectory policy, persistence namespace, service-worker update policy, notices, SBOM, and reproducibility checks passed" \
-            > "$evidence_artifact"
-          evidence=dist/noveltea-web-wasm32-certification-evidence.json
+          results=dist/noveltea-certification-results-web-wasm32-release.json
+          test -f "$results" || { echo "Explicit per-check certification results are missing: $results. Release certification fails closed until real Web checks generate this file." >&2; exit 1; }
           report=dist/noveltea-platform-certification-web-wasm32-release.json
-          node scripts/platform-certification.mjs evidence --archive "$archive" --artifact "$evidence_artifact" --output "$evidence" --command "release Web build and export smoke" --producer "github-actions/release/web" --fixture-revision "$GITHUB_SHA"
-          node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence "$evidence" --output "$report" --source-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/shared/project-schema/platform-export-acceptance-fixture.ts --results "$results" --output "$report" --source-revision "$GITHUB_SHA"
           node scripts/platform-certification.mjs verify --archive "$archive" --report "$report"
 
       - name: Upload Web release preview
@@ -555,7 +578,14 @@ jobs:
           ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
           NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-release-integration
           NOVELTEA_ANDROID_EXPORT_OUTPUT: ${{ github.workspace }}/dist/android-release-fixture
-        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+          NOVELTEA_CANONICAL_EXPORT_TARGET: android
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-arm64-v8a-release.tar.gz
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-android-release
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-android-release-export
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-android-arm64-fixture-evidence.json
+          NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
+        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Export and inspect x86_64 debug APK through editor orchestration
         working-directory: editor
@@ -572,32 +602,31 @@ jobs:
           ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
           NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-debug-integration
           NOVELTEA_ANDROID_EXPORT_OUTPUT: ${{ github.workspace }}/dist/android-debug-fixture
-        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+          NOVELTEA_CANONICAL_EXPORT_TARGET: android
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-x86_64-debug.tar.gz
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-android-debug
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-android-debug-export
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-android-x86_64-fixture-evidence.json
+          NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
+        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Generate Android platform certification report
         run: |
           archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-android-arm64-v8a-release.tar.gz' -print -quit)
           test -n "$archive"
-          evidence_artifact=dist/noveltea-android-arm64-certification-evidence.txt
-          report_artifact=$(find dist/android-release-fixture -type f -name '*export-report.json' -print -quit)
-          test -n "$report_artifact"
-          cp "$report_artifact" "$evidence_artifact"
-          evidence=dist/noveltea-android-arm64-certification-evidence.json
+          results=dist/noveltea-certification-results-android-arm64-release.json
+          test -f "$results" || { echo "Explicit per-check certification results are missing: $results. Release certification fails closed until real Android checks generate this file." >&2; exit 1; }
           report=dist/noveltea-platform-certification-android-arm64-release.json
-          node scripts/platform-certification.mjs evidence --archive "$archive" --artifact "$evidence_artifact" --output "$evidence" --command "Android APK/AAB export, inspection, bundletool, ABI and alignment integration" --producer "github-actions/release/android" --fixture-revision "$GITHUB_SHA"
-          node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence "$evidence" --output "$report" --source-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/shared/project-schema/platform-export-acceptance-fixture.ts --results "$results" --output "$report" --source-revision "$GITHUB_SHA"
           node scripts/platform-certification.mjs verify --archive "$archive" --report "$report"
 
           debug_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-android-x86_64-debug.tar.gz' -print -quit)
           test -n "$debug_archive"
-          debug_evidence_artifact=dist/noveltea-android-x86_64-certification-evidence.txt
-          debug_report_artifact=$(find dist/android-debug-fixture -type f -name '*export-report.json' -print -quit)
-          test -n "$debug_report_artifact"
-          cp "$debug_report_artifact" "$debug_evidence_artifact"
-          debug_evidence=dist/noveltea-android-x86_64-certification-evidence.json
+          debug_results=dist/noveltea-certification-results-android-x86_64-debug.json
+          test -f "$debug_results" || { echo "Explicit per-check certification results are missing: $debug_results. Release certification fails closed until real Android checks generate this file." >&2; exit 1; }
           debug_report=dist/noveltea-platform-certification-android-x86_64-debug.json
-          node scripts/platform-certification.mjs evidence --archive "$debug_archive" --artifact "$debug_evidence_artifact" --output "$debug_evidence" --command "Android x86_64 debug APK export and inspection integration" --producer "github-actions/release/android" --fixture-revision "$GITHUB_SHA"
-          node scripts/platform-certification.mjs create --archive "$debug_archive" --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence "$debug_evidence" --output "$debug_report" --source-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive "$debug_archive" --fixture editor/src/shared/project-schema/platform-export-acceptance-fixture.ts --results "$debug_results" --output "$debug_report" --source-revision "$GITHUB_SHA"
           node scripts/platform-certification.mjs verify --archive "$debug_archive" --report "$debug_report"
 
       - name: Upload Android release artifact

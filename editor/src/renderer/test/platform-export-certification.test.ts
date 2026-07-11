@@ -15,12 +15,24 @@ const checks = ['artifact-claims','descriptor-file-roles','runtime-closure','gro
 const report = (): PlatformCertificationReport => ({
   format: PLATFORM_CERTIFICATION_FORMAT, formatVersion: PLATFORM_CERTIFICATION_FORMAT_VERSION, generatedAt: '2026-07-11T12:00:00.000Z',
   template: { templateId: descriptor.templateId, buildId: descriptor.buildId, target: descriptor.platform, architecture: descriptor.architecture, buildFlavor: descriptor.buildFlavor, descriptorSha256: 'd'.repeat(64), archiveSha256: 'e'.repeat(64), sourceRevision: 'commit-1' },
-  fixture: { id: 'platform-export-acceptance', revision: 'fixture-1', sha256: 'b'.repeat(64) },
+  fixture: { id: 'platform-export-acceptance', revision: 'fixture-1', sha256: 'b'.repeat(64), runtimePackageSha256: 'f'.repeat(64), profileSha256: '1'.repeat(64) },
+  environment: { workflow: 'release', runId: '42', job: 'web', runnerOs: 'Linux', runnerArch: 'X64', target: 'web' },
   exercised: {
     packageApis: [1], playerConfigApis: [1], capabilities: ['network.client'], artifactFormats: ['directory', 'zip'],
     graphicsBackends: ['webgl2'], shaderVariants: ['essl-300'], compiledFeatures: [], packageAccessModes: ['web-fetch'],
   },
-  evidence: checks.map((check) => ({ check, status: 'passed', detail: 'CI evidence recorded', artifact: 'report.json', artifactSha256: 'c'.repeat(64), producer: 'github-actions/test', command: 'pnpm test' })), hostGaps: [],
+  evidence: checks.map((check, index) => ({
+    check,
+    status: 'passed',
+    detail: 'CI evidence recorded',
+    test: `certification/${check}`,
+    target: 'web',
+    artifact: `evidence/${index}-${check}.json`,
+    artifactSha256: index.toString(16).padStart(64, '0'),
+    producer: 'github-actions/test',
+    command: `pnpm test -- ${check}`,
+    environment: { workflow: 'release', runId: '42', job: 'web', runnerOs: 'Linux', runnerArch: 'X64', target: 'web' },
+  })), hostGaps: [],
 });
 
 describe('platform export certification gate', () => {
@@ -34,5 +46,21 @@ describe('platform export certification gate', () => {
   it('treats documented host gaps as non-certified rather than silently green', () => {
     const value = report(); value.hostGaps = [{ check: 'macos-notarization', reason: 'Linux host' }];
     expect(certifyTemplateDescriptor(descriptor, value).diagnostics).toContainEqual(expect.objectContaining({ code: 'certification-host-gap' }));
+  });
+  it('rejects duplicate checks', () => {
+    const value = report();
+    value.evidence[1] = { ...value.evidence[1]!, check: value.evidence[0]!.check };
+    const codes = certifyTemplateDescriptor(descriptor, value).diagnostics.map((item) => item.code);
+    expect(codes).toContain('certification-evidence-duplicate');
+  });
+  it('rejects reuse of one generic artifact by unrelated checks', () => {
+    const value = report();
+    value.evidence[1] = { ...value.evidence[1]!, artifact: value.evidence[0]!.artifact };
+    expect(certifyTemplateDescriptor(descriptor, value).diagnostics).toContainEqual(expect.objectContaining({ code: 'certification-evidence-artifact-reused' }));
+  });
+  it('rejects evidence produced for another target', () => {
+    const value = report();
+    value.evidence[0] = { ...value.evidence[0]!, target: 'linux', environment: { ...value.evidence[0]!.environment, target: 'linux' } };
+    expect(certifyTemplateDescriptor(descriptor, value).diagnostics).toContainEqual(expect.objectContaining({ code: 'certification-evidence-target-mismatch' }));
   });
 });

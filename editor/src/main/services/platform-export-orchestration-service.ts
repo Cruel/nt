@@ -94,6 +94,8 @@ export async function exportProjectToPlatform(
     progress('compiling-shaders', 'Compiling required shader variants');
     const shaderProject = buildShaderMaterialProject(project);
     const response = await compileShaders(shaderProject.project, {
+      shaderc: request.localState?.shaderc,
+      bgfxShaderIncludeDir: request.localState?.bgfxShaderIncludeDir,
       projectRoot,
       outputRoot: path.join(projectRoot, '.noveltea', 'build'),
       cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
@@ -164,7 +166,12 @@ export async function exportProjectToPlatform(
   try {
     progress('writing-package', 'Writing game.ntpkg');
     checkPlatformExportCancelled(operationId);
-    const packaged = await exportPackage(built.runtimeProject, packagePath, built.packageOptions) as PackageExportResponse;
+    const packaged = await exportPackage(built.runtimeProject, packagePath, {
+      ...built.packageOptions,
+      shaderAssetRoot: (built.packageOptions.shaderVariants?.length ?? 0) > 0
+        ? path.join(projectRoot, '.noveltea', 'build')
+        : built.packageOptions.shaderAssetRoot,
+    }) as PackageExportResponse;
     if (!packaged.success) {
       return failure(operationId, (packaged.diagnostics ?? []).map((item) => diagnostic(item.category ?? 'runtime-package-failed', item.path, item.message)));
     }

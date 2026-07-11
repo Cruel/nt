@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { buildAuthoringRuntimeExport } from '../../shared/project-schema/authoring-runtime-export';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { createPlatformExportAcceptanceFixture, platformExportFixtureExpectations } from './fixtures/platform-export-acceptance';
+import { createPlatformExportAcceptanceFixture, platformExportFixtureExpectations } from '../../shared/project-schema/platform-export-acceptance-fixture';
 
 describe('platform export acceptance fixture', () => {
   it('is one parseable cross-platform input with every required feature class', () => {

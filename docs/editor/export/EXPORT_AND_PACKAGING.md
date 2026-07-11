@@ -246,9 +246,20 @@ normalized capability vocabulary. Target artifact paths are checked by
 `target-path-portability.ts` for traversal, target naming rules, length hazards, case collisions,
 and Unicode-normalization collisions before later packaging phases stage files.
 
-The canonical cross-platform acceptance fixture lives under `editor/src/renderer/test/fixtures/`.
-It intentionally records RmlUi mounting, audio playback, and save/reload as certification blockers
-until those reachable behaviors have complete runtime conversion and artifact smoke coverage.
+The canonical cross-platform acceptance fixture is shared production-side schema code in
+`editor/src/shared/project-schema/platform-export-acceptance-fixture.ts`. The main-process
+`materializePlatformExportAcceptanceFixture()` service creates a complete temporary authoring
+project with deterministic images, font, audio, Lua, room navigation, RmlUi layout data, and a
+project-authored shader/material, then installs target-specific runtime and platform profiles.
+Platform CI exports this project through `runExportCommand()` and the normal
+`exportProjectToPlatform()` orchestration rather than constructing a package request directly.
+
+Canonical fixture evidence records the fixture revision, project SHA-256, normalized profile
+SHA-256, generated runtime-package SHA-256, template/build IDs, source revision, and final export
+manifest SHA-256. Reduced runtime packages may remain useful for narrow lower-level finalizer tests,
+but they are not substitutes for canonical certification evidence. The fixture intentionally keeps
+RmlUi mounting, audio playback, and save/reload as certification blockers until those reachable
+behaviors have complete runtime conversion and artifact smoke coverage.
 
 Phase 10 certification uses the versioned contract in
 `editor/src/shared/project-schema/platform-export-certification.ts`. A certification report is
