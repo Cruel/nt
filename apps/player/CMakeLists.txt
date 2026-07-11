@@ -1,5 +1,7 @@
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_library(noveltea-player SHARED main.cpp)
+elseif(WIN32)
+    add_executable(noveltea-player WIN32 main.cpp)
 else()
     add_executable(noveltea-player main.cpp)
 endif()

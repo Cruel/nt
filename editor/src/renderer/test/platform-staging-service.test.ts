@@ -7,6 +7,9 @@ import { stagePlatformExport } from '../../main/services/platform-staging-servic
 import { PLATFORM_EXPORT_PROFILE_FORMAT, TEMPLATE_DESCRIPTOR_FORMAT, type PlatformStageRequest } from '../../shared/project-schema/platform-export-contracts';
 import { configureTemplateRegistryRoot, templateRootForToken } from '../../main/services/template-registry-service';
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import * as ResEdit from 'resedit';
+import { installPlayerTemplate } from '../../main/services/template-registry-service';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -85,4 +88,134 @@ describe('platform staging service', () => {
     expect(fs.readFileSync(path.join(webRequest.outputDirectory, 'DEPLOYMENT.md'), 'utf8')).toContain('Cross-origin isolation: not required');
     expect(result.webMetrics?.uncompressedPackageBytes).toBeGreaterThan(0);
   });
+
+  it('finalizes a Windows GUI player and publishes symbols separately', async () => {
+    const { root, request } = await fixture();
+    const registry = path.join(root, 'windows-registry'); configureTemplateRegistryRoot(registry);
+    const templateToken = 'windows-x64/build-1'; const templateRoot = templateRootForToken(templateToken); fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true });
+    const executable = ResEdit.NtExecutable.createEmpty(false, false); fs.writeFileSync(path.join(templateRoot, 'bin/player.exe'), Buffer.from(executable.generate()));
+    fs.writeFileSync(path.join(templateRoot, 'bin/runtime.dll'), 'declared dependency'); fs.writeFileSync(path.join(templateRoot, 'player.pdb'), 'symbols');
+    const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+    const entries = [
+      { path: 'bin/player.exe', role: 'player' },
+      { path: 'bin/runtime.dll', role: 'native-dependency' },
+      { path: 'player.pdb', role: 'symbol' },
+    ].map(({ path: file, role }) => { const data = fs.readFileSync(path.join(templateRoot, file)); return { path: file, role, size: data.length, mode: fs.statSync(path.join(templateRoot, file)).mode & 0o777, sha256: sha(data) }; });
+    const descriptor = { format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'windows-x64', buildId: 'build-1', engineVersion: '1', platform: 'windows', architecture: 'x64', minimumPlatformVersion: '10', graphicsBackends: ['direct3d11'], shaderVariants: ['glsl-120'], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: [], buildFlavor: 'release', packageAccessModes: ['sidecar'], files: entries, runtimeDependencies: [{ path: 'bin/runtime.dll', kind: 'library' }], windowsImports: ['kernel32.dll', 'runtime.dll'], artifacts: { archive: 'windows.zip', symbols: 'windows-symbols.zip', sbom: 'SBOM.cdx.json', notices: 'THIRD_PARTY_NOTICES.txt' }, provenance: { provider: 'local', source: 'test' }, host: { assembly: 'any', requiresToolchain: false, tools: [] } };
+    const descriptorData = Buffer.from(JSON.stringify(descriptor)); fs.writeFileSync(path.join(templateRoot, 'template.json'), descriptorData);
+    fs.writeFileSync(path.join(templateRoot, '.noveltea-template.json'), JSON.stringify({ format: 'noveltea.template-registry', formatVersion: 1, templateId: 'windows-x64', buildId: 'build-1', descriptorSha256: sha(descriptorData), archiveSha256: 'a'.repeat(64), installedAt: new Date().toISOString(), origin: 'test', trust: 'local-untrusted', verified: true }));
+    const windowsRequest: PlatformStageRequest = { ...request, operationId: 'windows', templateToken, outputDirectory: path.join(root, 'windows out Ω'), profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'windows', label: 'Windows', target: 'windows', architecture: 'x64', packageAccess: 'sidecar', buildFlavor: 'release', compression: 'default', includeDebugSymbols: true, capabilityOverrides: [], desktop: { artifact: 'zip', executableName: 'Tea Game' } }, identity: { ...request.identity, displayName: 'Tea Game', versionName: '1.2.3' }, windowsSigning: { command: process.execPath, args: ['-e', "require('fs').appendFileSync(process.argv[1], 'SIGNED')", '{executable}'] } };
+    const result = await stagePlatformExport(windowsRequest);
+    expect(result.success).toBe(true); expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true); expect(result.symbolArchivePath && fs.existsSync(result.symbolArchivePath)).toBe(true);
+    expect(fs.existsSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))).toBe(true); expect(fs.existsSync(path.join(windowsRequest.outputDirectory, 'player.pdb'))).toBe(false);
+    const outputExe = ResEdit.NtExecutable.from(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))); const resources = ResEdit.NtExecutableResource.from(outputExe);
+    expect(outputExe.newHeader.optionalHeader.subsystem).toBe(2);
+    expect(ResEdit.Resource.IconGroupEntry.fromEntries(resources.entries).length).toBeGreaterThan(0);
+    expect(ResEdit.Resource.VersionInfo.fromEntries(resources.entries)[0]?.getStringValues({ lang: 1033, codepage: 1200 }).ProductName).toBe('Tea Game');
+    expect(resources.getResourceEntriesAsString(24, 1)[0]?.[1]).toContain('longPathAware');
+    expect(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe')).subarray(-6).toString()).toBe('SIGNED');
+    const metadata = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'WINDOWS_METADATA.json'), 'utf8')); expect(metadata.resourceMutationComplete).toBe(true); expect(metadata.signingCommandHook.configured).toBe(true);
+    const manifest = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'export-manifest.json'), 'utf8')); const executableEntry = manifest.files.find((entry: { path: string }) => entry.path === 'Tea Game.exe');
+    expect(executableEntry.sha256).toBe(createHash('sha256').update(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))).digest('hex'));
+  });
 });
+
+const windowsTemplateArchive = process.env.NOVELTEA_WINDOWS_TEMPLATE_ARCHIVE;
+const windowsRuntimePackage = process.env.NOVELTEA_WINDOWS_RUNTIME_PACKAGE;
+
+describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!windowsRuntimePackage)(
+  'Windows portable export native smoke',
+  () => {
+    it('launches the real finalized export from Unicode/space paths and an unrelated working directory', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'NovelTea Windows export 茶 '));
+      roots.push(root);
+      const registryRoot = path.join(root, 'template registry');
+      configureTemplateRegistryRoot(registryRoot);
+      const installed = await installPlayerTemplate({
+        archivePath: windowsTemplateArchive!,
+        origin: 'release-ci-smoke',
+      });
+      expect(installed.success, installed.diagnostics.map((item) => item.message).join('\n')).toBe(true);
+      expect(installed.entry).toBeDefined();
+
+      const iconSourcePath = path.join(root, 'icon source.png');
+      await sharp({
+        create: { width: 1024, height: 1024, channels: 4, background: '#553399' },
+      }).png().toFile(iconSourcePath);
+      const saveNamespace = `com.noveltea.windows-smoke-${Date.now()}`;
+      const outputDirectory = path.join(root, 'Exported Game 茶');
+      const result = await stagePlatformExport({
+        operationId: 'windows-native-smoke',
+        profile: {
+          format: PLATFORM_EXPORT_PROFILE_FORMAT,
+          formatVersion: 1,
+          id: 'windows-native-smoke',
+          label: 'Windows native smoke',
+          target: 'windows',
+          architecture: 'x64',
+          packageAccess: 'sidecar',
+          buildFlavor: 'release',
+          compression: 'default',
+          includeDebugSymbols: true,
+          capabilityOverrides: [],
+          desktop: { artifact: 'zip', executableName: 'Tea Game 茶' },
+        },
+        templateToken: `${installed.entry!.templateId}/${installed.entry!.buildId}`,
+        outputDirectory,
+        packagePath: windowsRuntimePackage!,
+        iconSourcePath,
+        runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+        identity: {
+          displayName: 'Tea Game 茶',
+          applicationId: 'com.noveltea.windows-smoke',
+          saveNamespace,
+          versionName: '1.0.0',
+          defaultLocale: 'en-US',
+        },
+        display: {
+          aspectRatio: { width: 16, height: 9 },
+          orientation: 'landscape',
+          barColor: '#000000',
+        },
+        runtimePackageApi: 1,
+      });
+      expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
+      expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
+      expect(result.symbolArchivePath && fs.existsSync(result.symbolArchivePath)).toBe(true);
+
+      const executable = path.join(outputDirectory, 'Tea Game 茶.exe');
+      const unrelatedWorkingDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'NovelTea unrelated cwd '));
+      roots.push(unrelatedWorkingDirectory);
+      const child = spawn(executable, [], {
+        cwd: unrelatedWorkingDirectory,
+        windowsHide: false,
+        stdio: 'ignore',
+      });
+      const logPath = path.join(process.env.APPDATA!, 'NovelTea', saveNamespace, 'logs', 'player.log');
+      try {
+        const deadline = Date.now() + 20_000;
+        let log = '';
+        while (Date.now() < deadline) {
+          if (fs.existsSync(logPath)) {
+            log = fs.readFileSync(logPath, 'utf8');
+            if (log.includes('NovelTea player starting')) break;
+          }
+          if (child.exitCode !== null) break;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        expect(log).toContain('NovelTea player starting Tea Game 茶 1.0.0');
+        expect(log).not.toContain('Engine initialization failed');
+        expect(child.exitCode).toBeNull();
+      } finally {
+        if (child.exitCode === null) {
+          child.kill();
+          await Promise.race([
+            new Promise<void>((resolve) => child.once('exit', () => resolve())),
+            new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+          ]);
+        }
+        fs.rmSync(path.join(process.env.APPDATA!, 'NovelTea', saveNamespace), { recursive: true, force: true });
+      }
+    }, 30_000);
+  },
+);

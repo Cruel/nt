@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, readdir, rename, rm, stat, statfs, writeFile } 
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
+import * as ResEdit from 'resedit';
 import { generateAppIcons } from './icon-generation-service';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
 import { PLATFORM_EXPORT_MANIFEST_FORMAT, PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION, type PlatformExportManifest, type PlatformStageDiagnostic, type PlatformStageRequest, type PlatformStageResult, type StagedFileEntry, type StagedFileOrigin } from '../../shared/project-schema/platform-export-contracts';
@@ -48,6 +49,121 @@ async function writeGenerated(stage: string, target: string, data: string | Buff
   await mkdir(path.dirname(destination), { recursive: true });
   await writeFile(destination, buffer, { mode: 0o644 });
   return { path: target, origin: 'generated-metadata', originId, size: buffer.length, mode: 0o644, sha256: sha256(buffer) };
+}
+
+function parseWindowsVersion(versionName: string): [number, number, number, number] {
+  const parts = versionName.split(/[^0-9]+/).filter(Boolean).slice(0, 4).map((part) => Math.min(65535, Number.parseInt(part, 10) || 0));
+  while (parts.length < 4) parts.push(0);
+  return parts as [number, number, number, number];
+}
+
+function windowsManifest(applicationId: string) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" processorArchitecture="*" name="${htmlEscape(applicationId)}" type="win32"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3"><security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security></trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1"><application>
+    <supportedOS Id="{4f476546-9377-4f76-855a-22e1bb7d2ce6}"/><supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+  </application></compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3"><windowsSettings>
+    <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2,PerMonitor</dpiAwareness>
+    <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+  </windowsSettings></application>
+</assembly>`;
+}
+
+async function finalizeWindowsStage(stage: string, request: PlatformStageRequest, files: StagedFileEntry[], descriptor: Awaited<ReturnType<typeof verifyTemplateToken>>['descriptor']) {
+  if (request.profile.target !== 'windows') return undefined;
+  const playerDescriptor = descriptor.files.find((item) => item.role === 'player');
+  if (!playerDescriptor) throw new Error('Windows template must declare a player file role.');
+  const playerEntry = files.find((item) => item.path === playerDescriptor.path);
+  if (!playerEntry) throw new Error(`Windows player '${playerDescriptor.path}' was not staged.`);
+  const executableName = request.profile.desktop.executableName.replace(/\.exe$/i, '');
+  if (!/^[^<>:"/\\|?*\x00-\x1f.][^<>:"/\\|?*\x00-\x1f]*$/.test(executableName)) throw new Error('Windows executable name contains invalid characters.');
+  const targetPath = `${executableName}.exe`;
+  if (playerEntry.path !== targetPath) {
+    await rename(safeRoot(stage, playerEntry.path), safeRoot(stage, targetPath));
+    playerEntry.path = targetPath;
+  }
+
+  const iconEntry = files.find((item) => item.origin === 'icon' && /\.ico$/i.test(item.path));
+  if (!iconEntry) throw new Error('Windows icon generation did not produce an ICO resource.');
+  const executablePath = safeRoot(stage, targetPath);
+  const executable = ResEdit.NtExecutable.from(await readFile(executablePath));
+  if (executable.newHeader.optionalHeader.subsystem !== 2) throw new Error('Windows release player must use the GUI subsystem.');
+  const resources = ResEdit.NtExecutableResource.from(executable);
+  const iconFile = ResEdit.Data.IconFile.from(await readFile(safeRoot(stage, iconEntry.path)));
+  const iconGroups = ResEdit.Resource.IconGroupEntry.fromEntries(resources.entries);
+  ResEdit.Resource.IconGroupEntry.replaceIconsForResource(resources.entries, iconGroups[0]?.id ?? 101, 1033, iconFile.icons.map((item) => item.data));
+  const versions = ResEdit.Resource.VersionInfo.fromEntries(resources.entries);
+  const version = versions[0] ?? ResEdit.Resource.VersionInfo.createEmpty();
+  const versionParts = parseWindowsVersion(request.identity.versionName);
+  version.setFileVersion(...versionParts, 1033);
+  version.setProductVersion(...versionParts, 1033);
+  version.setStringValues({ lang: 1033, codepage: 1200 }, {
+    FileDescription: request.identity.displayName,
+    FileVersion: request.identity.versionName,
+    InternalName: executableName,
+    OriginalFilename: targetPath,
+    ProductName: request.identity.displayName,
+    ProductVersion: request.identity.versionName,
+  });
+  version.outputToResourceEntries(resources.entries);
+  resources.replaceResourceEntryFromString(24, 1, 1033, windowsManifest(request.identity.applicationId));
+  resources.outputResource(executable);
+  const output = Buffer.from(executable.generate());
+  await writeFile(executablePath, output, { mode: playerEntry.mode });
+  playerEntry.size = output.length;
+  playerEntry.sha256 = sha256(output);
+
+  const undeclaredDlls = files.filter((item) => /\.dll$/i.test(item.path) && item.origin !== 'native-dependency');
+  if (undeclaredDlls.length) throw new Error(`Windows template contains undeclared DLL dependencies: ${undeclaredDlls.map((item) => item.path).join(', ')}`);
+  if (!descriptor.windowsImports) throw new Error('Windows template must declare its imported DLL closure.');
+  const stagedDlls = new Set(files.filter((item) => /\.dll$/i.test(item.path)).map((item) => path.posix.basename(item.path).toLowerCase()));
+  const systemDlls = new Set([
+    'advapi32.dll', 'bcrypt.dll', 'comdlg32.dll', 'crypt32.dll', 'd3d11.dll', 'dbghelp.dll',
+    'dxgi.dll', 'gdi32.dll', 'imm32.dll', 'kernel32.dll', 'ntdll.dll', 'ole32.dll',
+    'oleaut32.dll', 'rpcrt4.dll', 'secur32.dll', 'setupapi.dll', 'shell32.dll', 'shlwapi.dll',
+    'user32.dll', 'userenv.dll', 'version.dll', 'winmm.dll', 'ws2_32.dll', 'winhttp.dll',
+  ]);
+  const missingImports = descriptor.windowsImports.filter((name) =>
+    !stagedDlls.has(name) && !systemDlls.has(name) && !name.startsWith('api-ms-win-') && !name.startsWith('ext-ms-win-'),
+  );
+  if (missingImports.length) throw new Error(`Windows player has unresolved non-system DLL imports: ${missingImports.join(', ')}`);
+
+  const symbolEntries = descriptor.files.filter((item) => item.role === 'symbol' || /\.pdb$/i.test(item.path));
+  const symbolFiles: Array<{ path: string; data: Buffer }> = [];
+  for (const symbol of symbolEntries) {
+    const entry = files.find((item) => item.path === symbol.path);
+    if (!entry) continue;
+    symbolFiles.push({ path: path.posix.basename(entry.path), data: await readFile(safeRoot(stage, entry.path)) });
+    await rm(safeRoot(stage, entry.path), { force: true });
+    files.splice(files.indexOf(entry), 1);
+  }
+  files.push(await writeGenerated(stage, 'WINDOWS_METADATA.json', `${JSON.stringify({
+    applicationId: request.identity.applicationId,
+    executable: targetPath,
+    buildId: descriptor.buildId,
+    resourceMutationComplete: true,
+    signingBoundary: 'No executable or DLL mutation is permitted after this point.',
+    signingCommandHook: { supported: true, configured: Boolean(request.windowsSigning) },
+  }, null, 2)}\n`, 'windows-metadata'));
+  return { targetPath, symbolFiles };
+}
+
+async function runWindowsSigningHook(stage: string, request: PlatformStageRequest, files: StagedFileEntry[], executablePath: string) {
+  if (request.profile.target !== 'windows' || !request.windowsSigning) return;
+  const absoluteExecutable = safeRoot(stage, executablePath);
+  const args = request.windowsSigning.args.map((value) => value
+    .replaceAll('{executable}', absoluteExecutable)
+    .replaceAll('{stage}', path.resolve(stage)));
+  await run(request.windowsSigning.command, args, { cwd: stage });
+  const entry = files.find((item) => item.path === executablePath);
+  if (!entry) throw new Error('Signed Windows executable is missing from the staged file manifest.');
+  const signed = await readFile(absoluteExecutable);
+  entry.size = signed.length;
+  entry.sha256 = sha256(signed);
 }
 
 async function finalizeWebStage(stage: string, request: PlatformStageRequest, files: StagedFileEntry[]) {
@@ -136,11 +252,15 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
   const diagnostics: PlatformStageDiagnostic[] = [];
   const temp = `${request.outputDirectory}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const backup = `${request.outputDirectory}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-  const archivePath = request.profile.target === 'web' ? `${request.outputDirectory}.zip` : undefined;
+  const archivePath = request.profile.target === 'web' || request.profile.target === 'windows' ? `${request.outputDirectory}.zip` : undefined;
   const archiveTemp = archivePath ? `${archivePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   const archiveBackup = archivePath ? `${archivePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const symbolArchivePath = request.profile.target === 'windows' && request.profile.includeDebugSymbols ? `${request.outputDirectory}-symbols.zip` : undefined;
+  const symbolArchiveTemp = symbolArchivePath ? `${symbolArchivePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const symbolArchiveBackup = symbolArchivePath ? `${symbolArchivePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   let backedUp = false;
   let archiveBackedUp = false;
+  let symbolArchiveBackedUp = false;
   try {
     cancellations.delete(request.operationId); checkCancelled(request.operationId);
     if (request.runtimePackageReadiness?.validated !== true || request.runtimePackageReadiness.blockingDiagnosticCount !== 0) {
@@ -189,6 +309,8 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     for (let index = 0; index < iconResult.files.length; index += 1) { const icon = iconResult.files[index]!; files.push(await copyFileTracked(icon.path, temp, iconTargets[index]!, 'icon', icon.kind)); }
     await rm(path.join(temp, '.icons'), { recursive: true, force: true });
     const webMetrics = await finalizeWebStage(temp, request, files);
+    const windows = await finalizeWindowsStage(temp, request, files, descriptor);
+    if (windows) await runWindowsSigningHook(temp, request, files, windows.targetPath);
     const packageEntry = files.find((item) => item.origin === 'runtime-package')!;
     const player = { format: 'noveltea.player-config', formatVersion: 1, displayName: built.model.displayName, applicationId: built.model.applicationId, saveNamespace: built.model.saveNamespace, versionName: built.model.versionName, ...(request.identity.defaultLocale ? { defaultLocale: request.identity.defaultLocale } : {}), package: { path: packageEntry.path, sha256: packageEntry.sha256, runtimePackageApi: request.runtimePackageApi }, capabilities: built.model.capabilities, display: built.model.display };
     const playerData = Buffer.from(`${JSON.stringify(player, null, 2)}\n`); await writeFile(path.join(temp, 'player.json'), playerData); files.push({ path: 'player.json', origin: 'generated-metadata', originId: 'player-config', size: playerData.length, mode: 0o644, sha256: sha256(playerData) });
@@ -200,28 +322,49 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
       await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', '.'], { cwd: temp });
       checkCancelled(request.operationId);
     }
+    if (symbolArchivePath && symbolArchiveTemp && windows?.symbolFiles.length) {
+      const symbolStage = `${temp}.symbols`;
+      await rm(symbolStage, { recursive: true, force: true });
+      await mkdir(symbolStage, { recursive: true });
+      for (const symbol of windows.symbolFiles) await writeFile(path.join(symbolStage, symbol.path), symbol.data, { mode: 0o644 });
+      await writeFile(path.join(symbolStage, 'BUILD_ID'), `${descriptor.buildId}\n`, { mode: 0o644 });
+      await rm(symbolArchiveTemp, { force: true });
+      await run('cmake', ['-E', 'tar', 'cf', symbolArchiveTemp, '--format=zip', '.'], { cwd: symbolStage });
+      await rm(symbolStage, { recursive: true, force: true });
+      checkCancelled(request.operationId);
+    }
     if (existsSync(request.outputDirectory)) { await rename(request.outputDirectory, backup); backedUp = true; }
     if (archivePath && archiveBackup && existsSync(archivePath)) { await rename(archivePath, archiveBackup); archiveBackedUp = true; }
+    if (symbolArchivePath && symbolArchiveBackup && existsSync(symbolArchivePath)) { await rename(symbolArchivePath, symbolArchiveBackup); symbolArchiveBackedUp = true; }
     try {
       await rename(temp, request.outputDirectory);
       if (archivePath && archiveTemp) await rename(archiveTemp, archivePath);
+      if (symbolArchivePath && symbolArchiveTemp && existsSync(symbolArchiveTemp)) await rename(symbolArchiveTemp, symbolArchivePath);
     } catch (error) {
       await rm(request.outputDirectory, { recursive: true, force: true });
       if (archivePath) await rm(archivePath, { force: true });
+      if (symbolArchivePath) await rm(symbolArchivePath, { force: true });
       if (backedUp && existsSync(backup)) await rename(backup, request.outputDirectory);
       if (archiveBackedUp && archiveBackup && existsSync(archiveBackup)) await rename(archiveBackup, archivePath!);
+      if (symbolArchiveBackedUp && symbolArchiveBackup && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath!);
       throw error;
     }
     if (backedUp) await rm(backup, { recursive: true, force: true });
     if (archiveBackedUp && archiveBackup) await rm(archiveBackup, { force: true });
-    return { ok: true, success: true, cancelled: false, operationId: request.operationId, outputDirectory: request.outputDirectory, archivePath, webMetrics, diagnostics, deployment: built.model, manifest };
+    if (symbolArchiveBackedUp && symbolArchiveBackup) await rm(symbolArchiveBackup, { force: true });
+    const artifacts: NonNullable<PlatformStageResult['artifacts']> = [{ kind: 'directory', path: request.outputDirectory }];
+    if (archivePath) artifacts.push({ kind: 'archive', path: archivePath, size: (await stat(archivePath)).size });
+    if (symbolArchivePath && existsSync(symbolArchivePath)) artifacts.push({ kind: 'symbols', path: symbolArchivePath, size: (await stat(symbolArchivePath)).size });
+    return { ok: true, success: true, cancelled: false, operationId: request.operationId, outputDirectory: request.outputDirectory, archivePath, symbolArchivePath: symbolArchivePath && existsSync(symbolArchivePath) ? symbolArchivePath : undefined, artifacts, webMetrics, diagnostics, deployment: built.model, manifest };
   } catch (error) {
     const cancelled = error instanceof Error && error.message === 'NOVELTEA_EXPORT_CANCELLED';
     if (!cancelled && !(error instanceof Error && error.message === 'NOVELTEA_EXPORT_DIAGNOSTIC')) diagnostics.push(diagnostic('staging-failed', '/staging', error instanceof Error ? error.message : String(error)));
     await rm(temp, { recursive: true, force: true });
     if (archiveTemp) await rm(archiveTemp, { force: true });
+    if (symbolArchiveTemp) await rm(symbolArchiveTemp, { force: true });
     if (backedUp && !existsSync(request.outputDirectory) && existsSync(backup)) await rename(backup, request.outputDirectory);
     if (archivePath && archiveBackedUp && archiveBackup && !existsSync(archivePath) && existsSync(archiveBackup)) await rename(archiveBackup, archivePath);
+    if (symbolArchivePath && symbolArchiveBackedUp && symbolArchiveBackup && !existsSync(symbolArchivePath) && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath);
     return { ok: false, success: false, cancelled, operationId: request.operationId, diagnostics: cancelled ? [...diagnostics, { severity: 'info', code: 'cancelled', path: '/staging', message: 'Platform export was cancelled.' }] : diagnostics };
   } finally { cancellations.delete(request.operationId); }
 }
