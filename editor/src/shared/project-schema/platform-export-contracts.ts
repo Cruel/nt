@@ -107,7 +107,14 @@ const desktopProfileSchema = platformProfileBase.extend({
 }).strict();
 const webProfileSchema = platformProfileBase.extend({
   target: z.literal('web'), architecture: z.literal('wasm32'), packageAccess: z.literal('web-fetch'),
-  web: z.object({ artifact: z.literal('directory-zip'), threaded: z.boolean().default(false), pwa: z.boolean().default(false) }).strict(),
+  web: z.object({
+    artifact: z.literal('directory-zip'),
+    threaded: z.boolean().default(false),
+    pwa: z.boolean().default(false),
+    display: z.enum(['fullscreen', 'standalone', 'minimal-ui', 'browser']).default('standalone'),
+    basePath: z.string().regex(/^\/$|^\/[a-zA-Z0-9._~!$&'()*+,;=:@%/-]*\/$/, 'Web base path must begin and end with /.').default('/'),
+    serviceWorker: z.enum(['disabled', 'offline']).default('disabled'),
+  }).strict(),
 }).strict();
 const androidProfileSchema = platformProfileBase.extend({
   target: z.literal('android'), architecture: z.enum(['arm64', 'x86_64']), packageAccess: z.enum(['android-asset', 'android-private-copy']),
@@ -186,12 +193,18 @@ export interface PlatformStageRequest {
     validated: boolean;
     blockingDiagnosticCount: number;
   };
-  identity: { displayName: string; applicationId: string; saveNamespace: string; versionName: string; defaultLocale?: string };
+  identity: {
+    displayName: string; shortName?: string; applicationId: string; saveNamespace: string;
+    versionName: string; defaultLocale?: string; themeColor?: string; backgroundColor?: string;
+    webManifestId?: string;
+  };
   display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>; capabilities?: ExportCapability[]; runtimePackageApi: number;
   host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };
 }
 export interface PlatformStageResult {
   ok: boolean; success: boolean; cancelled: boolean; operationId: string; outputDirectory?: string;
+  archivePath?: string;
+  webMetrics?: { compressedDownloadBytes: number; uncompressedPackageBytes: number; estimatedPeakStartupBytes: number };
   diagnostics: PlatformStageDiagnostic[]; deployment?: PlatformDeploymentModel; manifest?: PlatformExportManifest;
 }
 

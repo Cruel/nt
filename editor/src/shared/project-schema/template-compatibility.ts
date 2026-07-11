@@ -15,6 +15,10 @@ export function evaluateTemplateCompatibility(descriptor: TemplateDescriptor, re
   for (const value of requirements.graphicsBackends) if (!descriptor.graphicsBackends.includes(value)) add('template-renderer-mismatch', '/graphicsBackends', `Template is missing graphics backend '${value}'.`);
   for (const value of requirements.capabilities) if (!descriptor.capabilities.includes(value)) add('template-capability-mismatch', '/capabilities', `Template does not support capability '${value}'.`);
   for (const value of requirements.requiredFeatures) if (!descriptor.compiledFeatures.includes(value)) add('template-feature-mismatch', '/compiledFeatures', `Template is missing compiled feature '${value}'.`);
+  if (profile.target === 'web') {
+    const requiredThreadingFeature = profile.web.threaded ? 'web-threads' : 'web-single-threaded';
+    if (!descriptor.compiledFeatures.includes(requiredThreadingFeature)) add('template-web-threading-mismatch', '/compiledFeatures', `Template is missing required Web build feature '${requiredThreadingFeature}'.`);
+  }
   if (requirements.host && descriptor.host.assembly !== 'any' && descriptor.host.assembly !== requirements.host.platform) add('template-host-mismatch', '/host/assembly', `Template assembly requires a ${descriptor.host.assembly} host.`);
   if (requirements.host && descriptor.host.requiresToolchain) for (const tool of descriptor.host.tools) if (!requirements.host.availableTools.includes(tool)) add('template-toolchain-missing', '/host/tools', `Required tool '${tool}' is unavailable.`);
   return { compatible: diagnostics.length === 0, diagnostics };

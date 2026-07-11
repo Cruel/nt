@@ -218,6 +218,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
@@ -265,7 +267,19 @@ jobs:
         run: |
           source "$EMSDK/emsdk_env.sh"
           emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-release --target noveltea-sandbox
+          cmake --build --preset web-release --target noveltea-player
+
+      - name: Verify release player surface
+        run: |
+          ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)|MessageChannel' build/web-release/apps/player/player.js
+
+      - name: Package Web player template
+        run: cmake -DNOVELTEA_TEMPLATE_PRESET=web-release -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
+
+      - name: Attest Web player template
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/noveltea-player-template-*-web-wasm32-release.zip
 
       - name: Stage Web bundle
         run: .github/package-release.sh web "$RELEASE_TAG"
@@ -274,7 +288,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-web-release-preview
-          path: build/web-release/apps/sandbox
+          path: build/web-release/apps/player
           if-no-files-found: error
 
       - name: Upload Web release artifact

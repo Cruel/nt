@@ -69,6 +69,28 @@ template has a canonical descriptor, exact file and native-dependency inventory,
 CycloneDX SBOM, collected third-party notices, separate build-ID-matched symbols, SHA-256 release
 metadata, a release registry index, and GitHub artifact provenance attestations.
 
+## Web Player Export
+
+The Web exporter consumes the dedicated `web-wasm32-release` player template rather than the
+sandbox or preview shell. The game package remains a separately fetched `.ntpkg`; the JavaScript
+bootstrap loads `player.json`, downloads the declared package, verifies its SHA-256 through Web
+Crypto, and only then allows the native player to start.
+
+Web staging emits a deployment directory and ZIP. Engine JavaScript, Wasm, and `game.ntpkg` receive
+content-hashed names. Generated output also includes an application-specific `index.html`, stable
+`manifest.webmanifest`, icons, `DEPLOYMENT.md`, and an optional offline service worker. The shell
+checks WebAssembly and WebGL 2 availability and waits for a user gesture before loading the player,
+which keeps audio startup compatible with browser autoplay policy.
+
+PWA cache names combine the application identity with one export-content hash. Service-worker
+activation removes only older caches owned by that application, preventing mixed engine/package
+updates and avoiding collisions between NovelTea games on one origin. IDBFS mounts below a sanitized
+`saveNamespace`, so browser persistence is isolated independently of the deployment URL.
+
+The default template is single-threaded and does not require cross-origin isolation. Threaded output
+must resolve to a separately compiled compatible template; its generated deployment guide must call
+out the required COOP and COEP headers.
+
 ## Workflow Stages
 
 Renderer workflow files:

@@ -61,4 +61,28 @@ describe('platform staging service', () => {
     expect(missingIcon.success).toBe(false);
     expect(missingIcon.diagnostics.some((item) => item.code === 'missing-icon')).toBe(true);
   });
+
+  it('emits an isolated, content-hashed Web directory and ZIP', async () => {
+    const { root, request } = await fixture();
+    const registry = path.join(root, 'web-registry'); configureTemplateRegistryRoot(registry);
+    const templateToken = 'web-wasm32/build-1'; const templateRoot = templateRootForToken(templateToken); fs.mkdirSync(templateRoot, { recursive: true });
+    fs.writeFileSync(path.join(templateRoot, 'player.js'), 'console.log("release player")');
+    fs.writeFileSync(path.join(templateRoot, 'player.wasm'), Buffer.from([0, 97, 115, 109]));
+    fs.writeFileSync(path.join(templateRoot, 'player.data'), 'system assets');
+    const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+    const entries = ['player.js', 'player.wasm', 'player.data'].map((file) => { const data = fs.readFileSync(path.join(templateRoot, file)); return { path: file, size: data.length, mode: fs.statSync(path.join(templateRoot, file)).mode & 0o777, sha256: sha(data) }; });
+    const descriptor = { format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'web-wasm32', buildId: 'build-1', engineVersion: '1', platform: 'web', architecture: 'wasm32', minimumPlatformVersion: 'modern', graphicsBackends: ['webgl2'], shaderVariants: ['essl-300'], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: ['web-single-threaded'], capabilities: [], buildFlavor: 'release', packageAccessModes: ['web-fetch'], files: entries, runtimeDependencies: [{ path: 'player.data', kind: 'asset' }], artifacts: { archive: 'web.zip', symbols: 'web-symbols.zip', sbom: 'SBOM.cdx.json', notices: 'THIRD_PARTY_NOTICES.txt' }, provenance: { provider: 'local', source: 'test' }, host: { assembly: 'any', requiresToolchain: false, tools: [] } };
+    const descriptorData = Buffer.from(JSON.stringify(descriptor)); fs.writeFileSync(path.join(templateRoot, 'template.json'), descriptorData);
+    fs.writeFileSync(path.join(templateRoot, '.noveltea-template.json'), JSON.stringify({ format: 'noveltea.template-registry', formatVersion: 1, templateId: 'web-wasm32', buildId: 'build-1', descriptorSha256: sha(descriptorData), archiveSha256: 'a'.repeat(64), installedAt: new Date().toISOString(), origin: 'test', trust: 'local-untrusted', verified: true }));
+    const webRequest: PlatformStageRequest = { ...request, operationId: 'web', templateToken, outputDirectory: path.join(root, 'web-out'), profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'web', label: 'Web', target: 'web', architecture: 'wasm32', packageAccess: 'web-fetch', buildFlavor: 'release', compression: 'default', includeDebugSymbols: false, capabilityOverrides: [], web: { artifact: 'directory-zip', threaded: false, pwa: true, display: 'standalone', basePath: '/games/tea/', serviceWorker: 'offline' } }, identity: { ...request.identity, shortName: 'Tea', themeColor: '#112233', backgroundColor: '#000000' } };
+    const result = await stagePlatformExport(webRequest);
+    expect(result.success).toBe(true); expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
+    const names = fs.readdirSync(webRequest.outputDirectory); expect(names.some((name) => /^player\.[0-9a-f]{16}\.js$/.test(name))).toBe(true); expect(names.some((name) => /^game\.[0-9a-f]{16}\.ntpkg$/.test(name))).toBe(true);
+    expect(names.some((name) => /^player\.[0-9a-f]{16}\.data$/.test(name))).toBe(true);
+    const player = JSON.parse(fs.readFileSync(path.join(webRequest.outputDirectory, 'player.json'), 'utf8')); expect(player.package.path).toMatch(/^game\.[0-9a-f]{16}\.ntpkg$/);
+    const manifest = JSON.parse(fs.readFileSync(path.join(webRequest.outputDirectory, 'manifest.webmanifest'), 'utf8')); expect(manifest.start_url).toBe('/games/tea/'); expect(manifest.id).toBe('/com.example.game'); expect(manifest.icons.every((icon: { src: string }) => /\.[0-9a-f]{16}\.png$/.test(icon.src))).toBe(true);
+    const worker = fs.readFileSync(path.join(webRequest.outputDirectory, 'service-worker.js'), 'utf8'); expect(worker).toContain('noveltea-com.example.game-');
+    expect(fs.readFileSync(path.join(webRequest.outputDirectory, 'DEPLOYMENT.md'), 'utf8')).toContain('Cross-origin isolation: not required');
+    expect(result.webMetrics?.uncompressedPackageBytes).toBeGreaterThan(0);
+  });
 });

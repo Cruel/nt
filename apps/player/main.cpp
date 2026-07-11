@@ -7,11 +7,16 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
+
+#if defined(__EMSCRIPTEN__)
+extern "C" void noveltea_web_sync_persistent_fs();
+#endif
 
 namespace {
 
@@ -48,12 +53,21 @@ std::filesystem::path config_path(int argc, char** argv)
 
 std::filesystem::path writable_base(const std::string& save_namespace)
 {
+#if defined(__EMSCRIPTEN__)
+    std::string safe = save_namespace;
+    for (auto& character : safe)
+        if (!(std::isalnum(static_cast<unsigned char>(character)) || character == '.' ||
+              character == '_' || character == '-'))
+            character = '_';
+    return std::filesystem::path("/persist") / safe;
+#else
     char* path = SDL_GetPrefPath("NovelTea", save_namespace.c_str());
     if (!path)
         return {};
     std::filesystem::path result(path);
     SDL_free(path);
     return result;
+#endif
 }
 
 int fail_startup(const noveltea::core::PlayerBootstrapResult& result)
@@ -125,5 +139,8 @@ int main(int argc, char** argv)
     }
     const int result = engine.run();
     engine.shutdown();
+#if defined(__EMSCRIPTEN__)
+    noveltea_web_sync_persistent_fs();
+#endif
     return result;
 }

@@ -1,4 +1,5 @@
 build/
+dist/
 vcpkg_installed/
 imgui.ini
 *.o
