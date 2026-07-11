@@ -3,6 +3,7 @@ import { exportPlatformValues, templateDescriptorSchema, type TemplateDescriptor
 
 export const PLATFORM_CERTIFICATION_FORMAT = 'noveltea-platform-certification' as const;
 export const PLATFORM_CERTIFICATION_FORMAT_VERSION = 1 as const;
+export const PLATFORM_CERTIFICATION_FIXTURE_ID = 'platform-export-acceptance' as const;
 
 const checkStatusSchema = z.enum(['passed', 'failed', 'skipped']);
 const evidenceSchema = z.object({
@@ -10,6 +11,9 @@ const evidenceSchema = z.object({
   status: checkStatusSchema,
   detail: z.string().trim().min(1),
   artifact: z.string().trim().min(1).optional(),
+  artifactSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  producer: z.string().trim().min(1),
+  command: z.string().trim().min(1),
 }).strict();
 
 export const platformCertificationReportSchema = z.object({
@@ -19,11 +23,15 @@ export const platformCertificationReportSchema = z.object({
   template: z.object({
     templateId: z.string().min(1), buildId: z.string().min(1), target: z.enum(exportPlatformValues),
     architecture: z.string().min(1), buildFlavor: z.enum(['debug', 'release']),
+    descriptorSha256: z.string().regex(/^[0-9a-f]{64}$/), archiveSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    sourceRevision: z.string().min(1),
   }).strict(),
-  fixture: z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict(),
+  fixture: z.object({ id: z.literal(PLATFORM_CERTIFICATION_FIXTURE_ID), revision: z.string().min(1), sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(),
   exercised: z.object({
     packageApis: z.array(z.number().int().nonnegative()), capabilities: z.array(z.string()),
-    artifactFormats: z.array(z.string()),
+    playerConfigApis: z.array(z.number().int().nonnegative()), artifactFormats: z.array(z.string()),
+    graphicsBackends: z.array(z.string()), shaderVariants: z.array(z.string()),
+    compiledFeatures: z.array(z.string()), packageAccessModes: z.array(z.string()),
   }).strict(),
   evidence: z.array(evidenceSchema),
   hostGaps: z.array(z.object({ check: z.string().min(1), reason: z.string().min(1) }).strict()).default([]),
@@ -43,14 +51,17 @@ const universalChecks = [
 
 const targetChecks: Record<(typeof exportPlatformValues)[number], readonly string[]> = {
   web: ['web-root-path', 'web-subdirectory-path', 'web-persistence', 'web-two-games-one-origin', 'web-service-worker-update'],
-  windows: [], linux: [], macos: [], android: ['android-system-assets', 'android-install-launch'],
+  windows: ['windows-native-launch', 'windows-dependency-closure', 'windows-resource-metadata', 'windows-authenticode-policy'],
+  linux: ['linux-x11-launch', 'linux-wayland-launch', 'linux-dependency-closure', 'linux-rpath', 'linux-desktop-integration', 'linux-appimage-launch'],
+  macos: ['macos-launchservices-launch', 'macos-install-name-closure', 'macos-entitlements', 'macos-privacy-strings', 'macos-signing-policy'],
+  android: ['android-system-assets', 'android-install-launch', 'android-abi-closure', 'android-signature-policy', 'android-page-alignment'],
 };
 
 function descriptorArtifactFormats(descriptor: TemplateDescriptor): string[] {
   if (descriptor.platform === 'android') return descriptor.android?.artifactKinds ?? [];
   if (descriptor.platform === 'web') return ['directory', 'zip'];
-  if (descriptor.platform === 'macos') return ['app-bundle', 'zip'];
-  if (descriptor.platform === 'linux') return ['directory', 'tar.gz'];
+  if (descriptor.platform === 'macos') return ['app-bundle', 'zip', 'dmg'];
+  if (descriptor.platform === 'linux') return ['directory', 'tar.gz', 'appimage'];
   return ['directory', 'zip'];
 }
 
@@ -70,7 +81,12 @@ export function certifyTemplateDescriptor(descriptorValue: unknown, reportValue:
   mismatch('buildFlavor', report.template.buildFlavor, descriptor.buildFlavor);
 
   for (let api = descriptor.runtimePackageApi.minimum; api <= descriptor.runtimePackageApi.maximum; api += 1) if (!report.exercised.packageApis.includes(api)) diagnostics.push({ code: 'certification-package-api-unexercised', path: '/exercised/packageApis', message: `Descriptor package API ${api} was not exercised.` });
+  for (let api = descriptor.playerConfigApi.minimum; api <= descriptor.playerConfigApi.maximum; api += 1) if (!report.exercised.playerConfigApis.includes(api)) diagnostics.push({ code: 'certification-player-config-api-unexercised', path: '/exercised/playerConfigApis', message: `Descriptor player config API ${api} was not exercised.` });
   for (const capability of descriptor.capabilities) if (!report.exercised.capabilities.includes(capability)) diagnostics.push({ code: 'certification-capability-unexercised', path: '/exercised/capabilities', message: `Descriptor capability '${capability}' was not exercised.` });
+  for (const backend of descriptor.graphicsBackends) if (!report.exercised.graphicsBackends.includes(backend)) diagnostics.push({ code: 'certification-graphics-backend-unexercised', path: '/exercised/graphicsBackends', message: `Descriptor graphics backend '${backend}' was not exercised.` });
+  for (const variant of descriptor.shaderVariants) if (!report.exercised.shaderVariants.includes(variant)) diagnostics.push({ code: 'certification-shader-variant-unexercised', path: '/exercised/shaderVariants', message: `Descriptor shader variant '${variant}' was not exercised.` });
+  for (const feature of descriptor.compiledFeatures) if (!report.exercised.compiledFeatures.includes(feature)) diagnostics.push({ code: 'certification-compiled-feature-unexercised', path: '/exercised/compiledFeatures', message: `Descriptor compiled feature '${feature}' was not exercised.` });
+  for (const mode of descriptor.packageAccessModes) if (!report.exercised.packageAccessModes.includes(mode)) diagnostics.push({ code: 'certification-package-access-unexercised', path: '/exercised/packageAccessModes', message: `Descriptor package access mode '${mode}' was not exercised.` });
   for (const format of descriptorArtifactFormats(descriptor)) if (!report.exercised.artifactFormats.includes(format)) diagnostics.push({ code: 'certification-artifact-unexercised', path: '/exercised/artifactFormats', message: `Claimed artifact format '${format}' was not exercised.` });
 
   const evidence = new Map(report.evidence.map((item) => [item.check, item]));

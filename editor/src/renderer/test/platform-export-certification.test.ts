@@ -14,10 +14,13 @@ const descriptor = parseTemplateDescriptor({
 const checks = ['artifact-claims','descriptor-file-roles','runtime-closure','grouped-transaction-rollback','fixture-launch','input','rendering','rmlui','lua','fonts','images','audio','navigation','save-reload','clean-shutdown','fatal-startup-diagnostics','compatible-update','incompatible-api-rejected','debug-release-separation','development-surfaces-absent','symbols-build-id','third-party-notices','sbom','reproducibility','web-root-path','web-subdirectory-path','web-persistence','web-two-games-one-origin','web-service-worker-update','web-system-assets'];
 const report = (): PlatformCertificationReport => ({
   format: PLATFORM_CERTIFICATION_FORMAT, formatVersion: PLATFORM_CERTIFICATION_FORMAT_VERSION, generatedAt: '2026-07-11T12:00:00.000Z',
-  template: { templateId: descriptor.templateId, buildId: descriptor.buildId, target: descriptor.platform, architecture: descriptor.architecture, buildFlavor: descriptor.buildFlavor },
-  fixture: { id: 'platform-export-acceptance', revision: 'fixture-1' },
-  exercised: { packageApis: [1], capabilities: ['network.client'], artifactFormats: ['directory', 'zip'] },
-  evidence: checks.map((check) => ({ check, status: 'passed', detail: 'CI evidence recorded', artifact: 'report.json' })), hostGaps: [],
+  template: { templateId: descriptor.templateId, buildId: descriptor.buildId, target: descriptor.platform, architecture: descriptor.architecture, buildFlavor: descriptor.buildFlavor, descriptorSha256: 'd'.repeat(64), archiveSha256: 'e'.repeat(64), sourceRevision: 'commit-1' },
+  fixture: { id: 'platform-export-acceptance', revision: 'fixture-1', sha256: 'b'.repeat(64) },
+  exercised: {
+    packageApis: [1], playerConfigApis: [1], capabilities: ['network.client'], artifactFormats: ['directory', 'zip'],
+    graphicsBackends: ['webgl2'], shaderVariants: ['essl-300'], compiledFeatures: [], packageAccessModes: ['web-fetch'],
+  },
+  evidence: checks.map((check) => ({ check, status: 'passed', detail: 'CI evidence recorded', artifact: 'report.json', artifactSha256: 'c'.repeat(64), producer: 'github-actions/test', command: 'pnpm test' })), hostGaps: [],
 });
 
 describe('platform export certification gate', () => {

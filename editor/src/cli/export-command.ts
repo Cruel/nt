@@ -1,5 +1,6 @@
 import type { PlatformStageResult } from '../shared/project-schema/platform-export-contracts';
 import { exportProjectToPlatform } from '../main/services/platform-export-orchestration-service';
+import { redactPlatformStageResult } from '../main/services/platform-staging-service';
 import { readFile } from 'node:fs/promises';
 
 export interface ExportCommandArguments {
@@ -40,7 +41,7 @@ export async function runExportCommand(args: ExportCommandArguments): Promise<{ 
   if (args.configPath) localState = JSON.parse(await readFile(args.configPath, 'utf8')) as typeof localState;
   const result = await exportProjectToPlatform({ projectPath: args.projectPath, profileId: args.profileId, outputDirectory: args.outputDirectory, localState });
   const output = args.json
-    ? `${JSON.stringify(result, null, 2)}\n`
+    ? `${JSON.stringify(redactPlatformStageResult(result), null, 2)}\n`
     : `${result.success ? 'Export succeeded' : 'Export failed'}: ${args.profileId} -> ${args.outputDirectory}\n${result.diagnostics.map((item) => `[${item.severity}] ${item.code}: ${item.message}`).join('\n')}${result.diagnostics.length ? '\n' : ''}`;
   return { result, output, exitCode: exitCodeForExportResult(result) };
 }

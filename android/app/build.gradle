@@ -28,10 +28,19 @@ android {
     if (!(generatedAbi in ["arm64-v8a", "x86_64"])) {
         throw new GradleException("novelteaAbi must be 'arm64-v8a' or 'x86_64'.")
     }
-    def releaseStoreFile = providers.gradleProperty("novelteaReleaseStoreFile").orNull
-    def releaseStorePassword = providers.gradleProperty("novelteaReleaseStorePassword").orNull
-    def releaseKeyAlias = providers.gradleProperty("novelteaReleaseKeyAlias").orNull
-    def releaseKeyPassword = providers.gradleProperty("novelteaReleaseKeyPassword").orNull
+    def signingProperties = new Properties()
+    def signingPropertiesPath = providers.gradleProperty("novelteaSigningProperties").orNull
+    if (signingPropertiesPath != null) {
+        def signingPropertiesFile = file(signingPropertiesPath)
+        if (!signingPropertiesFile.isFile()) {
+            throw new GradleException("novelteaSigningProperties does not name a regular file.")
+        }
+        signingPropertiesFile.withInputStream { signingProperties.load(it) }
+    }
+    def releaseStoreFile = signingProperties.getProperty("storeFile")
+    def releaseStorePassword = signingProperties.getProperty("storePassword")
+    def releaseKeyAlias = signingProperties.getProperty("keyAlias")
+    def releaseKeyPassword = signingProperties.getProperty("keyPassword")
     def hasReleaseSigning = releaseStoreFile != null &&
             releaseStorePassword != null &&
             releaseKeyAlias != null &&

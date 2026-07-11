@@ -332,6 +332,45 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
     }
     const nextOperationId = `editor-${Date.now()}`;
     setOperationId(nextOperationId);
+    const parseArguments = (value: string, label: string) => {
+      try {
+        const parsed = JSON.parse(value || '[]') as unknown;
+        if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) throw new Error();
+        return parsed as string[];
+      } catch {
+        throw new Error(`${label} must be a JSON array of strings.`);
+      }
+    };
+    const signingEnabled = Boolean(currentPlatformProfile.signingProfileId);
+    const signing = {
+      ...(signingEnabled && localState.windowsSigningCommand && localState.windowsVerifyCommand ? {
+        windows: {
+          command: localState.windowsSigningCommand,
+          args: parseArguments(localState.windowsSigningArgs, 'Windows signing arguments'),
+          verifyCommand: localState.windowsVerifyCommand,
+          verifyArgs: parseArguments(localState.windowsVerifyArgs, 'Windows verification arguments'),
+        },
+      } : {}),
+      ...(signingEnabled && localState.macosSigningIdentity ? {
+        macos: {
+          identity: localState.macosSigningIdentity,
+          ...(localState.macosEntitlementsPath ? { entitlementsPath: localState.macosEntitlementsPath } : {}),
+          ...(localState.macosNotarizationCommand ? {
+            notarizationCommand: localState.macosNotarizationCommand,
+            notarizationArgs: parseArguments(localState.macosNotarizationArgs, 'macOS notarization arguments'),
+          } : {}),
+        },
+      } : {}),
+      ...(signingEnabled && localState.androidKeystorePath && localState.androidKeyAlias
+        && localState.androidStorePasswordReference && localState.androidKeyPasswordReference ? {
+          android: {
+            keystorePath: localState.androidKeystorePath,
+            keyAlias: localState.androidKeyAlias,
+            storePasswordReference: localState.androidStorePasswordReference,
+            keyPasswordReference: localState.androidKeyPasswordReference,
+          },
+        } : {}),
+    };
     const result = await runProjectPlatformExportWorkflow({
       operationId: nextOperationId,
       project: currentProject,
@@ -339,7 +378,13 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
       profileId: currentPlatformProfile.id,
       templateToken: selectedTemplateToken || `${template!.descriptor.templateId}/${template!.descriptor.buildId}`,
       outputDirectory: platformOutput,
-      localState,
+      localState: {
+        androidSdk: localState.androidSdk || undefined,
+        androidNdk: localState.androidNdk || undefined,
+        javaHome: localState.javaHome || undefined,
+        cmake: localState.cmake || undefined,
+        ...(Object.keys(signing).length ? { signing } : {}),
+      },
     }, currentPlatformProfile);
     setOperationId(null);
     if (result.success) onOpenChange(false);
@@ -392,6 +437,7 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
             <div className="grid gap-1"><Label>Package access</Label><select aria-label="Desktop package access" className="h-9 rounded border bg-background px-2 text-sm" value={activePlatformProfile.packageAccess} onChange={(event) => replaceActiveProfile({ ...activePlatformProfile, packageAccess: event.currentTarget.value as 'sidecar' | 'bundle-resource' })}><option value="sidecar">sidecar</option><option value="bundle-resource">bundle resource</option></select></div>
           </>}
           <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={activePlatformProfile.includeDebugSymbols} onChange={(event) => replaceActiveProfile({ ...activePlatformProfile, includeDebugSymbols: event.currentTarget.checked })}/>Include separate debug symbols</label>
+          {activePlatformProfile.target !== 'web' && activePlatformProfile.target !== 'linux' ? <div className="grid gap-1"><Label>Signing profile</Label><select aria-label="Signing profile" className="h-9 rounded border bg-background px-2 text-sm" value={activePlatformProfile.signingProfileId ?? ''} onChange={(event) => replaceActiveProfile({ ...activePlatformProfile, signingProfileId: event.currentTarget.value || null })}><option value="">Unsigned</option><option value={`${activePlatformProfile.target}-default`}>Editor default</option></select></div> : null}
         </div>
         <div className="rounded border p-3 text-xs"><div className="mb-2 font-medium">Capabilities</div><div className="grid grid-cols-2 gap-2">{capabilityOptions.map((capability) => <label key={capability} className="flex items-center gap-2"><input type="checkbox" checked={activePlatformProfile.capabilityOverrides.includes(capability)} onChange={() => toggleCapability(capability)}/>{capability}</label>)}</div></div></> : null}
         {!profileManagementOnly ? <>

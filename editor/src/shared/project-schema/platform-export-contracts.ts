@@ -153,6 +153,7 @@ const platformProfileBase = z.object({
   compression: z.enum(['default', 'store', 'maximum']).default('default'),
   includeDebugSymbols: z.boolean().default(false),
   capabilityOverrides: capabilityArraySchema.default([]),
+  signingProfileId: z.string().trim().min(1).nullable().optional(),
 });
 
 const desktopProfileSchema = platformProfileBase.extend({
@@ -202,6 +203,7 @@ export function defaultPlatformExportProfile(target: ExportPlatform = 'linux'): 
     compression: 'default' as const,
     includeDebugSymbols: false,
     capabilityOverrides: [] as ExportCapability[],
+    signingProfileId: null,
   };
   if (target === 'web') {
     return platformExportProfileSchema.parse({
@@ -259,7 +261,11 @@ export const editorExportLocalStateSchema = z.object({
   lastOutputDirectory: z.string().optional(),
   templateRoots: z.array(z.string()).default([]),
   toolchains: z.object({ androidSdk: z.string().optional(), androidNdk: z.string().optional(), javaHome: z.string().optional(), cmake: z.string().optional() }).strict().default({}),
-  signing: z.object({ certificatePath: z.string().optional(), keystorePath: z.string().optional(), identity: z.string().optional(), secretReferences: z.record(z.string(), z.string()).default({}) }).strict().default({ secretReferences: {} }),
+  signing: z.object({
+    windows: z.object({ command: z.string().min(1), args: z.array(z.string()), verifyCommand: z.string().min(1), verifyArgs: z.array(z.string()) }).strict().optional(),
+    macos: z.object({ identity: z.string().min(1), entitlementsPath: z.string().optional(), notarizationCommand: z.string().optional(), notarizationArgs: z.array(z.string()).optional() }).strict().optional(),
+    android: z.object({ keystorePath: z.string().min(1), keyAlias: z.string().min(1), storePasswordReference: z.string().min(1), keyPasswordReference: z.string().min(1) }).strict().optional(),
+  }).strict().default({}),
 }).strict();
 
 export type PlayerBootstrapConfig = z.infer<typeof playerBootstrapConfigSchema>;
@@ -352,7 +358,7 @@ export interface PlatformStageResult {
   ok: boolean; success: boolean; cancelled: boolean; operationId: string; outputDirectory?: string;
   archivePath?: string;
   symbolArchivePath?: string;
-  artifacts?: Array<{ kind: 'directory' | 'archive' | 'appimage' | 'app-bundle' | 'dmg' | 'symbols' | 'apk' | 'aab' | 'apk-set'; path: string; size?: number }>;
+  artifacts?: Array<{ kind: 'directory' | 'archive' | 'appimage' | 'app-bundle' | 'dmg' | 'symbols' | 'signing-report' | 'apk' | 'aab' | 'apk-set'; path: string; size?: number }>;
   webMetrics?: { compressedDownloadBytes: number; uncompressedPackageBytes: number; estimatedPeakStartupBytes: number };
   diagnostics: PlatformStageDiagnostic[]; deployment?: PlatformDeploymentModel; manifest?: PlatformExportManifest;
 }
@@ -370,10 +376,8 @@ export interface ProjectPlatformExportRequest {
     androidNdk?: string;
     javaHome?: string;
     cmake?: string;
-    signingIdentity?: string;
-    credentialReference?: string;
     signing?: {
-      windows?: { command: string; args: string[]; verifyCommand?: string; verifyArgs?: string[] };
+      windows?: { command: string; args: string[]; verifyCommand: string; verifyArgs: string[] };
       macos?: { identity: string; entitlementsPath?: string; notarizationCommand?: string; notarizationArgs?: string[] };
       android?: { keystorePath: string; keyAlias: string; storePasswordReference: string; keyPasswordReference: string };
     };

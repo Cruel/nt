@@ -30,8 +30,8 @@ describe('platform export contracts', () => {
   });
 
   it('accepts host paths only in editor-local state', () => {
-    const state = parseEditorExportLocalState({ format: EDITOR_EXPORT_LOCAL_STATE_FORMAT, formatVersion: EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION, lastOutputDirectory: '/home/me/exports', templateRoots: ['/opt/noveltea/templates'], toolchains: { androidSdk: '/opt/android' }, signing: { keystorePath: '/secure/release.jks', secretReferences: { storePassword: 'keychain:noveltea/store' } } });
-    expect(state.signing.secretReferences.storePassword).toBe('keychain:noveltea/store');
+    const state = parseEditorExportLocalState({ format: EDITOR_EXPORT_LOCAL_STATE_FORMAT, formatVersion: EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION, lastOutputDirectory: '/home/me/exports', templateRoots: ['/opt/noveltea/templates'], toolchains: { androidSdk: '/opt/android' }, signing: { android: { keystorePath: '/secure/release.jks', keyAlias: 'release', storePasswordReference: 'env:NOVELTEA_STORE_PASSWORD', keyPasswordReference: 'env:NOVELTEA_KEY_PASSWORD' } } });
+    expect(state.signing.android?.storePasswordReference).toBe('env:NOVELTEA_STORE_PASSWORD');
   });
 
   it('round-trips Android artifact selections and rejects architecture/ABI mismatches', () => {

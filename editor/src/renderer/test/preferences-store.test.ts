@@ -13,7 +13,11 @@ describe('preferences-store', () => {
       lastProjectPath: null,
       defaultProjectDirectory: null,
       exportPreferences: {
-        defaultOutputDirectory: '', androidSdk: '', androidNdk: '', javaHome: '', cmake: '', signingIdentity: '', credentialReference: '', profileOutputDirectories: {}, profileTemplateTokens: {},
+        defaultOutputDirectory: '', androidSdk: '', androidNdk: '', javaHome: '', cmake: '',
+        windowsSigningCommand: '', windowsSigningArgs: '["sign", "{executable}"]', windowsVerifyCommand: '', windowsVerifyArgs: '["verify", "{executable}"]',
+        macosSigningIdentity: '', macosEntitlementsPath: '', macosNotarizationCommand: '', macosNotarizationArgs: '[]',
+        androidKeystorePath: '', androidKeyAlias: '', androidStorePasswordReference: '', androidKeyPasswordReference: '',
+        profileOutputDirectories: {}, profileTemplateTokens: {},
       },
     });
   });
@@ -83,12 +87,12 @@ describe('preferences-store', () => {
     usePreferencesStore.getState().setExportPreferences({
       defaultOutputDirectory: '/tmp/exports',
       androidSdk: '/opt/android-sdk',
-      signingIdentity: 'Developer ID Application',
+      macosSigningIdentity: 'Developer ID Application',
     });
     expect(usePreferencesStore.getState().exportPreferences).toMatchObject({
       defaultOutputDirectory: '/tmp/exports',
       androidSdk: '/opt/android-sdk',
-      signingIdentity: 'Developer ID Application',
+      macosSigningIdentity: 'Developer ID Application',
     });
     const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
     expect(persisted.state.exportPreferences.androidSdk).toBe('/opt/android-sdk');

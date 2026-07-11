@@ -114,7 +114,7 @@ describe('platform staging service', () => {
     const descriptor = { format: TEMPLATE_DESCRIPTOR_FORMAT, formatVersion: 1, templateId: 'windows-x64', buildId: 'build-1', engineVersion: '1', platform: 'windows', architecture: 'x64', minimumPlatformVersion: '10', graphicsBackends: ['direct3d11'], shaderVariants: ['glsl-120'], runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 }, compiledFeatures: [], capabilities: [], buildFlavor: 'release', packageAccessModes: ['sidecar'], files: entries, runtimeDependencies: [{ path: 'bin/runtime.dll', kind: 'library' }], windowsImports: ['kernel32.dll', 'runtime.dll'], artifacts: { archive: 'windows.zip', symbols: 'windows-symbols.zip', sbom: 'SBOM.cdx.json', notices: 'THIRD_PARTY_NOTICES.txt' }, provenance: { provider: 'local', source: 'test' }, host: { assembly: 'any', requiresToolchain: false, tools: [] } };
     const descriptorData = Buffer.from(JSON.stringify(descriptor)); fs.writeFileSync(path.join(templateRoot, 'template.json'), descriptorData);
     fs.writeFileSync(path.join(templateRoot, '.noveltea-template.json'), JSON.stringify({ format: 'noveltea.template-registry', formatVersion: 1, templateId: 'windows-x64', buildId: 'build-1', descriptorSha256: sha(descriptorData), archiveSha256: 'a'.repeat(64), installedAt: new Date().toISOString(), origin: 'test', trust: 'local-untrusted', verified: true }));
-    const windowsRequest: PlatformStageRequest = { ...request, operationId: 'windows', templateToken, outputDirectory: path.join(root, 'windows out Ω'), profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'windows', label: 'Windows', target: 'windows', architecture: 'x64', packageAccess: 'sidecar', buildFlavor: 'release', compression: 'default', includeDebugSymbols: true, capabilityOverrides: [], desktop: { artifact: 'zip', executableName: 'Tea Game' } }, identity: { ...request.identity, displayName: 'Tea Game', versionName: '1.2.3' }, windowsSigning: { command: process.execPath, args: ['-e', "require('fs').appendFileSync(process.argv[1], 'SIGNED')", '{executable}'] } };
+    const windowsRequest: PlatformStageRequest = { ...request, operationId: 'windows', templateToken, outputDirectory: path.join(root, 'windows out Ω'), profile: { format: PLATFORM_EXPORT_PROFILE_FORMAT, formatVersion: 1, id: 'windows', label: 'Windows', target: 'windows', architecture: 'x64', packageAccess: 'sidecar', buildFlavor: 'release', compression: 'default', includeDebugSymbols: true, capabilityOverrides: [], desktop: { artifact: 'zip', executableName: 'Tea Game' } }, identity: { ...request.identity, displayName: 'Tea Game', versionName: '1.2.3' }, windowsSigning: { command: process.execPath, args: ['-e', "require('fs').appendFileSync(process.argv[1], 'SIGNED')", '{subject}'], verifyCommand: process.execPath, verifyArgs: ['-e', "if(!require('fs').readFileSync(process.argv[1]).subarray(-6).equals(Buffer.from('SIGNED')))process.exit(1)", '{subject}'] } };
     const result = await stagePlatformExport(windowsRequest);
     expect(result.success).toBe(true); expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true); expect(result.symbolArchivePath && fs.existsSync(result.symbolArchivePath)).toBe(true);
     expect(fs.existsSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))).toBe(true); expect(fs.existsSync(path.join(windowsRequest.outputDirectory, 'player.pdb'))).toBe(false);
@@ -126,7 +126,8 @@ describe('platform staging service', () => {
     expect(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe')).subarray(-6).toString()).toBe('SIGNED');
     const metadata = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'WINDOWS_METADATA.json'), 'utf8')); expect(metadata.resourceMutationComplete).toBe(true); expect(metadata.signingCommandHook.configured).toBe(true);
     const signingReport = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'SIGNING_REPORT.json'), 'utf8'));
-    expect(signingReport).toMatchObject({ platform: 'windows', templateBuildId: 'build-1', signed: true, verified: false });
+    expect(signingReport).toMatchObject({ platform: 'windows', templateBuildId: 'build-1', signed: true, verified: true });
+    expect(signingReport.subjects.map((item: { path: string }) => item.path)).toEqual(['bin/runtime.dll', 'Tea Game.exe']);
     const manifest = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'export-manifest.json'), 'utf8')); const executableEntry = manifest.files.find((entry: { path: string }) => entry.path === 'Tea Game.exe');
     expect(executableEntry.sha256).toBe(createHash('sha256').update(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))).digest('hex'));
   });
@@ -472,10 +473,12 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
         identity: { displayName: 'Tea Game 茶', shortName: 'Tea Game', applicationId: 'com.noveltea.macos-smoke', saveNamespace: `com.noveltea.macos-smoke-${Date.now()}`, versionName: '1.0.0', defaultLocale: 'en-US' },
         display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' },
         capabilities: ['network.client'], runtimePackageApi: 1,
+        macosDmg: { command: 'hdiutil', args: ['create', '-volname', 'Tea Game', '-srcfolder'] },
       });
       expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
       expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
       expect(result.symbolArchivePath && fs.existsSync(result.symbolArchivePath)).toBe(true);
+      expect(result.artifacts?.some((artifact) => artifact.kind === 'dmg' && fs.existsSync(artifact.path))).toBe(true);
       const executable = path.join(outputDirectory, 'Contents/MacOS/TeaGame');
       const plist = path.join(outputDirectory, 'Contents/Info.plist');
       expect(spawnSync('plutil', ['-lint', plist]).status).toBe(0);

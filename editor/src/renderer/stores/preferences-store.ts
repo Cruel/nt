@@ -14,8 +14,18 @@ export interface ExportPreferences {
   androidNdk: string;
   javaHome: string;
   cmake: string;
-  signingIdentity: string;
-  credentialReference: string;
+  windowsSigningCommand: string;
+  windowsSigningArgs: string;
+  windowsVerifyCommand: string;
+  windowsVerifyArgs: string;
+  macosSigningIdentity: string;
+  macosEntitlementsPath: string;
+  macosNotarizationCommand: string;
+  macosNotarizationArgs: string;
+  androidKeystorePath: string;
+  androidKeyAlias: string;
+  androidStorePasswordReference: string;
+  androidKeyPasswordReference: string;
   profileOutputDirectories: Record<string, string>;
   profileTemplateTokens: Record<string, string>;
 }
@@ -26,8 +36,18 @@ export const DEFAULT_EXPORT_PREFERENCES: ExportPreferences = {
   androidNdk: '',
   javaHome: '',
   cmake: '',
-  signingIdentity: '',
-  credentialReference: '',
+  windowsSigningCommand: '',
+  windowsSigningArgs: '["sign", "{executable}"]',
+  windowsVerifyCommand: '',
+  windowsVerifyArgs: '["verify", "{executable}"]',
+  macosSigningIdentity: '',
+  macosEntitlementsPath: '',
+  macosNotarizationCommand: '',
+  macosNotarizationArgs: '[]',
+  androidKeystorePath: '',
+  androidKeyAlias: '',
+  androidStorePasswordReference: '',
+  androidKeyPasswordReference: '',
   profileOutputDirectories: {},
   profileTemplateTokens: {},
 };

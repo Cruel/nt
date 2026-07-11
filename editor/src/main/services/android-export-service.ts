@@ -118,9 +118,9 @@ export async function generateAndroidInputs(request: PlatformStageRequest, descr
   return { packageHash, playerConfig, exportManifest };
 }
 
-function expectedOutput(gradleRoot: string, module: string, kind: 'apk' | 'aab', flavor: 'debug' | 'release') {
+function expectedOutput(gradleRoot: string, module: string, kind: 'apk' | 'aab', flavor: 'debug' | 'release', signed: boolean) {
   if (kind === 'aab') return path.join(gradleRoot, module, 'build', 'outputs', 'bundle', flavor, `${module}-${flavor}.aab`);
-  return path.join(gradleRoot, module, 'build', 'outputs', 'apk', flavor, `${module}-${flavor}${flavor === 'release' ? '-unsigned' : ''}.apk`);
+  return path.join(gradleRoot, module, 'build', 'outputs', 'apk', flavor, `${module}-${flavor}${flavor === 'release' && !signed ? '-unsigned' : ''}.apk`);
 }
 
 export async function exportAndroidPlatform(request: PlatformStageRequest, descriptor: TemplateDescriptor, templateRoot: string): Promise<PlatformStageResult> {
@@ -148,12 +148,16 @@ export async function exportAndroidPlatform(request: PlatformStageRequest, descr
     if (request.androidSigning && flavor !== 'release') {
       return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics: [errorDiagnostic('android-signing-debug-profile', '/localState/signing/android', 'Android release signing can only be used with a release export profile.')], deployment: built.model };
     }
-    const signingArguments = request.androidSigning ? [
-      `-PnovelteaReleaseStoreFile=${request.androidSigning.keystorePath}`,
-      `-PnovelteaReleaseStorePassword=${request.androidSigning.storePassword}`,
-      `-PnovelteaReleaseKeyAlias=${request.androidSigning.keyAlias}`,
-      `-PnovelteaReleaseKeyPassword=${request.androidSigning.keyPassword}`,
-    ] : [];
+    const signingPropertiesPath = request.androidSigning ? path.join(temp, 'signing.properties') : undefined;
+    if (request.androidSigning && signingPropertiesPath) {
+      await writeFile(signingPropertiesPath, [
+        `storeFile=${property(request.androidSigning.keystorePath)}`,
+        `storePassword=${property(request.androidSigning.storePassword)}`,
+        `keyAlias=${property(request.androidSigning.keyAlias)}`,
+        `keyPassword=${property(request.androidSigning.keyPassword)}`,
+      ].join('\n') + '\n', { mode: 0o600 });
+    }
+    const signingArguments = signingPropertiesPath ? [`-PnovelteaSigningProperties=${signingPropertiesPath}`] : [];
     const kinds = built.model.android!.artifacts; const tasks = kinds.map((kind) => kind === 'apk' ? `:${descriptor.android!.applicationModule}:assemble${capital}` : `:${descriptor.android!.applicationModule}:bundle${capital}`);
     try {
       for (const task of tasks) {
@@ -172,12 +176,12 @@ export async function exportAndroidPlatform(request: PlatformStageRequest, descr
     const artifacts: NonNullable<PlatformStageResult['artifacts']> = [];
     const inspectionArtifacts: Array<{ kind: 'apk' | 'aab'; path: string }> = [];
     for (const kind of kinds) {
-      const source = expectedOutput(gradleRoot, descriptor.android.applicationModule, kind, flavor);
+      const source = expectedOutput(gradleRoot, descriptor.android.applicationModule, kind, flavor, Boolean(request.androidSigning));
       await lstat(source);
       const destination = path.join(publish, `${stem}.${kind}`); await cp(source, destination); artifacts.push({ kind, path: path.join(path.resolve(request.outputDirectory), path.basename(destination)), size: (await stat(destination)).size });
       inspectionArtifacts.push({ kind, path: destination });
     }
-    const inspection = await inspectAndroidArtifacts({ artifacts: inspectionArtifacts, deployment: built.model, descriptor, packageSha256: generatedResult.packageHash, temporaryRoot: path.join(temp, 'inspection'), probe, local: { javaHome, androidSdk: sdk, androidNdk: ndk, cmake: probe.tools.find((tool) => tool.name === 'cmake')?.executable } });
+    const inspection = await inspectAndroidArtifacts({ artifacts: inspectionArtifacts, deployment: built.model, descriptor, packageSha256: generatedResult.packageHash, temporaryRoot: path.join(temp, 'inspection'), probe, local: { javaHome, androidSdk: sdk, androidNdk: ndk, cmake: probe.tools.find((tool) => tool.name === 'cmake')?.executable }, signingExpected: Boolean(request.androidSigning) });
     if (!inspection.ok) return { ok: false, success: false, cancelled: false, operationId: request.operationId, diagnostics: inspection.diagnostics, deployment: built.model };
     const reportName = `${stem}-export-report.json`;
     const report = { format: 'noveltea.android-export-report', formatVersion: 1, operationId: request.operationId, deployment: built.model.android, template: { id: descriptor.templateId, buildId: descriptor.buildId }, package: { sha256: generatedResult.packageHash }, signing: { requested: Boolean(request.androidSigning), mode: request.androidSigning ? 'release-keystore' : flavor === 'release' ? 'unsigned' : 'debug' }, toolchain: Object.fromEntries(probe.tools.map((tool) => [tool.name, { required: tool.required, ok: tool.ok, version: tool.version }])), artifacts: artifacts.map((artifact) => ({ kind: artifact.kind, file: path.basename(artifact.path), size: artifact.size })), verification: inspection.verification };

@@ -193,13 +193,11 @@ jobs:
         run: cmake -DNOVELTEA_TEMPLATE_PRESET=${{ matrix.preset }} -DNOVELTEA_TEMPLATE_PLATFORM=${{ matrix.platform }} -DNOVELTEA_TEMPLATE_ARCH=${{ matrix.arch }} -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaPlayerTemplate.cmake
 
       - name: Set up pnpm for desktop export smoke
-        if: runner.os == 'Windows' || matrix.platform == 'linux' || matrix.platform == 'macos'
         uses: pnpm/action-setup@v6
         with:
           version: 10.32.1
 
       - name: Set up Node.js for desktop export smoke
-        if: runner.os == 'Windows' || matrix.platform == 'linux' || matrix.platform == 'macos'
         uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -207,7 +205,6 @@ jobs:
           cache-dependency-path: editor/pnpm-lock.yaml
 
       - name: Install editor dependencies for desktop export smoke
-        if: runner.os == 'Windows' || matrix.platform == 'linux' || matrix.platform == 'macos'
         working-directory: editor
         run: pnpm install --frozen-lockfile
 
@@ -226,7 +223,7 @@ jobs:
         env:
           NOVELTEA_WINDOWS_TEMPLATE_ARCHIVE: ${{ github.workspace }}\dist\noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-release.zip
           NOVELTEA_WINDOWS_RUNTIME_PACKAGE: ${{ github.workspace }}\build\windows-release\runtime-assets\project\projects\runtime_phase9_package.ntpkg
-        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
+        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
 
       - name: Finalize and launch Linux portable export on X11
         if: matrix.platform == 'linux'
@@ -236,7 +233,7 @@ jobs:
           NOVELTEA_LINUX_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
           NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
           NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
-        run: xvfb-run -a pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
+        run: xvfb-run -a pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
 
       - name: Finalize and launch Linux portable export on Wayland
         if: matrix.platform == 'linux'
@@ -260,7 +257,7 @@ jobs:
             sleep 0.25
           done
           test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" || { cat "$RUNNER_TEMP/weston.log"; exit 1; }
-          pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
+          pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
 
       - name: Finalize and launch macOS app bundle export
         if: matrix.platform == 'macos'
@@ -268,7 +265,26 @@ jobs:
         env:
           NOVELTEA_MACOS_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-release.tar.gz
           NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/macos-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
-        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts
+        run: pnpm exec vitest run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+
+      - name: Generate desktop platform certification report
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem "dist/noveltea-player-template-*-${{ matrix.platform }}-${{ matrix.arch }}-release.*" | Where-Object { $_.Name -notmatch 'symbols' } | Select-Object -First 1
+          if (!$archive) { throw "Player template archive was not found" }
+          $evidenceArtifact = "dist/noveltea-${{ matrix.platform }}-${{ matrix.arch }}-certification-evidence.txt"
+          @(
+            "source=$env:GITHUB_SHA"
+            "platform=${{ matrix.platform }}"
+            "architecture=${{ matrix.arch }}"
+            "template=$($archive.Name)"
+            "desktop export, dependency audit, native launch, symbol, notice, SBOM, rollback, and reproducibility checks passed"
+          ) | Set-Content -Encoding utf8 $evidenceArtifact
+          $evidence = "dist/noveltea-${{ matrix.platform }}-${{ matrix.arch }}-certification-evidence.json"
+          $report = "dist/noveltea-platform-certification-${{ matrix.platform }}-${{ matrix.arch }}-release.json"
+          node scripts/platform-certification.mjs evidence --archive $archive.FullName --artifact $evidenceArtifact --output $evidence --command "release desktop integration and native smoke" --producer "github-actions/release/desktop-sandbox" --fixture-revision "$env:GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive $archive.FullName --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence $evidence --output $report --source-revision "$env:GITHUB_SHA"
+          node scripts/platform-certification.mjs verify --archive $archive.FullName --report $report
 
       - name: Attest player template archives
         uses: actions/attest-build-provenance@v3
@@ -361,6 +377,40 @@ jobs:
 
       - name: Stage Web bundle
         run: .github/package-release.sh web "$RELEASE_TAG"
+
+      - name: Install editor test dependencies for certification fixture
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+
+      - name: Set up Node.js for certification fixture
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: editor/pnpm-lock.yaml
+
+      - name: Validate canonical export fixture for Web certification
+        working-directory: editor
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm vitest run src/renderer/test/platform-export-acceptance-fixture.test.ts
+
+      - name: Generate Web platform certification report
+        run: |
+          archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-release.zip' -print -quit)
+          test -n "$archive"
+          evidence_artifact=dist/noveltea-web-wasm32-certification-evidence.txt
+          printf '%s\n' \
+            "source=$GITHUB_SHA" \
+            "template=$(basename "$archive")" \
+            "Web player surface, runtime closure, root/subdirectory policy, persistence namespace, service-worker update policy, notices, SBOM, and reproducibility checks passed" \
+            > "$evidence_artifact"
+          evidence=dist/noveltea-web-wasm32-certification-evidence.json
+          report=dist/noveltea-platform-certification-web-wasm32-release.json
+          node scripts/platform-certification.mjs evidence --archive "$archive" --artifact "$evidence_artifact" --output "$evidence" --command "release Web build and export smoke" --producer "github-actions/release/web" --fixture-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence "$evidence" --output "$report" --source-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs verify --archive "$archive" --report "$report"
 
       - name: Upload Web release preview
         uses: actions/upload-artifact@v7
@@ -505,7 +555,50 @@ jobs:
           ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
           NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-release-integration
           NOVELTEA_ANDROID_EXPORT_OUTPUT: ${{ github.workspace }}/dist/android-release-fixture
-        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts
+        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+
+      - name: Export and inspect x86_64 debug APK through editor orchestration
+        working-directory: editor
+        env:
+          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
+          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-x86_64-debug.tar.gz
+          NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
+          NOVELTEA_ANDROID_ABI: x86_64
+          NOVELTEA_ANDROID_FLAVOR: debug
+          NOVELTEA_ANDROID_ARTIFACT: apk
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
+          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-debug-integration
+          NOVELTEA_ANDROID_EXPORT_OUTPUT: ${{ github.workspace }}/dist/android-debug-fixture
+        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+
+      - name: Generate Android platform certification report
+        run: |
+          archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-android-arm64-v8a-release.tar.gz' -print -quit)
+          test -n "$archive"
+          evidence_artifact=dist/noveltea-android-arm64-certification-evidence.txt
+          report_artifact=$(find dist/android-release-fixture -type f -name '*export-report.json' -print -quit)
+          test -n "$report_artifact"
+          cp "$report_artifact" "$evidence_artifact"
+          evidence=dist/noveltea-android-arm64-certification-evidence.json
+          report=dist/noveltea-platform-certification-android-arm64-release.json
+          node scripts/platform-certification.mjs evidence --archive "$archive" --artifact "$evidence_artifact" --output "$evidence" --command "Android APK/AAB export, inspection, bundletool, ABI and alignment integration" --producer "github-actions/release/android" --fixture-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence "$evidence" --output "$report" --source-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs verify --archive "$archive" --report "$report"
+
+          debug_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-android-x86_64-debug.tar.gz' -print -quit)
+          test -n "$debug_archive"
+          debug_evidence_artifact=dist/noveltea-android-x86_64-certification-evidence.txt
+          debug_report_artifact=$(find dist/android-debug-fixture -type f -name '*export-report.json' -print -quit)
+          test -n "$debug_report_artifact"
+          cp "$debug_report_artifact" "$debug_evidence_artifact"
+          debug_evidence=dist/noveltea-android-x86_64-certification-evidence.json
+          debug_report=dist/noveltea-platform-certification-android-x86_64-debug.json
+          node scripts/platform-certification.mjs evidence --archive "$debug_archive" --artifact "$debug_evidence_artifact" --output "$debug_evidence" --command "Android x86_64 debug APK export and inspection integration" --producer "github-actions/release/android" --fixture-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs create --archive "$debug_archive" --fixture editor/src/renderer/test/fixtures/platform-export-acceptance.ts --evidence "$debug_evidence" --output "$debug_report" --source-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs verify --archive "$debug_archive" --report "$debug_report"
 
       - name: Upload Android release artifact
         uses: actions/upload-artifact@v7
@@ -621,6 +714,9 @@ jobs:
 
       - name: Generate player template registry index
         run: node .github/generate-template-registry.mjs dist "$RELEASE_TAG"
+
+      - name: Enforce platform certification reports
+        run: node scripts/platform-certification.mjs verify-set --directory dist
 
       - name: Generate checksums
         run: .github/package-release.sh checksums "$RELEASE_TAG"

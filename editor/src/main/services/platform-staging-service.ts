@@ -409,23 +409,27 @@ async function finalizeWindowsStage(stage: string, request: PlatformStageRequest
 
 async function runWindowsSigningHook(stage: string, request: PlatformStageRequest, files: StagedFileEntry[], executablePath: string) {
   if (request.profile.target !== 'windows' || !request.windowsSigning) return { signed: false };
+  if (!request.windowsSigning.verifyCommand) throw new Error('Windows signing requires an independent verification command.');
+  const signable = files
+    .filter((item) => /\.(?:exe|dll)$/i.test(item.path))
+    .sort((left, right) => Number(/\.exe$/i.test(left.path)) - Number(/\.exe$/i.test(right.path)) || left.path.localeCompare(right.path));
+  if (!signable.some((item) => item.path === executablePath)) throw new Error('Windows executable is missing from the ordered signing subject set.');
   const absoluteExecutable = safeRoot(stage, executablePath);
-  const args = request.windowsSigning.args.map((value) => value
+  const expand = (value: string, subject: string) => value
+    .replaceAll('{subject}', subject)
     .replaceAll('{executable}', absoluteExecutable)
-    .replaceAll('{stage}', path.resolve(stage)));
-  await run(request.windowsSigning.command, args, { cwd: stage });
-  if (request.windowsSigning.verifyCommand) {
-    const verifyArgs = (request.windowsSigning.verifyArgs ?? []).map((value) => value
-      .replaceAll('{executable}', absoluteExecutable)
-      .replaceAll('{stage}', path.resolve(stage)));
-    await run(request.windowsSigning.verifyCommand, verifyArgs, { cwd: stage });
+    .replaceAll('{stage}', path.resolve(stage));
+  const subjects: Array<{ path: string; sha256: string }> = [];
+  for (const entry of signable) {
+    const absoluteSubject = safeRoot(stage, entry.path);
+    await run(request.windowsSigning.command, request.windowsSigning.args.map((value) => expand(value, absoluteSubject)), { cwd: stage });
+    await run(request.windowsSigning.verifyCommand, (request.windowsSigning.verifyArgs ?? []).map((value) => expand(value, absoluteSubject)), { cwd: stage });
+    const signed = await readFile(absoluteSubject);
+    entry.size = signed.length;
+    entry.sha256 = sha256(signed);
+    subjects.push({ path: entry.path, sha256: entry.sha256 });
   }
-  const entry = files.find((item) => item.path === executablePath);
-  if (!entry) throw new Error('Signed Windows executable is missing from the staged file manifest.');
-  const signed = await readFile(absoluteExecutable);
-  entry.size = signed.length;
-  entry.sha256 = sha256(signed);
-  return { signed: true, verified: Boolean(request.windowsSigning.verifyCommand) };
+  return { signed: true, verified: true, subjects };
 }
 
 async function finalizeWebStage(stage: string, request: PlatformStageRequest, files: StagedFileEntry[]) {
@@ -531,11 +535,16 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
   const dmgPath = request.profile.target === 'macos' && request.macosDmg ? `${request.outputDirectory.replace(/\.app$/i, '')}.dmg` : undefined;
   const dmgTemp = dmgPath ? `${dmgPath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   const dmgBackup = dmgPath ? `${dmgPath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const signingReportPath = request.profile.target === 'macos' && request.macosSigning
+    ? `${request.outputDirectory.replace(/\.app$/i, '')}-signing-report.json` : undefined;
+  const signingReportTemp = signingReportPath ? `${signingReportPath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+  const signingReportBackup = signingReportPath ? `${signingReportPath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
   let backedUp = false;
   let archiveBackedUp = false;
   let symbolArchiveBackedUp = false;
   let appImageBackedUp = false;
   let dmgBackedUp = false;
+  let signingReportBackedUp = false;
   try {
     checkPlatformExportCancelled(request.operationId);
     if (request.runtimePackageReadiness?.validated !== true || request.runtimePackageReadiness.blockingDiagnosticCount !== 0) {
@@ -592,7 +601,8 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
       files.push(await writeGenerated(temp, 'SIGNING_REPORT.json', `${JSON.stringify({
         format: 'noveltea.signing-report', formatVersion: 1, platform: 'windows',
         templateBuildId: descriptor.buildId, gamePackageSha256: files.find((item) => item.origin === 'runtime-package')?.sha256,
-        signed: true, verified: windowsSigning.verified, timestamped: false,
+        signed: true, verified: windowsSigning.verified, timestamped: null,
+        subjects: windowsSigning.subjects,
       }, null, 2)}\n`, 'signing-report'));
     }
     const packageEntry = files.find((item) => item.origin === 'runtime-package')!;
@@ -657,6 +667,21 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
         await run('spctl', ['--assess', '--type', 'execute', '--verbose=2', temp]);
       }
     }
+    if (macos && request.macosSigning && signingReportTemp) {
+      const subjects = [...macos.frameworkPaths, macos.executablePath]
+        .sort()
+        .map((subject) => ({ path: subject, sha256: files.find((item) => item.path === subject)?.sha256 ?? null }));
+      await writeFile(signingReportTemp, `${JSON.stringify({
+        format: 'noveltea.signing-report', formatVersion: 1, platform: 'macos',
+        templateBuildId: descriptor.buildId,
+        gamePackageSha256: files.find((item) => item.origin === 'runtime-package')?.sha256,
+        identitySha256: sha256(Buffer.from(request.macosSigning.identity)),
+        signed: true, verified: true,
+        notarized: Boolean(request.macosNotarization),
+        stapled: Boolean(request.macosNotarization),
+        subjects,
+      }, null, 2)}\n`, { mode: 0o600 });
+    }
     if (archivePath && archiveTemp) {
       await rm(archiveTemp, { force: true });
       if (request.profile.target === 'linux') await run('cmake', ['-E', 'tar', 'czf', archiveTemp, '.'], { cwd: temp });
@@ -680,23 +705,27 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     if (symbolArchivePath && symbolArchiveBackup && existsSync(symbolArchivePath)) { await rename(symbolArchivePath, symbolArchiveBackup); symbolArchiveBackedUp = true; }
     if (appImagePath && appImageBackup && existsSync(appImagePath)) { await rename(appImagePath, appImageBackup); appImageBackedUp = true; }
     if (dmgPath && dmgBackup && existsSync(dmgPath)) { await rename(dmgPath, dmgBackup); dmgBackedUp = true; }
+    if (signingReportPath && signingReportBackup && existsSync(signingReportPath)) { await rename(signingReportPath, signingReportBackup); signingReportBackedUp = true; }
     try {
       await rename(temp, request.outputDirectory);
       if (archivePath && archiveTemp) await rename(archiveTemp, archivePath);
       if (symbolArchivePath && symbolArchiveTemp && existsSync(symbolArchiveTemp)) await rename(symbolArchiveTemp, symbolArchivePath);
       if (appImagePath && appImageTemp) await rename(appImageTemp, appImagePath);
       if (dmgPath && dmgTemp) await rename(dmgTemp, dmgPath);
+      if (signingReportPath && signingReportTemp) await rename(signingReportTemp, signingReportPath);
     } catch (error) {
       await rm(request.outputDirectory, { recursive: true, force: true });
       if (archivePath) await rm(archivePath, { force: true });
       if (symbolArchivePath) await rm(symbolArchivePath, { force: true });
       if (appImagePath) await rm(appImagePath, { force: true });
       if (dmgPath) await rm(dmgPath, { force: true });
+      if (signingReportPath) await rm(signingReportPath, { force: true });
       if (backedUp && existsSync(backup)) await rename(backup, request.outputDirectory);
       if (archiveBackedUp && archiveBackup && existsSync(archiveBackup)) await rename(archiveBackup, archivePath!);
       if (symbolArchiveBackedUp && symbolArchiveBackup && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath!);
       if (appImageBackedUp && appImageBackup && existsSync(appImageBackup)) await rename(appImageBackup, appImagePath!);
       if (dmgBackedUp && dmgBackup && existsSync(dmgBackup)) await rename(dmgBackup, dmgPath!);
+      if (signingReportBackedUp && signingReportBackup && existsSync(signingReportBackup)) await rename(signingReportBackup, signingReportPath!);
       throw error;
     }
     if (backedUp) await rm(backup, { recursive: true, force: true });
@@ -704,12 +733,14 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     if (symbolArchiveBackedUp && symbolArchiveBackup) await rm(symbolArchiveBackup, { force: true });
     if (appImageBackedUp && appImageBackup) await rm(appImageBackup, { force: true });
     if (dmgBackedUp && dmgBackup) await rm(dmgBackup, { force: true });
+    if (signingReportBackedUp && signingReportBackup) await rm(signingReportBackup, { force: true });
     const artifacts: NonNullable<PlatformStageResult['artifacts']> = [{ kind: 'directory', path: request.outputDirectory }];
     if (archivePath) artifacts.push({ kind: 'archive', path: archivePath, size: (await stat(archivePath)).size });
     if (appImagePath) artifacts.push({ kind: 'appimage', path: appImagePath, size: (await stat(appImagePath)).size });
     if (request.profile.target === 'macos') artifacts[0] = { kind: 'app-bundle', path: request.outputDirectory };
     if (dmgPath) artifacts.push({ kind: 'dmg', path: dmgPath, size: (await stat(dmgPath)).size });
     if (symbolArchivePath && existsSync(symbolArchivePath)) artifacts.push({ kind: 'symbols', path: symbolArchivePath, size: (await stat(symbolArchivePath)).size });
+    if (signingReportPath && existsSync(signingReportPath)) artifacts.push({ kind: 'signing-report', path: signingReportPath, size: (await stat(signingReportPath)).size });
     return { ok: true, success: true, cancelled: false, operationId: request.operationId, outputDirectory: request.outputDirectory, archivePath, symbolArchivePath: symbolArchivePath && existsSync(symbolArchivePath) ? symbolArchivePath : undefined, artifacts, webMetrics, diagnostics, deployment: built.model, manifest };
   } catch (error) {
     const cancelled = error instanceof Error && error.message === 'NOVELTEA_EXPORT_CANCELLED';
@@ -720,11 +751,13 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     if (symbolArchiveTemp) await rm(symbolArchiveTemp, { force: true });
     if (appImageTemp) await rm(appImageTemp, { force: true });
     if (dmgTemp) await rm(dmgTemp, { force: true });
+    if (signingReportTemp) await rm(signingReportTemp, { force: true });
     if (backedUp && !existsSync(request.outputDirectory) && existsSync(backup)) await rename(backup, request.outputDirectory);
     if (archivePath && archiveBackedUp && archiveBackup && !existsSync(archivePath) && existsSync(archiveBackup)) await rename(archiveBackup, archivePath);
     if (symbolArchivePath && symbolArchiveBackedUp && symbolArchiveBackup && !existsSync(symbolArchivePath) && existsSync(symbolArchiveBackup)) await rename(symbolArchiveBackup, symbolArchivePath);
     if (appImagePath && appImageBackedUp && appImageBackup && !existsSync(appImagePath) && existsSync(appImageBackup)) await rename(appImageBackup, appImagePath);
     if (dmgPath && dmgBackedUp && dmgBackup && !existsSync(dmgPath) && existsSync(dmgBackup)) await rename(dmgBackup, dmgPath);
+    if (signingReportPath && signingReportBackedUp && signingReportBackup && !existsSync(signingReportPath) && existsSync(signingReportBackup)) await rename(signingReportBackup, signingReportPath);
     return { ok: false, success: false, cancelled, operationId: request.operationId, diagnostics: cancelled ? [...diagnostics, { severity: 'info', code: 'cancelled', path: '/staging', message: 'Platform export was cancelled.' }] : diagnostics };
   } finally { clearPlatformExportCancellation(request.operationId); }
 }

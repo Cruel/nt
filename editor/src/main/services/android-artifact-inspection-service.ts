@@ -19,6 +19,7 @@ export interface AndroidArtifactInspectionRequest {
   temporaryRoot: string;
   probe: AndroidToolchainProbeResult;
   local: { javaHome: string; androidSdk: string; androidNdk: string; cmake?: string };
+  signingExpected: boolean;
 }
 
 export interface AndroidArtifactInspectionResult {
@@ -113,7 +114,10 @@ async function inspectApk(apk: string, request: AndroidArtifactInspectionRequest
   let signature = 'unsigned';
   try { await run(apksigner, ['verify', '--verbose', apk]); signature = 'verified'; } catch { signature = 'unsigned'; }
   if (request.deployment.buildFlavor === 'debug' && signature !== 'verified') diagnostics.push(diagnostic('android-debug-signature-missing', label, 'Debug APK is not signed with an installable debug signature.'));
-  if (request.deployment.buildFlavor === 'release' && signature === 'verified' && !verificationIntermediate) diagnostics.push(diagnostic('android-release-signature-unexpected', label, 'Phase 8 release output must remain unsigned and must not be reported as release-signed.'));
+  if (request.deployment.buildFlavor === 'release' && !verificationIntermediate) {
+    if (request.signingExpected && signature !== 'verified') diagnostics.push(diagnostic('android-release-signature-missing', label, 'Signed release APK did not pass apksigner verification.'));
+    if (!request.signingExpected && signature === 'verified') diagnostics.push(diagnostic('android-release-signature-unexpected', label, 'Unsigned release export unexpectedly contains a verified APK signature.'));
+  }
   return { diagnostics, signature: verificationIntermediate && signature === 'verified' ? 'debug-signed-verification' : signature, elf: elfResults };
 }
 
@@ -136,8 +140,14 @@ export async function inspectAndroidArtifacts(request: AndroidArtifactInspection
         const bundlePlayer = JSON.parse(await readFile(path.join(bundleExtract, 'base', 'assets', 'noveltea', 'bootstrap', 'player.json'), 'utf8')) as { package?: { sha256?: string } };
         if (sha256(bundlePackage) !== request.packageSha256 || bundlePlayer.package?.sha256 !== request.packageSha256) diagnostics.push(diagnostic('android-aab-package-checksum-mismatch', artifact.path, 'AAB bootstrap package/config hashes differ from export provenance.'));
         const jarsigner = path.join(request.local.javaHome, 'bin', process.platform === 'win32' ? 'jarsigner.exe' : 'jarsigner');
-        let bundleSignature = 'unsigned'; try { await run(jarsigner, ['-verify', artifact.path]); bundleSignature = 'verified'; } catch { /* unsigned Phase 8 output */ }
-        if (request.deployment.buildFlavor === 'release' && bundleSignature !== 'unsigned') diagnostics.push(diagnostic('android-aab-signature-unexpected', artifact.path, 'Phase 8 release AAB must remain unsigned.'));
+        let bundleSignature = 'unsigned';
+        try {
+          const verified = await run(jarsigner, ['-verify', '-verbose', '-certs', artifact.path], { maxBuffer: 16 * 1024 * 1024 });
+          const output = `${verified.stdout}\n${verified.stderr}`;
+          bundleSignature = /jar verified\./i.test(output) && !/jar is unsigned/i.test(output) ? 'verified' : 'unsigned';
+        } catch { /* reported below according to the requested signing mode */ }
+        if (request.signingExpected && bundleSignature !== 'verified') diagnostics.push(diagnostic('android-aab-signature-missing', artifact.path, 'Signed release AAB did not pass JAR signature verification.'));
+        if (!request.signingExpected && bundleSignature !== 'unsigned') diagnostics.push(diagnostic('android-aab-signature-unexpected', artifact.path, 'Unsigned release export unexpectedly contains a verified AAB signature.'));
         await run(java, ['-jar', bundletool, 'build-apks', `--bundle=${artifact.path}`, `--output=${apkSetPath}`, '--mode=universal', '--overwrite'], { maxBuffer: 16 * 1024 * 1024 });
         const apkSetExtract = path.join(request.temporaryRoot, 'apk-set'); await extractArchive(apkSetPath, apkSetExtract, request.local.cmake ?? 'cmake');
         const universal = path.join(apkSetExtract, 'universal.apk'); const derived = await inspectApk(universal, request, 'aab-derived-universal.apk', true); diagnostics.push(...derived.diagnostics); inspected.push({ kind: 'aab', size, signature: bundleSignature, bundletool: 'passed', derivedSignature: derived.signature, elf: derived.elf });
