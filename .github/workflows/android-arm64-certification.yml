@@ -79,8 +79,8 @@ jobs:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
           NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-arm64-integration
-          NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
-          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
+          NOVELTEA_SHADERC: ${{ github.workspace }}/.cache/shaderc/bin/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/.cache/shaderc/include/bgfx
         run: |
           NOVELTEA_ANDROID_FIXTURE_REVISION=1 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ runner.temp }}/arm64-v1" pnpm vitest run src/renderer/test/android-export-integration.test.ts
           NOVELTEA_ANDROID_FIXTURE_REVISION=2 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ runner.temp }}/arm64-v2" pnpm vitest run src/renderer/test/android-export-integration.test.ts

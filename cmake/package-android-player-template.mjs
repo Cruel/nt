@@ -12,9 +12,27 @@ const ignored = (sourcePath) => !/(?:^|[/\\])(?:build|\.gradle|\.cxx|\.idea|loca
 for (const entry of ['CMakeLists.txt', 'cmake', 'engine', 'apps/player', 'android', 'third_party']) {
   await cp(path.join(root, entry), path.join(source, entry), { recursive: true, filter: ignored });
 }
-const prebuiltShaders = path.join(root, 'android', 'app', 'build', 'generated', 'noveltea', 'shaders');
-try { await stat(prebuiltShaders); await cp(prebuiltShaders, path.join(source, 'android', 'prebuilt-shaders'), { recursive: true }); }
-catch { throw new Error('Build the Android player template once before packaging so certified essl-300 shader assets are available.'); }
+const shaderCandidates = [
+  path.join(root, 'android', 'app', 'build', 'generated', 'noveltea', 'shaders'),
+  path.join(root, 'build', 'prebuilt-shader-assets'),
+];
+const prebuiltShaders = await (async () => {
+  for (const candidate of shaderCandidates) {
+    try {
+      await stat(candidate);
+      const verification = spawnSync('cmake', [
+        '-DNOVELTEA_VERIFY_ONLY=ON',
+        `-DNOVELTEA_SHADER_OUTPUT_ROOT=${candidate}`,
+        '-DNOVELTEA_SHADER_VARIANTS=essl-300',
+        '-P', path.join(root, 'cmake', 'CompileNovelTeaShaders.cmake'),
+      ], { stdio: 'ignore' });
+      if (verification.status === 0) return candidate;
+    }
+    catch { /* Try the next certified shader root. */ }
+  }
+  throw new Error('Build the Android player template once before packaging or provide build/prebuilt-shader-assets with certified essl-300 shader assets.');
+})();
+await cp(prebuiltShaders, path.join(source, 'android', 'prebuilt-shaders'), { recursive: true });
 await mkdir(path.join(source, 'android', 'tools'), { recursive: true });
 await cp(path.resolve(bundletoolArg), path.join(source, 'android', 'tools', 'bundletool-1.18.1.jar'));
 await chmod(path.join(source, 'android', 'gradlew'), 0o755);

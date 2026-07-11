@@ -427,6 +427,18 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
+      - name: Download shader compiler
+        run: |
+          SHADERC_DIR="${{ github.workspace }}/.cache/shaderc"
+          mkdir -p "$SHADERC_DIR"
+          curl -fL \
+            -o "$SHADERC_DIR/bgfx-shaderc-linux-x64.tar.gz" \
+            https://github.com/Cruel/nt-tools/releases/download/r1/bgfx-shaderc-linux-x64.tar.gz
+          tar -xzf "$SHADERC_DIR/bgfx-shaderc-linux-x64.tar.gz" \
+            -C "$SHADERC_DIR"
+          test -x "$SHADERC_DIR/bin/shaderc"
+          test -f "$SHADERC_DIR/include/bgfx/bgfx_shader.sh"
+
       - name: Download headless editor tool
         uses: actions/download-artifact@v7
         with:
@@ -478,14 +490,17 @@ jobs:
           NOVELTEA_ANDROID_ABI: x86_64
           NOVELTEA_ANDROID_FLAVOR: debug
           NOVELTEA_ANDROID_ARTIFACT: apk
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-          ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
           NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-integration
-          NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
-          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
+          NOVELTEA_SHADERC: ${{ github.workspace }}/.cache/shaderc/bin/shaderc
+          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/.cache/shaderc/include/bgfx
         run: |
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          export ANDROID_CMAKE_ROOT="$ANDROID_HOME/cmake/$ANDROID_CMAKE_VERSION"
+          test -f "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}/android.jar"
+          test -x "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/aapt2"
+          test -x "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          test -x "$ANDROID_CMAKE_ROOT/bin/cmake"
           NOVELTEA_ANDROID_FIXTURE_REVISION=1 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ github.workspace }}/dist/android-fixture-v1" pnpm vitest run src/renderer/test/android-export-integration.test.ts
           NOVELTEA_ANDROID_FIXTURE_REVISION=2 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ github.workspace }}/dist/android-fixture-v2" pnpm vitest run src/renderer/test/android-export-integration.test.ts
 
@@ -539,19 +554,27 @@ jobs:
         with:
           name: noveltea-android-fixture-v2
           path: android-fixture-v2
-      - name: Install emulator image
+      - name: Enable KVM group permissions
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" emulator platform-tools "platforms;android-${{ matrix.api }}" "system-images;android-${{ matrix.api }};google_apis;x86_64"
-          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n noveltea-ci -k "system-images;android-${{ matrix.api }};google_apis;x86_64" --force
-      - name: Launch emulator and certify lifecycle/update behavior
-        run: |
-          "$ANDROID_HOME/emulator/emulator" -avd noveltea-ci -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data >/tmp/noveltea-emulator.log 2>&1 &
-          apk_v1=$(find android-fixture-v1 -name '*.apk' -print -quit)
-          apk_v2=$(find android-fixture-v2 -name '*.apk' -print -quit)
-          test -n "$apk_v1"
-          test -n "$apk_v2"
-          .github/android-emulator-smoke.sh "$apk_v1" "$apk_v2"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run lifecycle/update smoke test on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          avd-name: noveltea-ci
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
+          emulator-boot-timeout: 600
+          script: |
+            apk_v1=$(find android-fixture-v1 -name '*.apk' -print -quit)
+            apk_v2=$(find android-fixture-v2 -name '*.apk' -print -quit)
+            test -n "$apk_v1"
+            test -n "$apk_v2"
+            .github/android-emulator-smoke.sh "$apk_v1" "$apk_v2"
 
   editor:
     name: Editor / Electron

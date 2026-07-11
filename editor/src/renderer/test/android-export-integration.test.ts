@@ -34,11 +34,18 @@ suite('Android player template integration', () => {
     });
     const output = process.env.NOVELTEA_ANDROID_EXPORT_OUTPUT ?? path.join(root, 'Output ü space');
     const configPath = path.join(fixture.projectRoot, 'android-toolchain.json');
+    const androidSdk = process.env.ANDROID_SDK_ROOT || process.env.ANDROID_HOME || '';
+    const androidNdk = process.env.ANDROID_NDK_ROOT || (androidSdk && process.env.ANDROID_NDK_VERSION
+      ? path.join(androidSdk, 'ndk', process.env.ANDROID_NDK_VERSION)
+      : '');
+    const androidCmake = process.env.ANDROID_CMAKE_ROOT || (androidSdk && process.env.ANDROID_CMAKE_VERSION
+      ? path.join(androidSdk, 'cmake', process.env.ANDROID_CMAKE_VERSION)
+      : '');
     await writeFile(configPath, `${JSON.stringify({
-      androidSdk: process.env.ANDROID_SDK_ROOT!,
-      androidNdk: process.env.ANDROID_NDK_ROOT!,
-      javaHome: process.env.JAVA_HOME!,
-      cmake: process.env.ANDROID_CMAKE_ROOT!,
+      androidSdk,
+      androidNdk,
+      javaHome: process.env.JAVA_HOME || '',
+      cmake: androidCmake,
       shaderc: process.env.NOVELTEA_SHADERC!,
       bgfxShaderIncludeDir: process.env.NOVELTEA_BGFX_SHADER_INCLUDE_DIR!,
     })}\n`);
