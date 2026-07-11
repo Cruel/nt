@@ -116,4 +116,26 @@ TEST_CASE("Host pointer transforms reject bars and use half-open viewport edges"
     REQUIRE(last.has_value());
     CHECK(last->x == 999.0f);
     CHECK(last->y == 561.0f);
+
+    CHECK_FALSE(host_to_game_logical({-0.01f, 300.0f}, presentation).has_value());
+    CHECK_FALSE(host_to_game_logical({500.0f, 681.0f}, presentation).has_value());
+}
+
+TEST_CASE("Host pointer transforms preserve game coordinates with fractional display scale")
+{
+    const PresentationMetrics presentation =
+        make_presentation_metrics(make_surface_metrics(1000, 800, 1500, 1200));
+
+    const auto top_left = host_to_game_logical({0.0f, 119.0f}, presentation);
+    REQUIRE(top_left.has_value());
+    CHECK(top_left->x == 0.0f);
+    CHECK(top_left->y == 0.0f);
+
+    const auto bottom_right = host_to_game_logical({999.0f, 680.0f}, presentation);
+    REQUIRE(bottom_right.has_value());
+    CHECK(bottom_right->x == 999.0f);
+    CHECK(bottom_right->y == 561.0f);
+
+    CHECK_FALSE(host_to_game_logical({500.0f, 118.999f}, presentation).has_value());
+    CHECK_FALSE(host_to_game_logical({500.0f, 681.0f}, presentation).has_value());
 }

@@ -157,6 +157,18 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 std::fprintf(stderr, "[app] invalid display orientation: %s\n", orientation);
                 return false;
             }
+        } else if (std::strcmp(arg, "--window-size") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --window-size requires WIDTHxHEIGHT\n");
+                return false;
+            }
+            SurfaceMetrics surface;
+            if (!parse_surface_size(argv[++i], surface)) {
+                std::fprintf(stderr, "[app] invalid --window-size value\n");
+                return false;
+            }
+            options.window_width = surface.logical_width;
+            options.window_height = surface.logical_height;
         } else if (std::strcmp(arg, "--screenshot") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "[app] --screenshot requires an output path\n");
@@ -226,6 +238,10 @@ bool App::initialize(int argc, char* argv[])
     if (options.launch_orientation == ScreenOrientation::Portrait) {
         config.width = 720;
         config.height = 1280;
+    }
+    if (options.window_width > 0 && options.window_height > 0) {
+        config.width = options.window_width;
+        config.height = options.window_height;
     }
 
     EngineRunConfig run_config;

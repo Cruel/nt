@@ -38,8 +38,8 @@ inline Image read_ppm(const std::filesystem::path& path)
     Image image;
     file >> magic >> image.width >> image.height >> max_value;
     REQUIRE(magic == "P6");
-    REQUIRE(image.width == 1280);
-    REQUIRE(image.height == 720);
+    REQUIRE(image.width > 0);
+    REQUIRE(image.height > 0);
     REQUIRE(max_value == 255);
     file.get();
 

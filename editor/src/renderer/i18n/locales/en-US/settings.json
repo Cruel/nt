@@ -64,6 +64,22 @@
     "nativeFrame": "Use native window frame",
     "nativeFrameDescription": "Uses the operating system title bar and window controls. Restart the editor to apply this change.",
     "nativeFrameSaved": "Saved. Restart the editor for the frame mode change to take effect.",
+    "previewDisplay": {
+      "custom": "Custom",
+      "followProject": "Follow Project",
+      "landscape": "Landscape",
+      "orientation": "Orientation",
+      "playScaling": "Play scaling",
+      "pooledScaling": "Pooled preview scaling",
+      "portrait": "Portrait",
+      "profile": "Display profile",
+      "ratioHeight": "Preview ratio height",
+      "ratioWidth": "Preview ratio width",
+      "reference": "Reference composition",
+      "referenceLongAxis": "Reference long axis",
+      "reset": "Reset to Follow Project",
+      "responsive": "Responsive layout test"
+    },
     "title": "Window"
   },
   "workspace": {

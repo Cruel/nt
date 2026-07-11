@@ -142,6 +142,7 @@ if(TARGET noveltea-sandbox)
     set(NOVELTEA_RMLUI_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery.ppm")
     set(NOVELTEA_RMLUI_RESIZE_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery-after-resize.ppm")
     set(NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM "${CMAKE_BINARY_DIR}/rmlui-feature-fixtures.ppm")
+    set(NOVELTEA_PRESENTATION_READBACK_PPM "${CMAKE_BINARY_DIR}/presentation-readback.ppm")
     set(NOVELTEA_RMLUI_COMPAT_MARKER "${CMAKE_BINARY_DIR}/rmlui-base-direct-compat.enabled")
     add_executable(noveltea_rmlui_readback_verifier
         ui/rmlui_readback_verifier.cpp
@@ -164,6 +165,13 @@ if(TARGET noveltea-sandbox)
         NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM="${NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM}"
     )
     target_link_libraries(noveltea_rmlui_feature_fixtures_verifier PRIVATE Catch2::Catch2WithMain)
+    add_executable(noveltea_presentation_readback_verifier
+        ui/presentation_readback_verifier.cpp
+    )
+    target_compile_definitions(noveltea_presentation_readback_verifier PRIVATE
+        NOVELTEA_PRESENTATION_READBACK_PPM="${NOVELTEA_PRESENTATION_READBACK_PPM}"
+    )
+    target_link_libraries(noveltea_presentation_readback_verifier PRIVATE Catch2::Catch2WithMain)
     add_test(
         NAME noveltea_rmlui_readback_capture
         COMMAND /bin/sh -c
@@ -211,6 +219,22 @@ if(TARGET noveltea-sandbox)
     set_tests_properties(noveltea_rmlui_resize_readback_verify PROPERTIES
         DEPENDS noveltea_rmlui_resize_readback_capture
         LABELS "rmlui;gpu"
+    )
+    add_test(
+        NAME noveltea_presentation_readback_capture
+        COMMAND /bin/sh -c
+            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_READBACK_PPM}' --no-imgui"
+    )
+    set_tests_properties(noveltea_presentation_readback_capture PROPERTIES
+        LABELS "rmlui;gpu;presentation"
+    )
+    add_test(
+        NAME noveltea_presentation_readback_verify
+        COMMAND noveltea_presentation_readback_verifier
+    )
+    set_tests_properties(noveltea_presentation_readback_verify PROPERTIES
+        DEPENDS noveltea_presentation_readback_capture
+        LABELS "rmlui;gpu;presentation"
     )
 endif()
 

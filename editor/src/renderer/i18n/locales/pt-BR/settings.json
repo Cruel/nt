@@ -64,6 +64,22 @@
     "nativeFrame": "Usar moldura nativa da janela",
     "nativeFrameDescription": "Usa a barra de título e os controles de janela do sistema operacional. Reinicie o editor para aplicar esta alteração.",
     "nativeFrameSaved": "Salvo. Reinicie o editor para que a alteração do modo da moldura entre em vigor.",
+    "previewDisplay": {
+      "custom": "Personalizado",
+      "followProject": "Seguir projeto",
+      "landscape": "Paisagem",
+      "orientation": "Orientação",
+      "playScaling": "Escala da execução",
+      "pooledScaling": "Escala das prévias agrupadas",
+      "portrait": "Retrato",
+      "profile": "Perfil de exibição",
+      "ratioHeight": "Altura da proporção da prévia",
+      "ratioWidth": "Largura da proporção da prévia",
+      "reference": "Composição de referência",
+      "referenceLongAxis": "Eixo longo de referência",
+      "reset": "Redefinir para seguir o projeto",
+      "responsive": "Teste de layout responsivo"
+    },
     "title": "Janela"
   },
   "workspace": {
