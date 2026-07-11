@@ -29,6 +29,14 @@ Milestone 17 implements a first vertical slice:
 
 The runtime conversion is intentionally narrow. Room entrypoints are supported. Scene and dialogue entrypoints are blocked with precise diagnostics because those authoring records do not yet have complete runtime export semantics.
 
+App-icon generation is available as a headless main-process service in
+`editor/src/main/services/icon-generation-service.ts`. It accepts a canonical image and staging
+root, emits a typed output manifest, and generates Web PNG/favicons, Android density/adaptive
+resources, Windows ICO, and macOS ICNS files. Platform override inputs bypass generation for their
+target. Source dimension/color-space and adaptive or maskable safe-area problems are returned as
+structured diagnostics; platform exporters will invoke this service when their staging workflows
+are implemented.
+
 ## Workflow Stages
 
 Renderer workflow files:
