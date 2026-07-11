@@ -17,7 +17,7 @@ import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/comma
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { getSystemLayoutSetting, systemLayoutRoleValues, type SystemLayoutRole } from '../../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { DEFAULT_PROJECT_DISPLAY_SETTINGS, projectSettingsFromProject, validateTypedProjectSettings, type ProjectDisplaySettings } from '../../../shared/project-schema/authoring-project-settings';
+import { DEFAULT_PROJECT_DISPLAY_SETTINGS, projectSettingsFromProject, validateTypedProjectSettings, type ProjectAppSettings, type ProjectDisplaySettings } from '../../../shared/project-schema/authoring-project-settings';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
 import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
@@ -181,6 +181,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     runProjectCommand('project.setIcon', { assetId }, 'Set project icon');
   }
 
+  function setAppIdentity(patch: Partial<ProjectAppSettings>) {
+    runProjectCommand('project.replaceAtPath', { path: '/settings/app', value: { ...settings!.app, ...patch } }, 'Update app identity');
+  }
+
   function setDisplay(display: ProjectDisplaySettings) {
     runProjectCommand('project.setDisplay', display, 'Update project display');
   }
@@ -210,8 +214,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <Label>Project title</Label>
-                <Input value={project.project.name} onChange={(event) => updateMetadata({ name: event.currentTarget.value })} />
+                <Label htmlFor="project-title">Project title</Label>
+                <Input id="project-title" value={project.project.name} onChange={(event) => updateMetadata({ name: event.currentTarget.value })} />
               </div>
               <div className="space-y-1">
                 <Label>Version</Label>
@@ -389,20 +393,26 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         <div className="space-y-4">
           <Card data-workbench-anchor="projectSettings.packageIdentity">
             <CardHeader>
-              <CardTitle>App / Package Identity</CardTitle>
-              <CardDescription>Project icon is stored now and can feed package/platform icons later.</CardDescription>
+              <CardTitle>App Identity</CardTitle>
+              <CardDescription>Stable identity and branding used by platform exports. Changing IDs after release can disconnect installed apps and saves.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              <Label htmlFor="project-icon">Project icon</Label>
-              <select
-                id="project-icon"
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                value={settings.app.icon?.$ref.id ?? '__none__'}
-                onChange={(event) => setProjectIcon(nullableValue(event.currentTarget.value))}
-              >
-                <option value="__none__">No project icon</option>
-                {imageAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.label} ({asset.id})</option>)}
-              </select>
+            <CardContent className="grid gap-3">
+              <div className="space-y-1"><Label htmlFor="app-display-name">Display name</Label><Input id="app-display-name" value={settings.app.displayName} onChange={(event) => setAppIdentity({ displayName: event.currentTarget.value })} /></div>
+              <div className="space-y-1"><Label htmlFor="app-short-name">Short name</Label><Input id="app-short-name" value={settings.app.shortName ?? ''} onChange={(event) => setAppIdentity({ shortName: event.currentTarget.value || undefined })} /></div>
+              <div className="space-y-1"><Label htmlFor="app-id">Application ID</Label><Input id="app-id" className="font-mono text-[11px]" value={settings.app.applicationId} onChange={(event) => setAppIdentity({ applicationId: event.currentTarget.value })} /></div>
+              <div className="space-y-1"><Label htmlFor="save-namespace">Save namespace</Label><Input id="save-namespace" className="font-mono text-[11px]" value={settings.app.saveNamespace} onChange={(event) => setAppIdentity({ saveNamespace: event.currentTarget.value })} /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1"><Label htmlFor="app-version">Version name</Label><Input id="app-version" value={settings.app.versionName} onChange={(event) => setAppIdentity({ versionName: event.currentTarget.value })} /></div>
+                <div className="space-y-1"><Label htmlFor="app-build">Build number</Label><Input id="app-build" type="number" min={1} value={settings.app.buildNumber ?? ''} onChange={(event) => setAppIdentity({ buildNumber: event.currentTarget.value ? Number(event.currentTarget.value) : undefined })} /></div>
+              </div>
+              <div className="space-y-1"><Label htmlFor="app-locale">Default locale</Label><Input id="app-locale" placeholder="en-US" value={settings.app.defaultLocale ?? ''} onChange={(event) => setAppIdentity({ defaultLocale: event.currentTarget.value || undefined })} /></div>
+              <div className="space-y-1"><Label htmlFor="app-publisher">Publisher</Label><Input id="app-publisher" value={settings.app.publisher ?? ''} onChange={(event) => setAppIdentity({ publisher: event.currentTarget.value || undefined })} /></div>
+              <div className="space-y-1"><Label htmlFor="project-icon">Project icon</Label><select id="project-icon" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={settings.app.icon?.$ref.id ?? '__none__'} onChange={(event) => setProjectIcon(nullableValue(event.currentTarget.value))}><option value="__none__">No project icon</option>{imageAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.label} ({asset.id})</option>)}</select></div>
+              <div className="space-y-1"><Label htmlFor="launch-image">Launch image</Label><select id="launch-image" className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={settings.app.launchImage?.$ref.id ?? '__none__'} onChange={(event) => setAppIdentity({ launchImage: nullableValue(event.currentTarget.value) ? { $ref: { collection: 'assets', id: event.currentTarget.value } } : null })}><option value="__none__">No launch image</option>{imageAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.label} ({asset.id})</option>)}</select></div>
+              <div className="grid grid-cols-3 gap-2">
+                {([['Theme', 'themeColor'], ['Accent', 'accentColor'], ['Launch', 'launchBackgroundColor']] as const).map(([label, key]) => <div key={key} className="space-y-1"><Label>{label} color</Label><Input type="color" value={settings.app[key] ?? '#000000'} onChange={(event) => setAppIdentity({ [key]: event.currentTarget.value })} /></div>)}
+              </div>
+              <details className="space-y-2 text-xs"><summary className="cursor-pointer font-medium">Platform identifier overrides</summary><div className="grid gap-2 pt-2"><Label htmlFor="android-app-id">Android application ID</Label><Input id="android-app-id" className="font-mono text-[11px]" value={settings.app.android.applicationId ?? ''} onChange={(event) => setAppIdentity({ android: { ...settings.app.android, applicationId: event.currentTarget.value || undefined } })} /><Label htmlFor="apple-bundle-id">Apple bundle ID</Label><Input id="apple-bundle-id" className="font-mono text-[11px]" value={settings.app.desktop.appleBundleId ?? ''} onChange={(event) => setAppIdentity({ desktop: { ...settings.app.desktop, appleBundleId: event.currentTarget.value || undefined } })} /><Label htmlFor="linux-desktop-id">Linux desktop ID</Label><Input id="linux-desktop-id" className="font-mono text-[11px]" value={settings.app.desktop.linuxDesktopId ?? ''} onChange={(event) => setAppIdentity({ desktop: { ...settings.app.desktop, linuxDesktopId: event.currentTarget.value || undefined } })} /><Label htmlFor="windows-identity">Windows identity</Label><Input id="windows-identity" value={settings.app.desktop.windowsIdentity ?? ''} onChange={(event) => setAppIdentity({ desktop: { ...settings.app.desktop, windowsIdentity: event.currentTarget.value || undefined } })} /></div></details>
             </CardContent>
           </Card>
 

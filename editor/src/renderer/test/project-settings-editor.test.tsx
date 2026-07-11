@@ -57,11 +57,11 @@ describe('ProjectSettingsEditor', () => {
     render(<ProjectSettingsEditor tab={tab} />);
 
     expect(screen.getByText('Project Settings')).toBeInTheDocument();
-    fireEvent.change(screen.getByDisplayValue('Old Title'), { target: { value: 'New Title' } });
+    fireEvent.change(screen.getByLabelText('Project title'), { target: { value: 'New Title' } });
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'New Title' } }));
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.updateMetadata');
 
-    fireEvent.change(screen.getByDisplayValue('New Title'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Project title'), { target: { value: '' } });
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ project: { name: '' } }));
 
     fireEvent.click(screen.getByText('No entrypoint'));

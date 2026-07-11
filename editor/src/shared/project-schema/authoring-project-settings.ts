@@ -26,9 +26,57 @@ export const projectTitleScreenSettingsSchema = z.object({
   startLabel: z.string().min(1, 'Start label is required.').default('Start'),
 });
 
+const optionalTrimmedString = z.string().trim().min(1).optional();
+const positiveBuildNumber = z.number().int().positive();
+const identityColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color must be a six-digit hex color.');
+const localizedAppIdentitySchema = z.object({
+  displayName: optionalTrimmedString,
+  shortName: optionalTrimmedString,
+  description: optionalTrimmedString,
+}).strict();
+
+export const applicationIdPattern = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+$/;
+export const applicationIdSchema = z.string().trim().regex(
+  applicationIdPattern,
+  'Application ID must be a reverse-DNS identifier such as com.example.game.',
+);
+
 export const projectAppSettingsSchema = z.object({
+  displayName: z.string().trim().min(1, 'Display name is required.'),
+  shortName: optionalTrimmedString,
+  publisher: optionalTrimmedString,
+  copyright: optionalTrimmedString,
+  description: z.string().optional(),
+  defaultLocale: optionalTrimmedString,
+  localized: z.record(z.string(), localizedAppIdentitySchema).default({}),
+  applicationId: applicationIdSchema,
+  saveNamespace: z.string().trim().min(1, 'Save namespace is required.'),
+  versionName: z.string().trim().min(1, 'Version name is required.'),
+  buildNumber: positiveBuildNumber.optional(),
   icon: imageAssetRefSchema.default(null),
-});
+  iconBackgroundColor: identityColorSchema.optional(),
+  accentColor: identityColorSchema.optional(),
+  themeColor: identityColorSchema.optional(),
+  launchImage: imageAssetRefSchema.default(null),
+  launchBackgroundColor: identityColorSchema.optional(),
+  desktop: z.object({
+    appleBundleId: applicationIdSchema.optional(),
+    linuxDesktopId: applicationIdSchema.optional(),
+    windowsIdentity: optionalTrimmedString,
+    buildNumber: positiveBuildNumber.optional(),
+  }).strict().default({}),
+  web: z.object({ manifestId: optionalTrimmedString, buildNumber: positiveBuildNumber.optional() }).strict().default({}),
+  android: z.object({
+    applicationId: applicationIdSchema.optional(),
+    versionCode: positiveBuildNumber.optional(),
+    allowBackup: z.boolean().optional(),
+    isGame: z.boolean().optional(),
+  }).strict().default({}),
+  lastExportedIdentity: z.object({
+    applicationId: applicationIdSchema,
+    saveNamespace: z.string().trim().min(1),
+  }).strict().optional(),
+}).passthrough();
 
 export const DEFAULT_PROJECT_DISPLAY_SETTINGS = {
   aspectRatio: { width: 16, height: 9 },
@@ -75,7 +123,7 @@ export const typedProjectSettingsSchema = z.object({
     subtitle: '',
     startLabel: 'Start',
   }),
-  app: projectAppSettingsSchema.default({ icon: null }),
+  app: projectAppSettingsSchema.optional(),
   display: projectDisplaySettingsSchema.default(DEFAULT_PROJECT_DISPLAY_SETTINGS),
 }).passthrough();
 
@@ -84,7 +132,7 @@ export type ProjectStartupSettings = z.infer<typeof projectStartupSettingsSchema
 export type ProjectTextSettings = z.infer<typeof projectTextSettingsSchema>;
 export type ProjectTitleScreenSettings = z.infer<typeof projectTitleScreenSettingsSchema>;
 export type ProjectAppSettings = z.infer<typeof projectAppSettingsSchema>;
-export type TypedProjectSettings = z.infer<typeof typedProjectSettingsSchema>;
+export type TypedProjectSettings = z.infer<typeof typedProjectSettingsSchema> & { app: ProjectAppSettings };
 
 export interface ProjectSettingsDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -105,12 +153,37 @@ export function roomEntrypointRef(roomId: string): ReferenceTarget {
   return { collection: 'rooms', id: roomId };
 }
 
-export function parseTypedProjectSettings(value: unknown): TypedProjectSettings {
+export function parseTypedProjectSettings(value: unknown): z.infer<typeof typedProjectSettingsSchema> {
   return typedProjectSettingsSchema.parse(value ?? {});
 }
 
 export function projectSettingsFromProject(project: AuthoringProject): TypedProjectSettings {
-  return parseTypedProjectSettings(project.settings);
+  const raw = project.settings as Record<string, unknown>;
+  const rawApp = typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app) ? raw.app : {};
+  const settings = parseTypedProjectSettings({ ...raw, app: { ...defaultProjectAppIdentity(project), ...rawApp } });
+  return {
+    ...settings,
+    app: projectAppSettingsSchema.parse(settings.app ?? defaultProjectAppIdentity(project)),
+  } as TypedProjectSettings;
+}
+
+export function defaultProjectAppIdentity(project: Pick<AuthoringProject, 'project'>): ProjectAppSettings {
+  const id = project.project.id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
+  const applicationId = `org.noveltea.${id}`;
+  return {
+    displayName: project.project.name || 'Untitled Game',
+    description: project.project.description || undefined,
+    publisher: project.project.author || undefined,
+    localized: {},
+    applicationId,
+    saveNamespace: applicationId,
+    versionName: project.project.version || '0.1.0',
+    icon: null,
+    launchImage: null,
+    desktop: {},
+    web: {},
+    android: {},
+  };
 }
 
 function assetKind(project: AuthoringProject, assetId: string): string | null {
@@ -138,7 +211,9 @@ function validateAssetRef(
 
 export function validateTypedProjectSettings(project: AuthoringProject): ProjectSettingsDiagnostic[] {
   const diagnostics: ProjectSettingsDiagnostic[] = [];
-  const parsed = typedProjectSettingsSchema.safeParse(project.settings ?? {});
+  const raw = project.settings as Record<string, unknown>;
+  const rawApp = typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app) ? raw.app : {};
+  const parsed = typedProjectSettingsSchema.safeParse({ ...raw, app: { ...defaultProjectAppIdentity(project), ...rawApp } });
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
       diagnostics.push(diagnostic(`/settings/${issue.path.map(String).join('/')}`, issue.message));
@@ -146,7 +221,7 @@ export function validateTypedProjectSettings(project: AuthoringProject): Project
     return diagnostics;
   }
 
-  const settings = parsed.data;
+  const settings = projectSettingsFromProject(project);
   if (!project.project.name.trim()) diagnostics.push(diagnostic('/project/name', 'Project title is required.'));
   if (!project.project.version.trim()) diagnostics.push(diagnostic('/project/version', 'Project version is required.'));
   if (project.project.version.trim() && !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(project.project.version.trim())) {
@@ -164,5 +239,22 @@ export function validateTypedProjectSettings(project: AuthoringProject): Project
   validateAssetRef(project, settings.text.defaultFont, '/settings/text/defaultFont', 'font', diagnostics);
   validateAssetRef(project, settings.titleScreen.titleImage, '/settings/titleScreen/titleImage', 'image', diagnostics);
   validateAssetRef(project, settings.app.icon, '/settings/app/icon', 'image', diagnostics);
+  validateAssetRef(project, settings.app.launchImage, '/settings/app/launchImage', 'image', diagnostics);
+  const localeTags = [settings.app.defaultLocale, ...Object.keys(settings.app.localized)].filter((tag): tag is string => Boolean(tag));
+  for (const locale of localeTags) {
+    try {
+      const normalized = new Intl.Locale(locale).toString();
+      if (normalized !== locale) diagnostics.push(diagnostic(`/settings/app/localized/${locale}`, `Locale tag should be normalized as '${normalized}'.`, 'warning'));
+    } catch {
+      diagnostics.push(diagnostic('/settings/app/defaultLocale', `Invalid BCP 47 locale tag '${locale}'.`));
+    }
+  }
+  const recorded = settings.app.lastExportedIdentity;
+  if (recorded && recorded.applicationId !== settings.app.applicationId) {
+    diagnostics.push(diagnostic('/settings/app/applicationId', `Application ID changed after export from '${recorded.applicationId}'; installed-app identity will change.`, 'warning'));
+  }
+  if (recorded && recorded.saveNamespace !== settings.app.saveNamespace) {
+    diagnostics.push(diagnostic('/settings/app/saveNamespace', `Save namespace changed after export from '${recorded.saveNamespace}'; existing save data will not move automatically.`, 'warning'));
+  }
   return diagnostics;
 }

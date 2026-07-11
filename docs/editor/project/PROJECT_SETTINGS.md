@@ -54,6 +54,23 @@ settings.titleScreen.showAuthor
 settings.titleScreen.subtitle
 settings.titleScreen.startLabel
 settings.app.icon
+settings.app.displayName
+settings.app.shortName
+settings.app.publisher
+settings.app.description
+settings.app.defaultLocale
+settings.app.localized
+settings.app.applicationId
+settings.app.saveNamespace
+settings.app.versionName
+settings.app.buildNumber
+settings.app.launchImage
+settings.app.themeColor
+settings.app.accentColor
+settings.app.launchBackgroundColor
+settings.app.desktop
+settings.app.web
+settings.app.android
 settings.display.aspectRatio
 settings.display.orientation
 settings.display.barColor
@@ -97,6 +114,21 @@ Project Settings adds typed validation for:
 - default font refs, which must point to font assets;
 - title image refs, which must point to image assets;
 - project icon refs, which must point to image assets.
+- required display name, canonical reverse-DNS application ID, save namespace, and version name;
+- positive shared and platform build numbers/version codes;
+- normalized BCP 47 default and localized locale tags;
+- launch image refs, which must point to image assets;
+- six-digit identity and launch colors;
+- platform-specific Android, Apple, Linux, and Windows identifier overrides.
+
+New projects persist a stable default identity derived from the project ID. Existing projects with
+only `settings.app.icon` retain that icon and receive normalized defaults from project metadata when
+read. Identity edits replace the normalized app object through the command bus, which persists those
+defaults instead of regenerating them later.
+
+`settings.app.lastExportedIdentity` is exporter-owned history. When present, changing the canonical
+application ID or save namespace produces a migration warning: installed application identity or
+save locations may change, and existing save data is never moved silently.
 
 Missing default layout/font is not a validation error because built-in fallbacks exist. Missing entrypoint remains a general authoring warning but a package-export error.
 

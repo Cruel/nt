@@ -27,6 +27,13 @@ describe('authoring project settings', () => {
     expect(settings.titleScreen).toMatchObject({ showProjectTitle: true, showAuthor: false, startLabel: 'Start' });
     expect(settings.startup.initScript).toBe('');
     expect(settings.display).toEqual({ aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' });
+    expect(settings.app).toMatchObject({
+      displayName: 'New Project',
+      applicationId: 'org.noveltea.new-project',
+      saveNamespace: 'org.noveltea.new-project',
+      versionName: '0.1.0',
+      icon: null,
+    });
     expect(settings).not.toHaveProperty('comfyui');
   });
 
@@ -57,5 +64,44 @@ describe('authoring project settings', () => {
     project.settings.comfyui = { enabled: true, serverUrl: 'file:///tmp/comfyui' };
     expect(projectSettingsFromProject(project)).toMatchObject({ comfyui: { enabled: true } });
     expect(validateTypedProjectSettings(project)).toEqual([]);
+  });
+
+  it('migrates icon-only app settings and validates identity fields and launch assets', () => {
+    const project = createAuthoringProject({ id: 'tea-house', name: 'Tea House' });
+    addAssets(project);
+    project.settings.app = { icon: assetRef('logo') };
+    expect(projectSettingsFromProject(project).app).toMatchObject({
+      displayName: 'Tea House', applicationId: 'org.noveltea.tea-house', icon: assetRef('logo'),
+    });
+    expect(validateTypedProjectSettings(project).filter((item) => item.severity === 'error')).toEqual([]);
+
+    const validApp = projectSettingsFromProject(project).app;
+    project.settings.app = {
+      ...validApp,
+      applicationId: 'Bad ID',
+      buildNumber: 0,
+      defaultLocale: 'not_a_locale',
+    };
+    expect(validateTypedProjectSettings(project)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/settings/app/applicationId', severity: 'error' }),
+      expect.objectContaining({ path: '/settings/app/buildNumber', severity: 'error' }),
+    ]));
+    project.settings.app = { ...validApp, applicationId: 'org.example.game', buildNumber: 1, launchImage: assetRef('main-font') };
+    expect(validateTypedProjectSettings(project)).toContainEqual(expect.objectContaining({ path: '/settings/app/launchImage/$ref', severity: 'error' }));
+  });
+
+  it('warns when exported application or save identity changes', () => {
+    const project = createAuthoringProject();
+    const app = projectSettingsFromProject(project).app;
+    project.settings.app = {
+      ...app,
+      applicationId: 'org.example.changed',
+      saveNamespace: 'org.example.changed.saves',
+      lastExportedIdentity: { applicationId: app.applicationId, saveNamespace: app.saveNamespace },
+    };
+    expect(validateTypedProjectSettings(project)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/settings/app/applicationId', severity: 'warning' }),
+      expect.objectContaining({ path: '/settings/app/saveNamespace', severity: 'warning' }),
+    ]));
   });
 });
