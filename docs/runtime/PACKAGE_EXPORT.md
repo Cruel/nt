@@ -60,3 +60,13 @@ source file and a runtime package path, for example:
 
 The package writer applies the same safe-path and allowed-prefix checks to explicit file entries as
 it does to collected asset roots.
+# Player Bootstrap Boundary
+
+Platform export keeps `.ntpkg` as an independent game payload. The version 1 `player.json` contract
+contains the relative package path, lowercase SHA-256, runtime-package API, normalized display
+metadata, application/save identity, locale, and normalized capabilities. Later player work must
+resolve it relative to the platform artifact rather than the process working directory and must
+validate its format version, checksum, and package API before mounting `project:/`.
+
+Player template descriptors advertise an inclusive supported package-API range. Phase 0 defines
+and tests this contract only; current sandbox startup remains unchanged.

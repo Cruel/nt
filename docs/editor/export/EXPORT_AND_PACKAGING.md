@@ -79,6 +79,21 @@ Default runtime package profile:
 
 Profile parsing supports `project.settings.export`, but V1 does not yet include a full command-backed export profile editor. The dialog uses the selected/default profile and lets the user adjust output path, shader variants, and key toggles for the current export run.
 
+Phase 0 also defines strict, versioned platform-export contracts in
+`editor/src/shared/project-schema/platform-export-contracts.ts`. Platform profiles are a separate
+union from the existing runtime-package profile and contain only shareable policy. Absolute output,
+template, SDK, signing, and credential references are accepted only by the separately parsed
+editor-local state contract and must not be written into project settings.
+
+The same module defines version 1 of `player.json`, player-template descriptors, and the closed
+normalized capability vocabulary. Target artifact paths are checked by
+`target-path-portability.ts` for traversal, target naming rules, length hazards, case collisions,
+and Unicode-normalization collisions before later packaging phases stage files.
+
+The canonical cross-platform acceptance fixture lives under `editor/src/renderer/test/fixtures/`.
+It intentionally records RmlUi mounting, audio playback, and save/reload as certification blockers
+until those reachable behaviors have complete runtime conversion and artifact smoke coverage.
+
 ## Authoring-to-Runtime Export Builder
 
 The pure builder lives in:
