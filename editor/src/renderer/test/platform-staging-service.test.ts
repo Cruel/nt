@@ -125,6 +125,8 @@ describe('platform staging service', () => {
     expect(resources.getResourceEntriesAsString(24, 1)[0]?.[1]).toContain('longPathAware');
     expect(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe')).subarray(-6).toString()).toBe('SIGNED');
     const metadata = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'WINDOWS_METADATA.json'), 'utf8')); expect(metadata.resourceMutationComplete).toBe(true); expect(metadata.signingCommandHook.configured).toBe(true);
+    const signingReport = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'SIGNING_REPORT.json'), 'utf8'));
+    expect(signingReport).toMatchObject({ platform: 'windows', templateBuildId: 'build-1', signed: true, verified: false });
     const manifest = JSON.parse(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'export-manifest.json'), 'utf8')); const executableEntry = manifest.files.find((entry: { path: string }) => entry.path === 'Tea Game.exe');
     expect(executableEntry.sha256).toBe(createHash('sha256').update(fs.readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))).digest('hex'));
   });

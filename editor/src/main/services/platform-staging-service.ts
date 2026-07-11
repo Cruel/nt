@@ -408,17 +408,24 @@ async function finalizeWindowsStage(stage: string, request: PlatformStageRequest
 }
 
 async function runWindowsSigningHook(stage: string, request: PlatformStageRequest, files: StagedFileEntry[], executablePath: string) {
-  if (request.profile.target !== 'windows' || !request.windowsSigning) return;
+  if (request.profile.target !== 'windows' || !request.windowsSigning) return { signed: false };
   const absoluteExecutable = safeRoot(stage, executablePath);
   const args = request.windowsSigning.args.map((value) => value
     .replaceAll('{executable}', absoluteExecutable)
     .replaceAll('{stage}', path.resolve(stage)));
   await run(request.windowsSigning.command, args, { cwd: stage });
+  if (request.windowsSigning.verifyCommand) {
+    const verifyArgs = (request.windowsSigning.verifyArgs ?? []).map((value) => value
+      .replaceAll('{executable}', absoluteExecutable)
+      .replaceAll('{stage}', path.resolve(stage)));
+    await run(request.windowsSigning.verifyCommand, verifyArgs, { cwd: stage });
+  }
   const entry = files.find((item) => item.path === executablePath);
   if (!entry) throw new Error('Signed Windows executable is missing from the staged file manifest.');
   const signed = await readFile(absoluteExecutable);
   entry.size = signed.length;
   entry.sha256 = sha256(signed);
+  return { signed: true, verified: Boolean(request.windowsSigning.verifyCommand) };
 }
 
 async function finalizeWebStage(stage: string, request: PlatformStageRequest, files: StagedFileEntry[]) {
@@ -580,7 +587,14 @@ export async function stagePlatformExport(request: PlatformStageRequest): Promis
     const windows = await finalizeWindowsStage(temp, request, files, descriptor);
     const linux = await finalizeLinuxStage(temp, request, files, descriptor);
     const macos = await finalizeMacosStage(temp, { ...request, capabilities: built.model.capabilities }, files, descriptor);
-    if (windows) await runWindowsSigningHook(temp, request, files, windows.targetPath);
+    const windowsSigning = windows ? await runWindowsSigningHook(temp, request, files, windows.targetPath) : undefined;
+    if (windowsSigning?.signed) {
+      files.push(await writeGenerated(temp, 'SIGNING_REPORT.json', `${JSON.stringify({
+        format: 'noveltea.signing-report', formatVersion: 1, platform: 'windows',
+        templateBuildId: descriptor.buildId, gamePackageSha256: files.find((item) => item.origin === 'runtime-package')?.sha256,
+        signed: true, verified: windowsSigning.verified, timestamped: false,
+      }, null, 2)}\n`, 'signing-report'));
+    }
     const packageEntry = files.find((item) => item.origin === 'runtime-package')!;
     const playerConfigPath = linux ? path.posix.join(path.posix.dirname(linux.executablePath), 'player.json')
       : macos ? 'Contents/Resources/player.json' : 'player.json';

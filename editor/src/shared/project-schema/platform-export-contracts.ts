@@ -338,12 +338,15 @@ export interface PlatformStageRequest {
   };
   display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>; capabilities?: ExportCapability[]; runtimePackageApi: number;
   host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };
-  windowsSigning?: { command: string; args: string[] };
+  // Signing inputs are deliberately request-local.  They are sourced from editor
+  // secure settings or CI and must never be persisted in a project profile.
+  windowsSigning?: { command: string; args: string[]; verifyCommand?: string; verifyArgs?: string[] };
   linuxAppImageTool?: string;
   macosSigning?: { identity: string; entitlementsPath?: string };
   macosNotarization?: { command: string; args: string[] };
   macosDmg?: { command: string; args: string[] };
   androidToolchain?: { androidSdk?: string; androidNdk?: string; javaHome?: string; cmake?: string };
+  androidSigning?: { keystorePath: string; keyAlias: string; storePassword: string; keyPassword: string };
 }
 export interface PlatformStageResult {
   ok: boolean; success: boolean; cancelled: boolean; operationId: string; outputDirectory?: string;
@@ -369,6 +372,11 @@ export interface ProjectPlatformExportRequest {
     cmake?: string;
     signingIdentity?: string;
     credentialReference?: string;
+    signing?: {
+      windows?: { command: string; args: string[]; verifyCommand?: string; verifyArgs?: string[] };
+      macos?: { identity: string; entitlementsPath?: string; notarizationCommand?: string; notarizationArgs?: string[] };
+      android?: { keystorePath: string; keyAlias: string; storePasswordReference: string; keyPasswordReference: string };
+    };
   };
 }
 

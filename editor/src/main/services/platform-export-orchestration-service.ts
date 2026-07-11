@@ -4,6 +4,7 @@ import { compileShaders, exportPackage, openProject } from './editor-tool-servic
 import { checkPlatformExportCancelled, clearPlatformExportCancellation, stagePlatformExport } from './platform-staging-service';
 import { resolvePlayerTemplate, templateRootForToken, verifyTemplateToken } from './template-registry-service';
 import { exportAndroidPlatform } from './android-export-service';
+import { resolveSigningSecret, signingFailure } from './export-signing-service';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
@@ -120,6 +121,20 @@ export async function exportProjectToPlatform(
   }
 
   const localState = request.localState ?? {};
+  let androidSigning: { keystorePath: string; keyAlias: string; storePassword: string; keyPassword: string } | undefined;
+  const signing = localState.signing;
+  if (profile.target === 'android' && signing?.android) {
+    try {
+      androidSigning = {
+        keystorePath: signing.android.keystorePath,
+        keyAlias: signing.android.keyAlias,
+        storePassword: resolveSigningSecret(signing.android.storePasswordReference, 'Android keystore password'),
+        keyPassword: resolveSigningSecret(signing.android.keyPasswordReference, 'Android key password'),
+      };
+    } catch (error) {
+      return failure(operationId, [signingFailure('android-signing-configuration-invalid', error instanceof Error ? error.message : String(error))]);
+    }
+  }
   const availableTools = [
     localState.androidSdk && 'android-sdk', localState.androidNdk && 'android-ndk',
     localState.javaHome && 'java', localState.cmake && 'cmake',
@@ -186,7 +201,15 @@ export async function exportProjectToPlatform(
       capabilities: profile.capabilityOverrides,
       runtimePackageApi: 1,
       host,
+      windowsSigning: profile.target === 'windows' ? signing?.windows : undefined,
+      macosSigning: profile.target === 'macos' && signing?.macos
+        ? { identity: signing.macos.identity, entitlementsPath: signing.macos.entitlementsPath }
+        : undefined,
+      macosNotarization: profile.target === 'macos' && signing?.macos?.notarizationCommand
+        ? { command: signing.macos.notarizationCommand, args: signing.macos.notarizationArgs ?? [] }
+        : undefined,
       androidToolchain: request.localState,
+      androidSigning,
     } satisfies Parameters<typeof stagePlatformExport>[0];
     const result = profile.target === 'android'
       ? await exportAndroidPlatform(stageRequest, verifiedTemplate.descriptor, templateRootForToken(resolved.token))

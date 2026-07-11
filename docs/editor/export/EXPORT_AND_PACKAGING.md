@@ -48,8 +48,12 @@ and sandbox/demo content, generates icons and `player.json`, and records determi
 modes, sizes, and SHA-256 values in `export-manifest.json`. Completion atomically replaces the prior
 staging directory; failure or cancellation preserves the prior successful output. Absolute template,
 package, icon, system-asset, and output paths remain request-local and are not written to profiles or
-provenance. Web, Windows, and Linux finalizers now publish platform-native artifacts; signing and
-the remaining platform finalizers remain later work.
+provenance. Web, Windows, and Linux finalizers now publish platform-native artifacts. Signing
+configuration is local-only: Windows accepts a signing command and optional independent
+verification command; macOS uses a local identity and optional notarization command; Android
+release signing takes a local keystore plus `env:NAME` password references. These values are never
+written to project profiles or export provenance. Windows and Android write non-secret signing
+reports that retain the template build ID and runtime-package checksum.
 
 ## Player Template Registry
 
