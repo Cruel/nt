@@ -58,7 +58,39 @@ describe('authoring runtime export builder', () => {
     expect(result.packageOptions.shaderVariants).toEqual([]);
     expect(result.runtimeProject).toMatchObject({ display: { aspect_ratio: { width: 16, height: 9 }, orientation: 'landscape', bar_color: '#000000' } });
     expect(result.packageOptions.display).toEqual({ aspect_ratio: { width: 16, height: 9 }, orientation: 'landscape', bar_color: '#000000' });
+    expect(result.packageOptions.platform).toEqual({
+      orientation: 'landscape',
+      desktop: { initialWidth: 1280, initialHeight: 720, arguments: ['--display-orientation', 'landscape'] },
+      web: { orientation: 'landscape', query: 'orientation=landscape' },
+      android: { orientation: 'landscape', gradleProperty: 'novelteaOrientation=landscape', screenOrientation: 'sensorLandscape' },
+    });
     expect(result.manifestPreview).toMatchObject({ projectName: 'Export Demo', assetCount: 1, shaderVariants: [] });
+  });
+
+  it('derives every portrait platform launch input from the normalized project profile', () => {
+    const project = roomProject();
+    project.settings.display = {
+      aspectRatio: { width: 32, height: 18 },
+      orientation: 'portrait',
+      barColor: '#102030',
+    };
+
+    const result = buildAuthoringRuntimeExport(project, {
+      projectRoot: '/project',
+      profile: defaultExportProfile(project),
+    });
+
+    expect(result.packageOptions.display).toEqual({
+      aspect_ratio: { width: 16, height: 9 },
+      orientation: 'portrait',
+      bar_color: '#102030',
+    });
+    expect(result.packageOptions.platform).toEqual({
+      orientation: 'portrait',
+      desktop: { initialWidth: 720, initialHeight: 1280, arguments: ['--display-orientation', 'portrait'] },
+      web: { orientation: 'portrait', query: 'orientation=portrait' },
+      android: { orientation: 'portrait', gradleProperty: 'novelteaOrientation=portrait', screenOrientation: 'sensorPortrait' },
+    });
   });
 
   it('blocks unsupported non-scene entrypoints with precise diagnostics', () => {

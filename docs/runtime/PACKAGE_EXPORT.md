@@ -42,6 +42,10 @@ archive-library types.
 The runtime `game` document and package manifest both include the normalized project display
 profile (`aspect_ratio`, `orientation`, and `bar_color`). Runtime loading treats the game document
 as authoritative and falls back to 16:9 landscape with black bars for older or invalid projects.
+The manifest also carries platform launch inputs derived from that same normalized profile:
+desktop initial dimensions and arguments, the Web orientation query, and the Android Gradle
+property and manifest orientation. Platform exporters should consume these generated values rather
+than independently reinterpret project settings.
 
 `fileEntries` are the preferred editor-authoring path for referenced assets because they avoid
 copying broad project asset directories into runtime packages. Each entry provides an absolute

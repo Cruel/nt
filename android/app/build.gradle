@@ -19,6 +19,14 @@ android {
             file(releaseStoreFile).exists()
     def useDebugSigningForRelease = providers.gradleProperty("novelteaUseDebugSigningForRelease")
             .orElse("false").get().toBoolean()
+    def requestedOrientation = providers.gradleProperty("novelteaOrientation")
+            .orElse("landscape").get().toLowerCase()
+    if (!(requestedOrientation in ["landscape", "portrait"])) {
+        throw new GradleException("novelteaOrientation must be 'landscape' or 'portrait'.")
+    }
+    def androidScreenOrientation = requestedOrientation == "portrait"
+            ? "sensorPortrait"
+            : "sensorLandscape"
 
     buildFeatures {
         prefab true
@@ -30,6 +38,7 @@ android {
         targetSdk 35
         versionCode ciVersionCode
         versionName ciVersionName
+        manifestPlaceholders = [novelteaScreenOrientation: androidScreenOrientation]
         ndkVersion "27.3.13750724"
 
         externalNativeBuild {

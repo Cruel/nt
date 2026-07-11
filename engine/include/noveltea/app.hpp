@@ -25,6 +25,7 @@ private:
         std::filesystem::path cache_asset_root;
         std::string runtime_ui_document;
         std::string runtime_project;
+        ScreenOrientation launch_orientation = ScreenOrientation::Landscape;
         std::string screenshot_path;
         std::vector<SurfaceMetrics> resize_sequence;
         uint32_t resize_interval_frames = 1;

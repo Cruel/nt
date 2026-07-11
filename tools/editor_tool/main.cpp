@@ -254,6 +254,9 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     if (auto display = json.find("display"); display != json.end() && display->is_object()) {
         options.display = *display;
     }
+    if (auto platform = json.find("platform"); platform != json.end() && platform->is_object()) {
+        options.platform = *platform;
+    }
     options.shader_asset_root = json.value("shaderAssetRoot", std::string{});
     if (auto metadata = json.find("shaderMaterialMetadata"); metadata != json.end()) {
         options.shader_material_metadata = *metadata;

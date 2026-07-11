@@ -58,6 +58,7 @@ struct PackageExportOptions {
     bool strip_shader_sources = true;
     bool include_checksums = true;
     std::optional<nlohmann::json> display;
+    std::optional<nlohmann::json> platform;
 };
 
 struct PackageExportResult {

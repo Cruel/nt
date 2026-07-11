@@ -13,7 +13,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true"
             android:theme="@style/AppTheme"
-            android:screenOrientation="sensorLandscape">
+            android:screenOrientation="${novelteaScreenOrientation}">
 
             <meta-data
                 android:name="android.app.lib_name"

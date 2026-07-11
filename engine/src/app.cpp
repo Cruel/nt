@@ -142,6 +142,21 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.runtime_project = argv[++i];
+        } else if (std::strcmp(arg, "--display-orientation") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr,
+                             "[app] --display-orientation requires landscape or portrait\n");
+                return false;
+            }
+            const char* orientation = argv[++i];
+            if (std::strcmp(orientation, "landscape") == 0) {
+                options.launch_orientation = ScreenOrientation::Landscape;
+            } else if (std::strcmp(orientation, "portrait") == 0) {
+                options.launch_orientation = ScreenOrientation::Portrait;
+            } else {
+                std::fprintf(stderr, "[app] invalid display orientation: %s\n", orientation);
+                return false;
+            }
         } else if (std::strcmp(arg, "--screenshot") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "[app] --screenshot requires an output path\n");
@@ -208,6 +223,10 @@ bool App::initialize(int argc, char* argv[])
 
     PlatformConfig config;
     config.title = "NovelTea Sandbox";
+    if (options.launch_orientation == ScreenOrientation::Portrait) {
+        config.width = 720;
+        config.height = 1280;
+    }
 
     EngineRunConfig run_config;
     run_config.frame_limit = options.frame_limit;

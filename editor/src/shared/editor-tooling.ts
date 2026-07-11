@@ -56,6 +56,12 @@ export interface PackageExportOptions {
   assetRoots?: Array<{ root: string; packagePrefix?: string }>;
   fileEntries?: Array<{ source: string; packagePath: string }>;
   display?: { aspect_ratio: { width: number; height: number }; orientation: 'landscape' | 'portrait'; bar_color: string };
+  platform?: {
+    orientation: 'landscape' | 'portrait';
+    desktop: { initialWidth: number; initialHeight: number; arguments: string[] };
+    web: { orientation: 'landscape' | 'portrait'; query: string };
+    android: { orientation: 'landscape' | 'portrait'; gradleProperty: string; screenOrientation: 'sensorLandscape' | 'sensorPortrait' };
+  };
 }
 
 export interface PackageExportResponse {

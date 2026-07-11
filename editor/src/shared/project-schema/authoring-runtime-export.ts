@@ -32,6 +32,7 @@ export interface ExportManifestPreview {
   shaderVariants: string[];
   requiredShaderBinaryPaths: string[];
   display?: { aspect_ratio: { width: number; height: number }; orientation: 'landscape' | 'portrait'; bar_color: string };
+  platform?: PackageExportOptions['platform'];
 }
 
 export interface AuthoringRuntimeExportBuildOptions {
@@ -637,6 +638,24 @@ export function buildAuthoringRuntimeExport(
     orientation: displaySettings.orientation,
     bar_color: displaySettings.barColor,
   };
+  const portrait = displaySettings.orientation === 'portrait';
+  const platform: NonNullable<PackageExportOptions['platform']> = {
+    orientation: displaySettings.orientation,
+    desktop: {
+      initialWidth: portrait ? 720 : 1280,
+      initialHeight: portrait ? 1280 : 720,
+      arguments: ['--display-orientation', displaySettings.orientation],
+    },
+    web: {
+      orientation: displaySettings.orientation,
+      query: `orientation=${displaySettings.orientation}`,
+    },
+    android: {
+      orientation: displaySettings.orientation,
+      gradleProperty: `novelteaOrientation=${displaySettings.orientation}`,
+      screenOrientation: portrait ? 'sensorPortrait' : 'sensorLandscape',
+    },
+  };
   const runtimeProject: Record<string, unknown> = {
     engine: 1,
     name: project.project.name,
@@ -653,6 +672,7 @@ export function buildAuthoringRuntimeExport(
     properties: buildVariableDefaults(project, diagnostics),
     startInv: [],
     display: runtimeDisplay,
+    platform,
   };
 
   const runtimeUiPlaybackLayouts = buildRuntimeUiPlaybackLayouts(project, diagnostics);
@@ -692,6 +712,7 @@ export function buildAuthoringRuntimeExport(
     shaderVariants,
     requiredShaderBinaryPaths,
     display: runtimeDisplay,
+    platform,
   };
   const packageOptions: PackageExportOptions = {
     kind: options.profile.kind,
@@ -705,6 +726,7 @@ export function buildAuthoringRuntimeExport(
     requiredShaderBinaryPaths,
     fileEntries: fileEntries.map((entry) => ({ source: entry.source, packagePath: entry.packagePath })),
     display: runtimeDisplay,
+    platform,
   };
 
   return {
