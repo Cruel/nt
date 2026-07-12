@@ -217,6 +217,26 @@ TEST_CASE("ScriptRuntime reports syntax errors and nested runtime tracebacks")
     CHECK(nested.error->traceback != nested.error->message);
 }
 
+TEST_CASE("ScriptRuntime handles coroutine yield and resume through Lua status codes")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+
+    auto result = fixture.runtime.execute(R"(
+        local co = coroutine.create(function()
+            local resumed = coroutine.yield("paused")
+            return resumed
+        end)
+        local ok1, first = coroutine.resume(co)
+        assert(ok1 and first == "paused")
+        local ok2, second = coroutine.resume(co, "finished")
+        assert(ok2 and second == "finished")
+        assert(coroutine.status(co) == "dead")
+    )",
+                                          "coroutine_status");
+    REQUIRE(result);
+}
+
 TEST_CASE("ScriptRuntime does not expose unsafe standard libraries by default")
 {
     RuntimeFixture fixture;
@@ -242,17 +262,17 @@ TEST_CASE("ScriptRuntime initialization failure leaves runtime clean")
     CHECK_FALSE(runtime.is_initialized());
 }
 
-TEST_CASE("ScriptRuntime converts bound C++ exceptions into failures and stays usable")
+TEST_CASE(
+    "ScriptRuntime converts bound callback argument failures into diagnostics and stays usable")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
-    sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
-    lua.set_function("throw_from_cpp", []() -> int { throw std::runtime_error("cpp boom"); });
+    fixture.runtime.bind_game_session(nullptr);
 
-    auto failed = fixture.runtime.execute("throw_from_cpp()", "cpp_throw");
+    auto failed = fixture.runtime.execute("toast({})", "callback_argument_error");
     REQUIRE_FALSE(failed);
     REQUIRE(failed.error);
-    CHECK(failed.error->message.find("cpp boom") != std::string::npos);
+    CHECK(failed.error->message.find("string") != std::string::npos);
     CHECK(failed.error->traceback.find("stack traceback") != std::string::npos);
 
     auto still_usable = fixture.runtime.evaluate_string("'still' .. '-ok'", "after_failure");

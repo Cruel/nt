@@ -16,10 +16,15 @@ Runtime controllers emit script work as `ScriptDeferred` commands, which `Runtim
 
 Lua errors do not crash the engine. A failed chunk records the message, chunk/context, source entity when known, and Lua traceback. Runtime progression continues after the diagnostic; hook-specific abort semantics are deferred until a later runtime policy requires them.
 
-First-party Lua integration code contains no exception handlers. This is an intermediate migration
-state: sol2 is still built in its ordinary exception-capable configuration until the dedicated Phase 4
-audit enables `SOL_NO_EXCEPTIONS` and `SOL_NO_RTTI`. New Lua failure handling must use protected results
-or explicit Lua status values rather than adding containment catches.
+First-party Lua integration code contains no exception handlers. sol2 is configured with
+`SOL_NO_EXCEPTIONS`, `SOL_NO_RTTI`, and all safety checks enabled. Production sol2 translation units
+also compile with compiler exceptions and RTTI disabled. Chunk execution and engine-invoked callbacks
+use protected functions/results; invalid callback arguments and Lua runtime failures return diagnostics
+without crossing the Lua boundary as C++ exceptions.
+
+`ScriptRuntime` installs a process-fatal panic handler that records the panic message. Panic is reserved
+for Lua API misuse or unrecoverable allocation/state corruption. Ordinary authored-script failures must
+remain within protected calls and never invoke panic.
 
 Lua scripts can mutate save-backed global properties, entity property overrides, object locations, text log entries, notifications, timers, and save slots through explicit `Game`, entity, `Log`, `toast`, and `Timer` APIs. `Game.save(slot)`, `Game.load(slot)`, and `Game.autosave()` route through the active host and require a bound `SaveSlotStore`.
 

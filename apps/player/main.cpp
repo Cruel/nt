@@ -20,6 +20,7 @@ extern "C" void noveltea_web_sync_persistent_fs();
 
 namespace {
 
+#if !defined(SDL_PLATFORM_ANDROID)
 std::filesystem::path executable_base()
 {
 #if defined(__EMSCRIPTEN__)
@@ -50,6 +51,7 @@ std::filesystem::path config_path(int argc, char** argv)
 #endif
     return executable_base() / "player.json";
 }
+#endif
 
 std::filesystem::path writable_base(const std::string& save_namespace)
 {
@@ -122,6 +124,8 @@ int main(int argc, char** argv)
     std::filesystem::path path;
     noveltea::core::PlayerBootstrapResult bootstrap;
 #if defined(SDL_PLATFORM_ANDROID)
+    (void)argc;
+    (void)argv;
     const auto config_bytes = read_packaged_asset("noveltea/bootstrap/player.json");
     const std::string config_text(reinterpret_cast<const char*>(config_bytes.data()),
                                   config_bytes.size());

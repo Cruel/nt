@@ -1,6 +1,8 @@
 #include "script/lua/script_runtime_internal.hpp"
+#include "script/lua/sol_access.hpp"
 
 #include <noveltea/core/game_session.hpp>
+#include <noveltea/core/json_access.hpp>
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/core/project_model.hpp>
 #include <noveltea/core/runtime_session_host.hpp>
@@ -37,7 +39,7 @@ constexpr const char kBridgeKey[] = "__noveltea_script_bridge";
 ScriptBridge* get_bridge(lua_State* L)
 {
     sol::state_view lua(L);
-    return lua.registry().get<ScriptBridge*>(kBridgeKey);
+    return detail::registry_pointer<ScriptBridge>(lua, kBridgeKey);
 }
 
 core::GameSession* get_session(lua_State* L)
@@ -108,16 +110,16 @@ sol::object json_to_sol(lua_State* L, const nlohmann::json& value,
     }
     sol::state_view lua(L);
     if (value.is_string()) {
-        return sol::make_object(lua, value.get<std::string>());
+        return sol::make_object(lua, core::json_access::get_or<std::string>(value, {}));
     }
     if (value.is_number_integer()) {
-        return sol::make_object(lua, value.get<std::int64_t>());
+        return sol::make_object(lua, core::json_access::get_or<std::int64_t>(value, 0));
     }
     if (value.is_number()) {
-        return sol::make_object(lua, value.get<double>());
+        return sol::make_object(lua, core::json_access::get_or<double>(value, 0.0));
     }
     if (value.is_boolean()) {
-        return sol::make_object(lua, value.get<bool>());
+        return sol::make_object(lua, core::json_access::get_or<bool>(value, false));
     }
     return sol::make_object(lua, value.dump());
 }
@@ -608,18 +610,23 @@ struct ScriptBinding {
                             err.what());
                     result += "{{" + expr + "}}";
                 } else {
-                    auto type = eval_result.get_type();
-                    if (type == sol::type::string) {
-                        result += eval_result.get<std::string>();
-                    } else if (type == sol::type::number) {
-                        double d = eval_result.get<double>();
+                    const int stack_index = eval_result.stack_index();
+                    const int type = lua_type(L, stack_index);
+                    if (type == LUA_TSTRING) {
+                        std::size_t length = 0;
+                        const char* text_value = lua_tolstring(L, stack_index, &length);
+                        if (text_value) {
+                            result.append(text_value, length);
+                        }
+                    } else if (type == LUA_TNUMBER) {
+                        double d = static_cast<double>(lua_tonumber(L, stack_index));
                         if (d == static_cast<double>(static_cast<std::int64_t>(d))) {
                             result += std::to_string(static_cast<std::int64_t>(d));
                         } else {
                             result += std::to_string(d);
                         }
-                    } else if (type == sol::type::boolean) {
-                        result += eval_result.get<bool>() ? "true" : "false";
+                    } else if (type == LUA_TBOOLEAN) {
+                        result += lua_toboolean(L, stack_index) != 0 ? "true" : "false";
                     }
                 }
             }
@@ -657,11 +664,12 @@ struct ScriptBinding {
         return true;
     }
 
-    void get_text_input(std::string msg, sol::function callback)
+    void get_text_input(std::string msg, sol::protected_function callback)
     {
         SDL_Log("[lua] Script.get_text_input(%s) — stub", msg.c_str());
         if (callback.valid()) {
-            callback("");
+            auto result = callback("");
+            detail::log_protected_failure("Script.get_text_input callback", result);
         }
     }
 };
@@ -688,29 +696,31 @@ struct TimerBinding {
     lua_State* L = nullptr;
     core::GameSession* session = nullptr;
 
-    sol::object start(double duration_ms, sol::function callback)
+    sol::object start(double duration_ms, sol::protected_function callback)
     {
         if (!session)
             return sol::lua_nil;
         auto handle = session->timers().start(
-            duration_ms / 1000.0,
-            [callback = std::make_shared<sol::function>(callback)](core::RuntimeTimerId id) {
+            duration_ms / 1000.0, [callback = std::make_shared<sol::protected_function>(callback)](
+                                      core::RuntimeTimerId id) {
                 if (callback->valid()) {
-                    (*callback)(static_cast<std::int64_t>(id));
+                    auto result = (*callback)(static_cast<std::int64_t>(id));
+                    detail::log_protected_failure("Timer.start callback", result);
                 }
             });
         return sol::make_object(L, static_cast<std::int64_t>(handle.id));
     }
 
-    sol::object start_repeat(double duration_ms, sol::function callback)
+    sol::object start_repeat(double duration_ms, sol::protected_function callback)
     {
         if (!session)
             return sol::lua_nil;
         auto handle = session->timers().start_repeat(
-            duration_ms / 1000.0,
-            [callback = std::make_shared<sol::function>(callback)](core::RuntimeTimerId id) {
+            duration_ms / 1000.0, [callback = std::make_shared<sol::protected_function>(callback)](
+                                      core::RuntimeTimerId id) {
                 if (callback->valid()) {
-                    (*callback)(static_cast<std::int64_t>(id));
+                    auto result = (*callback)(static_cast<std::int64_t>(id));
+                    detail::log_protected_failure("Timer.start_repeat callback", result);
                 }
             });
         return sol::make_object(L, static_cast<std::int64_t>(handle.id));
@@ -862,9 +872,10 @@ void build_script_table(lua_State* L)
         return sb.eval_expressions(std::move(text));
     });
     script.set_function("run", [sb](std::string id) mutable { return sb.run(std::move(id)); });
-    script.set_function("get_text_input", [sb](std::string msg, sol::function cb) mutable {
-        sb.get_text_input(std::move(msg), std::move(cb));
-    });
+    script.set_function("get_text_input",
+                        [sb](std::string msg, sol::protected_function cb) mutable {
+                            sb.get_text_input(std::move(msg), std::move(cb));
+                        });
     lua["Script"] = script;
 }
 
@@ -886,27 +897,30 @@ void build_timer_table(lua_State* L, core::GameSession* session)
     sol::state_view lua(L);
     sol::table timer = lua.create_table();
     timer.set_function(
-        "start", [session, L](double duration_ms, sol::function callback) -> sol::object {
+        "start", [session, L](double duration_ms, sol::protected_function callback) -> sol::object {
             if (!session)
                 return sol::lua_nil;
             auto handle = session->timers().start(
-                duration_ms / 1000.0, [callback = std::make_shared<sol::function>(
+                duration_ms / 1000.0, [callback = std::make_shared<sol::protected_function>(
                                            std::move(callback))](core::RuntimeTimerId id) {
                     if (callback->valid()) {
-                        (*callback)(static_cast<std::int64_t>(id));
+                        auto result = (*callback)(static_cast<std::int64_t>(id));
+                        detail::log_protected_failure("Timer.start callback", result);
                     }
                 });
             return sol::make_object(L, static_cast<std::int64_t>(handle.id));
         });
     timer.set_function(
-        "start_repeat", [session, L](double duration_ms, sol::function callback) -> sol::object {
+        "start_repeat",
+        [session, L](double duration_ms, sol::protected_function callback) -> sol::object {
             if (!session)
                 return sol::lua_nil;
             auto handle = session->timers().start_repeat(
-                duration_ms / 1000.0, [callback = std::make_shared<sol::function>(
+                duration_ms / 1000.0, [callback = std::make_shared<sol::protected_function>(
                                            std::move(callback))](core::RuntimeTimerId id) {
                     if (callback->valid()) {
-                        (*callback)(static_cast<std::int64_t>(id));
+                        auto result = (*callback)(static_cast<std::int64_t>(id));
+                        detail::log_protected_failure("Timer.start_repeat callback", result);
                     }
                 });
             return sol::make_object(L, static_cast<std::int64_t>(handle.id));
@@ -940,9 +954,15 @@ void register_legacy_entity_functions(lua_State* L)
                              return default_value.value_or(sol::lua_nil);
                          }
                          if (entity.get_type() == sol::type::userdata) {
-                             auto result = entity["prop"](entity, key, default_value);
-                             if (result.valid())
-                                 return result;
+                             sol::object function_object = entity["prop"];
+                             if (function_object.is<sol::protected_function>()) {
+                                 sol::protected_function function = function_object;
+                                 auto result = function(entity, key, default_value);
+                                 if (result.valid() && result.return_count() > 0) {
+                                     return sol::object(result.lua_state(), result.stack_index());
+                                 }
+                                 detail::log_protected_failure("legacy prop callback", result);
+                             }
                          }
                          return default_value.value_or(sol::lua_nil);
                      });
@@ -952,7 +972,13 @@ void register_legacy_entity_functions(lua_State* L)
         if (!entity.valid() || entity == sol::lua_nil)
             return;
         if (entity.get_type() == sol::type::userdata) {
-            entity["set_prop"](entity, key, value);
+            sol::object function_object = entity["set_prop"];
+            if (!function_object.is<sol::protected_function>()) {
+                return;
+            }
+            sol::protected_function function = function_object;
+            auto result = function(entity, key, value);
+            detail::log_protected_failure("legacy set_prop callback", result);
         }
     });
 }
@@ -967,7 +993,7 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
     sol::state_view lua(L);
 
     // Store/update bridge
-    auto* bridge = lua.registry().get<ScriptBridge*>(kBridgeKey);
+    auto* bridge = detail::registry_pointer<ScriptBridge>(lua, kBridgeKey);
     if (!bridge) {
         bridge = new ScriptBridge();
         lua.registry().set(kBridgeKey, bridge);
@@ -978,8 +1004,7 @@ void bind_game_session(lua_State* L, noveltea::core::GameSession* session)
     // Register entity usertypes once (harmless to do multiple times but avoid it)
     {
         auto reg = lua.registry();
-        if (!reg["__noveltea_types_registered"].valid() ||
-            !reg["__noveltea_types_registered"].get<bool>()) {
+        if (!detail::registry_bool(lua, "__noveltea_types_registered")) {
             lua.new_usertype<RoomLua>(
                 "Room", sol::no_constructor, "id", sol::property(&RoomLua::get_id), "prop",
                 &RoomLua::prop, "has_prop", &RoomLua::has_prop, "set_prop", &RoomLua::set_prop,
@@ -1034,7 +1059,7 @@ void bind_runtime_host(lua_State* L, noveltea::core::RuntimeSessionHost* host)
 {
     bind_game_session(L, host ? &host->session() : nullptr);
     sol::state_view lua(L);
-    auto* bridge = lua.registry().get<ScriptBridge*>(kBridgeKey);
+    auto* bridge = detail::registry_pointer<ScriptBridge>(lua, kBridgeKey);
     if (bridge) {
         bridge->host = host;
     }
@@ -1045,7 +1070,7 @@ void bind_runtime_host(lua_State* L, noveltea::core::RuntimeSessionHost* host)
 void bind_runtime_command_dispatcher(lua_State* L, noveltea::RuntimeCommandDispatcher* dispatcher)
 {
     sol::state_view lua(L);
-    auto* bridge = lua.registry().get<ScriptBridge*>(kBridgeKey);
+    auto* bridge = detail::registry_pointer<ScriptBridge>(lua, kBridgeKey);
     if (!bridge) {
         bridge = new ScriptBridge();
         lua.registry().set(kBridgeKey, bridge);
@@ -1060,7 +1085,7 @@ void bind_runtime_command_dispatcher(lua_State* L, noveltea::RuntimeCommandDispa
 void clear_game_bindings(lua_State* L)
 {
     sol::state_view lua(L);
-    auto* bridge = lua.registry().get<ScriptBridge*>(kBridgeKey);
+    auto* bridge = detail::registry_pointer<ScriptBridge>(lua, kBridgeKey);
     if (bridge) {
         bridge->session = nullptr;
         bridge->host = nullptr;

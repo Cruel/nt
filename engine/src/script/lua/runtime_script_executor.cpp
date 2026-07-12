@@ -1,6 +1,7 @@
 #include <noveltea/script/runtime_script_executor.hpp>
 
 #include <noveltea/core/runtime_session_host.hpp>
+#include <noveltea/core/json_access.hpp>
 #include <noveltea/script/script_runtime.hpp>
 
 #include <cstddef>
@@ -137,9 +138,12 @@ void RuntimeScriptExecutor::process_outputs(std::vector<core::RuntimeOutput>& ou
                 should_autosave = true;
             } else if (command.type == core::ControllerCommandType::ScriptDeferred &&
                        command.data.is_object()) {
-                const bool dialogue_autosave = command.data.value("autosave", false);
-                const bool cutscene_before = command.data.value("autosave_before", false);
-                const bool cutscene_after = command.data.value("autosave_after", false);
+                const bool dialogue_autosave =
+                    core::json_access::value_or(command.data, "autosave", false);
+                const bool cutscene_before =
+                    core::json_access::value_or(command.data, "autosave_before", false);
+                const bool cutscene_after =
+                    core::json_access::value_or(command.data, "autosave_after", false);
                 should_autosave =
                     should_autosave || dialogue_autosave || cutscene_before || cutscene_after;
             }

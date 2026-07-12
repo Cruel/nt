@@ -42,7 +42,9 @@ bool demo_enabled(DemoMode selected, DemoMode queried)
 }
 
 constexpr uint32_t kMaxFpsCap = 1000;
+#if defined(__EMSCRIPTEN__)
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
+#endif
 constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
 
 std::optional<DisplayProfile> display_profile_from_project(const nlohmann::json& root)

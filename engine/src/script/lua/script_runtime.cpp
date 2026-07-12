@@ -1,12 +1,14 @@
 #include "noveltea/script/script_runtime.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "script/lua/sol_access.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
 #include <lua.hpp>
 #include <sol/sol.hpp>
 
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
@@ -33,6 +35,13 @@ int traceback_handler(lua_State* state)
     }
     luaL_traceback(state, state, message, 1);
     return 1;
+}
+
+int panic_handler(lua_State* state)
+{
+    const char* message = lua_tostring(state, -1);
+    std::fprintf(stderr, "[lua] fatal panic: %s\n", message ? message : "unknown Lua panic");
+    return 0;
 }
 
 std::string lua_value_message(lua_State* state, int index)
@@ -94,7 +103,7 @@ std::string prefixed_chunk(std::string_view chunk_name)
 } // namespace
 
 struct ScriptRuntime::Impl {
-    sol::state lua;
+    sol::state lua{panic_handler};
     const assets::AssetManager* assets = nullptr;
     bool initialized = false;
     sol::protected_function traceback;

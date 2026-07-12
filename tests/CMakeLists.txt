@@ -96,6 +96,11 @@ add_executable(noveltea_script_tests
     script/runtime_script_executor_tests.cpp
 )
 target_include_directories(noveltea_script_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_compile_definitions(noveltea_script_tests PRIVATE
+    SOL_NO_EXCEPTIONS=1
+    SOL_NO_RTTI=1
+    SOL_ALL_SAFETIES_ON=1
+)
 target_link_libraries(noveltea_script_tests PRIVATE engine Lua::Lua sol2::sol2 Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_script_tests)
 

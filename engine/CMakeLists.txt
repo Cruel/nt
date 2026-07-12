@@ -255,6 +255,24 @@ target_sources(engine PRIVATE
     src/script/lua/script_runtime.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)
+target_compile_definitions(engine PRIVATE
+    SOL_NO_EXCEPTIONS=1
+    SOL_NO_RTTI=1
+    SOL_ALL_SAFETIES_ON=1
+)
+
+set(NOVELTEA_SOL2_SOURCES
+    src/script/lua/bind_audio.cpp
+    src/script/lua/bind_game_session.cpp
+    src/script/lua/bind_noveltea.cpp
+    src/script/lua/script_runtime.cpp
+)
+if(MSVC)
+    set_property(SOURCE ${NOVELTEA_SOL2_SOURCES} APPEND PROPERTY COMPILE_OPTIONS /EHs-c- /GR-)
+else()
+    set_property(SOURCE ${NOVELTEA_SOL2_SOURCES} APPEND PROPERTY COMPILE_OPTIONS
+        -fno-exceptions -fno-rtti)
+endif()
 target_link_libraries(engine PRIVATE Lua::Lua sol2::sol2)
 
 # --- Platform definition ---

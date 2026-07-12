@@ -8,6 +8,3 @@ engine/src/core/save_document.cpp|filesystem-operation|8 # Phase 5 filesystem er
 engine/src/engine.cpp|filesystem-operation|2 # Phase 5 filesystem error_code conversion
 engine/src/render/bgfx/bgfx_renderer.cpp|filesystem-operation|1 # Phase 5 filesystem error_code conversion
 engine/src/render/shader_compiler.cpp|filesystem-operation|12 # Phase 5 filesystem error_code conversion
-engine/src/script/lua/bind_audio.cpp|unsafe-json-get|2 # Phase 4 sol2 value conversion
-engine/src/script/lua/bind_game_session.cpp|unsafe-json-get|1 # Phase 4 sol2 value conversion
-engine/src/script/lua/runtime_script_executor.cpp|unsafe-json-value|3 # Phase 4 sol2 value conversion

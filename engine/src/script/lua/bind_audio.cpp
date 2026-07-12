@@ -1,4 +1,5 @@
 #include "script/lua/script_runtime_internal.hpp"
+#include "script/lua/sol_access.hpp"
 
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
@@ -60,11 +61,14 @@ AudioTrackReplaceMode option_replace_mode(const sol::optional<sol::table>& optio
     return mode == "layer" ? AudioTrackReplaceMode::Layer : AudioTrackReplaceMode::Replace;
 }
 
-AudioSystem* audio_from(sol::state_view lua) { return lua.registry().get<AudioSystem*>(kAudioKey); }
+AudioSystem* audio_from(sol::state_view lua)
+{
+    return detail::registry_pointer<AudioSystem>(lua, kAudioKey);
+}
 
 core::RuntimeSessionHost* host_from(sol::state_view lua)
 {
-    return lua.registry().get<core::RuntimeSessionHost*>(kAudioHostKey);
+    return detail::registry_pointer<core::RuntimeSessionHost>(lua, kAudioHostKey);
 }
 
 bool enqueue_audio_command(sol::state_view lua, nlohmann::json payload)
