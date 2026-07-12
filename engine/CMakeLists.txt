@@ -374,6 +374,7 @@ if(NOVELTEA_ENABLE_DEVTOOLS)
         target_include_directories(imgui PUBLIC "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
         target_compile_features(imgui PUBLIC cxx_std_11)
         target_link_libraries(imgui PUBLIC SDL3::SDL3)
+        noveltea_apply_runtime_dependency_policy(imgui)
         add_library(imgui::imgui ALIAS imgui)
     endif()
 
@@ -400,4 +401,5 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wall -Wextra -Wpedantic -Wno-unused-parameter
     )
 endif()
+noveltea_apply_runtime_compiler_policy(engine)
 noveltea_apply_policy_warnings(engine)

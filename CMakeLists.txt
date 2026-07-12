@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 project(noveltea VERSION 0.1.0 LANGUAGES C CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -24,6 +26,14 @@ add_custom_target(cxx-runtime-policy
     COMMENT "Checking shipped C++ sources for exception, RTTI, and throwing APIs"
     VERBATIM)
 add_dependencies(cxx-runtime-policy noveltea_compiler_policy_probe)
+
+add_custom_target(cxx-dependency-policy
+    COMMAND "${CMAKE_COMMAND}"
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DPLATFORM_NAME=${CMAKE_SYSTEM_NAME}
+        -P ${CMAKE_SOURCE_DIR}/cmake/VerifyDependencyCompilerPolicy.cmake
+    COMMENT "Verifying C++ dependency compiler flags and runtime link inputs"
+    VERBATIM)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES CONFIGURE_DEPENDS
@@ -81,6 +91,16 @@ option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
 set(NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY "https://github.com/Cruel/rmlui-bgfx.git" CACHE STRING "rmlui-bgfx Git repository used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
 set(NOVELTEA_RMLUI_BGFX_GIT_TAG "master" CACHE STRING "rmlui-bgfx Git ref used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
 set(NOVELTEA_LOCAL_RMLUI_BGFX_DIR "${CMAKE_SOURCE_DIR}/rmlui-bgfx" CACHE PATH "Local rmlui-bgfx checkout used when NOVELTEA_USE_LOCAL_RMLUI_BGFX is enabled")
+
+# These definitions are ABI/configuration policy, not optional feature switches. They must be visible
+# while header-only dependencies and the complete RmlUi family are compiled.
+add_compile_definitions(
+    ITLIB_FLAT_MAP_NO_THROW
+    JSON_NOEXCEPTION=1
+    SOL_NO_EXCEPTIONS=1
+    SOL_NO_RTTI=1
+    RMLUI_CUSTOM_RTTI
+)
 
 # --- SDL3: provide the SDL3::SDL3 target for all platforms ---
 
@@ -142,6 +162,9 @@ if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
     endif()
 
     FetchContent_MakeAvailable(bgfx.cmake)
+    foreach(_noveltea_dependency IN ITEMS bx bimg bimg_decode bimg_encode bgfx)
+        noveltea_apply_runtime_dependency_policy(${_noveltea_dependency})
+    endforeach()
     if(NOT TARGET bgfx::bgfx)
         add_library(bgfx::bgfx ALIAS bgfx)
     endif()
@@ -200,6 +223,7 @@ if(NOVELTEA_ENABLE_TWINK)
     if(NOT TARGET twink::twink)
         message(FATAL_ERROR "NOVELTEA_ENABLE_TWINK=ON requires twink::twink")
     endif()
+    noveltea_apply_runtime_dependency_policy(twink::twink)
 endif()
 
 # --- RmlUi + RmlUi Lua: mandatory for the engine ---
@@ -226,6 +250,9 @@ if(NOVELTEA_FETCH_RMLUI AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android")
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(RmlUi)
+    foreach(_noveltea_dependency IN ITEMS rmlui_core rmlui_lua rmlui_debugger)
+        noveltea_apply_runtime_dependency_policy(${_noveltea_dependency})
+    endforeach()
 endif()
 
 # Desktop: RmlUi comes from vcpkg
@@ -284,6 +311,7 @@ if(NOT TARGET rmlui_bgfx::rmlui_bgfx)
         "Install rmlui-bgfx, enable NOVELTEA_FETCH_RMLUI_BGFX, or configure with "
         "-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON for tandem local development.")
 endif()
+noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 
 add_subdirectory(engine)
 if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")

@@ -248,6 +248,27 @@ if(TARGET noveltea-sandbox)
     )
 endif()
 
+# Catch2 is rebuilt under the NovelTea dependency triplet. Its consumers must use the same compiler
+# ABI policy or they will emit RTTI/exception references that the library intentionally does not
+# provide.
+foreach(_noveltea_test_target IN ITEMS
+        noveltea_core_tests
+        noveltea_text_tests
+        noveltea_asset_tests
+        noveltea_tween_tests
+        noveltea_runtime_shell_tests
+        noveltea_script_tests
+        noveltea_render_tests
+        noveltea_ui_tests
+        noveltea_rmlui_readback_verifier
+        noveltea_rmlui_resize_readback_verifier
+        noveltea_rmlui_feature_fixtures_verifier
+        noveltea_presentation_readback_verifier)
+    if(TARGET "${_noveltea_test_target}")
+        noveltea_apply_runtime_compiler_policy("${_noveltea_test_target}")
+    endif()
+endforeach()
+
 if(EMSCRIPTEN)
     add_test(
         NAME noveltea_web_rmlui_smoke
