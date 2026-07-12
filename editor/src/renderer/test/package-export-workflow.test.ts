@@ -14,7 +14,7 @@ import { projectSettingsFromProject } from '../../shared/project-schema/authorin
 function validProject() {
   const project = createAuthoringProject({ name: 'Workflow Demo' });
   const data = defaultRoomData('Foyer');
-  data.description.source = 'Ready.';
+  data.description.source = { kind: 'inline', text: 'Ready.' };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
   project.entrypoint = { kind: 'room', id: 'foyer' };
   return project;

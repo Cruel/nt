@@ -11,7 +11,7 @@ describe('platform export acceptance fixture', () => {
     expect(Object.keys(project.layouts)).toHaveLength(1);
     expect(Object.keys(project.shaders)).toHaveLength(1);
     expect(Object.keys(project.materials)).toHaveLength(1);
-    expect(project.rooms.foyer?.data.paths).toHaveLength(1);
+    expect(project.rooms.foyer?.data.exits).toHaveLength(1);
     expect(platformExportFixtureExpectations.blocked).toEqual(expect.arrayContaining(['runtime-rmlui-layout-mount', 'runtime-audio-playback', 'save-reload-acceptance']));
   });
   it('does not certify the fixture while reachable conversion gaps remain', () => {

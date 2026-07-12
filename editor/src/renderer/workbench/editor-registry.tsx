@@ -174,6 +174,15 @@ export function buildRoomDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
+export function buildInteractableDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:interactable-detail:interactables:${entityId}`,
+    title,
+    editorType: 'interactable-detail',
+    resource: { kind: 'record', stableId: `record:interactables:${entityId}`, collection: 'interactables', entityId },
+  };
+}
+
 export function buildDialogueDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
   return {
     id: `tab:dialogue-detail:dialogues:${entityId}`,
@@ -300,6 +309,7 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'layouts' && node.entityId) return buildLayoutDetailTabForRecord(node.entityId, title);
   if (node.collection === 'characters' && node.entityId) return buildCharacterDetailTabForRecord(node.entityId, title);
   if (node.collection === 'rooms' && node.entityId) return buildRoomDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'interactables' && node.entityId) return buildInteractableDetailTabForRecord(node.entityId, title);
   if (node.collection === 'dialogues' && node.entityId) return buildDialogueDetailTabForRecord(node.entityId, title);
   if (node.collection === 'scenes' && node.entityId) return buildSceneDetailTabForRecord(node.entityId, title);
   if (node.collection === 'tests' && node.entityId) return buildTestDetailTabForRecord(node.entityId, title);
@@ -433,6 +443,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'layout-detail') return Layers;
   if (editorType === 'character-detail') return User;
   if (editorType === 'room-detail') return DoorOpen;
+  if (editorType === 'interactable-detail') return Puzzle;
   if (editorType === 'dialogue-detail') return MessageSquareText;
   if (editorType === 'scene-detail') return Clapperboard;
   if (editorType === 'placeholder-entity') return Puzzle;

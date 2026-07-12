@@ -9,6 +9,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -469,8 +470,8 @@ describe('FullGamePreviewEditor', () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
     project.variables.flag = { id: 'flag', label: 'Has Key', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' } };
-    project.rooms.foyer = { id: 'foyer', label: 'Grand Foyer', data: {} as never };
-    project.interactables.key = { id: 'key', label: 'Brass Key', data: {} as never };
+    project.rooms.foyer = { id: 'foyer', label: 'Grand Foyer', data: defaultRoomData('Grand Foyer') };
+    project.interactables.key = { id: 'key', label: 'Brass Key', extends: null, properties: {}, data: defaultInteractableData('Brass Key') };
     project.verbs.look = { id: 'look', label: 'Inspect', data: {} as never };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 

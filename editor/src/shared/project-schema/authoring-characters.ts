@@ -9,16 +9,16 @@ export type CharacterPreviewBackground = (typeof characterPreviewBackgroundValue
 
 export const characterAssetRefSchema = z.object({
   $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
-});
+}).strict();
 
 export const characterMaterialRefSchema = z.object({
   $ref: z.object({ collection: z.literal('materials'), id: z.string().min(1) }),
-});
+}).strict();
 
 export const characterVector2Schema = z.object({
   x: z.number().finite(),
   y: z.number().finite(),
-});
+}).strict();
 
 export const characterPoseDataSchema = z.object({
   id: entityIdSchema,
@@ -28,7 +28,7 @@ export const characterPoseDataSchema = z.object({
   offset: characterVector2Schema.default({ x: 0, y: 0 }),
   scale: z.number().finite().positive().default(1),
   anchor: characterVector2Schema.default({ x: 0.5, y: 1 }),
-});
+}).strict();
 
 export const characterExpressionDataSchema = z.object({
   id: entityIdSchema,
@@ -36,14 +36,14 @@ export const characterExpressionDataSchema = z.object({
   poseId: entityIdSchema.nullable().default(null),
   sprite: characterAssetRefSchema.nullable().default(null),
   material: characterMaterialRefSchema.nullable().default(null),
-});
+}).strict();
 
 export const characterDialogueStyleSchema = z.object({
   name: z.string().default(''),
   nameColor: z.string().nullable().default(null),
   textColor: z.string().nullable().default(null),
   styleClass: z.string().default(''),
-});
+}).strict();
 
 export const characterDataSchema = z.object({
   kind: z.literal('character').default('character'),
@@ -55,12 +55,7 @@ export const characterDataSchema = z.object({
   }).default({ poseId: 'default', expressionId: 'neutral' }),
   poses: z.array(characterPoseDataSchema).default([]),
   expressions: z.array(characterExpressionDataSchema).default([]),
-  preview: z.object({
-    poseId: entityIdSchema,
-    expressionId: entityIdSchema,
-    background: z.enum(characterPreviewBackgroundValues).default('checker'),
-  }).default({ poseId: 'default', expressionId: 'neutral', background: 'checker' }),
-});
+}).strict();
 
 export type CharacterAssetRef = z.infer<typeof characterAssetRefSchema>;
 export type CharacterMaterialRef = z.infer<typeof characterMaterialRefSchema>;
@@ -112,7 +107,6 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
       sprite: null,
       material: null,
     }],
-    preview: { poseId: 'default', expressionId: 'neutral', background: 'checker' },
   });
 }
 
@@ -196,8 +190,6 @@ export function validateCharacterData(
 
   if (!poses.has(data.defaults.poseId)) diagnostics.push(diagnostic(`${base}/defaults/poseId`, `Missing default pose '${data.defaults.poseId}'.`));
   if (!expressions.has(data.defaults.expressionId)) diagnostics.push(diagnostic(`${base}/defaults/expressionId`, `Missing default expression '${data.defaults.expressionId}'.`));
-  if (!poses.has(data.preview.poseId)) diagnostics.push(diagnostic(`${base}/preview/poseId`, `Missing preview pose '${data.preview.poseId}'.`));
-  if (!expressions.has(data.preview.expressionId)) diagnostics.push(diagnostic(`${base}/preview/expressionId`, `Missing preview expression '${data.preview.expressionId}'.`));
 
   data.poses.forEach((pose, index) => {
     validateSpriteRef(project, pose.sprite, `${base}/poses/${index}/sprite`, diagnostics);
@@ -211,9 +203,8 @@ export function validateCharacterData(
     validateMaterialRef(project, expression.material, `${base}/expressions/${index}/material`, diagnostics);
   });
 
-  const selectedPose = data.poses.find((pose) => pose.id === data.preview.poseId) ?? data.poses.find((pose) => pose.id === data.defaults.poseId);
-  const selectedExpression = data.expressions.find((expression) => expression.id === data.preview.expressionId)
-    ?? data.expressions.find((expression) => expression.id === data.defaults.expressionId);
+  const selectedPose = data.poses.find((pose) => pose.id === data.defaults.poseId);
+  const selectedExpression = data.expressions.find((expression) => expression.id === data.defaults.expressionId);
   if (selectedPose && selectedExpression && !selectedPose.sprite && !selectedExpression.sprite) {
     diagnostics.push(diagnostic(`${base}/preview`, 'Selected pose/expression has no sprite asset yet.', 'warning'));
   }

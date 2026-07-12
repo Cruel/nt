@@ -32,10 +32,10 @@ describe('authoring rooms schema', () => {
       kind: 'room',
       displayName: 'Foyer',
       background: { asset: null, material: null, fit: 'cover' },
-      description: { format: 'active-text', source: '' },
-      scripts: { beforeEnter: '', afterEnter: '', beforeLeave: '', afterLeave: '' },
-      paths: [],
-      hotspots: [],
+      description: { markup: 'active-text', source: { kind: 'inline', text: '' } },
+      lifecycle: { canEnter: { kind: 'always' }, canLeave: { kind: 'always' }, beforeEnter: [], afterEnter: [], beforeLeave: [], afterLeave: [] },
+      exits: [],
+      placements: [],
     });
   });
 
@@ -44,23 +44,22 @@ describe('authoring rooms schema', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     const data = defaultRoomData('Foyer');
     data.background.asset = roomAssetRef('missing-bg');
-    data.paths = [
-      { id: 'exit', label: 'Exit', direction: 'north', target: roomRoomRef('missing-room'), enabled: true, condition: '', order: 0 },
-      { id: 'exit', label: 'Duplicate', direction: 'south', target: null, enabled: true, condition: '', order: 1 },
+    data.exits = [
+      { id: 'exit', label: 'Exit', direction: 'north', target: roomRoomRef('missing-room'), condition: { kind: 'always' } },
+      { id: 'exit', label: 'Duplicate', direction: 'south', target: roomRoomRef('missing-room'), condition: { kind: 'always' } },
     ];
-    data.hotspots = [
-      { id: 'lamp', label: 'Lamp', object: roomInteractableRef('missing-object'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, placeInRoom: true, description: '', script: '' },
-      { id: 'lamp', label: 'Duplicate', object: null, bounds: { x: 0, y: 0, width: 0, height: 0.1 }, placeInRoom: true, description: '', script: '' },
+    data.placements = [
+      { id: 'lamp', interactable: roomInteractableRef('missing-object'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, presentation: { label: null, layout: null } },
+      { id: 'lamp', interactable: roomInteractableRef('missing-object'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, presentation: { label: null, layout: null } },
     ];
     project.rooms.foyer.data = data;
 
     expect(validateRoomData(project, 'foyer', project.rooms.foyer)).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/rooms/foyer/data/background/asset/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/rooms/foyer/data/paths/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/rooms/foyer/data/paths/0/target/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/rooms/foyer/data/hotspots/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/rooms/foyer/data/hotspots/0/object/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/rooms/foyer/data/hotspots/1/bounds', severity: 'error' }),
+      expect.objectContaining({ path: '/rooms/foyer/data/exits/1/id', severity: 'error' }),
+      expect.objectContaining({ path: '/rooms/foyer/data/exits/0/target/$ref', severity: 'error' }),
+      expect.objectContaining({ path: '/rooms/foyer/data/placements/1/id', severity: 'error' }),
+      expect.objectContaining({ path: '/rooms/foyer/data/placements/0/interactable/$ref', severity: 'error' }),
     ]));
   });
 
@@ -86,7 +85,7 @@ describe('authoring rooms schema', () => {
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'authoring-rooms', path: '/rooms/foyer/data/background/asset/$ref', severity: 'warning' }),
-      expect.objectContaining({ category: 'authoring-rooms', path: '/rooms/foyer/data/description/source', severity: 'warning' }),
+      expect.objectContaining({ category: 'authoring-rooms', path: '/rooms/foyer/data/description', severity: 'warning' }),
     ]));
   });
 
@@ -97,11 +96,11 @@ describe('authoring rooms schema', () => {
     project.interactables.lamp = { id: 'lamp', label: 'Lamp', data: {} as never };
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
     const data = defaultRoomData('Foyer');
-    data.description.source = 'Welcome.';
+    data.description.source = { kind: 'inline', text: 'Welcome.' };
     data.background.asset = roomAssetRef('foyer');
     data.background.material = roomMaterialRef('glow');
-    data.paths = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('hall'), enabled: true, condition: '', order: 0 }];
-    data.hotspots = [{ id: 'lamp', label: 'Lamp', object: roomInteractableRef('lamp'), bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, placeInRoom: true, description: '', script: '' }];
+    data.exits = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('hall'), condition: { kind: 'always' } }];
+    data.placements = [{ id: 'lamp', interactable: roomInteractableRef('lamp'), bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, presentation: { label: null, layout: null } }];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
 
     expect(roomPreviewRevision(project, 'foyer')).toContain('hash-image');
@@ -109,8 +108,8 @@ describe('authoring rooms schema', () => {
       schema: 'noveltea.room-preview.v1',
       roomId: 'foyer',
       backgroundAsset: { id: 'foyer', kind: 'image', contentHash: 'hash-image' },
-      paths: [expect.objectContaining({ targetLabel: 'Hall' })],
-      hotspots: [expect.objectContaining({ objectMetadata: { id: 'lamp', label: 'Lamp' } })],
+      exits: [expect.objectContaining({ targetLabel: 'Hall' })],
+      placements: [expect.objectContaining({ interactableMetadata: { id: 'lamp', label: 'Lamp' } })],
     });
   });
 });

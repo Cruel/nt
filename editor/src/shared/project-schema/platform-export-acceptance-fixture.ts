@@ -54,19 +54,16 @@ export function createPlatformExportAcceptanceFixture() {
   project.layouts['fixture-hud'] = { id: 'fixture-hud', label: 'Fixture HUD', data: layout };
 
   const foyer = defaultRoomData('Foyer');
-  foyer.description.source = 'A fixture with [b]rich text[/b].';
+  foyer.description.source = { kind: 'inline', text: 'A fixture with [b]rich text[/b].' };
   foyer.background.asset = roomAssetRef('backdrop');
   foyer.background.material = roomMaterialRef('fixture-material');
-  foyer.scripts.afterEnter = 'Game.prop("visited", true)';
-  foyer.paths = [{
-    id: 'continue', label: 'Continue', direction: 'east', target: roomRoomRef('gallery'),
-    enabled: true, condition: '', order: 0,
-  }];
+  foyer.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'Game.prop("visited", true)' }];
+  foyer.exits = [{ id: 'continue', label: 'Continue', direction: 'east', target: roomRoomRef('gallery'), condition: { kind: 'always' } }];
   foyer.overlays = [{
-    id: 'hud', label: 'HUD', layout: { $ref: { collection: 'layouts', id: 'fixture-hud' } }, enabled: true,
+    id: 'hud', layout: { $ref: { collection: 'layouts', id: 'fixture-hud' } }, enabled: true,
   }];
   const gallery = defaultRoomData('Gallery');
-  gallery.description.source = 'Navigation reached the gallery.';
+  gallery.description.source = { kind: 'inline', text: 'Navigation reached the gallery.' };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', extends: null, properties: {}, data: foyer };
   project.rooms.gallery = { id: 'gallery', label: 'Gallery', extends: null, properties: {}, data: gallery };
   project.entrypoint = { kind: 'room', id: 'foyer' };

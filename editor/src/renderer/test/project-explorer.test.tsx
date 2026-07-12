@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject, type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -125,7 +126,7 @@ describe('ProjectExplorer', () => {
   it('renders create command diagnostics for duplicate IDs', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: {} as never };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     loadProject(project);
     render(<ProjectExplorer nodes={[]} />);
 
@@ -138,7 +139,7 @@ describe('ProjectExplorer', () => {
     expect(await screen.findByText('A record with this ID already exists.')).toBeInTheDocument();
   });
 
-  it('creates metadata-only interactables and opens the placeholder editor tab', async () => {
+  it('creates typed Interactables and opens their editor tab', async () => {
     const user = userEvent.setup();
     loadProject();
     render(<ProjectExplorer nodes={[]} />);
@@ -151,9 +152,9 @@ describe('ProjectExplorer', () => {
     await user.click(screen.getByRole('button', { name: /create interactable/i }));
 
     const document = useProjectStore.getState().document as AuthoringProject;
-    expect(document.interactables['silver-key']).toMatchObject({ id: 'silver-key', label: 'Silver Key', data: { kind: 'interactable' } });
-    expect(useWorkbenchStore.getState().tabsById['tab:placeholder:interactables:silver-key']).toMatchObject({
-      editorType: 'placeholder-entity',
+    expect(document.interactables['silver-key']).toMatchObject({ id: 'silver-key', label: 'Silver Key', data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } } });
+    expect(useWorkbenchStore.getState().tabsById['tab:interactable-detail:interactables:silver-key']).toMatchObject({
+      editorType: 'interactable-detail',
       resource: { collection: 'interactables', entityId: 'silver-key' },
     });
   });

@@ -72,7 +72,7 @@ describe('new entity wizard registry', () => {
         material: { $ref: { collection: 'materials', id: 'painted' } },
         fit: 'contain',
       },
-      description: { source: 'A quiet foyer.' },
+      description: { source: { kind: 'inline', text: 'A quiet foyer.' } },
     });
   });
 
@@ -94,10 +94,10 @@ describe('new entity wizard registry', () => {
     });
   });
 
-  it('keeps pending types metadata-only without inventing schemas', () => {
+  it('keeps only later-slice types metadata-only', () => {
     const project = createAuthoringProject();
-    expect(newEntityWizardDefinition('interactables').supportLevel).toBe('metadata-only');
-    expect(newEntityWizardDefinition('interactables').buildPayload({ project, draft: draft('interactables') })).toEqual({ data: { kind: 'interactable' } });
+    expect(newEntityWizardDefinition('interactables').supportLevel).toBe('typed');
+    expect(newEntityWizardDefinition('interactables').buildPayload({ project, draft: draft('interactables') })).toMatchObject({ data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } } });
     expect(newEntityWizardDefinition('scripts').buildPayload({ project, draft: draft('scripts') })).toEqual({ data: { kind: 'script-module', source: '' } });
   });
 });

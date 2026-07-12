@@ -32,11 +32,14 @@ editor/src/renderer/editors/characters/CharacterEditor.tsx
 editor/src/renderer/project/character-operations.ts
 ```
 
-The current schema still uses the broad authoring record wrapper and embeds preview state. There is no native `CharacterDefinition`/`ActorState` yet, and the provisional runtime exporter does not emit a complete character table. Phase 3 replaces the authoring shape; Phases 4, 5, and 7 add compiled and runtime forms.
+The V2 editor schema keeps immutable Character identity, dialogue presentation, poses, expressions,
+and defaults in the authoring record. Preview selection belongs to editor tab state, not authored
+runtime content. There is no native `CharacterDefinition`/`ActorState` yet, and the provisional
+runtime exporter does not emit a complete character table; Phases 4, 5, and 7 add compiled and runtime forms.
 
-### Current V1 authoring shape
+### Pre-3D authoring shape (historical migration reference)
 
-The existing editor schema remains important migration documentation. Character records currently
+The former editor schema is retained here only as migration documentation. Character records formerly
 live under `/characters/{characterId}` and use the shared authoring wrapper. Character-specific data
 is stored in `record.data`:
 

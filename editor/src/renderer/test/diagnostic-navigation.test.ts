@@ -10,7 +10,8 @@ function projectWithRecords(): AuthoringProject {
   } as never };
   project.layouts.room_1 = { id: 'room_1', label: 'Room Layout', data: {} as never };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: {
-    hotspots: [{ id: 'door' }],
+    placements: [{ id: 'door' }],
+    exits: [{ id: 'north-door' }],
     overlays: [{ id: 'hud' }],
   } as never };
   project.dialogues.intro = { id: 'intro', label: 'Intro', data: {
@@ -52,8 +53,10 @@ describe('diagnostic navigation', () => {
 
     expect(resolveProjectDiagnosticTarget(project, '/layouts/room_1/data/rcss/sourceText')?.target?.id).toBe('layout.source.rcss');
     expect(resolveProjectDiagnosticTarget(project, '/layouts/room_1/data/rml/sourceText')?.target?.id).toBe('layout.source.rml');
-    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/hotspots/0/object/$ref')?.target?.id).toBe('room.hotspot.door');
-    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/hotspots/9/object/$ref')?.target?.id).toBe('room.hotspots');
+    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/placements/0/interactable/$ref')?.target?.id).toBe('room.placement.door');
+    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/placements/9/interactable/$ref')?.target?.id).toBe('room.placements');
+    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/exits/0/target/$ref')?.target?.id).toBe('room.exit.north-door');
+    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/lifecycle/canEnter')?.target?.id).toBe('room.lifecycle');
     expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/overlays/0/layout/$ref')?.target?.id).toBe('room.overlays');
     expect(resolveProjectDiagnosticTarget(project, '/project/name')?.target?.id).toBe('projectSettings.metadata');
     expect(resolveProjectDiagnosticTarget(project, '/project/version')?.target?.id).toBe('projectSettings.metadata');

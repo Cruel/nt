@@ -80,8 +80,13 @@ function buildRooms(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
   return Object.entries(project.rooms).flatMap(([id, record]) => {
     const data = parseRoomData(record.data);
     if (!data) { diagnostics.push(diagnostic(`/rooms/${id}/data`, `Room '${id}' has invalid room data.`)); return []; }
-    return [{ id, name: data.displayName || record.label, description: data.description.source,
-      objectIds: data.hotspots.filter((item) => item.placeInRoom).flatMap((item) => item.object?.$ref.id ? [item.object.$ref.id] : []),
+    const description = data.description.source.kind === 'inline'
+      ? data.description.source.text
+      : data.description.source.kind === 'localized'
+        ? data.description.source.key
+        : data.description.source.source;
+    return [{ id, name: data.displayName || record.label, description,
+      objectIds: data.placements.map((placement) => placement.interactable.$ref.id),
       verbIds: [] }];
   });
 }

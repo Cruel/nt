@@ -3,6 +3,7 @@ import { authoringCollectionKeys, isAuthoringCollectionKey, type AuthoringCollec
 import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './authoring-assets';
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
+import { validateInteractableData } from './authoring-interactables';
 import { validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
 import { isPropertyValueCompatible, type PropertyOwnerKind } from './authoring-properties';
@@ -158,6 +159,7 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   for (const [id, record] of Object.entries(project.materials)) diagnostics.push(...validateMaterialData(project, id, record));
   for (const [id, record] of Object.entries(project.characters)) diagnostics.push(...validateCharacterData(project, id, record));
   for (const [id, record] of Object.entries(project.rooms)) diagnostics.push(...validateRoomData(project, id, record));
+  for (const [id, record] of Object.entries(project.interactables)) diagnostics.push(...validateInteractableData(project, id, record));
   for (const [id, record] of Object.entries(project.dialogues)) diagnostics.push(...validateDialogueData(project, id, record));
   for (const [id, record] of Object.entries(project.scenes)) diagnostics.push(...validateSceneData(project, id, record));
   for (const [id, record] of Object.entries(project.tests)) diagnostics.push(...validateTestData(project, id, record));

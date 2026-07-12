@@ -119,24 +119,29 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
   if (collection === 'rooms' && project.rooms[id]) {
     const tab = buildRoomDetailTabForRecord(id, recordLabel(project, 'rooms', id));
     const data = dataRecord(project, 'rooms', id);
-    if (scope === 'data' && field === 'hotspots') {
+    if (scope === 'data' && field === 'placements') {
       const index = indexedSegment(segments[4]);
-      const rowId = arrayItemId(data, 'hotspots', index);
-      if (rowId) return rowTarget(tab, `room.hotspot.${rowId}`, { kind: 'room-hotspot', index, rowId });
+      const rowId = arrayItemId(data, 'placements', index);
+      if (rowId) return rowTarget(tab, `room.placement.${rowId}`, { kind: 'room-placement', index, rowId });
+    }
+    if (scope === 'data' && field === 'exits') {
+      const index = indexedSegment(segments[4]);
+      const rowId = arrayItemId(data, 'exits', index);
+      if (rowId) return rowTarget(tab, `room.exit.${rowId}`, { kind: 'room-exit', index, rowId });
     }
     const anchor = scope === 'data'
       ? field === 'description'
         ? 'room.description'
         : field === 'background'
           ? 'room.background'
-          : field === 'paths'
-            ? 'room.paths'
-            : field === 'hotspots'
-              ? 'room.hotspots'
+          : field === 'exits'
+            ? 'room.exits'
+            : field === 'placements'
+              ? 'room.placements'
               : field === 'overlays'
                 ? 'room.overlays'
-                : field === 'scripts'
-                  ? 'room.scripts'
+                : field === 'lifecycle'
+                  ? 'room.lifecycle'
                   : 'room.summary'
       : 'room.summary';
     return target(tab, anchor);

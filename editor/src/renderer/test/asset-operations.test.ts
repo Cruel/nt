@@ -87,8 +87,9 @@ describe('asset operations', () => {
       data: {
         kind: 'room', displayName: 'Foyer',
         background: { asset: { $ref: { collection: 'assets', id: 'click' } }, material: null, fit: 'cover', color: null },
-        description: { source: '', format: 'plain' }, scripts: { beforeEnter: '', afterEnter: '', beforeLeave: '', afterLeave: '' },
-        paths: [], hotspots: [], overlays: [], preview: { background: 'checker', selectedHotspotId: null, showHotspots: true },
+        description: { source: { kind: 'inline', text: '' }, markup: 'plain' },
+        lifecycle: { canEnter: { kind: 'always' }, canLeave: { kind: 'always' }, beforeEnter: [], afterEnter: [], beforeLeave: [], afterLeave: [] },
+        exits: [], placements: [], overlays: [],
       },
     };
     const state = createInitialCommandBusState(toJsonValue(project));

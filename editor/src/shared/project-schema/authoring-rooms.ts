@@ -1,119 +1,58 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
-import { parseLayoutData } from './authoring-layouts';
-import { parseMaterialData } from './authoring-materials';
 import { entityIdSchema } from './authoring-common';
+import {
+  assetRefSchema,
+  conditionSchema,
+  effectSchema,
+  inlineTextContent,
+  layoutRefSchema,
+  materialRefSchema,
+  roomRefSchema,
+  textContentSchema,
+} from './authoring-flow';
+import { parseLayoutData } from './authoring-layouts';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
+const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+
 export const roomBackgroundFitValues = ['cover', 'contain', 'stretch', 'center'] as const;
-export type RoomBackgroundFit = (typeof roomBackgroundFitValues)[number];
+export const roomExitDirectionValues = ['northwest', 'north', 'northeast', 'west', 'east', 'southwest', 'south', 'southeast', 'custom'] as const;
 
-export const roomDescriptionFormatValues = ['active-text', 'plain'] as const;
-export type RoomDescriptionFormat = (typeof roomDescriptionFormatValues)[number];
-
-export const roomPathDirectionValues = [
-  'northwest',
-  'north',
-  'northeast',
-  'west',
-  'east',
-  'southwest',
-  'south',
-  'southeast',
-  'custom',
-] as const;
-export type RoomPathDirection = (typeof roomPathDirectionValues)[number];
-
-export const roomPreviewBackgroundValues = ['checker', 'dark', 'light'] as const;
-export type RoomPreviewBackground = (typeof roomPreviewBackgroundValues)[number];
-
-export const roomAssetRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
+export const roomAssetRefSchema = assetRefSchema;
+export const roomMaterialRefSchema = materialRefSchema;
+export const roomLayoutRefSchema = layoutRefSchema;
+export const roomInteractableRefSchema = strict({ $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }) });
+export const roomRoomRefSchema = roomRefSchema;
+export const roomNormalizedRectSchema = strict({
+  x: z.number().finite().min(0).max(1), y: z.number().finite().min(0).max(1),
+  width: z.number().finite().positive().max(1), height: z.number().finite().positive().max(1),
 });
 
-export const roomMaterialRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('materials'), id: z.string().min(1) }),
+export const roomBackgroundDataSchema = strict({
+  asset: roomAssetRefSchema.nullable(), material: roomMaterialRefSchema.nullable(),
+  fit: z.enum(roomBackgroundFitValues), color: z.string().nullable(),
 });
-
-export const roomLayoutRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('layouts'), id: z.string().min(1) }),
-});
-
-export const roomInteractableRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('interactables'), id: z.string().min(1) }),
-});
-
-export const roomRoomRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('rooms'), id: z.string().min(1) }),
-});
-
-export const roomNormalizedRectSchema = z.object({
-  x: z.number().finite().min(0).max(1),
-  y: z.number().finite().min(0).max(1),
-  width: z.number().finite().min(0).max(1),
-  height: z.number().finite().min(0).max(1),
-});
-
-export const roomBackgroundDataSchema = z.object({
-  asset: roomAssetRefSchema.nullable().default(null),
-  material: roomMaterialRefSchema.nullable().default(null),
-  fit: z.enum(roomBackgroundFitValues).default('cover'),
-  color: z.string().nullable().default(null),
-});
-
-export const roomDescriptionDataSchema = z.object({
-  format: z.enum(roomDescriptionFormatValues).default('active-text'),
-  source: z.string().default(''),
-});
-
-export const roomScriptsDataSchema = z.object({
-  beforeEnter: z.string().default(''),
-  afterEnter: z.string().default(''),
-  beforeLeave: z.string().default(''),
-  afterLeave: z.string().default(''),
-});
-
-export const roomPathDataSchema = z.object({
+export const roomOverlayDataSchema = strict({ id: entityIdSchema, layout: roomLayoutRefSchema, enabled: z.boolean() });
+export const roomPlacementDataSchema = strict({
   id: entityIdSchema,
-  label: z.string().min(1, 'Path label is required.'),
-  direction: z.enum(roomPathDirectionValues).default('custom'),
-  target: roomRoomRefSchema.nullable().default(null),
-  enabled: z.boolean().default(true),
-  condition: z.string().default(''),
-  order: z.number().finite().default(0),
+  interactable: roomInteractableRefSchema,
+  bounds: roomNormalizedRectSchema,
+  presentation: strict({ label: textContentSchema.nullable(), layout: roomLayoutRefSchema.nullable() }),
 });
-
-export const roomHotspotDataSchema = z.object({
-  id: entityIdSchema,
-  label: z.string().min(1, 'Hotspot label is required.'),
-  object: roomInteractableRefSchema.nullable().default(null),
-  bounds: roomNormalizedRectSchema.default({ x: 0.1, y: 0.1, width: 0.2, height: 0.2 }),
-  placeInRoom: z.boolean().default(true),
-  description: z.string().default(''),
-  script: z.string().default(''),
+export const roomExitDataSchema = strict({
+  id: entityIdSchema, label: z.string().min(1), direction: z.enum(roomExitDirectionValues),
+  target: roomRoomRefSchema, condition: conditionSchema,
 });
-
-export const roomOverlayDataSchema = z.object({
-  id: entityIdSchema,
-  label: z.string().min(1, 'Overlay label is required.'),
-  layout: roomLayoutRefSchema.nullable().default(null),
-  enabled: z.boolean().default(true),
+export const roomLifecycleDataSchema = strict({
+  canEnter: conditionSchema, canLeave: conditionSchema,
+  beforeEnter: z.array(effectSchema), afterEnter: z.array(effectSchema),
+  beforeLeave: z.array(effectSchema), afterLeave: z.array(effectSchema),
 });
-
-export const roomDataSchema = z.object({
-  kind: z.literal('room').default('room'),
-  displayName: z.string().default(''),
-  background: roomBackgroundDataSchema.default({ asset: null, material: null, fit: 'cover', color: null }),
-  description: roomDescriptionDataSchema.default({ format: 'active-text', source: '' }),
-  scripts: roomScriptsDataSchema.default({ beforeEnter: '', afterEnter: '', beforeLeave: '', afterLeave: '' }),
-  paths: z.array(roomPathDataSchema).default([]),
-  hotspots: z.array(roomHotspotDataSchema).default([]),
-  overlays: z.array(roomOverlayDataSchema).default([]),
-  preview: z.object({
-    showHotspots: z.boolean().default(true),
-    selectedHotspotId: entityIdSchema.nullable().default(null),
-    background: z.enum(roomPreviewBackgroundValues).default('dark'),
-  }).default({ showHotspots: true, selectedHotspotId: null, background: 'dark' }),
+export const roomDataSchema = strict({
+  kind: z.literal('room'), displayName: z.string(), background: roomBackgroundDataSchema,
+  description: textContentSchema, overlays: z.array(roomOverlayDataSchema),
+  lifecycle: roomLifecycleDataSchema, exits: z.array(roomExitDataSchema), placements: z.array(roomPlacementDataSchema),
 });
 
 export type RoomAssetRef = z.infer<typeof roomAssetRefSchema>;
@@ -122,170 +61,52 @@ export type RoomLayoutRef = z.infer<typeof roomLayoutRefSchema>;
 export type RoomInteractableRef = z.infer<typeof roomInteractableRefSchema>;
 export type RoomRoomRef = z.infer<typeof roomRoomRefSchema>;
 export type RoomNormalizedRect = z.infer<typeof roomNormalizedRectSchema>;
-export type RoomBackgroundData = z.infer<typeof roomBackgroundDataSchema>;
-export type RoomDescriptionData = z.infer<typeof roomDescriptionDataSchema>;
-export type RoomScriptsData = z.infer<typeof roomScriptsDataSchema>;
-export type RoomPathData = z.infer<typeof roomPathDataSchema>;
-export type RoomHotspotData = z.infer<typeof roomHotspotDataSchema>;
 export type RoomOverlayData = z.infer<typeof roomOverlayDataSchema>;
+export type RoomPlacementData = z.infer<typeof roomPlacementDataSchema>;
+export type RoomExitData = z.infer<typeof roomExitDataSchema>;
 export type RoomData = z.infer<typeof roomDataSchema>;
 
-export interface RoomSchemaDiagnostic {
-  severity: 'error' | 'warning' | 'info';
-  path: string;
-  message: string;
-  category?: string;
-}
+export interface RoomSchemaDiagnostic { severity: 'error' | 'warning' | 'info'; path: string; message: string; category?: string }
+const diagnostic = (path: string, message: string, severity: RoomSchemaDiagnostic['severity'] = 'error'): RoomSchemaDiagnostic => ({ path, message, severity, category: 'authoring-rooms' });
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): RoomSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-rooms' };
-}
-
-export function parseRoomData(value: unknown): RoomData | null {
-  const parsed = roomDataSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
-
+export function parseRoomData(value: unknown): RoomData | null { const parsed = roomDataSchema.safeParse(value); return parsed.success ? parsed.data : null; }
 export function defaultRoomData(label = 'Room'): RoomData {
-  return roomDataSchema.parse({
-    kind: 'room',
-    displayName: label,
+  return {
+    kind: 'room', displayName: label,
     background: { asset: null, material: null, fit: 'cover', color: null },
-    description: { format: 'active-text', source: '' },
-    scripts: { beforeEnter: '', afterEnter: '', beforeLeave: '', afterLeave: '' },
-    paths: [],
-    hotspots: [],
-    overlays: [],
-    preview: { showHotspots: true, selectedHotspotId: null, background: 'dark' },
-  });
+    description: inlineTextContent(), overlays: [], placements: [], exits: [],
+    lifecycle: { canEnter: { kind: 'always' }, canLeave: { kind: 'always' }, beforeEnter: [], afterEnter: [], beforeLeave: [], afterLeave: [] },
+  };
 }
+export function isRoomRecord(record: AuthoringRecordBase | undefined | null): record is AuthoringRecordBase & { data: RoomData } { return !!record && parseRoomData(record.data) !== null; }
+export const roomAssetRef = (id: string): RoomAssetRef => ({ $ref: { collection: 'assets', id } });
+export const roomMaterialRef = (id: string): RoomMaterialRef => ({ $ref: { collection: 'materials', id } });
+export const roomLayoutRef = (id: string): RoomLayoutRef => ({ $ref: { collection: 'layouts', id } });
+export const roomInteractableRef = (id: string): RoomInteractableRef => ({ $ref: { collection: 'interactables', id } });
+export const roomRoomRef = (id: string): RoomRoomRef => ({ $ref: { collection: 'rooms', id } });
 
-export function isRoomRecord(record: AuthoringRecordBase | undefined | null): record is AuthoringRecordBase & { data: RoomData } {
-  return !!record && parseRoomData(record.data) !== null;
-}
-
-function refId(ref: RoomAssetRef | RoomMaterialRef | RoomLayoutRef | RoomInteractableRef | RoomRoomRef | null | undefined): string | null {
-  return ref?.$ref.id ?? null;
-}
-
-function validateUniqueIds(
-  items: Array<{ id: string }>,
-  path: string,
-  label: string,
-  diagnostics: RoomSchemaDiagnostic[],
-) {
+function uniqueIds(items: readonly { id: string }[], path: string, label: string, diagnostics: RoomSchemaDiagnostic[]) {
   const seen = new Set<string>();
-  items.forEach((item, index) => {
-    if (seen.has(item.id)) diagnostics.push(diagnostic(`${path}/${index}/id`, `Duplicate ${label} ID '${item.id}'.`));
-    seen.add(item.id);
-  });
+  items.forEach((item, index) => { if (seen.has(item.id)) diagnostics.push(diagnostic(`${path}/${index}/id`, `Duplicate ${label} ID '${item.id}'.`)); seen.add(item.id); });
 }
-
-function validateBackgroundAsset(project: AuthoringProject, ref: RoomAssetRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  const asset = project.assets[id];
-  if (!asset) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing background asset '${id}'.`));
-    return;
-  }
-  const data = parseAssetData(asset.data);
-  if (!data) diagnostics.push(diagnostic(`${path}/$ref`, `Asset '${id}' has invalid asset data.`, 'warning'));
-  else if (data.kind !== 'image') diagnostics.push(diagnostic(`${path}/$ref`, `Background asset '${id}' is ${data.kind}, not image.`, 'warning'));
+function validateCondition(project: AuthoringProject, condition: z.infer<typeof conditionSchema>, path: string, diagnostics: RoomSchemaDiagnostic[]) {
+  if (condition.kind === 'variable-comparison' && !project.variables[condition.variable.$ref.id]) diagnostics.push(diagnostic(`${path}/variable/$ref`, `Missing variable '${condition.variable.$ref.id}'.`));
 }
-
-function validateMaterialRef(project: AuthoringProject, ref: RoomMaterialRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  const material = project.materials[id];
-  if (!material) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing material '${id}'.`));
-    return;
-  }
-  if (!parseMaterialData(material.data)) diagnostics.push(diagnostic(`${path}/$ref`, `Material '${id}' has invalid material data.`, 'warning'));
+function validateEffects(project: AuthoringProject, effects: readonly z.infer<typeof effectSchema>[], path: string, diagnostics: RoomSchemaDiagnostic[]) {
+  effects.forEach((effect, index) => { if (effect.kind === 'set-variable' && !project.variables[effect.variable.$ref.id]) diagnostics.push(diagnostic(`${path}/${index}/variable/$ref`, `Missing variable '${effect.variable.$ref.id}'.`)); });
 }
-
-function validateLayoutRef(project: AuthoringProject, ref: RoomLayoutRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  const layout = project.layouts[id];
-  if (!layout) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing layout '${id}'.`));
-    return;
-  }
-  if (!parseLayoutData(layout.data)) diagnostics.push(diagnostic(`${path}/$ref`, `Layout '${id}' has invalid layout data.`, 'warning'));
-}
-
-function validateObjectRef(project: AuthoringProject, ref: RoomInteractableRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  if (!project.interactables[id]) diagnostics.push(diagnostic(`${path}/$ref`, `Missing object '${id}'.`));
-}
-
-function validatePathTarget(project: AuthoringProject, roomId: string, ref: RoomRoomRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  if (!project.rooms[id]) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing target room '${id}'.`));
-    return;
-  }
-  if (id === roomId) diagnostics.push(diagnostic(`${path}/$ref`, 'Path targets the current room.', 'warning'));
-}
-
-export function validateRoomData(
-  project: AuthoringProject,
-  roomId: string,
-  record: AuthoringRecordBase,
-): RoomSchemaDiagnostic[] {
-  const diagnostics: RoomSchemaDiagnostic[] = [];
-  const parsed = roomDataSchema.safeParse(record.data);
-  const base = `/rooms/${roomId}/data`;
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) diagnostics.push(diagnostic(`${base}/${issue.path.map(String).join('/')}`, issue.message));
-    return diagnostics;
-  }
-
-  const data = parsed.data;
-
-  if (!data.description.source.trim()) diagnostics.push(diagnostic(`${base}/description/source`, 'Room description is empty.', 'warning'));
-  validateBackgroundAsset(project, data.background.asset, `${base}/background/asset`, diagnostics);
-  validateMaterialRef(project, data.background.material, `${base}/background/material`, diagnostics);
-  validateUniqueIds(data.paths, `${base}/paths`, 'path', diagnostics);
-  validateUniqueIds(data.hotspots, `${base}/hotspots`, 'hotspot', diagnostics);
-  validateUniqueIds(data.overlays, `${base}/overlays`, 'overlay', diagnostics);
-
-  data.paths.forEach((path, index) => validatePathTarget(project, roomId, path.target, `${base}/paths/${index}/target`, diagnostics));
-  data.hotspots.forEach((hotspot, index) => {
-    validateObjectRef(project, hotspot.object, `${base}/hotspots/${index}/object`, diagnostics);
-    if (hotspot.bounds.width <= 0 || hotspot.bounds.height <= 0) {
-      diagnostics.push(diagnostic(`${base}/hotspots/${index}/bounds`, 'Hotspot bounds must have non-zero width and height.'));
-    }
-  });
-  data.overlays.forEach((overlay, index) => validateLayoutRef(project, overlay.layout, `${base}/overlays/${index}/layout`, diagnostics));
-
-  if (data.preview.selectedHotspotId && !data.hotspots.some((hotspot) => hotspot.id === data.preview.selectedHotspotId)) {
-    diagnostics.push(diagnostic(`${base}/preview/selectedHotspotId`, `Missing selected hotspot '${data.preview.selectedHotspotId}'.`, 'warning'));
-  }
-
+export function validateRoomData(project: AuthoringProject, roomId: string, record: AuthoringRecordBase): RoomSchemaDiagnostic[] {
+  const base = `/rooms/${roomId}/data`; const parsed = roomDataSchema.safeParse(record.data);
+  if (!parsed.success) return parsed.error.issues.map((issue) => diagnostic(`${base}/${issue.path.join('/')}`, issue.message));
+  const data = parsed.data; const diagnostics: RoomSchemaDiagnostic[] = [];
+  if (!data.description.source || (data.description.source.kind === 'inline' && !data.description.source.text.trim())) diagnostics.push(diagnostic(`${base}/description`, 'Room description is empty.', 'warning'));
+  if (data.background.asset) { const asset = project.assets[data.background.asset.$ref.id]; if (!asset) diagnostics.push(diagnostic(`${base}/background/asset/$ref`, `Missing background asset '${data.background.asset.$ref.id}'.`)); else if (parseAssetData(asset.data)?.kind !== 'image') diagnostics.push(diagnostic(`${base}/background/asset/$ref`, 'Room background asset must be an image.', 'warning')); }
+  if (data.background.material && !project.materials[data.background.material.$ref.id]) diagnostics.push(diagnostic(`${base}/background/material/$ref`, `Missing material '${data.background.material.$ref.id}'.`));
+  uniqueIds(data.overlays, `${base}/overlays`, 'overlay', diagnostics); uniqueIds(data.exits, `${base}/exits`, 'exit', diagnostics); uniqueIds(data.placements, `${base}/placements`, 'placement', diagnostics);
+  data.overlays.forEach((overlay, index) => { const layout = project.layouts[overlay.layout.$ref.id]; if (!layout) diagnostics.push(diagnostic(`${base}/overlays/${index}/layout/$ref`, `Missing layout '${overlay.layout.$ref.id}'.`)); else if (!parseLayoutData(layout.data)) diagnostics.push(diagnostic(`${base}/overlays/${index}/layout/$ref`, `Layout '${overlay.layout.$ref.id}' is invalid.`, 'warning')); });
+  data.exits.forEach((exit, index) => { if (!project.rooms[exit.target.$ref.id]) diagnostics.push(diagnostic(`${base}/exits/${index}/target/$ref`, `Missing target room '${exit.target.$ref.id}'.`)); else if (exit.target.$ref.id === roomId) diagnostics.push(diagnostic(`${base}/exits/${index}/target/$ref`, 'Exit targets the current room.', 'warning')); validateCondition(project, exit.condition, `${base}/exits/${index}/condition`, diagnostics); });
+  data.placements.forEach((placement, index) => { if (!project.interactables[placement.interactable.$ref.id]) diagnostics.push(diagnostic(`${base}/placements/${index}/interactable/$ref`, `Missing interactable '${placement.interactable.$ref.id}'.`)); if (placement.presentation.layout && !project.layouts[placement.presentation.layout.$ref.id]) diagnostics.push(diagnostic(`${base}/placements/${index}/presentation/layout/$ref`, `Missing layout '${placement.presentation.layout.$ref.id}'.`)); });
+  validateCondition(project, data.lifecycle.canEnter, `${base}/lifecycle/canEnter`, diagnostics); validateCondition(project, data.lifecycle.canLeave, `${base}/lifecycle/canLeave`, diagnostics);
+  (['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).forEach((hook) => validateEffects(project, data.lifecycle[hook], `${base}/lifecycle/${hook}`, diagnostics));
   return diagnostics;
-}
-
-export function roomAssetRef(assetId: string): RoomAssetRef {
-  return { $ref: { collection: 'assets', id: assetId } };
-}
-
-export function roomMaterialRef(materialId: string): RoomMaterialRef {
-  return { $ref: { collection: 'materials', id: materialId } };
-}
-
-export function roomLayoutRef(layoutId: string): RoomLayoutRef {
-  return { $ref: { collection: 'layouts', id: layoutId } };
-}
-
-export function roomInteractableRef(objectId: string): RoomInteractableRef {
-  return { $ref: { collection: 'interactables', id: objectId } };
-}
-
-export function roomRoomRef(roomId: string): RoomRoomRef {
-  return { $ref: { collection: 'rooms', id: roomId } };
 }

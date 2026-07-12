@@ -23,4 +23,9 @@ Interactions refer to typed Interactable IDs or explicit `AnyInteractable` wildc
 
 ## Current implementation scaffold
 
-The editor authoring schema now uses the V2 `interactables` collection, and Room/test authoring references target Interactable records. The collection payload is still temporary Phase 3 scaffolding until the complete Interactable contract is implemented. Native code and the transitional runtime-export wire still use legacy Object-shaped models only to keep the current runtime buildable; Phases 4--8 replace those boundaries with compiled definitions and typed state. No old Object compatibility is required.
+The editor authoring schema uses the V2 `interactables` collection with immutable presentation plus
+an explicit initial location/enabled/visible declaration. The editor provides creation and detail
+editing, and validates a room-placement initial location against the matching Room placement. Native
+code and the transitional runtime-export wire still use legacy Object-shaped models only to keep the
+current runtime buildable; Phases 4--8 replace those boundaries with compiled definitions and typed
+state. No old Object compatibility is required.

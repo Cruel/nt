@@ -16,11 +16,11 @@ function roomProject() {
         data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/images/foyer.png', extension: '.png' }),
   };
   const foyer = defaultRoomData('Foyer');
-  foyer.description.source = 'A quiet foyer.';
+  foyer.description.source = { kind: 'inline', text: 'A quiet foyer.' };
   foyer.background.asset = roomAssetRef('foyer');
-  foyer.paths = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('kitchen'), enabled: true, condition: '', order: 0 }];
+  foyer.exits = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('kitchen'), condition: { kind: 'always' } }];
   const kitchen = defaultRoomData('Kitchen');
-  kitchen.description.source = 'A bright kitchen.';
+  kitchen.description.source = { kind: 'inline', text: 'A bright kitchen.' };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
   project.rooms.kitchen = { id: 'kitchen', label: 'Kitchen', data: kitchen };
   project.entrypoint = { kind: 'room', id: 'foyer' };

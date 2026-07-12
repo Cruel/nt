@@ -10,6 +10,7 @@ import { defaultDialogueData } from '../../shared/project-schema/authoring-dialo
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
@@ -154,7 +155,7 @@ export function defaultDataForCollection(
   if (collection === 'scenes') return defaultSceneData(label) as unknown as Record<string, unknown>;
   if (collection === 'tests') return defaultTestData(label) as unknown as Record<string, unknown>;
   if (collection === 'assets') return { kind: 'binary', source: { type: 'project-file', path: `assets/binary/${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.bin` }, aliases: [] };
-  if (collection === 'interactables') return { kind: 'interactable' };
+  if (collection === 'interactables') return defaultInteractableData(label);
   if (collection === 'verbs') return { kind: 'verb' };
   if (collection === 'interactions') return { kind: 'interaction' };
   if (collection === 'maps') return { kind: 'map' };

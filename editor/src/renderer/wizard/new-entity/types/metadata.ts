@@ -15,12 +15,6 @@ export const metadataWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     buildPayload: () => ({ data: { kind: 'binary', source: { type: 'project-file', path: 'assets/binary/file.bin' }, aliases: [] } }),
   },
   {
-    collection: 'interactables', category: 'world', supportLevel: 'metadata-only',
-    summary: 'Interactable world and inventory definitions.',
-    currentScope: 'Creates the strict Phase 3A shell; behavior fields arrive in a later Phase 3 slice.',
-    ...visual('interactables'), buildPayload: () => ({ data: { kind: 'interactable' } }),
-  },
-  {
     collection: 'verbs', category: 'logic', supportLevel: 'metadata-only',
     summary: 'Player verbs for interaction authoring.',
     currentScope: 'Creates the strict Phase 3A shell; behavior fields arrive in a later Phase 3 slice.',

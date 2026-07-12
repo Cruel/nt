@@ -12,7 +12,7 @@ import { useCommandStore } from '@/commands/command-store';
 function exportableProject() {
   const project = createAuthoringProject({ name: 'Dialog Export' });
   const room = defaultRoomData('Foyer');
-  room.description.source = 'Ready.';
+  room.description.source = { kind: 'inline', text: 'Ready.' };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
   project.entrypoint = { kind: 'room', id: 'foyer' };
   project.assets.icon = {

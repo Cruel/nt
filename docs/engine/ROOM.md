@@ -48,11 +48,14 @@ engine/include/noveltea/core/project_model.hpp
 engine/include/noveltea/core/runtime_controller.hpp
 ```
 
-Current paths/hotspots/objects, raw Lua hooks, broad references, embedded preview state, and `ProjectModel::RoomModel` are migration scaffolding. Phase 3 replaces them with exits, placements, typed conditions/effects, and Interactable references; later phases compile and execute them. Legacy Room/Object/Map formats are not preserved.
+The V2 editor schema has replaced paths/hotspots/objects, raw Lua hooks, and embedded preview state
+with strict exits, `RoomPlacement` records, and typed conditions/effects. `ProjectModel::RoomModel`
+and the one-way runtime export adapter remain temporary loading scaffolding; later phases compile and
+execute the V2 model. Legacy Room/Object/Map authoring formats are not preserved.
 
-### Current V1 authoring shape
+### Pre-3D authoring shape (historical migration reference)
 
-Rooms currently live under `/rooms/{roomId}` using the shared authoring wrapper. Their typed payload is:
+Rooms formerly used this payload under `/rooms/{roomId}`:
 
 ```ts
 interface RoomData {
@@ -85,10 +88,10 @@ interface RoomData {
 }
 ```
 
-Current paths have stable local IDs, labels, compass/custom directions, target Room refs, enabled
-flags, raw Lua conditions, and explicit order. Current hotspots have stable local IDs, optional Object
-refs, normalized bounds, a `placeInRoom` export flag, description, and raw Lua script. Overlays point
-to Layouts and have enabled flags.
+Historically, paths had stable local IDs, labels, compass/custom directions, target Room refs, enabled
+flags, raw Lua conditions, and explicit order. Hotspots had stable local IDs, optional Object refs,
+normalized bounds, a `placeInRoom` export flag, description, and raw Lua script. Overlays pointed to
+Layouts and had enabled flags.
 
 These details are not the V2 storage contract, but they identify behavior that the migration must
 either retain or deliberately replace:
@@ -99,20 +102,21 @@ either retain or deliberately replace:
 - overlays remain typed Room presentation resources;
 - raw lifecycle and path scripts become typed Conditions/Effects or explicit Lua forms.
 
-`defaultRoomData()` currently creates an empty active-text description, null background
-asset/material/color, `cover` fit, empty hooks, no paths/hotspots/overlays, and preview with hotspots
-shown on a dark background.
+`defaultRoomData()` now creates an empty active-text description, null background asset/material/color,
+`cover` fit, Always enter/leave conditions, empty lifecycle effects, and no exits, placements, or
+overlays.
 
-### Current V1 validation and commands
+### Current V2 validation and commands
 
 Current validation checks:
 
 - Room payload and same-collection inheritance shape;
 - background asset/material validity and image suitability;
 - non-empty-description warning;
-- unique path, hotspot, and overlay IDs;
-- valid path target Rooms and self-target warnings;
-- valid hotspot Object refs and nonzero bounds;
+- unique exit, placement, and overlay IDs;
+- valid exit target Rooms and self-target warnings;
+- valid Interactable placement refs and normalized nonzero bounds;
+- valid lifecycle variable references and effects;
 - valid overlay Layout refs;
 - valid selected preview hotspot.
 
@@ -123,23 +127,20 @@ payload and generic parent operations will change.
 
 ### Current editor and preview behavior
 
-The current Room editor exposes background asset/material/fit/color, description format/source,
-four lifecycle scripts, path list, hotspot list and bounds, overlays, preview controls, validation,
-an embedded engine preview, and editor-side hotspot rectangles. Hotspot selection is preview state;
-deleting a hotspot repairs `preview.selectedHotspotId`.
+The Room editor exposes background presentation, typed description source and markup, typed lifecycle
+conditions/effects, exits, Interactable placements and bounds, placement presentation, overlays,
+validation, and an embedded engine preview. Preview selection and layout remain editor-only state.
 
 `buildRoomPreviewDocumentData()` emits `noveltea.room-preview.v1` with resolved background
-asset/material data, description, scripts, path target labels, hotspot Object metadata, overlays,
-preview settings, and diagnostics. Its dependency revision includes referenced resources, target
-Room labels, and linked Objects/Layouts. The rectangle overlay is useful placement tooling even before
-final runtime hit testing exists.
+asset/material data, typed description and lifecycle data, exit target labels, placement Interactable
+metadata, overlays, and diagnostics. Its dependency revision includes referenced resources, target
+Room labels, and linked Interactables/Layouts.
 
 ### Current runtime/export bridge
 
 The current native `ProjectModel::RoomModel` stores metadata, raw description, four hook scripts,
-Room Objects, paths, and name. The authoring runtime exporter lowers the currently supported Room
-subset into that representation, including description, hooks, placed hotspot Object IDs, ordered
-path targets, and display name.
+Room Objects and name. The authoring runtime exporter lowers the currently supported Room subset into
+that representation, including description, placement-derived legacy Object IDs, and display name.
 
 Background rendering metadata, overlay Layouts, hotspot bounds, and the final typed Interactable
 location model are not fully represented by that bridge. The bridge should remain until Phase 7's
@@ -158,7 +159,7 @@ engine/include/noveltea/core/runtime_controller.hpp
 engine/include/noveltea/core/game_session.hpp
 ```
 
-Retained gaps include final Room rendering, runtime hotspot hit testing, typed exit conditions,
+Retained gaps include final Room rendering, runtime placement hit testing, native typed exit execution,
 Interactable/Interaction integration, overlay/background export, Map integration, and native live
 property inheritance. The old generic inheritance implementation is not retained, but the behavior
 demonstrated by inherited Room properties such as `map` is explicitly required by the target contract.

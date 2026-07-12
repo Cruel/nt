@@ -1,543 +1,80 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { SourceEditor } from '@/components/source/SourceEditor';
+import { useMemo, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
-import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import {
-  defaultRoomData,
-  parseRoomData,
-  roomAssetRef,
-  roomBackgroundFitValues,
-  roomLayoutRef,
-  roomMaterialRef,
-  roomInteractableRef,
-  roomPathDirectionValues,
-  roomPreviewBackgroundValues,
-  roomRoomRef,
-  validateRoomData,
-  type RoomData,
-  type RoomHotspotData,
-  type RoomOverlayData,
-  type RoomPathData,
+  defaultRoomData, parseRoomData, roomAssetRef, roomBackgroundFitValues, roomExitDirectionValues,
+  roomInteractableRef, roomLayoutRef, roomMaterialRef, roomRoomRef, validateRoomData,
+  type RoomData, type RoomExitData, type RoomOverlayData, type RoomPlacementData,
 } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { inlineTextContent, type Condition, type Effect, type TextContent } from '../../../shared/project-schema/authoring-flow';
 import { buildRoomPreviewDocumentData, roomPreviewRevision } from '../../../shared/project-schema/room-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
-import {
-  captureScrollViewState,
-  captureSourceEditorViewStates,
-  isScrollViewState,
-  parseSourceEditorViewStates,
-  restoreScrollViewState,
-  restoreSourceEditorViewStates,
-  useSourceEditorViewStateRefs,
-  useWorkbenchEditorTabState,
-  type ScrollViewState,
-  type SourceEditorViewStates,
-  type WorkbenchTabStatePayload,
-} from '@/workbench/workbench-tab-state';
+import { captureScrollViewState, restoreScrollViewState, useWorkbenchEditorTabState, type ScrollViewState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
 
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
+type RoomEditorTabState = WorkbenchTabStatePayload & { schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA; payload?: { scroll?: ScrollViewState } };
+const refValue = (ref: { $ref: { id: string } } | null | undefined) => ref?.$ref.id ?? '__none__';
+const nextId = (ids: Iterable<string>, base: string) => { const used = new Set(ids); for (let n = 1; n < 1000; n += 1) { const value = n === 1 ? base : `${base}-${n}`; if (!used.has(value)) return value; } return `${base}-${Date.now()}`; };
+const numberValue = (value: string, fallback: number) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
-interface RoomEditorTabStatePayload {
-  scroll?: ScrollViewState;
-  sourceViewStates?: SourceEditorViewStates;
+function ConditionEditor({ condition, variables, onChange }: { condition: Condition; variables: string[]; onChange: (next: Condition) => void }) {
+  if (condition.kind === 'lua-predicate') return <div className="flex gap-2"><Select value="lua-predicate" onValueChange={() => {}}><SelectItem value="lua-predicate">Lua predicate</SelectItem><SelectItem value="always">Always</SelectItem></Select><Input value={condition.source} onChange={(event) => onChange({ kind: 'lua-predicate', source: event.currentTarget.value })} /></div>;
+  if (condition.kind === 'variable-comparison') return <div className="grid gap-2 md:grid-cols-4"><Select value="variable-comparison" onValueChange={(value) => value === 'always' && onChange({ kind: 'always' })}><SelectItem value="variable-comparison">Variable comparison</SelectItem><SelectItem value="always">Always</SelectItem></Select><Select value={condition.variable.$ref.id} onValueChange={(value) => onChange({ ...condition, variable: { $ref: { collection: 'variables', id: String(value) } } })}>{variables.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}</Select><Select value={condition.operator} onValueChange={(value) => onChange({ ...condition, operator: value as typeof condition.operator })}>{['equal', 'not-equal', 'less', 'less-equal', 'greater', 'greater-equal', 'truthy', 'falsy'].map((operator) => <SelectItem key={operator} value={operator}>{operator}</SelectItem>)}</Select><Input value={condition.value === undefined ? '' : String(condition.value)} onChange={(event) => onChange({ ...condition, value: event.currentTarget.value })} /></div>;
+  return <Select value="always" onValueChange={(value) => { if (value === 'lua-predicate') onChange({ kind: 'lua-predicate', source: 'return true' }); else if (value === 'variable-comparison' && variables[0]) onChange({ kind: 'variable-comparison', variable: { $ref: { collection: 'variables', id: variables[0] } }, operator: 'truthy' }); }}><SelectItem value="always">Always</SelectItem><SelectItem value="lua-predicate">Lua predicate</SelectItem><SelectItem value="variable-comparison">Variable comparison</SelectItem></Select>;
 }
 
-type RoomEditorTabState = WorkbenchTabStatePayload & {
-  schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
-  payload?: RoomEditorTabStatePayload;
-};
-
-function parseRoomEditorTabState(value: WorkbenchTabStatePayload): RoomEditorTabStatePayload | null {
-  if (value.schema !== ROOM_EDITOR_TAB_STATE_SCHEMA || typeof value.payload !== 'object' || value.payload === null || Array.isArray(value.payload)) return null;
-  const payload = value.payload as Record<string, unknown>;
-  return {
-    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
-    sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
-  };
+function EffectsEditor({ effects, variables, onChange }: { effects: Effect[]; variables: string[]; onChange: (next: Effect[]) => void }) {
+  return <div className="space-y-2"><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => onChange([...effects, { kind: 'run-lua-effect', source: '-- Lua' }])}>Add Lua effect</Button><Button size="sm" variant="outline" disabled={!variables[0]} onClick={() => variables[0] && onChange([...effects, { kind: 'set-variable', variable: { $ref: { collection: 'variables', id: variables[0] } }, value: '' }])}>Set variable</Button></div>{effects.map((effect, index) => <div key={`${effect.kind}-${index}`} className="flex gap-2">{effect.kind === 'set-variable' ? <Select value={effect.variable.$ref.id} onValueChange={(value) => onChange(effects.map((item, itemIndex) => itemIndex !== index || item.kind !== 'set-variable' ? item : { ...item, variable: { $ref: { collection: 'variables', id: String(value) } } }))}>{variables.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}</Select> : null}<Input value={effect.kind === 'run-lua-effect' ? effect.source : String(effect.value)} onChange={(event) => onChange(effects.map((item, itemIndex) => itemIndex !== index ? item : item.kind === 'run-lua-effect' ? { kind: 'run-lua-effect', source: event.currentTarget.value } : { ...item, value: event.currentTarget.value }))} /><Button size="sm" variant="outline" onClick={() => onChange(effects.filter((_, itemIndex) => itemIndex !== index))}>Delete</Button></div>)}</div>;
 }
 
-function commitRoom(roomId: string, next: RoomData, label: string) {
-  return useCommandStore.getState().executeCommand({
-    type: 'room.replaceData',
-    label,
-    payload: { roomId, data: next },
-  });
-}
-
-function nextUniqueId(existing: Iterable<string>, base: string) {
-  const used = new Set(existing);
-  if (!used.has(base)) return base;
-  for (let index = 2; index < 1000; index += 1) {
-    const candidate = `${base}-${index}`;
-    if (!used.has(candidate)) return candidate;
-  }
-  return `${base}-${Date.now()}`;
-}
-
-function toNumber(value: string, fallback: number) {
-  const next = Number.parseFloat(value);
-  return Number.isFinite(next) ? next : fallback;
-}
-
-function clamp01(value: number) {
-  return Math.min(1, Math.max(0, value));
-}
-
-function refValue(ref: { $ref: { id: string } } | null | undefined) {
-  return ref?.$ref.id ?? '__none__';
-}
-
-function sortPaths(paths: RoomPathData[]) {
-  return [...paths].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+function TextContentEditor({ value, onChange }: { value: TextContent; onChange: (next: TextContent) => void }) {
+  const sourceValue = value.source.kind === 'inline' ? value.source.text : value.source.kind === 'localized' ? value.source.key : value.source.source;
+  return <div className="grid gap-2 md:grid-cols-[160px_140px_1fr]">
+    <Select value={value.source.kind} onValueChange={(kind) => {
+      const source = kind === 'localized'
+        ? { kind: 'localized' as const, key: 'text-key' }
+        : kind === 'lua-expression'
+          ? { kind: 'lua-expression' as const, source: 'return ""' }
+          : { kind: 'inline' as const, text: '' };
+      onChange({ ...value, source });
+    }}><SelectItem value="inline">Inline</SelectItem><SelectItem value="localized">Localized key</SelectItem><SelectItem value="lua-expression">Lua expression</SelectItem></Select>
+    <Select value={value.markup} onValueChange={(markup) => onChange({ ...value, markup: markup as TextContent['markup'] })}><SelectItem value="active-text">ActiveText</SelectItem><SelectItem value="plain">Plain</SelectItem></Select>
+    <Input value={sourceValue} onChange={(event) => {
+      const nextValue = event.currentTarget.value;
+      const source = value.source.kind === 'inline' ? { kind: 'inline' as const, text: nextValue }
+        : value.source.kind === 'localized' ? { kind: 'localized' as const, key: nextValue }
+          : { kind: 'lua-expression' as const, source: nextValue };
+      onChange({ ...value, source });
+    }} />
+  </div>;
 }
 
 export function RoomEditor({ tab }: WorkbenchEditorProps) {
-  const { t } = useTranslation('workspace');
-  const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const sourceEditors = useSourceEditorViewStateRefs<'description' | 'beforeEnter' | 'afterEnter' | 'beforeLeave' | 'afterLeave'>();
-  const projectDocument = useProjectStore((state) => state.document);
-  const roomId = tab.resource?.entityId;
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const record = roomId && project ? project.rooms[roomId] : null;
-  const parsedData = parseRoomData(record?.data);
-  const data = parsedData ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
+  const scrollRef = useRef<HTMLDivElement | null>(null); const document = useProjectStore((state) => state.document);
+  const roomId = tab.resource?.entityId; const project = isAuthoringProject(document) ? document : null; const record = roomId && project ? project.rooms[roomId] : null;
+  const data = parseRoomData(record?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
   const diagnostics = useMemo(() => project && record && roomId ? validateRoomData(project, roomId, record) : [], [project, record, roomId]);
-  const diagnosticItems = useMemo(() => diagnostics.map((item) => ({
-    ...item,
-    target: project ? resolveProjectDiagnosticTarget(project, item.path) : null,
-  })), [diagnostics, project]);
-  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
-  const backgroundImageItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['assets'], assetKinds: ['image'], includeActions: false }), [selectorItems]);
-  const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
-  const layouts = project ? Object.entries(project.layouts).map(([id, layout]) => ({ id, label: layout.label })) : [];
-  const targetRooms = project ? Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label })) : [];
-  const objects = project ? Object.entries(project.interactables).map(([id, object]) => ({ id, label: object.label })) : [];
-
-  useWorkbenchEditorTabState<RoomEditorTabState>(tab.id, useMemo(() => ({
-    captureTabState: () => ({
-      schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-      schemaVersion: 1,
-      payload: {
-        scroll: captureScrollViewState(scrollRef.current),
-        sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
-      },
-    }),
-    restoreTabState: (state: RoomEditorTabState) => {
-      const parsed = parseRoomEditorTabState(state);
-      if (!parsed) return;
-      window.requestAnimationFrame(() => {
-        restoreScrollViewState(scrollRef.current, parsed.scroll);
-        restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
-      });
-    },
-  }), [sourceEditors.refs]));
-
-  useEffect(() => registerWorkbenchTargetHandler(tab.id, 'room.hotspot', (target) => {
-    if (!roomId || !target.id.startsWith('room.hotspot.')) return false;
-    const hotspotId = target.id.slice('room.hotspot.'.length);
-    if (!data.hotspots.some((hotspot) => hotspot.id === hotspotId)) return false;
-    if (data.preview.selectedHotspotId !== hotspotId) {
-      commitRoom(roomId, { ...data, preview: { ...data.preview, selectedHotspotId: hotspotId } }, 'Select room hotspot');
-    }
-    return false;
-  }), [data, roomId, tab.id]);
-
-  if (!roomId || !record || !project) return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
-
-  const activeRoomId = roomId;
-  const activeRecord = record;
-  const activeProject = project;
-  const revision = roomPreviewRevision(activeProject, activeRoomId);
-  const previewDocument = {
-    kind: 'room-preview' as const,
-    recordId: activeRoomId,
-    revision,
-    data: buildRoomPreviewDocumentData(activeProject, activeRoomId),
-  };
-  const selectedHotspot = data.preview.selectedHotspotId
-    ? data.hotspots.find((hotspot) => hotspot.id === data.preview.selectedHotspotId) ?? null
-    : data.hotspots[0] ?? null;
-  const selectedBackgroundAssetId = data.background.asset?.$ref.id ?? null;
-  const selectedBackgroundAsset = selectedBackgroundAssetId ? activeProject.assets[selectedBackgroundAssetId] : null;
-
-  function commit(next: RoomData, label = 'Update room') {
-    commitRoom(activeRoomId, next, label);
-  }
-
-  function patchBackground(patch: Partial<RoomData['background']>) {
-    commit({ ...data, background: { ...data.background, ...patch } }, 'Update room background');
-  }
-
-  function patchScripts(patch: Partial<RoomData['scripts']>) {
-    commit({ ...data, scripts: { ...data.scripts, ...patch } }, 'Update room script');
-  }
-
-  function patchPreview(patch: Partial<RoomData['preview']>) {
-    commit({ ...data, preview: { ...data.preview, ...patch } }, 'Update room preview');
-  }
-
-  function replacePath(pathId: string, patch: Partial<RoomPathData>) {
-    commit({ ...data, paths: data.paths.map((path) => path.id === pathId ? { ...path, ...patch } : path) }, 'Update room path');
-  }
-
-  function addPath() {
-    const id = nextUniqueId(data.paths.map((path) => path.id), 'path');
-    commit({
-      ...data,
-      paths: [...data.paths, { id, label: 'Path', direction: 'custom', target: null, enabled: true, condition: '', order: data.paths.length }],
-    }, 'Add room path');
-  }
-
-  function deletePath(pathId: string) {
-    commit({ ...data, paths: data.paths.filter((path) => path.id !== pathId) }, 'Delete room path');
-  }
-
-  function replaceHotspot(hotspotId: string, patch: Partial<RoomHotspotData>) {
-    commit({ ...data, hotspots: data.hotspots.map((hotspot) => hotspot.id === hotspotId ? { ...hotspot, ...patch } : hotspot) }, 'Update room hotspot');
-  }
-
-  function addHotspot() {
-    const id = nextUniqueId(data.hotspots.map((hotspot) => hotspot.id), 'hotspot');
-    const hotspot: RoomHotspotData = {
-      id,
-      label: 'Hotspot',
-      object: null,
-      bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-      placeInRoom: true,
-      description: '',
-      script: '',
-    };
-    commit({ ...data, hotspots: [...data.hotspots, hotspot], preview: { ...data.preview, selectedHotspotId: id } }, 'Add room hotspot');
-  }
-
-  function deleteHotspot(hotspotId: string) {
-    const remaining = data.hotspots.filter((hotspot) => hotspot.id !== hotspotId);
-    commit({
-      ...data,
-      hotspots: remaining,
-      preview: { ...data.preview, selectedHotspotId: data.preview.selectedHotspotId === hotspotId ? (remaining[0]?.id ?? null) : data.preview.selectedHotspotId },
-    }, 'Delete room hotspot');
-  }
-
-  function addOverlay() {
-    const id = nextUniqueId(data.overlays.map((overlay) => overlay.id), 'overlay');
-    commit({
-      ...data,
-      overlays: [...data.overlays, { id, label: 'Overlay', layout: null, enabled: true }],
-    }, 'Add room overlay');
-  }
-
-  function replaceOverlay(overlayId: string, patch: Partial<RoomOverlayData>) {
-    commit({
-      ...data,
-      overlays: data.overlays.map((overlay) => overlay.id === overlayId ? { ...overlay, ...patch } : overlay),
-    }, 'Update room overlay');
-  }
-
-  function deleteOverlay(overlayId: string) {
-    commit({ ...data, overlays: data.overlays.filter((overlay) => overlay.id !== overlayId) }, 'Delete room overlay');
-  }
-
-  return (
-    <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4" data-room-editor-scroll>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2>
-            <Badge variant="outline">{activeRoomId}</Badge>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">Room background, description text, enter/leave hooks, navigation paths, hotspots, and live preview.</p>
-        </div>
-      </div>
-
-      {!parsedData ? <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">Room data was invalid; showing editable defaults until you apply a change.</div> : null}
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
-        <div className="space-y-4">
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="room.summary">
-            <div className="space-y-1">
-              <Label>Display name</Label>
-              <Input value={data.displayName} onChange={(event) => commit({ ...data, displayName: event.currentTarget.value }, 'Update room display name')} />
-            </div>
-            <div className="space-y-1">
-              <Label>Description format</Label>
-              <Select value={data.description.format} onValueChange={(value) => commit({ ...data, description: { ...data.description, format: value as RoomData['description']['format'] } }, 'Update room description format')}>
-                <SelectItem value="active-text">ActiveText</SelectItem>
-                <SelectItem value="plain">Plain</SelectItem>
-              </Select>
-            </div>
-          </section>
-
-          <section className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-4" data-workbench-anchor="room.background">
-            <div className="space-y-1">
-              <Label>Background image</Label>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal" onClick={() => setBackgroundSelectorOpen(true)}>
-                  <span className="truncate">{selectedBackgroundAsset ? `${selectedBackgroundAsset.label || selectedBackgroundAssetId} (${selectedBackgroundAssetId})` : t('selectors.none.backgroundImage')}</span>
-                </Button>
-                {selectedBackgroundAssetId ? <Button type="button" size="sm" variant="outline" onClick={() => patchBackground({ asset: null })}>{t('selectors.clear')}</Button> : null}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label>Background material</Label>
-              <Select value={refValue(data.background.material)} onValueChange={(value) => patchBackground({ material: value === '__none__' ? null : roomMaterialRef(String(value)) })}>
-                <SelectItem value="__none__">No material</SelectItem>
-                {materials.map((material) => <SelectItem key={material.id} value={material.id}>{material.label} ({material.id})</SelectItem>)}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Fit</Label>
-              <Select value={data.background.fit} onValueChange={(value) => patchBackground({ fit: value as RoomData['background']['fit'] })}>
-                {roomBackgroundFitValues.map((fit) => <SelectItem key={fit} value={fit}>{fit}</SelectItem>)}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Fallback color</Label>
-              <Input value={data.background.color ?? ''} onChange={(event) => patchBackground({ color: event.currentTarget.value.trim() || null })} placeholder="#111827 or empty" />
-            </div>
-          </section>
-
-          <section className="space-y-2 rounded border p-3" data-workbench-anchor="room.description">
-            <Label>Description source</Label>
-            <SourceEditor ref={sourceEditors.refFor('description')} className="h-56" language="text" value={data.description.source} onChange={(source) => commit({ ...data, description: { ...data.description, source } }, 'Update room description')} />
-          </section>
-
-          <section className="grid gap-3 rounded border p-3 lg:grid-cols-2" data-workbench-anchor="room.scripts">
-            <div className="space-y-2">
-              <Label>Before enter Lua</Label>
-              <SourceEditor ref={sourceEditors.refFor('beforeEnter')} className="h-36" language="lua" value={data.scripts.beforeEnter} onChange={(beforeEnter) => patchScripts({ beforeEnter })} />
-            </div>
-            <div className="space-y-2">
-              <Label>After enter Lua</Label>
-              <SourceEditor ref={sourceEditors.refFor('afterEnter')} className="h-36" language="lua" value={data.scripts.afterEnter} onChange={(afterEnter) => patchScripts({ afterEnter })} />
-            </div>
-            <div className="space-y-2">
-              <Label>Before leave Lua</Label>
-              <SourceEditor ref={sourceEditors.refFor('beforeLeave')} className="h-36" language="lua" value={data.scripts.beforeLeave} onChange={(beforeLeave) => patchScripts({ beforeLeave })} />
-            </div>
-            <div className="space-y-2">
-              <Label>After leave Lua</Label>
-              <SourceEditor ref={sourceEditors.refFor('afterLeave')} className="h-36" language="lua" value={data.scripts.afterLeave} onChange={(afterLeave) => patchScripts({ afterLeave })} />
-            </div>
-          </section>
-
-          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.paths">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium">Navigation paths</h3>
-              <Button size="sm" variant="outline" onClick={addPath}>Add Path</Button>
-            </div>
-            {sortPaths(data.paths).map((path) => (
-              <div key={path.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-6">
-                <div className="space-y-1">
-                  <Label>ID</Label>
-                  <Input value={path.id} onChange={(event) => replacePath(path.id, { id: event.currentTarget.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Label</Label>
-                  <Input value={path.label} onChange={(event) => replacePath(path.id, { label: event.currentTarget.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Direction</Label>
-                  <Select value={path.direction} onValueChange={(value) => replacePath(path.id, { direction: value as RoomPathData['direction'] })}>
-                    {roomPathDirectionValues.map((direction) => <SelectItem key={direction} value={direction}>{direction}</SelectItem>)}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Target room</Label>
-                  <Select value={refValue(path.target)} onValueChange={(value) => replacePath(path.id, { target: value === '__none__' ? null : roomRoomRef(String(value)) })}>
-                    <SelectItem value="__none__">No target</SelectItem>
-                    {targetRooms.map((room) => <SelectItem key={room.id} value={room.id}>{room.label} ({room.id})</SelectItem>)}
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2 self-end">
-                  <Switch checked={path.enabled} onCheckedChange={(checked) => replacePath(path.id, { enabled: Boolean(checked) })} />
-                  <Label>Enabled</Label>
-                </div>
-                <div className="flex items-end">
-                  <Button size="sm" variant="outline" onClick={() => deletePath(path.id)}>Delete</Button>
-                </div>
-                <div className="space-y-1 md:col-span-2 xl:col-span-6">
-                  <Label>Condition Lua</Label>
-                  <Input value={path.condition} onChange={(event) => replacePath(path.id, { condition: event.currentTarget.value })} placeholder="return true" />
-                </div>
-              </div>
-            ))}
-            {data.paths.length === 0 ? <div className="rounded border p-2 text-xs text-muted-foreground">No paths yet.</div> : null}
-          </section>
-
-          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.hotspots">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium">Hotspots</h3>
-              <Button size="sm" variant="outline" onClick={addHotspot}>Add Hotspot</Button>
-            </div>
-            {data.hotspots.map((hotspot, index) => (
-              <div key={hotspot.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-6" data-workbench-anchor={`room.hotspot.${hotspot.id || index}`}>
-                <div className="space-y-1">
-                  <Label>ID</Label>
-                  <Input value={hotspot.id} onFocus={() => patchPreview({ selectedHotspotId: hotspot.id })} onChange={(event) => replaceHotspot(hotspot.id, { id: event.currentTarget.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Label</Label>
-                  <Input value={hotspot.label} onFocus={() => patchPreview({ selectedHotspotId: hotspot.id })} onChange={(event) => replaceHotspot(hotspot.id, { label: event.currentTarget.value })} />
-                </div>
-                <div className="space-y-1 xl:col-span-2">
-                  <Label>Object</Label>
-                  <Select value={refValue(hotspot.object)} onValueChange={(value) => replaceHotspot(hotspot.id, { object: value === '__none__' ? null : roomInteractableRef(String(value)) })}>
-                    <SelectItem value="__none__">Free-standing hotspot</SelectItem>
-                    {objects.map((object) => <SelectItem key={object.id} value={object.id}>{object.label} ({object.id})</SelectItem>)}
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2 self-end">
-                  <Switch checked={hotspot.placeInRoom} onCheckedChange={(checked) => replaceHotspot(hotspot.id, { placeInRoom: Boolean(checked) })} />
-                  <Label>Placed</Label>
-                </div>
-                <div className="flex items-end">
-                  <Button size="sm" variant="outline" onClick={() => deleteHotspot(hotspot.id)}>Delete</Button>
-                </div>
-                {(['x', 'y', 'width', 'height'] as const).map((field) => (
-                  <div key={field} className="space-y-1">
-                    <Label>{field}</Label>
-                    <Input
-                      value={String(hotspot.bounds[field])}
-                      onFocus={() => patchPreview({ selectedHotspotId: hotspot.id })}
-                      onChange={(event) => replaceHotspot(hotspot.id, { bounds: { ...hotspot.bounds, [field]: clamp01(toNumber(event.currentTarget.value, hotspot.bounds[field])) } })}
-                    />
-                  </div>
-                ))}
-                <div className="space-y-1 md:col-span-2">
-                  <Label>Description</Label>
-                  <Input value={hotspot.description} onChange={(event) => replaceHotspot(hotspot.id, { description: event.currentTarget.value })} />
-                </div>
-                <div className="space-y-1 md:col-span-2 xl:col-span-6">
-                  <Label>Hotspot script Lua</Label>
-                  <Input value={hotspot.script} onChange={(event) => replaceHotspot(hotspot.id, { script: event.currentTarget.value })} placeholder="return true" />
-                </div>
-              </div>
-            ))}
-            {data.hotspots.length === 0 ? <div className="rounded border p-2 text-xs text-muted-foreground">No hotspots yet.</div> : null}
-          </section>
-
-          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.overlays">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-medium">Layout overlays</h3>
-                <p className="mt-1 text-xs text-muted-foreground">Optional room-level RmlUi overlays shown with this room.</p>
-              </div>
-              <Button size="sm" variant="outline" onClick={addOverlay}>Add Overlay</Button>
-            </div>
-            {data.overlays.map((overlay, index) => (
-              <div key={overlay.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-[140px_1fr_1fr_auto_auto]" data-workbench-anchor={`room.overlay.${overlay.id || index}`}>
-                <div className="space-y-1">
-                  <Label>ID</Label>
-                  <Input value={overlay.id} onChange={(event) => replaceOverlay(overlay.id, { id: event.currentTarget.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Label</Label>
-                  <Input value={overlay.label} onChange={(event) => replaceOverlay(overlay.id, { label: event.currentTarget.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Layout</Label>
-                  <Select value={refValue(overlay.layout)} onValueChange={(value) => replaceOverlay(overlay.id, { layout: value === '__none__' ? null : roomLayoutRef(String(value)) })}>
-                    <SelectItem value="__none__">No layout</SelectItem>
-                    {layouts.map((layout) => <SelectItem key={layout.id} value={layout.id}>{layout.label} ({layout.id})</SelectItem>)}
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2 self-end">
-                  <Switch checked={overlay.enabled} onCheckedChange={(checked) => replaceOverlay(overlay.id, { enabled: Boolean(checked) })} />
-                  <Label>Enabled</Label>
-                </div>
-                <div className="flex items-end">
-                  <Button size="sm" variant="outline" onClick={() => deleteOverlay(overlay.id)}>Delete</Button>
-                </div>
-              </div>
-            ))}
-            {data.overlays.length === 0 ? <div className="rounded border p-2 text-xs text-muted-foreground">No layout overlays yet.</div> : null}
-          </section>
-        </div>
-
-        <aside className="space-y-4 rounded border bg-muted/20 p-4" data-workbench-anchor="room.preview">
-          <div className="h-72 overflow-hidden rounded border bg-background">
-            <DerivedPreviewPane
-              ownerTabId={tab.id}
-              previewMode="room"
-              previewDocument={previewDocument}
-            />
-          </div>
-          <div className="relative h-48 overflow-hidden rounded border bg-background">
-            <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">Placement canvas</div>
-            {data.preview.showHotspots ? data.hotspots.map((hotspot) => (
-              <button
-                key={hotspot.id}
-                type="button"
-                className={`absolute rounded border bg-primary/10 px-1 text-[10px] ${selectedHotspot?.id === hotspot.id ? 'border-primary' : 'border-primary/40'}`}
-                style={{
-                  left: `${hotspot.bounds.x * 100}%`,
-                  top: `${hotspot.bounds.y * 100}%`,
-                  width: `${hotspot.bounds.width * 100}%`,
-                  height: `${hotspot.bounds.height * 100}%`,
-                }}
-                onClick={() => patchPreview({ selectedHotspotId: hotspot.id })}
-              >
-                {hotspot.label}
-              </button>
-            )) : null}
-          </div>
-          <div className="grid gap-3 text-xs text-muted-foreground">
-            <div><span className="font-medium text-foreground">Background:</span> {data.background.asset?.$ref.id ?? 'None'}</div>
-            <div><span className="font-medium text-foreground">Material:</span> {data.background.material?.$ref.id ?? 'None'}</div>
-            <div><span className="font-medium text-foreground">Selected hotspot:</span> {selectedHotspot?.label ?? 'None'}</div>
-          </div>
-          <div className="space-y-2">
-            <Label>Preview background</Label>
-            <Select value={data.preview.background} onValueChange={(value) => patchPreview({ background: value as RoomData['preview']['background'] })}>
-              {roomPreviewBackgroundValues.map((background) => <SelectItem key={background} value={background}>{background}</SelectItem>)}
-            </Select>
-            <label className="flex items-center gap-2 text-xs">
-              <Switch checked={data.preview.showHotspots} onCheckedChange={(checked) => patchPreview({ showHotspots: Boolean(checked) })} />
-              Show hotspots
-            </label>
-          </div>
-          {diagnostics.length > 0 ? (
-            <div className="rounded border p-2 text-xs text-muted-foreground" data-workbench-anchor="room.diagnostics">
-              <div className="font-medium text-foreground">Diagnostics</div>
-              <div className="mt-1">
-                <DiagnosticList items={diagnosticItems.slice(0, 6)} />
-              </div>
-            </div>
-          ) : null}
-          <div className="overflow-hidden font-mono text-[10px] text-muted-foreground">revision {revision.slice(0, 80)}</div>
-        </aside>
-      </div>
-      <SearchSelectorDialog
-        open={backgroundSelectorOpen}
-        title={t('selectors.backgroundImage.title')}
-        placeholder={t('selectors.backgroundImage.placeholder')}
-        emptyMessage={t('selectors.backgroundImage.empty')}
-        items={backgroundImageItems}
-        selectedId={selectedBackgroundAssetId ? `record:assets:${selectedBackgroundAssetId}` : null}
-        limit={12}
-        leadingMediaSize={{ width: '6rem', height: '4.5rem' }}
-        onSelect={(item) => {
-          if (!item.entityId) return;
-          patchBackground({ asset: roomAssetRef(item.entityId) });
-        }}
-        onOpenChange={setBackgroundSelectorOpen}
-      />
-    </div>
-  );
+  useWorkbenchEditorTabState<RoomEditorTabState>(tab.id, useMemo(() => ({ captureTabState: () => ({ schema: ROOM_EDITOR_TAB_STATE_SCHEMA, schemaVersion: 1, payload: { scroll: captureScrollViewState(scrollRef.current) } }), restoreTabState: (state) => { window.requestAnimationFrame(() => restoreScrollViewState(scrollRef.current, state.payload?.scroll)); } }), []));
+  if (!project || !record || !roomId) return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
+  const commit = (next: RoomData, label: string) => useCommandStore.getState().executeCommand({ type: 'room.replaceData', label, payload: { roomId, data: next } });
+  const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label })); const interactables = Object.entries(project.interactables).map(([id, value]) => ({ id, label: value.label })); const assets = Object.entries(project.assets).map(([id, value]) => ({ id, label: value.label })); const materials = Object.entries(project.materials).map(([id, value]) => ({ id, label: value.label })); const layouts = Object.entries(project.layouts).map(([id, value]) => ({ id, label: value.label })); const variables = Object.keys(project.variables);
+  const replaceExit = (id: string, patch: Partial<RoomExitData>) => commit({ ...data, exits: data.exits.map((exit) => exit.id === id ? { ...exit, ...patch } : exit) }, 'Update room exit');
+  const replacePlacement = (id: string, patch: Partial<RoomPlacementData>) => commit({ ...data, placements: data.placements.map((placement) => placement.id === id ? { ...placement, ...patch } : placement) }, 'Update room placement');
+  const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) => commit({ ...data, overlays: data.overlays.map((overlay) => overlay.id === id ? { ...overlay, ...patch } : overlay) }, 'Update room overlay');
+  const preview = { kind: 'room-preview' as const, recordId: roomId, revision: roomPreviewRevision(project, roomId), data: buildRoomPreviewDocumentData(project, roomId) };
+  return <div ref={scrollRef} data-room-editor-scroll className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">{record.label}</h2><Badge variant="outline">{roomId}</Badge></div><p className="mt-1 text-xs text-muted-foreground">Room presentation, lifecycle, authoritative exits, and Interactable placements.</p><div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]"><div className="space-y-4">
+    <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="room.summary"><div><Label>Display name</Label><Input value={data.displayName} onChange={(event) => commit({ ...data, displayName: event.currentTarget.value }, 'Update room name')} /></div><div data-workbench-anchor="room.description" className="md:col-span-2"><Label>Description</Label><TextContentEditor value={data.description} onChange={(description) => commit({ ...data, description }, 'Update room description')} /></div><div data-workbench-anchor="room.background"><Label>Background asset</Label><Select value={refValue(data.background.asset)} onValueChange={(value) => commit({ ...data, background: { ...data.background, asset: value === '__none__' ? null : roomAssetRef(String(value)) } }, 'Update room background')}><SelectItem value="__none__">No image</SelectItem>{assets.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.label}</SelectItem>)}</Select></div><div><Label>Material</Label><Select value={refValue(data.background.material)} onValueChange={(value) => commit({ ...data, background: { ...data.background, material: value === '__none__' ? null : roomMaterialRef(String(value)) } }, 'Update room material')}><SelectItem value="__none__">No material</SelectItem>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{material.label}</SelectItem>)}</Select></div><div><Label>Fit</Label><Select value={data.background.fit} onValueChange={(value) => commit({ ...data, background: { ...data.background, fit: value as RoomData['background']['fit'] } }, 'Update room background fit')}>{roomBackgroundFitValues.map((fit) => <SelectItem key={fit} value={fit}>{fit}</SelectItem>)}</Select></div><div><Label>Fallback color</Label><Input value={data.background.color ?? ''} onChange={(event) => commit({ ...data, background: { ...data.background, color: event.currentTarget.value || null } }, 'Update room background color')} /></div></section>
+    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.lifecycle"><h3 className="text-sm font-medium">Lifecycle</h3>{(['canEnter', 'canLeave'] as const).map((hook) => <div key={hook}><Label>{hook}</Label><ConditionEditor condition={data.lifecycle[hook]} variables={variables} onChange={(next) => commit({ ...data, lifecycle: { ...data.lifecycle, [hook]: next } }, `Update room ${hook}`)} /></div>)}{(['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).map((hook) => <div key={hook}><Label>{hook}</Label><EffectsEditor effects={data.lifecycle[hook]} variables={variables} onChange={(next) => commit({ ...data, lifecycle: { ...data.lifecycle, [hook]: next } }, `Update room ${hook}`)} /></div>)}</section>
+    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.exits"><div className="flex justify-between"><h3 className="text-sm font-medium">Exits</h3><Button size="sm" variant="outline" onClick={() => commit({ ...data, exits: [...data.exits, { id: nextId(data.exits.map((exit) => exit.id), 'exit'), label: 'Exit', direction: 'custom', target: roomRoomRef(roomId), condition: { kind: 'always' } }] }, 'Add room exit')}>Add exit</Button></div>{data.exits.map((exit) => <div key={exit.id} data-workbench-anchor={`room.exit.${exit.id}`} className="grid gap-2 rounded border p-2 md:grid-cols-4"><Input value={exit.id} onChange={(event) => replaceExit(exit.id, { id: event.currentTarget.value })} /><Input value={exit.label} onChange={(event) => replaceExit(exit.id, { label: event.currentTarget.value })} /><Select value={exit.direction} onValueChange={(value) => replaceExit(exit.id, { direction: value as RoomExitData['direction'] })}>{roomExitDirectionValues.map((direction) => <SelectItem key={direction} value={direction}>{direction}</SelectItem>)}</Select><Select value={exit.target.$ref.id} onValueChange={(value) => replaceExit(exit.id, { target: roomRoomRef(String(value)) })}>{rooms.map((room) => <SelectItem key={room.id} value={room.id}>{room.label}</SelectItem>)}</Select><div className="md:col-span-3"><ConditionEditor condition={exit.condition} variables={variables} onChange={(condition) => replaceExit(exit.id, { condition })} /></div><Button size="sm" variant="outline" onClick={() => commit({ ...data, exits: data.exits.filter((item) => item.id !== exit.id) }, 'Delete room exit')}>Delete</Button></div>)}</section>
+    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.placements"><div className="flex justify-between"><h3 className="text-sm font-medium">Placements</h3><Button size="sm" variant="outline" disabled={interactables.length === 0} onClick={() => { const interactable = interactables[0]; if (!interactable) return; commit({ ...data, placements: [...data.placements, { id: nextId(data.placements.map((placement) => placement.id), 'placement'), interactable: roomInteractableRef(interactable.id), bounds: { x: .1, y: .1, width: .2, height: .2 }, presentation: { label: null, layout: null } }] }, 'Add room placement'); }}>Add placement</Button></div>{data.placements.map((placement) => <div key={placement.id} data-workbench-anchor={`room.placement.${placement.id}`} className="grid gap-2 rounded border p-2 md:grid-cols-3"><Input value={placement.id} onChange={(event) => replacePlacement(placement.id, { id: event.currentTarget.value })} /><Select value={placement.interactable.$ref.id} onValueChange={(value) => replacePlacement(placement.id, { interactable: roomInteractableRef(String(value)) })}>{interactables.map((interactable) => <SelectItem key={interactable.id} value={interactable.id}>{interactable.label}</SelectItem>)}</Select><Button size="sm" variant="outline" onClick={() => commit({ ...data, placements: data.placements.filter((item) => item.id !== placement.id) }, 'Delete room placement')}>Delete</Button>{(['x', 'y', 'width', 'height'] as const).map((field) => <div key={field}><Label>{field}</Label><Input value={String(placement.bounds[field])} onChange={(event) => replacePlacement(placement.id, { bounds: { ...placement.bounds, [field]: numberValue(event.currentTarget.value, placement.bounds[field]) } })} /></div>)}<div className="md:col-span-2"><Label>Presentation label</Label>{placement.presentation.label ? <TextContentEditor value={placement.presentation.label} onChange={(label) => replacePlacement(placement.id, { presentation: { ...placement.presentation, label } })} /> : <Button size="sm" variant="outline" onClick={() => replacePlacement(placement.id, { presentation: { ...placement.presentation, label: inlineTextContent('') } })}>Add label</Button>}</div>{placement.presentation.label ? <Button size="sm" variant="outline" onClick={() => replacePlacement(placement.id, { presentation: { ...placement.presentation, label: null } })}>Clear label</Button> : null}<div><Label>Presentation layout</Label><Select value={refValue(placement.presentation.layout)} onValueChange={(value) => replacePlacement(placement.id, { presentation: { ...placement.presentation, layout: value === '__none__' ? null : roomLayoutRef(String(value)) } })}><SelectItem value="__none__">No layout</SelectItem>{layouts.map((layout) => <SelectItem key={layout.id} value={layout.id}>{layout.label}</SelectItem>)}</Select></div></div>)}</section>
+    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.overlays"><div className="flex justify-between"><h3 className="text-sm font-medium">Overlays</h3><Button size="sm" variant="outline" disabled={layouts.length === 0} onClick={() => { const layout = layouts[0]; if (!layout) return; commit({ ...data, overlays: [...data.overlays, { id: nextId(data.overlays.map((overlay) => overlay.id), 'overlay'), layout: roomLayoutRef(layout.id), enabled: true }] }, 'Add room overlay'); }}>Add overlay</Button></div>{data.overlays.map((overlay) => <div key={overlay.id} className="grid gap-2 rounded border p-2 md:grid-cols-4"><Input value={overlay.id} onChange={(event) => replaceOverlay(overlay.id, { id: event.currentTarget.value })} /><Select value={overlay.layout.$ref.id} onValueChange={(value) => replaceOverlay(overlay.id, { layout: roomLayoutRef(String(value)) })}>{layouts.map((layout) => <SelectItem key={layout.id} value={layout.id}>{layout.label}</SelectItem>)}</Select><label className="flex items-center gap-2"><input type="checkbox" checked={overlay.enabled} onChange={(event) => replaceOverlay(overlay.id, { enabled: event.currentTarget.checked })} />Enabled</label><Button size="sm" variant="outline" onClick={() => commit({ ...data, overlays: data.overlays.filter((item) => item.id !== overlay.id) }, 'Delete room overlay')}>Delete</Button></div>)}</section>
+  </div><aside className="space-y-3 rounded border bg-muted/20 p-3"><div className="h-72 overflow-hidden rounded border"><DerivedPreviewPane ownerTabId={tab.id} previewMode="room" previewDocument={preview} /></div>{diagnostics.length > 0 ? <DiagnosticList items={diagnostics} /> : null}</aside></div></div>;
 }

@@ -2,6 +2,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { defaultCharacterData } from '../../../../shared/project-schema/authoring-characters';
+import { defaultInteractableData } from '../../../../shared/project-schema/authoring-interactables';
 import { defaultDialogueData } from '../../../../shared/project-schema/authoring-dialogues';
 import { defaultLayoutData, layoutKindValues, type LayoutKind } from '../../../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData, materialPreviewBackgroundValues, materialPreviewGeometryValues } from '../../../../shared/project-schema/authoring-materials';
@@ -29,6 +30,13 @@ function recordOptions<T extends string>(records: Record<string, { label?: strin
 }
 
 export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
+  {
+    collection: 'interactables', category: 'world', supportLevel: 'typed',
+    summary: 'Unique world or inventory definitions with explicit initial state.',
+    currentScope: 'Creates an Interactable initially located nowhere, enabled, and visible.',
+    ...visual('interactables'), defaultOptions: () => ({}),
+    buildPayload: ({ draft }) => ({ data: defaultInteractableData(draft.basics.label) }),
+  },
   {
     collection: 'variables',
     category: 'logic',
@@ -152,7 +160,7 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       if (assetId) data.background.asset = ref('assets', assetId);
       if (materialId) data.background.material = ref('materials', materialId);
       data.background.fit = String(draft.options.fit ?? 'cover') as typeof data.background.fit;
-      data.description.source = String(draft.options.description ?? '');
+      data.description.source = { kind: 'inline', text: String(draft.options.description ?? '') };
       return { data };
     },
   },

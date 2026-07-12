@@ -65,8 +65,7 @@ function layoutMetadata(project: AuthoringProject, ref: RoomLayoutRef | null): R
   };
 }
 
-function objectMetadata(project: AuthoringProject, ref: RoomInteractableRef | null): Record<string, unknown> | null {
-  if (!ref) return null;
+function interactableMetadata(project: AuthoringProject, ref: RoomInteractableRef): Record<string, unknown> {
   const id = ref.$ref.id;
   const record = project.interactables[id];
   return {
@@ -87,11 +86,9 @@ function dependencyRevision(project: AuthoringProject, data: RoomData): string[]
     const id = data.background.material.$ref.id;
     dependencies.push(`material:${id}:${JSON.stringify(project.materials[id]?.data ?? null)}`);
   }
-  for (const hotspot of data.hotspots) {
-    if (hotspot.object) {
-      const id = hotspot.object.$ref.id;
-      dependencies.push(`object:${id}:${JSON.stringify(project.interactables[id] ?? null)}`);
-    }
+  for (const placement of data.placements) {
+    const id = placement.interactable.$ref.id;
+    dependencies.push(`interactable:${id}:${JSON.stringify(project.interactables[id] ?? null)}`);
   }
   for (const overlay of data.overlays) {
     if (overlay.layout) {
@@ -99,11 +96,9 @@ function dependencyRevision(project: AuthoringProject, data: RoomData): string[]
       dependencies.push(`layout:${id}:${JSON.stringify(project.layouts[id]?.data ?? null)}`);
     }
   }
-  for (const path of data.paths) {
-    if (path.target) {
-      const id = path.target.$ref.id;
-      dependencies.push(`room:${id}:${project.rooms[id]?.label ?? 'missing'}`);
-    }
+  for (const exit of data.exits) {
+    const id = exit.target.$ref.id;
+    dependencies.push(`room:${id}:${project.rooms[id]?.label ?? 'missing'}`);
   }
   return dependencies.sort();
 }
@@ -136,20 +131,19 @@ export function buildRoomPreviewDocumentData(project: AuthoringProject, roomId: 
     backgroundAsset: assetMetadata(project, data.background.asset),
     backgroundMaterial: materialMetadata(project, data.background.material),
     description: data.description,
-    scripts: data.scripts,
-    paths: data.paths.map((path) => ({
-      ...path,
-      targetLabel: path.target ? project.rooms[path.target.$ref.id]?.label ?? path.target.$ref.id : null,
+    lifecycle: data.lifecycle,
+    exits: data.exits.map((exit) => ({
+      ...exit,
+      targetLabel: project.rooms[exit.target.$ref.id]?.label ?? exit.target.$ref.id,
     })),
-    hotspots: data.hotspots.map((hotspot) => ({
-      ...hotspot,
-      objectMetadata: objectMetadata(project, hotspot.object),
+    placements: data.placements.map((placement) => ({
+      ...placement,
+      interactableMetadata: interactableMetadata(project, placement.interactable),
     })),
     overlays: data.overlays.map((overlay) => ({
       ...overlay,
       layoutMetadata: layoutMetadata(project, overlay.layout),
     })),
-    preview: data.preview,
     diagnostics: validateRoomData(project, roomId, record),
   };
 }

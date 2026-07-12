@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { assetDataSchema } from './authoring-assets';
 import { entityIdSchema } from './authoring-common';
 import { characterDataSchema } from './authoring-characters';
+import { interactableDataSchema } from './authoring-interactables';
 import { dialogueDataSchema } from './authoring-dialogues';
 import { layoutDataSchema } from './authoring-layouts';
 import { materialDataSchema } from './authoring-materials';
@@ -32,9 +33,7 @@ function propertyRecordSchema<Data extends z.ZodType>(data: Data) {
 }
 
 // Phase 3A wires every planned collection into the strict V2 project envelope.
-// These minimal payloads are temporary scaffolding only; the later Phase 3
-// collection slices replace them with the authoritative content contracts.
-export const interactableDataSchema = z.object({ kind: z.literal('interactable').default('interactable') }).strict();
+// Remaining minimal payloads are temporary scaffolding for their later slices.
 export const verbDataSchema = z.object({ kind: z.literal('verb').default('verb') }).strict();
 export const interactionDataSchema = z.object({ kind: z.literal('interaction').default('interaction') }).strict();
 export const mapDataSchema = z.object({ kind: z.literal('map').default('map') }).strict();

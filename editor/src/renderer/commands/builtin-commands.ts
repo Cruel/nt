@@ -29,6 +29,7 @@ import {
   setVariableTypePatches,
 } from '@/project/variable-operations';
 import { replaceCharacterDataPatches } from '@/project/character-operations';
+import { replaceInteractableDataPatches } from '@/project/interactable-operations';
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
@@ -277,6 +278,7 @@ const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z
 const materialSetBaseSchema = z.object({ materialId: entityIdSchema, baseMaterialId: entityIdSchema.nullable() });
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
 const characterReplaceDataSchema = z.object({ characterId: entityIdSchema, data: z.unknown() });
+const interactableReplaceDataSchema = z.object({ interactableId: entityIdSchema, data: z.unknown() });
 const dialogueReplaceDataSchema = z.object({ dialogueId: entityIdSchema, data: z.unknown() });
 const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown() });
 const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
@@ -389,6 +391,9 @@ export const layoutReplaceDataCommand: CommandHandler = ({ document, payload }) 
 export const characterReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(characterReplaceDataSchema, payload, (parsed) => replaceCharacterDataPatches(document, parsed));
 
+export const interactableReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(interactableReplaceDataSchema, payload, (parsed) => replaceInteractableDataPatches(document, parsed));
+
 export const dialogueReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(dialogueReplaceDataSchema, payload, (parsed) => replaceDialogueDataPatches(document, parsed));
 
@@ -477,6 +482,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'variable.setDefaultValue': variableSetDefaultValueCommand,
     'layout.replaceData': layoutReplaceDataCommand,
     'character.replaceData': characterReplaceDataCommand,
+    'interactable.replaceData': interactableReplaceDataCommand,
     'dialogue.replaceData': dialogueReplaceDataCommand,
     'room.replaceData': roomReplaceDataCommand,
     'scene.replaceData': sceneReplaceDataCommand,
@@ -528,6 +534,7 @@ export function labelForCommand(type: string): string {
     case 'variable.setDefaultValue': return 'Set variable default value';
     case 'layout.replaceData': return 'Update layout';
     case 'character.replaceData': return 'Update character';
+    case 'interactable.replaceData': return 'Update interactable';
     case 'dialogue.replaceData': return 'Update dialogue';
     case 'room.replaceData': return 'Update room';
     case 'scene.replaceData': return 'Update scene';

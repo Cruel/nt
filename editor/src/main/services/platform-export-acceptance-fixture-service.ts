@@ -3,6 +3,7 @@ import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { parsePlatformExportProfile, type ExportPlatform, type PlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
+import { parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   createPlatformExportAcceptanceFixture,
   PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION,
@@ -90,9 +91,9 @@ export async function materializePlatformExportAcceptanceFixture(
   const contentRevision = options.contentRevision ?? 1;
   project.project.version = `${PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION}.${contentRevision}`;
   const gallery = project.rooms.gallery;
-  if (gallery && typeof gallery.data === 'object' && gallery.data) {
-    const data = gallery.data as { description?: { source?: string } };
-    if (data.description) data.description.source = `Navigation reached the gallery, revision ${contentRevision}.`;
+  if (gallery) {
+    const data = parseRoomData(gallery.data);
+    if (data && data.description.source.kind === 'inline') data.description.source = { kind: 'inline', text: `Navigation reached the gallery, revision ${contentRevision}.` };
   }
   const profile = profileFor(options);
   const settings = project.settings as Record<string, unknown>;

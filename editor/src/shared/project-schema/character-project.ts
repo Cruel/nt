@@ -53,15 +53,13 @@ function materialMetadata(project: AuthoringProject, ref: CharacterMaterialRef |
 }
 
 function selectedPose(data: CharacterData): CharacterPoseData | null {
-  return data.poses.find((pose) => pose.id === data.preview.poseId)
-    ?? data.poses.find((pose) => pose.id === data.defaults.poseId)
+  return data.poses.find((pose) => pose.id === data.defaults.poseId)
     ?? data.poses[0]
     ?? null;
 }
 
 function selectedExpression(data: CharacterData): CharacterExpressionData | null {
-  return data.expressions.find((expression) => expression.id === data.preview.expressionId)
-    ?? data.expressions.find((expression) => expression.id === data.defaults.expressionId)
+  return data.expressions.find((expression) => expression.id === data.defaults.expressionId)
     ?? data.expressions[0]
     ?? null;
 }
@@ -140,12 +138,11 @@ export function buildCharacterPreviewDocumentData(project: AuthoringProject, cha
     label: record.label,
     displayName: data.displayName,
     dialogue: data.dialogue,
-    selected: { poseId: pose?.id ?? data.preview.poseId, expressionId: expression?.id ?? data.preview.expressionId },
+    selected: { poseId: pose?.id ?? data.defaults.poseId, expressionId: expression?.id ?? data.defaults.expressionId },
     pose: posePayload(project, pose),
     expression: expressionPayload(project, expression),
     resolvedSprite,
     resolvedMaterial,
-    preview: data.preview,
     diagnostics: validateCharacterData(project, characterId, record),
   };
 }

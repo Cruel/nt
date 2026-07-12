@@ -75,6 +75,7 @@ export function visualForEditorType(editorType: string, collection?: string | nu
   if (editorType === 'layout-detail') return collectionVisuals.layouts;
   if (editorType === 'character-detail') return collectionVisuals.characters;
   if (editorType === 'room-detail') return collectionVisuals.rooms;
+  if (editorType === 'interactable-detail') return collectionVisuals.interactables;
   if (editorType === 'dialogue-detail') return collectionVisuals.dialogues;
   if (editorType === 'scene-detail') return collectionVisuals.scenes;
   return null;

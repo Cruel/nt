@@ -13,7 +13,6 @@ import { parseAssetData } from '../../../shared/project-schema/authoring-assets'
 import {
   characterAssetRef,
   characterMaterialRef,
-  characterPreviewBackgroundValues,
   defaultCharacterData,
   parseCharacterData,
   validateCharacterData,
@@ -87,15 +86,13 @@ function refValue(ref: { $ref: { id: string } } | null | undefined) {
 }
 
 function poseForPreview(data: CharacterData) {
-  return data.poses.find((pose) => pose.id === data.preview.poseId)
-    ?? data.poses.find((pose) => pose.id === data.defaults.poseId)
+  return data.poses.find((pose) => pose.id === data.defaults.poseId)
     ?? data.poses[0]
     ?? null;
 }
 
 function expressionForPreview(data: CharacterData) {
-  return data.expressions.find((expression) => expression.id === data.preview.expressionId)
-    ?? data.expressions.find((expression) => expression.id === data.defaults.expressionId)
+  return data.expressions.find((expression) => expression.id === data.defaults.expressionId)
     ?? data.expressions[0]
     ?? null;
 }
@@ -162,10 +159,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     commit({ ...data, defaults: { ...data.defaults, ...patch } }, 'Update character defaults');
   }
 
-  function patchPreview(patch: Partial<CharacterData['preview']>) {
-    commit({ ...data, preview: { ...data.preview, ...patch } }, 'Update character preview');
-  }
-
   function replacePose(poseId: string, patch: Partial<CharacterPoseData>) {
     commit({
       ...data,
@@ -196,7 +189,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       ...data,
       poses: remaining,
       defaults: { ...data.defaults, poseId: data.defaults.poseId === poseId ? fallback : data.defaults.poseId },
-      preview: { ...data.preview, poseId: data.preview.poseId === poseId ? fallback : data.preview.poseId },
       expressions: data.expressions.map((expression) => expression.poseId === poseId ? { ...expression, poseId: null } : expression),
     }, 'Delete character pose');
   }
@@ -217,7 +209,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       ...data,
       expressions: remaining,
       defaults: { ...data.defaults, expressionId: data.defaults.expressionId === expressionId ? fallback : data.defaults.expressionId },
-      preview: { ...data.preview, expressionId: data.preview.expressionId === expressionId ? fallback : data.preview.expressionId },
     }, 'Delete character expression');
   }
 
@@ -270,18 +261,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             <div className="space-y-1">
               <Label>Default expression</Label>
               <Select value={data.defaults.expressionId} onValueChange={(value) => patchDefaults({ expressionId: String(value) })}>
-                {data.expressions.map((expression) => <SelectItem key={expression.id} value={expression.id}>{expression.label} ({expression.id})</SelectItem>)}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Preview pose</Label>
-              <Select value={data.preview.poseId} onValueChange={(value) => patchPreview({ poseId: String(value) })}>
-                {data.poses.map((pose) => <SelectItem key={pose.id} value={pose.id}>{pose.label} ({pose.id})</SelectItem>)}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Preview expression</Label>
-              <Select value={data.preview.expressionId} onValueChange={(value) => patchPreview({ expressionId: String(value) })}>
                 {data.expressions.map((expression) => <SelectItem key={expression.id} value={expression.id}>{expression.label} ({expression.id})</SelectItem>)}
               </Select>
             </div>
@@ -388,12 +367,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             <div><span className="font-medium text-foreground">Expression:</span> {previewExpression?.label ?? 'None'}</div>
             <div><span className="font-medium text-foreground">Sprite:</span> {resolvedSprite?.$ref.id ?? 'None'}</div>
             <div><span className="font-medium text-foreground">Material:</span> {resolvedMaterial?.$ref.id ?? 'None'}</div>
-          </div>
-          <div className="mt-4 space-y-1">
-            <Label>Background</Label>
-            <Select value={data.preview.background} onValueChange={(value) => patchPreview({ background: value as CharacterData['preview']['background'] })}>
-              {characterPreviewBackgroundValues.map((background) => <SelectItem key={background} value={background}>{background}</SelectItem>)}
-            </Select>
           </div>
           {diagnostics.length > 0 ? (
             <div className="mt-4 rounded border p-2 text-xs text-muted-foreground" data-workbench-anchor="character.diagnostics">

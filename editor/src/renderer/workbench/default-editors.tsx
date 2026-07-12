@@ -20,6 +20,7 @@ import {
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
+import { InteractableEditor } from '@/editors/interactables/InteractableEditor';
 import { ImageGenerationEditor } from '@/editors/comfyui/ImageGenerationEditor';
 import { ComfyUiWorkflowsEditor } from '@/editors/comfyui/ComfyUiWorkflowsEditor';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
@@ -121,6 +122,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     component: RoomEditor,
     previewHostPolicy: 'pooled-per-tab-group',
     previewPersistence: 'derived',
+  },
+  {
+    type: 'interactable-detail',
+    label: 'Interactable Detail',
+    icon: Puzzle,
+    component: InteractableEditor,
   },
   {
     type: 'dialogue-detail',
