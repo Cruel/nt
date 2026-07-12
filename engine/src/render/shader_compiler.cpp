@@ -74,7 +74,10 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
 {
     if (const auto existing = read_text_file(path); existing && *existing == value)
         return true;
-    std::filesystem::create_directories(path.parent_path());
+    std::error_code directory_error;
+    std::filesystem::create_directories(path.parent_path(), directory_error);
+    if (directory_error)
+        return false;
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file)
         return false;
@@ -138,9 +141,18 @@ struct ProcessResult {
                                                 const std::filesystem::path& cache_root)
 {
     const std::string command_line = command_line_from_args(args);
-    const auto capture_dir = cache_root.empty() ? std::filesystem::temp_directory_path()
-                                                : cache_root / "shader-cache" / "logs";
-    std::filesystem::create_directories(capture_dir);
+    std::error_code filesystem_error;
+    const auto temporary_root = std::filesystem::temp_directory_path(filesystem_error);
+    const auto capture_dir = cache_root.empty() && !filesystem_error
+                                 ? temporary_root
+                                 : cache_root / "shader-cache" / "logs";
+    filesystem_error.clear();
+    std::filesystem::create_directories(capture_dir, filesystem_error);
+    if (filesystem_error) {
+        return ProcessResult{.exit_code = -1,
+                             .output = "failed to create shader compiler capture directory: " +
+                                       filesystem_error.message()};
+    }
     const auto capture_path =
         capture_dir / ("shaderc-" + output_capture_path_key(command_line) + ".txt");
     const std::string shell_command =
@@ -228,7 +240,8 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
 [[nodiscard]] nlohmann::json read_cache_manifest(const std::filesystem::path& path,
                                                  std::vector<ShaderCompileDiagnostic>& diagnostics)
 {
-    if (path.empty() || !std::filesystem::exists(path))
+    std::error_code exists_error;
+    if (path.empty() || !std::filesystem::exists(path, exists_error) || exists_error)
         return nlohmann::json::object();
     const auto text = read_text_file(path);
     if (!text) {
@@ -268,9 +281,13 @@ void write_cache_manifest(const std::filesystem::path& path, const nlohmann::jso
                                        const std::filesystem::path& output_path)
 {
     const auto entry = manifest.find(runtime_path);
+    std::error_code exists_error;
+    const bool exists = std::filesystem::exists(output_path, exists_error);
+    std::error_code regular_error;
+    const bool regular = std::filesystem::is_regular_file(output_path, regular_error);
     return entry != manifest.end() && entry->is_object() &&
-           entry->value("cacheKey", std::string{}) == cache_key &&
-           std::filesystem::exists(output_path) && std::filesystem::is_regular_file(output_path);
+           entry->value("cacheKey", std::string{}) == cache_key && exists && !exists_error &&
+           regular && !regular_error;
 }
 
 void upsert_compiled_ref(ShaderStageDefinition& stage, std::string variant, std::string path)
@@ -315,7 +332,11 @@ source_path_for_stage(const ShaderDefinition& shader, const ShaderStageDefinitio
     }
 
     const auto source_path = resolve_source_path(stage, options);
-    if (!std::filesystem::exists(source_path) || !std::filesystem::is_regular_file(source_path)) {
+    std::error_code exists_error;
+    const bool exists = std::filesystem::exists(source_path, exists_error);
+    std::error_code regular_error;
+    const bool regular = std::filesystem::is_regular_file(source_path, regular_error);
+    if (!exists || exists_error || !regular || regular_error) {
         add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
                        ShaderCompileDiagnosticCode::MissingSource, shader.id, stage.stage, {},
                        source_path, {}, {}, 0,
@@ -336,15 +357,19 @@ source_path_for_stage(const ShaderDefinition& shader, const ShaderStageDefinitio
                        "No shader compile variants were requested.");
         ok = false;
     }
-    if (options.shaderc.empty() || !std::filesystem::exists(options.shaderc)) {
+    std::error_code shaderc_error;
+    const bool shaderc_exists = std::filesystem::exists(options.shaderc, shaderc_error);
+    if (options.shaderc.empty() || !shaderc_exists || shaderc_error) {
         add_diagnostic(
             diagnostics, ShaderCompileSeverity::Error, ShaderCompileDiagnosticCode::MissingShaderc,
             ShaderId{}, ShaderStage::Fragment, {}, options.shaderc, {}, {}, 0,
             "shaderc host executable was not found: '" + options.shaderc.string() + "'.");
         ok = false;
     }
-    if (options.bgfx_shader_include_dir.empty() ||
-        !std::filesystem::exists(options.bgfx_shader_include_dir / "bgfx_shader.sh")) {
+    std::error_code include_error;
+    const bool include_exists =
+        std::filesystem::exists(options.bgfx_shader_include_dir / "bgfx_shader.sh", include_error);
+    if (options.bgfx_shader_include_dir.empty() || !include_exists || include_error) {
         add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
                        ShaderCompileDiagnosticCode::MissingBgfxInclude, ShaderId{},
                        ShaderStage::Fragment, {}, options.bgfx_shader_include_dir, {}, {}, 0,
@@ -422,7 +447,9 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
 
             for (const auto& variant : options.variants) {
                 const auto varying_path = source_path->parent_path() / "varying.def.sc";
-                if (!std::filesystem::exists(varying_path) &&
+                std::error_code varying_error;
+                const bool varying_exists = std::filesystem::exists(varying_path, varying_error);
+                if ((!varying_exists || varying_error) &&
                     !write_text_file_if_changed(varying_path, kDefaultVaryingDefinition)) {
                     add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
                                    ShaderCompileDiagnosticCode::SourceWriteFailed, shader.id,
@@ -451,7 +478,17 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     continue;
                 }
 
-                std::filesystem::create_directories(output_path.parent_path());
+                std::error_code output_directory_error;
+                std::filesystem::create_directories( // filesystem-error-code
+                    output_path.parent_path(), output_directory_error);
+                if (output_directory_error) {
+                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                   ShaderCompileDiagnosticCode::SourceWriteFailed, shader.id,
+                                   stage.stage, variant.name, *source_path, output_path, {}, 0,
+                                   "Failed to create shader output directory: " +
+                                       output_directory_error.message());
+                    continue;
+                }
                 const std::vector<std::string> args = {
                     options.shaderc.string(),
                     "-f",
@@ -475,7 +512,10 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                 };
                 const auto command_line = command_line_from_args(args);
                 const auto process = run_command_capture(args, options.cache_root);
-                if (process.exit_code != 0 || !std::filesystem::exists(output_path)) {
+                std::error_code output_exists_error;
+                const bool output_exists =
+                    std::filesystem::exists(output_path, output_exists_error);
+                if (process.exit_code != 0 || !output_exists || output_exists_error) {
                     add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
                                    ShaderCompileDiagnosticCode::CompilerFailed, shader.id,
                                    stage.stage, variant.name, *source_path, output_path,

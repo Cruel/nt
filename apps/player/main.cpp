@@ -46,7 +46,8 @@ std::filesystem::path config_path(int argc, char** argv)
 #if defined(__APPLE__)
     auto base = executable_base();
     auto resources = base.parent_path().parent_path() / "Resources" / "player.json";
-    if (std::filesystem::exists(resources))
+    std::error_code error;
+    if (std::filesystem::exists(resources, error) && !error)
         return resources;
 #endif
     return executable_base() / "player.json";
@@ -97,7 +98,8 @@ std::filesystem::path packaged_system_asset_root(const std::filesystem::path& pl
              config_directory / "assets" / "system",
              config_directory.parent_path() / "assets" / "system",
          }) {
-        if (std::filesystem::is_directory(candidate))
+        std::error_code error;
+        if (std::filesystem::is_directory(candidate, error) && !error)
             return candidate;
     }
     return {};

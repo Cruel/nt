@@ -486,6 +486,25 @@ TEST_CASE("ProjectPackageWriter writes packages to files and reports stable chec
     std::filesystem::remove_all(temp);
 }
 
+TEST_CASE("ProjectPackageWriter reports output directory creation failures")
+{
+    auto project = ProjectDocument::new_project();
+    const auto temp = unique_temp_dir("package-output-directory-failure");
+    write_file(temp / "blocked", "not a directory");
+
+    PackageExportOptions options;
+    options.project_name = "Blocked Export";
+    options.project_version = "1.0";
+    const auto result =
+        ProjectPackageWriter::write_to_file(project, temp / "blocked" / "game.ntpkg", options);
+
+    CHECK_FALSE(result.success);
+    REQUIRE_FALSE(result.diagnostics.empty());
+    CHECK(result.diagnostics.back().message.find("Failed to create output package directory") !=
+          std::string::npos);
+    std::filesystem::remove_all(temp);
+}
+
 TEST_CASE("ProjectPackageWriter rejects unsafe paths and reports missing shader variants")
 {
     CHECK(ProjectPackageWriter::is_safe_package_path("text/intro.txt"));

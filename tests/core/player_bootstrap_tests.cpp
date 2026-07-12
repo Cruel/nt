@@ -251,3 +251,18 @@ TEST_CASE("filesystem save slots round trip and stay below their root")
     CHECK_FALSE(store.has_slot({3}));
     std::filesystem::remove_all(root.parent_path());
 }
+
+TEST_CASE("filesystem save slots report an unusable save root")
+{
+    const auto parent = temporary_directory();
+    const auto root = parent / "blocked";
+    write_file(root, "not a directory");
+    FilesystemSaveSlotStore store(root);
+
+    const auto result = store.write_slot({1}, SaveDocument::new_save());
+    CHECK_FALSE(result.success);
+    REQUIRE_FALSE(result.errors.empty());
+    CHECK(result.errors.front().message.find("failed to create save directory") !=
+          std::string::npos);
+    std::filesystem::remove_all(parent);
+}

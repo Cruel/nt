@@ -16,7 +16,6 @@
 
 #include <algorithm>
 #include <random>
-#include <regex>
 #include <string>
 #include <string_view>
 
@@ -586,14 +585,21 @@ struct ScriptBinding {
 
     std::string eval_expressions(std::string text)
     {
-        static const std::regex pattern(R"(\{\{([\s\S]*?)\}\})");
         std::string result;
-        std::size_t last = 0;
-        std::sregex_iterator it(text.begin(), text.end(), pattern);
-        std::sregex_iterator end;
-        for (; it != end; ++it) {
-            result.append(text, last, it->position() - last);
-            std::string expr = (*it)[1].str();
+        std::size_t cursor = 0;
+        while (cursor < text.size()) {
+            const auto open = text.find("{{", cursor);
+            if (open == std::string::npos) {
+                result.append(text, cursor, std::string::npos);
+                break;
+            }
+            result.append(text, cursor, open - cursor);
+            const auto close = text.find("}}", open + 2);
+            if (close == std::string::npos) {
+                result.append(text, open, std::string::npos);
+                break;
+            }
+            std::string expr = text.substr(open + 2, close - (open + 2));
             sol::state_view lua(L);
             auto load_result = lua.load("return " + expr, "={{expression}}");
             if (!load_result.valid()) {
@@ -630,9 +636,8 @@ struct ScriptBinding {
                     }
                 }
             }
-            last = it->position() + it->length();
+            cursor = close + 2;
         }
-        result.append(text, last, text.size() - last);
         return result;
     }
 

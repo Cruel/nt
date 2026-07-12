@@ -16,6 +16,7 @@ file(WRITE "${fixture_root}/allowlist.txt" "# Intentionally empty.\n")
 file(WRITE "${fixture_root}/engine/negative.cpp" [=[
 #include <filesystem>
 #include <map>
+#include <regex>
 #include <string>
 #include <typeinfo>
 #include <vector>
@@ -24,6 +25,8 @@ void rejected(std::vector<int>& values, std::map<int, int>& mapping) {
     (void)mapping.at(0);
     (void)std::stoul("1");
     (void)std::filesystem::exists("missing");
+    (void)std::regex("x");
+    (void)std::locale("");
     (void)typeid(values);
 }
 ]=])
@@ -43,7 +46,7 @@ endif()
 
 set(combined "${output}\n${error}")
 foreach(expected IN ITEMS exception-syntax compiler-rtti container-at throwing-number-conversion
-                          filesystem-operation)
+                          filesystem-operation regex-construction locale-construction)
     if(NOT combined MATCHES "${expected}")
         message(FATAL_ERROR "Negative fixture did not trigger ${expected}:\n${combined}")
     endif()

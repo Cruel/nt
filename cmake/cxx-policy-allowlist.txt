@@ -1,10 +1,3 @@
 # Temporary migration ceilings. Format: path|rule|max-count # removal phase/rationale
-# Counts may decrease without updating this file; any increase fails the policy gate.
-apps/player/main.cpp|filesystem-operation|3 # Phase 5 filesystem error_code conversion
-engine/src/assets/asset_manager.cpp|filesystem-operation|3 # Phase 5 filesystem error_code conversion
-engine/src/core/package_export.cpp|filesystem-operation|9 # Phase 5 filesystem error_code conversion
-engine/src/core/player_bootstrap.cpp|filesystem-operation|11 # Phase 5 filesystem error_code conversion
-engine/src/core/save_document.cpp|filesystem-operation|8 # Phase 5 filesystem error_code conversion
-engine/src/engine.cpp|filesystem-operation|2 # Phase 5 filesystem error_code conversion
-engine/src/render/bgfx/bgfx_renderer.cpp|filesystem-operation|1 # Phase 5 filesystem error_code conversion
-engine/src/render/shader_compiler.cpp|filesystem-operation|12 # Phase 5 filesystem error_code conversion
+# Phase 5 has no remaining standard-library/API allowances. Keep this file empty so any new
+# prohibited operation fails the policy gate.

@@ -91,6 +91,11 @@ public:
         if (output.has_parent_path()) {
             std::error_code ec;
             std::filesystem::create_directories(output.parent_path(), ec);
+            if (ec) {
+                std::fprintf(stderr, "[renderer] failed to create screenshot directory: %s\n",
+                             ec.message().c_str());
+                return;
+            }
         }
 
         const std::string ext = output.extension().string();

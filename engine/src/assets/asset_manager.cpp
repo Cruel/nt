@@ -300,8 +300,14 @@ AssetResult<AssetBlob> AssetSource::read_binary(const AssetPath& path) const
 
 bool path_is_inside_root(const std::filesystem::path& root, const std::filesystem::path& child)
 {
-    const auto normalized_root = std::filesystem::weakly_canonical(root);
-    const auto normalized_child = std::filesystem::weakly_canonical(child);
+    std::error_code root_error;
+    const auto normalized_root = std::filesystem::weakly_canonical(root, root_error);
+    if (root_error)
+        return false;
+    std::error_code child_error;
+    const auto normalized_child = std::filesystem::weakly_canonical(child, child_error);
+    if (child_error)
+        return false;
     auto root_it = normalized_root.begin();
     auto child_it = normalized_child.begin();
     for (; root_it != normalized_root.end(); ++root_it, ++child_it) {
@@ -360,7 +366,9 @@ AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) 
 bool DirectoryAssetSource::exists(const AssetPath& path) const
 {
     const auto physical = resolve(path);
-    return path_is_inside_root(m_root, physical) && std::filesystem::is_regular_file(physical);
+    std::error_code error;
+    return path_is_inside_root(m_root, physical) &&
+           std::filesystem::is_regular_file(physical, error) && !error;
 }
 
 std::string DirectoryAssetSource::describe() const

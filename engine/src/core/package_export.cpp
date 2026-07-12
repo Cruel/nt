@@ -163,10 +163,19 @@ void add_entry(std::vector<PendingEntry>& entries, PackageExportResult& result, 
     entries.push_back(PendingEntry{.path = std::move(path), .bytes = std::move(bytes)});
 }
 
-std::string relative_package_path(const std::filesystem::path& root,
-                                  const std::filesystem::path& file, std::string_view prefix)
+std::optional<std::string> relative_package_path(const std::filesystem::path& root,
+                                                 const std::filesystem::path& file,
+                                                 std::string_view prefix,
+                                                 PackageExportResult& result)
 {
-    auto relative = std::filesystem::relative(file, root).generic_string();
+    std::error_code error;
+    auto relative_path = std::filesystem::relative(file, root, error);
+    if (error) {
+        add_diagnostic(result, PackageExportSeverity::Error, "asset", file.string(),
+                       "Failed to compute package-relative path: " + error.message());
+        return std::nullopt;
+    }
+    auto relative = relative_path.generic_string();
     if (prefix.empty()) {
         return relative;
     }
@@ -178,35 +187,48 @@ void collect_asset_root(const PackageExportAssetRoot& asset_root,
                         bool include_checksums)
 {
     const auto prefix = normalize_prefix(asset_root.package_prefix);
-    if (!std::filesystem::exists(asset_root.root)) {
+    std::error_code error;
+    if (!std::filesystem::exists(asset_root.root, error) || error) {
         add_diagnostic(result, PackageExportSeverity::Warning, "asset", prefix,
-                       "Asset root does not exist: '" + asset_root.root.string() + "'.");
+                       "Asset root does not exist or cannot be inspected: '" +
+                           asset_root.root.string() + "'." + (error ? " " + error.message() : ""));
         return;
     }
-    if (!std::filesystem::is_directory(asset_root.root)) {
+    error.clear();
+    if (!std::filesystem::is_directory(asset_root.root, error) || error) {
         add_diagnostic(result, PackageExportSeverity::Error, "asset", prefix,
                        "Asset root is not a directory: '" + asset_root.root.string() + "'.");
         return;
     }
 
     std::vector<std::filesystem::path> files;
-    for (const auto& item : std::filesystem::recursive_directory_iterator(asset_root.root)) {
-        if (item.is_regular_file()) {
-            files.push_back(item.path());
+    std::filesystem::recursive_directory_iterator iterator(asset_root.root, error);
+    const std::filesystem::recursive_directory_iterator end;
+    for (; !error && iterator != end; iterator.increment(error)) {
+        std::error_code entry_error;
+        if (iterator->is_regular_file(entry_error) && !entry_error) {
+            files.push_back(iterator->path());
         }
+    }
+    if (error) {
+        add_diagnostic(result, PackageExportSeverity::Error, "asset", prefix,
+                       "Failed while enumerating asset root: " + error.message());
+        return;
     }
     std::sort(files.begin(), files.end());
     for (const auto& file : files) {
-        auto package_path = relative_package_path(asset_root.root, file, prefix);
-        if (!ProjectPackageWriter::is_safe_package_path(package_path) ||
-            !has_allowed_package_prefix(package_path)) {
-            add_diagnostic(result, PackageExportSeverity::Warning, "asset", package_path,
+        auto package_path = relative_package_path(asset_root.root, file, prefix, result);
+        if (!package_path)
+            continue;
+        if (!ProjectPackageWriter::is_safe_package_path(*package_path) ||
+            !has_allowed_package_prefix(*package_path)) {
+            add_diagnostic(result, PackageExportSeverity::Warning, "asset", *package_path,
                            "Skipping asset outside the runtime package layout.");
             continue;
         }
-        auto bytes = read_file_bytes(file, result, package_path);
+        auto bytes = read_file_bytes(file, result, *package_path);
         if (bytes) {
-            add_entry(entries, result, std::move(package_path), std::move(*bytes),
+            add_entry(entries, result, std::move(*package_path), std::move(*bytes),
                       include_checksums);
         }
     }
@@ -229,8 +251,10 @@ void collect_file_entries(const PackageExportOptions& options, std::vector<Pendi
                            "Package file entry source is empty.");
             continue;
         }
-        if (!std::filesystem::exists(file_entry.source) ||
-            !std::filesystem::is_regular_file(file_entry.source)) {
+        std::error_code error;
+        const bool exists = std::filesystem::exists(file_entry.source, error);
+        const bool regular = !error && std::filesystem::is_regular_file(file_entry.source, error);
+        if (error || !exists || !regular) {
             add_diagnostic(result, PackageExportSeverity::Error, "asset", package_path,
                            "Package file entry source does not exist: '" +
                                file_entry.source.string() + "'.");
@@ -259,7 +283,10 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
     for (const auto& variant : options.shader_variants) {
         const auto variant_path = "shaders/bgfx/" + variant;
         const auto source_dir = options.shader_asset_root / variant_path;
-        if (!std::filesystem::exists(source_dir) || !std::filesystem::is_directory(source_dir)) {
+        std::error_code error;
+        const bool exists = std::filesystem::exists(source_dir, error);
+        const bool directory = !error && std::filesystem::is_directory(source_dir, error);
+        if (error || !exists || !directory) {
             add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
                            "Missing compiled shader variant directory '" + source_dir.string() +
                                "'.");
@@ -267,10 +294,19 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
         }
 
         std::vector<std::filesystem::path> files;
-        for (const auto& item : std::filesystem::recursive_directory_iterator(source_dir)) {
-            if (item.is_regular_file() && item.path().extension() == ".bin") {
-                files.push_back(item.path());
+        std::filesystem::recursive_directory_iterator iterator(source_dir, error);
+        const std::filesystem::recursive_directory_iterator end;
+        for (; !error && iterator != end; iterator.increment(error)) {
+            std::error_code entry_error;
+            if (iterator->is_regular_file(entry_error) && !entry_error &&
+                iterator->path().extension() == ".bin") {
+                files.push_back(iterator->path());
             }
+        }
+        if (error) {
+            add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
+                           "Failed while enumerating shader variant: " + error.message());
+            continue;
         }
         std::sort(files.begin(), files.end());
         if (files.empty()) {
@@ -279,10 +315,12 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
             continue;
         }
         for (const auto& file : files) {
-            auto package_path = relative_package_path(options.shader_asset_root, file, "");
-            auto bytes = read_file_bytes(file, result, package_path);
+            auto package_path = relative_package_path(options.shader_asset_root, file, "", result);
+            if (!package_path)
+                continue;
+            auto bytes = read_file_bytes(file, result, *package_path);
             if (bytes) {
-                add_entry(entries, result, std::move(package_path), std::move(*bytes),
+                add_entry(entries, result, std::move(*package_path), std::move(*bytes),
                           options.include_checksums);
             }
         }
@@ -492,7 +530,14 @@ PackageExportResult ProjectPackageWriter::write_to_file(const ProjectDocument& p
     }
 
     if (path.has_parent_path()) {
-        std::filesystem::create_directories(path.parent_path());
+        std::error_code error;
+        std::filesystem::create_directories(path.parent_path(), error);
+        if (error) {
+            add_diagnostic(result, PackageExportSeverity::Error, "package", path.string(),
+                           "Failed to create output package directory: " + error.message());
+            result.success = false;
+            return result;
+        }
     }
     std::ofstream file(path, std::ios::binary);
     if (!file) {

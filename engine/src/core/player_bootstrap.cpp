@@ -406,7 +406,8 @@ materialize_packaged_player(const std::filesystem::path& bootstrap_root,
 
     const auto final_root = bootstrap_root / output.bootstrap.config.package_sha256;
     const auto final_config = final_root / "player.json";
-    if (std::filesystem::is_regular_file(final_config)) {
+    std::error_code final_config_error;
+    if (std::filesystem::is_regular_file(final_config, final_config_error) && !final_config_error) {
         auto existing = load_and_verify_player(final_config, supported);
         if (existing.success()) {
             output.bootstrap = std::move(existing);
@@ -443,7 +444,9 @@ materialize_packaged_player(const std::filesystem::path& bootstrap_root,
     }
     if (!error) {
         std::filesystem::rename(temporary_root, final_root, error);
-        if (error && std::filesystem::is_directory(final_root)) {
+        std::error_code final_root_error;
+        if (error && std::filesystem::is_directory(final_root, final_root_error) &&
+            !final_root_error) {
             error.clear();
             std::filesystem::remove_all(temporary_root, error);
             error.clear();
@@ -461,7 +464,9 @@ materialize_packaged_player(const std::filesystem::path& bootstrap_root,
     for (const auto& entry : std::filesystem::directory_iterator(bootstrap_root, error)) {
         if (error)
             break;
-        if (entry.is_directory() && entry.path() != final_root &&
+        std::error_code entry_error;
+        const bool is_directory = entry.is_directory(entry_error);
+        if (!entry_error && is_directory && entry.path() != final_root &&
             !entry.path().filename().string().starts_with(".incoming-"))
             std::filesystem::remove_all(entry.path(), error);
     }

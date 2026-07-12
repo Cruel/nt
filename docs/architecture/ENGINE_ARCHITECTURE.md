@@ -238,3 +238,9 @@ control flow. A `Result<void, E>` represents successful completion without manuf
 Deep libraries return diagnostics but do not log them; executable, editor-tool, preview, and platform
 boundaries decide how and where diagnostics are presented. Nested failures use `Diagnostic::causes`,
 and context is added with source paths and JSON pointers as errors cross subsystem boundaries.
+
+Allocation exhaustion is a fatal runtime condition. NovelTea does not attempt recovery from
+`std::bad_alloc`; a no-exceptions build may terminate when the allocator cannot satisfy a request.
+Recoverable filesystem, parsing, conversion, and external-tool failures must instead use status codes,
+`std::error_code`, or typed results. Runtime construction of `std::regex` and `std::locale` is
+prohibited in shipped first-party code because their failure contracts depend on C++ exceptions.

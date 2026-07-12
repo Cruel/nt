@@ -528,7 +528,8 @@ std::filesystem::path default_system_asset_root()
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
     if (const char* base = SDL_GetBasePath()) {
         std::filesystem::path packaged = std::filesystem::path(base) / "assets";
-        if (std::filesystem::exists(packaged / "system")) {
+        std::error_code error;
+        if (std::filesystem::exists(packaged / "system", error) && !error) {
             return packaged / "system";
         }
     }
@@ -545,7 +546,8 @@ std::filesystem::path default_project_asset_root()
 #if defined(NOVELTEA_PLATFORM_DESKTOP)
     if (const char* base = SDL_GetBasePath()) {
         std::filesystem::path packaged = std::filesystem::path(base) / "assets";
-        if (std::filesystem::exists(packaged / "project")) {
+        std::error_code error;
+        if (std::filesystem::exists(packaged / "project", error) && !error) {
             return packaged / "project";
         }
     }

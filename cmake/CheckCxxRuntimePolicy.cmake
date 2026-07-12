@@ -16,6 +16,8 @@ set(rule_names
     container-at
     throwing-number-conversion
     filesystem-operation
+    regex-construction
+    locale-construction
     unsafe-json-get
     unsafe-json-value)
 set(rule_patterns
@@ -24,6 +26,8 @@ set(rule_patterns
     "\\.at[ \\t]*\\("
     "(^|[^A-Za-z0-9_])std::(stoi|stol|stoll|stoul|stoull|stof|stod|stold)[ \\t]*\\("
     "std::filesystem::(canonical|copy|copy_file|create_directories|create_directory|current_path|directory_iterator|equivalent|exists|file_size|is_directory|is_regular_file|last_write_time|permissions|read_symlink|recursive_directory_iterator|relative|remove|remove_all|rename|space|status|symlink_status|temp_directory_path|weakly_canonical)[ \\t]*\\("
+    "(^|[^A-Za-z0-9_])std::(basic_)?regex([^A-Za-z0-9_]|$)"
+    "(^|[^A-Za-z0-9_])std::locale([^A-Za-z0-9_]|$)"
     "\\.get[ \\t]*<"
     "\\.value[ \\t]*\\(")
 
@@ -34,10 +38,22 @@ foreach(source IN LISTS sources)
     set(line_number 0)
     foreach(line IN LISTS lines)
         math(EXPR line_number "${line_number} + 1")
-        foreach(rule_index RANGE 0 6)
+        foreach(rule_index RANGE 0 8)
             list(GET rule_names ${rule_index} rule_name)
             list(GET rule_patterns ${rule_index} rule_pattern)
+            set(matches_rule FALSE)
             if(line MATCHES "${rule_pattern}")
+                set(matches_rule TRUE)
+            endif()
+            # All approved std::filesystem operations must use an error_code overload. The
+            # overload's error-code argument is visible in the same logical source line after
+            # formatting, so calls with a comma before the closing parenthesis are accepted.
+            if(rule_name STREQUAL "filesystem-operation" AND
+               (line MATCHES "(error|Error|ec|ignored)" OR
+                line MATCHES "filesystem-error-code"))
+                set(matches_rule FALSE)
+            endif()
+            if(matches_rule)
                 string(MAKE_C_IDENTIFIER "${relative}_${rule_name}" count_key)
                 if(DEFINED count_${count_key})
                     math(EXPR count_${count_key} "${count_${count_key}} + 1")
