@@ -28,9 +28,14 @@ Milestone 17 implements a first vertical slice:
 - reveal-in-folder support;
 - explicit unsupported diagnostic for preview-from-exported-package.
 
-The authoring compiler emits `noveltea.runtime.project` version 1, a named-field runtime document
-validated by the shared Zod wire schema before preview or packaging. Room, scene, dialogue, and script
-entrypoints are explicit `{ kind, id }` references. Runtime collections are arrays of named records;
+The current authoring-to-runtime export adapter emits the provisional
+`noveltea.runtime.project` version 1 named-field document, validated by the shared Zod wire schema
+before preview or packaging. It is retained as migration scaffolding only; it is not the final
+compiler contract and must not receive new runtime features or compatibility behavior. Phase 4 of
+`docs/architecture/plans/TYPED_RUNTIME_MODEL_AND_JSON_BOUNDARIES_IMPLEMENTATION_PLAN.md` replaces it
+with `noveltea.compiled.project` version 1.
+
+The provisional wire format uses explicit `{ kind, id }` entrypoints and arrays of named records;
 numeric entity tags and positional entity arrays are not emitted. Authoring-only state and tests are
 excluded, while inheritance and editor structures are normalized into the supported runtime fields.
 Features whose typed runtime action payload is not yet complete produce compatibility warnings.

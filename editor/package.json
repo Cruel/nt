@@ -5,7 +5,7 @@
   "description": "NovelTea visual novel editor",
   "main": ".vite/build/main.js",
   "private": true,
-  "packageManager": "pnpm@10.32.1",
+  "packageManager": "pnpm@11.12.0",
   "scripts": {
     "start": "electron-forge start",
     "start:with-preview": "pnpm engine:preview:build && electron-forge start",

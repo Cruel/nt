@@ -14,6 +14,10 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   explicit errors, no C++ exceptions, no compiler RTTI, dependency-specific custom RTTI where needed,
   and enforced rejection of hidden throwing APIs. It is an implementation record, not the primary
   contributor policy.
+- `docs/architecture/plans/TYPED_RUNTIME_MODEL_AND_JSON_BOUNDARIES_IMPLEMENTATION_PLAN.md` is the active
+  canonical plan for replacing legacy-shaped JSON runtime state with AuthoringProject V2, the
+  deterministic compiled-project boundary, the native `CompiledProject`, typed flow/session/save
+  models, typed runtime messages, and enforced JSON isolation.
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` records the dependency audit baseline and the
   authoritative admission requirements for C++ runtime dependencies.
 

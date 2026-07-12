@@ -1,0 +1,27 @@
+# Phase 0 JSON-boundary inventory. Format:
+# path|symbol|classification|owner|rationale|removal-phase
+# Permanent entries remain explicit boundary adapters after Phase 11. Temporary entries must be
+# removed by their listed phase and must not receive new runtime features.
+engine/include/noveltea/core/json_access.hpp|noveltea::core::json_access::*|codec|core|Audited nonthrowing JSON codec helpers|permanent-boundary
+engine/include/noveltea/core/runtime_project_codec.hpp|decode_runtime_project|temporary-migration-codec|core|Provisional noveltea.runtime.project V1 decoder|5
+engine/include/noveltea/core/project_document.hpp|ProjectDocument|temporary-migration-debt|core|Legacy JSON project root|10
+engine/include/noveltea/core/project_model.hpp|EntityMetadata;CutsceneSegmentModel;ProjectModel|temporary-migration-debt|core|Legacy generic properties, raw segments, and document root|10
+engine/include/noveltea/core/legacy/entity_schema.hpp|parse_entity_record;parse_project_entities|temporary-migration-adapter|core|Legacy positional schema reader|10
+engine/include/noveltea/core/legacy/project_importer.hpp|ProjectImporter::import_game_json|temporary-migration-adapter|core|Legacy game import adapter|10
+engine/include/noveltea/core/entity_ref.hpp|EntityRef::to_json;EntityRef::from_json|temporary-migration-codec|core|Legacy numeric entity references|10
+engine/include/noveltea/core/save_document.hpp|SaveDocument;SettingsDocument|temporary-migration-debt|core|JSON-backed save and settings roots|8-10
+engine/include/noveltea/core/game_session.hpp|GameSession::property;set_property;entity_property;append_log;notify|temporary-migration-debt|core|Generic JSON session property and message state|8-9
+engine/include/noveltea/core/cutscene_controller.hpp|CutsceneController::save_state;restore_state|temporary-migration-debt|core|Legacy cutscene checkpoint state|7-8
+engine/include/noveltea/core/dialogue_controller.hpp|DialogueController::save_state;restore_state|temporary-migration-debt|core|Legacy dialogue checkpoint state|7-8
+engine/include/noveltea/core/runtime_controller.hpp|ControllerCommand::data;RuntimeController::save_state;restore_state|temporary-migration-debt|core|Legacy command and controller state|6-9
+engine/include/noveltea/core/runtime_events.hpp|RuntimeEvent::data|temporary-migration-debt|core|Generic internal event payload|9
+engine/include/noveltea/core/runtime_io.hpp|RuntimeInput::payload;RuntimeOutput::payload|temporary-migration-debt|core|Generic internal input/output payload|9
+engine/include/noveltea/core/runtime_session_host.hpp|RuntimeSessionHost::enqueue_audio_command|temporary-migration-debt|core|Generic internal audio command payload|9
+engine/include/noveltea/core/runtime_ui_view.hpp|RuntimeUIViewAdapter JSON helpers|temporary-migration-debt|core|Legacy UI command and saved-log adaptation|9
+engine/include/noveltea/core/rich_text.hpp|to_json;rich_text_from_json|external-protocol|core|Preview/debug/UI serialization adapter|permanent-boundary
+engine/include/noveltea/core/package_export.hpp|PackageExportOptions;PackageExportResult|package-boundary|core|Versioned package and shader/material metadata|permanent-boundary
+engine/include/noveltea/core/editor_api.hpp|ProjectTooling;RuntimePlaybackSession;RuntimePreviewSession|temporary-tooling-adapter|editor|Legacy project editing, playback, and preview bridge|3-10
+engine/include/noveltea/runtime_command.hpp|RuntimeCommand::payload|temporary-external-protocol-debt|runtime|Generic shell/preview command payload|9
+engine/include/noveltea/runtime_ui_playback.hpp|RuntimeUiPlaybackSpec;RuntimeUiPlaybackReport|temporary-external-protocol-debt|runtime|Legacy UI playback protocol|7-9
+engine/include/noveltea/runtime_debug_snapshot.hpp|runtime_debug_*|debugger|runtime|Debugger JSON serializer|permanent-boundary
+engine/include/noveltea/render/material.hpp|parse_shader_material_project_json_value|codec|render|Dedicated shader/material metadata decoder|permanent-boundary

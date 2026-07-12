@@ -2,7 +2,7 @@
   "name": "noveltea-root",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.32.1",
+  "packageManager": "pnpm@11.12.0",
   "scripts": {
     "web:smoke": "node scripts/web-smoke.mjs --build-dir build/web-debug --threshold readback_gallery_debug --frames 12 --min-perf-lines 2 --label web-debug",
     "web:smoke:debug": "node scripts/web-smoke.mjs --build-dir build/web-debug --threshold readback_gallery_debug --frames 12 --min-perf-lines 2 --label web-debug",

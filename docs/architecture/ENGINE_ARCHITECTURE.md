@@ -150,6 +150,12 @@ variant inclusion. Editor-facing callers use `core::editor::ProjectTooling::expo
 so archive-library types do not leak through public APIs. The v1 package contract is documented in
 [`docs/runtime/PACKAGE_EXPORT.md`](../runtime/PACKAGE_EXPORT.md).
 
+The current `ProjectDocument`/`ProjectModel` load path and `noveltea.runtime.project` V1 export are
+provisional migration scaffolding, not the target package or runtime model. Do not add runtime
+features to their generic JSON, numeric-entity, or raw-cutscene representations. Phases 4--10 of
+[`TYPED_RUNTIME_MODEL_AND_JSON_BOUNDARIES_IMPLEMENTATION_PLAN.md`](plans/TYPED_RUNTIME_MODEL_AND_JSON_BOUNDARIES_IMPLEMENTATION_PLAN.md)
+replace them with compiled-project, typed-session, and explicit boundary models.
+
 ## Main Loop
 
 `Engine::run` loops while `m_running` and calls `tick`.
