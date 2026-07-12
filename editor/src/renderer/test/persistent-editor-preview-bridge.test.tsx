@@ -37,18 +37,21 @@ const previewControllerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: (_options: { onMessage: (message: PreviewToEditorMessage) => void }) => ({
-    iframeRef: { current: null },
-    iframeKey: 0,
-    iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
-    loadPreviewDocument: previewControllerMocks.loadPreviewDocument,
-    loadSession: previewControllerMocks.loadSession,
-    requestPreviewState: previewControllerMocks.requestPreviewState,
-    reset: previewControllerMocks.reset,
-    setPreviewActivity: previewControllerMocks.setPreviewActivity,
-    setPreviewMode: previewControllerMocks.setPreviewMode,
-    setPreviewWheelRouting: previewControllerMocks.setPreviewWheelRouting,
-  }),
+  useEnginePreview: (options: { onMessage: (message: PreviewToEditorMessage) => void; onReady?: () => void }) => {
+    queueMicrotask(() => options.onReady?.());
+    return {
+      iframeRef: { current: null },
+      iframeKey: 0,
+      iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
+      loadPreviewDocument: previewControllerMocks.loadPreviewDocument,
+      loadSession: previewControllerMocks.loadSession,
+      requestPreviewState: previewControllerMocks.requestPreviewState,
+      reset: previewControllerMocks.reset,
+      setPreviewActivity: previewControllerMocks.setPreviewActivity,
+      setPreviewMode: previewControllerMocks.setPreviewMode,
+      setPreviewWheelRouting: previewControllerMocks.setPreviewWheelRouting,
+    };
+  },
 }));
 
 vi.mock('@/components/engine-preview-host', () => ({

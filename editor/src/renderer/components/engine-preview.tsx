@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { latestPreviewReplay, previewDocumentTarget, useEnginePreviewStatusBridge } from '@/components/engine-preview-status-bridge';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
@@ -65,8 +65,14 @@ export function EnginePreview({
   const fpsCap = usePreferencesStore((s) => s.previewFpsCap);
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
   const projectDocument = useProjectStore((s) => s.document);
-  const projectDisplay = isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument).display : undefined;
-  const effectiveDisplay = effectivePreviewDisplay(previewDisplay, projectDisplay);
+  const projectDisplay = useMemo(
+    () => isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument).display : undefined,
+    [projectDocument],
+  );
+  const effectiveDisplay = useMemo(
+    () => effectivePreviewDisplay(previewDisplay, projectDisplay),
+    [previewDisplay, projectDisplay],
+  );
   const scalingMode = embedded ? previewDisplay.scaling.pooled : previewDisplay.scaling.play;
   const setFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);

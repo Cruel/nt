@@ -52,6 +52,11 @@ a persistent editor using such a preview transfers only its pool lease when it
 moves. The full lifecycle and placement contract is documented in
 `docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
 
+A newly claimed pooled lease must wait for that iframe's `ready` event before
+sending its display, mode, or document payload. A warm host retains its ready
+state across lease changes, so switching between widget tabs does not introduce
+another startup wait.
+
 ## Electron IPC
 
 The renderer asks the Electron main process for a preview session through the

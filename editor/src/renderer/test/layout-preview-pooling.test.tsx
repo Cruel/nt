@@ -21,10 +21,11 @@ const previewControllers = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: (options: { onMessage?: (message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void } = {}) => {
+  useEnginePreview: (options: { onMessage?: (message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void; onReady?: () => void } = {}) => {
     previewControllers.created += 1;
     const hostIndex = previewControllers.created;
     if (options.onMessage) previewControllers.onMessages.push(options.onMessage);
+    queueMicrotask(() => options.onReady?.());
     return {
       iframeRef: { current: null },
       iframeKey: hostIndex,

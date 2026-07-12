@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -225,6 +226,40 @@ describe('EnginePreview', () => {
       },
       scaling: { mode: 'responsive', logicalSize: null },
     });
+  });
+
+  it('does not resend the display profile when unrelated preview UI state rerenders', async () => {
+    function RerenderingPreview() {
+      const [revision, setRevision] = useState(0);
+      return (
+        <>
+          <button type="button" onClick={() => setRevision((current) => current + 1)}>Rerender {revision}</button>
+          <EnginePreview />
+        </>
+      );
+    }
+
+    render(<RerenderingPreview />);
+    const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }));
+      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
+    const editorPort = ports.at(-2)!;
+    await waitFor(() => expect(latestRequest(editorPort, 'set-preview-display-profile')).toBeDefined());
+    const displayProfileCount = editorPort.sent.filter((message) => (
+      (message as { type?: string }).type === 'set-preview-display-profile'
+    )).length;
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Rerender 0' }));
+
+    expect(editorPort.sent.filter((message) => (
+      (message as { type?: string }).type === 'set-preview-display-profile'
+    ))).toHaveLength(displayProfileCount);
   });
 
   it('updates capabilities from ready and capabilities messages', async () => {

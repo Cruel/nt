@@ -19,7 +19,9 @@ const previewControllerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: () => ({
+  useEnginePreview: (options: { onReady?: () => void } = {}) => {
+    queueMicrotask(() => options.onReady?.());
+    return ({
     iframeRef: { current: null },
     iframeKey: 0,
     iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
@@ -32,7 +34,8 @@ vi.mock('@/hooks/use-engine-preview', () => ({
     setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
     setPreviewMode: previewControllerMocks.setPreviewMode,
     loadPreviewDocument: previewControllerMocks.loadPreviewDocument,
-  }),
+    });
+  },
 }));
 
 vi.mock('@/components/engine-preview-host', () => ({

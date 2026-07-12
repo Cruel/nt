@@ -17,11 +17,17 @@ const previewControllerMocks = vi.hoisted(() => ({
   setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
   requestPreviewState: vi.fn().mockResolvedValue(undefined),
   onMessages: [] as Array<(message: PreviewToEditorMessage) => void>,
+  onReadies: [] as Array<() => void>,
+  autoReady: true,
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: (options: { onMessage: (message: PreviewToEditorMessage) => void }) => {
+  useEnginePreview: (options: { onMessage: (message: PreviewToEditorMessage) => void; onReady?: () => void }) => {
     previewControllerMocks.onMessages.push(options.onMessage);
+    if (options.onReady) {
+      previewControllerMocks.onReadies.push(options.onReady);
+      if (previewControllerMocks.autoReady) queueMicrotask(options.onReady);
+    }
     return {
       iframeRef: { current: null },
       iframeKey: 0,
@@ -172,6 +178,8 @@ beforeEach(() => {
   previewControllerMocks.setPreviewWheelRouting.mockClear();
   previewControllerMocks.requestPreviewState.mockClear();
   previewControllerMocks.onMessages = [];
+  previewControllerMocks.onReadies = [];
+  previewControllerMocks.autoReady = true;
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -525,6 +533,23 @@ describe('PreviewHostPool', () => {
       return 'sent';
     })).resolves.toBe('sent');
     expect(attempts).toBe(2);
+  });
+
+  it('holds a first pooled lease command until the iframe reports ready', async () => {
+    previewControllerMocks.autoReady = false;
+    let lease: PreviewHostLease | null = null;
+    render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main', onLease: (next) => { lease = next; } }]} />);
+    await waitFor(() => expect(lease).not.toBeNull());
+    await waitFor(() => expect(previewControllerMocks.onReadies).toHaveLength(1));
+
+    const command = vi.fn().mockResolvedValue('loaded');
+    const pending = lease!.send(command);
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(command).not.toHaveBeenCalled();
+
+    act(() => previewControllerMocks.onReadies[0]!());
+    await expect(pending).resolves.toBe('loaded');
+    expect(command).toHaveBeenCalledTimes(1);
   });
 
   it('rejects sends from stale leases after release', async () => {

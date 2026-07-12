@@ -63,6 +63,7 @@ export interface PreviewHostPoolApi {
   activeTabId: string | null;
   layerRef: RefObject<HTMLDivElement | null>;
   claimHost: (request: PreviewHostClaimRequest) => PreviewHostLease;
+  markHostReady: (hostId: string) => void;
   releaseHost: (leaseId: string) => void;
   revealHost: (leaseId: string) => void;
   updateHostRect: (leaseId: string, rect: PreviewHostRect | undefined) => void;
@@ -140,6 +141,7 @@ function isPreviewNotConnectedError(error: unknown) {
 function PreviewHostSlot({
   host,
   registerController,
+  markHostReady,
   registerHostElement,
   routeWheel,
   onActivateOwnerTab,
@@ -147,6 +149,7 @@ function PreviewHostSlot({
 }: {
   host: PreviewHostRecord;
   registerController: (hostId: string, controller: EnginePreviewController | null) => void;
+  markHostReady: (hostId: string) => void;
   registerHostElement: (hostId: string, element: HTMLElement | null) => void;
   routeWheel: (hostId: string, message: PreviewWheelMessage) => void;
   onActivateOwnerTab?: (ownerTabId: string) => void;
@@ -184,7 +187,7 @@ function PreviewHostSlot({
   const controller = useEnginePreview({
     embedded: true,
     wheelPolicy: 'editor-scroll',
-    onReady: () => undefined,
+    onReady: () => markHostReady(host.hostId),
     onMessage: handlePreviewMessage,
     onError: () => undefined,
   });
@@ -309,6 +312,7 @@ export function PreviewHostPoolProvider({
 }) {
   const layerRef = useRef<HTMLDivElement | null>(null);
   const controllersRef = useRef(new Map<string, EnginePreviewController>());
+  const readyHostIdsRef = useRef(new Set<string>());
   const hostElementsRef = useRef(new Map<string, HTMLElement>());
   const placeholdersByLeaseRef = useRef(new Map<string, HTMLElement>());
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
@@ -321,6 +325,10 @@ export function PreviewHostPoolProvider({
   const registerController = useCallback((hostId: string, controller: EnginePreviewController | null) => {
     if (controller) controllersRef.current.set(hostId, controller);
     else controllersRef.current.delete(hostId);
+  }, []);
+
+  const markHostReady = useCallback((hostId: string) => {
+    readyHostIdsRef.current.add(hostId);
   }, []);
 
   const registerHostElement = useCallback((hostId: string, element: HTMLElement | null) => {
@@ -413,7 +421,7 @@ export function PreviewHostPoolProvider({
           return;
         }
         const controller = controllersRef.current.get(hostId);
-        if (controller) {
+        if (controller && readyHostIdsRef.current.has(hostId)) {
           resolve(controller);
           return;
         }
@@ -563,11 +571,12 @@ export function PreviewHostPoolProvider({
     activeTabId,
     layerRef,
     claimHost,
+    markHostReady,
     releaseHost,
     revealHost,
     updateHostRect,
     registerPlaceholder,
-  }), [activeTabId, claimHost, registerPlaceholder, releaseHost, revealHost, updateHostRect]);
+  }), [activeTabId, claimHost, markHostReady, registerPlaceholder, releaseHost, revealHost, updateHostRect]);
 
   return (
     <PreviewHostPoolContext.Provider value={value}>
@@ -578,6 +587,7 @@ export function PreviewHostPoolProvider({
             key={host.hostId}
             host={host}
             registerController={registerController}
+            markHostReady={markHostReady}
             registerHostElement={registerHostElement}
             routeWheel={routeWheel}
             onActivateOwnerTab={onActivateOwnerTab}

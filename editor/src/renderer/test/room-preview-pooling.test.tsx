@@ -17,8 +17,9 @@ const previewControllers = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: () => {
+  useEnginePreview: (options: { onReady?: () => void } = {}) => {
     previewControllers.created += 1;
+    queueMicrotask(() => options.onReady?.());
     return {
       iframeRef: { current: null },
       iframeKey: previewControllers.created,
