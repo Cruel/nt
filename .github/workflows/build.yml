@@ -301,9 +301,16 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up MSVC developer environment
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: x64
+
+      - name: Restore repository-managed vcpkg environment
+        shell: pwsh
+        run: |
+          # The MSVC developer environment may expose Visual Studio's bundled
+          # vcpkg. Keep CI on the cached checkout used by this repository.
+          "VCPKG_ROOT=${{ github.workspace }}/.cache/vcpkg" >> $env:GITHUB_ENV
 
       - name: Cache vcpkg SDK and binaries
         uses: actions/cache@v5
@@ -712,12 +719,12 @@ jobs:
           force-avd-creation: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
           emulator-boot-timeout: 600
-          script: |
-            apk_v1=$(find android-fixture-v1 -name '*.apk' -print -quit)
-            apk_v2=$(find android-fixture-v2 -name '*.apk' -print -quit)
-            test -n "$apk_v1"
-            test -n "$apk_v2"
-            .github/android-emulator-smoke.sh "$apk_v1" "$apk_v2"
+          # android-emulator-runner executes each newline as a separate shell command,
+          # so variable assignments cannot be shared across lines here.
+          script: >-
+            .github/android-emulator-smoke.sh
+            "$(find android-fixture-v1 -name '*.apk' -print -quit)"
+            "$(find android-fixture-v2 -name '*.apk' -print -quit)"
 
   editor:
     name: Editor / Electron
