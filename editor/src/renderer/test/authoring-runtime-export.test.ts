@@ -5,7 +5,7 @@ import { defaultExportProfile } from '../../shared/project-schema/authoring-expo
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
 import { buildAuthoringRuntimeExport } from '../../shared/project-schema/authoring-runtime-export';
 import { defaultRoomData, roomAssetRef, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
-import { defaultSceneData, defaultSceneStep, sceneRoomRef } from '../../shared/project-schema/authoring-scenes';
+import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 
 function roomProject() {
@@ -140,18 +140,14 @@ describe('authoring runtime export builder', () => {
     ]));
   });
 
-  it('exports scenes as runtime cutscenes and allows a scene entrypoint', () => {
+  it('exports typed scenes through the transitional runtime adapter', () => {
     const project = roomProject();
     const scene = defaultSceneData('Opening');
-    scene.settings.next = sceneRoomRef('kitchen');
+    scene.continuation = { kind: 'room', id: 'kitchen' };
     scene.steps = [
-      { ...defaultSceneStep('comment', 'Opening line'), comment: { source: 'The room fades in.' } },
-      {
-        ...defaultSceneStep('wait', 'Pause'),
-        wait: { mode: 'input', durationMs: 0 },
-        timing: { delayMs: 0, durationMs: 0, waitForInput: true, canSkip: true },
-      },
-      { ...defaultSceneStep('comment', 'Second line'), id: 'second-line', comment: { source: 'A kettle sings.' } },
+      { ...defaultSceneStep('comment', 'Opening line'), text: 'The room fades in.' },
+      { id: 'pause', type: 'wait', label: 'Pause', enabled: true, waitKind: 'input', skippable: true },
+      { ...defaultSceneStep('show-text', 'Second line'), id: 'second-line', text: { source: { kind: 'inline', text: 'A kettle sings.' }, markup: 'active-text' } },
     ];
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     project.entrypoint = { kind: 'scene', id: 'opening' };
@@ -173,10 +169,10 @@ describe('authoring runtime export builder', () => {
     const scene = defaultSceneData('Opening');
     scene.steps = [
       {
-        ...defaultSceneStep('background', 'Show background'),
-        background: { asset: null, material: null, color: '#000000', fit: 'cover', transition: 'fade' },
+        ...defaultSceneStep('set-background', 'Show background'),
+        color: '#000000',
       },
-      { ...defaultSceneStep('transition', 'Fade'), transition: { kind: 'fade', durationMs: 500, color: '#000000' } },
+      { ...defaultSceneStep('transition', 'Fade'), durationMs: 500, color: '#000000' },
     ];
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     project.entrypoint = { kind: 'scene', id: 'opening' };

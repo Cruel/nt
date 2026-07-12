@@ -202,9 +202,9 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const assetId = selected(draft.options.backgroundAssetId);
       const materialId = selected(draft.options.materialId);
       const layoutId = selected(draft.options.layoutId);
-      if (assetId) data.defaults.background.asset = ref('assets', assetId);
-      if (materialId) data.defaults.background.material = ref('materials', materialId);
-      if (layoutId) data.defaults.layout = ref('layouts', layoutId);
+      if (assetId) data.defaultBackground.asset = ref('assets', assetId);
+      if (materialId) data.defaultBackground.material = ref('materials', materialId);
+      if (layoutId) data.defaultLayout = ref('layouts', layoutId);
       return { data };
     },
   },

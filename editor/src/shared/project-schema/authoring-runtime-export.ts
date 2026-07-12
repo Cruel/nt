@@ -109,9 +109,9 @@ function buildScenes(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
     const data = parseSceneData(record.data);
     if (!data) { diagnostics.push(diagnostic(`/scenes/${id}/data`, `Scene '${id}' has invalid scene data.`)); return []; }
     data.steps.forEach((step, index) => {
-      if (!['comment', 'wait', 'script', 'dialogue', 'layout'].includes(step.type)) diagnostics.push(diagnostic(`/scenes/${id}/data/steps/${index}`, `Scene step '${step.type}' requires a future typed action payload.`, 'warning'));
+      if (!['comment', 'show-text', 'wait', 'run-lua', 'call-dialogue', 'set-layout'].includes(step.type)) diagnostics.push(diagnostic(`/scenes/${id}/data/steps/${index}`, `Scene step '${step.type}' is not supported by the transitional runtime adapter.`, 'warning'));
     });
-    return [{ id, steps: data.steps.filter((step) => step.enabled).map((step) => step.id) }];
+    return [{ id, steps: data.steps.filter((step) => !('enabled' in step) || step.enabled).map((step) => step.id) }];
   });
 }
 function buildScripts(project: AuthoringProject) {

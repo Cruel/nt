@@ -5,45 +5,24 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultSceneData, defaultSceneStep, sceneDialogueRef } from '../../shared/project-schema/authoring-scenes';
 
 describe('scene commands', () => {
-  it('creates typed scene data through entity.createRecord', () => {
-    const project = createAuthoringProject();
-    const state = createInitialCommandBusState(toJsonValue(project));
-
-    const result = executeCommand(state, {
-      type: 'entity.createRecord',
-      payload: { collection: 'scenes', entityId: 'opening', label: 'Opening' },
-    });
-
+  it('creates a strict scene record', () => {
+    const state = createInitialCommandBusState(toJsonValue(createAuthoringProject()));
+    const result = executeCommand(state, { type: 'entity.createRecord', payload: { collection: 'scenes', entityId: 'opening', label: 'Opening' } });
     expect(result.ok).toBe(true);
-    expect(result.document).toMatchObject({
-      scenes: { opening: { data: { kind: 'scene', displayName: 'Opening', steps: [{ id: 'start', type: 'comment' }] } } },
-    });
+    expect(result.document).toMatchObject({ scenes: { opening: { data: { kind: 'scene', continuation: { kind: 'end' }, steps: [{ type: 'comment' }] } } } });
   });
 
-  it('patches valid scene data and rejects error diagnostics', () => {
+  it('rejects invalid references and supports undo for valid replacements', () => {
     const project = createAuthoringProject();
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     let state = createInitialCommandBusState(toJsonValue(project));
-
-    const invalidData = defaultSceneData('Opening');
-    invalidData.steps = [{ ...defaultSceneStep('dialogue'), id: 'dialogue', label: 'Dialogue', dialogue: { ...defaultSceneStep('dialogue').dialogue, dialogue: sceneDialogueRef('missing') } }];
-    const invalid = executeCommand(state, {
-      type: 'scene.replaceData',
-      payload: { sceneId: 'opening', data: invalidData },
-    });
-    expect(invalid.ok).toBe(false);
-
-    const next = defaultSceneData('Opening');
-    next.displayName = 'Opening Scene';
-    next.steps.push({ ...defaultSceneStep('wait'), id: 'wait', label: 'Wait' });
-    const valid = executeCommand(state, {
-      type: 'scene.replaceData',
-      label: 'Set scene data',
-      payload: { sceneId: 'opening', data: next },
-    });
+    const invalid = defaultSceneData('Opening');
+    invalid.steps = [{ ...defaultSceneStep('call-dialogue'), dialogue: sceneDialogueRef('missing') }];
+    expect(executeCommand(state, { type: 'scene.replaceData', payload: { sceneId: 'opening', data: invalid } }).ok).toBe(false);
+    const next = defaultSceneData('Opening Scene');
+    next.steps.push({ ...defaultSceneStep('wait'), id: 'wait' });
+    const valid = executeCommand(state, { type: 'scene.replaceData', label: 'Set scene data', payload: { sceneId: 'opening', data: next } });
     expect(valid.ok).toBe(true);
-    expect(valid.document).toMatchObject({ scenes: { opening: { data: { displayName: 'Opening Scene', steps: [expect.anything(), expect.objectContaining({ id: 'wait' })] } } } });
-
     state = valid.state;
     expect(undoCommand(state).document).toMatchObject({ scenes: { opening: { data: { displayName: 'Opening' } } } });
   });

@@ -1,101 +1,86 @@
 import { describe, expect, it } from 'vitest';
-import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
-import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
-import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
-import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
-  defaultSceneData,
-  defaultSceneStep,
-  sceneAssetRef,
-  sceneCharacterRef,
-  sceneDialogueRef,
-  sceneLayoutRef,
-  sceneMaterialRef,
-  sceneVariableRef,
-  validateSceneData,
+  defaultSceneData, defaultSceneStep, sceneAssetRef, sceneDataSchema, sceneDialogueRef,
+  sceneMaterialRef, sceneStepDataSchema, sceneVariableRef, validateSceneData,
 } from '../../shared/project-schema/authoring-scenes';
-import { buildScenePreviewDocumentData, scenePreviewRevision } from '../../shared/project-schema/scene-project';
+import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
+import { buildScenePreviewDocumentData } from '../../shared/project-schema/scene-project';
 
-describe('authoring scenes schema', () => {
-  it('provides typed scene defaults', () => {
-    expect(defaultSceneData('Opening')).toMatchObject({
-      kind: 'scene',
-      displayName: 'Opening',
-      settings: { fullScreen: true, canFastForward: true, speedFactor: 1 },
-      steps: [{ id: 'start', type: 'comment', label: 'Start' }],
-      preview: { selectedStepId: 'start', playback: 'from-start' },
-    });
+describe('authoring scenes v2', () => {
+  it('creates a strict scene with editor state excluded', () => {
+    const data = defaultSceneData('Opening');
+    expect(data).toEqual(expect.objectContaining({
+      kind: 'scene', displayName: 'Opening', continuation: { kind: 'end' },
+      steps: [{ id: 'start', type: 'comment', label: 'Start', text: '' }],
+    }));
+    expect(data).not.toHaveProperty('preview');
+    expect(data).not.toHaveProperty('settings');
   });
 
-  it('validates active references and branch targets', () => {
+  it('rejects inactive payloads and unknown nested fields', () => {
+    expect(sceneStepDataSchema.safeParse({
+      ...defaultSceneStep('wait'),
+      background: { color: '#fff' },
+    }).success).toBe(false);
+    expect(sceneDataSchema.safeParse({
+      ...defaultSceneData(),
+      defaultBackground: { ...defaultSceneData().defaultBackground, previewOnly: true },
+    }).success).toBe(false);
+  });
+
+  it('creates valid defaults for every standalone step variant', () => {
+    expect(sceneStepDataSchema.safeParse(defaultSceneStep('run-lua')).success).toBe(true);
+    expect(defaultSceneStep('run-lua')).toMatchObject({ source: '-- Lua' });
+  });
+
+  it('validates references, branch targets, and continuation targets', () => {
     const project = createAuthoringProject();
     const data = defaultSceneData('Opening');
     data.steps = [
-      { ...defaultSceneStep('background'), id: 'start', label: 'Start', background: { ...defaultSceneStep('background').background, asset: sceneAssetRef('missing-asset') } },
-      { ...defaultSceneStep('dialogue'), id: 'dialogue', label: 'Dialogue', dialogue: { ...defaultSceneStep('dialogue').dialogue, dialogue: sceneDialogueRef('missing-dialogue') } },
-      { ...defaultSceneStep('branch'), id: 'branch', label: 'Branch', branch: { choices: [
-        { id: 'choice', label: '', targetStepId: 'missing-step', condition: { enabled: true, source: '' }, order: 0 },
-        { id: 'choice', label: 'Duplicate', targetStepId: 'start', condition: { enabled: false, source: '' }, order: 0 },
-      ] } },
+      { ...defaultSceneStep('call-dialogue'), id: 'dialogue', dialogue: sceneDialogueRef('missing') },
+      { ...defaultSceneStep('conditional-branch'), id: 'branch', fallbackStepId: 'missing', branches: [{ id: 'arm', condition: { kind: 'always' }, targetStepId: 'missing' }] },
     ];
+    data.continuation = { kind: 'room', id: 'missing-room' };
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
-
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/scenes/opening/data/steps/0/background/asset/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/scenes/opening/data/steps/1/dialogue/dialogue/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/scenes/opening/data/steps/2/branch/choices/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/scenes/opening/data/steps/2/branch/choices/0/label', severity: 'error' }),
-      expect.objectContaining({ path: '/scenes/opening/data/steps/2/branch/choices/0/targetStepId', severity: 'error' }),
-      expect.objectContaining({ path: '/scenes/opening/data/steps/2/branch/choices/0/condition/source', severity: 'warning' }),
+      expect.objectContaining({ path: '/scenes/opening/data/steps/0/dialogue' }),
+      expect.objectContaining({ path: '/scenes/opening/data/steps/1/branches/0/targetStepId' }),
+      expect.objectContaining({ path: '/scenes/opening/data/steps/1/fallbackStepId' }),
+      expect.objectContaining({ path: '/scenes/opening/data/continuation/id' }),
     ]));
   });
 
-  it('reports scene diagnostics through project validation', () => {
+  it('validates all scene references, nested IDs, and variable value types', () => {
     const project = createAuthoringProject();
-    const data = defaultSceneData('Opening');
-    data.steps[0]!.condition = { enabled: true, source: '' };
-    project.scenes.opening = { id: 'opening', label: 'Opening', data };
-
-    expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'authoring-scenes', path: '/scenes/opening/data/steps/0/condition/source', severity: 'warning' }),
-    ]));
-  });
-
-  it('builds scene preview documents with resolved references', () => {
-    const project = createAuthoringProject();
-    project.assets.bg = { id: 'bg', label: 'Background', data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/images/bg.png', contentHash: 'bg-hash' }) };
-    project.assets.music = { id: 'music', label: 'Music', data: assetDataFromImportMetadata({ kind: 'audio', projectRelativePath: 'assets/audio/music.mp3', contentHash: 'music-hash' }) };
-    project.materials.fade = { id: 'fade', label: 'Fade', data: defaultMaterialData('Fade') };
-    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
-    project.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', data: defaultDialogueData('Intro Dialogue') };
-    project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD') };
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
-
-    const data = defaultSceneData('Opening');
-    data.defaults.background.asset = sceneAssetRef('bg');
-    data.defaults.background.material = sceneMaterialRef('fade');
-    data.defaults.layout = sceneLayoutRef('hud');
+    const data = defaultSceneData();
+    data.defaultBackground.asset = sceneAssetRef('missing-asset');
+    data.defaultBackground.material = sceneMaterialRef('missing-material');
     data.steps = [
-      { ...defaultSceneStep('background'), id: 'background', label: 'Background', background: { ...defaultSceneStep('background').background, asset: sceneAssetRef('bg') } },
-      { ...defaultSceneStep('character'), id: 'character', label: 'Show Iris', character: { ...defaultSceneStep('character').character, character: sceneCharacterRef('iris'), poseId: 'default', expressionId: 'neutral' } },
-      { ...defaultSceneStep('dialogue'), id: 'dialogue', label: 'Dialogue', dialogue: { ...defaultSceneStep('dialogue').dialogue, dialogue: sceneDialogueRef('intro'), startBlockId: 'start' } },
-      { ...defaultSceneStep('audio'), id: 'audio', label: 'Music', audio: { ...defaultSceneStep('audio').audio, asset: sceneAssetRef('music') } },
-      { ...defaultSceneStep('variable'), id: 'variable', label: 'Set Flag', variable: { ...defaultSceneStep('variable').variable, variable: sceneVariableRef('flag'), value: true } },
+      { ...defaultSceneStep('set-variable'), id: 'set', variable: sceneVariableRef('flag'), value: 'wrong' },
+      { ...defaultSceneStep('choice'), id: 'choice', options: [
+        { id: 'same', label: { source: { kind: 'inline', text: 'One' }, markup: 'plain' }, effects: [], targetStepId: 'set' },
+        { id: 'same', label: { source: { kind: 'inline', text: 'Two' }, markup: 'plain' }, effects: [{ kind: 'set-variable', variable: sceneVariableRef('flag'), value: 1 }], targetStepId: 'set' },
+      ] },
     ];
-    data.preview.selectedStepId = 'dialogue';
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
+    expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/scenes/opening/data/defaultBackground/asset' }),
+      expect.objectContaining({ path: '/scenes/opening/data/defaultBackground/material' }),
+      expect.objectContaining({ path: '/scenes/opening/data/steps/0/value' }),
+      expect.objectContaining({ path: '/scenes/opening/data/steps/1/options/1/id' }),
+      expect.objectContaining({ path: '/scenes/opening/data/steps/1/options/1/effects/0/value' }),
+    ]));
+  });
 
-    expect(scenePreviewRevision(project, 'opening')).toContain('bg-hash');
-    expect(buildScenePreviewDocumentData(project, 'opening')).toMatchObject({
-      schema: 'noveltea.scene-preview.v1',
-      sceneId: 'opening',
-      selectedStepId: 'dialogue',
-      selectedStep: { activePayload: { dialogueMetadata: expect.objectContaining({ id: 'intro', blockId: 'start' }) } },
-      state: { characters: [expect.objectContaining({ characterMetadata: expect.objectContaining({ id: 'iris' }) })] },
+  it('builds preview data from editor-owned selection', () => {
+    const project = createAuthoringProject();
+    const data = defaultSceneData('Opening');
+    data.steps.push({ ...defaultSceneStep('show-text'), id: 'line', text: { source: { kind: 'inline', text: 'Hello' }, markup: 'active-text' } });
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
+    expect(buildScenePreviewDocumentData(project, 'opening', 'line')).toMatchObject({
+      schema: 'noveltea.scene-preview.v2', selectedStepId: 'line', selectedStep: { type: 'show-text' },
     });
   });
 });

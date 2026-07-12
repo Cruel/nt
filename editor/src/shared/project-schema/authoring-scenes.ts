@@ -1,25 +1,14 @@
 import { z } from 'zod';
-import { parseAssetData } from './authoring-assets';
-import { parseCharacterData } from './authoring-characters';
-import { parseDialogueData } from './authoring-dialogues';
-import { parseLayoutData } from './authoring-layouts';
-import { parseMaterialData } from './authoring-materials';
-import { parseVariableData } from './authoring-variables';
 import { entityIdSchema } from './authoring-common';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { isVariableDefaultValueCompatible, parseVariableData } from './authoring-variables';
+
+const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 export const sceneStepTypeValues = [
-  'background',
-  'character',
-  'dialogue',
-  'audio',
-  'variable',
-  'script',
-  'wait',
-  'branch',
-  'layout',
-  'transition',
-  'comment',
+  'set-background', 'actor-cue', 'call-dialogue', 'show-text', 'audio-cue',
+  'set-variable', 'run-lua', 'wait', 'conditional-branch', 'choice',
+  'set-layout', 'transition', 'comment',
 ] as const;
 export type SceneStepType = (typeof sceneStepTypeValues)[number];
 
@@ -28,364 +17,277 @@ export const sceneBackgroundTransitionValues = ['none', 'fade', 'cut'] as const;
 export const sceneCharacterActionValues = ['show', 'hide', 'move', 'pose', 'expression'] as const;
 export const sceneCharacterPositionValues = ['left', 'center', 'right', 'custom'] as const;
 export const sceneCharacterTransitionValues = ['none', 'fade', 'slide'] as const;
-export const sceneDialogueModeValues = ['play', 'preview-block'] as const;
 export const sceneAudioChannelValues = ['sound-effect', 'music', 'voice', 'ambient'] as const;
 export const sceneAudioActionValues = ['play', 'stop', 'fade-in', 'fade-out'] as const;
-export const sceneVariableOperationValues = ['set', 'check'] as const;
-export const sceneVariableComparisonValues = ['equals', 'not-equals', 'greater-than', 'less-than', 'truthy', 'falsy'] as const;
-export const sceneWaitModeValues = ['duration', 'input'] as const;
 export const sceneLayoutActionValues = ['show', 'hide', 'swap'] as const;
 export const sceneLayoutSlotValues = ['hud', 'dialogue-box', 'overlay', 'custom'] as const;
 export const sceneTransitionKindValues = ['fade', 'cut', 'dissolve'] as const;
-export const scenePreviewPlaybackValues = ['from-start', 'from-selected'] as const;
-export const scenePreviewBackgroundValues = ['dark', 'light', 'checker'] as const;
 
-export const sceneAssetRefSchema = z.object({ $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }) });
-export const sceneMaterialRefSchema = z.object({ $ref: z.object({ collection: z.literal('materials'), id: z.string().min(1) }) });
-export const sceneCharacterRefSchema = z.object({ $ref: z.object({ collection: z.literal('characters'), id: z.string().min(1) }) });
-export const sceneDialogueRefSchema = z.object({ $ref: z.object({ collection: z.literal('dialogues'), id: z.string().min(1) }) });
-export const sceneLayoutRefSchema = z.object({ $ref: z.object({ collection: z.literal('layouts'), id: z.string().min(1) }) });
-export const sceneVariableRefSchema = z.object({ $ref: z.object({ collection: z.literal('variables'), id: z.string().min(1) }) });
-export const sceneRoomRefSchema = z.object({ $ref: z.object({ collection: z.literal('rooms'), id: z.string().min(1) }) });
-export const sceneSceneRefSchema = z.object({ $ref: z.object({ collection: z.literal('scenes'), id: z.string().min(1) }) });
-export const sceneNextTargetSchema = z.union([sceneSceneRefSchema, sceneRoomRefSchema, sceneDialogueRefSchema]);
-
-export const sceneConditionDataSchema = z.object({ enabled: z.boolean().default(false), source: z.string().default('') });
-export const sceneTimingDataSchema = z.object({
-  delayMs: z.number().finite().nonnegative().default(0),
-  durationMs: z.number().finite().nonnegative().default(1000),
-  waitForInput: z.boolean().default(false),
-  canSkip: z.boolean().default(true),
+const typedRef = <Collection extends string>(collection: Collection) => strict({
+  $ref: strict({ collection: z.literal(collection), id: entityIdSchema }),
 });
-export const sceneAutosaveDataSchema = z.object({ before: z.boolean().default(false), after: z.boolean().default(false) });
-export const sceneVector2Schema = z.object({ x: z.number().finite().default(0), y: z.number().finite().default(0) });
+export const sceneAssetRefSchema = typedRef('assets');
+export const sceneMaterialRefSchema = typedRef('materials');
+export const sceneCharacterRefSchema = typedRef('characters');
+export const sceneDialogueRefSchema = typedRef('dialogues');
+export const sceneLayoutRefSchema = typedRef('layouts');
+export const sceneVariableRefSchema = typedRef('variables');
+export const sceneRoomRefSchema = typedRef('rooms');
+export const sceneSceneRefSchema = typedRef('scenes');
+export const sceneScriptRefSchema = typedRef('scripts');
 
-export const sceneBackgroundStepDataSchema = z.object({
-  asset: sceneAssetRefSchema.nullable().default(null),
-  material: sceneMaterialRefSchema.nullable().default(null),
-  color: z.string().nullable().default(null),
-  fit: z.enum(sceneBackgroundFitValues).default('cover'),
-  transition: z.enum(sceneBackgroundTransitionValues).default('fade'),
-});
+export const sceneFlowTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('scene'), id: entityIdSchema }),
+  strict({ kind: z.literal('dialogue'), id: entityIdSchema }),
+  strict({ kind: z.literal('room'), id: entityIdSchema }),
+  strict({ kind: z.literal('return') }),
+  strict({ kind: z.literal('end') }),
+]);
 
-export const sceneCharacterStepDataSchema = z.object({
-  character: sceneCharacterRefSchema.nullable().default(null),
-  action: z.enum(sceneCharacterActionValues).default('show'),
-  poseId: entityIdSchema.nullable().default(null),
-  expressionId: entityIdSchema.nullable().default(null),
-  position: z.enum(sceneCharacterPositionValues).default('center'),
-  offset: sceneVector2Schema.default({ x: 0, y: 0 }),
-  scale: z.number().finite().positive().default(1),
-  transition: z.enum(sceneCharacterTransitionValues).default('fade'),
+export const sceneTextSourceSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('inline'), text: z.string() }),
+  strict({ kind: z.literal('localized'), key: entityIdSchema }),
+  strict({ kind: z.literal('lua-expression'), source: z.string().min(1) }),
+]);
+export const sceneTextContentSchema = strict({
+  source: sceneTextSourceSchema,
+  markup: z.enum(['plain', 'active-text']),
 });
 
-export const sceneDialogueStepDataSchema = z.object({
-  dialogue: sceneDialogueRefSchema.nullable().default(null),
-  startBlockId: entityIdSchema.nullable().default(null),
-  mode: z.enum(sceneDialogueModeValues).default('play'),
-});
+export const sceneConditionSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('always') }),
+  strict({
+    kind: z.literal('variable-comparison'),
+    variable: sceneVariableRefSchema,
+    operator: z.enum(['equal', 'not-equal', 'less', 'less-equal', 'greater', 'greater-equal', 'truthy', 'falsy']),
+    value: z.union([z.null(), z.boolean(), z.number().finite(), z.string()]).optional(),
+  }),
+  strict({ kind: z.literal('lua-predicate'), source: z.string().min(1) }),
+]);
 
-export const sceneAudioStepDataSchema = z.object({
-  asset: sceneAssetRefSchema.nullable().default(null),
-  channel: z.enum(sceneAudioChannelValues).default('sound-effect'),
-  action: z.enum(sceneAudioActionValues).default('play'),
-  loop: z.boolean().default(false),
-  volume: z.number().finite().min(0).max(1).default(1),
-  fadeMs: z.number().finite().nonnegative().default(0),
-});
+export const sceneEffectSchema = z.discriminatedUnion('kind', [
+  strict({
+    kind: z.literal('set-variable'),
+    variable: sceneVariableRefSchema,
+    value: z.union([z.null(), z.boolean(), z.number().finite(), z.string()]),
+  }),
+  strict({ kind: z.literal('run-lua-effect'), source: z.string().min(1) }),
+]);
 
-export const sceneVariableStepDataSchema = z.object({
-  variable: sceneVariableRefSchema.nullable().default(null),
-  operation: z.enum(sceneVariableOperationValues).default('set'),
-  value: z.unknown().default(false),
-  comparison: z.enum(sceneVariableComparisonValues).default('equals'),
-});
-
-export const sceneScriptStepDataSchema = z.object({ source: z.string().default(''), comment: z.string().default('') });
-export const sceneWaitStepDataSchema = z.object({ mode: z.enum(sceneWaitModeValues).default('duration'), durationMs: z.number().finite().nonnegative().default(1000) });
-export const sceneBranchChoiceDataSchema = z.object({
+const commonRuntimeStep = {
   id: entityIdSchema,
-  label: z.string().default(''),
-  targetStepId: entityIdSchema.nullable().default(null),
-  condition: sceneConditionDataSchema.default({ enabled: false, source: '' }),
-  order: z.number().int().nonnegative().default(0),
-});
-export const sceneBranchStepDataSchema = z.object({ choices: z.array(sceneBranchChoiceDataSchema).default([]) });
-export const sceneLayoutStepDataSchema = z.object({
-  layout: sceneLayoutRefSchema.nullable().default(null),
-  action: z.enum(sceneLayoutActionValues).default('show'),
-  slot: z.enum(sceneLayoutSlotValues).default('overlay'),
-});
-export const sceneTransitionStepDataSchema = z.object({
-  kind: z.enum(sceneTransitionKindValues).default('fade'),
-  durationMs: z.number().finite().nonnegative().default(1000),
-  color: z.string().nullable().default(null),
-});
-export const sceneCommentStepDataSchema = z.object({ source: z.string().default('') });
-
-export const sceneStepDataSchema = z.object({
-  id: entityIdSchema,
-  type: z.enum(sceneStepTypeValues).default('comment'),
-  label: z.string().min(1, 'Step label is required.'),
+  label: z.string().min(1),
   enabled: z.boolean().default(true),
-  condition: sceneConditionDataSchema.default({ enabled: false, source: '' }),
-  timing: sceneTimingDataSchema.default({ delayMs: 0, durationMs: 1000, waitForInput: false, canSkip: true }),
-  autosave: sceneAutosaveDataSchema.default({ before: false, after: false }),
-  background: sceneBackgroundStepDataSchema.default({ asset: null, material: null, color: null, fit: 'cover', transition: 'fade' }),
-  character: sceneCharacterStepDataSchema.default({ character: null, action: 'show', poseId: null, expressionId: null, position: 'center', offset: { x: 0, y: 0 }, scale: 1, transition: 'fade' }),
-  dialogue: sceneDialogueStepDataSchema.default({ dialogue: null, startBlockId: null, mode: 'play' }),
-  audio: sceneAudioStepDataSchema.default({ asset: null, channel: 'sound-effect', action: 'play', loop: false, volume: 1, fadeMs: 0 }),
-  variable: sceneVariableStepDataSchema.default({ variable: null, operation: 'set', value: false, comparison: 'equals' }),
-  script: sceneScriptStepDataSchema.default({ source: '', comment: '' }),
-  wait: sceneWaitStepDataSchema.default({ mode: 'duration', durationMs: 1000 }),
-  branch: sceneBranchStepDataSchema.default({ choices: [] }),
-  layout: sceneLayoutStepDataSchema.default({ layout: null, action: 'show', slot: 'overlay' }),
-  transition: sceneTransitionStepDataSchema.default({ kind: 'fade', durationMs: 1000, color: null }),
-  comment: sceneCommentStepDataSchema.default({ source: '' }),
-});
+  condition: sceneConditionSchema.optional(),
+};
+const safePoint = { autosaveSafePoint: z.boolean().default(false) };
 
-export const sceneSettingsDataSchema = z.object({
-  fullScreen: z.boolean().default(true),
-  canFastForward: z.boolean().default(true),
-  speedFactor: z.number().finite().positive().default(1),
-  next: sceneNextTargetSchema.nullable().default(null),
+const setBackgroundStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('set-background'),
+  asset: sceneAssetRefSchema.nullable(), material: sceneMaterialRefSchema.nullable(), color: z.string().nullable(),
+  fit: z.enum(sceneBackgroundFitValues), transition: z.enum(sceneBackgroundTransitionValues),
 });
-
-export const sceneDefaultsDataSchema = z.object({
-  background: z.object({
-    asset: sceneAssetRefSchema.nullable().default(null),
-    material: sceneMaterialRefSchema.nullable().default(null),
-    color: z.string().nullable().default('#0f172a'),
-    fit: z.enum(sceneBackgroundFitValues).default('cover'),
-  }).default({ asset: null, material: null, color: '#0f172a', fit: 'cover' }),
-  layout: sceneLayoutRefSchema.nullable().default(null),
+const actorCueStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('actor-cue'), slotId: entityIdSchema, character: sceneCharacterRefSchema,
+  action: z.enum(sceneCharacterActionValues), poseId: entityIdSchema.nullable(), expressionId: entityIdSchema.nullable(),
+  position: z.enum(sceneCharacterPositionValues), offset: strict({ x: z.number().finite(), y: z.number().finite() }),
+  scale: z.number().finite().positive(), transition: z.enum(sceneCharacterTransitionValues),
 });
+const callDialogueStepSchema = strict({
+  ...commonRuntimeStep, ...safePoint, type: z.literal('call-dialogue'), dialogue: sceneDialogueRefSchema,
+  startBlockId: entityIdSchema.nullable(),
+});
+const showTextStepSchema = strict({
+  ...commonRuntimeStep, ...safePoint, type: z.literal('show-text'), text: sceneTextContentSchema,
+  speaker: sceneCharacterRefSchema.nullable(), wait: z.enum(['input', 'immediate']),
+});
+const audioCueStepSchema = strict({
+  ...commonRuntimeStep, type: z.literal('audio-cue'), asset: sceneAssetRefSchema.nullable(),
+  channel: z.enum(sceneAudioChannelValues), action: z.enum(sceneAudioActionValues), loop: z.boolean(),
+  volume: z.number().finite().min(0).max(1), fadeMs: z.number().finite().nonnegative(), waitForCompletion: z.boolean(),
+});
+const setVariableStepSchema = strict({
+  ...commonRuntimeStep, type: z.literal('set-variable'), variable: sceneVariableRefSchema,
+  value: z.union([z.null(), z.boolean(), z.number().finite(), z.string()]),
+});
+const runLuaStepSchema = strict({
+  ...commonRuntimeStep, ...safePoint, type: z.literal('run-lua'), source: z.string().min(1), mayYield: z.boolean(),
+});
+const waitStepSchema = z.discriminatedUnion('waitKind', [
+  strict({ ...commonRuntimeStep, type: z.literal('wait'), waitKind: z.literal('duration'), durationMs: z.number().finite().nonnegative(), skippable: z.boolean() }),
+  strict({ ...commonRuntimeStep, type: z.literal('wait'), waitKind: z.literal('input'), skippable: z.boolean() }),
+]);
+const branchArmSchema = strict({ id: entityIdSchema, condition: sceneConditionSchema, targetStepId: entityIdSchema });
+const conditionalBranchStepSchema = strict({
+  ...commonRuntimeStep, type: z.literal('conditional-branch'), branches: z.array(branchArmSchema), fallbackStepId: entityIdSchema,
+});
+const choiceOptionSchema = strict({
+  id: entityIdSchema, label: sceneTextContentSchema, condition: sceneConditionSchema.optional(),
+  effects: z.array(sceneEffectSchema), targetStepId: entityIdSchema,
+});
+const choiceStepSchema = strict({
+  ...commonRuntimeStep, ...safePoint, type: z.literal('choice'), prompt: sceneTextContentSchema.nullable(), options: z.array(choiceOptionSchema).min(1),
+});
+const setLayoutStepSchema = strict({
+  ...commonRuntimeStep, type: z.literal('set-layout'), layout: sceneLayoutRefSchema.nullable(),
+  action: z.enum(sceneLayoutActionValues), slot: z.enum(sceneLayoutSlotValues),
+});
+const transitionStepSchema = strict({
+  ...commonRuntimeStep, type: z.literal('transition'), transitionKind: z.enum(sceneTransitionKindValues),
+  durationMs: z.number().finite().nonnegative(), color: z.string().nullable(), waitForCompletion: z.boolean(),
+});
+const commentStepSchema = strict({ id: entityIdSchema, label: z.string().min(1), type: z.literal('comment'), text: z.string() });
 
-export const sceneDataSchema = z.object({
-  kind: z.literal('scene').default('scene'),
-  displayName: z.string().default(''),
-  settings: sceneSettingsDataSchema.default({ fullScreen: true, canFastForward: true, speedFactor: 1, next: null }),
-  defaults: sceneDefaultsDataSchema.default({ background: { asset: null, material: null, color: '#0f172a', fit: 'cover' }, layout: null }),
-  steps: z.array(sceneStepDataSchema).default([]),
-  preview: z.object({
-    selectedStepId: entityIdSchema.nullable().default(null),
-    playback: z.enum(scenePreviewPlaybackValues).default('from-start'),
-    showDisabledSteps: z.boolean().default(true),
-    background: z.enum(scenePreviewBackgroundValues).default('dark'),
-  }).default({ selectedStepId: 'start', playback: 'from-start', showDisabledSteps: true, background: 'dark' }),
+export const sceneStepDataSchema = z.discriminatedUnion('type', [
+  setBackgroundStepSchema, actorCueStepSchema, callDialogueStepSchema, showTextStepSchema,
+  audioCueStepSchema, setVariableStepSchema, runLuaStepSchema, waitStepSchema,
+  conditionalBranchStepSchema, choiceStepSchema, setLayoutStepSchema, transitionStepSchema, commentStepSchema,
+]);
+
+export const sceneDataSchema = strict({
+  kind: z.literal('scene'),
+  displayName: z.string(),
+  defaultBackground: strict({ asset: sceneAssetRefSchema.nullable(), material: sceneMaterialRefSchema.nullable(), color: z.string().nullable(), fit: z.enum(sceneBackgroundFitValues) }),
+  defaultLayout: sceneLayoutRefSchema.nullable(),
+  steps: z.array(sceneStepDataSchema).min(1),
+  continuation: sceneFlowTargetSchema,
 });
 
 export type SceneAssetRef = z.infer<typeof sceneAssetRefSchema>;
-export type SceneMaterialRef = z.infer<typeof sceneMaterialRefSchema>;
 export type SceneCharacterRef = z.infer<typeof sceneCharacterRefSchema>;
 export type SceneDialogueRef = z.infer<typeof sceneDialogueRefSchema>;
 export type SceneLayoutRef = z.infer<typeof sceneLayoutRefSchema>;
 export type SceneVariableRef = z.infer<typeof sceneVariableRefSchema>;
-export type SceneRoomRef = z.infer<typeof sceneRoomRefSchema>;
-export type SceneSceneRef = z.infer<typeof sceneSceneRefSchema>;
-export type SceneNextTarget = z.infer<typeof sceneNextTargetSchema>;
-export type SceneConditionData = z.infer<typeof sceneConditionDataSchema>;
-export type SceneTimingData = z.infer<typeof sceneTimingDataSchema>;
-export type SceneAutosaveData = z.infer<typeof sceneAutosaveDataSchema>;
-export type SceneBranchChoiceData = z.infer<typeof sceneBranchChoiceDataSchema>;
+export type SceneFlowTarget = z.infer<typeof sceneFlowTargetSchema>;
+export type SceneConditionData = z.infer<typeof sceneConditionSchema>;
+export type SceneEffectData = z.infer<typeof sceneEffectSchema>;
 export type SceneStepData = z.infer<typeof sceneStepDataSchema>;
-export type SceneSettingsData = z.infer<typeof sceneSettingsDataSchema>;
-export type SceneDefaultsData = z.infer<typeof sceneDefaultsDataSchema>;
 export type SceneData = z.infer<typeof sceneDataSchema>;
 
-export interface SceneSchemaDiagnostic {
-  severity: 'error' | 'warning' | 'info';
-  path: string;
-  message: string;
-  category?: string;
-}
-
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): SceneSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-scenes' };
-}
+export interface SceneSchemaDiagnostic { severity: 'error' | 'warning' | 'info'; path: string; message: string; category?: string }
+const diagnostic = (path: string, message: string, severity: SceneSchemaDiagnostic['severity'] = 'error'): SceneSchemaDiagnostic => ({ severity, path, message, category: 'authoring-scenes' });
 
 export function parseSceneData(value: unknown): SceneData | null {
   const parsed = sceneDataSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
 }
 
-export function defaultSceneStep(type: SceneStepType = 'comment', label?: string): SceneStepData {
-  const stepLabel = label ?? (type === 'comment' ? 'Start' : type[0]!.toUpperCase() + type.slice(1));
-  return sceneStepDataSchema.parse({ id: type === 'comment' ? 'start' : type, type, label: stepLabel });
+const inlineText = (text = '') => ({ source: { kind: 'inline' as const, text }, markup: 'active-text' as const });
+function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepData {
+  const id = type === 'comment' ? 'start' : type;
+  const common = { id, type, label: label ?? type.replaceAll('-', ' '), enabled: true } as const;
+  switch (type) {
+    case 'set-background': return { ...common, type, asset: null, material: null, color: null, fit: 'cover', transition: 'fade' };
+    case 'actor-cue': return { ...common, type, slotId: 'actor', character: sceneCharacterRef('character'), action: 'show', poseId: null, expressionId: null, position: 'center', offset: { x: 0, y: 0 }, scale: 1, transition: 'fade' };
+    case 'call-dialogue': return { ...common, type, dialogue: sceneDialogueRef('dialogue'), startBlockId: null, autosaveSafePoint: false };
+    case 'show-text': return { ...common, type, text: inlineText(), speaker: null, wait: 'input', autosaveSafePoint: true };
+    case 'audio-cue': return { ...common, type, asset: null, channel: 'sound-effect', action: 'play', loop: false, volume: 1, fadeMs: 0, waitForCompletion: false };
+    case 'set-variable': return { ...common, type, variable: sceneVariableRef('variable'), value: false };
+    case 'run-lua': return { ...common, type, source: '-- Lua', mayYield: true, autosaveSafePoint: false };
+    case 'wait': return { ...common, type, waitKind: 'duration', durationMs: 1000, skippable: true };
+    case 'conditional-branch': return { ...common, type, branches: [], fallbackStepId: 'start' };
+    case 'choice': return { ...common, type, prompt: null, options: [{ id: 'option', label: inlineText('Option'), effects: [], targetStepId: 'start' }], autosaveSafePoint: true };
+    case 'set-layout': return { ...common, type, layout: null, action: 'show', slot: 'overlay' };
+    case 'transition': return { ...common, type, transitionKind: 'fade', durationMs: 1000, color: null, waitForCompletion: true };
+    case 'comment': return { id, type, label: label ?? 'Start', text: '' };
+  }
+}
+
+export function defaultSceneStep<T extends SceneStepType = 'comment'>(type: T = 'comment' as T, label?: string): Extract<SceneStepData, { type: T }> {
+  return buildDefaultSceneStep(type, label) as Extract<SceneStepData, { type: T }>;
 }
 
 export function defaultSceneData(label = 'Scene'): SceneData {
-  return sceneDataSchema.parse({
-    kind: 'scene',
-    displayName: label,
-    settings: { fullScreen: true, canFastForward: true, speedFactor: 1, next: null },
-    defaults: { background: { asset: null, material: null, color: '#0f172a', fit: 'cover' }, layout: null },
-    steps: [defaultSceneStep('comment', 'Start')],
-    preview: { selectedStepId: 'start', playback: 'from-start', showDisabledSteps: true, background: 'dark' },
-  });
+  return { kind: 'scene', displayName: label, defaultBackground: { asset: null, material: null, color: '#0f172a', fit: 'cover' }, defaultLayout: null, steps: [defaultSceneStep()], continuation: { kind: 'end' } };
 }
 
-export function isSceneRecord(record: AuthoringRecordBase | undefined | null): record is AuthoringRecordBase & { data: SceneData } {
-  return !!record && parseSceneData(record.data) !== null;
-}
-
-export function sceneAssetRef(id: string): SceneAssetRef { return { $ref: { collection: 'assets', id } }; }
-export function sceneMaterialRef(id: string): SceneMaterialRef { return { $ref: { collection: 'materials', id } }; }
-export function sceneCharacterRef(id: string): SceneCharacterRef { return { $ref: { collection: 'characters', id } }; }
-export function sceneDialogueRef(id: string): SceneDialogueRef { return { $ref: { collection: 'dialogues', id } }; }
-export function sceneLayoutRef(id: string): SceneLayoutRef { return { $ref: { collection: 'layouts', id } }; }
-export function sceneVariableRef(id: string): SceneVariableRef { return { $ref: { collection: 'variables', id } }; }
-export function sceneRoomRef(id: string): SceneRoomRef { return { $ref: { collection: 'rooms', id } }; }
-export function sceneSceneRef(id: string): SceneSceneRef { return { $ref: { collection: 'scenes', id } }; }
-
-function refId(ref: { $ref: { id: string } } | null | undefined): string | null {
-  return ref?.$ref.id ?? null;
-}
-
-function validateUniqueIds(items: Array<{ id: string }>, path: string, label: string, diagnostics: SceneSchemaDiagnostic[]) {
-  const seen = new Set<string>();
-  items.forEach((item, index) => {
-    if (seen.has(item.id)) diagnostics.push(diagnostic(`${path}/${index}/id`, `Duplicate ${label} ID '${item.id}'.`));
-    seen.add(item.id);
-  });
-}
-
-function validateAssetRef(project: AuthoringProject, ref: SceneAssetRef | null, path: string, expectedKind: 'image' | 'audio' | null, diagnostics: SceneSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  const record = project.assets[id];
-  if (!record) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing asset '${id}'.`));
-    return;
-  }
-  const data = parseAssetData(record.data);
-  if (!data) diagnostics.push(diagnostic(`${path}/$ref`, `Asset '${id}' has invalid asset data.`, 'warning'));
-  else if (expectedKind && data.kind !== expectedKind) diagnostics.push(diagnostic(`${path}/$ref`, `Asset '${id}' is ${data.kind}, not ${expectedKind}.`, 'warning'));
-}
-
-function validateMaterialRef(project: AuthoringProject, ref: SceneMaterialRef | null, path: string, diagnostics: SceneSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  const record = project.materials[id];
-  if (!record) diagnostics.push(diagnostic(`${path}/$ref`, `Missing material '${id}'.`));
-  else if (!parseMaterialData(record.data)) diagnostics.push(diagnostic(`${path}/$ref`, `Material '${id}' has invalid material data.`, 'warning'));
-}
-
-function validateLayoutRef(project: AuthoringProject, ref: SceneLayoutRef | null, path: string, diagnostics: SceneSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  const record = project.layouts[id];
-  if (!record) diagnostics.push(diagnostic(`${path}/$ref`, `Missing layout '${id}'.`));
-  else if (!parseLayoutData(record.data)) diagnostics.push(diagnostic(`${path}/$ref`, `Layout '${id}' has invalid layout data.`, 'warning'));
-}
-
-function validateVariableRef(project: AuthoringProject, ref: SceneVariableRef | null, path: string, diagnostics: SceneSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  const record = project.variables[id];
-  if (!record) diagnostics.push(diagnostic(`${path}/$ref`, `Missing variable '${id}'.`));
-  else if (!parseVariableData(record.data)) diagnostics.push(diagnostic(`${path}/$ref`, `Variable '${id}' has invalid variable data.`, 'warning'));
-}
-
-function validateCharacterStep(project: AuthoringProject, step: SceneStepData, path: string, diagnostics: SceneSchemaDiagnostic[]) {
-  const id = refId(step.character.character);
-  if (!id) return;
-  const record = project.characters[id];
-  if (!record) {
-    diagnostics.push(diagnostic(`${path}/character/character/$ref`, `Missing character '${id}'.`));
-    return;
-  }
-  const data = parseCharacterData(record.data);
-  if (!data) {
-    diagnostics.push(diagnostic(`${path}/character/character/$ref`, `Character '${id}' has invalid character data.`, 'warning'));
-    return;
-  }
-  const poses = new Set(data.poses.map((pose) => pose.id));
-  const expressions = new Set(data.expressions.map((expression) => expression.id));
-  if (step.character.poseId && !poses.has(step.character.poseId)) diagnostics.push(diagnostic(`${path}/character/poseId`, `Character '${id}' has no pose '${step.character.poseId}'.`, 'warning'));
-  if (step.character.expressionId && !expressions.has(step.character.expressionId)) diagnostics.push(diagnostic(`${path}/character/expressionId`, `Character '${id}' has no expression '${step.character.expressionId}'.`, 'warning'));
-}
-
-function validateDialogueStep(project: AuthoringProject, step: SceneStepData, path: string, diagnostics: SceneSchemaDiagnostic[]) {
-  const id = refId(step.dialogue.dialogue);
-  if (!id) return;
-  const record = project.dialogues[id];
-  if (!record) {
-    diagnostics.push(diagnostic(`${path}/dialogue/dialogue/$ref`, `Missing dialogue '${id}'.`));
-    return;
-  }
-  const data = parseDialogueData(record.data);
-  if (!data) {
-    diagnostics.push(diagnostic(`${path}/dialogue/dialogue/$ref`, `Dialogue '${id}' has invalid dialogue data.`, 'warning'));
-    return;
-  }
-  if (step.dialogue.startBlockId && !data.blocks.some((block) => block.id === step.dialogue.startBlockId)) {
-    diagnostics.push(diagnostic(`${path}/dialogue/startBlockId`, `Dialogue '${id}' has no block '${step.dialogue.startBlockId}'.`));
-  }
-}
-
-function validateNextTarget(project: AuthoringProject, target: SceneNextTarget | null, path: string, sceneId: string, diagnostics: SceneSchemaDiagnostic[]) {
-  if (!target) return;
-  const { collection, id } = target.$ref;
-  if (collection === 'scenes' && id === sceneId) diagnostics.push(diagnostic(path, 'Scene next target points to itself.', 'warning'));
-  if (!project[collection][id]) diagnostics.push(diagnostic(`${path}/$ref`, `Missing next target '${collection}:${id}'.`));
-}
+export function isSceneRecord(record: AuthoringRecordBase | undefined | null): record is AuthoringRecordBase & { data: SceneData } { return !!record && parseSceneData(record.data) !== null; }
+export const sceneAssetRef = (id: string) => ({ $ref: { collection: 'assets' as const, id } });
+export const sceneMaterialRef = (id: string) => ({ $ref: { collection: 'materials' as const, id } });
+export const sceneCharacterRef = (id: string) => ({ $ref: { collection: 'characters' as const, id } });
+export const sceneDialogueRef = (id: string) => ({ $ref: { collection: 'dialogues' as const, id } });
+export const sceneLayoutRef = (id: string) => ({ $ref: { collection: 'layouts' as const, id } });
+export const sceneVariableRef = (id: string) => ({ $ref: { collection: 'variables' as const, id } });
+export const sceneRoomRef = (id: string) => ({ $ref: { collection: 'rooms' as const, id } });
 
 export function validateSceneData(project: AuthoringProject, sceneId: string, record: AuthoringRecordBase): SceneSchemaDiagnostic[] {
-  const diagnostics: SceneSchemaDiagnostic[] = [];
-  const parsed = sceneDataSchema.safeParse(record.data);
   const base = `/scenes/${sceneId}/data`;
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) diagnostics.push(diagnostic(`${base}/${issue.path.map(String).join('/')}`, issue.message));
-    return diagnostics;
-  }
-
+  const parsed = sceneDataSchema.safeParse(record.data);
+  if (!parsed.success) return parsed.error.issues.map((issue) => diagnostic(`${base}/${issue.path.join('/')}`, issue.message));
   const data = parsed.data;
-
-  validateNextTarget(project, data.settings.next, `${base}/settings/next`, sceneId, diagnostics);
-  validateAssetRef(project, data.defaults.background.asset, `${base}/defaults/background/asset`, 'image', diagnostics);
-  validateMaterialRef(project, data.defaults.background.material, `${base}/defaults/background/material`, diagnostics);
-  validateLayoutRef(project, data.defaults.layout, `${base}/defaults/layout`, diagnostics);
-
-  if (data.steps.length === 0) diagnostics.push(diagnostic(`${base}/steps`, 'Scene requires at least one step.'));
-  validateUniqueIds(data.steps, `${base}/steps`, 'step', diagnostics);
-  const stepIds = new Set(data.steps.map((step) => step.id));
-  if (data.preview.selectedStepId && !stepIds.has(data.preview.selectedStepId)) diagnostics.push(diagnostic(`${base}/preview/selectedStepId`, `Missing preview step '${data.preview.selectedStepId}'.`, 'warning'));
-
+  const diagnostics: SceneSchemaDiagnostic[] = [];
+  const ids = new Set<string>();
+  const requireRecord = (collection: keyof AuthoringProject, id: string, path: string) => {
+    const value = project[collection];
+    if (typeof value !== 'object' || value === null || !(id in value)) diagnostics.push(diagnostic(path, `Missing ${String(collection)} record '${id}'.`));
+  };
+  const validateVariableValue = (variableId: string, value: unknown, path: string) => {
+    const record = project.variables[variableId];
+    if (!record) {
+      requireRecord('variables', variableId, path);
+      return;
+    }
+    const variable = parseVariableData(record.data);
+    if (!variable || !isVariableDefaultValueCompatible(variable.type, value, variable.enumValues)) {
+      diagnostics.push(diagnostic(path, `Value does not match variable '${variableId}'.`));
+    }
+  };
+  const validateCondition = (condition: SceneConditionData | undefined, path: string) => {
+    if (condition?.kind === 'variable-comparison') {
+      requireRecord('variables', condition.variable.$ref.id, `${path}/variable`);
+    }
+  };
+  const validateEffects = (effects: readonly SceneEffectData[], path: string) => {
+    effects.forEach((effect, index) => {
+      if (effect.kind === 'set-variable') {
+        validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);
+      }
+    });
+  };
+  if (data.defaultBackground.asset) requireRecord('assets', data.defaultBackground.asset.$ref.id, `${base}/defaultBackground/asset`);
+  if (data.defaultBackground.material) requireRecord('materials', data.defaultBackground.material.$ref.id, `${base}/defaultBackground/material`);
+  if (data.defaultLayout) requireRecord('layouts', data.defaultLayout.$ref.id, `${base}/defaultLayout`);
   data.steps.forEach((step, index) => {
-    const stepPath = `${base}/steps/${index}`;
-    if (step.condition.enabled && !step.condition.source.trim()) diagnostics.push(diagnostic(`${stepPath}/condition/source`, 'Condition is enabled but empty.', 'warning'));
-    if (step.timing.delayMs < 0) diagnostics.push(diagnostic(`${stepPath}/timing/delayMs`, 'Step delay cannot be negative.'));
-    if (step.timing.durationMs < 0) diagnostics.push(diagnostic(`${stepPath}/timing/durationMs`, 'Step duration cannot be negative.'));
-
-    if (step.type === 'background') {
-      validateAssetRef(project, step.background.asset, `${stepPath}/background/asset`, 'image', diagnostics);
-      validateMaterialRef(project, step.background.material, `${stepPath}/background/material`, diagnostics);
-    } else if (step.type === 'character') {
-      validateCharacterStep(project, step, stepPath, diagnostics);
-    } else if (step.type === 'dialogue') {
-      validateDialogueStep(project, step, stepPath, diagnostics);
-    } else if (step.type === 'audio') {
-      validateAssetRef(project, step.audio.asset, `${stepPath}/audio/asset`, 'audio', diagnostics);
-    } else if (step.type === 'variable') {
-      validateVariableRef(project, step.variable.variable, `${stepPath}/variable/variable`, diagnostics);
-    } else if (step.type === 'script' && !step.script.source.trim()) {
-      diagnostics.push(diagnostic(`${stepPath}/script/source`, 'Script step has no source.', 'warning'));
-    } else if (step.type === 'branch') {
-      validateUniqueIds(step.branch.choices, `${stepPath}/branch/choices`, 'branch choice', diagnostics);
-      const orderKeys = new Set<number>();
-      step.branch.choices.forEach((choice, choiceIndex) => {
-        const choicePath = `${stepPath}/branch/choices/${choiceIndex}`;
-        if (!choice.label.trim()) diagnostics.push(diagnostic(`${choicePath}/label`, 'Branch choice label is required.'));
-        if (choice.targetStepId && !stepIds.has(choice.targetStepId)) diagnostics.push(diagnostic(`${choicePath}/targetStepId`, `Missing target step '${choice.targetStepId}'.`));
-        if (choice.condition.enabled && !choice.condition.source.trim()) diagnostics.push(diagnostic(`${choicePath}/condition/source`, 'Choice condition is enabled but empty.', 'warning'));
-        if (orderKeys.has(choice.order)) diagnostics.push(diagnostic(`${choicePath}/order`, `Duplicate branch choice order ${choice.order}.`, 'warning'));
-        orderKeys.add(choice.order);
-      });
-    } else if (step.type === 'layout') {
-      if (step.layout.action !== 'hide') validateLayoutRef(project, step.layout.layout, `${stepPath}/layout/layout`, diagnostics);
+    const path = `${base}/steps/${index}`;
+    if (ids.has(step.id)) diagnostics.push(diagnostic(`${path}/id`, `Duplicate step ID '${step.id}'.`));
+    ids.add(step.id);
+    if ('condition' in step) validateCondition(step.condition, `${path}/condition`);
+    if (step.type === 'set-background') {
+      if (step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
+      if (step.material) requireRecord('materials', step.material.$ref.id, `${path}/material`);
+    }
+    if (step.type === 'actor-cue') requireRecord('characters', step.character.$ref.id, `${path}/character`);
+    if (step.type === 'call-dialogue') requireRecord('dialogues', step.dialogue.$ref.id, `${path}/dialogue`);
+    if (step.type === 'show-text' && step.speaker) requireRecord('characters', step.speaker.$ref.id, `${path}/speaker`);
+    if (step.type === 'audio-cue' && step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
+    if (step.type === 'set-variable') validateVariableValue(step.variable.$ref.id, step.value, `${path}/value`);
+    if (step.type === 'set-layout' && step.layout) requireRecord('layouts', step.layout.$ref.id, `${path}/layout`);
+    if (step.type === 'conditional-branch') {
+      const armIds = new Set<string>();
+      for (const [armIndex, arm] of step.branches.entries()) {
+        if (armIds.has(arm.id)) diagnostics.push(diagnostic(`${path}/branches/${armIndex}/id`, `Duplicate branch ID '${arm.id}'.`));
+        armIds.add(arm.id);
+        validateCondition(arm.condition, `${path}/branches/${armIndex}/condition`);
+        if (!data.steps.some((candidate) => candidate.id === arm.targetStepId)) diagnostics.push(diagnostic(`${path}/branches/${armIndex}/targetStepId`, `Missing target step '${arm.targetStepId}'.`));
+      }
+      if (!data.steps.some((candidate) => candidate.id === step.fallbackStepId)) diagnostics.push(diagnostic(`${path}/fallbackStepId`, `Missing fallback step '${step.fallbackStepId}'.`));
+    }
+    if (step.type === 'choice') {
+      const optionIds = new Set<string>();
+      for (const [optionIndex, option] of step.options.entries()) {
+        if (optionIds.has(option.id)) diagnostics.push(diagnostic(`${path}/options/${optionIndex}/id`, `Duplicate option ID '${option.id}'.`));
+        optionIds.add(option.id);
+        validateCondition(option.condition, `${path}/options/${optionIndex}/condition`);
+        validateEffects(option.effects, `${path}/options/${optionIndex}/effects`);
+        if (!data.steps.some((candidate) => candidate.id === option.targetStepId)) diagnostics.push(diagnostic(`${path}/options/${optionIndex}/targetStepId`, `Missing target step '${option.targetStepId}'.`));
+      }
     }
   });
-
+  const target = data.continuation;
+  if (target.kind === 'scene') requireRecord('scenes', target.id, `${base}/continuation/id`);
+  if (target.kind === 'dialogue') requireRecord('dialogues', target.id, `${base}/continuation/id`);
+  if (target.kind === 'room') requireRecord('rooms', target.id, `${base}/continuation/id`);
   return diagnostics;
 }
