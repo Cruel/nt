@@ -28,9 +28,9 @@ describe('recorded test draft conversion', () => {
         { id: 'continue-1', input: 'continue', label: 'Continue' },
         { id: 'choice-1', input: 'dialogue-option', dialogueOption: { optionIndex: 2 } },
         { id: 'navigate-1', input: 'navigate', navigate: { direction: 1, target: null } },
-        { id: 'select-1', input: 'select-object', selectObject: { object: { $ref: { collection: 'objects', id: 'lamp' } } } },
+        { id: 'select-1', input: 'select-object', selectObject: { object: { $ref: { collection: 'interactables', id: 'lamp' } } } },
         { id: 'clear-1', input: 'clear-object-selection' },
-        { id: 'action-1', input: 'run-action', runAction: { verb: { $ref: { collection: 'verbs', id: 'look' } }, objects: [{ $ref: { collection: 'objects', id: 'lamp' } }] } },
+        { id: 'action-1', input: 'run-action', runAction: { verb: { $ref: { collection: 'verbs', id: 'look' } }, interactables: [{ $ref: { collection: 'interactables', id: 'lamp' } }] } },
       ],
       preview: { selectedStepId: 'continue-1' },
     });
@@ -64,7 +64,7 @@ describe('recorded test draft conversion', () => {
 
   it('can be saved as new or applied to existing tests through the command bus', () => {
     const project = createAuthoringProject();
-    project.tests.existing = { id: 'existing', label: 'Existing', tags: [], data: defaultTestData('Existing') };
+    project.tests.existing = { id: 'existing', label: 'Existing', data: defaultTestData('Existing') };
     let state = createInitialCommandBusState(toJsonValue(project));
     const data = recordedTestDraftToTestData({
       actions: [{ id: 'continue-1', kind: 'continue', label: 'Continue', input: { type: 'continue' } }],

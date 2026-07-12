@@ -7,10 +7,10 @@ import { buildProjectExplorerTree, findProjectExplorerPlacementForTab } from '@/
 
 function project() {
   const next = createAuthoringProject();
-  next.characters.zed = { id: 'zed', label: 'Zed', tags: [], data: defaultCharacterData('Zed') };
-  next.characters.anna = { id: 'anna', label: 'Anna', tags: [], data: defaultCharacterData('Anna') };
-  next.rooms.cafe = { id: 'cafe', label: 'Cafe', tags: [], data: defaultRoomData('Cafe') };
-  next.assets.logo = { id: 'logo', label: 'Logo', tags: [], data: { kind: 'image', source: { type: 'project-file', path: 'assets/logo.png' }, aliases: [], extension: '.png' } };
+  next.characters.zed = { id: 'zed', label: 'Zed', data: defaultCharacterData('Zed') };
+  next.characters.anna = { id: 'anna', label: 'Anna', data: defaultCharacterData('Anna') };
+  next.rooms.cafe = { id: 'cafe', label: 'Cafe', data: defaultRoomData('Cafe') };
+  next.assets.logo = { id: 'logo', label: 'Logo', data: { kind: 'image', source: { type: 'project-file', path: 'assets/logo.png' }, aliases: [], extension: '.png' } };
   return next;
 }
 
@@ -26,8 +26,8 @@ describe('project explorer tree', () => {
 
   it('keeps empty visible categories at the top level by default', () => {
     const tree = buildProjectExplorerTree(project(), { explorer: emptyEditorExplorerState(), chapters: emptyEditorChaptersState() });
-    const objects = tree.find((node) => node.collection === 'objects');
-    expect(objects).toMatchObject({ label: 'Objects', count: 0 });
+    const objects = tree.find((node) => node.collection === 'interactables');
+    expect(objects).toMatchObject({ label: 'Interactables', count: 0 });
     expect(tree.find((node) => node.id === 'empty-root')).toBeUndefined();
   });
 
@@ -36,17 +36,17 @@ describe('project explorer tree', () => {
     const tree = buildProjectExplorerTree(project(), { explorer, chapters: emptyEditorChaptersState() });
     const emptyRoot = tree.find((node) => node.id === 'empty-root');
     expect(emptyRoot).toMatchObject({ label: 'Empty Content', kind: 'empty-root', dimmed: true });
-    expect(emptyRoot?.children?.some((node) => node.collection === 'objects')).toBe(true);
+    expect(emptyRoot?.children?.some((node) => node.collection === 'interactables')).toBe(true);
     expect(tree.findIndex((node) => node.id === 'empty-root')).toBeLessThan(tree.findIndex((node) => node.id === 'hidden-root'));
   });
 
   it('keeps hidden empty categories under Hidden instead of Empty Content', () => {
-    const explorer = { ...emptyEditorExplorerState(), hideEmptyCategories: true, hiddenCollectionKeys: ['objects'] };
+    const explorer = { ...emptyEditorExplorerState(), hideEmptyCategories: true, hiddenCollectionKeys: ['interactables'] };
     const tree = buildProjectExplorerTree(project(), { explorer, chapters: emptyEditorChaptersState() });
     const emptyRoot = tree.find((node) => node.id === 'empty-root');
     const hiddenRoot = tree.find((node) => node.id === 'hidden-root');
-    expect(emptyRoot?.children?.some((node) => node.collection === 'objects')).toBe(false);
-    expect(hiddenRoot?.children?.find((node) => node.collection === 'objects')).toMatchObject({ label: 'Objects', count: 0 });
+    expect(emptyRoot?.children?.some((node) => node.collection === 'interactables')).toBe(false);
+    expect(hiddenRoot?.children?.find((node) => node.collection === 'interactables')).toMatchObject({ label: 'Interactables', count: 0 });
   });
 
   it('does not show Empty Content or Hidden for filtered zero-match categories', () => {

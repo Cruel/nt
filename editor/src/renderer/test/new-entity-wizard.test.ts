@@ -19,7 +19,6 @@ function draft(collection: NewEntityWizardDraft['basics']['collection'], options
       description: '',
       tags: [],
       color: '',
-      parentId: null,
     },
     options,
   };
@@ -43,7 +42,7 @@ describe('new entity wizard registry', () => {
 
   it('builds material data with an optional shader reference', () => {
     const project = createAuthoringProject();
-    project.shaders.sprite = { id: 'sprite', label: 'Sprite', tags: [], data: {} };
+    project.shaders.sprite = { id: 'sprite', label: 'Sprite', data: {} as never };
     const payload = newEntityWizardDefinition('materials').buildPayload({
       project,
       draft: draft('materials', { shaderId: 'sprite', previewGeometry: 'sprite', previewBackground: 'dark' }),
@@ -97,8 +96,8 @@ describe('new entity wizard registry', () => {
 
   it('keeps pending types metadata-only without inventing schemas', () => {
     const project = createAuthoringProject();
-    expect(newEntityWizardDefinition('objects').supportLevel).toBe('metadata-only');
-    expect(newEntityWizardDefinition('objects').buildPayload({ project, draft: draft('objects') })).toEqual({ data: {} });
-    expect(newEntityWizardDefinition('scripts').buildPayload({ project, draft: draft('scripts') })).toEqual({ data: { language: 'lua', source: '' } });
+    expect(newEntityWizardDefinition('interactables').supportLevel).toBe('metadata-only');
+    expect(newEntityWizardDefinition('interactables').buildPayload({ project, draft: draft('interactables') })).toEqual({ data: { kind: 'interactable' } });
+    expect(newEntityWizardDefinition('scripts').buildPayload({ project, draft: draft('scripts') })).toEqual({ data: { kind: 'script-module', source: '' } });
   });
 });

@@ -26,10 +26,7 @@ export interface AuthoringRuntimeExportBuildResult {
   manifestPreview: ExportManifestPreview; packageOptions: PackageExportOptions; diagnostics: ToolDiagnostic[];
 }
 
-type RuntimeEntrypointKind = 'room' | 'dialogue' | 'scene' | 'script';
-const entrypointKinds: Partial<Record<string, RuntimeEntrypointKind>> = {
-  rooms: 'room', dialogues: 'dialogue', scenes: 'scene', scripts: 'script',
-};
+type RuntimeEntrypointKind = 'room' | 'dialogue' | 'scene';
 function diagnostic(path: string, message: string, severity: ToolDiagnostic['severity'] = 'error', category = 'authoring-export'): ToolDiagnostic {
   return { severity, path, message, category };
 }
@@ -75,7 +72,7 @@ function buildVariables(project: AuthoringProject, diagnostics: ToolDiagnostic[]
   for (const [id, record] of Object.entries(project.variables)) {
     const data = parseVariableData(record.data);
     if (!data) diagnostics.push(diagnostic(`/variables/${id}/data`, `Variable '${id}' has invalid variable data.`, 'warning'));
-    else result[data.runtimeName?.trim() || id] = data.defaultValue;
+    else result[id] = data.defaultValue;
   }
   return result;
 }
@@ -88,7 +85,7 @@ function buildRooms(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
       verbIds: [] }];
   });
 }
-function simpleRecords(collection: AuthoringProject['objects']) {
+function simpleRecords(collection: AuthoringProject['interactables']) {
   return Object.entries(collection).map(([id, record]) => ({ id, name: record.label, description: record.description ?? '', verbIds: [] }));
 }
 function buildDialogues(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
@@ -150,10 +147,12 @@ export function buildAuthoringRuntimeExport(project: AuthoringProject, options: 
   };
   const fileEntries = buildFileEntries(project, options, diagnostics);
   const assets = fileEntries.map((entry) => ({ id: entry.assetId!, path: `project:/${entry.packagePath}`, mediaType: entry.kind ?? 'binary' }));
-  const kind = project.entrypoint ? entrypointKinds[project.entrypoint.collection] : undefined;
+  const kind: RuntimeEntrypointKind | undefined = project.entrypoint?.kind;
   if (!project.entrypoint) diagnostics.push(diagnostic('/entrypoint', 'Project entrypoint is required for runtime export.'));
-  else if (!kind) diagnostics.push(diagnostic('/entrypoint', `Entrypoint collection '${project.entrypoint.collection}' is not runtime-exportable yet.`));
-  else if (!project[project.entrypoint.collection][project.entrypoint.id]) diagnostics.push(diagnostic('/entrypoint', `Entrypoint ${kind} '${project.entrypoint.id}' does not exist.`));
+  else {
+    const collection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
+    if (!project[collection][project.entrypoint.id]) diagnostics.push(diagnostic('/entrypoint', `Entrypoint ${kind} '${project.entrypoint.id}' does not exist.`));
+  }
   const layouts = buildLayouts(project, assets);
   const defaultLayout = getSystemLayoutSetting(project, 'game-hud')?.$ref.id;
   const runtimeProject = {
@@ -161,7 +160,7 @@ export function buildAuthoringRuntimeExport(project: AuthoringProject, options: 
     identity: { id: project.project.id, name: project.project.name, version: project.project.version, author: project.project.author, website: '' },
     settings: { locale: 'en', defaultFont: '', allowSaves: true },
     entrypoint: { kind: kind ?? 'room', id: project.entrypoint?.id ?? '' }, variables: buildVariables(project, diagnostics), assets, assetAliases: [],
-    rooms: buildRooms(project, diagnostics), objects: simpleRecords(project.objects),
+    rooms: buildRooms(project, diagnostics), objects: simpleRecords(project.interactables),
     verbs: Object.entries(project.verbs).map(([id, record]) => ({ id, label: record.label })), actions: [],
     dialogues: buildDialogues(project, diagnostics), scenes: buildScenes(project, diagnostics), maps: [], scripts: buildScripts(project), layouts,
     runtimeUi: { defaultLayoutId: defaultLayout && layouts.some((layout) => layout.id === defaultLayout) ? defaultLayout : null, themeAssetId: null },

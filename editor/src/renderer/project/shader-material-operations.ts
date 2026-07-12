@@ -19,10 +19,10 @@ export interface ShaderMaterialOperationResult {
 
 export type ShaderDataPatchPayload = { shaderId: string; data: ShaderData };
 export type MaterialDataPatchPayload = { materialId: string; data: MaterialData };
+export type MaterialBasePayload = { materialId: string; baseMaterialId: string | null };
 export type ShaderCompiledOutputsPayload = {
   outputs: Array<{ shader: string; stage: 'vertex' | 'fragment' | string; variant: string; runtimePath: string }>;
 };
-export type MaterialInheritsPayload = { materialId: string; inheritsId: string | null };
 
 function error(message: string, path?: string): ShaderMaterialOperationDiagnostic {
   return { severity: 'error', message, path };
@@ -63,18 +63,17 @@ export function replaceMaterialDataPatches(document: JsonValue | unknown, payloa
   return { patches: [{ op: 'replace', path: materialDataPath(payload.materialId), value: toJsonValue(parsed) }], affectedPaths: [materialDataPath(payload.materialId)] };
 }
 
-export function setMaterialInheritsPatches(document: JsonValue | unknown, payload: MaterialInheritsPayload): ShaderMaterialOperationResult {
+export function setMaterialBasePatches(document: JsonValue | unknown, payload: MaterialBasePayload): ShaderMaterialOperationResult {
   const project = validateProject(document);
   if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
   const record = project.materials[payload.materialId];
   if (!record) return { patches: [], diagnostics: [error('Material record does not exist.', buildJsonPointer(['materials', payload.materialId]))] };
-  if (payload.inheritsId) {
-    if (payload.inheritsId === payload.materialId) return { patches: [], diagnostics: [error('Material cannot inherit from itself.', buildJsonPointer(['materials', payload.materialId, 'inherits']))] };
-    if (!project.materials[payload.inheritsId]) return { patches: [], diagnostics: [error('Inherited material does not exist.', buildJsonPointer(['materials', payload.inheritsId]))] };
-  }
-  const path = buildJsonPointer(['materials', payload.materialId, 'inherits']);
-  const value = payload.inheritsId ? { collection: 'materials', id: payload.inheritsId } : null;
-  return { patches: [Object.prototype.hasOwnProperty.call(record, 'inherits') ? { op: 'replace', path, value: toJsonValue(value) } : { op: 'add', path, value: toJsonValue(value) }], affectedPaths: [path] };
+  if (payload.baseMaterialId === payload.materialId) return { patches: [], diagnostics: [error('Material cannot inherit from itself.', buildJsonPointer(['materials', payload.materialId, 'data', 'baseMaterialId']))] };
+  if (payload.baseMaterialId && !project.materials[payload.baseMaterialId]) return { patches: [], diagnostics: [error('Base material does not exist.', buildJsonPointer(['materials', payload.baseMaterialId]))] };
+  const data = parseMaterialData(record.data);
+  if (!data) return { patches: [], diagnostics: [error('Material data is invalid.', materialDataPath(payload.materialId))] };
+  const path = buildJsonPointer(['materials', payload.materialId, 'data', 'baseMaterialId']);
+  return { patches: [{ op: 'replace', path, value: payload.baseMaterialId }], affectedPaths: [path] };
 }
 
 export function applyShaderCompiledOutputsPatches(document: JsonValue | unknown, payload: ShaderCompiledOutputsPayload): ShaderMaterialOperationResult {

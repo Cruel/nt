@@ -18,15 +18,14 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    tags: ['Hero'],
     data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
   };
   next.assets.click = {
     id: 'click',
     label: 'Click',
-    tags: ['sfx'],
     data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/click.mp3' }, aliases: [], extension: '.mp3' },
   };
+  next.editor.recordMetadata = { assets: { logo: { tags: ['Hero'] }, click: { tags: ['sfx'] } } };
   return next;
 }
 

@@ -16,8 +16,7 @@ describe('CommandPaletteDialog', () => {
     project.assets.logo = {
       id: 'logo',
       label: 'Logo',
-      tags: [],
-      data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+            data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
     };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 

@@ -153,9 +153,9 @@ export interface OpenProjectResponse extends ProjectLoadResponse {
 }
 
 export type EntityCollection =
-  | 'object'
+  | 'interactable'
   | 'verb'
-  | 'action'
+  | 'interaction'
   | 'room'
   | 'map'
   | 'dialogue'

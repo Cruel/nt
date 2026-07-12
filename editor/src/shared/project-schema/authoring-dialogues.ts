@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { entityIdSchema, type AuthoringProject, type AuthoringRecordBase } from './authoring-project';
+import { entityIdSchema } from './authoring-common';
+import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const dialogueBlockTypeValues = ['linear', 'branch', 'link', 'comment'] as const;
 export type DialogueBlockType = (typeof dialogueBlockTypeValues)[number];
@@ -240,13 +241,6 @@ export function validateDialogueData(
   }
 
   const data = parsed.data;
-  if (record.inherits) {
-    if (record.inherits.collection !== 'dialogues') {
-      diagnostics.push(diagnostic(`/dialogues/${dialogueId}/inherits`, 'Dialogue inheritance must target another dialogue.'));
-    } else if (!project.dialogues[record.inherits.id]) {
-      diagnostics.push(diagnostic(`/dialogues/${dialogueId}/inherits`, `Missing inherited dialogue '${record.inherits.id}'.`));
-    }
-  }
 
   validateCharacterRef(project, data.defaultSpeaker, `${base}/defaultSpeaker`, diagnostics);
 

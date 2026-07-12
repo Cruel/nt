@@ -41,8 +41,7 @@ describe('authoring asset schema helpers', () => {
     project.assets.click = {
       id: 'click',
       label: 'Click',
-      tags: [],
-      data: {
+            data: {
         kind: 'audio',
         source: { type: 'project-file', path: 'assets/audio/click.mp3' },
         aliases: ['ui.click'],
@@ -53,8 +52,7 @@ describe('authoring asset schema helpers', () => {
     project.assets.other = {
       id: 'other',
       label: 'Other',
-      tags: [],
-      data: {
+            data: {
         kind: 'audio',
         source: { type: 'project-file', path: '../bad.mp3' },
         aliases: ['ui.click'],

@@ -33,7 +33,7 @@ beforeEach(() => {
 describe('CharacterEditor', () => {
   it('renders typed character defaults', () => {
     const project = createAuthoringProject();
-    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<CharacterEditor tab={tab} />);
@@ -46,7 +46,7 @@ describe('CharacterEditor', () => {
 
   it('dispatches command-backed dialogue and pose updates', async () => {
     const project = createAuthoringProject();
-    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<CharacterEditor tab={tab} />);
@@ -72,7 +72,7 @@ describe('CharacterEditor', () => {
 
   it('captures scroll tab state for the inspector', () => {
     const project = createAuthoringProject();
-    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     const view = render(<CharacterEditor tab={tab} />);

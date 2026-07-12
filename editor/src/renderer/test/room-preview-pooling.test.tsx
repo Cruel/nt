@@ -107,8 +107,8 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   useProjectStore.getState().clearProject();
   const project = createAuthoringProject();
-  project.rooms['room-a'] = { id: 'room-a', label: 'Room A', tags: [], data: defaultRoomData('Room A') };
-  project.rooms['room-b'] = { id: 'room-b', label: 'Room B', tags: [], data: defaultRoomData('Room B') };
+  project.rooms['room-a'] = { id: 'room-a', label: 'Room A', data: defaultRoomData('Room A') };
+  project.rooms['room-b'] = { id: 'room-b', label: 'Room B', data: defaultRoomData('Room B') };
   useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 });
 

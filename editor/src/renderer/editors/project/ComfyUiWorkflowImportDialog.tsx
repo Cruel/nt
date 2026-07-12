@@ -670,11 +670,11 @@ export function ComfyUiWorkflowImportDialog({ open, projectFilePath, repairEntry
         {error ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div> : null}
         <div className="min-h-0 overflow-auto pr-1">{renderStep()}</div>
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={step === 0 || (mode === 'repair' && step === 1) || saving} onClick={() => setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)}>{t('comfyuiImport.actions.back')}</Button>
+          <Button type="button" variant="outline" disabled={step === 0 || (mode === 'repair' && step === 1) || saving} onClick={() => setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)}>{t('comfyuiImport.interactions.back')}</Button>
           {step < 6 ? (
-            <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && (requiredOutputsMissing || tooManyOutputsSelected))} onClick={nextStep}>{t('comfyuiImport.actions.next')}</Button>
+            <Button type="button" disabled={!canContinue || (step === 3 && requiredInputsMissing) || (step === 4 && (requiredOutputsMissing || tooManyOutputsSelected))} onClick={nextStep}>{t('comfyuiImport.interactions.next')}</Button>
           ) : (
-            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected || saving} onClick={() => void saveImport()}>{saving ? t('comfyuiImport.actions.saving') : mode === 'repair' ? t('comfyuiImport.actions.saveRepair') : t('comfyuiImport.actions.saveImport')}</Button>
+            <Button type="button" disabled={!manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected || saving} onClick={() => void saveImport()}>{saving ? t('comfyuiImport.interactions.saving') : mode === 'repair' ? t('comfyuiImport.interactions.saveRepair') : t('comfyuiImport.interactions.saveImport')}</Button>
           )}
         </DialogFooter>
       </DialogContent>

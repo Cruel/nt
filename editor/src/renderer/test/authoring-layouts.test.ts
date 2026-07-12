@@ -8,7 +8,7 @@ import { buildLayoutPreviewDocumentData, layoutPreviewRevision } from '../../sha
 describe('authoring layouts schema', () => {
   it('provides valid default layout data and preview documents', () => {
     const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
 
     expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
     expect(layoutPreviewRevision(project, 'main')).toContain('main');
@@ -33,8 +33,7 @@ describe('authoring layouts schema', () => {
     project.layouts.empty = {
       id: 'empty',
       label: 'Empty',
-      tags: [],
-      data: { ...defaultLayoutData('Empty'), rml: { sourceMode: 'inline', sourceText: '', sourceAsset: null } },
+            data: { ...defaultLayoutData('Empty'), rml: { sourceMode: 'inline', sourceText: '', sourceAsset: null } },
     };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
@@ -44,7 +43,7 @@ describe('authoring layouts schema', () => {
 
   it('validates system layout references and indexes settings usage', () => {
     const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
 
     expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'authoring-layouts')).toEqual([]);
@@ -58,8 +57,7 @@ describe('authoring layouts schema', () => {
     project.layouts.main = {
       id: 'main',
       label: 'Main UI',
-      tags: [],
-      data: {
+            data: {
         ...defaultLayoutData('Main UI'),
         dependencies: { images: [{ $ref: { collection: 'assets', id: 'missing-image' } }], fonts: [], stylesheets: [], scripts: [], materials: [{ $ref: { collection: 'materials', id: 'missing-material' } }] },
       },
@@ -76,8 +74,7 @@ describe('authoring layouts schema', () => {
     project.layouts.widget = {
       id: 'widget',
       label: 'Widget',
-      tags: [],
-      data: {
+            data: {
         ...defaultLayoutData('Widget', 'fragment'),
         rml: { sourceMode: 'inline', sourceText: '<rml><body><button>Bad fragment</button></body></rml>', sourceAsset: null },
       },

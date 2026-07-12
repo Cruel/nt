@@ -27,14 +27,14 @@ export interface VisualIdentity {
 }
 
 export const collectionVisuals: Record<AuthoringCollectionKey, VisualIdentity> = {
-  actions: { icon: Bolt, colorClassName: 'text-emerald-700 dark:text-emerald-300' },
+  interactions: { icon: Bolt, colorClassName: 'text-emerald-700 dark:text-emerald-300' },
   assets: { icon: Image, colorClassName: 'text-blue-700 dark:text-blue-300' },
   characters: { icon: User, colorClassName: 'text-violet-700 dark:text-violet-300' },
   dialogues: { icon: MessageSquareText, colorClassName: 'text-sky-700 dark:text-sky-300' },
   layouts: { icon: Layers, colorClassName: 'text-indigo-700 dark:text-indigo-300' },
   maps: { icon: Map, colorClassName: 'text-lime-700 dark:text-lime-300' },
   materials: { icon: Palette, colorClassName: 'text-orange-700 dark:text-orange-300' },
-  objects: { icon: Box, colorClassName: 'text-stone-700 dark:text-stone-300' },
+  interactables: { icon: Box, colorClassName: 'text-stone-700 dark:text-stone-300' },
   rooms: { icon: DoorOpen, colorClassName: 'text-amber-700 dark:text-amber-300' },
   scenes: { icon: Clapperboard, colorClassName: 'text-fuchsia-700 dark:text-fuchsia-300' },
   scripts: { icon: ScrollText, colorClassName: 'text-slate-700 dark:text-slate-300' },

@@ -13,8 +13,8 @@ describe('workspace project tree', () => {
 
   it('groups authoring records under their collection using record labels', () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Front Foyer', tags: [], data: {} };
-    project.layouts.hud = { id: 'hud', label: 'HUD', tags: [], data: {} };
+    project.rooms.foyer = { id: 'foyer', label: 'Front Foyer', data: {} as never };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: {} as never };
 
     const tree = buildAuthoringProjectTree(project);
 

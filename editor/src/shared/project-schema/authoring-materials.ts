@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
+import { entityIdSchema } from './authoring-common';
 import type { AuthoringProject, AuthoringRecordBase, ReferenceTarget } from './authoring-project';
 import {
   isUniformValueCompatible,
@@ -43,6 +44,7 @@ export const materialTextureDataSchema = z.object({
 
 export const materialDataSchema = z.object({
   kind: z.literal('material').default('material'),
+  baseMaterialId: entityIdSchema.nullable().default(null),
   displayName: z.string().optional(),
   shader: z.object({ $ref: z.object({ collection: z.literal('shaders'), id: z.string().min(1) }) }).nullable().default(null),
   role: z.enum(shaderRoleValues).default('engine-2d'),
@@ -80,6 +82,7 @@ export function parseMaterialData(value: unknown): MaterialData | null {
 export function defaultMaterialData(label = 'Material', shaderId?: string): MaterialData {
   return materialDataSchema.parse({
     kind: 'material',
+    baseMaterialId: null,
     displayName: label,
     shader: shaderId ? shaderRef(shaderId) : null,
     role: 'engine-2d',
@@ -109,26 +112,26 @@ export function resolveMaterialData(project: AuthoringProject, materialId: strin
   let currentId: string | null = materialId;
   while (currentId) {
     if (seen.has(currentId)) {
-      diagnostics.push(diagnostic(`/materials/${materialId}/inherits`, 'Material inheritance chain contains a cycle.'));
+      diagnostics.push(diagnostic(`/materials/${materialId}/data/baseMaterialId`, 'Material inheritance chain contains a cycle.'));
       break;
     }
     seen.add(currentId);
-    const record: AuthoringRecordBase | undefined = project.materials[currentId];
+    const record = project.materials[currentId];
     if (!record) {
-      diagnostics.push(diagnostic(`/materials/${materialId}/inherits`, `Missing inherited material '${currentId}'.`));
+      diagnostics.push(diagnostic(`/materials/${materialId}/data/baseMaterialId`, `Missing base material '${currentId}'.`));
       break;
     }
-    const parsed = parseMaterialData(record.data);
-    if (!parsed) {
-      diagnostics.push(diagnostic(`/materials/${currentId}/data`, `Inherited material '${currentId}' has invalid material data.`));
+    const data = parseMaterialData(record.data);
+    if (!data) {
+      diagnostics.push(diagnostic(`/materials/${currentId}/data`, `Material '${currentId}' has invalid material data.`));
       break;
     }
-    stack.push(parsed);
-    currentId = record.inherits?.collection === 'materials' ? record.inherits.id : null;
+    stack.push(data);
+    currentId = data.baseMaterialId;
   }
   if (stack.length === 0) return { data: null, diagnostics };
-  const merged = stack.reverse().reduce((base, next) => mergeMaterialData(base, next));
-  return { data: merged, diagnostics };
+  const data = stack.reverse().reduce((base, next) => mergeMaterialData(base, next));
+  return { data, diagnostics };
 }
 
 function mergeMaterialData(base: MaterialData, next: MaterialData): MaterialData {
@@ -139,6 +142,7 @@ function mergeMaterialData(base: MaterialData, next: MaterialData): MaterialData
   return materialDataSchema.parse({
     ...base,
     ...next,
+    baseMaterialId: next.baseMaterialId,
     uniforms: [...uniformMap.values()],
     textures: [...textureMap.values()],
     preview: { ...base.preview, ...next.preview },
@@ -155,6 +159,16 @@ export function validateMaterialData(project: AuthoringProject, materialId: stri
   }
 
   const data = parsed.data;
+  if (data.baseMaterialId) {
+    if (data.baseMaterialId === materialId) {
+      diagnostics.push(diagnostic(`${base}/baseMaterialId`, 'Material cannot inherit from itself.'));
+    } else if (!project.materials[data.baseMaterialId]) {
+      diagnostics.push(diagnostic(`${base}/baseMaterialId`, `Missing base material '${data.baseMaterialId}'.`));
+    } else {
+      const resolution = resolveMaterialData(project, materialId);
+      diagnostics.push(...resolution.diagnostics);
+    }
+  }
   let shader: ShaderData | null = null;
   if (!data.shader) {
     diagnostics.push(diagnostic(`${base}/shader`, 'Material must reference a shader.'));
@@ -166,14 +180,6 @@ export function validateMaterialData(project: AuthoringProject, materialId: stri
       shader = parseShaderData(shaderRecord.data);
       if (!shader) diagnostics.push(diagnostic(`${base}/shader/$ref`, `Shader '${data.shader.$ref.id}' has invalid shader data.`));
       else if (!shader.roles.includes(data.role)) diagnostics.push(diagnostic(`${base}/role`, `Shader '${data.shader.$ref.id}' does not support role '${data.role}'.`));
-    }
-  }
-
-  if (record.inherits) {
-    if (record.inherits.collection !== 'materials') {
-      diagnostics.push(diagnostic(`/materials/${materialId}/inherits`, 'Material inheritance must target another material.'));
-    } else if (!project.materials[record.inherits.id]) {
-      diagnostics.push(diagnostic(`/materials/${materialId}/inherits`, `Missing inherited material '${record.inherits.id}'.`));
     }
   }
 

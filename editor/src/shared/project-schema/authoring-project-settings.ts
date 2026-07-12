@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
-import type { AuthoringProject, ReferenceTarget } from './authoring-project';
+import { exportSettingsSchema } from './authoring-export';
+import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
 
 const assetRecordRefSchema = z.object({
@@ -10,13 +11,9 @@ const assetRecordRefSchema = z.object({
 const fontAssetRefSchema = assetRecordRefSchema.nullable();
 const imageAssetRefSchema = assetRecordRefSchema.nullable();
 
-export const projectStartupSettingsSchema = z.object({
-  initScript: z.string().default(''),
-});
-
 export const projectTextSettingsSchema = z.object({
   defaultFont: fontAssetRefSchema.default(null),
-});
+}).strict();
 
 export const projectTitleScreenSettingsSchema = z.object({
   titleImage: imageAssetRefSchema.default(null),
@@ -24,7 +21,7 @@ export const projectTitleScreenSettingsSchema = z.object({
   showAuthor: z.boolean().default(false),
   subtitle: z.string().default(''),
   startLabel: z.string().min(1, 'Start label is required.').default('Start'),
-});
+}).strict();
 
 const optionalTrimmedString = z.string().trim().min(1).optional();
 const positiveBuildNumber = z.number().int().positive();
@@ -76,7 +73,7 @@ export const projectAppSettingsSchema = z.object({
     applicationId: applicationIdSchema,
     saveNamespace: z.string().trim().min(1),
   }).strict().optional(),
-}).passthrough();
+}).strict();
 
 export const DEFAULT_PROJECT_DISPLAY_SETTINGS = {
   aspectRatio: { width: 16, height: 9 },
@@ -113,8 +110,7 @@ export function normalizeProjectDisplaySettings(value: unknown): ProjectDisplayS
 }
 
 export const typedProjectSettingsSchema = z.object({
-  startup: projectStartupSettingsSchema.default({ initScript: '' }),
-  ui: z.object({ systemLayouts: systemLayoutSettingsSchema }).default({ systemLayouts: {} }),
+  ui: z.object({ systemLayouts: systemLayoutSettingsSchema }).strict().default({ systemLayouts: {} }),
   text: projectTextSettingsSchema.default({ defaultFont: null }),
   titleScreen: projectTitleScreenSettingsSchema.default({
     titleImage: null,
@@ -125,10 +121,10 @@ export const typedProjectSettingsSchema = z.object({
   }),
   app: projectAppSettingsSchema.optional(),
   display: projectDisplaySettingsSchema.default(DEFAULT_PROJECT_DISPLAY_SETTINGS),
-}).passthrough();
+  export: exportSettingsSchema.optional(),
+}).strict();
 
 export type AssetRecordRef = z.infer<typeof assetRecordRefSchema>;
-export type ProjectStartupSettings = z.infer<typeof projectStartupSettingsSchema>;
 export type ProjectTextSettings = z.infer<typeof projectTextSettingsSchema>;
 export type ProjectTitleScreenSettings = z.infer<typeof projectTitleScreenSettingsSchema>;
 export type ProjectAppSettings = z.infer<typeof projectAppSettingsSchema>;
@@ -149,18 +145,31 @@ export function assetRef(assetId: string): AssetRecordRef {
   return { $ref: { collection: 'assets', id: assetId } };
 }
 
-export function roomEntrypointRef(roomId: string): ReferenceTarget {
-  return { collection: 'rooms', id: roomId };
+export function roomEntrypointRef(roomId: string): ProjectEntrypoint {
+  return { kind: 'room', id: roomId };
 }
 
 export function parseTypedProjectSettings(value: unknown): z.infer<typeof typedProjectSettingsSchema> {
   return typedProjectSettingsSchema.parse(value ?? {});
 }
 
+function normalizeProjectAppInput(value: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...value };
+  for (const key of [
+    'shortName', 'publisher', 'copyright', 'description', 'defaultLocale',
+    'iconBackgroundColor', 'accentColor', 'themeColor', 'launchBackgroundColor',
+  ]) {
+    if (normalized[key] === null) delete normalized[key];
+  }
+  return normalized;
+}
+
 export function projectSettingsFromProject(project: AuthoringProject): TypedProjectSettings {
   const raw = project.settings as Record<string, unknown>;
-  const rawApp = typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app) ? raw.app : {};
-  const settings = parseTypedProjectSettings({ ...raw, app: { ...defaultProjectAppIdentity(project), ...rawApp } });
+  const rawApp: Record<string, unknown> = typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app)
+    ? raw.app as Record<string, unknown>
+    : {};
+  const settings = parseTypedProjectSettings({ ...raw, app: { ...defaultProjectAppIdentity(project), ...normalizeProjectAppInput(rawApp) } });
   return {
     ...settings,
     app: projectAppSettingsSchema.parse(settings.app ?? defaultProjectAppIdentity(project)),
@@ -212,8 +221,10 @@ function validateAssetRef(
 export function validateTypedProjectSettings(project: AuthoringProject): ProjectSettingsDiagnostic[] {
   const diagnostics: ProjectSettingsDiagnostic[] = [];
   const raw = project.settings as Record<string, unknown>;
-  const rawApp = typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app) ? raw.app : {};
-  const parsed = typedProjectSettingsSchema.safeParse({ ...raw, app: { ...defaultProjectAppIdentity(project), ...rawApp } });
+  const rawApp: Record<string, unknown> = typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app)
+    ? raw.app as Record<string, unknown>
+    : {};
+  const parsed = typedProjectSettingsSchema.safeParse({ ...raw, app: { ...defaultProjectAppIdentity(project), ...normalizeProjectAppInput(rawApp) } });
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
       diagnostics.push(diagnostic(`/settings/${issue.path.map(String).join('/')}`, issue.message));
@@ -226,9 +237,6 @@ export function validateTypedProjectSettings(project: AuthoringProject): Project
   if (!project.project.version.trim()) diagnostics.push(diagnostic('/project/version', 'Project version is required.'));
   if (project.project.version.trim() && !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(project.project.version.trim())) {
     diagnostics.push(diagnostic('/project/version', 'Project version should use a semver-like value such as 0.1.0.', 'warning'));
-  }
-  if (settings.startup.initScript !== undefined && typeof settings.startup.initScript !== 'string') {
-    diagnostics.push(diagnostic('/settings/startup/initScript', 'Startup init script must be a string.'));
   }
   for (const role of systemLayoutRoleValues) {
     const ref = settings.ui.systemLayouts[role];

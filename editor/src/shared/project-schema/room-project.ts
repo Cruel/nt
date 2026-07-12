@@ -8,7 +8,7 @@ import {
   type RoomData,
   type RoomLayoutRef,
   type RoomMaterialRef,
-  type RoomObjectRef,
+  type RoomInteractableRef,
 } from './authoring-rooms';
 import type { AuthoringProject } from './authoring-project';
 
@@ -65,10 +65,10 @@ function layoutMetadata(project: AuthoringProject, ref: RoomLayoutRef | null): R
   };
 }
 
-function objectMetadata(project: AuthoringProject, ref: RoomObjectRef | null): Record<string, unknown> | null {
+function objectMetadata(project: AuthoringProject, ref: RoomInteractableRef | null): Record<string, unknown> | null {
   if (!ref) return null;
   const id = ref.$ref.id;
-  const record = project.objects[id];
+  const record = project.interactables[id];
   return {
     id,
     label: record?.label ?? id,
@@ -90,7 +90,7 @@ function dependencyRevision(project: AuthoringProject, data: RoomData): string[]
   for (const hotspot of data.hotspots) {
     if (hotspot.object) {
       const id = hotspot.object.$ref.id;
-      dependencies.push(`object:${id}:${JSON.stringify(project.objects[id] ?? null)}`);
+      dependencies.push(`object:${id}:${JSON.stringify(project.interactables[id] ?? null)}`);
     }
   }
   for (const overlay of data.overlays) {

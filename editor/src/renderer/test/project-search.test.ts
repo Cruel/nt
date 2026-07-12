@@ -8,32 +8,32 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Sarah Portrait',
-    tags: ['Sarah', 'main cast'],
     data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/sarah-portrait.png' }, aliases: ['sarah_portrait'], extension: '.png' },
   };
   next.assets.theme = {
     id: 'theme',
     label: 'Main Theme',
-    tags: ['Sarah'],
     data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/main-theme.ogg' }, aliases: [], extension: '.ogg' },
   };
   next.rooms.classroom = {
     id: 'classroom',
     label: 'Classroom',
-    tags: ['school', 'Sarah'],
-    data: { hotspot: { target: { $ref: { collection: 'assets', id: 'logo' } } } },
+    data: { hotspot: { target: { $ref: { collection: 'assets', id: 'logo' } } } } as never,
   };
   next.dialogues.intro = {
     id: 'intro',
     label: 'Intro Dialogue',
-    tags: [],
-    data: { blocks: [{ segments: [{ text: 'Sarah enters the classroom before the bell rings.' }] }] },
+        data: { blocks: [{ segments: [{ text: 'Sarah enters the classroom before the bell rings.' }] }] } as never,
   };
   next.scenes.opening = {
     id: 'opening',
     label: 'Opening Scene',
-    tags: ['school'],
-    data: { room: { $ref: { collection: 'rooms', id: 'classroom' } }, portrait: { $asset: { alias: 'sarah_portrait' } } },
+    data: { room: { $ref: { collection: 'rooms', id: 'classroom' } }, portrait: { $asset: { alias: 'sarah_portrait' } } } as never,
+  };
+  next.editor.recordMetadata = {
+    assets: { logo: { tags: ['Sarah', 'main cast'] }, theme: { tags: ['Sarah'] } },
+    rooms: { classroom: { tags: ['school', 'Sarah'] } },
+    scenes: { opening: { tags: ['school'] } },
   };
   return next;
 }
@@ -53,7 +53,7 @@ describe('project search service', () => {
     expect(index.documents.find((document) => document.id === 'record:assets:logo')?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'id', path: '/assets/logo/id', value: 'logo' }),
       expect.objectContaining({ kind: 'label', path: '/assets/logo/label', value: 'Sarah Portrait' }),
-      expect.objectContaining({ kind: 'tag', path: '/assets/logo/tags/0', value: 'Sarah' }),
+      expect.objectContaining({ kind: 'tag', path: '/editor/recordMetadata/assets/logo/tags/0', value: 'Sarah' }),
       expect.objectContaining({ kind: 'type', path: '/assets/logo/data/kind', value: 'image' }),
     ]));
   });
@@ -74,7 +74,7 @@ describe('project search service', () => {
     const response = searchProject(project(), { text: 'Sarah', collections: ['assets'], limit: 1 });
     expect(response.results[0]?.matches).toEqual(expect.arrayContaining([
       expect.objectContaining({ fieldKind: 'label', path: '/assets/logo/label' }),
-      expect.objectContaining({ fieldKind: 'tag', path: '/assets/logo/tags/0' }),
+      expect.objectContaining({ fieldKind: 'tag', path: '/editor/recordMetadata/assets/logo/tags/0' }),
     ]));
   });
 

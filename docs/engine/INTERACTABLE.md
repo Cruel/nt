@@ -23,4 +23,4 @@ Interactions refer to typed Interactable IDs or explicit `AnyInteractable` wildc
 
 ## Current implementation scaffold
 
-The editor currently has an `objects` collection and Rooms reference object hotspots. Native code uses legacy `ObjectModel`/numeric `EntityType::Object`. These are retained only to keep the current runtime buildable. Phase 3 renames and replaces the authoring collection; Phases 4--8 add compiled definitions and typed state. No old Object compatibility is required.
+The editor authoring schema now uses the V2 `interactables` collection, and Room/test authoring references target Interactable records. The collection payload is still temporary Phase 3 scaffolding until the complete Interactable contract is implemented. Native code and the transitional runtime-export wire still use legacy Object-shaped models only to keep the current runtime buildable; Phases 4--8 replace those boundaries with compiled definitions and typed state. No old Object compatibility is required.

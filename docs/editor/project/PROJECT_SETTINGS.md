@@ -4,7 +4,7 @@ Project Settings is the editor surface for authoring-project settings that belon
 
 ## Access
 
-V1 exposes Project Settings in two places:
+The editor exposes Project Settings in two places:
 
 - `Project > Project Settings…`
 - Package Export diagnostics, when export is blocked by project-level settings such as a missing entrypoint.
@@ -29,7 +29,7 @@ Startup uses:
 
 ```ts
 entrypoint
-settings.startup.initScript
+startupHook.source
 ```
 
 Runtime defaults use:
@@ -84,7 +84,7 @@ state.
 
 ## Built-In Fallbacks
 
-System layout roles and default font support built-in fallback behavior. In V1, `null` or an
+System layout roles and default font support built-in fallback behavior. A `null` or an
 absent system layout role means the built-in engine layout for that role is used. This keeps
 built-in title/menu/HUD documents compatible with project-authored replacements.
 
@@ -97,11 +97,11 @@ settings.text.defaultFont = null             // built-in default font
 
 Project layout/font records can override those fallbacks. The editor writes only `settings.ui.systemLayouts` for engine UI role overrides.
 
-## Entrypoint Limitation
+## Entrypoint and startup
 
-The authoring schema can structurally reference any known collection as `entrypoint`, but runtime package export currently accepts room entrypoints only. Project Settings therefore exposes a room-only entrypoint selector in V1.
+The V2 entrypoint is a strict Room, Scene, or Dialogue union. Project Settings exposes only those three collections; Script Modules cannot be selected. Startup Lua is edited separately and stored at `startupHook.source`.
 
-Package Export remains strict: a missing entrypoint or non-room entrypoint blocks export until broader runtime conversion exists.
+Package Export remains strict: a missing or unresolved entrypoint blocks export.
 
 ## Validation
 

@@ -5,7 +5,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { TagInput } from '@/components/tags/TagInput';
 import { useCommandStore } from '@/commands/command-store';
@@ -66,30 +65,9 @@ function initialDraft(project: AuthoringProject, collection: AuthoringCollection
       description: '',
       tags: [],
       color: '',
-      parentId: null,
     },
     options: definition.defaultOptions?.(project) ?? {},
   };
-}
-
-function ParentSelect({
-  project,
-  collection,
-  value,
-  onChange,
-}: {
-  project: AuthoringProject;
-  collection: AuthoringCollectionKey;
-  value: string | null;
-  onChange: (value: string | null) => void;
-}) {
-  const options = Object.entries(project[collection]);
-  return (
-    <Select value={value ?? '__none__'} onValueChange={(next) => onChange(next === '__none__' ? null : String(next))}>
-      <SelectItem value="__none__">No parent</SelectItem>
-      {options.map(([id, record]) => <SelectItem key={id} value={id}>{record.label || id} ({id})</SelectItem>)}
-    </Select>
-  );
 }
 
 function FieldRow({ children }: { children: ReactNode }) {
@@ -170,7 +148,6 @@ export function NewEntityWizardDialog({
       return;
     }
     const extra = definition.buildPayload({ project: activeProject, draft: activeDraft });
-    const parent = activeDraft.basics.parentId ? { collection, id: activeDraft.basics.parentId } : null;
     const result = executeCommand({
       type: 'entity.createRecord',
       label: `Create ${metadata.singularLabel}`,
@@ -181,7 +158,6 @@ export function NewEntityWizardDialog({
         description: activeDraft.basics.description.trim() || undefined,
         tags: activeDraft.basics.tags,
         color: activeDraft.basics.color.trim() || null,
-        parent,
         ...extra,
       },
     });
@@ -194,7 +170,7 @@ export function NewEntityWizardDialog({
       executeCommand({
         type: 'project.setEntrypoint',
         label: 'Set project entrypoint',
-        payload: { target: { collection: 'rooms', id: entityId } },
+        payload: { target: { kind: 'room', id: entityId } },
       });
     }
     const tab = buildDefaultRecordTab({ id: `${collection}:${entityId}`, label: label || entityId, type: metadata.nodeType, collection, entityId });
@@ -290,7 +266,6 @@ export function NewEntityWizardDialog({
                     </FieldRow>
                     <FieldRow>
                       <FieldLabel>Parent</FieldLabel>
-                      <ParentSelect project={project} collection={collection} value={draft.basics.parentId} onChange={(parentId) => updateBasics({ parentId })} />
                     </FieldRow>
                     <FieldRow>
                       <FieldLabel>Description</FieldLabel>

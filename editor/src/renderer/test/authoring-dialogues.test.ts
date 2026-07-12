@@ -22,7 +22,7 @@ describe('authoring dialogues schema', () => {
 
   it('validates dialogue dependencies and graph IDs', () => {
     const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: defaultDialogueData('Intro') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     const data = defaultDialogueData('Intro');
     data.defaultSpeaker = dialogueCharacterRef('missing-character');
     data.entryBlockId = 'missing-entry';
@@ -54,7 +54,7 @@ describe('authoring dialogues schema', () => {
 
   it('reports warning-only dialogue diagnostics through project validation', () => {
     const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: defaultDialogueData('Intro') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'authoring-dialogues', path: '/dialogues/intro/data/blocks/0/segments/0/text/source', severity: 'warning' }),
@@ -63,7 +63,7 @@ describe('authoring dialogues schema', () => {
 
   it('builds dialogue preview documents with dependency revisions', () => {
     const project = createAuthoringProject();
-    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     const data = defaultDialogueData('Intro');
     data.defaultSpeaker = dialogueCharacterRef('iris');
     data.blocks[0]!.segments[0]!.text.source = 'Welcome.';
@@ -77,7 +77,7 @@ describe('authoring dialogues schema', () => {
       graph: { x: 240, y: 0 },
     });
     data.edges = [{ id: 'choice', fromBlockId: 'start', toBlockId: 'choice-result', kind: 'choice', label: 'Continue', order: 0, condition: { enabled: false, source: '' }, script: { enabled: false, source: '' } }];
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data };
 
     expect(dialoguePreviewRevision(project, 'intro')).toContain('iris');
     expect(buildDialoguePreviewDocumentData(project, 'intro')).toMatchObject({

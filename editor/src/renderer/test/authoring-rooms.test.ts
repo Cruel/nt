@@ -7,7 +7,7 @@ import {
   defaultRoomData,
   roomAssetRef,
   roomMaterialRef,
-  roomObjectRef,
+  roomInteractableRef,
   roomRoomRef,
   validateRoomData,
 } from '../../shared/project-schema/authoring-rooms';
@@ -41,7 +41,7 @@ describe('authoring rooms schema', () => {
 
   it('validates room dependencies and subrecord IDs', () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     const data = defaultRoomData('Foyer');
     data.background.asset = roomAssetRef('missing-bg');
     data.paths = [
@@ -49,7 +49,7 @@ describe('authoring rooms schema', () => {
       { id: 'exit', label: 'Duplicate', direction: 'south', target: null, enabled: true, condition: '', order: 1 },
     ];
     data.hotspots = [
-      { id: 'lamp', label: 'Lamp', object: roomObjectRef('missing-object'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, placeInRoom: true, description: '', script: '' },
+      { id: 'lamp', label: 'Lamp', object: roomInteractableRef('missing-object'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, placeInRoom: true, description: '', script: '' },
       { id: 'lamp', label: 'Duplicate', object: null, bounds: { x: 0, y: 0, width: 0, height: 0.1 }, placeInRoom: true, description: '', script: '' },
     ];
     project.rooms.foyer.data = data;
@@ -69,8 +69,7 @@ describe('authoring rooms schema', () => {
     project.assets.theme = {
       id: 'theme',
       label: 'Theme',
-      tags: [],
-      data: assetDataFromImportMetadata({
+            data: assetDataFromImportMetadata({
         kind: 'audio',
         projectRelativePath: 'assets/audio/theme.mp3',
         extension: '.mp3',
@@ -83,7 +82,7 @@ describe('authoring rooms schema', () => {
     };
     const data = defaultRoomData('Foyer');
     data.background.asset = roomAssetRef('theme');
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'authoring-rooms', path: '/rooms/foyer/data/background/asset/$ref', severity: 'warning' }),
@@ -93,17 +92,17 @@ describe('authoring rooms schema', () => {
 
   it('builds room preview documents with dependency revisions', () => {
     const project = createAuthoringProject();
-    project.assets.foyer = { id: 'foyer', label: 'Foyer BG', tags: [], data: imageAsset() };
-    project.materials.glow = { id: 'glow', label: 'Glow', tags: [], data: defaultMaterialData('Glow') };
-    project.objects.lamp = { id: 'lamp', label: 'Lamp', tags: [], data: {} };
-    project.rooms.hall = { id: 'hall', label: 'Hall', tags: [], data: defaultRoomData('Hall') };
+    project.assets.foyer = { id: 'foyer', label: 'Foyer BG', data: imageAsset() };
+    project.materials.glow = { id: 'glow', label: 'Glow', data: defaultMaterialData('Glow') };
+    project.interactables.lamp = { id: 'lamp', label: 'Lamp', data: {} as never };
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
     const data = defaultRoomData('Foyer');
     data.description.source = 'Welcome.';
     data.background.asset = roomAssetRef('foyer');
     data.background.material = roomMaterialRef('glow');
     data.paths = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('hall'), enabled: true, condition: '', order: 0 }];
-    data.hotspots = [{ id: 'lamp', label: 'Lamp', object: roomObjectRef('lamp'), bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, placeInRoom: true, description: '', script: '' }];
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data };
+    data.hotspots = [{ id: 'lamp', label: 'Lamp', object: roomInteractableRef('lamp'), bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, placeInRoom: true, description: '', script: '' }];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
 
     expect(roomPreviewRevision(project, 'foyer')).toContain('hash-image');
     expect(buildRoomPreviewDocumentData(project, 'foyer')).toMatchObject({

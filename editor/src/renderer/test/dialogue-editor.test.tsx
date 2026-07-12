@@ -70,7 +70,7 @@ beforeEach(() => {
 describe('DialogueEditor', () => {
   it('renders typed dialogue defaults and dialogue preview', () => {
     const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: defaultDialogueData('Intro') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<DialogueEditor tab={tab} />);
@@ -82,7 +82,7 @@ describe('DialogueEditor', () => {
 
   it('dispatches command-backed display, block, segment, and choice updates', async () => {
     const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: defaultDialogueData('Intro') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<DialogueEditor tab={tab} />);
@@ -119,7 +119,7 @@ describe('DialogueEditor', () => {
 
   it('captures and restores tab state for scroll and graph viewport', async () => {
     const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: defaultDialogueData('Intro') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     const view = render(<DialogueEditor tab={tab} />);

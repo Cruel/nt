@@ -15,8 +15,8 @@ function validProject() {
   const project = createAuthoringProject({ name: 'Workflow Demo' });
   const data = defaultRoomData('Foyer');
   data.description.source = 'Ready.';
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data };
-  project.entrypoint = { collection: 'rooms', id: 'foyer' };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
+  project.entrypoint = { kind: 'room', id: 'foyer' };
   return project;
 }
 
@@ -55,7 +55,7 @@ describe('package export workflow', () => {
 
   it('blocks validation errors before native export', async () => {
     const project = createAuthoringProject();
-    project.rooms['bad id'] = { id: 'bad id', label: '', tags: [], data: {} };
+    project.rooms['bad id'] = { id: 'bad id', label: '', data: {} as never };
     const profile = defaultExportProfile(project);
     const result = await runPackageExportWorkflow({ project, projectRoot: '/project', outputPath: '/project/out.ntpkg', profile });
 
@@ -94,7 +94,7 @@ describe('package export workflow', () => {
   it('records export identity only after successful final publication', async () => {
     const project = validProject();
     project.settings.app = {
-      ...(project.settings.app as Record<string, unknown>),
+      ...projectSettingsFromProject(project).app,
       applicationId: 'org.example.workflow',
       saveNamespace: 'workflow-save',
     };

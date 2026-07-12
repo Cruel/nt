@@ -32,7 +32,6 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { deleteEntityRecordPreflight, referenceTargetFromEntity } from '@/project/entity-operations';
@@ -41,7 +40,7 @@ import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import { authoringCollectionMetadata, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { isAuthoringProject, type AuthoringProject, type AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
-import { collectProjectTags, normalizeTagKey } from '../../shared/project-schema/authoring-tags';
+import { collectProjectTags, normalizeTagKey, recordEditorMetadata } from '../../shared/project-schema/authoring-tags';
 import { buildProjectSearchIndex } from '../../shared/project-search/project-search-index';
 import { searchProjectIndex } from '../../shared/project-search/project-search';
 import { searchReferences } from '../../shared/project-search/project-search-helpers';
@@ -112,30 +111,6 @@ function withExplorerPlacement(tab: WorkbenchTab, explorerNodeId: string): Workb
   };
 }
 
-function ParentSelect({
-  project,
-  collection,
-  entityId,
-  value,
-  onChange,
-}: {
-  project: AuthoringProject;
-  collection: AuthoringCollectionKey;
-  entityId: string;
-  value: string | null;
-  onChange: (value: string | null) => void;
-}) {
-  const options = Object.entries(project[collection]).filter(([id]) => id !== entityId);
-  return (
-    <Select value={value ?? '__none__'} onValueChange={(next) => onChange(next === '__none__' ? null : String(next))}>
-      <SelectItem value="__none__">No parent</SelectItem>
-      {options.map(([id, record]) => (
-        <SelectItem key={id} value={id}>{record.label || id} ({id})</SelectItem>
-      ))}
-    </Select>
-  );
-}
-
 function EntityOperationDialog({
   state,
   project,
@@ -152,7 +127,6 @@ function EntityOperationDialog({
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [color, setColor] = useState('');
-  const [parentId, setParentId] = useState<string | null>(null);
   const [forceDelete, setForceDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -164,12 +138,12 @@ function EntityOperationDialog({
     if (state.action === 'duplicate') {
       setId(defaultDuplicateId(state.entityId ?? 'record'));
       setLabel(record ? `${record.label} Copy` : 'Copy');
-      setDescription(''); setTags([]); setColor(''); setParentId(null);
+      setDescription(''); setTags([]); setColor('');
     } else if (state.action === 'rename') {
-      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(''); setTags([]); setColor(''); setParentId(null);
+      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(''); setTags([]); setColor('');
     } else if (state.action === 'metadata') {
-      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(record?.description ?? ''); setTags(record?.tags ?? []); setColor(record?.color ?? '');
-      setParentId(record?.parent?.collection === state.collection ? record.parent.id : null);
+      const editorMetadata = state.entityId ? recordEditorMetadata(project!, state.collection, state.entityId) : { tags: [] };
+      setId(state.entityId ?? ''); setLabel(record?.label ?? ''); setDescription(record?.description ?? ''); setTags(editorMetadata.tags); setColor(editorMetadata.color ?? '');
     }
   }, [project, state]);
 
@@ -212,10 +186,7 @@ function EntityOperationDialog({
     } else if (state.action === 'delete' && state.entityId) {
       finish(executeCommand({ type: 'entity.deleteRecord', label: `Delete ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, force: forceDelete } }), () => undefined);
     } else if (state.action === 'metadata' && state.entityId) {
-      const first = executeCommand({ type: 'entity.updateMetadata', label: `Update ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, label: label.trim(), description: description.trim() || undefined, tags, color: color.trim() || null } });
-      const failure = first.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-      if (!first.ok || failure) { setError(failure?.message ?? 'Metadata update failed.'); return; }
-      finish(executeCommand({ type: 'entity.setParent', label: `Set parent for ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, parentId } }), () => undefined);
+      finish(executeCommand({ type: 'entity.updateMetadata', label: `Update ${state.collection}/${state.entityId}`, payload: { collection: state.collection, entityId: state.entityId, label: label.trim(), description: description.trim() || undefined, tags, color: color.trim() || null } }), () => undefined);
     }
   }
 
@@ -255,7 +226,6 @@ function EntityOperationDialog({
                   <div className="space-y-1"><Label htmlFor="entity-description">Description</Label><Input id="entity-description" value={description} onChange={(event) => setDescription(event.currentTarget.value)} /></div>
                   <div className="space-y-1"><Label htmlFor="entity-tags">Tags</Label><TagInput id="entity-tags" value={tags} onChange={setTags} suggestions={tagSuggestions} placeholder="Add tag" /></div>
                   <div className="space-y-1"><Label htmlFor="entity-color">Color</Label><Input id="entity-color" value={color} onChange={(event) => setColor(event.currentTarget.value)} placeholder="#8b5cf6 or empty" /></div>
-                  <div className="space-y-1"><Label>Parent</Label><ParentSelect project={project} collection={state.collection} entityId={state.entityId!} value={parentId} onChange={setParentId} /></div>
                 </>
               ) : null}
             </>
@@ -322,7 +292,8 @@ function ProjectExplorerHoverDetails({ state, project }: { state: HoverDetailsSt
   const node = state.node;
   const record = recordForNode(project, node);
   const collection = node.collection;
-  const tagByKey = new Map(collectProjectTags(project, record?.tags ?? []).map((tag) => [tag.key, tag]));
+  const metadata = collection && node.entityId ? recordEditorMetadata(project, collection, node.entityId) : { tags: [] };
+  const tagByKey = new Map(collectProjectTags(project, metadata.tags).map((tag) => [tag.key, tag]));
   const alignedTop = state.y - 4;
   const top = typeof window === 'undefined' ? alignedTop : Math.max(48, Math.min(alignedTop, window.innerHeight - 220));
   return (
@@ -345,9 +316,9 @@ function ProjectExplorerHoverDetails({ state, project }: { state: HoverDetailsSt
       {record ? (
         <div className="mt-3">
           <div className="mb-1 text-muted-foreground">Tags</div>
-          {record.tags?.length ? (
+          {metadata.tags.length ? (
             <div className="flex flex-wrap gap-1">
-              {record.tags.map((tag) => {
+              {metadata.tags.map((tag) => {
                 const summary = tagByKey.get(normalizeTagKey(tag));
                 return <TagBadge key={tag} name={tag} color={summary?.color ?? 'tag-slate'} className="text-[10px]" />;
               })}
@@ -519,7 +490,9 @@ function ProjectExplorerItem({
   const collection = node.collection;
   const visual = collection ? visualForCollection(collection) : node.kind === 'hidden-root' ? hiddenVisual : chapterVisual;
   const Icon = node.kind === 'chapter-folder' || node.kind === 'all-folder' || node.kind === 'unassigned-folder' ? chapterVisual.icon : visual.icon;
-  const record = recordForNode(project, node);
+  const recordMetadata = project && node.collection && node.entityId
+    ? recordEditorMetadata(project, node.collection, node.entityId)
+    : { tags: [] };
   const canExpand = node.expandable && (node.children?.length ?? 0) > 0;
   const openable = node.kind === 'record' || node.kind === 'collective-collection';
   const inert = !openable && !canExpand;
@@ -573,9 +546,9 @@ function ProjectExplorerItem({
         {canExpand ? expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <span className="w-3.5 shrink-0" />}
         <Icon className={`h-3.5 w-3.5 shrink-0 ${node.kind === 'chapter-folder' && node.chapterId ? chapterVisual.colorClassName : visual.colorClassName}`} />
         {node.kind === 'chapter-folder' && node.chapterId ? <span className="h-2 w-2 shrink-0 rounded-full border" style={{ backgroundColor: editorProjectStateFromProject(project).chapters.records[node.chapterId]?.color ?? 'transparent' }} /> : null}
-        {record?.color ? <span className="h-2 w-2 shrink-0 rounded-full border" style={{ backgroundColor: record.color }} /> : null}
+        {recordMetadata.color ? <span className="h-2 w-2 shrink-0 rounded-full border" style={{ backgroundColor: recordMetadata.color }} /> : null}
         <span className="truncate">{node.label}</span>
-        {record?.tags?.length ? <Badge variant="outline" className="ml-1 h-4 px-1 text-[9px]">{record.tags.length}</Badge> : null}
+        {recordMetadata.tags.length ? <Badge variant="outline" className="ml-1 h-4 px-1 text-[9px]">{recordMetadata.tags.length}</Badge> : null}
         {node.count !== undefined ? <span className={`ml-auto font-mono text-[10px] ${inert && !node.dimmed ? 'text-muted-foreground/70' : 'text-muted-foreground'}`}>{node.count}</span> : null}
       </button>
       {canExpand && expanded ? node.children?.map((child) => <ProjectExplorerItem key={child.id} node={child} project={project} depth={depth + 1} onContextMenu={onContextMenu} onHoverDetails={onHoverDetails} getHoverDetailsX={getHoverDetailsX} />) : null}

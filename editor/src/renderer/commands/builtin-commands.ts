@@ -14,14 +14,14 @@ import {
   deleteEntityRecordPatches,
   duplicateEntityRecordPatches,
   renameEntityIdPatches,
-  setEntityParentPatches,
+  setEntityExtendsPatches,
   updateEntityMetadataPatches,
 } from '@/project/entity-operations';
 import {
   applyShaderCompiledOutputsPatches,
   replaceMaterialDataPatches,
   replaceShaderDataPatches,
-  setMaterialInheritsPatches,
+  setMaterialBasePatches,
 } from '@/project/shader-material-operations';
 import {
   replaceVariableDataPatches,
@@ -220,7 +220,6 @@ const createEntityRecordSchema = z.object({
   entityId: entityIdSchema,
   label: z.string().optional(),
   description: z.string().optional(),
-  parent: z.object({ collection: z.string(), id: z.string() }).nullable().optional(),
   tags: z.array(z.string()).optional(),
   color: z.string().nullable().optional(),
   data: z.unknown().optional(),
@@ -250,10 +249,10 @@ const updateEntityMetadataSchema = z.object({
   sortKey: z.string().nullable().optional(),
 });
 
-const setEntityParentSchema = z.object({
+const setEntityExtendsSchema = z.object({
   collection: authoringCollectionSchema,
   entityId: entityIdSchema,
-  parentId: z.string().nullable(),
+  extendsId: entityIdSchema.nullable(),
 });
 
 const importedAssetMetadataSchema = z.object({
@@ -275,6 +274,7 @@ const assetReimportSchema = z.object({ assetId: entityIdSchema, asset: importedA
 const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
 const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unknown() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
+const materialSetBaseSchema = z.object({ materialId: entityIdSchema, baseMaterialId: entityIdSchema.nullable() });
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
 const characterReplaceDataSchema = z.object({ characterId: entityIdSchema, data: z.unknown() });
 const dialogueReplaceDataSchema = z.object({ dialogueId: entityIdSchema, data: z.unknown() });
@@ -287,7 +287,11 @@ const setSystemLayoutSchema = z.object({
   layoutId: entityIdSchema.nullable(),
 });
 const projectMetadataSchema = z.object({ name: z.string().optional(), version: z.string().optional(), author: z.string().optional(), description: z.string().optional() });
-const projectEntrypointSchema = z.object({ target: z.object({ collection: z.string().min(1), id: entityIdSchema }).nullable() });
+const projectEntrypointSchema = z.object({ target: z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('room'), id: entityIdSchema }),
+  z.object({ kind: z.literal('scene'), id: entityIdSchema }),
+  z.object({ kind: z.literal('dialogue'), id: entityIdSchema }),
+]).nullable() });
 const projectStartupSchema = z.object({ initScript: z.string() });
 const projectDisplaySchema = z.object({
   aspectRatio: z.object({
@@ -321,7 +325,6 @@ const variableSetTypeSchema = z.object({
   enumValues: z.array(z.string()).optional(),
 });
 const variableSetDefaultValueSchema = z.object({ variableId: entityIdSchema, defaultValue: z.unknown() });
-const materialSetInheritsSchema = z.object({ materialId: entityIdSchema, inheritsId: z.string().nullable() });
 const shaderCompiledOutputSchema = z.object({ shader: z.string(), stage: z.string(), variant: z.string(), runtimePath: z.string() });
 const shaderApplyCompiledOutputsSchema = z.object({ outputs: z.array(shaderCompiledOutputSchema) });
 
@@ -337,8 +340,8 @@ export const entityDuplicateRecordCommand: CommandHandler = ({ document, payload
 export const entityUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(updateEntityMetadataSchema, payload, (parsed) => updateEntityMetadataPatches(document, parsed as never));
 
-export const entitySetParentCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(setEntityParentSchema, payload, (parsed) => setEntityParentPatches(document, parsed as never));
+export const entitySetExtendsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(setEntityExtendsSchema, payload, (parsed) => setEntityExtendsPatches(document, parsed as never));
 
 export const assetImportFilesCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(assetImportSchema, payload, (parsed) => importAssetRecordsPatches(document, parsed));
@@ -367,8 +370,9 @@ export const shaderApplyCompiledOutputsCommand: CommandHandler = ({ document, pa
 export const materialReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(materialReplaceDataSchema, payload, (parsed) => replaceMaterialDataPatches(document, parsed as never));
 
-export const materialSetInheritsCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(materialSetInheritsSchema, payload, (parsed) => setMaterialInheritsPatches(document, parsed));
+export const materialSetBaseCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(materialSetBaseSchema, payload, (parsed) => setMaterialBasePatches(document, parsed));
+
 
 export const variableReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(variableReplaceDataSchema, payload, (parsed) => replaceVariableDataPatches(document, parsed));
@@ -457,7 +461,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'entity.duplicateRecord': entityDuplicateRecordCommand,
     'entity.deleteRecord': entityDeleteRecordCommand,
     'entity.updateMetadata': entityUpdateMetadataCommand,
-    'entity.setParent': entitySetParentCommand,
+    'entity.setExtends': entitySetExtendsCommand,
     'asset.importFiles': assetImportFilesCommand,
     'asset.assignAlias': assetAssignAliasCommand,
     'asset.removeAlias': assetRemoveAliasCommand,
@@ -467,7 +471,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'shader.replaceData': shaderReplaceDataCommand,
     'shader.applyCompiledOutputs': shaderApplyCompiledOutputsCommand,
     'material.replaceData': materialReplaceDataCommand,
-    'material.setInherits': materialSetInheritsCommand,
+    'material.setBase': materialSetBaseCommand,
     'variable.replaceData': variableReplaceDataCommand,
     'variable.setType': variableSetTypeCommand,
     'variable.setDefaultValue': variableSetDefaultValueCommand,
@@ -508,7 +512,7 @@ export function labelForCommand(type: string): string {
     case 'entity.duplicateRecord': return 'Duplicate entity record';
     case 'entity.deleteRecord': return 'Delete entity record';
     case 'entity.updateMetadata': return 'Update entity metadata';
-    case 'entity.setParent': return 'Set entity parent';
+    case 'entity.setExtends': return 'Set entity extends';
     case 'asset.importFiles': return 'Import assets';
     case 'asset.assignAlias': return 'Assign asset alias';
     case 'asset.removeAlias': return 'Remove asset alias';
@@ -518,7 +522,7 @@ export function labelForCommand(type: string): string {
     case 'shader.replaceData': return 'Update shader';
     case 'shader.applyCompiledOutputs': return 'Apply shader compile outputs';
     case 'material.replaceData': return 'Update material';
-    case 'material.setInherits': return 'Set material inheritance';
+    case 'material.setBase': return 'Set base material';
     case 'variable.replaceData': return 'Update variable';
     case 'variable.setType': return 'Set variable type';
     case 'variable.setDefaultValue': return 'Set variable default value';

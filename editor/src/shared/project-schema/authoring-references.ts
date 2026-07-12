@@ -2,7 +2,7 @@ import { authoringCollectionKeys, type AuthoringCollectionKey } from './authorin
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
 import { isVariableRef } from './authoring-variables';
 
-export type ReferenceUsageKind = 'parent' | 'inherits' | 'entrypoint' | 'explicit-ref' | 'variable-ref';
+export type ReferenceUsageKind = 'extends' | 'entrypoint' | 'explicit-ref' | 'variable-ref';
 
 export interface ReferenceUsage {
   sourceCollection: AuthoringCollectionKey | 'project';
@@ -80,7 +80,7 @@ export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
       sourceCollection: 'project',
       sourceId: 'project',
       path: '/entrypoint',
-      target: project.entrypoint,
+      target: { collection: `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues', id: project.entrypoint.id },
       kind: 'entrypoint',
     });
   }
@@ -90,22 +90,13 @@ export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
   for (const collection of authoringCollectionKeys) {
     const records = project[collection];
     for (const [id, record] of Object.entries(records)) {
-      if (record.parent) {
+      if (record.extends) {
         addUsage(usages, {
           sourceCollection: collection,
           sourceId: id,
-          path: `/${collection}/${id}/parent`,
-          target: record.parent,
-          kind: 'parent',
-        });
-      }
-      if (record.inherits) {
-        addUsage(usages, {
-          sourceCollection: collection,
-          sourceId: id,
-          path: `/${collection}/${id}/inherits`,
-          target: record.inherits,
-          kind: 'inherits',
+          path: `/${collection}/${id}/extends`,
+          target: { collection, id: record.extends },
+          kind: 'extends',
         });
       }
       scanDataForExplicitRefs(record.data, `/${collection}/${id}/data`, collection, id, usages);

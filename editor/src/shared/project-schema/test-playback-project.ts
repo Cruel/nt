@@ -95,7 +95,7 @@ function buildNativeStep(step: TestStepData) {
   if (step.input === 'select-object') result.object_id = refId(step.selectObject.object);
   if (step.input === 'run-action') {
     result.verb_id = refId(step.runAction.verb);
-    result.object_ids = step.runAction.objects.map((object) => object.$ref.id);
+    result.object_ids = step.runAction.interactables.map((object) => object.$ref.id);
   }
   if (step.input === 'load-save') {
     result.payload = step.loadSave.payload ?? {};

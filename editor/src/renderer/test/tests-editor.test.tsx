@@ -39,7 +39,7 @@ beforeEach(() => {
 describe('TestsEditor', () => {
   it('renders typed test data and readiness diagnostics', () => {
     const project = createAuthoringProject();
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data: defaultTestData('Smoke') };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<TestsEditor tab={tab} />);
@@ -54,7 +54,7 @@ describe('TestsEditor', () => {
 
   it('commits metadata and step edits through test.replaceData', async () => {
     const project = createAuthoringProject();
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data: defaultTestData('Smoke') };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<TestsEditor tab={tab} />);
@@ -77,7 +77,7 @@ describe('TestsEditor', () => {
     const data = defaultTestData('Smoke');
     data.steps = [{ ...defaultTestStep('continue'), id: 'continue', label: 'Continue' }];
     data.preview.selectedStepId = 'continue';
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<TestsEditor tab={tab} />);
@@ -98,10 +98,10 @@ describe('TestsEditor', () => {
 
   it('opens the playback panel and stores readiness reports when a test cannot run', async () => {
     const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: defaultSceneData('Opening') };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     const data = defaultTestData('Smoke');
     data.entrypoint = { $ref: { collection: 'scenes', id: 'opening' } };
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<TestsEditor tab={tab} />);
@@ -118,12 +118,12 @@ describe('TestsEditor', () => {
 
   it('runs ui-click tests through the UI playback API', async () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
-    project.entrypoint = { collection: 'rooms', id: 'foyer' };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
     const data = defaultTestData('Title Start');
     data.steps = [{ ...defaultTestStep('ui-click'), id: 'title-start', label: 'Title Start' }];
     data.preview.selectedStepId = 'title-start';
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<TestsEditor tab={tab} />);

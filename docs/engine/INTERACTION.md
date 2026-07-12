@@ -21,4 +21,4 @@ Interaction is property-bearing and may `extends` another Interaction only for d
 
 ## Current implementation scaffold
 
-The editor currently stores `actions`; runtime code scans legacy generic entities and JSON-backed action data. Phase 3 renames and replaces the collection, and Phases 4--7 implement deterministic matching and typed programs. No Action API or serialized shape is preserved.
+The editor authoring schema now uses the V2 `interactions` collection. Its payload is still temporary Phase 3 scaffolding until the complete rule and program contract is implemented. Runtime code and the transitional runtime-export wire still use legacy Action-shaped data while Phases 4--7 introduce deterministic matching and typed programs. No Action API or serialized shape is preserved.

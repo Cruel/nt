@@ -25,8 +25,7 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    tags: [],
-    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+        data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
   };
   return next;
 }

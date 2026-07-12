@@ -96,8 +96,7 @@ export function importAssetRecordsPatches(document: JsonValue | unknown, payload
       value: toJsonValue({
         id,
         label: metadata.originalName.replace(/\.[^.]*$/, ''),
-        tags: [],
-        data: assetDataFromImportMetadata(metadata),
+                data: assetDataFromImportMetadata(metadata),
       }),
     });
     affectedPaths.push(path);

@@ -109,6 +109,17 @@ export const editorTagsStateSchema = z.object({
   records: z.record(z.string(), editorTagRecordSchema).default({}),
 });
 
+export const editorRecordMetadataSchema = z.object({
+  tags: z.array(z.string()).default([]),
+  color: z.string().nullable().optional(),
+  sortKey: z.string().nullable().optional(),
+}).strict();
+
+export const editorRecordMetadataStateSchema = z.record(
+  z.string(),
+  z.record(z.string(), editorRecordMetadataSchema),
+);
+
 export const editorBottomPanelStateSchema = z.object({
   visible: z.boolean().default(true),
   sizePercent: z.number().min(10).max(70).default(30),
@@ -132,6 +143,7 @@ export const editorProjectStateSchema = z.object({
   explorer: editorExplorerStateSchema.default({ expandedNodeIds: [], hiddenCollectionKeys: [], followActiveTab: true, organizeByChapter: true, groupUnassignedItems: true, hideEmptyCategories: false, showInfoOnHover: true, searchQuery: '', filterTags: [], showTagFilter: false, exactMatch: false }),
   chapters: editorChaptersStateSchema.default({ records: {}, assignments: {} }),
   tags: editorTagsStateSchema.default({ records: {} }),
+  recordMetadata: editorRecordMetadataStateSchema.default({}),
   bottomPanel: editorBottomPanelStateSchema.default({ visible: true, activePanelId: 'problems', sizePercent: 30 }),
   tabStatesById: z.record(z.string(), editorTabStateSchema).default({}),
   draftsByKey: z.record(z.string(), editorDraftStateSchema).default({}),
@@ -142,6 +154,7 @@ export type EditorChapterRecord = z.infer<typeof editorChapterRecordSchema>;
 export type EditorChaptersState = z.infer<typeof editorChaptersStateSchema>;
 export type EditorTagRecord = z.infer<typeof editorTagRecordSchema>;
 export type EditorTagsState = z.infer<typeof editorTagsStateSchema>;
+export type EditorRecordMetadata = z.infer<typeof editorRecordMetadataSchema>;
 export type EditorBottomPanelState = z.infer<typeof editorBottomPanelStateSchema>;
 export type EditorProjectState = z.infer<typeof editorProjectStateSchema>;
 export type SerializedWorkbenchState = z.infer<typeof editorWorkbenchStateSchema>;
@@ -192,6 +205,7 @@ export function emptyEditorProjectState(): EditorProjectState {
     explorer: emptyEditorExplorerState(),
     chapters: emptyEditorChaptersState(),
     tags: emptyEditorTagsState(),
+    recordMetadata: {},
     bottomPanel: emptyEditorBottomPanelState(),
     tabStatesById: {},
     draftsByKey: {},

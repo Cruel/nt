@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import { parseMaterialData } from './authoring-materials';
-import { entityIdSchema, type AuthoringProject, type AuthoringRecordBase } from './authoring-project';
+import { entityIdSchema } from './authoring-common';
+import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const characterPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
 export type CharacterPreviewBackground = (typeof characterPreviewBackgroundValues)[number];
@@ -184,13 +185,6 @@ export function validateCharacterData(
   }
 
   const data = parsed.data;
-  if (record.inherits) {
-    if (record.inherits.collection !== 'characters') {
-      diagnostics.push(diagnostic(`/characters/${characterId}/inherits`, 'Character inheritance must target another character.'));
-    } else if (!project.characters[record.inherits.id]) {
-      diagnostics.push(diagnostic(`/characters/${characterId}/inherits`, `Missing inherited character '${record.inherits.id}'.`));
-    }
-  }
 
   if (data.poses.length === 0) diagnostics.push(diagnostic(`${base}/poses`, 'Character requires at least one pose.'));
   if (data.expressions.length === 0) diagnostics.push(diagnostic(`${base}/expressions`, 'Character requires at least one expression.'));

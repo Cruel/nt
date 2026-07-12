@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import { parseLayoutData } from './authoring-layouts';
 import { parseMaterialData } from './authoring-materials';
-import { entityIdSchema, type AuthoringProject, type AuthoringRecordBase } from './authoring-project';
+import { entityIdSchema } from './authoring-common';
+import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const roomBackgroundFitValues = ['cover', 'contain', 'stretch', 'center'] as const;
 export type RoomBackgroundFit = (typeof roomBackgroundFitValues)[number];
@@ -38,8 +39,8 @@ export const roomLayoutRefSchema = z.object({
   $ref: z.object({ collection: z.literal('layouts'), id: z.string().min(1) }),
 });
 
-export const roomObjectRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('objects'), id: z.string().min(1) }),
+export const roomInteractableRefSchema = z.object({
+  $ref: z.object({ collection: z.literal('interactables'), id: z.string().min(1) }),
 });
 
 export const roomRoomRefSchema = z.object({
@@ -85,7 +86,7 @@ export const roomPathDataSchema = z.object({
 export const roomHotspotDataSchema = z.object({
   id: entityIdSchema,
   label: z.string().min(1, 'Hotspot label is required.'),
-  object: roomObjectRefSchema.nullable().default(null),
+  object: roomInteractableRefSchema.nullable().default(null),
   bounds: roomNormalizedRectSchema.default({ x: 0.1, y: 0.1, width: 0.2, height: 0.2 }),
   placeInRoom: z.boolean().default(true),
   description: z.string().default(''),
@@ -118,7 +119,7 @@ export const roomDataSchema = z.object({
 export type RoomAssetRef = z.infer<typeof roomAssetRefSchema>;
 export type RoomMaterialRef = z.infer<typeof roomMaterialRefSchema>;
 export type RoomLayoutRef = z.infer<typeof roomLayoutRefSchema>;
-export type RoomObjectRef = z.infer<typeof roomObjectRefSchema>;
+export type RoomInteractableRef = z.infer<typeof roomInteractableRefSchema>;
 export type RoomRoomRef = z.infer<typeof roomRoomRefSchema>;
 export type RoomNormalizedRect = z.infer<typeof roomNormalizedRectSchema>;
 export type RoomBackgroundData = z.infer<typeof roomBackgroundDataSchema>;
@@ -163,7 +164,7 @@ export function isRoomRecord(record: AuthoringRecordBase | undefined | null): re
   return !!record && parseRoomData(record.data) !== null;
 }
 
-function refId(ref: RoomAssetRef | RoomMaterialRef | RoomLayoutRef | RoomObjectRef | RoomRoomRef | null | undefined): string | null {
+function refId(ref: RoomAssetRef | RoomMaterialRef | RoomLayoutRef | RoomInteractableRef | RoomRoomRef | null | undefined): string | null {
   return ref?.$ref.id ?? null;
 }
 
@@ -215,10 +216,10 @@ function validateLayoutRef(project: AuthoringProject, ref: RoomLayoutRef | null,
   if (!parseLayoutData(layout.data)) diagnostics.push(diagnostic(`${path}/$ref`, `Layout '${id}' has invalid layout data.`, 'warning'));
 }
 
-function validateObjectRef(project: AuthoringProject, ref: RoomObjectRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
+function validateObjectRef(project: AuthoringProject, ref: RoomInteractableRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
   const id = refId(ref);
   if (!id) return;
-  if (!project.objects[id]) diagnostics.push(diagnostic(`${path}/$ref`, `Missing object '${id}'.`));
+  if (!project.interactables[id]) diagnostics.push(diagnostic(`${path}/$ref`, `Missing object '${id}'.`));
 }
 
 function validatePathTarget(project: AuthoringProject, roomId: string, ref: RoomRoomRef | null, path: string, diagnostics: RoomSchemaDiagnostic[]) {
@@ -245,13 +246,6 @@ export function validateRoomData(
   }
 
   const data = parsed.data;
-  if (record.inherits) {
-    if (record.inherits.collection !== 'rooms') {
-      diagnostics.push(diagnostic(`/rooms/${roomId}/inherits`, 'Room inheritance must target another room.'));
-    } else if (!project.rooms[record.inherits.id]) {
-      diagnostics.push(diagnostic(`/rooms/${roomId}/inherits`, `Missing inherited room '${record.inherits.id}'.`));
-    }
-  }
 
   if (!data.description.source.trim()) diagnostics.push(diagnostic(`${base}/description/source`, 'Room description is empty.', 'warning'));
   validateBackgroundAsset(project, data.background.asset, `${base}/background/asset`, diagnostics);
@@ -288,8 +282,8 @@ export function roomLayoutRef(layoutId: string): RoomLayoutRef {
   return { $ref: { collection: 'layouts', id: layoutId } };
 }
 
-export function roomObjectRef(objectId: string): RoomObjectRef {
-  return { $ref: { collection: 'objects', id: objectId } };
+export function roomInteractableRef(objectId: string): RoomInteractableRef {
+  return { $ref: { collection: 'interactables', id: objectId } };
 }
 
 export function roomRoomRef(roomId: string): RoomRoomRef {

@@ -89,8 +89,8 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
 
   const project = createAuthoringProject();
-  project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
-  project.characters.noah = { id: 'noah', label: 'Noah', tags: [], data: defaultCharacterData('Noah') };
+  project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
+  project.characters.noah = { id: 'noah', label: 'Noah', data: defaultCharacterData('Noah') };
   useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 });
 

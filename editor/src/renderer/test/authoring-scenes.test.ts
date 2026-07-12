@@ -42,7 +42,7 @@ describe('authoring scenes schema', () => {
         { id: 'choice', label: 'Duplicate', targetStepId: 'start', condition: { enabled: false, source: '' }, order: 0 },
       ] } },
     ];
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
 
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/scenes/opening/data/steps/0/background/asset/$ref', severity: 'error' }),
@@ -58,7 +58,7 @@ describe('authoring scenes schema', () => {
     const project = createAuthoringProject();
     const data = defaultSceneData('Opening');
     data.steps[0]!.condition = { enabled: true, source: '' };
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'authoring-scenes', path: '/scenes/opening/data/steps/0/condition/source', severity: 'warning' }),
@@ -67,13 +67,13 @@ describe('authoring scenes schema', () => {
 
   it('builds scene preview documents with resolved references', () => {
     const project = createAuthoringProject();
-    project.assets.bg = { id: 'bg', label: 'Background', tags: [], data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/images/bg.png', contentHash: 'bg-hash' }) };
-    project.assets.music = { id: 'music', label: 'Music', tags: [], data: assetDataFromImportMetadata({ kind: 'audio', projectRelativePath: 'assets/audio/music.mp3', contentHash: 'music-hash' }) };
-    project.materials.fade = { id: 'fade', label: 'Fade', tags: [], data: defaultMaterialData('Fade') };
-    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
-    project.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', tags: [], data: defaultDialogueData('Intro Dialogue') };
-    project.layouts.hud = { id: 'hud', label: 'HUD', tags: [], data: defaultLayoutData('HUD') };
-    project.variables.flag = { id: 'flag', label: 'Flag', tags: [], data: defaultVariableData('boolean') };
+    project.assets.bg = { id: 'bg', label: 'Background', data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/images/bg.png', contentHash: 'bg-hash' }) };
+    project.assets.music = { id: 'music', label: 'Music', data: assetDataFromImportMetadata({ kind: 'audio', projectRelativePath: 'assets/audio/music.mp3', contentHash: 'music-hash' }) };
+    project.materials.fade = { id: 'fade', label: 'Fade', data: defaultMaterialData('Fade') };
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', data: defaultDialogueData('Intro Dialogue') };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD') };
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
 
     const data = defaultSceneData('Opening');
     data.defaults.background.asset = sceneAssetRef('bg');
@@ -87,7 +87,7 @@ describe('authoring scenes schema', () => {
       { ...defaultSceneStep('variable'), id: 'variable', label: 'Set Flag', variable: { ...defaultSceneStep('variable').variable, variable: sceneVariableRef('flag'), value: true } },
     ];
     data.preview.selectedStepId = 'dialogue';
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
 
     expect(scenePreviewRevision(project, 'opening')).toContain('bg-hash');
     expect(buildScenePreviewDocumentData(project, 'opening')).toMatchObject({

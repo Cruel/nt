@@ -74,7 +74,7 @@ beforeEach(() => {
 describe('RoomEditor', () => {
   it('renders typed room defaults and room preview', () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     renderRoomEditor();
@@ -90,7 +90,7 @@ describe('RoomEditor', () => {
 
   it('dispatches command-backed display name and hotspot updates', async () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     renderRoomEditor();
@@ -114,18 +114,16 @@ describe('RoomEditor', () => {
 
   it('chooses and clears a background image through the selector', async () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.assets.logo = {
       id: 'logo',
       label: 'Logo',
-      tags: [],
-      data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+            data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
     };
     project.assets.theme = {
       id: 'theme',
       label: 'Theme',
-      tags: [],
-      data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/theme.ogg' }, aliases: [], extension: '.ogg' },
+            data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/theme.ogg' }, aliases: [], extension: '.ogg' },
     };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
@@ -151,7 +149,7 @@ describe('RoomEditor', () => {
 
   it('captures and restores tab state for scroll without persisting transient selector state', async () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     const view = renderRoomEditor();

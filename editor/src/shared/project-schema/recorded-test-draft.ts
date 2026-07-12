@@ -1,7 +1,7 @@
 import {
   defaultTestData,
   defaultTestStep,
-  testObjectRef,
+  testInteractableRef,
   testVerbRef,
   type TestData,
   type TestStepData,
@@ -91,7 +91,7 @@ export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActi
       return withStepIdentity(
         {
           ...defaultTestStep('select-object', action.label || `Select ${input.objectId || 'object'}`),
-          selectObject: { object: input.objectId ? testObjectRef(input.objectId) : null },
+          selectObject: { object: input.objectId ? testInteractableRef(input.objectId) : null },
         },
         action,
         index,
@@ -104,7 +104,7 @@ export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActi
           ...defaultTestStep('run-action', action.label || `Run ${input.verbId || 'action'}`),
           runAction: {
             verb: input.verbId ? testVerbRef(input.verbId) : null,
-            objects: (input.objectIds ?? []).filter((id) => id.trim()).map((id) => testObjectRef(id)),
+            interactables: (input.objectIds ?? []).filter((id) => id.trim()).map((id) => testInteractableRef(id)),
           },
         },
         action,

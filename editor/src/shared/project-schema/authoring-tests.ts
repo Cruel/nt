@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { entityIdSchema, type AuthoringProject, type AuthoringRecordBase } from './authoring-project';
+import { entityIdSchema } from './authoring-common';
+import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const testInputTypeValues = [
   'tick',
@@ -36,7 +37,7 @@ export const testRefSchema = <Collection extends string>(collection: Collection)
 export const testSceneRefSchema = testRefSchema('scenes');
 export const testRoomRefSchema = testRefSchema('rooms');
 export const testDialogueRefSchema = testRefSchema('dialogues');
-export const testObjectRefSchema = testRefSchema('objects');
+export const testInteractableRefSchema = testRefSchema('interactables');
 export const testVerbRefSchema = testRefSchema('verbs');
 export const testVariableRefSchema = testRefSchema('variables');
 export const testMapRefSchema = testRefSchema('maps');
@@ -45,7 +46,7 @@ export const testAnyRefSchema = z.union([
   testSceneRefSchema,
   testRoomRefSchema,
   testDialogueRefSchema,
-  testObjectRefSchema,
+  testInteractableRefSchema,
   testVerbRefSchema,
   testVariableRefSchema,
   testMapRefSchema,
@@ -74,8 +75,8 @@ export const testStepDataSchema = z.object({
   tick: z.object({ deltaSeconds: z.number().finite().nonnegative().default(0) }).default({ deltaSeconds: 0 }),
   dialogueOption: z.object({ optionIndex: z.number().int().nonnegative().default(0) }).default({ optionIndex: 0 }),
   navigate: z.object({ direction: z.number().int().min(0).max(7).default(1), target: testRoomRefSchema.nullable().default(null) }).default({ direction: 1, target: null }),
-  selectObject: z.object({ object: testObjectRefSchema.nullable().default(null) }).default({ object: null }),
-  runAction: z.object({ verb: testVerbRefSchema.nullable().default(null), objects: z.array(testObjectRefSchema).default([]) }).default({ verb: null, objects: [] }),
+  selectObject: z.object({ object: testInteractableRefSchema.nullable().default(null) }).default({ object: null }),
+  runAction: z.object({ verb: testVerbRefSchema.nullable().default(null), interactables: z.array(testInteractableRefSchema).default([]) }).default({ verb: null, interactables: [] }),
   loadSave: z.object({ slotId: z.string().default(''), payload: z.unknown().default(null) }).default({ slotId: '', payload: null }),
   setEntrypoint: z.object({ entrypoint: testEntrypointRefSchema.nullable().default(null) }).default({ entrypoint: null }),
   uiClick: z.object({
@@ -93,7 +94,7 @@ export const testDataSchema = z.object({
   fixedDeltaSeconds: z.number().finite().nonnegative().nullable().default(null),
   initScript: z.string().default(''),
   checkScript: z.string().default(''),
-  startingInventory: z.array(testObjectRefSchema).default([]),
+  startingInventory: z.array(testInteractableRefSchema).default([]),
   steps: z.array(testStepDataSchema).default([]),
   preview: z.object({
     selectedStepId: entityIdSchema.nullable().default(null),
@@ -105,7 +106,7 @@ export const testDataSchema = z.object({
 export type TestSceneRef = z.infer<typeof testSceneRefSchema>;
 export type TestRoomRef = z.infer<typeof testRoomRefSchema>;
 export type TestDialogueRef = z.infer<typeof testDialogueRefSchema>;
-export type TestObjectRef = z.infer<typeof testObjectRefSchema>;
+export type TestInteractableRef = z.infer<typeof testInteractableRefSchema>;
 export type TestVerbRef = z.infer<typeof testVerbRefSchema>;
 export type TestVariableRef = z.infer<typeof testVariableRefSchema>;
 export type TestEntrypointRef = z.infer<typeof testEntrypointRefSchema>;
@@ -137,7 +138,7 @@ export function parseTestData(value: unknown): TestData | null {
 export function testSceneRef(id: string): TestSceneRef { return { $ref: { collection: 'scenes', id } }; }
 export function testRoomRef(id: string): TestRoomRef { return { $ref: { collection: 'rooms', id } }; }
 export function testDialogueRef(id: string): TestDialogueRef { return { $ref: { collection: 'dialogues', id } }; }
-export function testObjectRef(id: string): TestObjectRef { return { $ref: { collection: 'objects', id } }; }
+export function testInteractableRef(id: string): TestInteractableRef { return { $ref: { collection: 'interactables', id } }; }
 export function testVerbRef(id: string): TestVerbRef { return { $ref: { collection: 'verbs', id } }; }
 export function testVariableRef(id: string): TestVariableRef { return { $ref: { collection: 'variables', id } }; }
 
@@ -204,7 +205,7 @@ function validateStep(project: AuthoringProject, step: TestStepData, path: strin
   if (step.input === 'select-object') validateRef(project, step.selectObject.object, `${path}/selectObject/object`, diagnostics);
   if (step.input === 'run-action') {
     validateRef(project, step.runAction.verb, `${path}/runAction/verb`, diagnostics);
-    step.runAction.objects.forEach((object, index) => validateRef(project, object, `${path}/runAction/objects/${index}`, diagnostics));
+    step.runAction.interactables.forEach((object, index) => validateRef(project, object, `${path}/runAction/interactables/${index}`, diagnostics));
   }
   if (step.input === 'set-entrypoint') validateRef(project, step.setEntrypoint.entrypoint, `${path}/setEntrypoint/entrypoint`, diagnostics);
   if (step.input === 'ui-click') {
@@ -230,10 +231,6 @@ export function validateTestData(project: AuthoringProject, testId: string, reco
     return diagnostics;
   }
   const data = parsed.data;
-  if (record.inherits) {
-    if (record.inherits.collection !== 'tests') diagnostics.push(diagnostic(`/tests/${testId}/inherits`, 'Test inheritance must target another test.'));
-    else if (!project.tests[record.inherits.id]) diagnostics.push(diagnostic(`/tests/${testId}/inherits`, `Missing inherited test '${record.inherits.id}'.`));
-  }
   if (!data.displayName.trim()) diagnostics.push(diagnostic(`${base}/displayName`, 'Display name is required.', 'warning'));
   validateRef(project, data.entrypoint, `${base}/entrypoint`, diagnostics);
   data.startingInventory.forEach((object, index) => validateRef(project, object, `${base}/startingInventory/${index}`, diagnostics));

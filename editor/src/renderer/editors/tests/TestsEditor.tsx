@@ -23,7 +23,7 @@ import {
   testAssertionTypeValues,
   testDialogueRef,
   testInputTypeValues,
-  testObjectRef,
+  testInteractableRef,
   testRoomRef,
   testSceneRef,
   testVariableRef,
@@ -203,7 +203,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     ...Object.entries(activeProject.rooms).map(([id, item]) => ({ value: `rooms:${id}`, label: `Room: ${item.label} (${id})` })),
     ...Object.entries(activeProject.dialogues).map(([id, item]) => ({ value: `dialogues:${id}`, label: `Dialogue: ${item.label} (${id})` })),
   ];
-  const objects = Object.entries(activeProject.objects).map(([id, item]) => ({ id, label: item.label }));
+  const objects = Object.entries(activeProject.interactables).map(([id, item]) => ({ id, label: item.label }));
   const verbs = Object.entries(activeProject.verbs).map(([id, item]) => ({ id, label: item.label }));
   const variables = Object.entries(activeProject.variables).map(([id, item]) => ({ id, label: item.label }));
 
@@ -399,12 +399,12 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
               {activeStep.input === 'tick' ? <Input aria-label="Tick delta seconds" value={String(activeStep.tick.deltaSeconds)} onChange={(event) => replaceStep(activeStep.id, { tick: { deltaSeconds: Math.max(0, Number.parseFloat(event.currentTarget.value) || 0) } })} /> : null}
               {activeStep.input === 'dialogue-option' ? <Input aria-label="Dialogue option index" value={String(activeStep.dialogueOption.optionIndex)} onChange={(event) => replaceStep(activeStep.id, { dialogueOption: { optionIndex: Math.max(0, Number.parseInt(event.currentTarget.value, 10) || 0) } })} /> : null}
               {activeStep.input === 'navigate' ? <Input aria-label="Navigation direction" value={String(activeStep.navigate.direction)} onChange={(event) => replaceStep(activeStep.id, { navigate: { ...activeStep.navigate, direction: Math.max(0, Math.min(7, Number.parseInt(event.currentTarget.value, 10) || 0)) } })} /> : null}
-              {activeStep.input === 'select-object' ? <Select value={refValue(activeStep.selectObject.object)} onValueChange={(value) => replaceStep(activeStep.id, { selectObject: { object: String(value) === '__none__' ? null : testObjectRef(String(value)) } })}><SelectItem value="__none__">No object</SelectItem>{objects.map((object) => <SelectItem key={object.id} value={object.id}>{object.label} ({object.id})</SelectItem>)}</Select> : null}
+              {activeStep.input === 'select-object' ? <Select value={refValue(activeStep.selectObject.object)} onValueChange={(value) => replaceStep(activeStep.id, { selectObject: { object: String(value) === '__none__' ? null : testInteractableRef(String(value)) } })}><SelectItem value="__none__">No object</SelectItem>{objects.map((object) => <SelectItem key={object.id} value={object.id}>{object.label} ({object.id})</SelectItem>)}</Select> : null}
               {activeStep.input === 'run-action' ? (
                 <div className="space-y-2">
                   <Select value={refValue(activeStep.runAction.verb)} onValueChange={(value) => replaceStep(activeStep.id, { runAction: { ...activeStep.runAction, verb: String(value) === '__none__' ? null : testVerbRef(String(value)) } })}><SelectItem value="__none__">No verb</SelectItem>{verbs.map((verb) => <SelectItem key={verb.id} value={verb.id}>{verb.label} ({verb.id})</SelectItem>)}</Select>
-                  <Select value="__add__" onValueChange={(value) => value !== '__add__' && replaceStep(activeStep.id, { runAction: { ...activeStep.runAction, objects: [...activeStep.runAction.objects, testObjectRef(String(value))] } })}><SelectItem value="__add__">Add object</SelectItem>{objects.map((object) => <SelectItem key={object.id} value={object.id}>{object.label} ({object.id})</SelectItem>)}</Select>
-                  {activeStep.runAction.objects.map((object, index) => <Button key={`${object.$ref.id}-${index}`} size="sm" variant="outline" onClick={() => replaceStep(activeStep.id, { runAction: { ...activeStep.runAction, objects: activeStep.runAction.objects.filter((_, itemIndex) => itemIndex !== index) } })}>Remove {object.$ref.id}</Button>)}
+                  <Select value="__add__" onValueChange={(value) => value !== '__add__' && replaceStep(activeStep.id, { runAction: { ...activeStep.runAction, interactables: [...activeStep.runAction.interactables, testInteractableRef(String(value))] } })}><SelectItem value="__add__">Add object</SelectItem>{objects.map((object) => <SelectItem key={object.id} value={object.id}>{object.label} ({object.id})</SelectItem>)}</Select>
+                  {activeStep.runAction.interactables.map((object, index) => <Button key={`${object.$ref.id}-${index}`} size="sm" variant="outline" onClick={() => replaceStep(activeStep.id, { runAction: { ...activeStep.runAction, interactables: activeStep.runAction.interactables.filter((_, itemIndex) => itemIndex !== index) } })}>Remove {object.$ref.id}</Button>)}
                 </div>
               ) : null}
               {activeStep.input === 'load-save' ? <SourceEditor ref={sourceEditors.refFor('loadSave')} className="h-32" language="json" value={JSON.stringify(activeStep.loadSave.payload, null, 2)} onChange={(source) => replaceStep(activeStep.id, { loadSave: { ...activeStep.loadSave, payload: safeJson(source) } })} /> : null}

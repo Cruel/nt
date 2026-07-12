@@ -7,26 +7,27 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Sarah Portrait',
-    tags: ['Sarah'],
     data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/sarah.png' }, aliases: ['sarah_portrait'], extension: '.png' },
   };
   next.assets.theme = {
     id: 'theme',
     label: 'Main Theme',
-    tags: ['Sarah'],
     data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/theme.ogg' }, aliases: [], extension: '.ogg' },
   };
   next.rooms.classroom = {
     id: 'classroom',
     label: 'Classroom',
-    tags: ['school'],
-    data: {},
+    data: {} as never,
   };
   next.scenes.opening = {
     id: 'opening',
     label: 'Opening Scene',
-    tags: ['school'],
-    data: { room: { $ref: { collection: 'rooms', id: 'classroom' } }, logo: { $ref: { collection: 'assets', id: 'logo' } }, portrait: { $asset: { alias: 'sarah_portrait' } } },
+    data: { room: { $ref: { collection: 'rooms', id: 'classroom' } }, logo: { $ref: { collection: 'assets', id: 'logo' } }, portrait: { $asset: { alias: 'sarah_portrait' } } } as never,
+  };
+  next.editor.recordMetadata = {
+    assets: { logo: { tags: ['Sarah'] }, theme: { tags: ['Sarah'] } },
+    rooms: { classroom: { tags: ['school'] } },
+    scenes: { opening: { tags: ['school'] } },
   };
   return next;
 }

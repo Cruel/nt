@@ -33,11 +33,11 @@ describe('preview protocol validation', () => {
       label: 'Material A',
     };
     expect(isPreviewDocument(document)).toBe(true);
-    expect(isPreviewDocument({ kind: 'shader-preview', recordId: 'shader-a', revision: 'rev', data: {} })).toBe(true);
-    expect(isPreviewDocument({ kind: 'layout-preview', recordId: 'layout-a', revision: 'rev', data: {} })).toBe(true);
-    expect(isPreviewDocument({ kind: 'room-preview', recordId: 'room-a', revision: 'rev', data: {} })).toBe(true);
-    expect(isPreviewDocument({ kind: 'dialogue-preview', recordId: 'dialogue-a', revision: 'rev', data: {} })).toBe(true);
-    expect(isPreviewDocument({ kind: 'scene-preview', recordId: 'scene-a', revision: 'rev', data: {} })).toBe(true);
+    expect(isPreviewDocument({ kind: 'shader-preview', recordId: 'shader-a', revision: 'rev', data: {} as never })).toBe(true);
+    expect(isPreviewDocument({ kind: 'layout-preview', recordId: 'layout-a', revision: 'rev', data: {} as never })).toBe(true);
+    expect(isPreviewDocument({ kind: 'room-preview', recordId: 'room-a', revision: 'rev', data: {} as never })).toBe(true);
+    expect(isPreviewDocument({ kind: 'dialogue-preview', recordId: 'dialogue-a', revision: 'rev', data: {} as never })).toBe(true);
+    expect(isPreviewDocument({ kind: 'scene-preview', recordId: 'scene-a', revision: 'rev', data: {} as never })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'load-preview-document', requestId: 'r1', document })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2', mode: 'layout' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-mode', requestId: 'r2d', mode: 'dialogue' })).toBe(true);

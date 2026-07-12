@@ -18,8 +18,7 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    tags: [],
-    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+        data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
   };
   return next;
 }
@@ -38,8 +37,10 @@ describe('AssetEditor', () => {
     fireEvent.change(screen.getByLabelText('Asset tags'), { target: { value: 'Hero,' } });
 
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
-      assets: { logo: { tags: ['Hero'] } },
-      editor: { tags: { records: { hero: { name: 'Hero' } } } },
+      editor: {
+        tags: { records: { hero: { name: 'Hero' } } },
+        recordMetadata: { assets: { logo: { tags: ['Hero'] } } },
+      },
     }));
   });
 });

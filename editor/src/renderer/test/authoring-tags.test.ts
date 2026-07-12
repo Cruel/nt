@@ -18,8 +18,12 @@ describe('authoring tags', () => {
   it('collects project tags with registry colors and collection counts', () => {
     const project = createAuthoringProject();
     project.editor.tags.records.hero = { name: 'Hero', color: 'tag-violet' };
-    project.characters.hero = { id: 'hero', label: 'Hero', tags: ['Hero'], data: {} };
-    project.assets.voice = { id: 'voice', label: 'Voice', tags: ['Hero', 'voice'], data: {} };
+    project.characters.hero = { id: 'hero', label: 'Hero', data: {} as never };
+    project.assets.voice = { id: 'voice', label: 'Voice', data: {} as never };
+    project.editor.recordMetadata = {
+      characters: { hero: { tags: ['Hero'] } },
+      assets: { voice: { tags: ['Hero', 'voice'] } },
+    };
 
     const tags = collectProjectTags(project);
     expect(tags.find((tag) => tag.key === 'hero')).toMatchObject({

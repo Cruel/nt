@@ -6,6 +6,7 @@ import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
   DerivedPreviewPane: ({ previewDocument }: { previewDocument: { kind: string; data: { selectedStepId?: string | null } } }) => (
@@ -40,7 +41,7 @@ beforeEach(() => {
 describe('SceneEditor', () => {
   it('renders typed scene defaults and scene preview', () => {
     const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: defaultSceneData('Opening') };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<SceneEditor tab={tab} />);
@@ -52,7 +53,7 @@ describe('SceneEditor', () => {
 
   it('dispatches command-backed display, step, reorder, and payload updates', async () => {
     const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: defaultSceneData('Opening') };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<SceneEditor tab={tab} />);
@@ -96,8 +97,8 @@ describe('SceneEditor', () => {
       { ...defaultSceneStep('branch'), id: 'branch', label: 'Branch', branch: { choices: [{ id: 'choice', label: 'Choice', targetStepId: 'character', condition: { enabled: false, source: '' }, order: 0 }] } },
     ];
     data.preview.selectedStepId = 'character';
-    project.materials.glow = { id: 'glow', label: 'Glow', tags: [], data: { kind: 'material', role: 'surface', shader: null, parameters: {}, textures: {}, states: {}, preview: { background: 'checker' } } };
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data };
+    project.materials.glow = { id: 'glow', label: 'Glow', data: defaultMaterialData('Glow') };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<SceneEditor tab={tab} />);

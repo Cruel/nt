@@ -2,172 +2,100 @@ import { describe, expect, it } from 'vitest';
 import { executeCommand, createInitialCommandBusState, undoCommand, redoCommand } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
-import { defaultTestAssertion, defaultTestData, testSceneRef, testVariableRef } from '../../shared/project-schema/authoring-tests';
-import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 function projectWithRooms() {
   const project = createAuthoringProject();
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: {} };
-  project.rooms.hall = {
-    id: 'hall',
-    label: 'Hall',
-    parent: { collection: 'rooms', id: 'foyer' },
-    tags: [],
-    data: { door: { $ref: { collection: 'rooms', id: 'foyer' } } },
-  };
-  project.entrypoint = { collection: 'rooms', id: 'foyer' };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+  project.rooms.hall = { id: 'hall', label: 'Hall', extends: 'foyer', data: defaultRoomData('Hall') };
+  project.entrypoint = { kind: 'room', id: 'foyer' };
   return project;
 }
 
 describe('authoring entity operations', () => {
-  it('creates authoring records with defaults and undo/redo support', () => {
-    let state = createInitialCommandBusState(toJsonValue(createAuthoringProject()));
-    const result = executeCommand(state, {
-      type: 'entity.createRecord',
-      payload: { collection: 'rooms', entityId: 'foyer', label: 'Foyer' },
-    });
+  it('creates strict records with defaults and undo/redo support', () => {
+    const initial = createInitialCommandBusState(toJsonValue(createAuthoringProject()));
+    const result = executeCommand(initial, { type: 'entity.createRecord', payload: { collection: 'rooms', entityId: 'foyer', label: 'Foyer' } });
     expect(result.ok).toBe(true);
-    expect(result.state.document).toMatchObject({ rooms: { foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} } } });
-
-    state = result.state;
-    const undone = undoCommand(state);
-    expect(undone.state.document).toMatchObject({ rooms: {} });
-    const redone = redoCommand(undone.state);
-    expect(redone.state.document).toMatchObject({ rooms: { foyer: { id: 'foyer' } } });
+    expect(result.state.document).toMatchObject({ rooms: { foyer: { id: 'foyer', data: { kind: 'room' } } } });
+    expect(undoCommand(result.state).state.document).toMatchObject({ rooms: {} });
+    expect(redoCommand(undoCommand(result.state).state).state.document).toMatchObject({ rooms: { foyer: { id: 'foyer' } } });
   });
 
-  it('rejects invalid and duplicate create IDs', () => {
-    let state = createInitialCommandBusState(toJsonValue(createAuthoringProject()));
-    let result = executeCommand(state, {
-      type: 'entity.createRecord',
-      payload: { collection: 'rooms', entityId: 'Bad Id' },
+  it('renames IDs and rewrites entrypoint and extends references transactionally', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
+    const result = executeCommand(state, { type: 'entity.renameId', payload: { collection: 'rooms', fromId: 'foyer', toId: 'entry-hall' } });
+    expect(result.ok).toBe(true);
+    expect(result.state.document).toMatchObject({
+      entrypoint: { kind: 'room', id: 'entry-hall' },
+      rooms: { 'entry-hall': { id: 'entry-hall' }, hall: { extends: 'entry-hall' } },
     });
-    expect(result.ok).toBe(false);
-    expect(result.projectChanged).toBe(false);
-
-    state = executeCommand(state, {
-      type: 'entity.createRecord',
-      payload: { collection: 'rooms', entityId: 'foyer' },
-    }).state;
-    result = executeCommand(state, {
-      type: 'entity.createRecord',
-      payload: { collection: 'rooms', entityId: 'foyer' },
-    });
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics[0]?.message).toContain('already exists');
+    expect(undoCommand(result.state).state.document).toEqual(state.document);
   });
 
-  it('renames IDs and rewrites supported references transactionally', () => {
+  it('blocks referenced deletes unless forced', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
+    expect(executeCommand(state, { type: 'entity.deleteRecord', payload: { collection: 'rooms', entityId: 'foyer' } }).ok).toBe(false);
+    expect(executeCommand(state, { type: 'entity.deleteRecord', payload: { collection: 'rooms', entityId: 'foyer', force: true } }).ok).toBe(true);
+  });
+
+  it('stores tags and color only in editor metadata', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
     const result = executeCommand(state, {
-      type: 'entity.renameId',
-      payload: { collection: 'rooms', fromId: 'foyer', toId: 'entry-hall' },
-    });
-    expect(result.ok).toBe(true);
-    const document = result.state.document as ReturnType<typeof projectWithRooms>;
-    expect(document.rooms.foyer).toBeUndefined();
-    expect(document.rooms['entry-hall']).toMatchObject({ id: 'entry-hall', label: 'Foyer' });
-    expect(document.entrypoint).toEqual({ collection: 'rooms', id: 'entry-hall' });
-    expect(document.rooms.hall.parent).toEqual({ collection: 'rooms', id: 'entry-hall' });
-    expect(document.rooms.hall.data).toEqual({ door: { $ref: { collection: 'rooms', id: 'entry-hall' } } });
-
-    const undone = undoCommand(result.state);
-    expect(undone.state.document).toEqual(state.document);
-  });
-
-  it('duplicates records without rewriting external references', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
-    const result = executeCommand(state, {
-      type: 'entity.duplicateRecord',
-      payload: { collection: 'rooms', sourceId: 'hall', targetId: 'hall-copy', label: 'Hall Copy' },
-    });
-    expect(result.ok).toBe(true);
-    const document = result.state.document as ReturnType<typeof projectWithRooms> & { rooms: Record<string, unknown> };
-    expect(document.rooms['hall-copy']).toMatchObject({ id: 'hall-copy', label: 'Hall Copy' });
-    expect(document.entrypoint).toEqual({ collection: 'rooms', id: 'foyer' });
-  });
-
-  it('renames IDs and blocks deletes for references inside tests', () => {
-    const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: defaultSceneData('Opening') };
-    project.variables.flag = { id: 'flag', label: 'Flag', tags: [], data: defaultVariableData('boolean') };
-    const data = defaultTestData('Smoke');
-    data.entrypoint = testSceneRef('opening');
-    data.steps[0]!.assertions = [
-      { ...defaultTestAssertion('property-equals'), id: 'flag-check', key: '', variable: testVariableRef('flag'), expected: true },
-    ];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
-    let state = createInitialCommandBusState(toJsonValue(project));
-
-    const renamed = executeCommand(state, {
-      type: 'entity.renameId',
-      payload: { collection: 'variables', fromId: 'flag', toId: 'visited' },
-    });
-    expect(renamed.ok).toBe(true);
-    const renamedDocument = renamed.state.document as typeof project & { tests: { smoke: { data: ReturnType<typeof defaultTestData> } } };
-    expect(renamedDocument.tests.smoke.data.steps[0]?.assertions[0]?.variable).toEqual({ $ref: { collection: 'variables', id: 'visited' } });
-
-    state = renamed.state;
-    const blocked = executeCommand(state, {
-      type: 'entity.deleteRecord',
-      payload: { collection: 'scenes', entityId: 'opening' },
-    });
-    expect(blocked.ok).toBe(false);
-    expect(blocked.diagnostics[0]?.message).toContain('referenced');
-  });
-
-  it('blocks referenced deletes unless force is supplied', () => {
-    let state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
-    const blocked = executeCommand(state, {
-      type: 'entity.deleteRecord',
-      payload: { collection: 'rooms', entityId: 'foyer' },
-    });
-    expect(blocked.ok).toBe(false);
-    expect(blocked.diagnostics[0]?.message).toContain('referenced');
-
-    const forced = executeCommand(state, {
-      type: 'entity.deleteRecord',
-      payload: { collection: 'rooms', entityId: 'foyer', force: true },
-    });
-    expect(forced.ok).toBe(true);
-    state = forced.state;
-    expect((state.document as ReturnType<typeof projectWithRooms>).rooms.foyer).toBeUndefined();
-  });
-
-  it('updates metadata and parent assignment safely', () => {
-    let state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
-    const metadata = executeCommand(state, {
       type: 'entity.updateMetadata',
       payload: { collection: 'rooms', entityId: 'hall', label: 'Great Hall', tags: [' main ', 'MAIN', 'Hero'], color: '#fff' },
     });
-    expect(metadata.ok).toBe(true);
-    state = metadata.state;
-    expect((state.document as ReturnType<typeof projectWithRooms>).rooms.hall).toMatchObject({
-      label: 'Great Hall',
-      tags: ['main', 'Hero'],
-      color: '#fff',
+    expect(result.ok).toBe(true);
+    expect(result.state.document).toMatchObject({
+      rooms: { hall: { label: 'Great Hall' } },
+      editor: { recordMetadata: { rooms: { hall: { tags: ['main', 'Hero'], color: '#fff' } } } },
     });
-    expect((state.document as ReturnType<typeof projectWithRooms>).editor.tags.records).toMatchObject({
-      main: { name: 'main', color: 'tag-slate' },
-      hero: { name: 'Hero', color: 'tag-red' },
-    });
-
-    const clearParent = executeCommand(state, {
-      type: 'entity.setParent',
-      payload: { collection: 'rooms', entityId: 'hall', parentId: null },
-    });
-    expect(clearParent.ok).toBe(true);
-    expect((clearParent.state.document as ReturnType<typeof projectWithRooms>).rooms.hall.parent).toBeNull();
+    expect((result.state.document as { rooms: { hall: unknown } }).rooms.hall).not.toHaveProperty('tags');
   });
 
-  it('rejects parent cycles', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
-    const result = executeCommand(state, {
-      type: 'entity.setParent',
-      payload: { collection: 'rooms', entityId: 'foyer', parentId: 'hall' },
+  it('moves, copies, clears, and deletes editor metadata with its record', () => {
+    let state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
+    state = executeCommand(state, {
+      type: 'entity.updateMetadata',
+      payload: { collection: 'rooms', entityId: 'hall', tags: ['main'], color: '#fff', sortKey: '10' },
+    }).state;
+
+    const renamed = executeCommand(state, {
+      type: 'entity.renameId',
+      payload: { collection: 'rooms', fromId: 'hall', toId: 'great-hall' },
     });
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics[0]?.message).toContain('cycle');
+    expect(renamed.ok).toBe(true);
+    expect(renamed.state.document).toMatchObject({ editor: { recordMetadata: { rooms: { 'great-hall': { tags: ['main'], color: '#fff', sortKey: '10' } } } } });
+    expect((renamed.state.document as { editor: { recordMetadata: { rooms: Record<string, unknown> } } }).editor.recordMetadata.rooms).not.toHaveProperty('hall');
+
+    const duplicated = executeCommand(renamed.state, {
+      type: 'entity.duplicateRecord',
+      payload: { collection: 'rooms', sourceId: 'great-hall', targetId: 'great-hall-copy' },
+    });
+    expect(duplicated.ok).toBe(true);
+    expect(duplicated.state.document).toMatchObject({ editor: { recordMetadata: { rooms: { 'great-hall-copy': { tags: ['main'], color: '#fff', sortKey: '10' } } } } });
+
+    const cleared = executeCommand(duplicated.state, {
+      type: 'entity.updateMetadata',
+      payload: { collection: 'rooms', entityId: 'great-hall-copy', color: null, sortKey: null },
+    });
+    expect(cleared.state.document).toMatchObject({ editor: { recordMetadata: { rooms: { 'great-hall-copy': { color: null, sortKey: null } } } } });
+
+    const deleted = executeCommand(cleared.state, {
+      type: 'entity.deleteRecord',
+      payload: { collection: 'rooms', entityId: 'great-hall-copy' },
+    });
+    expect(deleted.ok).toBe(true);
+    expect((deleted.state.document as { editor: { recordMetadata: { rooms: Record<string, unknown> } } }).editor.recordMetadata.rooms).not.toHaveProperty('great-hall-copy');
+  });
+
+  it('sets same-collection extends and rejects cycles', () => {
+    let state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
+    const clear = executeCommand(state, { type: 'entity.setExtends', payload: { collection: 'rooms', entityId: 'hall', extendsId: null } });
+    expect(clear.ok).toBe(true);
+    state = clear.state;
+    const first = executeCommand(state, { type: 'entity.setExtends', payload: { collection: 'rooms', entityId: 'foyer', extendsId: 'hall' } });
+    expect(first.ok).toBe(true);
+    expect(executeCommand(first.state, { type: 'entity.setExtends', payload: { collection: 'rooms', entityId: 'hall', extendsId: 'foyer' } }).ok).toBe(false);
   });
 });

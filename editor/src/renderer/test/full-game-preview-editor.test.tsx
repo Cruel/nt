@@ -134,8 +134,8 @@ async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: 
 
 function projectWithEntrypoint() {
   const project = createAuthoringProject();
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
-  project.entrypoint = { collection: 'rooms', id: 'foyer' };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+  project.entrypoint = { kind: 'room', id: 'foyer' };
   return project;
 }
 
@@ -296,7 +296,7 @@ describe('FullGamePreviewEditor', () => {
     const initialLoadCount = requests(editorPort, 'runtime-load-project').length;
 
     const edited = cloneProject(project);
-    edited.settings = { ...edited.settings, editorOnlyFlag: true };
+    edited.editor = { ...edited.editor, explorer: { ...edited.editor.explorer, searchQuery: 'editor-only' } };
     await act(async () => {
       useProjectStore.getState().loadUnsavedProjectDocument(edited);
     });
@@ -468,10 +468,10 @@ describe('FullGamePreviewEditor', () => {
   it('renders runtime debug snapshots with authoring metadata labels', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.variables.flag = { id: 'flag', label: 'Has Key', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' }, tags: [] };
-    project.rooms.foyer = { id: 'foyer', label: 'Grand Foyer', data: {}, tags: [] };
-    project.objects.key = { id: 'key', label: 'Brass Key', data: {}, tags: [] };
-    project.verbs.look = { id: 'look', label: 'Inspect', data: {}, tags: [] };
+    project.variables.flag = { id: 'flag', label: 'Has Key', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Grand Foyer', data: {} as never };
+    project.interactables.key = { id: 'key', label: 'Brass Key', data: {} as never };
+    project.verbs.look = { id: 'look', label: 'Inspect', data: {} as never };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { previewPort } = await renderConnectedPreview();
@@ -516,10 +516,10 @@ describe('FullGamePreviewEditor', () => {
   it('shows and filters the variable search when more than three variables exist', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.variables.alpha = { id: 'alpha', label: 'Alpha Flag', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' }, tags: [] };
-    project.variables.beta = { id: 'beta', label: 'Beta Count', data: { kind: 'variable', type: 'integer', defaultValue: 0, scope: 'global' }, tags: [] };
-    project.variables.gamma = { id: 'gamma', label: 'Gamma Name', data: { kind: 'variable', type: 'string', defaultValue: '', scope: 'global' }, tags: [] };
-    project.variables.delta = { id: 'delta', label: 'Delta Value', data: { kind: 'variable', type: 'number', defaultValue: 0, scope: 'global' }, tags: [] };
+    project.variables.alpha = { id: 'alpha', label: 'Alpha Flag', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' } };
+    project.variables.beta = { id: 'beta', label: 'Beta Count', data: { kind: 'variable', type: 'integer', defaultValue: 0, scope: 'global' } };
+    project.variables.gamma = { id: 'gamma', label: 'Gamma Name', data: { kind: 'variable', type: 'string', defaultValue: '', scope: 'global' } };
+    project.variables.delta = { id: 'delta', label: 'Delta Value', data: { kind: 'variable', type: 'number', defaultValue: 0, scope: 'global' } };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { previewPort } = await renderConnectedPreview();

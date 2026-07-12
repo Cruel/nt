@@ -22,7 +22,7 @@ describe('room commands', () => {
 
   it('patches valid room data and rejects error diagnostics', () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const invalidData = defaultRoomData('Foyer');

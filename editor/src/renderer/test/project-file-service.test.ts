@@ -18,8 +18,7 @@ function projectWithImage() {
   project.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    tags: [],
-    data: {
+        data: {
       kind: 'image',
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],

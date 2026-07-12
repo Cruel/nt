@@ -138,19 +138,21 @@ function fallbackLabel(id: string | undefined, label: string | undefined) {
   return label || id || '—';
 }
 
-function recordFor(project: AuthoringProject | null, collection: keyof Pick<AuthoringProject, 'variables' | 'rooms' | 'objects' | 'verbs' | 'actions' | 'maps' | 'dialogues' | 'scenes'>, id: string | undefined): AuthoringRecordBase | null {
+function recordFor(project: AuthoringProject | null, collection: keyof Pick<AuthoringProject, 'variables' | 'rooms' | 'interactables' | 'verbs' | 'interactions' | 'maps' | 'dialogues' | 'scenes'>, id: string | undefined): AuthoringRecordBase | null {
   if (!project || !id) return null;
   return project[collection][id] ?? null;
 }
 
-function entityCollection(ref: RuntimeDebugEntityRef | undefined): keyof Pick<AuthoringProject, 'variables' | 'rooms' | 'objects' | 'verbs' | 'actions' | 'maps' | 'dialogues' | 'scenes'> | null {
+function entityCollection(ref: RuntimeDebugEntityRef | undefined): keyof Pick<AuthoringProject, 'variables' | 'rooms' | 'interactables' | 'verbs' | 'interactions' | 'maps' | 'dialogues' | 'scenes'> | null {
   if (!ref) return null;
-  if (ref.collection === 'variables' || ref.collection === 'rooms' || ref.collection === 'objects' || ref.collection === 'verbs' || ref.collection === 'actions' || ref.collection === 'maps' || ref.collection === 'dialogues' || ref.collection === 'scenes') return ref.collection;
+  if (ref.collection === 'variables' || ref.collection === 'rooms' || ref.collection === 'verbs' || ref.collection === 'maps' || ref.collection === 'dialogues' || ref.collection === 'scenes') return ref.collection;
+  if (ref.collection === 'objects') return 'interactables';
+  if (ref.collection === 'actions') return 'interactions';
   if (ref.type === 'variable') return 'variables';
   if (ref.type === 'room') return 'rooms';
-  if (ref.type === 'object') return 'objects';
+  if (ref.type === 'object') return 'interactables';
   if (ref.type === 'verb') return 'verbs';
-  if (ref.type === 'action') return 'actions';
+  if (ref.type === 'action') return 'interactions';
   if (ref.type === 'map') return 'maps';
   if (ref.type === 'dialogue') return 'dialogues';
   if (ref.type === 'scene') return 'scenes';
@@ -163,7 +165,7 @@ function labelEntity(project: AuthoringProject | null, ref: RuntimeDebugEntityRe
   return fallbackLabel(ref?.id, record?.label ?? ref?.label);
 }
 
-function labelById(project: AuthoringProject | null, collection: keyof Pick<AuthoringProject, 'variables' | 'rooms' | 'objects' | 'verbs' | 'actions'>, id: string) {
+function labelById(project: AuthoringProject | null, collection: keyof Pick<AuthoringProject, 'variables' | 'rooms' | 'interactables' | 'verbs' | 'interactions'>, id: string) {
   return fallbackLabel(id, recordFor(project, collection, id)?.label);
 }
 
@@ -683,7 +685,7 @@ function VariablesPanel({ snapshot, project, controlsContext, mutationDisabled, 
 
 function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
   const inventory = snapshot?.inventory ?? [];
-  const objectIds = useMemo(() => project ? Object.keys(project.objects) : [], [project]);
+  const objectIds = useMemo(() => project ? Object.keys(project.interactables) : [], [project]);
   const [selectedObjectId, setSelectedObjectId] = useState('');
   useEffect(() => {
     if (!selectedObjectId && objectIds[0]) setSelectedObjectId(objectIds[0]);
@@ -695,7 +697,7 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
     <Panel title="Inventory" icon={<PackagePlus className="h-3.5 w-3.5" />} summary={`${inventory.length}`}>
       <div className="flex gap-2">
         <select className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs" value={selectedObjectId} onChange={(event) => setSelectedObjectId(event.target.value)} aria-label="Debug object to give">
-          {objectIds.map((id) => <option key={id} value={id}>{labelById(project, 'objects', id)} ({id})</option>)}
+          {objectIds.map((id) => <option key={id} value={id}>{labelById(project, 'interactables', id)} ({id})</option>)}
         </select>
         <Button className="!h-7 shrink-0" size="sm" variant="secondary" disabled={disabled || !selectedObjectId} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(selectedObjectId), `Debug give ${selectedObjectId}`)}>Debug give</Button>
       </div>
@@ -703,7 +705,7 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
       {inventory.map((item) => (
         <div key={item.id} className="rounded-md border p-2 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{labelById(project, 'objects', item.id)}</span>
+            <span className="font-medium">{labelById(project, 'interactables', item.id)}</span>
             {item.selected ? <Badge>selected</Badge> : null}
           </div>
           <div className="mt-1 font-mono text-[11px] text-muted-foreground">{item.id}</div>
@@ -723,7 +725,7 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
 }
 
 function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisabled, onCommand }: { snapshot: RuntimeDebugSnapshot | null; project: AuthoringProject | null; controlsContext: EnginePreviewControlsContext | null; mutationDisabled: boolean; onCommand: (command: RuntimeCommandFactory, label: string, options?: RuntimeCommandOptions) => void }) {
-  const objects = project ? Object.entries(project.objects).slice(0, 6) : [];
+  const objects = project ? Object.entries(project.interactables).slice(0, 6) : [];
   const roomItems = useMemo(() => filterSelectorItems(buildCommandPaletteItems(project), { collections: ['rooms'], includeActions: false }), [project]);
   const [roomSelectorOpen, setRoomSelectorOpen] = useState(false);
   const controller = controlsContext?.controller ?? null;

@@ -21,7 +21,7 @@ import {
   roomBackgroundFitValues,
   roomLayoutRef,
   roomMaterialRef,
-  roomObjectRef,
+  roomInteractableRef,
   roomPathDirectionValues,
   roomPreviewBackgroundValues,
   roomRoomRef,
@@ -126,7 +126,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
   const layouts = project ? Object.entries(project.layouts).map(([id, layout]) => ({ id, label: layout.label })) : [];
   const targetRooms = project ? Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label })) : [];
-  const objects = project ? Object.entries(project.objects).map(([id, object]) => ({ id, label: object.label })) : [];
+  const objects = project ? Object.entries(project.interactables).map(([id, object]) => ({ id, label: object.label })) : [];
 
   useWorkbenchEditorTabState<RoomEditorTabState>(tab.id, useMemo(() => ({
     captureTabState: () => ({
@@ -397,7 +397,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </div>
                 <div className="space-y-1 xl:col-span-2">
                   <Label>Object</Label>
-                  <Select value={refValue(hotspot.object)} onValueChange={(value) => replaceHotspot(hotspot.id, { object: value === '__none__' ? null : roomObjectRef(String(value)) })}>
+                  <Select value={refValue(hotspot.object)} onValueChange={(value) => replaceHotspot(hotspot.id, { object: value === '__none__' ? null : roomInteractableRef(String(value)) })}>
                     <SelectItem value="__none__">Free-standing hotspot</SelectItem>
                     {objects.map((object) => <SelectItem key={object.id} value={object.id}>{object.label} ({object.id})</SelectItem>)}
                   </Select>

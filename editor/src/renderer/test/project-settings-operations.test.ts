@@ -7,19 +7,17 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 function projectWithSettingsTargets() {
   const project = createAuthoringProject();
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
-  project.layouts.main = { id: 'main', label: 'Main Layout', tags: [], data: defaultLayoutData('Main Layout') };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+  project.layouts.main = { id: 'main', label: 'Main Layout', data: defaultLayoutData('Main Layout') };
   project.assets['main-font'] = {
     id: 'main-font',
     label: 'Main Font',
-    tags: [],
-    data: { kind: 'font', source: { type: 'project-file', path: 'assets/fonts/main.ttf' }, aliases: [], extension: '.ttf' },
+        data: { kind: 'font', source: { type: 'project-file', path: 'assets/fonts/main.ttf' }, aliases: [], extension: '.ttf' },
   };
   project.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    tags: [],
-    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+        data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
   };
   return project;
 }
@@ -28,27 +26,27 @@ describe('project settings operations', () => {
   it('updates metadata, entrypoint, startup, system layout, and default font through undoable commands', () => {
     let state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     state = executeCommand(state, { type: 'project.updateMetadata', payload: { name: 'Demo', version: '1.2.3', author: 'Author' } }).state;
-    state = executeCommand(state, { type: 'project.setEntrypoint', payload: { target: { collection: 'rooms', id: 'foyer' } } }).state;
+    state = executeCommand(state, { type: 'project.setEntrypoint', payload: { target: { kind: 'room', id: 'foyer' } } }).state;
     state = executeCommand(state, { type: 'project.setStartup', payload: { initScript: 'game.start()' } }).state;
     state = executeCommand(state, { type: 'project.setSystemLayout', payload: { role: 'title', layoutId: 'main' } }).state;
     const font = executeCommand(state, { type: 'project.setDefaultFont', payload: { assetId: 'main-font' } });
     expect(font.ok).toBe(true);
     expect(font.state.document).toMatchObject({
       project: { name: 'Demo', version: '1.2.3', author: 'Author' },
-      entrypoint: { collection: 'rooms', id: 'foyer' },
+      entrypoint: { kind: 'room', id: 'foyer' },
+      startupHook: { source: 'game.start()' },
       settings: {
-        startup: { initScript: 'game.start()' },
         ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } },
         text: { defaultFont: { $ref: { collection: 'assets', id: 'main-font' } } },
       },
     });
     const undone = undoCommand(font.state);
-    expect((undone.state.document as ReturnType<typeof projectWithSettingsTargets>).settings.text).toBeUndefined();
+    expect((undone.state.document as ReturnType<typeof projectWithSettingsTargets>).settings.text).toEqual({ defaultFont: null });
   });
 
   it('rejects invalid project settings refs and empty required metadata', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
-    expect(executeCommand(state, { type: 'project.setEntrypoint', payload: { target: { collection: 'rooms', id: 'missing' } } }).ok).toBe(false);
+    expect(executeCommand(state, { type: 'project.setEntrypoint', payload: { target: { kind: 'room', id: 'missing' } } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setDefaultFont', payload: { assetId: 'logo' } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setIcon', payload: { assetId: 'main-font' } }).ok).toBe(false);
     expect(executeCommand(state, { type: 'project.setSystemLayout', payload: { role: 'title', layoutId: 'missing' } }).ok).toBe(false);
@@ -101,6 +99,6 @@ describe('project settings operations', () => {
     const result = executeCommand(state, { type: 'project.setDisplay', payload: { aspectRatio: { width: 1920, height: 1080 }, orientation: 'portrait', barColor: '#AABBCC' } });
     expect(result.ok).toBe(true);
     expect(result.state.document).toMatchObject({ settings: { display: { aspectRatio: { width: 16, height: 9 }, orientation: 'portrait', barColor: '#aabbcc' } } });
-    expect(undoCommand(result.state).state.document).not.toHaveProperty('settings.display');
+    expect(undoCommand(result.state).state.document).toMatchObject({ settings: { display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' } } });
   });
 });

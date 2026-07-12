@@ -22,7 +22,7 @@ describe('test commands', () => {
 
   it('patches valid test data and rejects error diagnostics', () => {
     const project = createAuthoringProject();
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data: defaultTestData('Smoke') };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const invalid = defaultTestData('Smoke');

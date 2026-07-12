@@ -1,6 +1,6 @@
 import { authoringCollectionKeys, type AuthoringCollectionKey } from './authoring-collections';
 import type { AuthoringProject } from './authoring-project';
-import type { EditorTagsState } from './editor-project-state';
+import type { EditorRecordMetadata, EditorTagsState } from './editor-project-state';
 
 export const TAG_COLOR_POOL = [
   'tag-slate',
@@ -69,6 +69,14 @@ function editorTagsState(project: AuthoringProject): EditorTagsState {
   return project.editor.tags ?? { records: {} };
 }
 
+export function recordEditorMetadata(
+  project: AuthoringProject,
+  collection: AuthoringCollectionKey,
+  recordId: string,
+): EditorRecordMetadata {
+  return project.editor.recordMetadata?.[collection]?.[recordId] ?? { tags: [] };
+}
+
 export function collectProjectTags(project: AuthoringProject, pendingTags: string[] = []): ProjectTagSummary[] {
   const registry = editorTagsState(project);
   const summaries = new Map<string, ProjectTagSummary>();
@@ -106,7 +114,7 @@ export function collectProjectTags(project: AuthoringProject, pendingTags: strin
 
   for (const collection of authoringCollectionKeys) {
     for (const record of Object.values(project[collection])) {
-      for (const tag of normalizeTags(record.tags ?? [])) {
+      for (const tag of normalizeTags(recordEditorMetadata(project, collection, record.id).tags)) {
         const summary = ensureTag(tag);
         if (!summary) continue;
         summary.count += 1;

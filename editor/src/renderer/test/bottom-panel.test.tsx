@@ -11,7 +11,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 
 beforeEach(() => {
   const project = createAuthoringProject();
-  project.characters.dfs = { id: 'dfs', label: 'DFS', tags: [], data: {} };
+  project.characters.dfs = { id: 'dfs', label: 'DFS', data: {} as never };
   useProjectStore.getState().clearProject();
   useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
   useWorkspaceStore.getState().setDiagnostics([]);

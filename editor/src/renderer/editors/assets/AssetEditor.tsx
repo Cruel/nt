@@ -9,7 +9,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { buildAssetAliasIndex, findAssetAliasUsages } from '../../../shared/project-schema/authoring-asset-references';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
+import { collectProjectTags, recordEditorMetadata } from '../../../shared/project-schema/authoring-tags';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { buildReferenceIndex, findUsages } from '../../../shared/project-schema/authoring-references';
 import { useProjectStore } from '@/project/project-store';
@@ -67,10 +67,13 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     return data.aliases.flatMap((alias) => findAssetAliasUsages(index, alias));
   }, [data, project]);
 
+  const recordTags = useMemo(() => isAuthoringProject(project) && assetId
+    ? recordEditorMetadata(project, 'assets', assetId).tags
+    : [], [assetId, project]);
   const tagSuggestions = useMemo(() => {
     if (!isAuthoringProject(project)) return [];
-    return collectProjectTags(project, record?.tags ?? []);
-  }, [project, record?.tags]);
+    return collectProjectTags(project, recordTags);
+  }, [project, recordTags]);
 
   if (!assetId || !record) {
     return <div className="p-4 text-sm text-muted-foreground">Asset record not found.</div>;
@@ -193,7 +196,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             <p className="mt-1 text-xs text-muted-foreground">Tags are for user-facing organization and do not affect the asset type.</p>
             <div className="mt-3">
               <Label htmlFor="asset-tags">Asset tags</Label>
-              <TagInput id="asset-tags" className="mt-1" value={record.tags ?? []} onChange={updateTags} suggestions={tagSuggestions} placeholder="Add tag" />
+              <TagInput id="asset-tags" className="mt-1" value={recordTags} onChange={updateTags} suggestions={tagSuggestions} placeholder="Add tag" />
             </div>
           </section>
 

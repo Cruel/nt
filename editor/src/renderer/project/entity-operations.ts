@@ -23,6 +23,7 @@ import {
 } from '../../shared/project-schema/authoring-project';
 import { collectProjectTags, normalizeTagKey, normalizeTags, tagColorForIndex } from '../../shared/project-schema/authoring-tags';
 import { EDITOR_PROJECT_STATE_SCHEMA, EDITOR_PROJECT_STATE_SCHEMA_VERSION } from '../../shared/project-schema/editor-project-state';
+import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import {
   buildReferenceIndex,
   findUsages,
@@ -38,7 +39,6 @@ export interface EntityTarget {
 export interface CreateEntityRecordPayload extends EntityTarget {
   label?: string;
   description?: string;
-  parent?: ReferenceTarget | null;
   tags?: string[];
   color?: string | null;
   data?: unknown;
@@ -70,12 +70,8 @@ export interface UpdateEntityMetadataPayload extends EntityTarget {
   sortKey?: string | null;
 }
 
-export interface SetEntityParentPayload extends EntityTarget {
-  parentId: string | null;
-}
-
-export interface SetEntityInheritsPayload extends EntityTarget {
-  inheritsId: string | null;
+export interface SetEntityExtendsPayload extends EntityTarget {
+  extendsId: string | null;
 }
 
 export interface EntityOperationDiagnostic {
@@ -157,6 +153,12 @@ export function defaultDataForCollection(
   if (collection === 'dialogues') return defaultDialogueData(label) as unknown as Record<string, unknown>;
   if (collection === 'scenes') return defaultSceneData(label) as unknown as Record<string, unknown>;
   if (collection === 'tests') return defaultTestData(label) as unknown as Record<string, unknown>;
+  if (collection === 'assets') return { kind: 'binary', source: { type: 'project-file', path: `assets/binary/${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.bin` }, aliases: [] };
+  if (collection === 'interactables') return { kind: 'interactable' };
+  if (collection === 'verbs') return { kind: 'verb' };
+  if (collection === 'interactions') return { kind: 'interaction' };
+  if (collection === 'maps') return { kind: 'map' };
+  if (collection === 'scripts') return { kind: 'script-module', source: '' };
   return {};
 }
 
@@ -170,12 +172,13 @@ export function createDefaultAuthoringRecord(
   const record: AuthoringRecordBase = {
     id: entityId,
     label,
-    tags: options.tags ?? [],
     data: defaultDataForCollection(collection, label, options.data),
   };
   if (options.description?.trim()) record.description = options.description;
-  if (options.parent !== undefined) record.parent = options.parent;
-  if (options.color !== undefined) record.color = options.color;
+  if (['characters', 'rooms', 'interactables', 'verbs', 'interactions', 'dialogues', 'scenes', 'maps'].includes(collection)) {
+    record.extends = null;
+    record.properties = {};
+  }
   return record;
 }
 
@@ -196,22 +199,26 @@ export function createEntityRecordPatches(
       diagnostics: [error('A record with this ID already exists.', pathForRecord(payload.collection, payload.entityId))],
     };
   }
-  if (payload.parent) {
-    if (payload.parent.collection !== payload.collection) {
-      return { patches: [], diagnostics: [error('Parent must be in the same collection.', '/parent')] };
-    }
-    if (!project[payload.collection][payload.parent.id]) {
-      return { patches: [], diagnostics: [error('Parent record does not exist.', '/parent')] };
-    }
-  }
   const path = pathForRecord(payload.collection, payload.entityId);
   const documentValue = toJsonValue(document);
   const normalizedTags = payload.tags ? normalizeTags(payload.tags) : undefined;
   const record = createDefaultAuthoringRecord(payload.collection, payload.entityId, { ...payload, tags: normalizedTags });
+  const parsedRecord = authoringRecordSchemas[payload.collection].safeParse(record);
+  if (!parsedRecord.success) {
+    return {
+      patches: [],
+      diagnostics: parsedRecord.error.issues.map((issue) => error(issue.message, `${path}/${issue.path.map(String).join('/')}`)),
+    };
+  }
   const tagRegistryPatches = normalizedTags ? registryPatchesForTags(project, documentValue, normalizedTags) : [];
+  const metadata: JsonPatchOperation[] = [];
+  if (normalizedTags || payload.color !== undefined) {
+    ensureRecordMetadataObjects(metadata, documentValue, payload.collection);
+    metadata.push({ op: 'add', path: buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.entityId]), value: toJsonValue({ tags: normalizedTags ?? [], color: payload.color ?? null }) });
+  }
   return {
-    patches: [...tagRegistryPatches, { op: 'add', path, value: toJsonValue(record) }],
-    affectedPaths: [...tagRegistryPatches.map((patch) => patch.path), path],
+    patches: [...tagRegistryPatches, ...metadata, { op: 'add', path, value: toJsonValue(parsedRecord.data) }],
+    affectedPaths: [...tagRegistryPatches.map((patch) => patch.path), path, ...metadata.map((patch) => patch.path)],
   };
 }
 
@@ -227,8 +234,6 @@ export function rewriteReferenceTarget(value: unknown, from: ReferenceTarget, to
       next[key] = { ...to };
     } else if (key === '$var' && from.collection === 'variables' && child === from.id) {
       next[key] = to.id;
-    } else if ((key === 'parent' || key === 'inherits') && referenceEquals(child as ReferenceTarget, from)) {
-      next[key] = { ...to };
     } else {
       next[key] = rewriteReferenceTarget(child, from, to);
     }
@@ -238,9 +243,8 @@ export function rewriteReferenceTarget(value: unknown, from: ReferenceTarget, to
 
 function rewriteRecordReferences(record: AuthoringRecordBase, from: ReferenceTarget, to: ReferenceTarget): AuthoringRecordBase {
   const next = cloneRecord(record);
-  if (referenceEquals(next.parent, from)) next.parent = { ...to };
-  if (referenceEquals(next.inherits, from)) next.inherits = { ...to };
-  next.data = rewriteReferenceTarget(next.data, from, to) as Record<string, unknown>;
+  if (from.collection === to.collection && next.extends === from.id) next.extends = to.id;
+  next.data = rewriteReferenceTarget(next.data, from, to);
   return next;
 }
 
@@ -276,6 +280,20 @@ function ensureEditorTagRegistryObjects(patches: JsonPatchOperation[], documentV
   }
   if (!hasJsonAtPointer(documentValue, '/editor/tags/records')) {
     patches.push({ op: 'add', path: '/editor/tags/records', value: {} });
+  }
+}
+
+function ensureRecordMetadataObjects(
+  patches: JsonPatchOperation[],
+  documentValue: JsonValue,
+  collection: AuthoringCollectionKey,
+) {
+  if (!hasJsonAtPointer(documentValue, '/editor/recordMetadata')) {
+    patches.push({ op: 'add', path: '/editor/recordMetadata', value: {} });
+  }
+  const collectionPath = buildJsonPointer(['editor', 'recordMetadata', collection]);
+  if (!hasJsonAtPointer(documentValue, collectionPath)) {
+    patches.push({ op: 'add', path: collectionPath, value: {} });
   }
 }
 
@@ -336,8 +354,21 @@ export function renameEntityIdPatches(
   const index = buildReferenceIndex(project);
   for (const usage of findUsages(index, from)) {
     if (usage.sourceCollection === payload.collection && usage.sourceId === payload.fromId) continue;
-    patches.push({ op: 'replace', path: usage.path, value: toJsonValue(usage.kind === 'variable-ref' ? to.id : to) });
+    const value = usage.kind === 'variable-ref' || usage.kind === 'extends'
+      ? to.id
+      : usage.kind === 'entrypoint'
+        ? { kind: to.collection.slice(0, -1), id: to.id }
+        : to;
+    patches.push({ op: 'replace', path: usage.path, value: toJsonValue(value) });
     affectedPaths.push(usage.path);
+  }
+  const oldMetadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.fromId]);
+  const newMetadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.toId]);
+  const metadata = project.editor.recordMetadata?.[payload.collection]?.[payload.fromId];
+  if (metadata) {
+    patches.push({ op: 'add', path: newMetadataPath, value: toJsonValue(metadata) });
+    patches.push({ op: 'remove', path: oldMetadataPath });
+    affectedPaths.push(newMetadataPath, oldMetadataPath);
   }
   return { patches, affectedPaths };
 }
@@ -365,7 +396,15 @@ export function duplicateEntityRecordPatches(
   duplicate.id = payload.targetId;
   duplicate.label = payload.label?.trim() || `${source.label} Copy`;
   const path = pathForRecord(payload.collection, payload.targetId);
-  return { patches: [{ op: 'add', path, value: toJsonValue(duplicate) }], affectedPaths: [path] };
+  const patches: JsonPatchOperation[] = [{ op: 'add', path, value: toJsonValue(duplicate) }];
+  const affectedPaths = [path];
+  const metadata = project.editor.recordMetadata?.[payload.collection]?.[payload.sourceId];
+  if (metadata) {
+    const metadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.targetId]);
+    patches.push({ op: 'add', path: metadataPath, value: toJsonValue(metadata) });
+    affectedPaths.push(metadataPath);
+  }
+  return { patches, affectedPaths };
 }
 
 export function deleteEntityRecordPreflight(
@@ -404,7 +443,14 @@ export function deleteEntityRecordPatches(
     };
   }
   const path = pathForRecord(payload.collection, payload.entityId);
-  return { patches: [{ op: 'remove', path }], affectedPaths: [path] };
+  const patches: JsonPatchOperation[] = [{ op: 'remove', path }];
+  const affectedPaths = [path];
+  const metadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.entityId]);
+  if (project.editor.recordMetadata?.[payload.collection]?.[payload.entityId]) {
+    patches.push({ op: 'remove', path: metadataPath });
+    affectedPaths.push(metadataPath);
+  }
+  return { patches, affectedPaths };
 }
 
 export function updateEntityMetadataPatches(
@@ -431,122 +477,62 @@ export function updateEntityMetadataPatches(
     patches.push(...tagRegistryPatches);
     affectedPaths.push(...tagRegistryPatches.map((patch) => patch.path));
   }
-  const entries: Array<[keyof AuthoringRecordBase, unknown]> = [
-    ['label', payload.label],
-    ['description', payload.description],
-    ['tags', normalizedTags],
-    ['color', payload.color],
-    ['sortKey', payload.sortKey],
-  ];
-  for (const [field, value] of entries) {
+  for (const [field, value] of [['label', payload.label], ['description', payload.description]] as const) {
     if (value === undefined) continue;
     const patch = recordFieldPatch(record, payload.collection, payload.entityId, field, value);
     patches.push(patch);
     affectedPaths.push(patch.path);
   }
+  if (normalizedTags !== undefined || payload.color !== undefined || payload.sortKey !== undefined) {
+    ensureRecordMetadataObjects(patches, documentValue, payload.collection);
+    const metadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.entityId]);
+    const current = project.editor.recordMetadata?.[payload.collection]?.[payload.entityId] ?? { tags: [] };
+    const metadata = {
+      ...current,
+      tags: normalizedTags ?? current.tags,
+      color: payload.color !== undefined ? payload.color : current.color,
+      sortKey: payload.sortKey !== undefined ? payload.sortKey : current.sortKey,
+    };
+    patches.push({ op: hasJsonAtPointer(documentValue, metadataPath) ? 'replace' : 'add', path: metadataPath, value: toJsonValue(metadata) });
+    affectedPaths.push(metadataPath);
+  }
   return { patches, affectedPaths };
 }
 
-export function wouldCreateParentCycle(
-  project: AuthoringProject,
-  source: EntityTarget,
-  parentId: string | null,
-): boolean {
-  if (!parentId) return false;
-  let current: string | null = parentId;
+const extendableCollections = new Set<AuthoringCollectionKey>([
+  'characters', 'rooms', 'interactables', 'verbs', 'interactions', 'dialogues', 'scenes', 'maps',
+]);
+
+export function wouldCreateExtendsCycle(project: AuthoringProject, source: EntityTarget, extendsId: string | null): boolean {
+  let current = extendsId;
   const seen = new Set<string>();
   while (current) {
-    if (current === source.entityId) return true;
-    if (seen.has(current)) return true;
+    if (current === source.entityId || seen.has(current)) return true;
     seen.add(current);
-    const parent: ReferenceTarget | null | undefined = project[source.collection][current]?.parent;
-    current = parent?.collection === source.collection ? parent.id : null;
+    current = (project[source.collection][current] as AuthoringRecordBase | undefined)?.extends ?? null;
   }
   return false;
 }
 
-export function setEntityRelationshipPatches(
+export function setEntityExtendsPatches(
   document: JsonValue | unknown,
-  payload: EntityTarget & { field: 'parent' | 'inherits'; targetId: string | null },
+  payload: SetEntityExtendsPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
   if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
-  const diagnostics = [
-    validateTargetCollection(payload.collection),
-    entityIdDiagnostic(payload.entityId, pathForRecord(payload.collection, payload.entityId)),
-    payload.targetId ? entityIdDiagnostic(payload.targetId, pathForRecord(payload.collection, payload.targetId)) : null,
-  ].filter((item): item is EntityOperationDiagnostic => item !== null);
-  if (diagnostics.length > 0) return { patches: [], diagnostics };
-  const record = project[payload.collection][payload.entityId];
-  if (!record) {
-    return { patches: [], diagnostics: [error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId))] };
+  if (!extendableCollections.has(payload.collection)) {
+    return { patches: [], diagnostics: [error(`${payload.collection} records do not support extends.`, pathForRecord(payload.collection, payload.entityId))] };
   }
-  if (payload.targetId) {
-    if (payload.targetId === payload.entityId) {
-      return { patches: [], diagnostics: [error(`Record cannot ${payload.field} itself.`, pathForRecordField(payload.collection, payload.entityId, payload.field))] };
-    }
-    if (!project[payload.collection][payload.targetId]) {
-      return { patches: [], diagnostics: [error(`${payload.field === 'parent' ? 'Parent' : 'Inherited'} record does not exist.`, pathForRecord(payload.collection, payload.targetId))] };
-    }
-    if (payload.field === 'parent' && wouldCreateParentCycle(project, payload, payload.targetId)) {
-      return { patches: [], diagnostics: [error('Parent assignment would create a cycle.', pathForRecordField(payload.collection, payload.entityId, 'parent'))] };
-    }
+  const record = project[payload.collection][payload.entityId] as AuthoringRecordBase | undefined;
+  if (!record) return { patches: [], diagnostics: [error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId))] };
+  if (payload.extendsId && !project[payload.collection][payload.extendsId]) {
+    return { patches: [], diagnostics: [error('Extended record does not exist.', pathForRecord(payload.collection, payload.extendsId))] };
   }
-  const patch = recordFieldPatch(
-    record,
-    payload.collection,
-    payload.entityId,
-    payload.field,
-    payload.targetId ? { collection: payload.collection, id: payload.targetId } : null,
-  );
+  if (wouldCreateExtendsCycle(project, payload, payload.extendsId)) {
+    return { patches: [], diagnostics: [error('extends assignment would create a cycle.', pathForRecordField(payload.collection, payload.entityId, 'extends'))] };
+  }
+  const patch = recordFieldPatch(record, payload.collection, payload.entityId, 'extends', payload.extendsId);
   return { patches: [patch], affectedPaths: [patch.path] };
-}
-
-export function setEntityInheritsPatches(
-  document: JsonValue | unknown,
-  payload: SetEntityInheritsPayload,
-): EntityOperationResult {
-  return setEntityRelationshipPatches(document, { ...payload, field: 'inherits', targetId: payload.inheritsId });
-}
-
-export function setEntityParentPatches(
-  document: JsonValue | unknown,
-  payload: SetEntityParentPayload,
-): EntityOperationResult {
-  const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
-  const diagnostics = [
-    validateTargetCollection(payload.collection),
-    entityIdDiagnostic(payload.entityId, pathForRecord(payload.collection, payload.entityId)),
-    payload.parentId ? entityIdDiagnostic(payload.parentId, pathForRecord(payload.collection, payload.parentId)) : null,
-  ].filter((item): item is EntityOperationDiagnostic => item !== null);
-  if (diagnostics.length > 0) return { patches: [], diagnostics };
-  const record = project[payload.collection][payload.entityId];
-  if (!record) {
-    return { patches: [], diagnostics: [error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId))] };
-  }
-  if (payload.parentId) {
-    if (payload.parentId === payload.entityId) {
-      return { patches: [], diagnostics: [error('Record cannot parent itself.', pathForRecordField(payload.collection, payload.entityId, 'parent'))] };
-    }
-    if (!project[payload.collection][payload.parentId]) {
-      return { patches: [], diagnostics: [error('Parent record does not exist.', pathForRecord(payload.collection, payload.parentId))] };
-    }
-    if (wouldCreateParentCycle(project, payload, payload.parentId)) {
-      return { patches: [], diagnostics: [error('Parent assignment would create a cycle.', pathForRecordField(payload.collection, payload.entityId, 'parent'))] };
-    }
-  }
-  const patch = recordFieldPatch(
-    record,
-    payload.collection,
-    payload.entityId,
-    'parent',
-    payload.parentId ? { collection: payload.collection, id: payload.parentId } : null,
-  );
-  return {
-    patches: [patch],
-    affectedPaths: [patch.path],
-  };
 }
 
 export function referenceUsageSummary(usages: ReferenceUsage[]): string {

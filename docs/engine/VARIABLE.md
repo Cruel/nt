@@ -20,7 +20,7 @@ Variable records live at:
 /variables/{variableId}
 ```
 
-The record uses the standard authoring record wrapper. Variable-specific data lives in `record.data`.
+The record uses the strict variable-specific authoring record schema. Variable data lives in `record.data`; unknown record and data fields fail V2 parsing.
 
 ```ts
 interface VariableData {
@@ -29,7 +29,6 @@ interface VariableData {
   defaultValue: unknown;
   scope: 'global';
   enumValues?: string[];
-  runtimeName?: string;
 }
 ```
 
@@ -50,7 +49,7 @@ relationship-iris
 current-route
 ```
 
-`runtimeName` is optional and should only be used when a stable runtime/script name must differ from the authoring ID. Its semantics are not yet deeply enforced by runtime export.
+The variable ID is the canonical runtime and Lua API name. V2 has no `runtimeName` alias.
 
 ## High-Level Model
 
@@ -72,7 +71,6 @@ Enum variables store an allowed string set in `enumValues`. Their default must b
 
 `enumValues` is used only for `enum` variables.
 
-`runtimeName` is optional and currently acts as metadata for future runtime/script naming.
 
 ## References
 
@@ -142,7 +140,7 @@ Variable-specific commands include:
 - `variable.setType` to change type and normalize the default value;
 - `variable.setDefaultValue` to update the default value while enforcing type compatibility.
 
-Generic entity commands handle record creation, rename, deletion, metadata updates, parent assignment, and duplication.
+Generic record commands handle creation, rename, deletion, editor metadata updates, and duplication. Variables do not participate in runtime `extends`.
 
 ## Editor Behavior
 
@@ -247,7 +245,7 @@ refs/NovelTea/src/core/ContextObject.cpp
 - Define the runtime session storage model for authoring variables.
 - Export variable defaults into runtime packages.
 - Add Lua get/set APIs around runtime state.
-- Add condition-builder UI for scenes, dialogues, rooms, and actions.
+- Add condition-builder UI for scenes, dialogues, rooms, and interactions.
 - Add preview variable watches and test assertion helpers.
 
 ## Verification

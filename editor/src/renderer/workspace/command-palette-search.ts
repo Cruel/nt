@@ -8,6 +8,7 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import { parseAssetData, type AssetData } from '../../shared/project-schema/authoring-assets';
 import { searchDocuments } from '../../shared/project-search/project-search';
 import type { ProjectSearchDocument, ProjectSearchFieldKind, ProjectSearchMatch } from '../../shared/project-search/project-search-types';
+import { recordEditorMetadata } from '../../shared/project-schema/authoring-tags';
 import { visualForCollection } from './collection-visuals';
 
 export type CommandPaletteItemKind = 'action' | 'record';
@@ -125,7 +126,7 @@ export function buildCommandPaletteItems(project: AuthoringProject | null, t: TF
         entityId,
         assetKind: assetData?.kind,
         preview: assetData?.kind === 'image' ? { kind: 'image', label: title, sourcePath: assetData.source.path } : undefined,
-        tags: record.tags ?? [],
+        tags: recordEditorMetadata(project, collection, entityId).tags,
         collectionTerms: [metadata.label, metadata.singularLabel],
         actionTerms: [],
         icon: visual.icon,

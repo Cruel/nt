@@ -93,7 +93,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const diagnostics = useMemo(() => project ? validateAuthoringProject(project) : [], [project]);
   const projectSettingsDiagnostics = useMemo(() => project ? validateTypedProjectSettings(project) : [], [project]);
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
-  const entrypointItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['rooms', 'scenes', 'dialogues', 'scripts'], includeActions: false }), [selectorItems]);
+  const entrypointItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['rooms', 'scenes', 'dialogues'], includeActions: false }), [selectorItems]);
   const layoutItems = useMemo(() => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }), [selectorItems]);
   const [workflowSummary, setWorkflowSummary] = useState({ activeCount: 0, projectCount: 0, invalidProjectCount: 0 });
   const [workflowSummaryMessage, setWorkflowSummaryMessage] = useState<string | null>(null);
@@ -148,8 +148,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const fontAssets = Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'font')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
-  const entrypointIsRoom = project.entrypoint?.collection === 'rooms' ? project.entrypoint.id : null;
-  const entrypointRecord = project.entrypoint ? project[project.entrypoint.collection]?.[project.entrypoint.id] : null;
+  const entrypointIsRoom = project.entrypoint?.kind === 'room' ? project.entrypoint.id : null;
+  const entrypointCollection = project.entrypoint ? `${project.entrypoint.kind}s` as const : null;
+  const entrypointRecord = project.entrypoint && entrypointCollection ? project[entrypointCollection][project.entrypoint.id] : null;
   const entrypointDiagnostics = diagnostics.filter((diagnostic) => diagnostic.path.startsWith('/entrypoint'));
   const relevantDiagnostics = [...entrypointDiagnostics, ...projectSettingsDiagnostics];
   const relevantDiagnosticItems = relevantDiagnostics.map((diagnostic) => ({
@@ -161,7 +162,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     runProjectCommand('project.updateMetadata', patch, 'Update project metadata');
   }
 
-  function setEntrypoint(target: { collection: string; id: string } | null) {
+  function setEntrypoint(target: { kind: 'room' | 'scene' | 'dialogue'; id: string } | null) {
     runProjectCommand('project.setEntrypoint', { target }, 'Set project entrypoint');
   }
 
@@ -248,7 +249,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <Button type="button" variant="outline" className="h-8 min-w-64 justify-start px-2 text-left text-xs font-normal" onClick={() => setEntrypointSelectorOpen(true)}>
                     <span className="truncate">
                       {project.entrypoint && entrypointRecord
-                        ? `${entrypointRecord.label || project.entrypoint.id} (${project.entrypoint.collection}/${project.entrypoint.id})`
+                        ? `${entrypointRecord.label || project.entrypoint.id} (${project.entrypoint.kind}/${project.entrypoint.id})`
                         : t('selectors.none.entrypoint')}
                     </span>
                   </Button>
@@ -258,7 +259,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <div className="space-y-2">
                 <Label>Init Lua script</Label>
-                <SourceEditor ref={sourceEditors.refFor('startupInitScript')} className="h-40" language="lua" value={settings.startup.initScript} onChange={(initScript) => runProjectCommand('project.setStartup', { initScript }, 'Update project startup script')} />
+                <SourceEditor ref={sourceEditors.refFor('startupInitScript')} className="h-40" language="lua" value={project.startupHook?.source ?? ''} onChange={(initScript) => runProjectCommand('project.setStartup', { initScript }, 'Update project startup script')} />
               </div>
             </CardContent>
           </Card>
@@ -475,10 +476,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         placeholder={t('selectors.entrypoint.placeholder')}
         emptyMessage={t('selectors.entrypoint.empty')}
         items={entrypointItems}
-        selectedId={project.entrypoint ? `record:${project.entrypoint.collection}:${project.entrypoint.id}` : null}
+        selectedId={project.entrypoint ? `record:${project.entrypoint.kind}s:${project.entrypoint.id}` : null}
         onSelect={(item) => {
           if (!item.collection || !item.entityId) return;
-          setEntrypoint({ collection: item.collection, id: item.entityId });
+          if (item.collection === 'rooms' || item.collection === 'scenes' || item.collection === 'dialogues') {
+            setEntrypoint({ kind: item.collection.slice(0, -1) as 'room' | 'scene' | 'dialogue', id: item.entityId });
+          }
         }}
         onOpenChange={setEntrypointSelectorOpen}
       />

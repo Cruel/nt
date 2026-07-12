@@ -5,7 +5,8 @@ import { parseDialogueData } from './authoring-dialogues';
 import { parseLayoutData } from './authoring-layouts';
 import { parseMaterialData } from './authoring-materials';
 import { parseVariableData } from './authoring-variables';
-import { entityIdSchema, type AuthoringProject, type AuthoringRecordBase } from './authoring-project';
+import { entityIdSchema } from './authoring-common';
+import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const sceneStepTypeValues = [
   'background',
@@ -340,10 +341,6 @@ export function validateSceneData(project: AuthoringProject, sceneId: string, re
   }
 
   const data = parsed.data;
-  if (record.inherits) {
-    if (record.inherits.collection !== 'scenes') diagnostics.push(diagnostic(`/scenes/${sceneId}/inherits`, 'Scene inheritance must target another scene.'));
-    else if (!project.scenes[record.inherits.id]) diagnostics.push(diagnostic(`/scenes/${sceneId}/inherits`, `Missing inherited scene '${record.inherits.id}'.`));
-  }
 
   validateNextTarget(project, data.settings.next, `${base}/settings/next`, sceneId, diagnostics);
   validateAssetRef(project, data.defaults.background.asset, `${base}/defaults/background/asset`, 'image', diagnostics);

@@ -162,8 +162,8 @@ beforeEach(() => {
   clearWorkbenchTabStates();
 
   const project = createAuthoringProject();
-  project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
-  project.rooms['room-a'] = { id: 'room-a', label: 'Room A', tags: [], data: defaultRoomData('Room A') };
+  project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
+  project.rooms['room-a'] = { id: 'room-a', label: 'Room A', data: defaultRoomData('Room A') };
   useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 });
 

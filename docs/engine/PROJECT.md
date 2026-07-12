@@ -28,7 +28,9 @@ The gameplay document is separate from the package manifest and shader/material 
 
 ## Current implementation scaffold
 
-The current editor still implements authoring version 1, broad record wrappers, `objects`/`actions`, generic parent/inheritance references, and a provisional runtime exporter. The native runtime still uses `ProjectDocument`, `ProjectModel`, numeric entity tags, and partial room-oriented export. These paths remain build scaffolding only and do not alter the V2 contract.
+Phase 3A currently implements the strict `noveltea.authoring.project` V2 root infrastructure, collection-specific record maps, `interactables`/`interactions`, same-type `extends`, declared typed properties and assignments, variables, localization, editor-only record metadata, and the strict Room/Scene/Dialogue entrypoint plus separate startup hook. It is not yet a completed authoritative V2 cutover: provisional Interactable, Verb, Interaction, Map, and Script Module payload shells still require their final contracts.
+
+The native runtime still uses `ProjectDocument`, `ProjectModel`, numeric entity tags, and partial room-oriented export. Those paths remain build scaffolding only and do not alter the V2 authoring contract.
 
 Current files include:
 
@@ -43,15 +45,14 @@ engine/include/noveltea/core/project_model.hpp
 
 Phases 3--10 replace this scaffold. No legacy format, universal parent behavior, Script entrypoint, Object/Action naming, or generic runtime property mutation is preserved.
 
-### Current V1 authoring document
+### Current V2 authoring document
 
-The existing project format is still the source of truth for the editor until Phase 3 lands and is
-therefore worth documenting precisely. Its root currently resembles:
+The editor currently reads and writes the V2 scaffolding directly. V1 and legacy collection names are rejected by the normal parser, but this state remains transitional until every admitted collection has its complete schema. The Phase 3A root resembles:
 
 ```ts
 interface AuthoringProject {
   schema: 'noveltea.authoring.project';
-  schemaVersion: 1;
+  schemaVersion: 2;
   project: {
     id: string;
     name: string;
@@ -60,7 +61,10 @@ interface AuthoringProject {
     description: string;
   };
   settings: Record<string, unknown>;
-  entrypoint: ReferenceTarget | null;
+  startupHook: { source: string } | null;
+  entrypoint: { kind: 'room' | 'scene' | 'dialogue'; id: string } | null;
+  properties: Record<PropertyId, PropertyDefinition>;
+  localization: AuthoringLocalization;
   editor: EditorProjectState;
   assets: AuthoringCollection;
   variables: AuthoringCollection;
@@ -69,9 +73,9 @@ interface AuthoringProject {
   layouts: AuthoringCollection;
   characters: AuthoringCollection;
   rooms: AuthoringCollection;
-  objects: AuthoringCollection;
+  interactables: InteractableAuthoringCollection;
   verbs: AuthoringCollection;
-  actions: AuthoringCollection;
+  interactions: InteractionAuthoringCollection;
   dialogues: AuthoringCollection;
   scenes: AuthoringCollection;
   maps: AuthoringCollection;
@@ -80,15 +84,10 @@ interface AuthoringProject {
 }
 ```
 
-Records currently use a broad wrapper containing `id`, label/description, generic `parent` and
-`inherits` references, tags, color, sort key, and `data: Record<string, unknown>`. This shape is
-transitional, but it explains existing commands, validators, fixtures, and editors. Phase 3 replaces
-it atomically with collection-specific records, `interactables`/`interactions`, tooling-only
-categories/tags, and same-collection runtime `extends` where permitted.
+Records use collection-specific strict schemas. Common record identity is limited to `id`, label, optional description, and typed collection data. Property-bearing definitions may contain a same-collection `extends` ID and declared property assignments. Categories, tags, color, sort order, and collapsed state live under `editor.recordMetadata` or the existing editor category/tag registries, never on runtime-content records.
 
 Project IDs and record IDs currently use lowercase kebab-case. Map keys must match `record.id`.
-`createAuthoringProject()` creates schema version 1, default project metadata, empty settings,
-null entrypoint, default editor state, and empty collection maps. Collection-specific creation uses
+`createAuthoringProject()` creates schema version 2, default project metadata and localization, a null startup hook and entrypoint, empty property declarations, default editor state, and empty collection maps. Collection-specific creation uses
 `defaultDataForCollection()` where a typed schema already exists.
 
 ### Current settings and validation
@@ -105,11 +104,7 @@ The editor-wide Settings tab remains separate from Project Settings. ComfyUI con
 workflow preferences are editor settings; project-local workflow files and game/package settings are
 project data.
 
-Current validation covers root schema identity, record IDs and map-key consistency, non-empty labels,
-entrypoint existence, generic parent/inheritance references and cycles, asset aliases, system Layout
-roles, startup/default-font/title-screen/icon settings, and all component validators currently wired
-into the project validator. Some collections remain broadly typed in V1; this is an implementation
-status fact, not permission to carry unknown-data records into V2.
+Current validation covers strict V2 schema identity, record IDs and map-key consistency, non-empty labels, strict entrypoint existence, same-type `extends` references and cycles, property declarations and assignments, localization shape, asset aliases, system Layout roles, startup/default-font/title-screen/icon settings, and all component validators currently wired into the project validator. The minimal Phase 3A content shells for later collection slices are strict and do not permit unknown fields.
 
 ### Current commands and editor behavior
 
@@ -126,7 +121,7 @@ entity.renameId
 entity.duplicateRecord
 entity.deleteRecord
 entity.updateMetadata
-entity.setParent
+entity.setExtends
 ```
 
 Record rename rewrites indexed references, deletion performs reference-use preflight, and component

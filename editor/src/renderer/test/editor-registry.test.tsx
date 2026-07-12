@@ -211,17 +211,17 @@ describe('editor registry', () => {
 
   it('routes schema-pending records to the placeholder editor', () => {
     const node: AssetNode = {
-      id: 'objects:key',
+      id: 'interactables:key',
       label: 'Key',
-      type: 'object',
-      collection: 'objects',
+      type: 'interactable',
+      collection: 'interactables',
       entityId: 'key',
     };
     expect(buildDefaultRecordTab(node)).toMatchObject({
-      id: 'tab:placeholder:objects:key',
+      id: 'tab:placeholder:interactables:key',
       title: 'Key',
       editorType: 'placeholder-entity',
-      resource: { collection: 'objects', entityId: 'key' },
+      resource: { collection: 'interactables', entityId: 'key' },
     });
   });
 });

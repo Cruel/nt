@@ -9,7 +9,6 @@ function projectWithShaderMaterial() {
   project.assets['noise-fs'] = {
     id: 'noise-fs',
     label: 'noise.fs.sc',
-    tags: ['shader-source'],
     data: {
       kind: 'shader-source',
       source: { type: 'project-file', path: 'assets/shaders/noise.fs.sc' },
@@ -19,7 +18,6 @@ function projectWithShaderMaterial() {
   project.assets['noise-texture'] = {
     id: 'noise-texture',
     label: 'noise.png',
-    tags: ['image'],
     data: {
       kind: 'image',
       source: { type: 'project-file', path: 'assets/images/noise.png' },
@@ -29,8 +27,7 @@ function projectWithShaderMaterial() {
   project.shaders.noise = {
     id: 'noise',
     label: 'Noise',
-    tags: [],
-    data: {
+        data: {
       ...defaultShaderData('Noise'),
       stages: [
         { stage: 'vertex', sourceMode: 'inline', sourceText: 'void main() {}', compiled: {} },
@@ -44,8 +41,7 @@ function projectWithShaderMaterial() {
   project.materials.panel = {
     id: 'panel',
     label: 'Panel',
-    tags: [],
-    data: {
+        data: {
       ...defaultMaterialData('Panel', 'noise'),
       uniforms: [{ name: 'u_amount', value: 0.75 }],
       textures: [{ sampler: 's_noise', source: { $ref: { collection: 'assets', id: 'noise-texture' } }, filtering: 'clamp-linear' }],

@@ -60,7 +60,7 @@ Uniform override names must match uniforms declared by the referenced shader. Te
 
 A material selects one shader and one role, then supplies values for the shader interface. Uniform overrides provide concrete values. Texture assignments bind shader samplers to asset refs, aliases, or URIs. The blend mode is currently fixed to premultiplied alpha.
 
-Materials can inherit from other material records through the generic `record.inherits` relationship, but only when the target collection is `materials`. The resolved material data merges ancestor and child material data, with child uniform/texture entries overriding entries with the same uniform or sampler name.
+Materials can inherit from another material through the explicit material-domain field `data.baseMaterialId`. This is resource composition, not gameplay-definition `extends` and not a generic record relationship. Resolved material data merges base and child material data, with child uniform/texture entries overriding entries with the same uniform or sampler name.
 
 ## Data Model
 
@@ -114,7 +114,7 @@ Texture asset references use:
 { $ref: { collection: 'assets', id: 'texture-asset-id' } }
 ```
 
-Materials may inherit from other materials via the generic record-level `inherits` field:
+Materials may inherit from another material through `MaterialData.baseMaterialId`:
 
 ```ts
 { collection: 'materials', id: 'base-material' }
@@ -163,11 +163,11 @@ Inheritance cycle detection is handled by generic project validation and by mate
 Material-specific commands include:
 
 - `material.replaceData` for validated full data replacement;
-- `material.setInherits` for setting or clearing material inheritance.
+- `material.setBase` for setting or clearing the explicit base material.
 
-Generic entity commands handle creation, rename, deletion, metadata updates, duplication, and parent assignment.
+Generic entity commands handle creation, rename, deletion, metadata updates, duplication, and gameplay-definition `extends` where supported. Material inheritance remains a material-specific command and schema field.
 
-`resolveMaterialData()` is used by the editor/runtime builder to merge inherited material data before preview/export. Uniforms and textures are keyed by `name` and `sampler` respectively during merge.
+`resolveMaterialData()` follows `data.baseMaterialId` and merges inherited material data before preview/export. Uniforms and textures are keyed by `name` and `sampler` respectively during merge.
 
 ## Editor Behavior
 

@@ -4,14 +4,19 @@ import { buildCommandPaletteItems, filterSelectorItems, searchCommandPaletteItem
 
 function project() {
   const next = createAuthoringProject();
-  next.assets.logo = { id: 'logo', label: 'Sarah Portrait', tags: ['Sarah'], data: { kind: 'image', source: { type: 'project-file', path: 'assets/sarah.png' }, aliases: [], extension: '.png' } };
-  next.assets.theme = { id: 'theme', label: 'Theme', tags: [], data: { kind: 'audio', source: { type: 'project-file', path: 'assets/theme.ogg' }, aliases: [], extension: '.ogg' } };
-  next.layouts.coolLayout = { id: 'coolLayout', label: 'Layout lol', tags: ['cool'], data: { target: 'cool-layout' } };
-  next.layouts.sadf = { id: 'sadf', label: 'Layout sadf', tags: ['cool'], data: { target: 'sadf-layout' } };
-  next.rooms.classroom = { id: 'classroom', label: 'Classroom', tags: ['school'], data: {} };
-  next.scenes.opening = { id: 'opening', label: 'Opening Scene', tags: [], data: {} };
-  next.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', tags: [], data: {} };
-  next.scripts.boot = { id: 'boot', label: 'Boot Script', tags: [], data: { language: 'lua', source: '' } };
+  next.assets.logo = { id: 'logo', label: 'Sarah Portrait', data: { kind: 'image', source: { type: 'project-file', path: 'assets/sarah.png' }, aliases: [], extension: '.png' } };
+  next.assets.theme = { id: 'theme', label: 'Theme', data: { kind: 'audio', source: { type: 'project-file', path: 'assets/theme.ogg' }, aliases: [], extension: '.ogg' } };
+  next.layouts.coolLayout = { id: 'coolLayout', label: 'Layout lol', data: { target: 'cool-layout' } as never };
+  next.layouts.sadf = { id: 'sadf', label: 'Layout sadf', data: { target: 'sadf-layout' } as never };
+  next.rooms.classroom = { id: 'classroom', label: 'Classroom', data: {} as never };
+  next.scenes.opening = { id: 'opening', label: 'Opening Scene', data: {} as never };
+  next.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', data: {} as never };
+  next.scripts.boot = { id: 'boot', label: 'Boot Script', data: { kind: 'script-module', source: '' } };
+  next.editor.recordMetadata = {
+    assets: { logo: { tags: ['Sarah'] } },
+    layouts: { coolLayout: { tags: ['cool'] }, sadf: { tags: ['cool'] } },
+    rooms: { classroom: { tags: ['school'] } },
+  };
   return next;
 }
 

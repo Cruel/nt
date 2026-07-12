@@ -13,13 +13,12 @@ function exportableProject() {
   const project = createAuthoringProject({ name: 'Dialog Export' });
   const room = defaultRoomData('Foyer');
   room.description.source = 'Ready.';
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: room };
-  project.entrypoint = { collection: 'rooms', id: 'foyer' };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+  project.entrypoint = { kind: 'room', id: 'foyer' };
   project.assets.icon = {
     id: 'icon',
     label: 'Icon',
-    tags: [],
-    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/icon.png' }, aliases: [] },
+        data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/icon.png' }, aliases: [] },
   };
   (project.settings.app as Record<string, unknown>).icon = { $ref: { collection: 'assets', id: 'icon' } };
   return project;
@@ -162,7 +161,7 @@ describe('PackageExportDialog', () => {
 
   it('shows shader options only when the project has shaders or materials', () => {
     const project = exportableProject();
-    project.shaders.basic = { id: 'basic', label: 'Basic', tags: [], data: defaultShaderData('Basic') };
+    project.shaders.basic = { id: 'basic', label: 'Basic', data: defaultShaderData('Basic') };
 
     render(
       <PackageExportDialog
@@ -181,8 +180,7 @@ describe('PackageExportDialog', () => {
 
   it('disables export and shows blocking diagnostics when preflight fails', () => {
     const project = exportableProject();
-    project.entrypoint = { collection: 'maps', id: 'overworld' };
-    project.maps.overworld = { id: 'overworld', label: 'Overworld', tags: [], data: {} };
+    project.entrypoint = { kind: 'room', id: 'missing-room' };
 
     render(
       <PackageExportDialog
@@ -195,7 +193,7 @@ describe('PackageExportDialog', () => {
     );
 
     expect(screen.getByText('Export is blocked')).toBeInTheDocument();
-    expect(screen.getByText(/Entrypoint collection 'maps' is not runtime-exportable yet/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Missing room 'missing-room'|Entrypoint room 'missing-room' does not exist/).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Fix Errors Before Export' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Open Project Settings' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Fix Errors Before Export' }));

@@ -15,9 +15,9 @@ export interface AssetNode {
   label: string;
   type:
     | 'room'
-    | 'object'
+    | 'interactable'
     | 'verb'
-    | 'action'
+    | 'interaction'
     | 'map'
     | 'dialogue'
     | 'cutscene'

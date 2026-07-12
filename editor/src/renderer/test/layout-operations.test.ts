@@ -7,7 +7,7 @@ import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts
 describe('layout commands', () => {
   it('patches valid layout data and rejects invalid data', () => {
     const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const invalid = executeCommand(state, {

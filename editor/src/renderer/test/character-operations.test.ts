@@ -31,7 +31,7 @@ describe('character commands', () => {
 
   it('patches valid character data and rejects invalid data', () => {
     const project = createAuthoringProject();
-    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const invalid = executeCommand(state, {

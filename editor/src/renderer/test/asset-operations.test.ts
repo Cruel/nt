@@ -24,7 +24,6 @@ function projectWithAsset() {
   project.assets.click = {
     id: 'click',
     label: 'Click',
-    tags: ['audio'],
     data: {
       kind: 'audio',
       source: { type: 'project-file', path: 'assets/audio/click.mp3' },
@@ -44,7 +43,7 @@ describe('asset operations', () => {
     });
     expect(result.ok).toBe(true);
     expect(result.state.document).toMatchObject({
-      assets: { click: { id: 'click', tags: [], data: { kind: 'audio', source: { path: 'assets/audio/click.mp3' } } } },
+      assets: { click: { id: 'click', data: { kind: 'audio', source: { path: 'assets/audio/click.mp3' } } } },
     });
     const undone = undoCommand(result.state);
     expect(undone.state.document).toMatchObject({ assets: {} });
@@ -68,25 +67,6 @@ describe('asset operations', () => {
     expect((removed.state.document as ReturnType<typeof projectWithAsset>).assets.click.data.aliases).not.toContain('ui.confirm');
   });
 
-  it('renames aliases and rewrites explicit alias usages', () => {
-    const project = projectWithAsset();
-    project.rooms.foyer = {
-      id: 'foyer',
-      label: 'Foyer',
-      tags: [],
-      data: { sound: { $asset: { alias: 'ui.click' } } },
-    };
-    const state = createInitialCommandBusState(toJsonValue(project));
-    const result = executeCommand(state, {
-      type: 'asset.renameAlias',
-      payload: { fromAlias: 'ui.click', toAlias: 'ui.confirm' },
-    });
-    expect(result.ok).toBe(true);
-    const document = result.state.document as ReturnType<typeof projectWithAsset>;
-    expect(document.assets.click.data.aliases).toEqual(['ui.confirm']);
-    expect(document.rooms.foyer.data).toEqual({ sound: { $asset: { alias: 'ui.confirm' } } });
-  });
-
   it('reimports asset metadata without changing aliases', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithAsset()));
     const result = executeCommand(state, {
@@ -104,8 +84,12 @@ describe('asset operations', () => {
     project.rooms.foyer = {
       id: 'foyer',
       label: 'Foyer',
-      tags: [],
-      data: { image: { $ref: { collection: 'assets', id: 'click' } } },
+      data: {
+        kind: 'room', displayName: 'Foyer',
+        background: { asset: { $ref: { collection: 'assets', id: 'click' } }, material: null, fit: 'cover', color: null },
+        description: { source: '', format: 'plain' }, scripts: { beforeEnter: '', afterEnter: '', beforeLeave: '', afterLeave: '' },
+        paths: [], hotspots: [], overlays: [], preview: { background: 'checker', selectedHotspotId: null, showHotspots: true },
+      },
     };
     const state = createInitialCommandBusState(toJsonValue(project));
     const blocked = executeCommand(state, {

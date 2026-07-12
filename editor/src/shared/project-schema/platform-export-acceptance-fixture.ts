@@ -29,7 +29,6 @@ export function createPlatformExportAcceptanceFixture() {
     project.assets[id] = {
       id,
       label: id,
-      tags: ['export-fixture'],
       data: assetDataFromImportMetadata({ kind, projectRelativePath: assetPath }),
     };
   }
@@ -39,14 +38,12 @@ export function createPlatformExportAcceptanceFixture() {
   project.shaders['fixture-shader'] = {
     id: 'fixture-shader',
     label: 'Fixture Shader',
-    tags: [],
-    data: fixtureShader,
+        data: fixtureShader,
   };
   project.materials['fixture-material'] = {
     id: 'fixture-material',
     label: 'Fixture Material',
-    tags: [],
-    data: defaultMaterialData('Fixture Material', 'fixture-shader'),
+        data: defaultMaterialData('Fixture Material', 'fixture-shader'),
   };
   const layout = defaultLayoutData('Fixture HUD');
   layout.rml.sourceText = '<rml><body><p id="save-status">Ready</p></body></rml>';
@@ -54,7 +51,7 @@ export function createPlatformExportAcceptanceFixture() {
   layout.lua.sourceText = 'function save_and_reload() Game.save("fixture"); Game.load("fixture") end';
   layout.dependencies.fonts = [{ $ref: { collection: 'assets', id: 'body-font' } }];
   layout.dependencies.scripts = [{ $ref: { collection: 'assets', id: 'startup-lua' } }];
-  project.layouts['fixture-hud'] = { id: 'fixture-hud', label: 'Fixture HUD', tags: [], data: layout };
+  project.layouts['fixture-hud'] = { id: 'fixture-hud', label: 'Fixture HUD', data: layout };
 
   const foyer = defaultRoomData('Foyer');
   foyer.description.source = 'A fixture with [b]rich text[/b].';
@@ -70,10 +67,11 @@ export function createPlatformExportAcceptanceFixture() {
   }];
   const gallery = defaultRoomData('Gallery');
   gallery.description.source = 'Navigation reached the gallery.';
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: foyer };
-  project.rooms.gallery = { id: 'gallery', label: 'Gallery', tags: [], data: gallery };
-  project.entrypoint = { collection: 'rooms', id: 'foyer' };
-  project.settings.startup = { initScript: 'Audio.play("project:/assets/audio/theme.wav")' };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', extends: null, properties: {}, data: foyer };
+  project.rooms.gallery = { id: 'gallery', label: 'Gallery', extends: null, properties: {}, data: gallery };
+  project.entrypoint = { kind: 'room', id: 'foyer' };
+  project.startupHook = { source: 'Audio.play("project:/assets/audio/theme.wav")' };
+  project.editor.recordMetadata.assets = Object.fromEntries(assets.map(([id]) => [id, { tags: ['export-fixture'] }]));
   project.settings.text = { defaultFont: { $ref: { collection: 'assets', id: 'body-font' } } };
   const app = project.settings.app as Record<string, unknown>;
   app.icon = { $ref: { collection: 'assets', id: 'app-icon' } };

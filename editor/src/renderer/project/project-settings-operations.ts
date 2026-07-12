@@ -2,7 +2,7 @@ import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { toJsonValue, type JsonValue } from '@/project/json-value';
 import { layoutRecordRef, systemLayoutRoleValues, type SystemLayoutRole } from '../../shared/project-schema/authoring-layouts';
 import { assetRef, normalizeProjectDisplaySettings, roomEntrypointRef, type ProjectDisplaySettings } from '../../shared/project-schema/authoring-project-settings';
-import { isAuthoringProject, type ReferenceTarget } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProject, type ProjectEntrypoint } from '../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { isTagColor, normalizeTagKey, normalizeTagName } from '../../shared/project-schema/authoring-tags';
 import { EDITOR_PROJECT_STATE_SCHEMA, EDITOR_PROJECT_STATE_SCHEMA_VERSION } from '../../shared/project-schema/editor-project-state';
@@ -17,7 +17,7 @@ export interface UpdateProjectMetadataPayload {
 }
 
 export interface SetProjectEntrypointPayload {
-  target: ReferenceTarget | null;
+  target: ProjectEntrypoint | null;
 }
 
 export interface SetProjectStartupPayload {
@@ -106,8 +106,9 @@ export function updateProjectMetadataPatches(document: unknown, payload: UpdateP
 
 export function setProjectEntrypointPatches(document: unknown, payload: SetProjectEntrypointPayload): EntityOperationResult {
   if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
-  if (payload.target && !document[payload.target.collection]?.[payload.target.id]) {
-    return { patches: [], diagnostics: [error(`Entrypoint target '${payload.target.collection}:${payload.target.id}' does not exist.`, '/entrypoint')] };
+  const collection = payload.target ? `${payload.target.kind}s` as const : null;
+  if (payload.target && collection && !document[collection][payload.target.id]) {
+    return { patches: [], diagnostics: [error(`Entrypoint target '${payload.target.kind}:${payload.target.id}' does not exist.`, '/entrypoint')] };
   }
   return {
     patches: [{ op: 'replace', path: '/entrypoint', value: toJsonValue(payload.target) }],
@@ -117,11 +118,10 @@ export function setProjectEntrypointPatches(document: unknown, payload: SetProje
 
 export function setProjectStartupPatches(document: unknown, payload: SetProjectStartupPayload): EntityOperationResult {
   if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
-  const patches: JsonPatchOperation[] = [];
   const documentValue = toJsonValue(document);
-  ensureSettingsObject(patches, documentValue, '/settings/startup');
-  patches.push(patchValue(documentValue, '/settings/startup/initScript', payload.initScript));
-  return { patches, affectedPaths: ['/settings/startup/initScript'] };
+  const startupHook = payload.initScript ? { source: payload.initScript } : null;
+  const patch = patchValue(documentValue, '/startupHook', startupHook);
+  return { patches: [patch], affectedPaths: ['/startupHook'] };
 }
 
 export function setProjectDisplayPatches(document: unknown, payload: SetProjectDisplayPayload): EntityOperationResult {

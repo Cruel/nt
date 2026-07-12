@@ -33,7 +33,7 @@ describe('VariablesEditor', () => {
   it('renders existing variables and creates new variables through the shared dialog', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.variables['has-key'] = { id: 'has-key', label: 'has-key', tags: [], data: defaultVariableData('boolean') };
+    project.variables['has-key'] = { id: 'has-key', label: 'has-key', data: defaultVariableData('boolean') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<VariablesEditor tab={{ id: 'tab:variables', title: 'Variables', editorType: 'variables' }} />);
@@ -59,8 +59,7 @@ describe('VariablesEditor', () => {
       id: 'state',
       label: 'State',
       description: '',
-      tags: [],
-      data: { ...defaultVariableData('enum'), enumValues: ['default'], defaultValue: 'default' },
+            data: { ...defaultVariableData('enum'), enumValues: ['default'], defaultValue: 'default' },
     };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
@@ -94,8 +93,7 @@ describe('VariablesEditor', () => {
     project.variables['enum-test'] = {
       id: 'enum-test',
       label: 'Enum',
-      tags: [],
-      data: { ...defaultVariableData('enum'), enumValues: ['first', 'second'], defaultValue: 'first' },
+            data: { ...defaultVariableData('enum'), enumValues: ['first', 'second'], defaultValue: 'first' },
     };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 

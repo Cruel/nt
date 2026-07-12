@@ -6,7 +6,7 @@ import {
   defaultTestAssertion,
   defaultTestData,
   defaultTestStep,
-  testObjectRef,
+  testInteractableRef,
   testSceneRef,
   testVariableRef,
   testVerbRef,
@@ -25,14 +25,14 @@ describe('authoring test playback project adapter', () => {
       { ...defaultTestStep('continue'), id: 'continue', label: 'Continue' },
       { ...defaultTestStep('dialogue-option'), id: 'choice', label: 'Choice', dialogueOption: { optionIndex: 2 } },
       { ...defaultTestStep('navigate'), id: 'navigate', label: 'Navigate', navigate: { direction: 3, target: null } },
-      { ...defaultTestStep('select-object'), id: 'select', label: 'Select', selectObject: { object: testObjectRef('lamp') } },
+      { ...defaultTestStep('select-object'), id: 'select', label: 'Select', selectObject: { object: testInteractableRef('lamp') } },
       { ...defaultTestStep('clear-object-selection'), id: 'clear', label: 'Clear' },
-      { ...defaultTestStep('run-action'), id: 'action', label: 'Action', runAction: { verb: testVerbRef('look'), objects: [testObjectRef('lamp')] } },
+      { ...defaultTestStep('run-action'), id: 'action', label: 'Action', runAction: { verb: testVerbRef('look'), interactables: [testInteractableRef('lamp')] } },
       { ...defaultTestStep('load-save'), id: 'load', label: 'Load', loadSave: { slotId: 'quick', payload: { mode: 'test' } } },
       { ...defaultTestStep('set-entrypoint'), id: 'entrypoint', label: 'Entrypoint', setEntrypoint: { entrypoint: testSceneRef('opening') } },
       { ...defaultTestStep('continue'), id: 'disabled', label: 'Disabled', enabled: false },
     ];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke').spec).toMatchObject({
       id: 'smoke',
@@ -66,14 +66,14 @@ describe('authoring test playback project adapter', () => {
         { ...defaultTestAssertion('title'), id: 'title', value: 'Opening' },
         { ...defaultTestAssertion('text-log-contains'), id: 'text', value: 'Hello' },
         { ...defaultTestAssertion('property-equals'), id: 'property', variable: testVariableRef('flag'), expected: true },
-        { ...defaultTestAssertion('object-location'), id: 'location', key: 'lamp', entity: testObjectRef('lamp') },
+        { ...defaultTestAssertion('object-location'), id: 'location', key: 'lamp', entity: testInteractableRef('lamp') },
         { ...defaultTestAssertion('inventory-contains'), id: 'inventory', value: 'key' },
         { ...defaultTestAssertion('output-type'), id: 'output', value: 'state' },
         { ...defaultTestAssertion('diagnostic-category'), id: 'diagnostic', value: 'playback' },
         { ...defaultTestAssertion('mode'), id: 'disabled', value: 'ignored', enabled: false },
       ],
     }];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke').spec).toMatchObject({
       steps: [{
@@ -95,10 +95,10 @@ describe('authoring test playback project adapter', () => {
 
   it('explains current authoring-to-runtime conversion limitations', () => {
     const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: defaultSceneData('Opening') };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     const data = defaultTestData('Smoke');
     data.entrypoint = testSceneRef('opening');
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({
       runnable: false,
@@ -109,8 +109,8 @@ describe('authoring test playback project adapter', () => {
 
   it('serializes ui-click steps to the UI playback runner with an exported runtime project', () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
-    project.entrypoint = { collection: 'rooms', id: 'foyer' };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
     const data = defaultTestData('Title Start');
     data.steps = [{
       ...defaultTestStep('ui-click'),
@@ -118,7 +118,7 @@ describe('authoring test playback project adapter', () => {
       label: 'Title Start',
       uiClick: { documentId: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' },
     }];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     const result = buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
 

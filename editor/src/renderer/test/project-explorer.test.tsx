@@ -125,7 +125,7 @@ describe('ProjectExplorer', () => {
   it('renders create command diagnostics for duplicate IDs', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: {} };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: {} as never };
     loadProject(project);
     render(<ProjectExplorer nodes={[]} />);
 
@@ -138,23 +138,23 @@ describe('ProjectExplorer', () => {
     expect(await screen.findByText('A record with this ID already exists.')).toBeInTheDocument();
   });
 
-  it('creates metadata-only objects and opens the placeholder editor tab', async () => {
+  it('creates metadata-only interactables and opens the placeholder editor tab', async () => {
     const user = userEvent.setup();
     loadProject();
     render(<ProjectExplorer nodes={[]} />);
 
     act(() => dispatchWorkspaceToolbarCommand('new-entity'));
-    await user.click(screen.getByRole('button', { name: /^object/i }));
+    await user.click(screen.getByRole('button', { name: /^interactable/i }));
     const labelInput = screen.getByLabelText('Entity label');
     await user.clear(labelInput);
     await user.type(labelInput, 'Silver Key');
-    await user.click(screen.getByRole('button', { name: /create object/i }));
+    await user.click(screen.getByRole('button', { name: /create interactable/i }));
 
     const document = useProjectStore.getState().document as AuthoringProject;
-    expect(document.objects['silver-key']).toMatchObject({ id: 'silver-key', label: 'Silver Key', data: {} });
-    expect(useWorkbenchStore.getState().tabsById['tab:placeholder:objects:silver-key']).toMatchObject({
+    expect(document.interactables['silver-key']).toMatchObject({ id: 'silver-key', label: 'Silver Key', data: { kind: 'interactable' } });
+    expect(useWorkbenchStore.getState().tabsById['tab:placeholder:interactables:silver-key']).toMatchObject({
       editorType: 'placeholder-entity',
-      resource: { collection: 'objects', entityId: 'silver-key' },
+      resource: { collection: 'interactables', entityId: 'silver-key' },
     });
   });
 
@@ -171,7 +171,7 @@ describe('ProjectExplorer', () => {
     await user.click(screen.getByRole('button', { name: /create room/i }));
 
     const document = useProjectStore.getState().document as AuthoringProject;
-    expect(document.entrypoint).toEqual({ collection: 'rooms', id: 'entry-room' });
+    expect(document.entrypoint).toEqual({ kind: 'room', id: 'entry-room' });
   });
 
   it('opens the wizard from the new-entity toolbar command used by Ctrl+N', async () => {

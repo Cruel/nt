@@ -6,60 +6,70 @@ import {
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
 } from './authoring-collections';
+import { entityIdSchema, type EntityId } from './authoring-common';
+import { defaultAuthoringLocalization, authoringLocalizationSchema } from './authoring-localization';
+import { propertyDefinitionSchema, type PropertyAssignments } from './authoring-properties';
+import { authoringCollectionSchemas } from './authoring-records';
+import { typedProjectSettingsSchema } from './authoring-project-settings';
 import { editorProjectStateSchema, emptyEditorProjectState } from './editor-project-state';
 
-export const entityIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-
-export const entityIdSchema = z.string().regex(
-  entityIdPattern,
-  'ID must be lowercase kebab-case, start with a letter, and contain only letters, numbers, and hyphens.',
-);
+export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
+export type { EntityId } from './authoring-common';
 
 export const referenceTargetSchema = z.object({
   collection: z.custom<AuthoringCollectionKey>((value) => isAuthoringCollectionKey(value), {
     message: 'Reference collection must be a known authoring collection.',
   }),
   id: entityIdSchema,
-});
+}).strict();
 
-export const authoringRecordBaseSchema = z.object({
+export const projectEntrypointSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('room'), id: entityIdSchema }).strict(),
+  z.object({ kind: z.literal('scene'), id: entityIdSchema }).strict(),
+  z.object({ kind: z.literal('dialogue'), id: entityIdSchema }).strict(),
+]);
+
+export const projectStartupHookSchema = z.object({
+  source: z.string(),
+}).strict();
+
+const projectIdentitySchema = z.object({
   id: entityIdSchema,
-  label: z.string().min(1, 'Record label is required.'),
-  description: z.string().optional(),
-  parent: referenceTargetSchema.nullable().optional(),
-  inherits: referenceTargetSchema.nullable().optional(),
-  tags: z.array(z.string()).default([]),
-  color: z.string().nullable().optional(),
-  sortKey: z.string().nullable().optional(),
-  data: z.record(z.string(), z.unknown()).default({}),
-});
-
-export const authoringCollectionSchema = z.record(z.string(), authoringRecordBaseSchema);
-
-const collectionShape = Object.fromEntries(
-  authoringCollectionKeys.map((key) => [key, authoringCollectionSchema]),
-) as Record<AuthoringCollectionKey, typeof authoringCollectionSchema>;
+  name: z.string(),
+  version: z.string().default('0.1.0'),
+  author: z.string().default(''),
+  description: z.string().default(''),
+}).strict();
 
 export const authoringProjectSchema = z.object({
   schema: z.literal(AUTHORING_PROJECT_SCHEMA),
   schemaVersion: z.literal(AUTHORING_PROJECT_SCHEMA_VERSION),
-  project: z.object({
-    id: entityIdSchema,
-    name: z.string(),
-    version: z.string().default('0.1.0'),
-    author: z.string().default(''),
-    description: z.string().default(''),
-  }),
-  settings: z.record(z.string(), z.unknown()).default({}),
-  entrypoint: referenceTargetSchema.nullable().default(null),
+  project: projectIdentitySchema,
+  settings: typedProjectSettingsSchema,
+  startupHook: projectStartupHookSchema.nullable().default(null),
+  entrypoint: projectEntrypointSchema.nullable().default(null),
+  properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
+  localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
   editor: editorProjectStateSchema.default(emptyEditorProjectState),
-  ...collectionShape,
-});
+  ...authoringCollectionSchemas,
+}).strict();
 
-export type EntityId = z.infer<typeof entityIdSchema>;
 export type ReferenceTarget = z.infer<typeof referenceTargetSchema>;
-export type AuthoringRecordBase = z.infer<typeof authoringRecordBaseSchema>;
+export type ProjectEntrypoint = z.infer<typeof projectEntrypointSchema>;
+export type ProjectStartupHook = z.infer<typeof projectStartupHookSchema>;
 export type AuthoringProject = z.infer<typeof authoringProjectSchema>;
+
+// Common read-only view used by collection-agnostic editor infrastructure. The
+// authoritative collection types remain the collection-specific schema types.
+export interface AuthoringRecordBase {
+  id: EntityId;
+  label: string;
+  description?: string;
+  data: unknown;
+  extends?: EntityId | null;
+  properties?: PropertyAssignments;
+}
+
 export type AuthoringCollection = Record<EntityId, AuthoringRecordBase>;
 
 export interface CreateAuthoringProjectOptions {
@@ -68,10 +78,6 @@ export interface CreateAuthoringProjectOptions {
   version?: string;
   author?: string;
   description?: string;
-}
-
-export function isValidEntityId(value: string): boolean {
-  return entityIdPattern.test(value);
 }
 
 export function isAuthoringProject(value: unknown): value is AuthoringProject {
@@ -108,7 +114,10 @@ export function createAuthoringProject(options: CreateAuthoringProjectOptions = 
         android: {},
       },
     },
+    startupHook: null,
     entrypoint: null,
+    properties: {},
+    localization: defaultAuthoringLocalization(),
     editor: emptyEditorProjectState(),
     ...collections,
   });

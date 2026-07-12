@@ -152,8 +152,8 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
 
   const project = createAuthoringProject();
-  project.shaders.noise = { id: 'noise', label: 'Noise', tags: [], data: defaultShaderData('Noise') };
-  project.materials.panel = { id: 'panel', label: 'Panel', tags: [], data: defaultMaterialData('Panel', 'noise') };
+  project.shaders.noise = { id: 'noise', label: 'Noise', data: defaultShaderData('Noise') };
+  project.materials.panel = { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'noise') };
   useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 });
 

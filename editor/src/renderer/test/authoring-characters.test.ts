@@ -28,8 +28,7 @@ describe('authoring characters schema', () => {
     project.characters.iris = {
       id: 'iris',
       label: 'Iris',
-      tags: [],
-      data: {
+            data: {
         ...defaultCharacterData('Iris'),
         defaults: { poseId: 'missing-pose', expressionId: 'missing-expression' },
         poses: [
@@ -56,8 +55,7 @@ describe('authoring characters schema', () => {
     project.assets.theme = {
       id: 'theme',
       label: 'Theme',
-      tags: [],
-      data: assetDataFromImportMetadata({
+            data: assetDataFromImportMetadata({
         kind: 'audio',
         projectRelativePath: 'assets/audio/theme.mp3',
         extension: '.mp3',
@@ -68,12 +66,11 @@ describe('authoring characters schema', () => {
         originalPath: '/tmp/theme.mp3',
       }),
     };
-    project.materials.glow = { id: 'glow', label: 'Glow', tags: [], data: defaultMaterialData('Glow') };
+    project.materials.glow = { id: 'glow', label: 'Glow', data: defaultMaterialData('Glow') };
     project.characters.iris = {
       id: 'iris',
       label: 'Iris',
-      tags: [],
-      data: {
+            data: {
         ...defaultCharacterData('Iris'),
         poses: [{
           id: 'default',
@@ -98,8 +95,7 @@ describe('authoring characters schema', () => {
     project.assets.iris = {
       id: 'iris',
       label: 'Iris Sprite',
-      tags: [],
-      data: assetDataFromImportMetadata({
+            data: assetDataFromImportMetadata({
         kind: 'image',
         projectRelativePath: 'assets/images/iris.png',
         extension: '.png',
@@ -112,7 +108,7 @@ describe('authoring characters schema', () => {
     };
     const data = defaultCharacterData('Iris');
     data.poses[0]!.sprite = characterAssetRef('iris');
-    project.characters.iris = { id: 'iris', label: 'Iris', tags: [], data };
+    project.characters.iris = { id: 'iris', label: 'Iris', data };
 
     expect(characterPreviewRevision(project, 'iris')).toContain('hash-image');
     expect(buildCharacterPreviewDocumentData(project, 'iris')).toMatchObject({

@@ -1,7 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import type { CreateEntityRecordPayload } from '@/project/entity-operations';
 import type { AuthoringCollectionKey } from '../../../../shared/project-schema/authoring-collections';
-import type { AuthoringProject, ReferenceTarget } from '../../../../shared/project-schema/authoring-project';
+import type { AuthoringProject } from '../../../../shared/project-schema/authoring-project';
 
 export type WizardSupportLevel = 'typed' | 'metadata-only' | 'external-flow';
 
@@ -12,7 +12,6 @@ export interface NewEntityWizardBasics {
   description: string;
   tags: string[];
   color: string;
-  parentId: string | null;
 }
 
 export interface NewEntityWizardDraft {
@@ -39,9 +38,7 @@ export interface NewEntityWizardTypeDefinition {
     draft: NewEntityWizardDraft;
     setOption: (key: string, value: string | boolean | number | null) => void;
   }) => ReactNode;
-  buildPayload: (context: NewEntityWizardBuildContext) => Omit<CreateEntityRecordPayload, 'collection' | 'entityId' | 'label' | 'description' | 'tags' | 'color' | 'parent'> & {
-    parent?: ReferenceTarget | null;
-  };
+  buildPayload: (context: NewEntityWizardBuildContext) => Omit<CreateEntityRecordPayload, 'collection' | 'entityId' | 'label' | 'description' | 'tags' | 'color'>;
 }
 
 export function selected(value: unknown): string | null {

@@ -8,6 +8,8 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
+import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({ value, onChange, className }: { value: string; onChange?: (value: string) => void; className?: string }) => (
@@ -24,22 +26,20 @@ const tab: WorkbenchTab = {
 
 function project() {
   const next = createAuthoringProject({ name: 'Old Title' });
-  next.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: defaultRoomData('Foyer') };
-  next.scenes.opening = { id: 'opening', label: 'Opening Scene', tags: [], data: {} };
-  next.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', tags: [], data: {} };
-  next.scripts.boot = { id: 'boot', label: 'Boot Script', tags: [], data: { language: 'lua', source: '' } };
-  next.layouts.main = { id: 'main', label: 'Main Layout', tags: [], data: defaultLayoutData('Main Layout') };
+  next.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+  next.scenes.opening = { id: 'opening', label: 'Opening Scene', data: defaultSceneData('Opening Scene') };
+  next.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', data: defaultDialogueData('Intro Dialogue') };
+  next.scripts.boot = { id: 'boot', label: 'Boot Script', data: { kind: 'script-module', source: '' } };
+  next.layouts.main = { id: 'main', label: 'Main Layout', data: defaultLayoutData('Main Layout') };
   next.assets['main-font'] = {
     id: 'main-font',
     label: 'Main Font',
-    tags: [],
-    data: { kind: 'font', source: { type: 'project-file', path: 'assets/fonts/main.ttf' }, aliases: [], extension: '.ttf' },
+        data: { kind: 'font', source: { type: 'project-file', path: 'assets/fonts/main.ttf' }, aliases: [], extension: '.ttf' },
   };
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    tags: [],
-    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+        data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
   };
   return next;
 }
@@ -67,11 +67,11 @@ describe('ProjectSettingsEditor', () => {
     fireEvent.click(screen.getByText('No entrypoint'));
     expect(await screen.findByText('Choose a project entrypoint')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Foyer'));
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: { collection: 'rooms', id: 'foyer' } }));
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: { kind: 'room', id: 'foyer' } }));
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setEntrypoint');
 
     fireEvent.change(screen.getByLabelText('source-editor'), { target: { value: 'game.start()' } });
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ settings: { startup: { initScript: 'game.start()' } } }));
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ startupHook: { source: 'game.start()' } }));
   });
 
   it('chooses non-room project entrypoints and clears them through the selector', async () => {
@@ -82,11 +82,11 @@ describe('ProjectSettingsEditor', () => {
     expect(await screen.findByText('Choose a project entrypoint')).toBeInTheDocument();
     expect(screen.getByText('Opening Scene')).toBeInTheDocument();
     expect(screen.getByText('Intro Dialogue')).toBeInTheDocument();
-    expect(screen.getByText('Boot Script')).toBeInTheDocument();
+    expect(screen.queryByText('Boot Script')).not.toBeInTheDocument();
     expect(screen.queryByText('Logo')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Opening Scene'));
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: { collection: 'scenes', id: 'opening' } }));
+    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: { kind: 'scene', id: 'opening' } }));
 
     fireEvent.click(screen.getByText('Clear'));
     await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ entrypoint: null }));

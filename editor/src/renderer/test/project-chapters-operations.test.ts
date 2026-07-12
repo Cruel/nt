@@ -6,8 +6,8 @@ import { defaultCharacterData } from '../../shared/project-schema/authoring-char
 
 function project() {
   const next = createAuthoringProject();
-  next.characters.iris = { id: 'iris', label: 'Iris', tags: [], data: defaultCharacterData('Iris') };
-  next.assets.logo = { id: 'logo', label: 'Logo', tags: [], data: { kind: 'image', source: { type: 'project-file', path: 'assets/logo.png' }, aliases: [], extension: '.png' } };
+  next.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
+  next.assets.logo = { id: 'logo', label: 'Logo', data: { kind: 'image', source: { type: 'project-file', path: 'assets/logo.png' }, aliases: [], extension: '.png' } };
   return next;
 }
 
@@ -32,8 +32,8 @@ describe('project chapter operations', () => {
 
   it('stores hidden categories and explorer options', () => {
     let state = createInitialCommandBusState(toJsonValue(project()));
-    state = executeCommand(state, { type: 'project.setHiddenCollections', payload: { hiddenCollectionKeys: ['verbs', 'objects'] } }).state;
+    state = executeCommand(state, { type: 'project.setHiddenCollections', payload: { hiddenCollectionKeys: ['verbs', 'interactables'] } }).state;
     state = executeCommand(state, { type: 'project.setExplorerOptions', payload: { followActiveTab: false, organizeByChapter: false, groupUnassignedItems: true, hideEmptyCategories: true } }).state;
-    expect(state.document).toMatchObject({ editor: { explorer: { hiddenCollectionKeys: ['objects', 'verbs'], followActiveTab: false, organizeByChapter: false, groupUnassignedItems: true, hideEmptyCategories: true } } });
+    expect(state.document).toMatchObject({ editor: { explorer: { hiddenCollectionKeys: ['interactables', 'verbs'], followActiveTab: false, organizeByChapter: false, groupUnassignedItems: true, hideEmptyCategories: true } } });
   });
 });

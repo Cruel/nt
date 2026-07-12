@@ -36,8 +36,7 @@ describe('authoring variables schema', () => {
     project.variables.score = {
       id: 'score',
       label: 'Score',
-      tags: [],
-      data: { kind: 'variable', type: 'integer', defaultValue: 1.5 },
+            data: { kind: 'variable', type: 'integer', scope: 'global', defaultValue: 1.5 },
     };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
@@ -50,14 +49,12 @@ describe('authoring variables schema', () => {
     project.variables['has-key'] = {
       id: 'has-key',
       label: 'Has Key',
-      tags: [],
-      data: defaultVariableData('boolean'),
+            data: defaultVariableData('boolean'),
     };
     project.scenes.intro = {
       id: 'intro',
       label: 'Intro',
-      tags: [],
-      data: { condition: variableRef('has-key') },
+            data: { condition: variableRef('has-key') } as never,
     };
 
     expect(findUsages(buildReferenceIndex(project), { collection: 'variables', id: 'has-key' })).toEqual([

@@ -73,7 +73,7 @@ beforeEach(() => {
 describe('LayoutEditor', () => {
   it('renders typed layout defaults and preview surface', () => {
     const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<LayoutEditor tab={tab} />);
@@ -87,7 +87,7 @@ describe('LayoutEditor', () => {
 
   it('commits source edits immediately through layout.replaceData', async () => {
     const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<LayoutEditor tab={tab} />);
@@ -113,7 +113,7 @@ describe('LayoutEditor', () => {
   it('sets the current layout as the title system layout through commands', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     render(<LayoutEditor tab={tab} />);
@@ -128,7 +128,7 @@ describe('LayoutEditor', () => {
 
   it('captures and restores tab state for scroll, split sizes, and local source draft', async () => {
     const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', tags: [], data: defaultLayoutData('Main UI') };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
 
     const view = render(<LayoutEditor tab={tab} />);

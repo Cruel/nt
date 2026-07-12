@@ -13,18 +13,16 @@ describe('asset alias references', () => {
     project.assets.click = {
       id: 'click',
       label: 'Click',
-      tags: [],
-      data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/click.mp3' }, aliases: ['ui.click'] },
+            data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/click.mp3' }, aliases: ['ui.click'] },
     };
     project.rooms.foyer = {
       id: 'foyer',
       label: 'Foyer',
-      tags: [],
-      data: {
+            data: {
         sound: { $asset: { alias: 'ui.click' } },
         ordinaryString: 'ui.click',
         nested: [{ $asset: { alias: 'ui.click' } }],
-      },
+      } as never,
     };
     const index = buildAssetAliasIndex(project);
     expect(findAssetAliasUsages(index, 'ui.click')).toHaveLength(2);

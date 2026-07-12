@@ -22,7 +22,7 @@ describe('dialogue commands', () => {
 
   it('patches valid dialogue data and rejects error diagnostics', () => {
     const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: defaultDialogueData('Intro') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const invalidData = defaultDialogueData('Intro');

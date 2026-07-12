@@ -1,5 +1,5 @@
 export const AUTHORING_PROJECT_SCHEMA = 'noveltea.authoring.project' as const;
-export const AUTHORING_PROJECT_SCHEMA_VERSION = 1 as const;
+export const AUTHORING_PROJECT_SCHEMA_VERSION = 2 as const;
 
 export const authoringCollectionKeys = [
   'assets',
@@ -9,9 +9,9 @@ export const authoringCollectionKeys = [
   'layouts',
   'characters',
   'rooms',
-  'objects',
+  'interactables',
   'verbs',
-  'actions',
+  'interactions',
   'dialogues',
   'scenes',
   'maps',
@@ -33,9 +33,9 @@ export interface AuthoringCollectionMetadata {
     | 'layout'
     | 'character'
     | 'room'
-    | 'object'
+    | 'interactable'
     | 'verb'
-    | 'action'
+    | 'interaction'
     | 'dialogue'
     | 'scene'
     | 'map'
@@ -51,9 +51,9 @@ export const authoringCollectionMetadata: Record<AuthoringCollectionKey, Authori
   layouts: { key: 'layouts', label: 'Layouts', singularLabel: 'Layout', nodeType: 'layout' },
   characters: { key: 'characters', label: 'Characters', singularLabel: 'Character', nodeType: 'character' },
   rooms: { key: 'rooms', label: 'Rooms', singularLabel: 'Room', nodeType: 'room' },
-  objects: { key: 'objects', label: 'Objects', singularLabel: 'Object', nodeType: 'object' },
+  interactables: { key: 'interactables', label: 'Interactables', singularLabel: 'Interactable', nodeType: 'interactable' },
   verbs: { key: 'verbs', label: 'Verbs', singularLabel: 'Verb', nodeType: 'verb' },
-  actions: { key: 'actions', label: 'Actions', singularLabel: 'Action', nodeType: 'action' },
+  interactions: { key: 'interactions', label: 'Interactions', singularLabel: 'Interaction', nodeType: 'interaction' },
   dialogues: { key: 'dialogues', label: 'Dialogues', singularLabel: 'Dialogue', nodeType: 'dialogue' },
   scenes: { key: 'scenes', label: 'Scenes', singularLabel: 'Scene', nodeType: 'scene' },
   maps: { key: 'maps', label: 'Maps', singularLabel: 'Map', nodeType: 'map' },

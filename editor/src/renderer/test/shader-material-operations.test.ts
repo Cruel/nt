@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialCommandHistoryState, executeCommand } from '@/commands/command-bus';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 
 describe('shader/material command operations', () => {
   it('replaces shader data through the command bus', () => {
     const project = createAuthoringProject();
-    project.shaders.noise = { id: 'noise', label: 'Noise', tags: [], data: defaultShaderData('Noise') };
+    project.shaders.noise = { id: 'noise', label: 'Noise', data: defaultShaderData('Noise') };
     const next = { ...defaultShaderData('Noise'), roles: ['rmlui-decorator' as const] };
     const result = executeCommand(
       { document: project as never, history: createInitialCommandHistoryState() },
@@ -22,8 +22,7 @@ describe('shader/material command operations', () => {
     project.shaders.noise = {
       id: 'noise',
       label: 'Noise',
-      tags: [],
-      data: { ...defaultShaderData('Noise'), stages: [{ stage: 'fragment', sourceMode: 'inline', sourceText: 'void main() {}', compiled: {} }] },
+            data: { ...defaultShaderData('Noise'), stages: [{ stage: 'fragment', sourceMode: 'inline', sourceText: 'void main() {}', compiled: {} }] },
     };
     const result = executeCommand(
       { document: project as never, history: createInitialCommandHistoryState() },
@@ -37,15 +36,16 @@ describe('shader/material command operations', () => {
     expect((result.document as never as { shaders: Record<string, { data: { stages: Array<{ compiled?: Record<string, string> }> } }> }).shaders.noise?.data.stages[0]?.compiled).toEqual({ 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' });
   });
 
-  it('sets material inheritance through a domain command', () => {
+  it('sets explicit material inheritance without restoring generic record inheritance', () => {
     const project = createAuthoringProject();
-    project.materials.base = { id: 'base', label: 'Base', tags: [], data: defaultMaterialData('Base') };
-    project.materials.child = { id: 'child', label: 'Child', tags: [], data: defaultMaterialData('Child') };
+    project.materials.base = { id: 'base', label: 'Base', data: defaultMaterialData('Base') };
+    project.materials.child = { id: 'child', label: 'Child', data: defaultMaterialData('Child') };
     const result = executeCommand(
       { document: project as never, history: createInitialCommandHistoryState() },
-      { type: 'material.setInherits', label: 'Set inheritance', payload: { materialId: 'child', inheritsId: 'base' } },
+      { type: 'material.setBase', payload: { materialId: 'child', baseMaterialId: 'base' } },
     );
     expect(result.ok).toBe(true);
-    expect((result.document as never as { materials: Record<string, { inherits?: unknown }> }).materials.child?.inherits).toEqual({ collection: 'materials', id: 'base' });
+    expect((result.document as never as { materials: Record<string, { data: { baseMaterialId: string | null } }> }).materials.child?.data.baseMaterialId).toBe('base');
+    expect((result.document as never as { materials: Record<string, unknown> }).materials.child).not.toHaveProperty('inherits');
   });
 });

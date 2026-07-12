@@ -405,8 +405,8 @@ describe('workbench model', () => {
 
     const restored = restoreProjectWorkbenchState(serialized ?? undefined, {
       room: {
-        left: { id: 'left', label: 'Left', tags: [], data: {} },
-        right: { id: 'right', label: 'Right', tags: [], data: {} },
+        left: { id: 'left', label: 'Left', data: {} as never },
+        right: { id: 'right', label: 'Right', data: {} as never },
       },
     });
     expect(restored.layout.kind).toBe('split');
@@ -452,8 +452,8 @@ describe('workbench model', () => {
 
     const restored = restoreProjectWorkbenchStatePreservingGlobalTabs(serialized ?? undefined, {
       room: {
-        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
-        kitchen: { id: 'kitchen', label: 'Kitchen', tags: [], data: {} },
+        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+        kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
       },
     }, current);
 
@@ -494,7 +494,7 @@ describe('workbench model', () => {
 
     const restored = restoreProjectWorkbenchState(serialized ?? undefined, {
       room: {
-        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
+        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
       },
     });
     expect(restored.tabsById['tab:foyer']).toBeTruthy();
@@ -516,7 +516,7 @@ describe('workbench model', () => {
     const projectOnly = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
     const restored = restoreShellWorkbenchState(shell, {
       room: {
-        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
+        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
       },
     }, projectOnly);
 
@@ -539,14 +539,14 @@ describe('workbench model', () => {
     const shell = serializeShellWorkbenchState(state);
     const projectOnly = restoreProjectWorkbenchState(serializeProjectWorkbenchState(state) ?? undefined, {
       room: {
-        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
-        kitchen: { id: 'kitchen', label: 'Kitchen', tags: [], data: {} },
+        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+        kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
       },
     });
     const restored = restoreShellWorkbenchState(shell, {
       room: {
-        foyer: { id: 'foyer', label: 'Foyer', tags: [], data: {} },
-        kitchen: { id: 'kitchen', label: 'Kitchen', tags: [], data: {} },
+        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+        kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
       },
     }, projectOnly);
 

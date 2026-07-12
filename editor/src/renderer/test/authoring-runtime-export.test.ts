@@ -13,8 +13,7 @@ function roomProject() {
   project.assets.foyer = {
     id: 'foyer',
     label: 'Foyer BG',
-    tags: [],
-    data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/images/foyer.png', extension: '.png' }),
+        data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/images/foyer.png', extension: '.png' }),
   };
   const foyer = defaultRoomData('Foyer');
   foyer.description.source = 'A quiet foyer.';
@@ -22,10 +21,10 @@ function roomProject() {
   foyer.paths = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('kitchen'), enabled: true, condition: '', order: 0 }];
   const kitchen = defaultRoomData('Kitchen');
   kitchen.description.source = 'A bright kitchen.';
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: foyer };
-  project.rooms.kitchen = { id: 'kitchen', label: 'Kitchen', tags: [], data: kitchen };
-  project.entrypoint = { collection: 'rooms', id: 'foyer' };
-  project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data: defaultTestData('Smoke') };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
+  project.rooms.kitchen = { id: 'kitchen', label: 'Kitchen', data: kitchen };
+  project.entrypoint = { kind: 'room', id: 'foyer' };
+  project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
   return project;
 }
 
@@ -89,65 +88,23 @@ describe('authoring runtime export builder', () => {
     });
   });
 
-  it('blocks unsupported non-scene entrypoints with precise diagnostics', () => {
-    const project = roomProject();
-    project.characters.guide = { id: 'guide', label: 'Guide', tags: [], data: {} };
-    project.entrypoint = { collection: 'characters', id: 'guide' };
-    const result = buildAuthoringRuntimeExport(project, {
-      projectRoot: '/project',
-      profile: defaultExportProfile(project),
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: 'error', path: '/entrypoint', message: expect.stringContaining('characters') }),
-    ]));
-  });
-
-  it('exports scripts and allows a script entrypoint', () => {
+  it('keeps startup Lua separate from the Room entrypoint', () => {
     const project = roomProject();
     project.scripts.bootstrap = {
       id: 'bootstrap',
       label: 'Bootstrap',
-      tags: [],
-      data: { language: 'lua', source: 'Game.start_room("foyer")', autorun: true },
+      data: { kind: 'script-module', source: 'Game.start_room("foyer")' },
     };
-    project.entrypoint = { collection: 'scripts', id: 'bootstrap' };
-
-    const result = buildAuthoringRuntimeExport(project, { projectRoot: '/project', profile: defaultExportProfile(project) });
-
-    expect(result.ok).toBe(true);
-    expect(result.runtimeProject).toMatchObject({
-      entrypoint: { kind: 'script', id: 'bootstrap' },
-      scripts: [{ id: 'bootstrap', source: 'Game.start_room("foyer")' }],
-    });
-  });
-
-  it('blocks missing script entrypoints with a precise diagnostic', () => {
-    const project = roomProject();
-    project.entrypoint = { collection: 'scripts', id: 'missing-script' };
-
-    const result = buildAuthoringRuntimeExport(project, {
-      projectRoot: '/project',
-      profile: defaultExportProfile(project),
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        severity: 'error',
-        path: '/entrypoint',
-        message: "Entrypoint script 'missing-script' does not exist.",
-      }),
-    ]));
+    project.startupHook = { source: 'require("bootstrap")' };
+    expect(project.entrypoint).toEqual({ kind: 'room', id: 'foyer' });
   });
 
   it('exports dialogues and allows a dialogue entrypoint', () => {
     const project = roomProject();
     const dialogue = defaultDialogueData('Intro');
     dialogue.blocks[0]!.segments[0]!.text.source = 'Hello from dialogue.';
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: dialogue };
-    project.entrypoint = { collection: 'dialogues', id: 'intro' };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
+    project.entrypoint = { kind: 'dialogue', id: 'intro' };
 
     const result = buildAuthoringRuntimeExport(project, {
       projectRoot: '/project',
@@ -168,8 +125,8 @@ describe('authoring runtime export builder', () => {
     dialogue.blocks[0]!.segments[0]!.condition.enabled = true;
     dialogue.blocks[0]!.segments[0]!.condition.source = 'Game.prop("ok", true)';
     dialogue.blocks[0]!.segments[0]!.text.mode = 'lua';
-    project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: dialogue };
-    project.entrypoint = { collection: 'dialogues', id: 'intro' };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
+    project.entrypoint = { kind: 'dialogue', id: 'intro' };
 
     const result = buildAuthoringRuntimeExport(project, {
       projectRoot: '/project',
@@ -196,8 +153,8 @@ describe('authoring runtime export builder', () => {
       },
       { ...defaultSceneStep('comment', 'Second line'), id: 'second-line', comment: { source: 'A kettle sings.' } },
     ];
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: scene };
-    project.entrypoint = { collection: 'scenes', id: 'opening' };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
+    project.entrypoint = { kind: 'scene', id: 'opening' };
 
     const result = buildAuthoringRuntimeExport(project, {
       projectRoot: '/project',
@@ -221,8 +178,8 @@ describe('authoring runtime export builder', () => {
       },
       { ...defaultSceneStep('transition', 'Fade'), transition: { kind: 'fade', durationMs: 500, color: '#000000' } },
     ];
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: scene };
-    project.entrypoint = { collection: 'scenes', id: 'opening' };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
+    project.entrypoint = { kind: 'scene', id: 'opening' };
 
     const result = buildAuthoringRuntimeExport(project, {
       projectRoot: '/project',

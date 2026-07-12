@@ -120,6 +120,13 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
         <div className="space-y-4">
           <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="material.settings">
             <div className="space-y-1">
+              <Label>Base material</Label>
+              <Select value={data.baseMaterialId ?? '__none__'} onValueChange={(value) => useCommandStore.getState().executeCommand({ type: 'material.setBase', label: 'Set base material', payload: { materialId: activeMaterialId, baseMaterialId: value === '__none__' ? null : String(value) } })}>
+                <SelectItem value="__none__">No base material</SelectItem>
+                {Object.entries(activeProject.materials).filter(([id]) => id !== activeMaterialId).map(([id, materialRecord]) => <SelectItem key={id} value={id}>{materialRecord.label} ({id})</SelectItem>)}
+              </Select>
+            </div>
+            <div className="space-y-1">
               <Label>Shader</Label>
               <Select value={shaderId ?? '__none__'} onValueChange={(value) => commit({ ...data, shader: value === '__none__' ? null : { $ref: { collection: 'shaders', id: String(value) } } }, 'Set material shader')}>
                 <SelectItem value="__none__">No shader</SelectItem>
@@ -136,13 +143,6 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               <Label>Blend</Label>
               <Select value={data.blend} onValueChange={(value) => commit({ ...data, blend: value as MaterialData['blend'] }, 'Set material blend')}>
                 {materialBlendValues.map((blend) => <SelectItem key={blend} value={blend}>{blend}</SelectItem>)}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Inherits</Label>
-              <Select value={activeRecord.inherits?.collection === 'materials' ? activeRecord.inherits.id : '__none__'} onValueChange={(value) => useCommandStore.getState().executeCommand({ type: 'material.setInherits', label: 'Set material inheritance', payload: { materialId: activeMaterialId, inheritsId: value === '__none__' ? null : String(value) } })}>
-                <SelectItem value="__none__">No inherited material</SelectItem>
-                {Object.entries(activeProject.materials).filter(([id]) => id !== activeMaterialId).map(([id, materialRecord]) => <SelectItem key={id} value={id}>{materialRecord.label} ({id})</SelectItem>)}
               </Select>
             </div>
           </section>

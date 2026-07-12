@@ -15,7 +15,6 @@ export const variableDataSchema = z.object({
   defaultValue: z.unknown(),
   scope: z.enum(variableScopeValues).default('global'),
   enumValues: z.array(z.string()).optional(),
-  runtimeName: z.string().optional(),
 });
 
 export type VariableRef = z.infer<typeof variableRefSchema>;

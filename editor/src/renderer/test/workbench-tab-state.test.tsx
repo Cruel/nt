@@ -417,7 +417,7 @@ describe('workbench tab-state project snapshots', () => {
       document: {
         schema: 'noveltea.authoring.project',
         rooms: {
-          one: { id: 'one', label: 'One', tags: [], data: {} },
+          one: { id: 'one', label: 'One', data: {} as never },
         },
       },
       projectPath: '/mock',
@@ -436,7 +436,7 @@ describe('workbench tab-state project snapshots', () => {
     const restoredProject = JSON.parse(JSON.stringify({
       schema: 'noveltea.authoring.project',
       rooms: {
-        one: { id: 'one', label: 'One', tags: [], data: {} },
+        one: { id: 'one', label: 'One', data: {} as never },
       },
       editor: {
         ...snapshot,

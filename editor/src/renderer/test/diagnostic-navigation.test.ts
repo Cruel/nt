@@ -4,29 +4,29 @@ import { createAuthoringProject, type AuthoringProject } from '../../shared/proj
 
 function projectWithRecords(): AuthoringProject {
   const project = createAuthoringProject();
-  project.characters.dfs = { id: 'dfs', label: 'DFS', tags: [], data: {
+  project.characters.dfs = { id: 'dfs', label: 'DFS', data: {
     poses: [{ id: 'idle' }, { id: 'wave' }],
     expressions: [{ id: 'neutral' }],
-  } };
-  project.layouts.room_1 = { id: 'room_1', label: 'Room Layout', tags: [], data: {} };
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', tags: [], data: {
+  } as never };
+  project.layouts.room_1 = { id: 'room_1', label: 'Room Layout', data: {} as never };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: {
     hotspots: [{ id: 'door' }],
     overlays: [{ id: 'hud' }],
-  } };
-  project.dialogues.intro = { id: 'intro', label: 'Intro', tags: [], data: {
+  } as never };
+  project.dialogues.intro = { id: 'intro', label: 'Intro', data: {
     blocks: [{ id: 'start', segments: [{ id: 'line-1' }] }],
     edges: [{ id: 'choice-1', fromBlockId: 'start', toBlockId: 'start' }],
-  } };
-  project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: {
+  } as never };
+  project.scenes.opening = { id: 'opening', label: 'Opening', data: {
     steps: [{ id: 'show-bg' }, { id: 'say-hi' }],
-  } };
-  project.tests.smoke = { id: 'smoke', label: 'Smoke', tags: [], data: {
+  } as never };
+  project.tests.smoke = { id: 'smoke', label: 'Smoke', data: {
     steps: [{ id: 'click-start', assertions: [{ id: 'mode-check' }] }],
-  } };
-  project.assets.logo = { id: 'logo', label: 'Logo', tags: [], data: {} };
-  project.materials.tint = { id: 'tint', label: 'Tint', tags: [], data: {} };
-  project.shaders.flat = { id: 'flat', label: 'Flat', tags: [], data: {} };
-  project.variables.score = { id: 'score', label: 'Score', tags: [], data: {} };
+  } as never };
+  project.assets.logo = { id: 'logo', label: 'Logo', data: {} as never };
+  project.materials.tint = { id: 'tint', label: 'Tint', data: {} as never };
+  project.shaders.flat = { id: 'flat', label: 'Flat', data: {} as never };
+  project.variables.score = { id: 'score', label: 'Score', data: {} as never };
   return project;
 }
 

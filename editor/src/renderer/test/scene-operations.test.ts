@@ -22,7 +22,7 @@ describe('scene commands', () => {
 
   it('patches valid scene data and rejects error diagnostics', () => {
     const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', tags: [], data: defaultSceneData('Opening') };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const invalidData = defaultSceneData('Opening');
