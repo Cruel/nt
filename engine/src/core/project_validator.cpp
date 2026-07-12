@@ -1,4 +1,5 @@
 #include <noveltea/core/project_validator.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <set>
 #include <string_view>
@@ -163,7 +164,7 @@ void validate_starting_inventory(const EntityIndex& index, const json& root,
             add_issue(issues, path, "starting inventory entry must be an object id string");
             continue;
         }
-        const auto id = (*it)[i].get<std::string>();
+        const auto id = json_access::get_or<std::string>((*it)[i], {});
         if (!index.objects.contains(id)) {
             add_issue(issues, path, "missing object entity '" + id + "'");
         }
@@ -231,7 +232,7 @@ void validate_rooms(const EntityIndex& index, const std::vector<legacy::EntityVi
                 add_issue(issues, path, "expected room path [enabled, selectedEntity]");
                 continue;
             }
-            if (!value[0].get<bool>()) {
+            if (!json_access::get_or<bool>(value[0], false)) {
                 continue;
             }
             auto ref = EntityRef::from_json(value[1]);

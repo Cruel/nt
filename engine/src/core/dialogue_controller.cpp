@@ -1,4 +1,5 @@
 #include <noveltea/core/dialogue_controller.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <noveltea/core/rich_text.hpp>
 
@@ -377,17 +378,18 @@ nlohmann::json DialogueController::save_state() const
 void DialogueController::restore_state(const nlohmann::json& state)
 {
     reset();
-    auto dialogue_id = state.value("dialogue_id", "");
+    auto dialogue_id = json_access::value_or(state, "dialogue_id", std::string());
     if (dialogue_id.empty())
         return;
 
     start(dialogue_id);
     if (state.contains("shown_segments")) {
         for (const auto& s : state["shown_segments"])
-            m_shown_segments.insert(s.get<int>());
+            if (auto segment = json_access::get<int>(s))
+                m_shown_segments.insert(*segment);
     }
 
-    auto segment_index = state.value("segment_index", -1);
+    auto segment_index = json_access::value_or(state, "segment_index", -1);
     if (segment_index >= 0 && segment_index < static_cast<int>(m_dialogue->segments.size()))
         change_segment(segment_index, false);
 }

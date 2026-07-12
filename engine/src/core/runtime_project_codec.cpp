@@ -1,4 +1,5 @@
 #include "noveltea/core/runtime_project_codec.hpp"
+#include "noveltea/core/json_access.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -66,7 +67,7 @@ struct Decoder {
                   pointer + "/" + std::string(key));
             return std::nullopt;
         }
-        return it->get<std::string>();
+        return json_access::get_or<std::string>(*it, {});
     }
 
     std::vector<std::string> strings(const nlohmann::json& object, std::string_view key,
@@ -81,7 +82,7 @@ struct Decoder {
                 error("runtime_project.type", "Expected a string",
                       pointer + "/" + std::string(key) + "/" + std::to_string(i));
             else
-                result.push_back((*array)[i].get<std::string>());
+                result.push_back(json_access::get_or<std::string>((*array)[i], {}));
         }
         return result;
     }
@@ -193,13 +194,14 @@ RuntimeProjectDecodeResult decode_runtime_project(const nlohmann::json& document
             if (value.is_null())
                 project.variables.emplace(name, std::monostate{});
             else if (value.is_boolean())
-                project.variables.emplace(name, value.get<bool>());
+                project.variables.emplace(name, json_access::get_or<bool>(value, false));
             else if (value.is_number_integer())
-                project.variables.emplace(name, value.get<std::int64_t>());
-            else if (value.is_number_float() && std::isfinite(value.get<double>()))
-                project.variables.emplace(name, value.get<double>());
+                project.variables.emplace(name, json_access::get_or<std::int64_t>(value, 0));
+            else if (value.is_number_float() &&
+                     std::isfinite(json_access::get_or<double>(value, 0.0)))
+                project.variables.emplace(name, json_access::get_or<double>(value, 0.0));
             else if (value.is_string())
-                project.variables.emplace(name, value.get<std::string>());
+                project.variables.emplace(name, json_access::get_or<std::string>(value, {}));
             else
                 d.error("runtime_project.variable_type", "Runtime variables must be scalar values",
                         "/variables/" + name);

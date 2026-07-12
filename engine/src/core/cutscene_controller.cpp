@@ -1,4 +1,5 @@
 #include <noveltea/core/cutscene_controller.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <noveltea/core/rich_text.hpp>
 
@@ -71,11 +72,11 @@ void CutsceneController::tick(double delta_seconds)
             bool autosave_before = false;
             bool autosave_after = false;
             if (record.is_array() && record.size() > 1) {
-                script = record[1].get<std::string>();
+                script = json_access::get_or<std::string>(record[1], {});
                 if (record.size() > 2)
-                    autosave_before = record[2].get<bool>();
+                    autosave_before = json_access::get_or<bool>(record[2], false);
                 if (record.size() > 3)
-                    autosave_after = record[3].get<bool>();
+                    autosave_after = json_access::get_or<bool>(record[3], false);
             }
             if (!script.empty()) {
                 nlohmann::json script_data = nlohmann::json::object();
@@ -99,7 +100,7 @@ void CutsceneController::tick(double delta_seconds)
         if (next_seg.type == 0 || next_seg.type == 1) {
             auto& rec = next_seg.record;
             if (rec.is_array() && rec.size() > 4) {
-                double delay = rec[4].get<double>() / 1000.0;
+                double delay = json_access::get_or<double>(rec[4], 0.0) / 1000.0;
                 m_time_to_next = delay;
             }
         }
@@ -135,7 +136,7 @@ CutsceneController::expand_page_segment(const CutsceneSegmentModel& page_seg)
         return result;
     }
 
-    std::string text = record[2].get<std::string>();
+    std::string text = json_access::get_or<std::string>(record[2], {});
     std::string text_delimiter = "\n";
     std::string break_delimiter = "\n\n";
     int text_duration = 1000;
@@ -152,31 +153,31 @@ CutsceneController::expand_page_segment(const CutsceneSegmentModel& page_seg)
     int offset_y = 0;
 
     if (record.size() > 3)
-        text_delimiter = record[3].get<std::string>();
+        text_delimiter = json_access::get_or<std::string>(record[3], {});
     if (record.size() > 4)
-        break_delimiter = record[4].get<std::string>();
+        break_delimiter = json_access::get_or<std::string>(record[4], {});
     if (record.size() > 5)
-        text_effect = record[5].get<int>();
+        text_effect = json_access::get_or<int>(record[5], 0);
     if (record.size() > 6)
-        break_effect = record[6].get<int>();
+        break_effect = json_access::get_or<int>(record[6], 0);
     if (record.size() > 7)
-        text_duration = record[7].get<int>();
+        text_duration = json_access::get_or<int>(record[7], 0);
     if (record.size() > 8)
-        text_delay = record[8].get<int>();
+        text_delay = json_access::get_or<int>(record[8], 0);
     if (record.size() > 9)
-        break_duration = record[9].get<int>();
+        break_duration = json_access::get_or<int>(record[9], 0);
     if (record.size() > 10)
-        break_delay = record[10].get<int>();
+        break_delay = json_access::get_or<int>(record[10], 0);
     if (record.size() > 11)
-        can_skip = record[11].get<bool>();
+        can_skip = json_access::get_or<bool>(record[11], false);
     if (record.size() > 12)
-        begin_with_newline = record[12].get<bool>();
+        begin_with_newline = json_access::get_or<bool>(record[12], false);
     if (record.size() > 13)
-        offset_x = record[13].get<int>();
+        offset_x = json_access::get_or<int>(record[13], 0);
     if (record.size() > 14)
-        offset_y = record[14].get<int>();
+        offset_y = json_access::get_or<int>(record[14], 0);
     if (record.size() > 16)
-        end_with_page_break = record[16].get<bool>();
+        end_with_page_break = json_access::get_or<bool>(record[16], false);
 
     auto text_pages = [&]() -> std::vector<std::string> {
         std::vector<std::string> pages;
@@ -282,10 +283,10 @@ void CutsceneController::advance_to_segment(size_t index)
         const auto& rec = seg.record;
         std::string text;
         if (rec.is_array() && rec.size() > 1)
-            text = rec[1].get<std::string>();
+            text = json_access::get_or<std::string>(rec[1], {});
 
         if (rec.is_array() && rec.size() > 2)
-            m_waiting_for_click = rec[2].get<bool>();
+            m_waiting_for_click = json_access::get_or<bool>(rec[2], false);
         else
             m_waiting_for_click = true;
 
@@ -294,7 +295,7 @@ void CutsceneController::advance_to_segment(size_t index)
         }
 
         if (rec.is_array() && rec.size() > 5) {
-            double delay = rec[5].get<double>() / 1000.0;
+            double delay = json_access::get_or<double>(rec[5], 0.0) / 1000.0;
             m_time_to_next = delay;
         }
 
@@ -308,13 +309,13 @@ void CutsceneController::advance_to_segment(size_t index)
     } else if (seg.type == 3) {
         const auto& rec = seg.record;
         if (rec.is_array() && rec.size() > 1) {
-            std::string script = rec[1].get<std::string>();
+            std::string script = json_access::get_or<std::string>(rec[1], {});
             bool autosave_before = false;
             bool autosave_after = false;
             if (rec.size() > 2)
-                autosave_before = rec[2].get<bool>();
+                autosave_before = json_access::get_or<bool>(rec[2], false);
             if (rec.size() > 3)
-                autosave_after = rec[3].get<bool>();
+                autosave_after = json_access::get_or<bool>(rec[3], false);
 
             if (!script.empty()) {
                 nlohmann::json script_data = nlohmann::json::object();
@@ -326,7 +327,7 @@ void CutsceneController::advance_to_segment(size_t index)
 
         bool seg_wait_for_click = false;
         if (rec.is_array() && rec.size() > 4)
-            seg_wait_for_click = rec[4].get<bool>();
+            seg_wait_for_click = json_access::get_or<bool>(rec[4], false);
 
         if (seg_wait_for_click) {
             m_waiting_for_click = true;
@@ -361,7 +362,7 @@ bool CutsceneController::passes_condition(const CutsceneSegmentModel& seg)
     }
 
     if (condition_index >= 0 && condition_index < static_cast<int>(rec.size()))
-        condition_script = rec[condition_index].get<std::string>();
+        condition_script = json_access::get_or<std::string>(rec[condition_index], {});
 
     if (condition_script.empty())
         return true;
@@ -400,12 +401,12 @@ nlohmann::json CutsceneController::save_state() const
 void CutsceneController::restore_state(const nlohmann::json& state)
 {
     reset();
-    auto cutscene_id = state.value("cutscene_id", "");
+    auto cutscene_id = json_access::value_or(state, "cutscene_id", std::string());
     if (cutscene_id.empty())
         return;
 
     start(cutscene_id);
-    auto segment_index = state.value("segment_index", 0);
+    auto segment_index = json_access::value_or(state, "segment_index", 0);
     if (segment_index > 0 && segment_index < static_cast<int>(m_expanded_segments.size())) {
         advance_to_segment(static_cast<size_t>(segment_index));
     }

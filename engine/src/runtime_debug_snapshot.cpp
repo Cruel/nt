@@ -1,5 +1,6 @@
 #include "noveltea/runtime_debug_snapshot.hpp"
 
+#include "noveltea/core/json_access.hpp"
 #include "noveltea/core/project_ids.hpp"
 #include "noveltea/core/project_model.hpp"
 #include "noveltea/runtime_shell.hpp"
@@ -166,7 +167,8 @@ bool runtime_debug_diagnostics_have_error(const nlohmann::json& diagnostics)
         return false;
     }
     return std::any_of(diagnostics.begin(), diagnostics.end(), [](const nlohmann::json& value) {
-        return value.is_object() && value.value("severity", std::string()) == "error";
+        return value.is_object() &&
+               core::json_access::value_or(value, "severity", std::string()) == "error";
     });
 }
 
@@ -253,7 +255,8 @@ std::string make_runtime_debug_snapshot(const RuntimeShell& shell, bool preview_
             const auto default_it = default_properties.find(id);
             auto existing = std::find_if(
                 variables.begin(), variables.end(), [&](const nlohmann::json& variable) {
-                    return variable.is_object() && variable.value("id", std::string()) == id;
+                    return variable.is_object() &&
+                           core::json_access::value_or(variable, "id", std::string()) == id;
                 });
             nlohmann::json variable = {
                 {"id", id},
@@ -301,7 +304,8 @@ std::string make_runtime_debug_snapshot(const RuntimeShell& shell, bool preview_
             }
             const auto existing =
                 std::find_if(inventory.begin(), inventory.end(), [&](const nlohmann::json& item) {
-                    return item.is_object() && item.value("id", std::string()) == object_id;
+                    return item.is_object() &&
+                           core::json_access::value_or(item, "id", std::string()) == object_id;
                 });
             if (existing != inventory.end()) {
                 continue;

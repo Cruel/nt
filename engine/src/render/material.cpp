@@ -1,4 +1,5 @@
 #include "noveltea/render/material.hpp"
+#include "noveltea/core/json_access.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -266,7 +267,7 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
 {
     if (!value.is_number())
         return std::nullopt;
-    const double number = value.get<double>();
+    const double number = core::json_access::get_or<double>(value, 0.0);
     if (!std::isfinite(number) || number < -std::numeric_limits<float>::max() ||
         number > std::numeric_limits<float>::max()) {
         return std::nullopt;
@@ -380,7 +381,8 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     case ShaderUniformType::Color:
         if (!value.is_string())
             return false;
-        if (const auto parsed = parse_color(value.get<std::string_view>())) {
+        if (const auto parsed =
+                parse_color(core::json_access::get_or<std::string_view>(value, {}))) {
             out = *parsed;
             return true;
         }
@@ -388,12 +390,12 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     case ShaderUniformType::Int:
         if (!value.is_number_integer())
             return false;
-        out = value.get<int>();
+        out = core::json_access::get_or<int>(value, 0);
         return true;
     case ShaderUniformType::Bool:
         if (!value.is_boolean())
             return false;
-        out = value.get<bool>();
+        out = core::json_access::get_or<bool>(value, false);
         return true;
     }
     return false;
@@ -459,7 +461,7 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
 {
     const auto stage = parse_shader_stage(stage_name);
     const std::string base_path =
-        "/shaders/" + shader.id.value() + "/stages/" + std::string(stage_name);
+        "/shaders/" + shader.id.string() + "/stages/" + std::string(stage_name);
     if (!stage) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
                        "unsupported shader stage: " + std::string(stage_name));
@@ -521,7 +523,7 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
                                    path, "compiled shader binary path must be a string");
                     continue;
                 }
-                const std::string binary = binary_json.get<std::string>();
+                const std::string binary = core::json_access::get_or<std::string>(binary_json, {});
                 if (!valid_asset_ref(binary) || !valid_binary_suffix(*stage, binary)) {
                     add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
                                    path, "invalid compiled shader binary path: " + binary);
@@ -547,7 +549,7 @@ void parse_shader_uniforms(const nlohmann::json& shader_json, ShaderDefinition& 
     const auto uniforms_it = shader_json.find("uniforms");
     if (uniforms_it == shader_json.end())
         return;
-    const std::string base_path = "/shaders/" + shader.id.value() + "/uniforms";
+    const std::string base_path = "/shaders/" + shader.id.string() + "/uniforms";
     if (!uniforms_it->is_object()) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
                        "shader uniforms field must be an object");
@@ -651,7 +653,7 @@ void parse_shader_samplers(const nlohmann::json& shader_json, ShaderDefinition& 
     const auto samplers_it = shader_json.find("samplers");
     if (samplers_it == shader_json.end())
         return;
-    const std::string base_path = "/shaders/" + shader.id.value() + "/samplers";
+    const std::string base_path = "/shaders/" + shader.id.string() + "/samplers";
     if (!samplers_it->is_object()) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
                        "shader samplers field must be an object");
@@ -703,7 +705,7 @@ void parse_shader_roles(const nlohmann::json& shader_json, ShaderDefinition& sha
                         std::vector<MaterialDiagnostic>& diagnostics)
 {
     const auto roles_it = shader_json.find("roles");
-    const std::string base_path = "/shaders/" + shader.id.value() + "/roles";
+    const std::string base_path = "/shaders/" + shader.id.string() + "/roles";
     if (roles_it == shader_json.end()) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, base_path,
                        "shader is missing required roles field");
@@ -740,7 +742,7 @@ void parse_shader_roles(const nlohmann::json& shader_json, ShaderDefinition& sha
                                "shader role entry must be a string");
                 continue;
             }
-            add_role(role_json.get<std::string_view>(), path);
+            add_role(core::json_access::get_or<std::string_view>(role_json, {}), path);
         }
         return;
     }
@@ -814,18 +816,18 @@ void parse_shader_definition(std::string_view id, const nlohmann::json& shader_j
             shader.display_name = display_it->get<std::string>();
         else
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
-                           "/shaders/" + shader.id.value() + "/display_name",
+                           "/shaders/" + shader.id.string() + "/display_name",
                            "shader display_name must be a string");
     }
 
     const auto stages_it = shader_json.find("stages");
     if (stages_it == shader_json.end()) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
-                       "/shaders/" + shader.id.value() + "/stages",
+                       "/shaders/" + shader.id.string() + "/stages",
                        "shader is missing required stages field");
     } else if (!stages_it->is_object()) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
-                       "/shaders/" + shader.id.value() + "/stages",
+                       "/shaders/" + shader.id.string() + "/stages",
                        "shader stages field must be an object");
     } else {
         for (const auto& [stage_name, stage_json] : stages_it->items())
@@ -846,7 +848,7 @@ void parse_material_uniforms(const nlohmann::json& material_json, const ShaderDe
     const auto uniforms_it = material_json.find("uniforms");
     if (uniforms_it == material_json.end())
         return;
-    const std::string base_path = "/materials/" + material.id.value() + "/uniforms";
+    const std::string base_path = "/materials/" + material.id.string() + "/uniforms";
     if (!uniforms_it->is_object()) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
                        "material uniforms field must be an object");
@@ -891,7 +893,7 @@ void parse_material_textures(const nlohmann::json& material_json, const ShaderDe
     const auto textures_it = material_json.find("textures");
     if (textures_it == material_json.end())
         return;
-    const std::string base_path = "/materials/" + material.id.value() + "/textures";
+    const std::string base_path = "/materials/" + material.id.string() + "/textures";
     if (!textures_it->is_object()) {
         add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
                        "material textures field must be an object");
@@ -980,7 +982,7 @@ void parse_material_definition(std::string_view id, const nlohmann::json& materi
 
     MaterialDefinition material;
     material.id = *parsed_id.id;
-    const std::string base_path = "/materials/" + material.id.value();
+    const std::string base_path = "/materials/" + material.id.string();
 
     const auto display_it = material_json.find("display_name");
     if (display_it != material_json.end()) {
@@ -1033,12 +1035,13 @@ void parse_material_definition(std::string_view id, const nlohmann::json& materi
             if (shader == nullptr) {
                 add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRef,
                                field_path(base_path, "shader"),
-                               "material references unknown shader id: " + material.shader.value());
+                               "material references unknown shader id: " +
+                                   material.shader.string());
             } else if (!contains_role(*shader, material.role)) {
                 add_diagnostic(diagnostics, MaterialDiagnosticCode::IncompatibleShaderRole,
                                field_path(base_path, "role"),
                                "material role " + std::string(to_string(material.role)) +
-                                   " is not supported by shader " + shader->id.value());
+                                   " is not supported by shader " + shader->id.string());
             }
         }
     }

@@ -1,4 +1,5 @@
 #include <noveltea/core/project_document.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <noveltea/core/project_ids.hpp>
 
@@ -103,7 +104,8 @@ bool ProjectDocument::has_valid_entrypoint() const
     if (!m_root.is_object() || !m_root.contains(key_to_string(project_ids::entrypoint_entity))) {
         return false;
     }
-    const auto ref = EntityRef::from_json(m_root.at(key_to_string(project_ids::entrypoint_entity)));
+    const auto* entrypoint = json_access::member(m_root, project_ids::entrypoint_entity);
+    const auto ref = entrypoint ? EntityRef::from_json(*entrypoint) : std::nullopt;
     return ref.has_value() && ref->has_id();
 }
 

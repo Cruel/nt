@@ -155,7 +155,10 @@ public:
                                 std::to_string(static_cast<int>(request.mode)) + "|" +
                                 std::to_string(static_cast<int>(request.kind));
         if (auto it = m_clip_lookup.find(key); it != m_clip_lookup.end()) {
-            const Clip& clip = m_clips.at(it->second.id);
+            const auto clip_it = m_clips.find(it->second.id);
+            if (clip_it == m_clips.end())
+                return fail<assets::AudioAsset>("audio clip lookup referenced a missing clip");
+            const Clip& clip = clip_it->second;
             return {
                 assets::AudioAsset{
                     .clip = it->second, .path = clip.path, .mode = clip.mode, .kind = clip.kind},
@@ -189,7 +192,10 @@ public:
         AudioClipHandle handle = clip.handle;
         m_clips.emplace(handle.id, std::move(clip));
         m_clip_lookup.emplace(key, handle);
-        const Clip& stored = m_clips.at(handle.id);
+        const auto stored_it = m_clips.find(handle.id);
+        if (stored_it == m_clips.end())
+            return fail<assets::AudioAsset>("audio clip insertion failed");
+        const Clip& stored = stored_it->second;
         ++m_stats.clips_loaded;
         std::fprintf(stderr,
                      "[audio:miniaudio] loaded clip id=%u path='%s' bytes=%zu mode=%d kind=%d\n",

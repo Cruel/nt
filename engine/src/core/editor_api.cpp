@@ -1,5 +1,6 @@
 #include <noveltea/core/editor_api.hpp>
 
+#include <noveltea/core/json_access.hpp>
 #include <noveltea/core/legacy/project_importer.hpp>
 #include <noveltea/core/project_ids.hpp>
 
@@ -214,9 +215,9 @@ std::optional<EntityRef> parse_ref_field(const nlohmann::json& json)
         auto id_it = json.find("id");
         if (type_it != json.end() && type_it->is_number_integer() && id_it != json.end() &&
             id_it->is_string()) {
-            auto type = entity_type_from_integer(type_it->get<int>());
+            auto type = entity_type_from_integer(json_access::get_or<int>(*type_it, -1));
             if (type)
-                return EntityRef{*type, id_it->get<std::string>()};
+                return EntityRef{*type, json_access::get_or<std::string>(*id_it, {})};
         }
     }
     return std::nullopt;
@@ -337,7 +338,7 @@ std::string json_pointer_value(const nlohmann::json& json, std::string_view poin
         token_begin = token_end + 1;
     }
 
-    return value->is_string() ? value->get<std::string>() : value->dump();
+    return value->is_string() ? json_access::get_or<std::string>(*value, {}) : value->dump();
 }
 
 void append_failure(RuntimePlaybackReport& report, RuntimePlaybackObservation& observation,
@@ -447,8 +448,9 @@ void evaluate_assertion(const RuntimePlaybackAssertion& assertion,
     case RuntimePlaybackAssertionType::PropertyEquals: {
         const auto actual = json_pointer_value(
             state.save_snapshot, "/" + std::string(project_ids::properties) + "/" + assertion.key);
-        const auto expected = assertion.expected.is_string() ? assertion.expected.get<std::string>()
-                                                             : assertion.expected.dump();
+        const auto expected = assertion.expected.is_string()
+                                  ? json_access::get_or<std::string>(assertion.expected, {})
+                                  : assertion.expected.dump();
         if (actual != expected)
             append_failure(report, mutable_observation,
                            "expected property '" + assertion.key + "' to equal " + expected +
@@ -504,7 +506,7 @@ std::optional<RuntimePlaybackAssertion> parse_assertion(const nlohmann::json& js
         diagnostics.push_back(error(path, "Playback assertion must be an object."));
         return std::nullopt;
     }
-    const auto type_name = json.value("type", std::string{});
+    const auto type_name = json_access::value_or(json, "type", std::string{});
     auto type = playback_assertion_from_string(type_name);
     if (!type) {
         diagnostics.push_back(error(path + "/type", "Unknown playback assertion type."));
@@ -513,8 +515,8 @@ std::optional<RuntimePlaybackAssertion> parse_assertion(const nlohmann::json& js
 
     RuntimePlaybackAssertion assertion;
     assertion.type = *type;
-    assertion.value = json.value("value", std::string{});
-    assertion.key = json.value("key", std::string{});
+    assertion.value = json_access::value_or(json, "value", std::string{});
+    assertion.key = json_access::value_or(json, "key", std::string{});
     if (json.contains("expected"))
         assertion.expected = json["expected"];
     if (json.contains("entity_ref"))
@@ -530,7 +532,8 @@ std::optional<RuntimePlaybackStep> parse_step(const nlohmann::json& json,
         diagnostics.push_back(error(path, "Playback step must be an object."));
         return std::nullopt;
     }
-    auto input = playback_input_from_string(json.value("input", std::string{"tick"}));
+    auto input =
+        playback_input_from_string(json_access::value_or(json, "input", std::string{"tick"}));
     if (!input) {
         diagnostics.push_back(error(path + "/input", "Unknown playback input type."));
         return std::nullopt;
@@ -539,27 +542,28 @@ std::optional<RuntimePlaybackStep> parse_step(const nlohmann::json& json,
     RuntimePlaybackStep step;
     step.input = *input;
     if (json.contains("index") && json["index"].is_number_unsigned())
-        step.index = json["index"].get<std::uint64_t>();
+        step.index = json_access::get_or<std::uint64_t>(json["index"], 0);
     if (json.contains("delta_seconds") && json["delta_seconds"].is_number())
-        step.delta_seconds = json["delta_seconds"].get<double>();
-    step.option_index = json.value("option_index", json.value("index_value", -1));
-    step.direction = json.value("direction", -1);
-    step.verb_id = json.value("verb_id", std::string{});
+        step.delta_seconds = json_access::get_or<double>(json["delta_seconds"], 0.0);
+    step.option_index =
+        json_access::value_or(json, "option_index", json_access::value_or(json, "index_value", -1));
+    step.direction = json_access::value_or(json, "direction", -1);
+    step.verb_id = json_access::value_or(json, "verb_id", std::string{});
     if (json.contains("object_id") && json["object_id"].is_string()) {
-        step.object_ids.push_back(json["object_id"].get<std::string>());
+        step.object_ids.push_back(json_access::get_or<std::string>(json["object_id"], {}));
     }
     if (json.contains("object_ids") && json["object_ids"].is_array()) {
         for (const auto& object_id : json["object_ids"]) {
             if (object_id.is_string())
-                step.object_ids.push_back(object_id.get<std::string>());
+                step.object_ids.push_back(json_access::get_or<std::string>(object_id, {}));
         }
     }
     if (json.contains("entity_ref"))
         step.entity_ref = parse_ref_field(json["entity_ref"]);
     if (json.contains("payload"))
         step.payload = json["payload"];
-    step.init_script = json.value(std::string(project_ids::test_script_init), std::string{});
-    step.check_script = json.value(std::string(project_ids::test_script_check), std::string{});
+    step.init_script = json_access::value_or(json, project_ids::test_script_init, std::string{});
+    step.check_script = json_access::value_or(json, project_ids::test_script_check, std::string{});
     if (json.contains("assertions") && json["assertions"].is_array()) {
         for (std::size_t i = 0; i < json["assertions"].size(); ++i) {
             auto parsed = parse_assertion(json["assertions"][i], diagnostics,
@@ -726,7 +730,7 @@ EntityEditResult ProjectTooling::set_entity_record(ProjectDocument& project,
                   "Entity record id field must be a string."));
         return result;
     }
-    if (record[0].get<std::string>() != entity_id) {
+    if (json_access::get_or<std::string>(record[0], {}) != entity_id) {
         result.diagnostics.push_back(
             warning("/" + std::string(collection) + "/" + std::string(entity_id) + "[0]",
                     "Entity record id did not match the map key and was normalized."));
@@ -770,16 +774,16 @@ RuntimePlaybackSession::parse_spec(const nlohmann::json& json,
     }
 
     RuntimePlaybackSpec spec;
-    spec.id = json.value("id", std::string{});
+    spec.id = json_access::value_or(json, "id", std::string{});
     if (spec.id.empty()) {
         diagnostics.push_back(error(base_path + "/id", "Playback spec requires an id."));
     }
     if (json.contains("entrypoint"))
         spec.entrypoint = parse_ref_field(json["entrypoint"]);
     if (json.contains("fixed_delta_seconds") && json["fixed_delta_seconds"].is_number())
-        spec.fixed_delta_seconds = json["fixed_delta_seconds"].get<double>();
-    spec.init_script = json.value(std::string(project_ids::test_script_init), std::string{});
-    spec.check_script = json.value(std::string(project_ids::test_script_check), std::string{});
+        spec.fixed_delta_seconds = json_access::get<double>(json["fixed_delta_seconds"]);
+    spec.init_script = json_access::value_or(json, project_ids::test_script_init, std::string{});
+    spec.check_script = json_access::value_or(json, project_ids::test_script_check, std::string{});
 
     const auto steps_key = std::string(project_ids::test_steps);
     auto steps_it = json.find(steps_key);
@@ -828,7 +832,7 @@ RuntimePlaybackSession::specs_from_project(const ProjectDocument& project,
 
     if (tests_it->is_object()) {
         for (auto it = tests_it->begin(); it != tests_it->end(); ++it) {
-            auto test_json = it.value();
+            auto test_json = *it;
             if (test_json.is_object() && !test_json.contains("id"))
                 test_json["id"] = it.key();
             auto parsed = parse_spec(test_json, diagnostics,

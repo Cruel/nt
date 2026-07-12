@@ -1,4 +1,5 @@
 #include "noveltea/app.hpp"
+#include "noveltea/core/json_access.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -576,7 +577,7 @@ int noveltea_runtime_run_action(const char* verb_id, const char* object_ids_json
         if (!value.is_string()) {
             return 0;
         }
-        object_ids.push_back(value.get<std::string>());
+        object_ids.push_back(noveltea::core::json_access::get_or<std::string>(value, {}));
     }
     return noveltea::g_preview_engine->runtime_preview().run_action(verb_id, object_ids) ? 1 : 0;
 }

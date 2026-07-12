@@ -43,6 +43,7 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
 target_link_libraries(noveltea_core PUBLIC nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea_core PUBLIC JSON_NOEXCEPTION=1)
 
 find_package(miniz CONFIG QUIET)
 if(NOT TARGET miniz::miniz)

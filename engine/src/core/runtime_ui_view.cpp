@@ -1,4 +1,5 @@
 #include <noveltea/core/runtime_ui_view.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -18,7 +19,9 @@ constexpr std::size_t kMaxTextLogLines = 64;
 std::string json_string_or(const nlohmann::json& value, const char* key, std::string fallback = {})
 {
     const auto it = value.find(key);
-    return it != value.end() && it->is_string() ? it->get<std::string>() : std::move(fallback);
+    return it != value.end() && it->is_string()
+               ? json_access::get_or<std::string>(*it, std::move(fallback))
+               : std::move(fallback);
 }
 
 RichTextDocument rich_text_or_parse(const nlohmann::json& data, std::string_view fallback)
@@ -195,11 +198,14 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
         m_state.active_text = rich_text_or_parse(command.data, m_state.body);
         m_state.objects.clear();
         m_state.actions.clear();
-        m_state.awaiting_continue = command.data.value("wait_for_click", false);
+        m_state.awaiting_continue = json_access::value_or(command.data, "wait_for_click", false);
         m_state.page_break = false;
         break;
     case ControllerCommandType::DialogueOptions:
-        apply_options(command.data.value("options", nlohmann::json::array()));
+        if (const auto* options = json_access::member(command.data, "options"))
+            apply_options(*options);
+        else
+            apply_options(nlohmann::json::array());
         m_state.awaiting_continue = false;
         break;
     case ControllerCommandType::DialogueComplete:
@@ -215,7 +221,7 @@ void RuntimeUIViewAdapter::apply(const ControllerCommand& command)
         m_state.dialogue_options.clear();
         m_state.objects.clear();
         m_state.actions.clear();
-        m_state.awaiting_continue = command.data.value("wait_for_click", false);
+        m_state.awaiting_continue = json_access::value_or(command.data, "wait_for_click", false);
         m_state.page_break = false;
         break;
     case ControllerCommandType::CutscenePageBreak:
@@ -281,7 +287,8 @@ void RuntimeUIViewAdapter::set_saved_text_log(const nlohmann::json& log)
     }
     for (const auto& item : log) {
         if (item.is_string()) {
-            push_log_entry(make_text_log_entry(item.get<std::string>(), nlohmann::json::object(),
+            push_log_entry(make_text_log_entry(json_access::get_or<std::string>(item, {}),
+                                               nlohmann::json::object(),
                                                m_next_text_log_sequence++));
         }
     }
@@ -394,7 +401,7 @@ void RuntimeUIViewAdapter::apply_options(const nlohmann::json& options)
             continue;
         RuntimeUIOption out;
         out.text = json_string_or(option, "text");
-        out.enabled = option.value("enabled", true);
+        out.enabled = json_access::value_or(option, "enabled", true);
         m_state.dialogue_options.push_back(std::move(out));
     }
 }
@@ -404,7 +411,7 @@ void RuntimeUIViewAdapter::apply_navigation(const nlohmann::json& data)
     m_state.navigation.clear();
     static constexpr std::array<const char*, 4> keys = {"north", "east", "south", "west"};
     for (const char* key : keys) {
-        if (data.value(key, false)) {
+        if (json_access::value_or(data, key, false)) {
             m_state.navigation.emplace_back(key);
         }
     }
@@ -413,14 +420,14 @@ void RuntimeUIViewAdapter::apply_navigation(const nlohmann::json& data)
     if (paths != data.end() && paths->is_array()) {
         for (const auto& path : *paths) {
             if (path.is_string()) {
-                m_state.navigation.push_back(path.get<std::string>());
+                m_state.navigation.push_back(json_access::get_or<std::string>(path, {}));
             } else if (path.is_object()) {
                 auto label = json_string_or(path, "label");
                 if (label.empty())
                     label = json_string_or(path, "direction");
                 if (label.empty())
                     label = json_string_or(path, "target_id");
-                if (!label.empty() && path.value("enabled", true)) {
+                if (!label.empty() && json_access::value_or(path, "enabled", true)) {
                     m_state.navigation.push_back(std::move(label));
                 }
             }

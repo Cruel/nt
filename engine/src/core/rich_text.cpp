@@ -1,4 +1,5 @@
 #include <noveltea/core/rich_text.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -330,34 +331,40 @@ std::optional<StyleTag> parse_style_tag(std::string tag_full, bool& closing, std
 
 void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& tag)
 {
+    const auto parameter = [&tag](std::string_view key) -> const std::string& {
+        static const std::string empty;
+        const auto iterator = tag.params.find(std::string(key));
+        return iterator == tag.params.end() ? empty : iterator->second;
+    };
+
     switch (tag.type) {
     case TextStyleType::Bold:
         style.font_style |= FontBold;
         break;
     case TextStyleType::BorderColor:
-        style.outline_color = parse_color(tag.params.at("color"));
+        style.outline_color = parse_color(parameter("color"));
         break;
     case TextStyleType::BorderSize:
-        style.outline_thickness = std::max(parse_float(tag.params.at("size")), 0.0f);
+        style.outline_thickness = std::max(parse_float(parameter("size")), 0.0f);
         break;
     case TextStyleType::Color:
-        style.color = parse_color(tag.params.at("color"));
+        style.color = parse_color(parameter("color"));
         break;
     case TextStyleType::Diff:
         style.diff = true;
         style.color = {150, 0, 0, 255};
         break;
     case TextStyleType::Font:
-        style.font_alias = tag.params.at("id");
+        style.font_alias = parameter("id");
         break;
     case TextStyleType::Italic:
         style.font_style |= FontItalic;
         break;
     case TextStyleType::Object:
-        style.object_id = tag.params.at("id");
+        style.object_id = parameter("id");
         break;
     case TextStyleType::Size:
-        style.font_size = static_cast<unsigned int>(std::max(parse_int(tag.params.at("size")), 0));
+        style.font_size = static_cast<unsigned int>(std::max(parse_int(parameter("size")), 0));
         break;
     case TextStyleType::Strike:
         style.font_style |= FontStrikeThrough;
@@ -366,10 +373,10 @@ void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& ta
         style.font_style |= FontUnderlined;
         break;
     case TextStyleType::XOffset:
-        style.x_offset = parse_int(tag.params.at("x"));
+        style.x_offset = parse_int(parameter("x"));
         break;
     case TextStyleType::YOffset:
-        style.y_offset = parse_int(tag.params.at("y"));
+        style.y_offset = parse_int(parameter("y"));
         break;
     case TextStyleType::Material:
         if (auto it = tag.params.find("id"); it != tag.params.end())
@@ -751,8 +758,8 @@ bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out)
         return false;
 
     RichTextDocument document;
-    document.source = value.value("source", "");
-    document.plain_text = value.value("plain_text", "");
+    document.source = json_access::value_or(value, "source", std::string());
+    document.plain_text = json_access::value_or(value, "plain_text", std::string());
 
     const auto runs = value.find("runs");
     if (runs != value.end()) {
@@ -762,9 +769,9 @@ bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out)
             if (!run_value.is_object())
                 return false;
             RichTextRun run;
-            run.text = run_value.value("text", "");
-            run.new_group = run_value.value("new_group", false);
-            run.start_on_new_line = run_value.value("start_on_new_line", false);
+            run.text = json_access::value_or(run_value, "text", std::string());
+            run.new_group = json_access::value_or(run_value, "new_group", false);
+            run.start_on_new_line = json_access::value_or(run_value, "start_on_new_line", false);
 
             const auto style_value = run_value.find("style");
             if (style_value != run_value.end() && style_value->is_object()) {
@@ -783,10 +790,10 @@ bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out)
                 const auto read_color = [](const nlohmann::json& color, RichTextColor& out_color) {
                     if (!color.is_object())
                         return;
-                    out_color.r = static_cast<std::uint8_t>(color.value("r", 0));
-                    out_color.g = static_cast<std::uint8_t>(color.value("g", 0));
-                    out_color.b = static_cast<std::uint8_t>(color.value("b", 0));
-                    out_color.a = static_cast<std::uint8_t>(color.value("a", 255));
+                    out_color.r = static_cast<std::uint8_t>(json_access::value_or(color, "r", 0));
+                    out_color.g = static_cast<std::uint8_t>(json_access::value_or(color, "g", 0));
+                    out_color.b = static_cast<std::uint8_t>(json_access::value_or(color, "b", 0));
+                    out_color.a = static_cast<std::uint8_t>(json_access::value_or(color, "a", 255));
                 };
                 if (const auto color = style_value->find("color"); color != style_value->end())
                     read_color(*color, run.style.color);
@@ -822,8 +829,8 @@ bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out)
             if (!break_value.is_object())
                 return false;
             document.page_breaks.push_back(RichTextPageBreak{
-                break_value.value("run_index", std::size_t{}),
-                break_value.value("delay_ms", 0),
+                json_access::value_or(break_value, "run_index", std::size_t{}),
+                json_access::value_or(break_value, "delay_ms", 0),
             });
         }
     }

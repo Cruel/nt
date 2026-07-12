@@ -1,4 +1,5 @@
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <algorithm>
 #include <array>
@@ -109,8 +110,9 @@ bool verify_manifest(std::span<const std::byte> bytes, PlayerBootstrapResult& re
     json manifest = json::parse(static_cast<const char*>(data),
                                 static_cast<const char*>(data) + size, nullptr, false);
     mz_free(data);
-    if (!manifest.is_object() || manifest.value("format", "") != "noveltea.runtime-package" ||
-        manifest.value("format_version", 0) != 1) {
+    if (!manifest.is_object() ||
+        json_access::value_or(manifest, "format", std::string()) != "noveltea.runtime-package" ||
+        json_access::value_or(manifest, "format_version", 0) != 1) {
         fail(result, PlayerBootstrapError::PackageContent, "/package/manifest.json",
              "unsupported runtime package manifest");
         return false;
@@ -287,7 +289,7 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
                  "expected string entries");
             return result;
         }
-        config.capabilities.push_back(capability.get<std::string>());
+        config.capabilities.push_back(json_access::get_or<std::string>(capability, {}));
     }
     if (config.display_name.empty() || config.application_id.empty() ||
         config.save_namespace.empty() || config.version_name.empty())

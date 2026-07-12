@@ -1,6 +1,7 @@
 #include "noveltea/engine.hpp"
 
 #include "noveltea/audio/audio_backend.hpp"
+#include "noveltea/core/json_access.hpp"
 #include "noveltea/core/legacy/project_package_reader.hpp"
 #include "noveltea/core/project_ids.hpp"
 #include "noveltea/math/geometry.hpp"
@@ -365,7 +366,7 @@ void upsert_preview_material(ShaderMaterialProject& project, std::string materia
 {
     project.materials.erase(std::remove_if(project.materials.begin(), project.materials.end(),
                                            [&](const MaterialDefinition& material) {
-                                               return material.id.value() == material_id;
+                                               return material.id.string() == material_id;
                                            }),
                             project.materials.end());
     MaterialDefinition material;
@@ -604,9 +605,10 @@ AudioSfxDesc audio_sfx_desc_from_json(const nlohmann::json& options)
 {
     AudioSfxDesc desc;
     if (options.is_object()) {
-        desc.volume = options.value("volume", desc.volume);
-        desc.pitch = options.value("pitch", desc.pitch);
-        desc.max_simultaneous = options.value("max_simultaneous", desc.max_simultaneous);
+        desc.volume = core::json_access::value_or(options, "volume", desc.volume);
+        desc.pitch = core::json_access::value_or(options, "pitch", desc.pitch);
+        desc.max_simultaneous =
+            core::json_access::value_or(options, "max_simultaneous", desc.max_simultaneous);
     }
     return desc;
 }
@@ -617,14 +619,17 @@ AudioTrackDesc audio_track_desc_from_json(const AudioTrackId& track_id,
     AudioTrackDesc desc;
     desc.track_id = track_id;
     if (options.is_object()) {
-        desc.bus = audio_bus_from_string(options.value("bus", std::string("music")));
-        desc.volume = options.value("volume", desc.volume);
-        desc.pitch = options.value("pitch", desc.pitch);
-        desc.loop = options.value("loop", desc.loop);
-        desc.fade_in_seconds = options.value("fade_in", desc.fade_in_seconds);
-        desc.fade_out_seconds = options.value("fade_out", desc.fade_out_seconds);
-        desc.replace_mode =
-            audio_replace_mode_from_string(options.value("replace_mode", std::string("replace")));
+        desc.bus = audio_bus_from_string(
+            core::json_access::value_or(options, "bus", std::string("music")));
+        desc.volume = core::json_access::value_or(options, "volume", desc.volume);
+        desc.pitch = core::json_access::value_or(options, "pitch", desc.pitch);
+        desc.loop = core::json_access::value_or(options, "loop", desc.loop);
+        desc.fade_in_seconds =
+            core::json_access::value_or(options, "fade_in", desc.fade_in_seconds);
+        desc.fade_out_seconds =
+            core::json_access::value_or(options, "fade_out", desc.fade_out_seconds);
+        desc.replace_mode = audio_replace_mode_from_string(
+            core::json_access::value_or(options, "replace_mode", std::string("replace")));
     }
     return desc;
 }
@@ -737,8 +742,8 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         assets::FontAssetConfig font_config;
         if (document.root().contains(core::project_ids::project_font_default) &&
             document.root()[core::project_ids::project_font_default].is_string()) {
-            font_config.default_alias =
-                document.root()[core::project_ids::project_font_default].get<std::string>();
+            font_config.default_alias = core::json_access::get_or<std::string>(
+                document.root()[core::project_ids::project_font_default], {});
         }
         const auto add_font_map = [&](std::string_view key) {
             if (!document.root().contains(key) || !document.root()[key].is_object()) {
@@ -749,11 +754,13 @@ bool Engine::load_runtime_project(const std::string& logical_path)
                 family.alias = alias;
                 family.synthetic_styles = true;
                 if (value.is_string()) {
-                    family.regular = FontDesc{.asset_path = value.get<std::string>()};
+                    family.regular =
+                        FontDesc{.asset_path = core::json_access::get_or<std::string>(value, {})};
                 } else if (value.is_object()) {
                     const auto read_face = [&](std::string_view face) -> FontDesc {
                         if (value.contains(face) && value[face].is_string()) {
-                            return FontDesc{.asset_path = value[face].get<std::string>()};
+                            return FontDesc{.asset_path = core::json_access::get_or<std::string>(
+                                                value[face], {})};
                         }
                         return {};
                     };
@@ -773,7 +780,8 @@ bool Engine::load_runtime_project(const std::string& logical_path)
                     }
                     if (value.contains("syntheticStyles") &&
                         value["syntheticStyles"].is_boolean()) {
-                        family.synthetic_styles = value["syntheticStyles"].get<bool>();
+                        family.synthetic_styles =
+                            core::json_access::get_or<bool>(value["syntheticStyles"], false);
                     }
                 }
                 if (!family.alias.empty() && !family.regular.asset_path.empty()) {
@@ -1352,24 +1360,29 @@ void Engine::process_audio_outputs(const std::vector<core::RuntimeOutput>& outpu
             continue;
         }
         const auto& payload = output.payload;
-        const std::string op = payload.value("op", std::string{});
+        const std::string op = core::json_access::value_or(payload, "op", std::string{});
         if (op == "play_sfx_alias") {
-            const std::string alias = payload.value("alias", std::string{});
+            const std::string alias = core::json_access::value_or(payload, "alias", std::string{});
             if (!alias.empty()) {
-                (void)m_audio.play_sfx_alias(alias, audio_sfx_desc_from_json(payload.value(
-                                                        "options", nlohmann::json::object())));
+                const auto* options = core::json_access::member(payload, "options");
+                (void)m_audio.play_sfx_alias(
+                    alias, audio_sfx_desc_from_json(options ? *options : nlohmann::json::object()));
             }
         } else if (op == "play_track_alias") {
-            const AudioTrackId track_id = payload.value("track_id", std::string("bgm"));
-            const std::string alias = payload.value("alias", std::string{});
+            const AudioTrackId track_id =
+                core::json_access::value_or(payload, "track_id", std::string("bgm"));
+            const std::string alias = core::json_access::value_or(payload, "alias", std::string{});
             if (!alias.empty()) {
-                const auto options = payload.value("options", nlohmann::json::object());
-                (void)m_audio.play_track_alias(track_id, alias,
-                                               audio_track_desc_from_json(track_id, options));
+                const auto* options = core::json_access::member(payload, "options");
+                (void)m_audio.play_track_alias(
+                    track_id, alias,
+                    audio_track_desc_from_json(track_id,
+                                               options ? *options : nlohmann::json::object()));
             }
         } else if (op == "stop_track") {
-            const AudioTrackId track_id = payload.value("track_id", std::string("bgm"));
-            m_audio.stop_track(track_id, payload.value("fade", 0.0f));
+            const AudioTrackId track_id =
+                core::json_access::value_or(payload, "track_id", std::string("bgm"));
+            m_audio.stop_track(track_id, core::json_access::value_or(payload, "fade", 0.0f));
         } else {
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[audio] unknown runtime audio command: %s",
                         op.c_str());
@@ -1624,7 +1637,8 @@ bool Engine::apply_editor_preview_document(const std::string& kind, const std::s
             return false;
 
         std::string rml;
-        if (data.value("layoutKind", std::string("document")) == "fragment") {
+        if (core::json_access::value_or(data, "layoutKind", std::string("document")) ==
+            "fragment") {
             rml = layout_fragment_host_rml(fragment_host_rml, *rml_source);
         } else {
             const std::string source =
@@ -1665,15 +1679,16 @@ bool Engine::apply_editor_preview_document(const std::string& kind, const std::s
             m_shader_materials = std::move(*parsed.project);
             upsert_preview_material(
                 m_shader_materials,
-                data.value("previewMaterialId", std::string("editor/preview/shader/current")),
-                data.value("shaderId", std::string{}));
+                core::json_access::value_or(data, "previewMaterialId",
+                                            std::string("editor/preview/shader/current")),
+                core::json_access::value_or(data, "shaderId", std::string{}));
             m_renderer.set_shader_material_project(&m_shader_materials);
         }
 
         std::string rml = preview_template_text(data, "shaderSquareRml", kShaderSquareRml);
         std::string rcss = preview_template_text(data, "shaderSquareRcss", kShaderSquareRcss);
         const std::string material_id =
-            data.value("previewMaterialId", std::string("ui/noise_panel"));
+            core::json_access::value_or(data, "previewMaterialId", std::string("ui/noise_panel"));
         replace_all(rml, "href=\"shader-square-preview.rcss\"",
                     "href=\"preview://templates/shader-square-preview.rcss\"");
         replace_all(rml, "href='shader-square-preview.rcss'",

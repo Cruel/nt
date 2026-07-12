@@ -9,6 +9,7 @@ add_executable(noveltea_core_tests
     core/editor_api_tests.cpp
     core/entity_ref_tests.cpp
     core/game_session_tests.cpp
+    core/json_access_tests.cpp
     core/legacy_entity_schema_tests.cpp
     core/project_document_tests.cpp
     core/project_model_tests.cpp

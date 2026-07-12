@@ -1,6 +1,7 @@
 #include <noveltea/core/save_document.hpp>
 
 #include <noveltea/core/project_ids.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <fstream>
 
@@ -144,33 +145,39 @@ bool SaveDocument::validate(std::vector<DocumentError>& errors) const
         return false;
     }
 
-    ok = expect_number(m_root.at(key(project_ids::play_time)), errors, "/playTime") && ok;
-    ok = expect_bool(m_root.at(key(project_ids::navigation_enabled)), errors, "/navEnabled") && ok;
-    ok = expect_bool(m_root.at(key(project_ids::map_enabled)), errors, "/mapEnabled") && ok;
-    ok = expect_array(m_root.at(key(project_ids::log)), errors, "/log") && ok;
-    ok = expect_object(m_root.at(key(project_ids::properties)), errors, "/properties") && ok;
-    ok = expect_object(m_root.at(key(project_ids::room_descriptions)), errors,
-                       "/roomDescriptions") &&
-         ok;
-    ok = expect_object(m_root.at(key(project_ids::visited_rooms)), errors, "/visitedRooms") && ok;
+    const auto& play_time = *json_access::member(m_root, project_ids::play_time);
+    const auto& navigation_enabled = *json_access::member(m_root, project_ids::navigation_enabled);
+    const auto& map_enabled = *json_access::member(m_root, project_ids::map_enabled);
+    const auto& log = *json_access::member(m_root, project_ids::log);
+    const auto& properties = *json_access::member(m_root, project_ids::properties);
+    const auto& room_descriptions = *json_access::member(m_root, project_ids::room_descriptions);
+    const auto& visited_rooms = *json_access::member(m_root, project_ids::visited_rooms);
 
-    if (m_root.contains(key(project_ids::entrypoint_entity)) &&
-        !EntityRef::from_json(m_root.at(key(project_ids::entrypoint_entity))).has_value()) {
+    ok = expect_number(play_time, errors, "/playTime") && ok;
+    ok = expect_bool(navigation_enabled, errors, "/navEnabled") && ok;
+    ok = expect_bool(map_enabled, errors, "/mapEnabled") && ok;
+    ok = expect_array(log, errors, "/log") && ok;
+    ok = expect_object(properties, errors, "/properties") && ok;
+    ok = expect_object(room_descriptions, errors, "/roomDescriptions") && ok;
+    ok = expect_object(visited_rooms, errors, "/visitedRooms") && ok;
+
+    if (const auto* entrypoint = json_access::member(m_root, project_ids::entrypoint_entity);
+        entrypoint && !EntityRef::from_json(*entrypoint).has_value()) {
         add_error(errors, "/entrypoint", "expected selected-entity array [type, id]");
         ok = false;
     }
-    if (m_root.contains(key(project_ids::entrypoint_metadata)) &&
-        !m_root.at(key(project_ids::entrypoint_metadata)).is_array()) {
+    if (const auto* metadata = json_access::member(m_root, project_ids::entrypoint_metadata);
+        metadata && !metadata->is_array()) {
         add_error(errors, "/entrydata", "expected array");
         ok = false;
     }
-    if (m_root.contains(key(project_ids::save_map)) &&
-        !m_root.at(key(project_ids::save_map)).is_string()) {
+    if (const auto* map = json_access::member(m_root, project_ids::save_map);
+        map && !map->is_string()) {
         add_error(errors, "/map", "expected string");
         ok = false;
     }
-    if (m_root.contains(key(project_ids::object_locations)) &&
-        !m_root.at(key(project_ids::object_locations)).is_object()) {
+    if (const auto* locations = json_access::member(m_root, project_ids::object_locations);
+        locations && !locations->is_object()) {
         add_error(errors, "/objectLocations", "expected object");
         ok = false;
     }
@@ -178,26 +185,33 @@ bool SaveDocument::validate(std::vector<DocumentError>& errors) const
     return ok;
 }
 
-double SaveDocument::play_time() const { return m_root.value(key(project_ids::play_time), 0.0); }
+double SaveDocument::play_time() const
+{
+    return json_access::value_or(m_root, project_ids::play_time, 0.0);
+}
 
 bool SaveDocument::navigation_enabled() const
 {
-    return m_root.value(key(project_ids::navigation_enabled), true);
+    return json_access::value_or(m_root, project_ids::navigation_enabled, true);
 }
 
-bool SaveDocument::map_enabled() const { return m_root.value(key(project_ids::map_enabled), true); }
+bool SaveDocument::map_enabled() const
+{
+    return json_access::value_or(m_root, project_ids::map_enabled, true);
+}
 
 std::optional<EntityRef> SaveDocument::entrypoint() const
 {
-    if (!m_root.contains(key(project_ids::entrypoint_entity))) {
+    const auto* entrypoint = json_access::member(m_root, project_ids::entrypoint_entity);
+    if (!entrypoint) {
         return std::nullopt;
     }
-    return EntityRef::from_json(m_root.at(key(project_ids::entrypoint_entity)));
+    return EntityRef::from_json(*entrypoint);
 }
 
 std::string SaveDocument::current_map_id() const
 {
-    return m_root.value(key(project_ids::save_map), std::string());
+    return json_access::value_or(m_root, project_ids::save_map, std::string());
 }
 
 std::string SaveDocument::dump() const { return m_root.dump(); }
@@ -351,12 +365,15 @@ bool SettingsDocument::validate(std::vector<DocumentError>& errors) const
         return false;
     }
 
-    ok = expect_number(m_root.at(key(size_factor_key)), errors, "/sizeFactor") && ok;
-    ok = expect_array(m_root.at(key(profiles_key)), errors, "/profiles") && ok;
-    ok = expect_integer(m_root.at(key(active_profile_key)), errors, "/activeProfile") && ok;
+    const auto& size_factor = *json_access::member(m_root, size_factor_key);
+    const auto& profile_values = *json_access::member(m_root, profiles_key);
+    const auto& active_profile = *json_access::member(m_root, active_profile_key);
 
-    if (m_root.at(key(profiles_key)).is_array()) {
-        const auto& profile_values = m_root.at(key(profiles_key));
+    ok = expect_number(size_factor, errors, "/sizeFactor") && ok;
+    ok = expect_array(profile_values, errors, "/profiles") && ok;
+    ok = expect_integer(active_profile, errors, "/activeProfile") && ok;
+
+    if (profile_values.is_array()) {
         for (std::size_t i = 0; i < profile_values.size(); ++i) {
             const auto path = "/profiles/" + std::to_string(i);
             const auto& profile = profile_values[i];
@@ -369,10 +386,9 @@ bool SettingsDocument::validate(std::vector<DocumentError>& errors) const
         }
     }
 
-    if (m_root.at(key(active_profile_key)).is_number_integer() &&
-        m_root.at(key(profiles_key)).is_array()) {
-        const int active = m_root.at(key(active_profile_key)).get<int>();
-        const auto count = static_cast<int>(m_root.at(key(profiles_key)).size());
+    if (active_profile.is_number_integer() && profile_values.is_array()) {
+        const int active = json_access::get_or<int>(active_profile, -1);
+        const auto count = static_cast<int>(profile_values.size());
         if (active >= count) {
             add_error(errors, "/activeProfile", "active profile index is out of range");
             ok = false;
@@ -384,12 +400,12 @@ bool SettingsDocument::validate(std::vector<DocumentError>& errors) const
 
 double SettingsDocument::font_size_multiplier() const
 {
-    return m_root.value(key(size_factor_key), 1.0);
+    return json_access::value_or(m_root, size_factor_key, 1.0);
 }
 
 int SettingsDocument::active_profile_index() const
 {
-    return m_root.value(key(active_profile_key), -1);
+    return json_access::value_or(m_root, active_profile_key, -1);
 }
 
 std::vector<Profile> SettingsDocument::profiles() const
@@ -401,7 +417,7 @@ std::vector<Profile> SettingsDocument::profiles() const
     }
     for (const auto& item : *it) {
         if (item.is_array() && item.size() == 1 && item[0].is_string()) {
-            out.push_back(Profile{item[0].get<std::string>()});
+            out.push_back(Profile{json_access::get_or<std::string>(item[0], {})});
         }
     }
     return out;

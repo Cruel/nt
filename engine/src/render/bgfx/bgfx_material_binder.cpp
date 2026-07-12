@@ -27,7 +27,7 @@ void add_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
 
 [[nodiscard]] std::string material_context(const MaterialId& material_id, ShaderRole role)
 {
-    return "material '" + material_id.value() + "' role '" + std::string(to_string(role)) + "'";
+    return "material '" + material_id.string() + "' role '" + std::string(to_string(role)) + "'";
 }
 
 [[nodiscard]] const MaterialUniformAssignment*
@@ -254,7 +254,7 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
     const BgfxMaterialBindInputs& inputs, std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
     const auto material_asset =
-        m_assets.load_material(assets::MaterialAssetRequest{.id = material_id.value()});
+        m_assets.load_material(assets::MaterialAssetRequest{.id = material_id.string()});
     const auto* material =
         material_asset ? material_asset.value->definition : find_material(project, material_id);
     if (material == nullptr) {

@@ -1,6 +1,7 @@
 #include <noveltea/core/runtime_controller.hpp>
 #include <noveltea/core/dialogue_controller.hpp>
 #include <noveltea/core/cutscene_controller.hpp>
+#include <noveltea/core/json_access.hpp>
 #include <noveltea/core/project_ids.hpp>
 
 #include <nlohmann/json.hpp>
@@ -17,7 +18,7 @@ std::string project_string_or_empty(const ProjectModel& project, std::string_vie
     if (it == root.end() || !it->is_string()) {
         return {};
     }
-    return it->get<std::string>();
+    return json_access::get_or<std::string>(*it, {});
 }
 
 bool action_objects_match(const ActionModel& action, const std::vector<std::string>& object_ids)
@@ -275,10 +276,11 @@ void RuntimeController::process_dialogue_commands()
         if (cmd.type == ControllerCommandType::DialogueComplete) {
             completed = true;
             if (cmd.data.contains("next_entity_type") && cmd.data.contains("next_entity_id")) {
-                auto type_opt = entity_type_from_integer(cmd.data["next_entity_type"].get<int>());
+                auto type_opt = entity_type_from_integer(
+                    json_access::get_or<int>(cmd.data["next_entity_type"], -1));
                 if (type_opt.has_value()) {
-                    auto type = type_opt.value();
-                    auto id = cmd.data["next_entity_id"].get<std::string>();
+                    auto type = *type_opt;
+                    auto id = json_access::get_or<std::string>(cmd.data["next_entity_id"], {});
                     if (is_known_entity_type(type) && !id.empty()) {
                         m_session->queue_entity(EntityRef{type, id});
                     }
@@ -302,10 +304,11 @@ void RuntimeController::process_cutscene_commands()
         if (cmd.type == ControllerCommandType::CutsceneComplete) {
             completed = true;
             if (cmd.data.contains("next_entity_type") && cmd.data.contains("next_entity_id")) {
-                auto type_opt = entity_type_from_integer(cmd.data["next_entity_type"].get<int>());
+                auto type_opt = entity_type_from_integer(
+                    json_access::get_or<int>(cmd.data["next_entity_type"], -1));
                 if (type_opt.has_value()) {
-                    auto type = type_opt.value();
-                    auto id = cmd.data["next_entity_id"].get<std::string>();
+                    auto type = *type_opt;
+                    auto id = json_access::get_or<std::string>(cmd.data["next_entity_id"], {});
                     if (is_known_entity_type(type) && !id.empty()) {
                         m_session->queue_entity(EntityRef{type, id});
                     }
@@ -703,20 +706,20 @@ void RuntimeController::restore_state(const nlohmann::json& state)
     m_commands.clear();
     m_mode = Mode::None;
     m_mode_entity_id.clear();
-    m_idle = state.value("idle", true);
-    m_startup_handled = state.value("startup_handled", true);
+    m_idle = json_access::value_or(state, "idle", true);
+    m_startup_handled = json_access::value_or(state, "startup_handled", true);
     m_visit_counts.clear();
 
     if (auto it = state.find("visit_counts"); it != state.end() && it->is_object()) {
         for (auto visit_it = it->begin(); visit_it != it->end(); ++visit_it) {
-            if (visit_it.value().is_number_integer()) {
-                m_visit_counts[visit_it.key()] = visit_it.value().get<int>();
+            if ((*visit_it).is_number_integer()) {
+                m_visit_counts[visit_it.key()] = json_access::get_or<int>(*visit_it, 0);
             }
         }
     }
 
-    const auto mode = state.value("mode", std::string("none"));
-    m_mode_entity_id = state.value("mode_entity_id", std::string());
+    const auto mode = json_access::value_or(state, "mode", std::string("none"));
+    m_mode_entity_id = json_access::value_or(state, "mode_entity_id", std::string());
     if (mode == "room" && !m_mode_entity_id.empty()) {
         m_mode = Mode::Room;
         m_idle = false;

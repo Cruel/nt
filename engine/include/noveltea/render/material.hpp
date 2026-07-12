@@ -19,6 +19,7 @@ public:
     MaterialId() = default;
     explicit MaterialId(std::string normalized) : m_value(std::move(normalized)) {}
 
+    [[nodiscard]] const std::string& string() const noexcept { return m_value; }
     [[nodiscard]] const std::string& value() const noexcept { return m_value; }
     [[nodiscard]] bool valid() const noexcept { return !m_value.empty(); }
 

@@ -81,7 +81,7 @@ void append_unique_samplers(std::vector<ShaderSamplerDeclaration>& out,
                                            std::string_view variant)
 {
     std::ostringstream out;
-    out << "material '" << material_id.value() << "' role '" << role_label(role) << "' variant '"
+    out << "material '" << material_id.string() << "' role '" << role_label(role) << "' variant '"
         << variant << "'";
     return out.str();
 }
@@ -91,8 +91,8 @@ void append_unique_samplers(std::vector<ShaderSamplerDeclaration>& out,
                                          std::string_view variant)
 {
     std::ostringstream out;
-    out << "direct shader pair vertex '" << vertex_shader_id.value() << "' fragment '"
-        << fragment_shader_id.value() << "' variant '" << variant << "'";
+    out << "direct shader pair vertex '" << vertex_shader_id.string() << "' fragment '"
+        << fragment_shader_id.string() << "' variant '" << variant << "'";
     return out.str();
 }
 
@@ -105,7 +105,7 @@ resolve_stage_binary(const ShaderMaterialProject& project, const ShaderId& shade
     if (shader == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::UnknownShader,
                        std::string(context),
-                       "unknown " + stage_label(stage) + " shader id '" + shader_id.value() + "'");
+                       "unknown " + stage_label(stage) + " shader id '" + shader_id.string() + "'");
         return std::nullopt;
     }
 
@@ -113,7 +113,7 @@ resolve_stage_binary(const ShaderMaterialProject& project, const ShaderId& shade
     if (stage_definition == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingShaderStage,
                        std::string(context),
-                       "shader '" + shader_id.value() + "' has no " + stage_label(stage) +
+                       "shader '" + shader_id.string() + "' has no " + stage_label(stage) +
                            " stage; expected binary path '" +
                            expected_shader_binary_path(shader_id, stage, active_variant) + "'");
         return std::nullopt;
@@ -124,7 +124,7 @@ resolve_stage_binary(const ShaderMaterialProject& project, const ShaderId& shade
     if (compiled == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
                        std::string(context),
-                       "shader '" + shader_id.value() + "' " + stage_label(stage) +
+                       "shader '" + shader_id.string() + "' " + stage_label(stage) +
                            " stage has no compiled binary for variant '" +
                            std::string(active_variant) + "'; expected binary path '" +
                            expected_shader_binary_path(shader_id, stage, active_variant) + "'");
@@ -183,7 +183,7 @@ ShaderProgramResolutionResult resolve_material_shader_program(const ShaderMateri
     if (active_variant.empty()) {
         add_diagnostic(
             result.diagnostics, ShaderProgramDiagnosticCode::UnsupportedActiveVariant,
-            "material '" + material_id.value() + "'",
+            "material '" + material_id.string() + "'",
             "cannot resolve material shader program without an active compiled shader variant");
         return result;
     }
@@ -191,9 +191,9 @@ ShaderProgramResolutionResult resolve_material_shader_program(const ShaderMateri
     const MaterialDefinition* material = find_material(project, material_id);
     if (material == nullptr) {
         add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::UnknownMaterial,
-                       "material '" + material_id.value() + "' variant '" +
+                       "material '" + material_id.string() + "' variant '" +
                            std::string(active_variant) + "'",
-                       "unknown material id '" + material_id.value() + "'");
+                       "unknown material id '" + material_id.string() + "'");
         return result;
     }
 
@@ -201,14 +201,14 @@ ShaderProgramResolutionResult resolve_material_shader_program(const ShaderMateri
     const std::string context = material_context(material->id, material->role, active_variant);
     if (material_shader == nullptr) {
         add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::UnknownShader, context,
-                       "material references unknown shader id '" + material->shader.value() + "'");
+                       "material references unknown shader id '" + material->shader.string() + "'");
         return result;
     }
 
     if (!has_role(*material_shader, material->role)) {
         add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
                        context,
-                       "shader '" + material_shader->id.value() + "' does not declare role '" +
+                       "shader '" + material_shader->id.string() + "' does not declare role '" +
                            role_label(material->role) + "'");
         return result;
     }
@@ -217,10 +217,11 @@ ShaderProgramResolutionResult resolve_material_shader_program(const ShaderMateri
     ShaderId fragment_shader_id = material_shader->id;
     if (const ShaderRoleBinding* binding = find_role_binding(*material_shader, material->role)) {
         if (!binding->vertex_shader || !binding->fragment_shader) {
-            add_diagnostic(
-                result.diagnostics, ShaderProgramDiagnosticCode::IncompleteRoleBinding, context,
-                "shader '" + material_shader->id.value() + "' role '" + role_label(material->role) +
-                    "' must provide both vertex and fragment shader ids");
+            add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::IncompleteRoleBinding,
+                           context,
+                           "shader '" + material_shader->id.string() + "' role '" +
+                               role_label(material->role) +
+                               "' must provide both vertex and fragment shader ids");
             return result;
         }
         vertex_shader_id = *binding->vertex_shader;
@@ -228,7 +229,7 @@ ShaderProgramResolutionResult resolve_material_shader_program(const ShaderMateri
     } else if (find_stage(*material_shader, ShaderStage::Vertex) == nullptr ||
                find_stage(*material_shader, ShaderStage::Fragment) == nullptr) {
         add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::MissingRoleBinding, context,
-                       "shader '" + material_shader->id.value() + "' role '" +
+                       "shader '" + material_shader->id.string() + "' role '" +
                            role_label(material->role) +
                            "' needs a role binding because the shader record does not contain both "
                            "vertex and fragment stages");
@@ -237,7 +238,7 @@ ShaderProgramResolutionResult resolve_material_shader_program(const ShaderMateri
 
     ShaderProgramKey key;
     key.kind = ShaderProgramRequestKind::Material;
-    key.material_id = material->id.value();
+    key.material_id = material->id.string();
     key.role = material->role;
     key.material_shader = material->shader;
     key.variant = std::string(active_variant);
@@ -277,9 +278,9 @@ std::string shader_program_cache_key(const ShaderProgramKey& key)
     std::ostringstream out;
     out << to_string(key.kind) << '|';
     if (key.kind == ShaderProgramRequestKind::Material)
-        out << key.material_id << '|' << to_string(key.role) << '|' << key.material_shader.value()
+        out << key.material_id << '|' << to_string(key.role) << '|' << key.material_shader.string()
             << '|';
-    out << key.vertex_shader.value() << '|' << key.fragment_shader.value() << '|' << key.variant
+    out << key.vertex_shader.string() << '|' << key.fragment_shader.string() << '|' << key.variant
         << '|' << key.vertex_path << '|' << key.fragment_path;
     return out.str();
 }
@@ -288,7 +289,8 @@ std::string expected_shader_binary_path(const ShaderId& shader_id, ShaderStage s
                                         std::string_view variant)
 {
     const char* suffix = stage == ShaderStage::Vertex ? "vs" : "fs";
-    return "shaders/bgfx/" + std::string(variant) + "/" + shader_id.value() + "." + suffix + ".bin";
+    return "shaders/bgfx/" + std::string(variant) + "/" + shader_id.string() + "." + suffix +
+           ".bin";
 }
 
 std::string_view to_string(ShaderProgramRequestKind kind) noexcept

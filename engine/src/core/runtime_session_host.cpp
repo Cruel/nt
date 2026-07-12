@@ -1,4 +1,5 @@
 #include <noveltea/core/runtime_session_host.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <noveltea/core/project_ids.hpp>
 
@@ -349,9 +350,10 @@ RuntimeInputResult RuntimeSessionHost::apply_input(const RuntimeInput& input)
         m_controller->navigate_path(input.direction);
         return make_result(true, m_controller->take_commands(), {}, input.step_index);
     case RuntimeInputType::SelectObject: {
-        const std::string object_id = !input.object_ids.empty()
-                                          ? input.object_ids.front()
-                                          : input.payload.value("object_id", std::string{});
+        const std::string object_id =
+            !input.object_ids.empty()
+                ? input.object_ids.front()
+                : json_access::value_or(input.payload, "object_id", std::string{});
         if (object_id.empty()) {
             return make_result(
                 false, {},
@@ -411,7 +413,7 @@ RuntimeInputResult RuntimeSessionHost::apply_input(const RuntimeInput& input)
             "set-entrypoint input is handled by editor preview sessions in this phase");
     case RuntimeInputType::LoadSave:
         if (input.payload.contains("slot") && input.payload["slot"].is_number_integer()) {
-            return load_save(SaveSlotId{input.payload["slot"].get<int>()});
+            return load_save(SaveSlotId{json_access::get_or<int>(input.payload["slot"], 0)});
         }
         if (input.payload.contains("save") && input.payload["save"].is_object()) {
             return load_save(SaveDocument(input.payload["save"]));

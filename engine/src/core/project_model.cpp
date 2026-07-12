@@ -1,4 +1,5 @@
 #include <noveltea/core/project_model.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -56,7 +57,7 @@ std::vector<RoomPathModel> room_paths_from(const legacy::RoomView& view)
     for (const auto& path : *view.paths) {
         RoomPathModel model;
         if (path.is_array() && path.size() == 2 && path[0].is_boolean()) {
-            model.enabled = path[0].get<bool>();
+            model.enabled = json_access::get_or<bool>(path[0], false);
             model.target = EntityRef::from_json(path[1]);
         }
         out.push_back(std::move(model));
@@ -70,7 +71,7 @@ void merge_json_object(nlohmann::json& target, const nlohmann::json& source)
         return;
     }
     for (auto it = source.begin(); it != source.end(); ++it) {
-        target[it.key()] = it.value();
+        target[it.key()] = *it;
     }
 }
 

@@ -5,10 +5,12 @@
 #include <nlohmann/json.hpp>
 
 #include <noveltea/core/project_ids.hpp>
+#include <noveltea/core/json_access.hpp>
 
 namespace noveltea::core::legacy {
 namespace {
 
+using json_access::get_or;
 using nlohmann::json;
 
 std::string child_path(std::string_view path, std::string_view suffix)
@@ -100,7 +102,7 @@ bool expect_string_array(const json& value, std::vector<std::string>& out,
         const auto item_path = child_path(path, "[" + std::to_string(i) + "]");
         ok = expect_string(value[i], errors, item_path) && ok;
         if (value[i].is_string()) {
-            out.push_back(value[i].get<std::string>());
+            out.push_back(get_or<std::string>(value[i], {}));
         }
     }
     return ok;
@@ -118,7 +120,7 @@ bool expect_int_array(const json& value, std::vector<int>& out, std::vector<Sche
         const auto item_path = child_path(path, "[" + std::to_string(i) + "]");
         ok = expect_number_integer(value[i], errors, item_path) && ok;
         if (value[i].is_number_integer()) {
-            out.push_back(value[i].get<int>());
+            out.push_back(get_or<int>(value[i], 0));
         }
     }
     return ok;
@@ -134,7 +136,8 @@ std::optional<EntityHeader> parse_header(const json& record, std::vector<SchemaE
     if (!ok) {
         return std::nullopt;
     }
-    return EntityHeader{record[0].get<std::string>(), record[1].get<std::string>(), &record[2]};
+    return EntityHeader{get_or<std::string>(record[0], {}), get_or<std::string>(record[1], {}),
+                        &record[2]};
 }
 
 bool expect_entity_ref_or_inline_script(const json& value, std::optional<EntityRef>& out,
@@ -173,17 +176,17 @@ parse_dialogue_segment(const json& record, std::vector<SchemaError>& errors, std
     if (!ok) {
         return std::nullopt;
     }
-    view.type = record[0].get<int>();
-    view.link_id = record[1].get<int>();
-    view.conditional_enabled = record[2].get<bool>();
-    view.scripted_text = record[3].get<bool>();
-    view.script_enabled = record[4].get<bool>();
-    view.autosave = record[5].get<bool>();
-    view.show_once = record[6].get<bool>();
-    view.is_logged = record[7].get<bool>();
-    view.condition_script = record[8].get<std::string>();
-    view.script = record[9].get<std::string>();
-    view.text_raw = record[10].get<std::string>();
+    view.type = get_or<int>(record[0], 0);
+    view.link_id = get_or<int>(record[1], 0);
+    view.conditional_enabled = get_or<bool>(record[2], false);
+    view.scripted_text = get_or<bool>(record[3], false);
+    view.script_enabled = get_or<bool>(record[4], false);
+    view.autosave = get_or<bool>(record[5], false);
+    view.show_once = get_or<bool>(record[6], false);
+    view.is_logged = get_or<bool>(record[7], false);
+    view.condition_script = get_or<std::string>(record[8], {});
+    view.script = get_or<std::string>(record[9], {});
+    view.text_raw = get_or<std::string>(record[10], {});
     return view;
 }
 
@@ -198,7 +201,7 @@ bool validate_cutscene_segment(const json& record, std::vector<SchemaError>& err
         add_error(errors, child_path(path, "[0]"), "expected cutscene segment type integer");
         return false;
     }
-    const int type = record[0].get<int>();
+    const int type = get_or<int>(record[0], -1);
     switch (type) {
     case 0:
         return expect_array(record, 11, errors, path);
@@ -240,7 +243,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         if (!ok) {
             return std::nullopt;
         }
-        entity.object = ObjectView{*header, record[3].get<std::string>(), record[4].get<bool>()};
+        entity.object =
+            ObjectView{*header, get_or<std::string>(record[3], {}), get_or<bool>(record[4], false)};
         return entity;
     }
     case EntityType::Script: {
@@ -251,7 +255,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
         if (!ok) {
             return std::nullopt;
         }
-        entity.script = ScriptView{*header, record[3].get<bool>(), record[4].get<std::string>()};
+        entity.script =
+            ScriptView{*header, get_or<bool>(record[3], false), get_or<std::string>(record[4], {})};
         return entity;
     }
     case EntityType::Action: {
@@ -266,9 +271,9 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             return std::nullopt;
         }
         view.header = *header;
-        view.verb_id = record[3].get<std::string>();
-        view.script = record[4].get<std::string>();
-        view.position_dependent = record[6].get<bool>();
+        view.verb_id = get_or<std::string>(record[3], {});
+        view.script = get_or<std::string>(record[4], {});
+        view.position_dependent = get_or<bool>(record[6], false);
         entity.action = std::move(view);
         return entity;
     }
@@ -287,10 +292,10 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             return std::nullopt;
         }
         view.header = *header;
-        view.name = record[3].get<std::string>();
-        view.object_count = record[4].get<int>();
-        view.default_script = record[5].get<std::string>();
-        view.conditional_script = record[6].get<std::string>();
+        view.name = get_or<std::string>(record[3], {});
+        view.object_count = get_or<int>(record[4], 0);
+        view.default_script = get_or<std::string>(record[5], {});
+        view.conditional_script = get_or<std::string>(record[6], {});
         entity.verb = std::move(view);
         return entity;
     }
@@ -314,8 +319,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
                 item_ok = item_ok && expect_string(item[0], errors, child_path(item_path, "[0]"));
                 item_ok = item_ok && expect_bool(item[1], errors, child_path(item_path, "[1]"));
                 if (item_ok) {
-                    view.objects.push_back(
-                        RoomObjectView{item[0].get<std::string>(), item[1].get<bool>()});
+                    view.objects.push_back(RoomObjectView{get_or<std::string>(item[0], {}),
+                                                          get_or<bool>(item[1], false)});
                 }
                 ok = item_ok && ok;
             }
@@ -329,13 +334,13 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             return std::nullopt;
         }
         view.header = *header;
-        view.description_raw = record[3].get<std::string>();
-        view.script_before_enter = record[4].get<std::string>();
-        view.script_after_enter = record[5].get<std::string>();
-        view.script_before_leave = record[6].get<std::string>();
-        view.script_after_leave = record[7].get<std::string>();
+        view.description_raw = get_or<std::string>(record[3], {});
+        view.script_before_enter = get_or<std::string>(record[4], {});
+        view.script_after_enter = get_or<std::string>(record[5], {});
+        view.script_before_leave = get_or<std::string>(record[6], {});
+        view.script_after_leave = get_or<std::string>(record[7], {});
         view.paths = &record[9];
-        view.name = record[10].get<std::string>();
+        view.name = get_or<std::string>(record[10], {});
         entity.room = std::move(view);
         return entity;
     }
@@ -368,13 +373,13 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
                 item_ok =
                     expect_number_integer(item[7], errors, child_path(item_path, "[7]")) && item_ok;
                 if (item_ok) {
-                    room.name = item[0].get<std::string>();
-                    room.left = item[1].get<int>();
-                    room.top = item[2].get<int>();
-                    room.width = item[3].get<int>();
-                    room.height = item[4].get<int>();
-                    room.script = item[6].get<std::string>();
-                    room.style = item[7].get<int>();
+                    room.name = get_or<std::string>(item[0], {});
+                    room.left = get_or<int>(item[1], 0);
+                    room.top = get_or<int>(item[2], 0);
+                    room.width = get_or<int>(item[3], 0);
+                    room.height = get_or<int>(item[4], 0);
+                    room.script = get_or<std::string>(item[6], {});
+                    room.style = get_or<int>(item[7], 0);
                     view.rooms.push_back(std::move(room));
                 }
                 ok = item_ok && ok;
@@ -399,9 +404,9 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
                     expect_number_integer(item[7], errors, child_path(item_path, "[7]")) && item_ok;
                 if (item_ok) {
                     view.connections.push_back(MapConnectionView{
-                        item[0].get<int>(), item[1].get<int>(), item[2].get<int>(),
-                        item[3].get<int>(), item[4].get<int>(), item[5].get<int>(),
-                        item[6].get<std::string>(), item[7].get<int>()});
+                        get_or<int>(item[0], 0), get_or<int>(item[1], 0), get_or<int>(item[2], 0),
+                        get_or<int>(item[3], 0), get_or<int>(item[4], 0), get_or<int>(item[5], 0),
+                        get_or<std::string>(item[6], {}), get_or<int>(item[7], 0)});
                 }
                 ok = item_ok && ok;
             }
@@ -410,8 +415,8 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             return std::nullopt;
         }
         view.header = *header;
-        view.default_room_script = record[3].get<std::string>();
-        view.default_path_script = record[4].get<std::string>();
+        view.default_room_script = get_or<std::string>(record[3], {});
+        view.default_path_script = get_or<std::string>(record[4], {});
         entity.map = std::move(view);
         return entity;
     }
@@ -445,11 +450,11 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             return std::nullopt;
         }
         view.header = *header;
-        view.default_name = record[3].get<std::string>();
-        view.root_index = record[5].get<int>();
-        view.enable_disabled_options = record[6].get<bool>();
-        view.show_disabled_options = record[7].get<bool>();
-        view.log_mode = record[8].get<int>();
+        view.default_name = get_or<std::string>(record[3], {});
+        view.root_index = get_or<int>(record[5], 0);
+        view.enable_disabled_options = get_or<bool>(record[6], false);
+        view.show_disabled_options = get_or<bool>(record[7], false);
+        view.log_mode = get_or<int>(record[8], 0);
         entity.dialogue = std::move(view);
         return entity;
     }
@@ -471,7 +476,7 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
                 const auto segment_path = child_path(path, "[7][" + std::to_string(i) + "]");
                 if (validate_cutscene_segment(record[7][i], errors, segment_path)) {
                     view.segments.push_back(
-                        CutsceneSegmentView{record[7][i][0].get<int>(), &record[7][i]});
+                        CutsceneSegmentView{get_or<int>(record[7][i][0], -1), &record[7][i]});
                 } else {
                     ok = false;
                 }
@@ -481,9 +486,9 @@ std::optional<EntityView> parse_entity_record(EntityType type, const json& recor
             return std::nullopt;
         }
         view.header = *header;
-        view.full_screen = record[3].get<bool>();
-        view.can_fast_forward = record[4].get<bool>();
-        view.speed_factor = record[5].get<double>();
+        view.full_screen = get_or<bool>(record[3], false);
+        view.can_fast_forward = get_or<bool>(record[4], false);
+        view.speed_factor = get_or<double>(record[5], 0.0);
         entity.cutscene = std::move(view);
         return entity;
     }
@@ -533,7 +538,7 @@ std::vector<EntityView> parse_project_entities(EntityType type, const json& coll
 
     for (auto it = collection.begin(); it != collection.end(); ++it) {
         const auto record_path = child_path(path, "/" + it.key());
-        auto parsed = parse_entity_record(type, it.value(), errors, record_path);
+        auto parsed = parse_entity_record(type, *it, errors, record_path);
         if (!parsed.has_value()) {
             continue;
         }

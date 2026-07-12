@@ -177,14 +177,14 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
 [[nodiscard]] std::string runtime_binary_path(const ShaderId& shader, ShaderStage stage,
                                               std::string_view variant)
 {
-    return "shaders/bgfx/" + std::string(variant) + "/" + shader.value() + "." +
+    return "shaders/bgfx/" + std::string(variant) + "/" + shader.string() + "." +
            stage_suffix(stage) + ".bin";
 }
 
 [[nodiscard]] std::string interface_fingerprint(const ShaderDefinition& shader)
 {
     std::ostringstream out;
-    out << "shader=" << shader.id.value() << '\n';
+    out << "shader=" << shader.id.string() << '\n';
     for (const auto& uniform : shader.uniforms) {
         out << "uniform=" << uniform.name << ':' << to_string(uniform.type) << ':'
             << uniform.editor_label << ':';
@@ -292,11 +292,11 @@ source_path_for_stage(const ShaderDefinition& shader, const ShaderStageDefinitio
 {
     if (!stage.source_text.empty()) {
         const auto source_key =
-            hash_hex(shader.id.value() + std::string(":") + std::string(to_string(stage.stage)) +
+            hash_hex(shader.id.string() + std::string(":") + std::string(to_string(stage.stage)) +
                      ":" + stage.source_text);
         const auto source_path =
             options.cache_root / "shader-cache" / "source-text" /
-            (shader.id.value() + "." + stage_suffix(stage.stage) + "." + source_key + ".sc");
+            (shader.id.string() + "." + stage_suffix(stage.stage) + "." + source_key + ".sc");
         if (!write_text_file_if_changed(source_path, stage.source_text)) {
             add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
                            ShaderCompileDiagnosticCode::SourceWriteFailed, shader.id, stage.stage,
@@ -480,7 +480,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                                    ShaderCompileDiagnosticCode::CompilerFailed, shader.id,
                                    stage.stage, variant.name, *source_path, output_path,
                                    command_line, process.exit_code,
-                                   "shaderc failed for shader '" + shader.id.value() + "' " +
+                                   "shaderc failed for shader '" + shader.id.string() + "' " +
                                        std::string(to_string(stage.stage)) + " variant '" +
                                        variant.name + "'.\n" + process.output);
                     continue;
@@ -488,7 +488,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
 
                 cache_manifest[runtime_path] = nlohmann::json::object({
                     {"cacheKey", cache_key},
-                    {"shader", shader.id.value()},
+                    {"shader", shader.id.string()},
                     {"stage", to_string(stage.stage)},
                     {"variant", variant.name},
                     {"source", source_path->generic_string()},

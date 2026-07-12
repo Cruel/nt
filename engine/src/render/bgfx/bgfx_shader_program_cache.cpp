@@ -22,8 +22,8 @@ void add_program_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
                std::string(to_string(resolution.key.role)) + "' variant '" +
                resolution.key.variant + "'";
     }
-    return "direct shader pair vertex '" + resolution.key.vertex_shader.value() + "' fragment '" +
-           resolution.key.fragment_shader.value() + "' variant '" + resolution.key.variant + "'";
+    return "direct shader pair vertex '" + resolution.key.vertex_shader.string() + "' fragment '" +
+           resolution.key.fragment_shader.string() + "' variant '" + resolution.key.variant + "'";
 }
 
 } // namespace

@@ -471,8 +471,10 @@ FontFamilyHandle TextEngine::register_font_family(const FontFamilyDesc& desc)
     family.bold_italic = load_optional(desc.bold_italic, "bold-italic");
 
     const uint32_t id = m_impl->next_family_id++;
-    m_impl->families.emplace(id, std::move(family));
-    const auto& stored = m_impl->families.at(id);
+    const auto [stored_it, inserted] = m_impl->families.emplace(id, std::move(family));
+    if (!inserted)
+        return {};
+    const auto& stored = stored_it->second;
     m_impl->families_by_alias[stored.alias] = id;
     if (stored.alias == kSystemFontAlias) {
         m_impl->families_by_alias[std::string(kSystemFontDisplayName)] = id;

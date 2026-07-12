@@ -1,4 +1,5 @@
 #include <noveltea/core/entity_ref.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -20,13 +21,13 @@ std::optional<EntityRef> EntityRef::from_json(const nlohmann::json& value)
         return std::nullopt;
     }
 
-    const auto type_value = type_json.get<std::int32_t>();
+    const auto type_value = json_access::get_or<std::int32_t>(type_json, -1);
     const auto type = entity_type_from_integer(static_cast<std::int32_t>(type_value));
     if (!type.has_value()) {
         return std::nullopt;
     }
 
-    return EntityRef{*type, id_json.get<std::string>()};
+    return EntityRef{*type, json_access::get_or<std::string>(id_json, {})};
 }
 
 } // namespace noveltea::core

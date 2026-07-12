@@ -267,7 +267,7 @@ AssetResult<AssetBlob> AssetSource::read_binary(const AssetPath& path) const
         return fail<AssetBlob>(std::move(opened.error));
     }
 
-    AssetReader& reader = *opened.value.value();
+    AssetReader& reader = **opened.value;
     AssetBlob blob;
     blob.logical_path = path;
     blob.source_description = describe();

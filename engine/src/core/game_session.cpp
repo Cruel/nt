@@ -1,4 +1,5 @@
 #include <noveltea/core/game_session.hpp>
+#include <noveltea/core/json_access.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -305,7 +306,7 @@ void GameSession::mark_room_visited(const std::string& room_id)
         return;
     }
     auto& visited = ensure_object(m_save->root(), project_ids::visited_rooms);
-    const int count = visited.value(room_id, 0);
+    const int count = json_access::value_or(visited, room_id, 0);
     visited[room_id] = count + 1;
 }
 
@@ -440,7 +441,7 @@ std::optional<EntityRef> GameSession::effective_object_location(const std::strin
     auto inv_it = root.find(key(project_ids::starting_inventory));
     if (inv_it != root.end() && inv_it->is_array()) {
         for (const auto& item : *inv_it) {
-            if (item.is_string() && item.get<std::string>() == object_id) {
+            if (item.is_string() && json_access::get_or<std::string>(item, {}) == object_id) {
                 return EntityRef{EntityType::CustomScript, std::string(project_ids::player)};
             }
         }
@@ -516,8 +517,8 @@ GameSession::resolve_startup_entrypoint(const ProjectDocument& project, const Sa
         return std::nullopt;
     }
 
-    const auto parsed =
-        EntityRef::from_json(project.root().at(std::string(project_ids::entrypoint_entity)));
+    const auto* entrypoint = json_access::member(project.root(), project_ids::entrypoint_entity);
+    const auto parsed = entrypoint ? EntityRef::from_json(*entrypoint) : std::nullopt;
     if (!parsed.has_value() || !parsed->has_id()) {
         add_error(diagnostics, "/" + std::string(project_ids::entrypoint_entity),
                   "project has no valid startup entrypoint");
@@ -590,7 +591,7 @@ void GameSession::restore_runtime_state(const SaveDocument& save,
                                 "' ignored by runtime views");
                 continue;
             }
-            auto location = EntityRef::from_json(it.value());
+            auto location = EntityRef::from_json(*it);
             if (!location.has_value() || !location->has_id()) {
                 add_warning(diagnostics, path, "expected selected-entity array [type, id]");
                 continue;

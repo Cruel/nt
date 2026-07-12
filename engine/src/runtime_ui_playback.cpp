@@ -1,6 +1,7 @@
 #include "noveltea/runtime_ui_playback.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/json_access.hpp"
 #include "noveltea/core/project_ids.hpp"
 #include "noveltea/script/runtime_script_executor.hpp"
 #include "noveltea/script/script_runtime.hpp"
@@ -167,8 +168,8 @@ const nlohmann::json* system_layout_metadata(const core::ProjectDocument& projec
 void install_virtual_layout(RuntimeUI& ui, const nlohmann::json& layout)
 {
     const auto set_file = [&](const char* path_key, const char* source_key) {
-        const auto path = layout.value(path_key, std::string{});
-        const auto source = layout.value(source_key, std::string{});
+        const auto path = core::json_access::value_or(layout, path_key, std::string{});
+        const auto source = core::json_access::value_or(layout, source_key, std::string{});
         if (!path.empty())
             ui.set_preview_virtual_file(path, source);
     };
@@ -191,7 +192,7 @@ void install_system_layout_virtual_files(RuntimeUI& ui, const core::ProjectDocum
         install_virtual_layout(ui, layout);
         if (role == "game-hud") {
             ui.set_preview_virtual_file("project:/ui/runtime/runtime_game.rml",
-                                        layout.value("rml", std::string{}));
+                                        core::json_access::value_or(layout, "rml", std::string{}));
         }
     }
 }
@@ -232,7 +233,7 @@ void execute_system_layout_lua(script::ScriptRuntime& runtime, const core::Proje
     for (const auto& [role, layout] : layouts->items()) {
         if (!layout.is_object())
             continue;
-        const auto lua = layout.value("lua", std::string{});
+        const auto lua = core::json_access::value_or(layout, "lua", std::string{});
         if (lua.empty())
             continue;
         auto result = runtime.execute(lua, "@editor-ui-playback:" + role);
@@ -341,7 +342,7 @@ RuntimeUiPlaybackSession::parse_spec(const nlohmann::json& json,
     }
 
     RuntimeUiPlaybackSpec spec;
-    spec.id = json.value("id", std::string{});
+    spec.id = core::json_access::value_or(json, "id", std::string{});
     if (spec.id.empty())
         diagnostics.push_back(tool_error(base_path + "/id", "UI playback spec requires an id."));
 
@@ -359,8 +360,8 @@ RuntimeUiPlaybackSession::parse_spec(const nlohmann::json& json,
                 continue;
             }
 
-            auto input =
-                ui_playback_input_from_string(step_json.value("input", std::string{"ui_click"}));
+            auto input = ui_playback_input_from_string(
+                core::json_access::value_or(step_json, "input", std::string{"ui_click"}));
             if (!input) {
                 diagnostics.push_back(
                     tool_error(step_path + "/input", "Unknown UI playback input type."));
@@ -370,9 +371,11 @@ RuntimeUiPlaybackSession::parse_spec(const nlohmann::json& json,
             RuntimeUiPlaybackStep step;
             step.input = *input;
             if (step_json.contains("index") && step_json["index"].is_number_unsigned())
-                step.index = step_json["index"].get<std::uint64_t>();
-            step.document_id = step_json.value("document_id", std::string{});
-            step.target = step_json.value("target", step_json.value("selector", std::string{}));
+                step.index = core::json_access::get_or<std::uint64_t>(step_json["index"], 0);
+            step.document_id = core::json_access::value_or(step_json, "document_id", std::string{});
+            step.target = core::json_access::value_or(
+                step_json, "target",
+                core::json_access::value_or(step_json, "selector", std::string{}));
 
             if (step.document_id.empty())
                 diagnostics.push_back(
@@ -418,7 +421,7 @@ RuntimeUiPlaybackSession::specs_from_project(const core::ProjectDocument& projec
 
     if (tests_it->is_object()) {
         for (auto it = tests_it->begin(); it != tests_it->end(); ++it) {
-            auto test_json = it.value();
+            auto test_json = *it;
             if (test_json.is_object() && !test_json.contains("id"))
                 test_json["id"] = it.key();
             auto parsed = parse_spec(test_json, diagnostics,

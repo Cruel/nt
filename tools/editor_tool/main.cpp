@@ -1,4 +1,5 @@
 #include <noveltea/core/editor_api.hpp>
+#include <noveltea/core/json_access.hpp>
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/render/shader_compiler.hpp>
 #include <noveltea/runtime_ui_playback.hpp>
@@ -104,7 +105,7 @@ nlohmann::json shader_compile_diagnostics_to_json(
     for (const auto& diagnostic : diagnostics) {
         result.push_back({{"severity", std::string(noveltea::to_string(diagnostic.severity))},
                           {"code", std::string(noveltea::to_string(diagnostic.code))},
-                          {"shader", diagnostic.shader.value()},
+                          {"shader", diagnostic.shader.string()},
                           {"stage", std::string(noveltea::to_string(diagnostic.stage))},
                           {"variant", diagnostic.variant},
                           {"sourcePath", diagnostic.source_path.generic_string()},
@@ -121,7 +122,7 @@ shader_compile_outputs_to_json(const std::vector<noveltea::ShaderCompileOutput>&
 {
     auto result = nlohmann::json::array();
     for (const auto& output : outputs) {
-        result.push_back({{"shader", output.shader.value()},
+        result.push_back({{"shader", output.shader.string()},
                           {"stage", std::string(noveltea::to_string(output.stage))},
                           {"variant", output.variant},
                           {"sourcePath", output.source_path.generic_string()},
@@ -150,12 +151,13 @@ std::optional<ProjectDocument> project_from_request(const nlohmann::json& reques
     std::string source;
     if (request.contains("project")) {
         if (request["project"].is_string()) {
-            source = request["project"].get<std::string>();
+            source = json_access::get_or<std::string>(request["project"], {});
         } else {
             source = request["project"].dump();
         }
     } else if (request.contains("projectPath") && request["projectPath"].is_string()) {
-        auto content = read_file(request["projectPath"].get<std::string>());
+        auto content =
+            read_file(json_access::get_or<std::string>(request["projectPath"], {}));
         if (!content) {
             error_response = fail("Could not read projectPath.");
             return std::nullopt;
@@ -191,19 +193,20 @@ noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::
     if (!json.is_object())
         return options;
 
-    options.shaderc = json.value("shaderc", std::string{});
-    options.bgfx_shader_include_dir = json.value("bgfxShaderIncludeDir", std::string{});
-    options.project_root = json.value("projectRoot", std::string{});
-    options.output_root = json.value("outputRoot", std::string{});
-    options.cache_root = json.value("cacheRoot", std::string{});
-    options.force_rebuild = json.value("forceRebuild", false);
+    options.shaderc = json_access::value_or(json, "shaderc", std::string{});
+    options.bgfx_shader_include_dir =
+        json_access::value_or(json, "bgfxShaderIncludeDir", std::string{});
+    options.project_root = json_access::value_or(json, "projectRoot", std::string{});
+    options.output_root = json_access::value_or(json, "outputRoot", std::string{});
+    options.cache_root = json_access::value_or(json, "cacheRoot", std::string{});
+    options.force_rebuild = json_access::value_or(json, "forceRebuild", false);
 
     std::vector<std::string> variant_names;
     if (auto variants = json.find("shaderVariants");
         variants != json.end() && variants->is_array()) {
         for (const auto& variant : *variants) {
             if (variant.is_string())
-                variant_names.push_back(variant.get<std::string>());
+                variant_names.push_back(json_access::get_or<std::string>(variant, {}));
         }
     }
 
@@ -244,20 +247,22 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     PackageExportOptions options;
     if (!json.is_object())
         return options;
-    const auto kind = json.value("kind", std::string("runtime"));
+    const auto kind = json_access::value_or(json, "kind", std::string("runtime"));
     options.kind = kind == "editable" ? PackageExportKind::Editable : PackageExportKind::Runtime;
-    options.project_name = json.value("projectName", std::string{});
-    options.project_version = json.value("projectVersion", std::string{});
-    options.created_by = json.value("createdBy", std::string("noveltea-editor"));
-    options.include_checksums = json.value("includeChecksums", true);
-    options.strip_shader_sources = json.value("stripShaderSources", true);
+    options.project_name = json_access::value_or(json, "projectName", std::string{});
+    options.project_version = json_access::value_or(json, "projectVersion", std::string{});
+    options.created_by =
+        json_access::value_or(json, "createdBy", std::string("noveltea-editor"));
+    options.include_checksums = json_access::value_or(json, "includeChecksums", true);
+    options.strip_shader_sources = json_access::value_or(json, "stripShaderSources", true);
     if (auto display = json.find("display"); display != json.end() && display->is_object()) {
         options.display = *display;
     }
     if (auto platform = json.find("platform"); platform != json.end() && platform->is_object()) {
         options.platform = *platform;
     }
-    options.shader_asset_root = json.value("shaderAssetRoot", std::string{});
+    options.shader_asset_root =
+        json_access::value_or(json, "shaderAssetRoot", std::string{});
     if (auto metadata = json.find("shaderMaterialMetadata"); metadata != json.end()) {
         options.shader_material_metadata = *metadata;
     }
@@ -265,14 +270,15 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
         variants != json.end() && variants->is_array()) {
         for (const auto& variant : *variants) {
             if (variant.is_string())
-                options.shader_variants.push_back(variant.get<std::string>());
+                options.shader_variants.push_back(json_access::get_or<std::string>(variant, {}));
         }
     }
     if (auto required = json.find("requiredShaderBinaryPaths");
         required != json.end() && required->is_array()) {
         for (const auto& path : *required) {
             if (path.is_string())
-                options.required_shader_binary_paths.insert(path.get<std::string>());
+                options.required_shader_binary_paths.insert(
+                    json_access::get_or<std::string>(path, {}));
         }
     }
     if (auto roots = json.find("assetRoots"); roots != json.end() && roots->is_array()) {
@@ -280,8 +286,9 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             if (!root.is_object())
                 continue;
             PackageExportAssetRoot asset_root;
-            asset_root.root = root.value("root", std::string{});
-            asset_root.package_prefix = root.value("packagePrefix", std::string{});
+            asset_root.root = json_access::value_or(root, "root", std::string{});
+            asset_root.package_prefix =
+                json_access::value_or(root, "packagePrefix", std::string{});
             options.asset_roots.push_back(std::move(asset_root));
         }
     }
@@ -290,8 +297,9 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             if (!entry.is_object())
                 continue;
             PackageExportFileEntry file_entry;
-            file_entry.source = entry.value("source", std::string{});
-            file_entry.package_path = entry.value("packagePath", std::string{});
+            file_entry.source = json_access::value_or(entry, "source", std::string{});
+            file_entry.package_path =
+                json_access::value_or(entry, "packagePath", std::string{});
             options.file_entries.push_back(std::move(file_entry));
         }
     }
@@ -301,13 +309,13 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
 nlohmann::json run_command(std::string_view command, const nlohmann::json& request)
 {
     if (command == "load-project") {
-        const auto source = request.value("source", std::string{});
+        const auto source = json_access::value_or(request, "source", std::string{});
         auto loaded = ProjectTooling::load_project_json(source);
         return project_payload(loaded);
     }
 
     if (command == "import-legacy-game") {
-        const auto source = request.value("source", std::string{});
+        const auto source = json_access::value_or(request, "source", std::string{});
         auto loaded = ProjectTooling::import_legacy_game_json(source);
         return project_payload(loaded);
     }
@@ -346,7 +354,7 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         if (auto spec_json = request.find("spec"); spec_json != request.end()) {
             spec = RuntimePlaybackSession::parse_spec(*spec_json, diagnostics, "/spec");
         } else {
-            const auto test_id = request.value("testId", std::string{});
+            const auto test_id = json_access::value_or(request, "testId", std::string{});
             auto specs = RuntimePlaybackSession::specs_from_project(*project, diagnostics);
             for (auto& candidate : specs) {
                 if (candidate.id == test_id) {
@@ -378,7 +386,7 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         if (auto spec_json = request.find("spec"); spec_json != request.end()) {
             spec = noveltea::RuntimeUiPlaybackSession::parse_spec(*spec_json, diagnostics, "/spec");
         } else {
-            const auto test_id = request.value("testId", std::string{});
+            const auto test_id = json_access::value_or(request, "testId", std::string{});
             auto specs =
                 noveltea::RuntimeUiPlaybackSession::specs_from_project(*project, diagnostics);
             for (auto& candidate : specs) {
@@ -408,7 +416,8 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
 
         nlohmann::json variant_diagnostics = nlohmann::json::array();
         auto options = shader_compile_options_from_json(
-            request.value("options", nlohmann::json::object()), variant_diagnostics);
+            json_access::value_or(request, "options", nlohmann::json::object()),
+            variant_diagnostics);
         noveltea::ShaderCompilerService compiler;
         auto result = compiler.compile_shader_project(*shader_project, options);
         auto diagnostics = shader_compile_diagnostics_to_json(result.diagnostics);
@@ -424,11 +433,12 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         auto project = project_from_request(request, error_response);
         if (!project)
             return error_response;
-        const auto output = request.value("outputPath", std::string{});
+        const auto output = json_access::value_or(request, "outputPath", std::string{});
         if (output.empty())
             return fail("Request requires outputPath.");
         const auto options =
-            export_options_from_json(request.value("options", nlohmann::json::object()));
+            export_options_from_json(
+                json_access::value_or(request, "options", nlohmann::json::object()));
         auto result = ProjectTooling::export_project_package(*project, output, options);
         return ok({{"success", result.success},
                    {"diagnostics", export_diagnostics_to_json(result.diagnostics)},
@@ -443,9 +453,10 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         if (!project)
             return error_response;
         auto result =
-            ProjectTooling::set_entity_record(*project, request.value("collection", std::string{}),
-                                              request.value("entityId", std::string{}),
-                                              request.value("record", nlohmann::json::array()));
+            ProjectTooling::set_entity_record(
+                *project, json_access::value_or(request, "collection", std::string{}),
+                json_access::value_or(request, "entityId", std::string{}),
+                json_access::value_or(request, "record", nlohmann::json::array()));
         return ok({{"success", result.success()},
                    {"diagnostics", diagnostics_to_json(result.diagnostics)},
                    {"project", project->root()}});
@@ -457,8 +468,8 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         if (!project)
             return error_response;
         auto result = ProjectTooling::erase_entity_record(
-            *project, request.value("collection", std::string{}),
-            request.value("entityId", std::string{}));
+            *project, json_access::value_or(request, "collection", std::string{}),
+            json_access::value_or(request, "entityId", std::string{}));
         return ok({{"success", result.success()},
                    {"diagnostics", diagnostics_to_json(result.diagnostics)},
                    {"project", project->root()}});
@@ -486,5 +497,5 @@ int main(int argc, char** argv)
 
     auto response = run_command(argv[1], request);
     std::cout << response.dump(2) << '\n';
-    return response.value("ok", false) ? 0 : 1;
+    return json_access::value_or(response, "ok", false) ? 0 : 1;
 }

@@ -1,11 +1,11 @@
 #include <noveltea/core/legacy/project_importer.hpp>
 
 #include <array>
-#include <exception>
 
 #include <nlohmann/json.hpp>
 
 #include <noveltea/core/entity_ref.hpp>
+#include <noveltea/core/json_access.hpp>
 #include <noveltea/core/project_ids.hpp>
 
 namespace noveltea::core::legacy {
@@ -34,9 +34,9 @@ void require_object(const nlohmann::json& root, std::string_view key,
                     std::vector<ImportError>& errors)
 {
     const auto name = key_to_string(key);
-    if (root.contains(name) && !root.at(name).is_object()) {
+    if (const auto* value = json_access::member(root, name); value && !value->is_object()) {
         add_error(errors, "Legacy project key '" + name + "' expected object but found " +
-                              kind_of(root.at(name)) + ".");
+                              kind_of(*value) + ".");
     }
 }
 
@@ -44,9 +44,9 @@ void require_array(const nlohmann::json& root, std::string_view key,
                    std::vector<ImportError>& errors)
 {
     const auto name = key_to_string(key);
-    if (root.contains(name) && !root.at(name).is_array()) {
+    if (const auto* value = json_access::member(root, name); value && !value->is_array()) {
         add_error(errors, "Legacy project key '" + name + "' expected array but found " +
-                              kind_of(root.at(name)) + ".");
+                              kind_of(*value) + ".");
     }
 }
 
@@ -54,9 +54,9 @@ void require_string(const nlohmann::json& root, std::string_view key,
                     std::vector<ImportError>& errors)
 {
     const auto name = key_to_string(key);
-    if (root.contains(name) && !root.at(name).is_string()) {
+    if (const auto* value = json_access::member(root, name); value && !value->is_string()) {
         add_error(errors, "Legacy project key '" + name + "' expected string but found " +
-                              kind_of(root.at(name)) + ".");
+                              kind_of(*value) + ".");
     }
 }
 
@@ -64,9 +64,9 @@ void require_number(const nlohmann::json& root, std::string_view key,
                     std::vector<ImportError>& errors)
 {
     const auto name = key_to_string(key);
-    if (root.contains(name) && !root.at(name).is_number()) {
+    if (const auto* value = json_access::member(root, name); value && !value->is_number()) {
         add_error(errors, "Legacy project key '" + name + "' expected number but found " +
-                              kind_of(root.at(name)) + ".");
+                              kind_of(*value) + ".");
     }
 }
 
@@ -74,17 +74,17 @@ void require_object_or_empty_array(const nlohmann::json& root, std::string_view 
                                    std::vector<ImportError>& errors)
 {
     const auto name = key_to_string(key);
-    if (!root.contains(name)) {
+    const auto* value = json_access::member(root, name);
+    if (!value) {
         return;
     }
 
-    const auto& value = root.at(name);
-    if (value.is_object() || (value.is_array() && value.empty())) {
+    if (value->is_object() || (value->is_array() && value->empty())) {
         return;
     }
     add_error(errors, "Legacy project key '" + name +
                           "' expected object map or empty array placeholder but found " +
-                          kind_of(value) + ".");
+                          kind_of(*value) + ".");
 }
 
 } // namespace
@@ -144,15 +144,16 @@ std::optional<ImportedProject> ProjectImporter::import_game_json(const nlohmann:
         const auto name = key_to_string(key);
         if (!root.contains(name)) {
             add_error(errors, "Legacy project JSON is missing entity collection '" + name + "'.");
-        } else if (!root.at(name).is_object()) {
+        } else if (const auto* value = json_access::member(root, name);
+                   !value || !value->is_object()) {
             add_error(errors, "Legacy entity collection '" + name + "' expected object but found " +
-                                  kind_of(root.at(name)) + ".");
+                                  (value ? kind_of(*value) : std::string("missing")) + ".");
         }
     }
 
     const auto entrypoint_key = key_to_string(project_ids::entrypoint_entity);
-    if (root.contains(entrypoint_key) &&
-        !EntityRef::from_json(root.at(entrypoint_key)).has_value()) {
+    if (const auto* entrypoint = json_access::member(root, entrypoint_key);
+        entrypoint && !EntityRef::from_json(*entrypoint).has_value()) {
         add_error(errors,
                   "Legacy project entrypoint must use selected-entity array shape [type, id].");
     }

@@ -1,4 +1,5 @@
 #include "noveltea/assets/resource_aliases.hpp"
+#include "noveltea/core/json_access.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -17,7 +18,7 @@ std::optional<std::string> get_string(const nlohmann::json& object, const char* 
     const auto it = object.find(key);
     if (it == object.end() || !it->is_string())
         return std::nullopt;
-    return it->get<std::string>();
+    return core::json_access::get<std::string>(*it);
 }
 
 AudioClipKind parse_audio_kind(const std::string& value)
@@ -59,11 +60,13 @@ void parse_audio_aliases(const nlohmann::json& resources, ResourceAliasRegistry&
     if (it == resources.end() || !it->is_object())
         return;
 
-    for (const auto& item : it->items()) {
+    for (auto item = it->begin(); item != it->end(); ++item) {
         const std::string& alias = item.key();
-        const auto& value = item.value();
+        const auto& value = *item;
         if (value.is_string()) {
-            registry.register_audio(alias, AudioAssetRequest{.path = value.get<std::string>()});
+            registry.register_audio(
+                alias,
+                AudioAssetRequest{.path = core::json_access::get_or<std::string>(value, {})});
             continue;
         }
         if (!value.is_object())
@@ -88,11 +91,13 @@ void parse_texture_aliases(const nlohmann::json& resources, ResourceAliasRegistr
     if (it == resources.end() || !it->is_object())
         return;
 
-    for (const auto& item : it->items()) {
+    for (auto item = it->begin(); item != it->end(); ++item) {
         const std::string& alias = item.key();
-        const auto& value = item.value();
+        const auto& value = *item;
         if (value.is_string()) {
-            registry.register_texture(alias, TextureAssetRequest{.path = value.get<std::string>()});
+            registry.register_texture(
+                alias,
+                TextureAssetRequest{.path = core::json_access::get_or<std::string>(value, {})});
             continue;
         }
         if (!value.is_object())
@@ -113,11 +118,13 @@ void parse_material_aliases(const nlohmann::json& resources, ResourceAliasRegist
     if (it == resources.end() || !it->is_object())
         return;
 
-    for (const auto& item : it->items()) {
+    for (auto item = it->begin(); item != it->end(); ++item) {
         const std::string& alias = item.key();
-        const auto& value = item.value();
+        const auto& value = *item;
         if (value.is_string()) {
-            registry.register_material(alias, MaterialAssetRequest{.id = value.get<std::string>()});
+            registry.register_material(
+                alias,
+                MaterialAssetRequest{.id = core::json_access::get_or<std::string>(value, {})});
             continue;
         }
         if (!value.is_object())

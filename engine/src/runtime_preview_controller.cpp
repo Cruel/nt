@@ -1,5 +1,6 @@
 #include "noveltea/runtime_preview_controller.hpp"
 
+#include "noveltea/core/json_access.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/runtime_debug_mutation.hpp"
@@ -223,20 +224,23 @@ std::string RuntimePreviewController::fast_forward_to_input()
             return 0;
         return static_cast<int>(
             std::count_if(entries.begin(), entries.end(), [](const auto& entry) {
-                return entry.is_object() && entry.value("enabled", true);
+                return entry.is_object() && core::json_access::value_or(entry, "enabled", true);
             }));
     };
 
     auto classify_stop = [&](const nlohmann::json& snapshot) -> std::string {
-        if (!snapshot.value("loaded", false))
+        if (!core::json_access::value_or(snapshot, "loaded", false))
             return "unloaded";
-        const auto shell_mode = snapshot.value("shellMode", std::string());
-        const auto runtime_mode = snapshot.value("runtimeMode", std::string());
-        const auto waiting = snapshot.value("waiting", nlohmann::json::object());
-        const auto waiting_kind = waiting.value("kind", std::string("unknown"));
+        const auto shell_mode = core::json_access::value_or(snapshot, "shellMode", std::string());
+        const auto runtime_mode =
+            core::json_access::value_or(snapshot, "runtimeMode", std::string());
+        const auto waiting =
+            core::json_access::value_or(snapshot, "waiting", nlohmann::json::object());
+        const auto waiting_kind =
+            core::json_access::value_or(waiting, "kind", std::string("unknown"));
         if (shell_mode == "error" ||
             runtime_debug_diagnostics_have_error(
-                snapshot.value("diagnostics", nlohmann::json::array())) ||
+                core::json_access::value_or(snapshot, "diagnostics", nlohmann::json::array())) ||
             waiting_kind == "error")
             return "error";
         if (m_engine.m_runtime_shell.paused() ||
@@ -244,17 +248,22 @@ std::string RuntimePreviewController::fast_forward_to_input()
             m_engine.m_runtime_shell.layouts().blocks_game_input() || shell_mode == "paused" ||
             shell_mode == "title" || waiting_kind == "paused" || waiting_kind == "title")
             return "blocking-ui";
-        const auto inputs = snapshot.value("availableInputs", nlohmann::json::object());
-        if (enabled_entries(inputs.value("dialogueOptions", nlohmann::json::array())) > 0 ||
+        const auto inputs =
+            core::json_access::value_or(snapshot, "availableInputs", nlohmann::json::object());
+        if (enabled_entries(core::json_access::value_or(inputs, "dialogueOptions",
+                                                        nlohmann::json::array())) > 0 ||
             waiting_kind == "choice")
             return "choice-available";
-        if (enabled_entries(inputs.value("navigation", nlohmann::json::array())) > 0 ||
+        if (enabled_entries(
+                core::json_access::value_or(inputs, "navigation", nlohmann::json::array())) > 0 ||
             waiting_kind == "navigation")
             return "navigation-available";
-        if (enabled_entries(inputs.value("actions", nlohmann::json::array())) > 0 ||
+        if (enabled_entries(
+                core::json_access::value_or(inputs, "actions", nlohmann::json::array())) > 0 ||
             waiting_kind == "action")
             return "action-available";
-        const auto clickable_targets = inputs.value("clickableTargets", nlohmann::json::array());
+        const auto clickable_targets =
+            core::json_access::value_or(inputs, "clickableTargets", nlohmann::json::array());
         if (clickable_targets.is_array() && !clickable_targets.empty())
             return "ui-target-available";
         if (runtime_mode == "none" && shell_mode == "game")
@@ -277,11 +286,13 @@ std::string RuntimePreviewController::fast_forward_to_input()
         if (reason != "auto-progress")
             break;
 
-        const auto waiting = final_snapshot.value("waiting", nlohmann::json::object());
-        const auto inputs = final_snapshot.value("availableInputs", nlohmann::json::object());
-        if ((waiting.value("kind", std::string()) == "continue" ||
-             waiting.value("canContinue", false)) &&
-            inputs.value("continue", false)) {
+        const auto waiting =
+            core::json_access::value_or(final_snapshot, "waiting", nlohmann::json::object());
+        const auto inputs = core::json_access::value_or(final_snapshot, "availableInputs",
+                                                        nlohmann::json::object());
+        if ((core::json_access::value_or(waiting, "kind", std::string()) == "continue" ||
+             core::json_access::value_or(waiting, "canContinue", false)) &&
+            core::json_access::value_or(inputs, "continue", false)) {
             if (!continue_dialogue()) {
                 reason = "stabilization-limit";
                 break;

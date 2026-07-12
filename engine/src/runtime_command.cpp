@@ -1,5 +1,6 @@
 #include "noveltea/runtime_command.hpp"
 
+#include "noveltea/core/json_access.hpp"
 #include "noveltea/runtime_shell.hpp"
 
 #include <utility>
@@ -59,26 +60,26 @@ void append_input_result(RuntimeCommandResult& result, core::RuntimeInputResult 
 
 std::optional<int> int_payload(const nlohmann::json& payload, const char* key)
 {
-    if (!payload.is_object() || !payload.contains(key)) {
+    const auto* value = core::json_access::member(payload, key);
+    if (!value) {
         return std::nullopt;
     }
-    const auto& value = payload.at(key);
-    if (!value.is_number_integer()) {
+    if (!value->is_number_integer()) {
         return std::nullopt;
     }
-    return value.get<int>();
+    return core::json_access::get<int>(*value);
 }
 
 std::optional<std::string> string_payload(const nlohmann::json& payload, const char* key)
 {
-    if (!payload.is_object() || !payload.contains(key)) {
+    const auto* value = core::json_access::member(payload, key);
+    if (!value) {
         return std::nullopt;
     }
-    const auto& value = payload.at(key);
-    if (!value.is_string()) {
+    if (!value->is_string()) {
         return std::nullopt;
     }
-    return value.get<std::string>();
+    return core::json_access::get<std::string>(*value);
 }
 
 std::vector<std::string> object_ids_payload(const nlohmann::json& payload)
@@ -97,7 +98,7 @@ std::vector<std::string> object_ids_payload(const nlohmann::json& payload)
     }
     for (const auto& value : *it) {
         if (value.is_string()) {
-            ids.push_back(value.get<std::string>());
+            ids.push_back(core::json_access::get_or<std::string>(value, {}));
         }
     }
     return ids;
