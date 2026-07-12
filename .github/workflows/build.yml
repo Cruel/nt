@@ -35,9 +35,8 @@ permissions:
 
 jobs:
   cxx-runtime-policy:
-    name: C++ runtime policy migration
+    name: C++ runtime policy
     runs-on: ubuntu-24.04
-    continue-on-error: true # Removed when the phase 2-6 baseline reaches zero.
     steps:
       - uses: actions/checkout@v6
       - name: Audit prohibited runtime C++ constructs
@@ -202,6 +201,9 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-debug
 
+      - name: Enforce C++ runtime and dependency policy
+        run: cmake --build --preset linux-debug --target cxx-policy
+
       - name: Enable RmlUi base-direct compat fallback
         run: touch build/linux-debug/rmlui-base-direct-compat.enabled
 
@@ -225,6 +227,58 @@ jobs:
           cp -R ./build/linux-debug/runtime-assets /tmp/noveltea-package/assets
           cd /tmp
           xvfb-run -a /tmp/noveltea-package/noveltea-sandbox --demo all --frames 180
+
+  windows:
+    name: Windows C++ policy
+    runs-on: windows-2025
+    needs: shader-assets
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg SDK and binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            build/windows-release/vcpkg_installed
+          key: windows-x64-vcpkg-policy-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: |
+            windows-x64-vcpkg-policy-
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:VCPKG_ROOT/.git")) {
+            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          }
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
+
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/prebuilt-shader-assets
+
+      - name: Configure Windows release
+        shell: pwsh
+        run: cmake --preset windows-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
+
+      - name: Build shipped Windows targets
+        shell: pwsh
+        run: cmake --build --preset windows-release --target noveltea-player noveltea-sandbox noveltea-editor-tool
+
+      - name: Enforce Windows C++ runtime and dependency policy
+        shell: pwsh
+        run: cmake --build --preset windows-release --target cxx-policy
 
   web:
     name: Web / Emscripten
@@ -331,6 +385,7 @@ jobs:
           source "$EMSDK/emsdk_env.sh"
           emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-release --target noveltea-sandbox
+          cmake --build --preset web-release --target cxx-policy
           test -f build/web-release/apps/sandbox/index.data
           test -f build/web-release/apps/sandbox/index.html
           test -f build/web-release/apps/sandbox/index.js
@@ -484,6 +539,14 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: ./gradlew --no-daemon :app:assembleDebug -PnovelteaAbi=x86_64 -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
+
+      - name: Enforce Android C++ runtime and dependency policy
+        run: |
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/cxx-policy-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckCxxRuntimePolicy.cmake"
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyCxxRuntimePolicyChecker.cmake"
+          build_dir=$(find android/app/.cxx/Debug -path '*/x86_64/compile_commands.json' -printf '%T@ %h\n' | sort -nr | head -1 | cut -d' ' -f2-)
+          test -n "$build_dir"
+          cmake -DBUILD_DIR="$build_dir" -DPLATFORM_NAME=Android -P cmake/VerifyDependencyCompilerPolicy.cmake
 
       - name: Verify Android packaged assets
         working-directory: android

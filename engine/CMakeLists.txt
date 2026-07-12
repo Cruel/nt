@@ -26,6 +26,7 @@ add_library(noveltea_core STATIC
 )
 
 target_compile_features(noveltea_core PUBLIC cxx_std_20)
+noveltea_apply_runtime_compiler_policy(noveltea_core)
 
 target_include_directories(noveltea_core
     PUBLIC

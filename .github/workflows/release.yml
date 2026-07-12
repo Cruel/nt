@@ -88,19 +88,19 @@ jobs:
             arch: x64
             runner: ubuntu-22.04
             preset: linux-release
-            triplet: x64-linux
+            triplet: x64-linux-noveltea
             host_triplet: x64-linux
           - platform: windows
             arch: x64
             runner: windows-2025
             preset: windows-release
-            triplet: x64-windows-static
+            triplet: x64-windows-static-noveltea
             host_triplet: x64-windows
           - platform: macos
             arch: arm64
             runner: macos-15
             preset: macos-release
-            triplet: arm64-osx
+            triplet: arm64-osx-noveltea
             host_triplet: arm64-osx
 
     steps:
@@ -183,6 +183,7 @@ jobs:
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
           cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox noveltea-player
+          cmake --build --preset ${{ matrix.preset }} --target cxx-policy
 
       - name: Audit player dependency closure
         shell: pwsh
@@ -377,6 +378,7 @@ jobs:
           source "$EMSDK/emsdk_env.sh"
           emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-release --target noveltea-player
+          cmake --build --preset web-release --target cxx-policy
 
       - name: Verify release player surface
         run: |

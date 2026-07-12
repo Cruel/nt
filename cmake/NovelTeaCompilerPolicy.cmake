@@ -1,10 +1,22 @@
 function(noveltea_apply_runtime_compiler_policy target)
+    if(NOT TARGET "${target}")
+        message(FATAL_ERROR "Cannot apply NovelTea compiler policy to missing target '${target}'")
+    endif()
+
     if(MSVC)
-        target_compile_options("${target}" PRIVATE /GR- /EHs-c-)
+        target_compile_options("${target}" PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:/GR->
+            $<$<COMPILE_LANGUAGE:CXX>:/EHs-c->
+            $<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_SOURCE_DIR}/engine/include/noveltea/core/compiler_policy.hpp>)
         target_compile_definitions("${target}" PRIVATE _HAS_EXCEPTIONS=0)
     else()
-        target_compile_options("${target}" PRIVATE -fno-exceptions -fno-rtti)
+        target_compile_options("${target}" PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
+            $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
+            $<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_SOURCE_DIR}/engine/include/noveltea/core/compiler_policy.hpp>)
     endif()
+
+    set_property(TARGET "${target}" PROPERTY NOVELTEA_RUNTIME_COMPILER_POLICY TRUE)
 endfunction()
 
 function(noveltea_apply_runtime_dependency_policy target)

@@ -35,6 +35,10 @@ add_custom_target(cxx-dependency-policy
     COMMENT "Verifying C++ dependency compiler flags and runtime link inputs"
     VERBATIM)
 
+add_custom_target(cxx-policy
+    DEPENDS cxx-runtime-policy cxx-dependency-policy
+    COMMENT "Verifying the complete NovelTea C++ runtime policy")
+
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.cpp"
