@@ -115,21 +115,29 @@ Rml::FileHandle AssetRmlFileInterface::Open(const Rml::String& path)
 
 void AssetRmlFileInterface::Close(Rml::FileHandle file)
 {
+    if (file == 0)
+        return;
     delete reinterpret_cast<OpenedRmlFile*>(file);
 }
 
 size_t AssetRmlFileInterface::Read(void* buffer, size_t size, Rml::FileHandle file)
 {
+    if (file == 0 || buffer == nullptr || size == 0)
+        return 0;
     return reinterpret_cast<OpenedRmlFile*>(file)->read(buffer, size);
 }
 
 bool AssetRmlFileInterface::Seek(Rml::FileHandle file, long offset, int origin)
 {
+    if (file == 0)
+        return false;
     return reinterpret_cast<OpenedRmlFile*>(file)->seek(offset, origin);
 }
 
 size_t AssetRmlFileInterface::Tell(Rml::FileHandle file)
 {
+    if (file == 0)
+        return 0;
     return reinterpret_cast<OpenedRmlFile*>(file)->tell();
 }
 

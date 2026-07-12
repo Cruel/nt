@@ -1109,4 +1109,15 @@ void clear_game_bindings(lua_State* L)
     lua["alert"] = sol::lua_nil;
 }
 
+void release_game_binding_state(lua_State* L)
+{
+    sol::state_view lua(L);
+    auto* bridge = detail::registry_pointer<ScriptBridge>(lua, kBridgeKey);
+    if (!bridge)
+        return;
+
+    delete bridge;
+    lua.registry()[kBridgeKey] = sol::lua_nil;
+}
+
 } // namespace noveltea::script

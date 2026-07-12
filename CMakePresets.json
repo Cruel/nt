@@ -28,6 +28,19 @@
             }
         },
         {
+            "name": "linux-sanitize",
+            "displayName": "Linux ASan + UBSan",
+            "description": "Native robustness build with parser fuzz smoke targets",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-sanitize",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-sanitize/vcpkg_installed",
+                "NOVELTEA_ENABLE_SANITIZERS": "ON",
+                "NOVELTEA_BUILD_FUZZERS": "ON",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
+            }
+        },
+        {
             "name": "linux-release",
             "displayName": "Linux Release",
             "description": "Release build for Linux desktop",
@@ -134,6 +147,10 @@
         {
             "name": "linux-debug-local-rmlui-bgfx",
             "configurePreset": "linux-debug-local-rmlui-bgfx"
+        },
+        {
+            "name": "linux-sanitize",
+            "configurePreset": "linux-sanitize"
         },
         {
             "name": "linux-release",

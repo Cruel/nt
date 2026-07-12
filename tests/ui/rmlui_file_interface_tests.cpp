@@ -42,6 +42,27 @@ TEST_CASE("AssetRmlFileInterface opens, reads, seeks, tells, and closes")
     CHECK(files.Open("missing.rml") == 0);
 }
 
+TEST_CASE("AssetRmlFileInterface safely rejects invalid handles and buffers")
+{
+    AssetManager manager;
+    AssetRmlFileInterface files(manager);
+
+    char buffer[4]{};
+    CHECK(files.Read(buffer, sizeof(buffer), 0) == 0);
+    CHECK_FALSE(files.Seek(0, 0, SEEK_SET));
+    CHECK(files.Tell(0) == 0);
+    files.Close(0);
+
+    auto source = std::make_shared<MemoryAssetSource>();
+    source->add("project:/rmlui/demo.rml", {'d'});
+    manager.mount("project", source);
+    const auto handle = files.Open("demo.rml");
+    REQUIRE(handle != 0);
+    CHECK(files.Read(nullptr, 1, handle) == 0);
+    CHECK(files.Read(buffer, 0, handle) == 0);
+    files.Close(handle);
+}
+
 TEST_CASE("RmlUi logical asset path normalization is narrow")
 {
     auto source = std::make_shared<MemoryAssetSource>();

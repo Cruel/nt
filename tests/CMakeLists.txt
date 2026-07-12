@@ -279,6 +279,34 @@ if(EMSCRIPTEN)
     )
 endif()
 
+if(NOVELTEA_BUILD_FUZZERS)
+    foreach(_noveltea_fuzz_kind IN ITEMS 1 2 3 4)
+        if(_noveltea_fuzz_kind EQUAL 1)
+            set(_noveltea_fuzz_name json)
+        elseif(_noveltea_fuzz_kind EQUAL 2)
+            set(_noveltea_fuzz_name rich_text)
+        elseif(_noveltea_fuzz_kind EQUAL 3)
+            set(_noveltea_fuzz_name package)
+        else()
+            set(_noveltea_fuzz_name runtime_project)
+        endif()
+        set(_noveltea_fuzz_target "noveltea_fuzz_${_noveltea_fuzz_name}")
+        add_executable("${_noveltea_fuzz_target}" fuzz/parser_fuzz.cpp)
+        target_compile_definitions("${_noveltea_fuzz_target}" PRIVATE
+            NOVELTEA_FUZZ_KIND=${_noveltea_fuzz_kind})
+        target_link_libraries("${_noveltea_fuzz_target}" PRIVATE noveltea_core)
+        if(_noveltea_fuzz_kind EQUAL 3)
+            target_link_libraries("${_noveltea_fuzz_target}" PRIVATE miniz::miniz)
+        endif()
+        noveltea_configure_fuzz_target("${_noveltea_fuzz_target}")
+        if(NOT NOVELTEA_USE_LIBFUZZER)
+            add_test(NAME "${_noveltea_fuzz_target}_smoke" COMMAND "${_noveltea_fuzz_target}")
+            set_tests_properties("${_noveltea_fuzz_target}_smoke" PROPERTIES
+                LABELS "robustness;fuzz-smoke")
+        endif()
+    endforeach()
+endif()
+
 # --- No committed shader headers check ---
 
 add_test(

@@ -4,6 +4,7 @@
 #include "noveltea/core/project_document.hpp"
 
 #include <optional>
+#include <cstring>
 
 using namespace noveltea::assets;
 using noveltea::core::ProjectDocument;
@@ -20,6 +21,42 @@ static std::shared_ptr<MemoryAssetSource> memory_source(std::string_view path, A
     source->add(path, std::move(bytes));
     return source;
 }
+
+class ShortReadReader final : public AssetReader {
+public:
+    [[nodiscard]] std::optional<std::uint64_t> size() const override { return 4; }
+
+    std::size_t read(void* destination, std::size_t bytes) override
+    {
+        if (bytes == 0)
+            return 0;
+        static constexpr char payload[] = "ab";
+        const std::size_t count = std::min<std::size_t>(2, bytes);
+        std::memcpy(destination, payload, count);
+        return count;
+    }
+
+    bool seek(std::int64_t, int) override { return false; }
+    [[nodiscard]] std::optional<std::uint64_t> tell() const override { return 0; }
+};
+
+class ShortReadSource final : public AssetSource {
+public:
+    [[nodiscard]] bool exists(const AssetPath& path) const override
+    {
+        return path.logical_path() == "project:/short.bin";
+    }
+
+    [[nodiscard]] AssetResult<AssetReaderPtr> open(const AssetPath& path) const override
+    {
+        if (!exists(path))
+            return {{}, "missing"};
+        return {std::make_unique<ShortReadReader>(), {}};
+    }
+
+    [[nodiscard]] std::string describe() const override { return "short-read-source"; }
+    [[nodiscard]] const char* kind() const override { return "test-short-read"; }
+};
 
 class FakeFontAssetLoader final : public FontAssetLoader {
 public:
@@ -95,6 +132,18 @@ TEST_CASE("AssetManager reports missing mounts and missing assets")
     auto missing = manager.read_binary("missing");
     CHECK_FALSE(missing);
     CHECK(missing.error.find("searched:") != std::string::npos);
+}
+
+TEST_CASE("AssetManager reports sized-reader short reads without returning partial data")
+{
+    AssetManager manager;
+    manager.mount("project", std::make_shared<ShortReadSource>());
+
+    const auto result = manager.read_binary("project:/short.bin");
+    REQUIRE_FALSE(result);
+    CHECK(result.error.find("short read") != std::string::npos);
+    CHECK(result.error.find("project:/short.bin") != std::string::npos);
+    CHECK(result.error.find("short-read-source") != std::string::npos);
 }
 
 TEST_CASE("AssetManager typed font API reports missing loader and forwards requests")

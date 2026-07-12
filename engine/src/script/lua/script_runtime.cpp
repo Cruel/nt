@@ -161,6 +161,7 @@ void ScriptRuntime::shutdown()
 {
     if (m_impl) {
         m_impl->initialized = false;
+        release_game_binding_state(m_impl->lua.lua_state());
         m_impl.reset();
     }
 }

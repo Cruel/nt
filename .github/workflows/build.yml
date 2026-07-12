@@ -228,6 +228,68 @@ jobs:
           cd /tmp
           xvfb-run -a /tmp/noveltea-package/noveltea-sandbox --demo all --frames 180
 
+  linux-sanitize:
+    name: Linux ASan / UBSan robustness
+    runs-on: ubuntu-24.04
+    needs: shader-assets
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git \
+            xvfb libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxext-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev \
+            wayland-protocols libltdl-dev libxtst-dev autoconf automake autoconf-archive \
+            libtool bison flex
+
+      - name: Cache vcpkg SDK and binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+          key: ${{ runner.os }}-x64-vcpkg-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaSanitizers.cmake') }}
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Download shader assets
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-shader-assets
+          path: build/prebuilt-shader-assets
+
+      - name: Configure sanitizer build
+        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets"
+
+      - name: Build sanitizer targets
+        run: cmake --build --preset linux-sanitize
+
+      - name: Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
+            -E 'noveltea_(rmlui_readback_capture|rmlui_feature_fixtures_capture|rmlui_resize_readback_capture|presentation_readback_capture|sandbox_runtime_.*_smoke)'
+
+      - name: Run instrumented GPU and sandbox smoke tests
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
+            -R 'noveltea_(rmlui_readback_capture|rmlui_feature_fixtures_capture|rmlui_resize_readback_capture|presentation_readback_capture|sandbox_runtime_.*_smoke)'
+
   windows:
     name: Windows C++ policy
     runs-on: windows-2025

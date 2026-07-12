@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CTest)
 include(NovelTeaCompilerPolicy)
+include(NovelTeaSanitizers)
 
 add_library(noveltea_compiler_policy_probe OBJECT EXCLUDE_FROM_ALL
     cmake/compiler_policy_probe.cpp)
