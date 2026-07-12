@@ -42,7 +42,7 @@ foreach(index RANGE 0 ${last_command})
     endif()
 
     set(is_first_party FALSE)
-    foreach(fragment IN ITEMS "/engine/" "/apps/" "/tools/editor_tool/" "/tests/")
+    foreach(fragment IN ITEMS "/engine/" "/apps/" "/tools/" "/tests/")
         string(FIND "${source}" "${fragment}" fragment_position)
         if(NOT fragment_position EQUAL -1 AND NOT source MATCHES "/_deps/")
             set(is_first_party TRUE)

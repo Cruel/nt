@@ -51,6 +51,9 @@ file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark/*.hpp"
 )
 if(CLANG_FORMAT_EXE)
     add_custom_target(format-check
@@ -80,6 +83,7 @@ endif()
 
 option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_BUILD_PLAYER "Build the release-facing player application" ON)
+option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
 option(NOVELTEA_ENABLE_TWINK "Enable twink-backed engine animation service (optional)" ON)
 option(NOVELTEA_FETCH_BGFX "Fetch/build bgfx via FetchContent (required for Web/Android)" ON)
 option(NOVELTEA_FETCH_RMLUI "Fetch/build RmlUi via FetchContent (required for Web/Android)" ON)
@@ -321,6 +325,9 @@ noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 add_subdirectory(engine)
 if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_subdirectory(tools/editor_tool)
+    if(NOVELTEA_BUILD_BENCHMARKS)
+        add_subdirectory(tools/benchmark)
+    endif()
 endif()
 
 if(NOVELTEA_BUILD_SANDBOX)
