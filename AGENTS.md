@@ -56,6 +56,14 @@ Do not port the old Qt5 editor unless the user explicitly asks. The old editor i
 
 Avoid new third-party dependencies unless the task explicitly justifies them. Prefer small adapters and tests over dependency expansion.
 
+Any new shipped C++ runtime dependency must pass the admission gate in
+`docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` before it is added to the production graph. The
+change must document its transitive C++ objects, exact no-exceptions configuration, exact
+no-compiler-RTTI or custom-RTTI configuration, recoverable failure mechanism, supported platforms,
+representative failure-path tests, and binary-size impact. “It builds with `-fno-exceptions`” is not
+sufficient evidence. Build-host tools may be exempt only when they are kept on the host graph and are
+not linked, copied, or packaged into players.
+
 Do not paste large logs or file dumps into the parent conversation. Save durable findings under the relevant docs area when needed and return concise summaries.
 
 ## Current Migration Direction
@@ -80,6 +88,7 @@ cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
 cmake --build --preset web-debug
+cmake --build --preset web-debug --target cxx-policy
 ```
 
 Run clang-format for touched C/C++ files before final verification. The project provides CMake targets:

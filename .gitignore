@@ -1,4 +1,7 @@
 build/
+!docs/build/
+docs/build/*
+!docs/build/*.md
 dist/
 __pycache__/
 vcpkg_installed/

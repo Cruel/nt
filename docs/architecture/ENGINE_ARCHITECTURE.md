@@ -133,7 +133,7 @@ The load path first treats the bytes as normalized JSON:
 3. Construct `core::ProjectDocument`.
 4. Load it into `RuntimeSessionHost`, which validates and builds a `ProjectModel`.
 
-If JSON parsing throws, the engine falls back to legacy package loading:
+If non-throwing JSON parsing reports invalid input, the engine falls back to legacy package loading:
 
 1. Try `core::legacy::ProjectPackageReader::read` over the same bytes.
 2. Mount extracted package assets into the `project` namespace with `AssetManager::mount_legacy_package`.
@@ -222,7 +222,8 @@ The active architecture uses:
 Keep backend-neutral core code free of SDL3, bgfx, RmlUi, Dear ImGui, Lua, Electron, Android, Emscripten, SFML, and Qt types. Runtime scripting stays Lua-only.
 
 Legacy script text imported from old projects is either valid Lua or fails as Lua with diagnostics surfaced by the runtime/tooling layer.
-# Error propagation policy
+
+## Error Propagation Policy
 
 Recoverable failures at project, asset, rendering, scripting, and platform boundaries use
 `noveltea::core::Result<T, E>`. `Diagnostic` is the common cross-subsystem error when a narrower typed
@@ -244,3 +245,12 @@ Allocation exhaustion is a fatal runtime condition. NovelTea does not attempt re
 Recoverable filesystem, parsing, conversion, and external-tool failures must instead use status codes,
 `std::error_code`, or typed results. Runtime construction of `std::regex` and `std::locale` is
 prohibited in shipped first-party code because their failure contracts depend on C++ exceptions.
+
+This policy is unconditional for shipped C++ targets. NovelTea does not expose feature toggles such as
+`NOVELTEA_NO_EXCEPTIONS` or `NOVELTEA_NO_RTTI`; there is only one first-party implementation path.
+Compiler policy is applied through `noveltea_apply_runtime_compiler_policy`, and the generated compile
+database plus source scanner are validated by the `cxx-policy` target.
+
+Third-party libraries may retain their own custom type systems when compiler RTTI is disabled. The
+RmlUi family uses `RMLUI_CUSTOM_RTTI` consistently across Core, Lua, Debugger, `rmlui-bgfx`, and all
+consumers. This is an ABI requirement, not an optional per-target define.

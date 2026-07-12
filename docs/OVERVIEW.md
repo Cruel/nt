@@ -10,6 +10,8 @@ Do not treat `docs/archive/` as current implementation direction. Archive files 
 
 - `AGENTS.md` defines root repository rules, migration constraints, and verification expectations.
 - `docs/architecture/OVERVIEW.md` routes top-level architecture work.
+- `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` is the authoritative shipped-C++ dependency
+  admission and host-tool exemption policy.
 - `docs/build/OVERVIEW.md` routes build, test, and platform verification work.
 - The area overview below should be read before changing code in that area.
 

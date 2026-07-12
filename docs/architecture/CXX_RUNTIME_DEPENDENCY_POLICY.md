@@ -48,7 +48,43 @@ ordinary `x64-linux` target archive.
 Phase 6 verification covers clean Linux, Web, and Android builds. Windows and macOS triplets are
 defined but require their native builders before they can be marked validated.
 
-## Admission checklist
+## Host-tool exemption
+
+A native-only build tool may use exceptions or compiler RTTI only when all of the following are true:
+
+- it executes on the build host and is never loaded by the runtime;
+- it is resolved through the host dependency graph or an explicitly supplied executable path;
+- none of its C++ objects or transitive archives appear in a shipped target's link command;
+- it is not copied into desktop, Web, Android, or editor-export player templates;
+- the exemption and graph boundary are documented in this file.
+
+The current approved example is `bgfx[tools]` for `shaderc` and its host-side compiler stack. The Linux
+link audit rejects ordinary host-triplet archives in `noveltea-player`. A tool becoming runtime-linked
+automatically voids the exemption and requires full admission review.
+
+## Admission gate
+
+Any pull request or implementation that adds or materially upgrades a shipped C++ dependency must add
+or update its row in the matrix above and provide all of the following evidence:
+
+1. Exact version, source, license, and acquisition path.
+2. Complete transitive C++ target/archive graph for every supported platform.
+3. Exact compiler flags and library macros that disable exceptions and compiler RTTI, or the documented
+   custom RTTI mechanism used consistently across the ABI.
+4. Recoverable API subset and the status/result mechanism NovelTea uses instead of exceptions.
+5. Explicit classification of fatal assertions, panic callbacks, allocation exhaustion, and other
+   process-fatal behavior.
+6. Representative malformed-input or runtime-failure tests at the NovelTea adapter boundary.
+7. Linux, Web, and Android build availability, plus Windows/macOS availability when those platforms are
+   supported by the dependency.
+8. `cxx-policy` results proving the dependency objects receive the required compiler policy.
+9. Binary-size impact for a meaningful new or upgraded runtime dependency.
+
+Admission is rejected when the only evidence is that headers compile under `-fno-exceptions`, when a
+transitive C++ archive is unaudited, when recoverable authored input can reach an abort-only API, or
+when custom RTTI is enabled on only part of a dependency family.
+
+## Contributor checklist
 
 Any new shipped runtime dependency must record its language, exact no-exception configuration, exact
 no-RTTI or custom-RTTI configuration, transitive C++ graph, replacement failure mechanism, recoverable
