@@ -9,3 +9,4 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wall -Wextra -Wpedantic -Wno-unused-parameter
     )
 endif()
+noveltea_apply_policy_warnings(noveltea-editor-tool)

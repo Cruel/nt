@@ -48,3 +48,4 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wall -Wextra -Wpedantic
     )
 endif()
+noveltea_apply_policy_warnings(noveltea-sandbox)

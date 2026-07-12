@@ -35,6 +35,7 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(noveltea-player PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+noveltea_apply_policy_warnings(noveltea-player)
 
 set(NOVELTEA_PLAYER_BUILD_ID "${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_BUILD_TYPE}")
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/player-build.json" CONTENT

@@ -41,13 +41,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Audit prohibited runtime C++ constructs
-        run: cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/cxx-policy-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckCxxRuntimePolicy.cmake"
-      - name: Verify compiler feature macros are rejected
+        run: |
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/cxx-policy-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckCxxRuntimePolicy.cmake"
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyCxxRuntimePolicyChecker.cmake"
+      - name: Verify compiler feature policy header
         run: |
           if c++ -std=c++20 -Iengine/include -x c++ -c engine/include/noveltea/core/compiler_policy.hpp -o /tmp/policy.o; then
             echo "policy header accepted an exception/RTTI-enabled compiler" >&2
             exit 1
           fi
+          c++ -std=c++20 -fno-exceptions -fno-rtti -Iengine/include -x c++ -c engine/include/noveltea/core/compiler_policy.hpp -o /tmp/policy.o
 
   shader-assets:
     name: Shader assets

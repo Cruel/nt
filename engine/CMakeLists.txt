@@ -78,6 +78,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wall -Wextra -Wpedantic -Wno-unused-parameter
     )
 endif()
+noveltea_apply_policy_warnings(noveltea_core)
 
 # --- Engine target ---
 
@@ -372,3 +373,4 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wall -Wextra -Wpedantic -Wno-unused-parameter
     )
 endif()
+noveltea_apply_policy_warnings(engine)

@@ -29,3 +29,24 @@ TEST_CASE("void result propagates failures")
     REQUIRE_FALSE(result);
     CHECK(result.error().code == "io.failed");
 }
+TEST_CASE("result transforms error types")
+{
+    const auto result =
+        DiagnosticResult<int>::failure(Diagnostic{"parse.failed", "bad input"})
+            .transform_error([](const Diagnostic& diagnostic) { return diagnostic.code; });
+    REQUIRE_FALSE(result);
+    CHECK(result.error() == "parse.failed");
+}
+TEST_CASE("diagnostics preserve nested causes and fatal classification")
+{
+    const auto diagnostic = Diagnostic{"project.load_failed", "Could not load project"}.caused_by(
+        Diagnostic{"json.invalid", "Malformed JSON"});
+    CHECK(diagnostic.causes.size() == 1);
+    CHECK(diagnostic.causes.front().code == "json.invalid");
+
+    noveltea::core::Diagnostics diagnostics{diagnostic};
+    CHECK_FALSE(noveltea::core::has_fatal_diagnostic(diagnostics));
+    diagnostics.push_back(Diagnostic{"runtime.invariant", "Runtime invariant failed",
+                                     noveltea::core::ErrorSeverity::Fatal});
+    CHECK(noveltea::core::has_fatal_diagnostic(diagnostics));
+}

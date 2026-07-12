@@ -231,3 +231,10 @@ pointer, and nested causes. Libraries return errors and add context, while appli
 logging and presentation. `Fatal` is reserved for non-recoverable contract or process failures and is
 never used merely because user-authored input is invalid. `Diagnostics` and `append_diagnostics` support
 validation that must report multiple independent problems.
+
+`Result` is a tagged success-or-error value; callers must test it before accessing `value()` or
+`error()`. `transform`, `and_then`, and `transform_error` provide explicit propagation without hidden
+control flow. A `Result<void, E>` represents successful completion without manufacturing a dummy value.
+Deep libraries return diagnostics but do not log them; executable, editor-tool, preview, and platform
+boundaries decide how and where diagnostics are presented. Nested failures use `Diagnostic::causes`,
+and context is added with source paths and JSON pointers as errors cross subsystem boundaries.

@@ -13,6 +13,8 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/plans/CXX_NO_EXCEPTIONS_IMPLEMENTATION_PLAN.md` defines the repository-wide migration
   to explicit errors, no C++ exceptions, no compiler RTTI, dependency-specific custom RTTI where needed,
   and enforced rejection of hidden throwing APIs.
+- `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` records the dependency audit baseline and the
+  admission requirements for C++ runtime dependencies.
 
 ## Code Areas
 

@@ -1,1 +1,71 @@
-# Temporary entries have the form relative/path|matched token and must cite a removal phase.
+# Temporary migration ceilings. Format: path|rule|max-count # removal phase/rationale
+# Counts may decrease without updating this file; any increase fails the policy gate.
+apps/player/main.cpp|filesystem-operation|3 # Phase 5 filesystem error_code conversion
+engine/src/assets/asset_manager.cpp|filesystem-operation|3 # Phase 5 filesystem error_code conversion
+engine/src/core/package_export.cpp|filesystem-operation|9 # Phase 5 filesystem error_code conversion
+engine/src/core/player_bootstrap.cpp|filesystem-operation|11 # Phase 5 filesystem error_code conversion
+engine/src/core/save_document.cpp|filesystem-operation|8 # Phase 5 filesystem error_code conversion
+engine/src/engine.cpp|filesystem-operation|2 # Phase 5 filesystem error_code conversion
+engine/src/render/bgfx/bgfx_renderer.cpp|filesystem-operation|1 # Phase 5 filesystem error_code conversion
+engine/src/render/shader_compiler.cpp|filesystem-operation|12 # Phase 5 filesystem error_code conversion
+engine/src/app.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
+engine/src/assets/asset_manager.cpp|unsafe-json-value|1 # Phase 3 JSON extraction
+engine/src/assets/resource_aliases.cpp|unsafe-json-get|3 # Phase 3 JSON extraction
+engine/src/assets/resource_aliases.cpp|unsafe-json-value|3 # Phase 3 JSON extraction
+engine/src/audio/miniaudio/miniaudio_backend.cpp|container-at|2 # Phase 5 checked lookup
+engine/src/core/cutscene_controller.cpp|unsafe-json-get|26 # Phase 3 JSON extraction
+engine/src/core/cutscene_controller.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
+engine/src/core/dialogue_controller.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
+engine/src/core/dialogue_controller.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
+engine/src/core/editor_api.cpp|container-at|1 # Phase 3 checked lookup
+engine/src/core/editor_api.cpp|exception-syntax|2 # Phase 2 boundary conversion
+engine/src/core/editor_api.cpp|unsafe-json-get|8 # Phase 3 JSON extraction
+engine/src/core/editor_api.cpp|unsafe-json-value|13 # Phase 3 JSON extraction
+engine/src/core/entity_ref.cpp|unsafe-json-get|2 # Phase 3 JSON extraction
+engine/src/core/game_session.cpp|container-at|1 # Phase 5 checked lookup
+engine/src/core/game_session.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
+engine/src/core/game_session.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
+engine/src/core/legacy/entity_schema.cpp|unsafe-json-get|52 # Phase 3 JSON extraction
+engine/src/core/legacy/entity_schema.cpp|unsafe-json-value|1 # Phase 3 JSON extraction
+engine/src/core/legacy/project_importer.cpp|container-at|12 # Phase 3 checked lookup
+engine/src/core/player_bootstrap.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
+engine/src/core/player_bootstrap.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
+engine/src/core/project_document.cpp|container-at|1 # Phase 3 checked lookup
+engine/src/core/project_model.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
+engine/src/core/project_model.cpp|unsafe-json-value|1 # Phase 3 JSON extraction
+engine/src/core/project_validator.cpp|unsafe-json-get|2 # Phase 3 JSON extraction
+engine/src/core/rich_text.cpp|container-at|8 # Phase 5 checked lookup
+engine/src/core/rich_text.cpp|unsafe-json-value|1 # Phase 3 JSON extraction
+engine/src/core/runtime_controller.cpp|unsafe-json-get|5 # Phase 3 JSON extraction
+engine/src/core/runtime_controller.cpp|unsafe-json-value|8 # Phase 3 JSON extraction
+engine/src/core/runtime_project_codec.cpp|unsafe-json-get|6 # Phase 3 JSON extraction
+engine/src/core/runtime_session_host.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
+engine/src/core/runtime_session_host.cpp|unsafe-json-value|1 # Phase 3 JSON extraction
+engine/src/core/runtime_ui_view.cpp|unsafe-json-get|2 # Phase 3 JSON extraction
+engine/src/core/runtime_ui_view.cpp|unsafe-json-value|6 # Phase 3 JSON extraction
+engine/src/core/save_document.cpp|container-at|21 # Phase 3 checked lookup
+engine/src/core/save_document.cpp|unsafe-json-get|2 # Phase 3 JSON extraction
+engine/src/core/save_document.cpp|unsafe-json-value|6 # Phase 3 JSON extraction
+engine/src/engine.cpp|exception-syntax|2 # Phase 2 boundary conversion
+engine/src/engine.cpp|unsafe-json-get|4 # Phase 3 JSON extraction
+engine/src/engine.cpp|unsafe-json-value|23 # Phase 3 JSON extraction
+engine/src/render/bgfx/bgfx_material_binder.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
+engine/src/render/bgfx/bgfx_shader_program_cache.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
+engine/src/render/material.cpp|unsafe-json-get|6 # Phase 3 JSON extraction
+engine/src/render/material.cpp|unsafe-json-value|12 # Phase 3 JSON extraction
+engine/src/render/shader_compiler.cpp|unsafe-json-value|6 # Phase 3 JSON extraction
+engine/src/render/shader_manifest.cpp|unsafe-json-value|17 # Phase 3 JSON extraction
+engine/src/runtime_command.cpp|container-at|2 # Phase 3 checked lookup
+engine/src/runtime_command.cpp|unsafe-json-get|3 # Phase 3 JSON extraction
+engine/src/runtime_debug_snapshot.cpp|unsafe-json-value|3 # Phase 3 JSON extraction
+engine/src/runtime_preview_controller.cpp|unsafe-json-value|17 # Phase 3 JSON extraction
+engine/src/runtime_ui_playback.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
+engine/src/runtime_ui_playback.cpp|unsafe-json-value|9 # Phase 3 JSON extraction
+engine/src/script/lua/bind_audio.cpp|unsafe-json-get|2 # Phase 4 Lua conversion
+engine/src/script/lua/bind_game_session.cpp|unsafe-json-get|1 # Phase 4 Lua conversion
+engine/src/script/lua/runtime_script_executor.cpp|unsafe-json-value|3 # Phase 4 Lua conversion
+engine/src/script/lua/script_runtime.cpp|exception-syntax|9 # Phase 4 protected result conversion
+engine/src/text/text_engine.cpp|container-at|1 # Phase 5 checked lookup
+tools/editor_tool/main.cpp|exception-syntax|3 # Phase 2 native tool boundary conversion
+tools/editor_tool/main.cpp|unsafe-json-get|5 # Phase 3 JSON extraction
+tools/editor_tool/main.cpp|unsafe-json-value|32 # Phase 3 JSON extraction

@@ -8,12 +8,22 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CTest)
 include(NovelTeaCompilerPolicy)
+
+add_library(noveltea_compiler_policy_probe OBJECT EXCLUDE_FROM_ALL
+    cmake/compiler_policy_probe.cpp)
+target_include_directories(noveltea_compiler_policy_probe PRIVATE engine/include)
+noveltea_apply_runtime_compiler_policy(noveltea_compiler_policy_probe)
+noveltea_apply_policy_warnings(noveltea_compiler_policy_probe)
+
 add_custom_target(cxx-runtime-policy
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
         -DALLOWLIST=${CMAKE_SOURCE_DIR}/cmake/cxx-policy-allowlist.txt
         -P ${CMAKE_SOURCE_DIR}/cmake/CheckCxxRuntimePolicy.cmake
+    COMMAND "${CMAKE_COMMAND}" -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/VerifyCxxRuntimePolicyChecker.cmake
     COMMENT "Checking shipped C++ sources for exception, RTTI, and throwing APIs"
     VERBATIM)
+add_dependencies(cxx-runtime-policy noveltea_compiler_policy_probe)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES CONFIGURE_DEPENDS
