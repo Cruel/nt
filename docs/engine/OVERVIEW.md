@@ -12,10 +12,15 @@ Read the specific component doc before changing its schema, commands, editor UI,
 
 - `docs/engine/PROJECT.md` — root project document, metadata, settings, runtime defaults, and project-wide references.
 - `docs/engine/ASSET.md` — authoring assets, import metadata, asset editor/library behavior, runtime/export status.
-- `docs/engine/ROOM.md` — rooms, backgrounds, scripts, paths, hotspots, overlays, room editor, and room preview.
-- `docs/engine/CHARACTER.md` — characters, dialogue style, poses, expressions, character editor, and preview.
-- `docs/engine/DIALOGUE.md` — dialogue graph/data model, blocks, segments, choices, preview, editor behavior, and runtime status.
-- `docs/engine/SCENE.md` — scene sequence/timeline model, steps, preview approximation, editor behavior, and validation.
+- `docs/engine/ROOM.md` — typed Room definitions, placements/exits, lifecycle pipeline, mutable room state, and current scaffolding.
+- `docs/engine/CHARACTER.md` — immutable Character definitions, actor state, poses/expressions, and current scaffolding.
+- `docs/engine/DIALOGUE.md` — the V2 specialized dialogue graph/program, call-return and state semantics, and current scaffolding.
+- `docs/engine/SCENE.md` — the V2 Scene program and frame contract, call-return and safe-point semantics, and current scaffolding.
+- `docs/engine/INTERACTABLE.md` — unique Interactable definitions, placement/location/state separation, and stackable-inventory deferral.
+- `docs/engine/VERB.md` — Verb arity, availability, default programs, and behavioral inheritance.
+- `docs/engine/INTERACTION.md` — Interaction matching, typed programs, outcomes, and mutable-state effects.
+- `docs/engine/MAP.md` — exit-backed map presentation and selection without duplicate navigation topology.
+- `docs/engine/SCRIPT_MODULE.md` — Lua module ownership, explicit execution, yielding, save, and package rules.
 - `docs/engine/LAYOUT.md` — authored RmlUi layouts, system layout roles, source files, preview, export, and runtime mounting.
 - `docs/engine/SHADER.md` — shader entity records, stages, roles, validation, editor/import compilation, runtime/export status.
 - `docs/engine/MATERIAL.md` — material entity records, texture sources, shader references, preview, runtime/export status.

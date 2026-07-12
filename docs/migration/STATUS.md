@@ -74,16 +74,18 @@ Move historical analysis to `docs/archive/` and detailed implementation plans to
   Layout roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`,
   `settings-menu`, `modal`, and `debug-overlay`) with built-in fallbacks. Runtime export and
   consumption of project-authored system Layouts are still deferred.
-- Runtime Script entrypoints, `Game.run_script`, and `Game.start_room`/`Game.go_to_room` now route
-  through `RuntimeCommandDispatcher` into `RuntimeSessionHost`/`RuntimeController`.
+- The transitional runtime can route legacy-shaped Script entrypoints and `Game.run_script` through
+  `RuntimeCommandDispatcher`; this is migration scaffolding scheduled for removal. The typed target
+  permits only Room, Scene, or Dialogue entrypoints, with startup Lua and explicit script invocation
+  kept separate. `Game.start_room`/`Game.go_to_room` currently route through the same host/controller.
 - Runtime Dialogue export/start/progression is implemented for the current safe subset: authoring
   Dialogue records export to runtime-compatible dialogue arrays, Dialogue entrypoints load, and
   `Game.start_dialogue` routes through the dispatcher into `RuntimeSessionHost`/`RuntimeController`.
   Continue and choice selection work through Lua-first generated controls while preserving temporary
   compatibility attributes.
-- Runtime Scene V0 export/start/progression is implemented through the existing cutscene-style
-  runtime controller path. Authoring Scene records export to runtime `cutscene` records, Scene
-  entrypoints load as `EntityType::Cutscene`, and `Game.start_scene` routes through the dispatcher
+- Runtime Scene V0 export/start/progression is implemented through the temporary cutscene-shaped
+  controller path. Authoring Scene records currently export to runtime `cutscene` records, Scene
+  entrypoints currently load as `EntityType::Cutscene`, and `Game.start_scene` routes through the dispatcher
   into `RuntimeSessionHost`/`RuntimeController`. The supported subset is text-like scene steps,
   continue/page-break waits, dispatcher-backed dialogue/layout hooks, and simple next targets;
   unsupported step types emit export diagnostics.

@@ -1,20 +1,52 @@
-# Project Entity
+# Project Root
 
-## Purpose
+## Contract
 
-The Project entity is the root authoring document for a NovelTea project. It owns project metadata, global settings, the startup entrypoint, editor session state, and all typed authoring collections.
+The project root owns project identity, runtime settings, feature flags, localization, startup hook, entrypoint, collection indexes, and editor-owned source metadata. It is not an entity, property owner, or generic mutation target.
 
-This document covers the new authoring project format. It is not a compatibility description of the old NovelTea project file. The old project model is useful for migration and runtime-package reference only.
+Authoring V2 is `noveltea.authoring.project` version 2. The editor owns it and compiles it; C++ never parses it. The normal V2 path does not accept V1 or legacy projects. The compiled gameplay document is strict `noveltea.compiled.project` version 1.
 
-## Current Status
+## Collections
 
-The editor has a typed authoring project schema and generic collection wrapper. Project validation is implemented for schema shape, record identity, parent/inheritance relationships, entrypoint existence, asset aliases, default layout settings, and the typed component validators that currently exist.
+V2 uses collection-specific records for assets, variables, shaders/materials, layouts, characters, rooms, interactables, verbs, interactions, dialogues, scenes, maps, script modules, and tests. It has no authoritative `data: Record<string, unknown>` wrapper.
 
-The native engine still has `ProjectDocument` and `ProjectModel` types that primarily support the current runtime/export path and migrated legacy-style runtime package model. The authoring-to-runtime export path is intentionally partial: room entrypoints and room export are currently supported more directly, while scenes and dialogues still emit runtime-compatibility warnings during export.
+Stable record IDs are unique within each collection. Nested IDs are unique within their owning record. Generic cross-collection `parent` is removed. Property-bearing definitions use optional same-collection `extends`; categories and tags remain editor-only organization.
 
-## Collection
+The complete authoring/wire/runtime disposition is in [`DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md`](../architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md).
 
-Project is the root document, not a normal collection record. Its current authoring shape is:
+## Startup
+
+Entrypoint is a strict union of Room, Scene, or Dialogue. Script is not an entrypoint. Project startup Lua is a separate synchronous hook that cannot yield and must succeed before the entrypoint starts.
+
+Runtime-visible names/descriptions are explicit component fields. Record labels, notes, categories, tags, graph coordinates, selections, colors, collapsed state, sort keys, and preview state are editor metadata and are not gameplay output.
+
+## Compilation and packages
+
+One pure TypeScript compiler validates V2, validates inheritance/properties/references, lowers specialized programs, removes tooling data, and emits deterministic canonical gameplay JSON. Preview, tests, package export, and CLI export use that API.
+
+The gameplay document is separate from the package manifest and shader/material metadata. C++ independently decodes those untrusted documents and assembles immutable `CompiledProject` plus prepared resource registries. JSON is not retained as runtime truth.
+
+## Current implementation scaffold
+
+The current editor still implements authoring version 1, broad record wrappers, `objects`/`actions`, generic parent/inheritance references, and a provisional runtime exporter. The native runtime still uses `ProjectDocument`, `ProjectModel`, numeric entity tags, and partial room-oriented export. These paths remain build scaffolding only and do not alter the V2 contract.
+
+Current files include:
+
+```text
+editor/src/shared/project-schema/authoring-project.ts
+editor/src/shared/project-schema/authoring-validation.ts
+editor/src/shared/project-schema/authoring-runtime-export.ts
+editor/src/renderer/editors/project/ProjectSettingsEditor.tsx
+engine/include/noveltea/core/project_document.hpp
+engine/include/noveltea/core/project_model.hpp
+```
+
+Phases 3--10 replace this scaffold. No legacy format, universal parent behavior, Script entrypoint, Object/Action naming, or generic runtime property mutation is preserved.
+
+### Current V1 authoring document
+
+The existing project format is still the source of truth for the editor until Phase 3 lands and is
+therefore worth documenting precisely. Its root currently resembles:
 
 ```ts
 interface AuthoringProject {
@@ -48,264 +80,99 @@ interface AuthoringProject {
 }
 ```
 
-Typed entity records inside collections use the shared wrapper:
+Records currently use a broad wrapper containing `id`, label/description, generic `parent` and
+`inherits` references, tags, color, sort key, and `data: Record<string, unknown>`. This shape is
+transitional, but it explains existing commands, validators, fixtures, and editors. Phase 3 replaces
+it atomically with collection-specific records, `interactables`/`interactions`, tooling-only
+categories/tags, and same-collection runtime `extends` where permitted.
 
-```ts
-interface AuthoringRecordBase {
-  id: string;
-  label: string;
-  description?: string;
-  parent?: ReferenceTarget | null;
-  inherits?: ReferenceTarget | null;
-  tags: string[];
-  color?: string | null;
-  sortKey?: string | null;
-  data: Record<string, unknown>;
-}
-```
+Project IDs and record IDs currently use lowercase kebab-case. Map keys must match `record.id`.
+`createAuthoringProject()` creates schema version 1, default project metadata, empty settings,
+null entrypoint, default editor state, and empty collection maps. Collection-specific creation uses
+`defaultDataForCollection()` where a typed schema already exists.
 
-## Identity Rules
+### Current settings and validation
 
-The project ID and all entity IDs use the project entity ID format:
+Current typed settings include:
+
+- startup init Lua under `settings.startup.initScript`;
+- system Layout role references;
+- default font;
+- title-screen configuration;
+- application icon metadata.
+
+The editor-wide Settings tab remains separate from Project Settings. ComfyUI connection/default
+workflow preferences are editor settings; project-local workflow files and game/package settings are
+project data.
+
+Current validation covers root schema identity, record IDs and map-key consistency, non-empty labels,
+entrypoint existence, generic parent/inheritance references and cycles, asset aliases, system Layout
+roles, startup/default-font/title-screen/icon settings, and all component validators currently wired
+into the project validator. Some collections remain broadly typed in V1; this is an implementation
+status fact, not permission to carry unknown-data records into V2.
+
+### Current commands and editor behavior
+
+The current command surface includes generic JSON-patch commands and record operations such as:
 
 ```text
-lowercase kebab-case, starts with a letter, contains only letters, numbers, and hyphens
+project.applyPatch
+project.replaceAtPath
+project.addAtPath
+project.removeAtPath
+entity.createRecord
+entity.replaceRecord
+entity.renameId
+entity.duplicateRecord
+entity.deleteRecord
+entity.updateMetadata
+entity.setParent
 ```
 
-Examples:
+Record rename rewrites indexed references, deletion performs reference-use preflight, and component
+editors use command-backed operations so dirty state, undo, redo, and save remain coherent. The
+Project explorer is driven by collection metadata, while project-wide diagnostics feed the workbench
+problems surfaces.
 
-```text
-new-project
-opening-room
-iris-neutral
-main-menu-layout
-```
+`ProjectSettingsEditor` is a distinct workbench utility tab opened from the Project menu or package
+export blockers. It edits game metadata, startup, entrypoint, runtime Layout/font defaults,
+title-screen settings, and icon data; `SettingsTabEditor` edits application preferences.
 
-Record map keys must match `record.id`. Parent and inheritance references use `{ collection, id }` targets where `collection` must be one of the known authoring collections.
+### Current runtime and export bridge
 
-## High-Level Model
+The native runtime currently contains `ProjectDocument`, legacy-shaped `ProjectModel`, `GameSession`,
+and `RuntimeController`. The editor compiler/export bridge is partial and remains useful scaffolding:
 
-The project document has three major state categories.
+- Room records can be lowered into the current runtime Room representation.
+- Dialogue and Scene have transitional export/execution subsets documented in their component docs
+  and migration status.
+- Asset discovery can include only referenced assets or all project assets by export-profile policy.
+- Shader/material metadata is emitted through its dedicated path when required.
+- Runtime package options are produced for the native package writer.
 
-Persistent project state is stored directly in the authoring project and participates in validation/export. This includes metadata, settings, entrypoint, and entity collections.
+These behaviors should be migrated behind the final compiler, not deleted before equivalent typed
+paths exist.
 
-Persistent editor session state is stored under `project.editor`. It is editor-only state and should not be interpreted as runtime game state.
-
-Transient editor state lives in renderer stores and workbench services. It should not be serialized into runtime packages.
-
-## Data Model
-
-`schema` and `schemaVersion` identify the authoring format. Current values are `noveltea.authoring.project` and `1`.
-
-`project` stores human-facing project metadata: ID, name, version, author, and description.
-
-`settings` is a namespaced settings bag. Current typed project settings include `settings.startup.initScript`, `settings.ui.systemLayouts`, `settings.text.defaultFont`, `settings.titleScreen`, and `settings.app.icon`. System layout role refs and default font may be null or absent, which means the built-in fallback resource is used.
-
-`entrypoint` is the intended startup target. It can reference any known authoring collection structurally, but runtime export currently accepts room entrypoints only.
-
-`editor` stores editor-only project state.
-
-The collections store authoring records. Some collections already have typed `record.data` schemas; others are currently placeholders and should not be documented as fully implemented until their schema/editor/runtime support exists.
-
-## References
-
-Project-level references use the generic `ReferenceTarget` shape:
-
-```ts
-interface ReferenceTarget {
-  collection: AuthoringCollectionKey;
-  id: string;
-}
-```
-
-The validator checks that project entrypoint, record parent references, and record inheritance references point to known records. Component-specific validators check deeper `$ref` shapes inside `record.data`.
-
-## Defaults
-
-`createAuthoringProject()` creates a new authoring document with:
-
-- schema `noveltea.authoring.project`;
-- schema version `1`;
-- project ID `new-project` unless overridden;
-- project name `New Project` unless overridden;
-- version `0.1.0` unless overridden;
-- empty author and description unless overridden;
-- empty `settings`;
-- null `entrypoint`;
-- default editor project state;
-- empty maps for every authoring collection.
-
-Entity records are created through generic entity operations. Collections with typed schemas get typed default data through `defaultDataForCollection()`.
-
-## Validation
-
-Project validation currently checks:
-
-- root authoring project schema;
-- missing project entrypoint warning;
-- entrypoint target existence when configured;
-- valid collection names in references;
-- record ID format;
-- record key and `record.id` consistency;
-- non-empty record labels;
-- parent target existence;
-- inheritance target existence;
-- self-parent and self-inheritance errors;
-- parent and inheritance cycle detection;
-- asset record data and alias safety;
-- default layout setting validity;
-- typed project settings for startup script, default font, title screen image/options, and project icon;
-- typed layout, variable, shader, material, character, room, dialogue, scene, and test data.
-
-Current validation does not make every collection fully typed. `objects`, `verbs`, `actions`, `maps`, and `scripts` exist as collections but do not yet have the same dedicated V1 authoring schema coverage as the high-priority typed components.
-
-## Command Behavior
-
-Generic project and entity commands handle most project-level edits:
-
-- `project.applyPatch`
-- `project.replaceAtPath`
-- `project.addAtPath`
-- `project.removeAtPath`
-- `entity.createRecord`
-- `entity.replaceRecord`
-- `entity.renameId`
-- `entity.duplicateRecord`
-- `entity.deleteRecord`
-- `entity.updateMetadata`
-- `entity.setParent`
-
-Entity creation uses collection-specific default data where available. Rename operations rewrite references across the project. Delete preflight checks reference usages before removing a record.
-
-Project UI settings and editor preferences are not the same layer. The existing Settings tab is editor preferences. The Project Settings tab is the dedicated authoring surface for game/runtime settings, project metadata, startup entrypoint, startup init Lua, default layout/font, title-screen options, and project icon. ComfyUI server connection/default workflow preferences are editor-wide Settings values, not authoring project settings; Project Settings only manages project-local workflow files.
-
-Project-level commands include metadata, entrypoint, startup, runtime default layout/font, title-screen, and project-icon operations. These commands keep Project Settings edits undoable and avoid direct store mutation.
-
-## Editor Behavior
-
-The workbench treats project data as the persistent source of truth. Typed editors read and update records through command-backed operations rather than mutating project data directly.
-
-The Project explorer uses collection metadata from `authoring-collections.ts` to group and create records. Project-wide validation feeds diagnostics into the editor problems/workbench surfaces.
-
-The current `SettingsTabEditor` wraps the editor settings route for app preferences. `ProjectSettingsEditor` is separate and opens as a workbench utility tab from `Project > Project Settings…` and from Package Export when project-level blockers such as a missing entrypoint are detected.
-
-## Editor Preview
-
-Project-level preview is currently mediated through preview documents generated by component-specific helpers such as layout, shader/material, character, and room preview builders.
-
-The project entrypoint is intended to drive full startup preview, but runtime preview behavior is still being refined. Component docs should describe their own preview payloads and limitations.
-
-## Runtime Status
-
-Native runtime support currently includes:
-
-- `ProjectDocument` for JSON project root ownership and basic entrypoint validation;
-- `ProjectModel` for runtime/migration-facing entity stores such as rooms, maps, dialogues, cutscenes, objects, verbs, actions, and scripts;
-- `GameSession`, `RuntimeController`, and related runtime state/session types.
-
-The new authoring project format and the native runtime model are not yet a single fully equivalent schema. The authoring export adapter bridges what is currently supported.
-
-## Export / Package Status
-
-`buildAuthoringRuntimeExport()` builds a runtime project object from the authoring project. As of the current implementation:
-
-- room records are converted into runtime room arrays;
-- only room entrypoints are accepted as runtime-exportable entrypoints;
-- scene and dialogue records emit warnings that they are not runtime-compatible yet;
-- assets are included either by reference discovery or by `includeAllProjectAssets` profile settings;
-- shader/material metadata is built when shader or material records exist;
-- runtime package options are generated for the native package writer.
-
-## Scripting Status
-
-Project Settings exposes `settings.startup.initScript` as the authoring project-level startup Lua field. Runtime execution/export handling for this field remains limited until the runtime startup schema consumes it. Component-specific Lua surfaces, such as layout Lua source and room enter/leave scripts, remain separate.
-
-## Relationship To Other Entity Types
-
-Project owns every authoring collection. Assets, variables, shaders, materials, layouts, characters, rooms, dialogues, scenes, and tests have typed V1 docs or will receive them. Objects, verbs, actions, maps, and scripts are collection-level placeholders until their dedicated new authoring schemas are implemented.
-
-System layout role configuration belongs to project settings and either references layout records or uses built-in fallbacks per role. Default font similarly either references a font asset or uses the built-in fallback.
-
-Startup behavior belongs to the project entrypoint and optional startup init script, but export support still depends on the referenced entrypoint type.
-
-## Legacy Reference Notes
-
-Legacy project behavior can be studied in `ProjectData`, `ProjectDataIdentifiers`, and `Settings` under `refs/NovelTea/`. Use those files to understand old entity categories, runtime arrays, and old project settings, not to preserve the old serialization as the new editor format.
-
-The old Qt project settings widget is useful only as workflow reference. The new Electron editor should not duplicate Qt architecture.
-
-## Recommended Authoring Patterns
-
-Use project metadata for stable human-facing package information. Use entity records for actual content. Keep editor session preferences out of runtime content. Configure a room entrypoint for export until scene/dialogue startup export becomes runtime-compatible.
-
-Prefer typed component settings over ad-hoc `settings` keys once a setting affects validation, preview, or export.
-
-## Current Implementation Files
-
-Primary editor files:
+### Current files and retained gaps
 
 ```text
 editor/src/shared/project-schema/authoring-project.ts
 editor/src/shared/project-schema/authoring-collections.ts
 editor/src/shared/project-schema/editor-project-state.ts
 editor/src/shared/project-schema/authoring-validation.ts
-editor/src/shared/project-schema/authoring-export.ts
 editor/src/shared/project-schema/authoring-runtime-export.ts
 editor/src/shared/project-schema/authoring-project-settings.ts
 editor/src/renderer/project/project-store.ts
-editor/src/renderer/project/project-types.ts
 editor/src/renderer/project/entity-operations.ts
 editor/src/renderer/project/project-settings-operations.ts
-editor/src/renderer/commands/builtin-commands.ts
 editor/src/renderer/editors/project/ProjectSettingsEditor.tsx
-editor/src/renderer/editors/utility/SettingsTabEditor.tsx
-```
-
-Primary engine files:
-
-```text
 engine/include/noveltea/core/project_document.hpp
 engine/include/noveltea/core/project_model.hpp
 engine/include/noveltea/core/project_validator.hpp
 engine/include/noveltea/core/package_export.hpp
-engine/include/noveltea/core/game_session.hpp
-engine/include/noveltea/core/runtime_controller.hpp
-engine/src/core/project_document.cpp
-engine/src/core/project_model.cpp
-engine/src/core/project_validator.cpp
-engine/src/core/package_export.cpp
-engine/src/core/game_session.cpp
-engine/src/core/runtime_controller.cpp
 ```
 
-Useful legacy references:
-
-```text
-refs/NovelTea/include/NovelTea/ProjectData.hpp
-refs/NovelTea/include/NovelTea/ProjectDataIdentifiers.hpp
-refs/NovelTea/include/NovelTea/Settings.hpp
-refs/NovelTea/src/core/ProjectData.cpp
-refs/NovelTea/src/core/Settings.cpp
-refs/NovelTea/src/editor/Widgets/ProjectSettingsWidget.cpp
-refs/NovelTea/res/forms/ProjectSettingsWidget.ui
-```
-
-## Known Gaps
-
-- Project Settings V1 exists, but not every stored setting is consumed by runtime export/execution yet.
-- The authoring schema and native runtime model are still bridged through partial export adapters.
-- Runtime export currently accepts room entrypoints only.
-- Scenes and dialogues are authored but not runtime-export compatible yet.
-- Several collections exist before their dedicated typed component schemas are implemented.
-
-## Future Work
-
-- Expand typed project settings for feature toggles, package defaults, audio defaults, language defaults, and accessibility defaults as runtime consumers appear.
-- Expand authoring-to-runtime conversion beyond rooms.
-- Make scene/dialogue entrypoints runtime-exportable.
-- Add stronger validation for project settings namespaces as they become stable.
-- Keep this doc synchronized with every collection schema and runtime export expansion.
-
-## Verification
-
-This doc was written from the current authoring project schema, validation aggregator, generic entity operations, export adapter, and native project/runtime headers. No build is required for this documentation-only change.
+Retained gaps are the V2 schema cutover, complete semantic compilation, Scene/Dialogue/Interaction
+runtime equivalence, compiled Character/Map/Script Module tables, strict project settings, and final
+replacement of the partial adapter with one compiler path shared by preview, tests, package export,
+and CLI export.
