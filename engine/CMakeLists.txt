@@ -116,6 +116,14 @@ add_library(engine STATIC
     src/ui_runtime_rmlui.cpp
 )
 
+if(EMSCRIPTEN)
+    # miniaudio embeds EM_ASM JavaScript using Emscripten's $0/$1 parameter
+    # syntax. Clang diagnoses those tokens as an extension while parsing the
+    # third-party header included by this translation unit.
+    set_source_files_properties(src/audio/miniaudio/miniaudio_backend.cpp PROPERTIES
+        COMPILE_OPTIONS "-Wno-dollar-in-identifier-extension")
+endif()
+
 set_target_properties(engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(engine

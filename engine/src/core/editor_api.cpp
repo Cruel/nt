@@ -4,6 +4,7 @@
 #include <noveltea/core/project_ids.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <utility>
 
@@ -283,12 +284,60 @@ std::string json_pointer_value(const nlohmann::json& json, std::string_view poin
 {
     if (pointer.empty())
         return json.dump();
-    try {
-        const auto& value = json.at(nlohmann::json::json_pointer(std::string(pointer)));
-        return value.is_string() ? value.get<std::string>() : value.dump();
-    } catch (const nlohmann::json::exception&) {
+
+    if (pointer.front() != '/')
         return {};
+
+    const nlohmann::json* value = &json;
+    std::size_t token_begin = 1;
+    while (token_begin <= pointer.size()) {
+        const std::size_t token_end = pointer.find('/', token_begin);
+        const std::string_view encoded = pointer.substr(
+            token_begin, token_end == std::string_view::npos ? pointer.size() - token_begin
+                                                             : token_end - token_begin);
+
+        std::string token;
+        token.reserve(encoded.size());
+        for (std::size_t index = 0; index < encoded.size(); ++index) {
+            if (encoded[index] != '~') {
+                token.push_back(encoded[index]);
+                continue;
+            }
+            if (index + 1 >= encoded.size())
+                return {};
+            const char escape = encoded[++index];
+            if (escape == '0')
+                token.push_back('~');
+            else if (escape == '1')
+                token.push_back('/');
+            else
+                return {};
+        }
+
+        if (value->is_object()) {
+            const auto member = value->find(token);
+            if (member == value->end())
+                return {};
+            value = &*member;
+        } else if (value->is_array()) {
+            std::size_t array_index = 0;
+            const auto conversion =
+                std::from_chars(token.data(), token.data() + token.size(), array_index);
+            if (token.empty() || conversion.ec != std::errc{} ||
+                conversion.ptr != token.data() + token.size() || array_index >= value->size()) {
+                return {};
+            }
+            value = &(*value)[array_index];
+        } else {
+            return {};
+        }
+
+        if (token_end == std::string_view::npos)
+            break;
+        token_begin = token_end + 1;
     }
+
+    return value->is_string() ? value->get<std::string>() : value->dump();
 }
 
 void append_failure(RuntimePlaybackReport& report, RuntimePlaybackObservation& observation,

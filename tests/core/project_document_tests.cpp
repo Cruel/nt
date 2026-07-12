@@ -442,7 +442,8 @@ TEST_CASE("ProjectPackageWriter exports explicit package file entries")
     PackageExportOptions options;
     options.project_name = "File Entry Export";
     options.project_version = "1.0";
-    options.file_entries.push_back(PackageExportFileEntry{temp / "source" / "intro.txt", "text/intro.txt"});
+    options.file_entries.push_back(
+        PackageExportFileEntry{temp / "source" / "intro.txt", "text/intro.txt"});
 
     std::vector<std::byte> bytes;
     const auto exported = ProjectPackageWriter::write_to_memory(project, options, bytes);

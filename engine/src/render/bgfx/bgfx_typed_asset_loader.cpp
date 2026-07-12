@@ -85,16 +85,14 @@ BgfxTypedAssetLoader::load_decoded_texture(const assets::TextureAssetRequest& re
     }
 
     bx::DefaultAllocator allocator;
-    bimg::ImageContainer* image =
-        bimg::imageParse(&allocator, bytes.value->bytes.data(),
-                         static_cast<uint32_t>(bytes.value->bytes.size()),
-                         bimg::TextureFormat::RGBA8);
+    bimg::ImageContainer* image = bimg::imageParse(&allocator, bytes.value->bytes.data(),
+                                                   static_cast<uint32_t>(bytes.value->bytes.size()),
+                                                   bimg::TextureFormat::RGBA8);
     if (!image) {
         return fail<assets::TextureAsset>("bimg could not decode texture '" + request.path + "'");
     }
 
-    const uint32_t size =
-        image->m_size > 0 ? image->m_size : image->m_width * image->m_height * 4u;
+    const uint32_t size = image->m_size > 0 ? image->m_size : image->m_width * image->m_height * 4u;
     const bgfx::TextureHandle handle = bgfx::createTexture2D(
         static_cast<uint16_t>(image->m_width), static_cast<uint16_t>(image->m_height), false, 1,
         bgfx::TextureFormat::RGBA8, bgfx_sampler_flags(request.sampler),
@@ -133,7 +131,8 @@ assets::AssetResult<assets::MaterialAsset>
 BgfxTypedAssetLoader::load_material(const assets::MaterialAssetRequest& request)
 {
     if (!m_shader_materials) {
-        return fail<assets::MaterialAsset>("no shader material project bound to typed material loader");
+        return fail<assets::MaterialAsset>(
+            "no shader material project bound to typed material loader");
     }
     auto parsed = parse_material_id(request.id);
     if (!parsed.id) {

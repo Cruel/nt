@@ -7,7 +7,6 @@
 #include <sol/sol.hpp>
 
 #include <cstdint>
-#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
@@ -126,36 +125,27 @@ ScriptResult<void> ScriptRuntime::initialize(ScriptRuntimeConfig config)
             make_error("ScriptRuntime requires an AssetManager", "initialize"));
     }
 
-    try {
-        m_impl = std::make_unique<Impl>();
-        m_impl->assets = config.assets;
-        m_impl->lua.open_libraries(sol::lib::base, sol::lib::coroutine, sol::lib::table,
-                                   sol::lib::string, sol::lib::math, sol::lib::utf8);
-        m_impl->lua["os"] = sol::lua_nil;
-        m_impl->lua["io"] = sol::lua_nil;
-        m_impl->lua["debug"] = sol::lua_nil;
-        m_impl->lua["package"] = sol::lua_nil;
-        m_impl->lua["require"] = sol::lua_nil;
-        m_impl->lua["dofile"] = sol::lua_nil;
-        m_impl->lua["loadfile"] = sol::lua_nil;
-        m_impl->lua.set_function("__noveltea_traceback", traceback_handler);
-        m_impl->traceback = m_impl->lua["__noveltea_traceback"];
-        sol::protected_function::set_default_handler(m_impl->traceback);
-        bind_noveltea(m_impl->lua.lua_state());
-        if (config.audio) {
-            ::noveltea::script::bind_audio(m_impl->lua.lua_state(), config.audio);
-        }
-        install_host_print(m_impl->lua.lua_state());
-        m_impl->initialized = true;
-        return ScriptResult<void>::success();
-    } catch (const std::exception& ex) {
-        m_impl.reset();
-        return ScriptResult<void>::failure(make_error(ex.what(), "initialize"));
-    } catch (...) {
-        m_impl.reset();
-        return ScriptResult<void>::failure(
-            make_error("unknown ScriptRuntime initialization failure", "initialize"));
+    m_impl = std::make_unique<Impl>();
+    m_impl->assets = config.assets;
+    m_impl->lua.open_libraries(sol::lib::base, sol::lib::coroutine, sol::lib::table,
+                               sol::lib::string, sol::lib::math, sol::lib::utf8);
+    m_impl->lua["os"] = sol::lua_nil;
+    m_impl->lua["io"] = sol::lua_nil;
+    m_impl->lua["debug"] = sol::lua_nil;
+    m_impl->lua["package"] = sol::lua_nil;
+    m_impl->lua["require"] = sol::lua_nil;
+    m_impl->lua["dofile"] = sol::lua_nil;
+    m_impl->lua["loadfile"] = sol::lua_nil;
+    m_impl->lua.set_function("__noveltea_traceback", traceback_handler);
+    m_impl->traceback = m_impl->lua["__noveltea_traceback"];
+    sol::protected_function::set_default_handler(m_impl->traceback);
+    bind_noveltea(m_impl->lua.lua_state());
+    if (config.audio) {
+        ::noveltea::script::bind_audio(m_impl->lua.lua_state(), config.audio);
     }
+    install_host_print(m_impl->lua.lua_state());
+    m_impl->initialized = true;
+    return ScriptResult<void>::success();
 }
 
 void ScriptRuntime::shutdown()
@@ -175,26 +165,19 @@ ScriptResult<void> ScriptRuntime::execute(std::string_view source, std::string_v
             make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
     }
 
-    try {
-        const std::string chunk = prefixed_chunk(chunk_name);
-        sol::load_result loaded = m_impl->lua.load(std::string(source), chunk);
-        if (!loaded.valid()) {
-            sol::error err = loaded;
-            return ScriptResult<void>::failure(make_error(err.what(), chunk));
-        }
-
-        sol::protected_function function(loaded, m_impl->traceback);
-        sol::protected_function_result result = function();
-        if (!result.valid()) {
-            return ScriptResult<void>::failure(m_impl->error_from_result(result, chunk));
-        }
-        return ScriptResult<void>::success();
-    } catch (const std::exception& ex) {
-        return ScriptResult<void>::failure(make_error(ex.what(), std::string(chunk_name)));
-    } catch (...) {
-        return ScriptResult<void>::failure(
-            make_error("unknown ScriptRuntime execution failure", std::string(chunk_name)));
+    const std::string chunk = prefixed_chunk(chunk_name);
+    sol::load_result loaded = m_impl->lua.load(std::string(source), chunk);
+    if (!loaded.valid()) {
+        sol::error err = loaded;
+        return ScriptResult<void>::failure(make_error(err.what(), chunk));
     }
+
+    sol::protected_function function(loaded, m_impl->traceback);
+    sol::protected_function_result result = function();
+    if (!result.valid()) {
+        return ScriptResult<void>::failure(m_impl->error_from_result(result, chunk));
+    }
+    return ScriptResult<void>::success();
 }
 
 ScriptResult<void> ScriptRuntime::execute_asset(std::string_view logical_asset_path)
@@ -218,28 +201,21 @@ ScriptResult<ScriptValue> ScriptRuntime::evaluate(std::string_view expression,
             make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
     }
 
-    try {
-        std::string source = "return ";
-        source += expression;
-        const std::string chunk = prefixed_chunk(chunk_name);
-        sol::load_result loaded = m_impl->lua.load(source, chunk);
-        if (!loaded.valid()) {
-            sol::error err = loaded;
-            return ScriptResult<ScriptValue>::failure(make_error(err.what(), chunk));
-        }
-
-        sol::protected_function function(loaded, m_impl->traceback);
-        sol::protected_function_result result = function();
-        if (!result.valid()) {
-            return ScriptResult<ScriptValue>::failure(m_impl->error_from_result(result, chunk));
-        }
-        return to_script_value(m_impl->lua.lua_state(), result, chunk);
-    } catch (const std::exception& ex) {
-        return ScriptResult<ScriptValue>::failure(make_error(ex.what(), std::string(chunk_name)));
-    } catch (...) {
-        return ScriptResult<ScriptValue>::failure(
-            make_error("unknown ScriptRuntime evaluation failure", std::string(chunk_name)));
+    std::string source = "return ";
+    source += expression;
+    const std::string chunk = prefixed_chunk(chunk_name);
+    sol::load_result loaded = m_impl->lua.load(source, chunk);
+    if (!loaded.valid()) {
+        sol::error err = loaded;
+        return ScriptResult<ScriptValue>::failure(make_error(err.what(), chunk));
     }
+
+    sol::protected_function function(loaded, m_impl->traceback);
+    sol::protected_function_result result = function();
+    if (!result.valid()) {
+        return ScriptResult<ScriptValue>::failure(m_impl->error_from_result(result, chunk));
+    }
+    return to_script_value(m_impl->lua.lua_state(), result, chunk);
 }
 
 ScriptResult<bool> ScriptRuntime::evaluate_bool(std::string_view expression,

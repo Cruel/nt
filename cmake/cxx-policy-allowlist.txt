@@ -18,7 +18,6 @@ engine/src/core/cutscene_controller.cpp|unsafe-json-value|2 # Phase 3 JSON extra
 engine/src/core/dialogue_controller.cpp|unsafe-json-get|1 # Phase 3 JSON extraction
 engine/src/core/dialogue_controller.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
 engine/src/core/editor_api.cpp|container-at|1 # Phase 3 checked lookup
-engine/src/core/editor_api.cpp|exception-syntax|2 # Phase 2 boundary conversion
 engine/src/core/editor_api.cpp|unsafe-json-get|8 # Phase 3 JSON extraction
 engine/src/core/editor_api.cpp|unsafe-json-value|13 # Phase 3 JSON extraction
 engine/src/core/entity_ref.cpp|unsafe-json-get|2 # Phase 3 JSON extraction
@@ -46,7 +45,6 @@ engine/src/core/runtime_ui_view.cpp|unsafe-json-value|6 # Phase 3 JSON extractio
 engine/src/core/save_document.cpp|container-at|21 # Phase 3 checked lookup
 engine/src/core/save_document.cpp|unsafe-json-get|2 # Phase 3 JSON extraction
 engine/src/core/save_document.cpp|unsafe-json-value|6 # Phase 3 JSON extraction
-engine/src/engine.cpp|exception-syntax|2 # Phase 2 boundary conversion
 engine/src/engine.cpp|unsafe-json-get|4 # Phase 3 JSON extraction
 engine/src/engine.cpp|unsafe-json-value|23 # Phase 3 JSON extraction
 engine/src/render/bgfx/bgfx_material_binder.cpp|unsafe-json-value|2 # Phase 3 JSON extraction
@@ -64,8 +62,6 @@ engine/src/runtime_ui_playback.cpp|unsafe-json-value|9 # Phase 3 JSON extraction
 engine/src/script/lua/bind_audio.cpp|unsafe-json-get|2 # Phase 4 Lua conversion
 engine/src/script/lua/bind_game_session.cpp|unsafe-json-get|1 # Phase 4 Lua conversion
 engine/src/script/lua/runtime_script_executor.cpp|unsafe-json-value|3 # Phase 4 Lua conversion
-engine/src/script/lua/script_runtime.cpp|exception-syntax|9 # Phase 4 protected result conversion
 engine/src/text/text_engine.cpp|container-at|1 # Phase 5 checked lookup
-tools/editor_tool/main.cpp|exception-syntax|3 # Phase 2 native tool boundary conversion
 tools/editor_tool/main.cpp|unsafe-json-get|5 # Phase 3 JSON extraction
 tools/editor_tool/main.cpp|unsafe-json-value|32 # Phase 3 JSON extraction

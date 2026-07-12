@@ -217,9 +217,8 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
     const auto package_it = root.find("package");
     const auto display_it = root.find("display");
     const auto capabilities = root.find("capabilities");
-    if (format == root.end() || !format->is_string() ||
-        format_version == root.end() || !format_version->is_number_integer() ||
-        display_name == root.end() ||
+    if (format == root.end() || !format->is_string() || format_version == root.end() ||
+        !format_version->is_number_integer() || display_name == root.end() ||
         !display_name->is_string() || application_id == root.end() ||
         !application_id->is_string() || save_namespace == root.end() ||
         !save_namespace->is_string() || version_name == root.end() || !version_name->is_string() ||

@@ -237,8 +237,8 @@ void execute_system_layout_lua(script::ScriptRuntime& runtime, const core::Proje
             continue;
         auto result = runtime.execute(lua, "@editor-ui-playback:" + role);
         if (!result) {
-            auto diagnostic = make_playback_diagnostic(
-                0, result.error ? result.error->message : "layout Lua failed");
+            auto diagnostic = make_playback_diagnostic(0, result.error ? result.error->message
+                                                                       : "layout Lua failed");
             report.diagnostics.push_back(diagnostic);
             report.outputs.push_back(make_diagnostic_output(diagnostic));
         }

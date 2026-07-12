@@ -909,13 +909,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
     platform_initialized = true;
 
-    try {
-        configure_assets(run_config);
-    } catch (const std::exception& ex) {
-        std::fprintf(stderr, "[engine] asset configuration failed: %s\n", ex.what());
-        rollback();
-        return false;
-    }
+    configure_assets(run_config);
 
     const NativeWindowHandles handles = m_platform.native_window_handles();
     m_presentation = make_presentation_metrics(m_platform.surface(), m_display_profile);

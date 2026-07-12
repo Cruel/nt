@@ -476,18 +476,15 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    try {
-        const auto input = read_all(std::cin);
-        const auto request =
-            input.empty() ? nlohmann::json::object() : nlohmann::json::parse(input);
-        auto response = run_command(argv[1], request);
-        std::cout << response.dump(2) << '\n';
-        return response.value("ok", false) ? 0 : 1;
-    } catch (const nlohmann::json::parse_error& error) {
-        std::cout << fail(std::string("Malformed request JSON: ") + error.what()).dump(2) << '\n';
-        return 1;
-    } catch (const std::exception& error) {
-        std::cout << fail(error.what()).dump(2) << '\n';
+    const auto input = read_all(std::cin);
+    const auto request =
+        input.empty() ? nlohmann::json::object() : nlohmann::json::parse(input, nullptr, false);
+    if (request.is_discarded()) {
+        std::cout << fail("Malformed request JSON").dump(2) << '\n';
         return 1;
     }
+
+    auto response = run_command(argv[1], request);
+    std::cout << response.dump(2) << '\n';
+    return response.value("ok", false) ? 0 : 1;
 }

@@ -201,7 +201,8 @@ TEST_CASE("ProjectTooling export accepts explicit package file entries")
     options.file_entries.push_back(PackageExportFileEntry{temp / "asset.txt", "text/asset.txt"});
 
     const auto output = temp / "file-entry.ntpkg";
-    const auto result = ProjectTooling::export_project_package(make_preview_project(), output, options);
+    const auto result =
+        ProjectTooling::export_project_package(make_preview_project(), output, options);
 
     REQUIRE(result.success);
     CHECK(result.checksums.contains("text/asset.txt"));
@@ -293,9 +294,10 @@ TEST_CASE("RuntimePreviewSession exposes debug-only state mutation helpers")
     auto state = preview.inspect_state();
     CHECK(state.save_snapshot[project_ids::object_locations]["lamp"] ==
           ref(EntityType::CustomScript, "__debug_removed"));
-    CHECK(std::none_of(state.view.objects.begin(), state.view.objects.end(), [](const auto& object) {
-                           return object.id == "lamp" && object.in_inventory;
-                       }));
+    CHECK(
+        std::none_of(state.view.objects.begin(), state.view.objects.end(), [](const auto& object) {
+            return object.id == "lamp" && object.in_inventory;
+        }));
 
     REQUIRE(preview.debug_teleport_room("kitchen"));
     CHECK(preview.inspect_state().view.title == "Kitchen");
