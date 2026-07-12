@@ -130,7 +130,7 @@ describe('authoring test playback project adapter', () => {
         steps: [{ input: 'ui_click', document_id: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' }],
       },
     });
-    expect(result.project).toMatchObject({ room: { foyer: expect.any(Array) }, entrypoint: [3, 'foyer'] });
+    expect(result.project).toMatchObject({ rooms: [expect.objectContaining({ id: 'foyer' })], entrypoint: { kind: 'room', id: 'foyer' } });
     expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: true, reason: 'runnable' });
   });
 });

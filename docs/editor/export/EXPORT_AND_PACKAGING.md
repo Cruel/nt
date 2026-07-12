@@ -28,7 +28,12 @@ Milestone 17 implements a first vertical slice:
 - reveal-in-folder support;
 - explicit unsupported diagnostic for preview-from-exported-package.
 
-The runtime conversion is intentionally narrow. Room entrypoints are supported. Scene and dialogue entrypoints are blocked with precise diagnostics because those authoring records do not yet have complete runtime export semantics.
+The authoring compiler emits `noveltea.runtime.project` version 1, a named-field runtime document
+validated by the shared Zod wire schema before preview or packaging. Room, scene, dialogue, and script
+entrypoints are explicit `{ kind, id }` references. Runtime collections are arrays of named records;
+numeric entity tags and positional entity arrays are not emitted. Authoring-only state and tests are
+excluded, while inheritance and editor structures are normalized into the supported runtime fields.
+Features whose typed runtime action payload is not yet complete produce compatibility warnings.
 
 App-icon generation is available as a headless main-process service in
 `editor/src/main/services/icon-generation-service.ts`. It accepts a canonical image and staging

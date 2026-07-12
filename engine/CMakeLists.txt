@@ -16,6 +16,7 @@ add_library(noveltea_core STATIC
     src/core/rich_text.cpp
     src/core/runtime_controller.cpp
     src/core/runtime_events.cpp
+    src/core/runtime_project_codec.cpp
     src/core/runtime_session_host.cpp
     src/core/runtime_ui_view.cpp
     src/core/save_document.cpp

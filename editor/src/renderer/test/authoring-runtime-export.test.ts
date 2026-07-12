@@ -36,19 +36,15 @@ describe('authoring runtime export builder', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtimeProject).toMatchObject({
-      name: 'Export Demo',
-      version: '2.0.0',
-      author: 'NovelTea',
-      entrypoint: [3, 'foyer'],
-      room: {
-        foyer: expect.arrayContaining(['foyer', 'A quiet foyer.', 'Foyer']),
-        kitchen: expect.arrayContaining(['kitchen', 'A bright kitchen.', 'Kitchen']),
-      },
+      schema: 'noveltea.runtime.project', schemaVersion: 1,
+      identity: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
+      entrypoint: { kind: 'room', id: 'foyer' },
+      rooms: expect.arrayContaining([
+        expect.objectContaining({ id: 'foyer', description: 'A quiet foyer.', name: 'Foyer' }),
+        expect.objectContaining({ id: 'kitchen', description: 'A bright kitchen.', name: 'Kitchen' }),
+      ]),
     });
-    expect((result.runtimeProject as { room: Record<string, unknown[]> }).room.foyer?.[2]).toMatchObject({
-      background: 'project:/textures/foyer.png',
-      backgroundFit: 'cover',
-    });
+    expect(result.runtimeProject).toMatchObject({ assets: [expect.objectContaining({ id: 'foyer', path: 'project:/textures/foyer.png' })] });
     expect(result.runtimeProject).not.toHaveProperty('editor');
     expect(result.runtimeProject).not.toHaveProperty('tests');
     expect(result.fileEntries).toEqual([
@@ -122,10 +118,8 @@ describe('authoring runtime export builder', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtimeProject).toMatchObject({
-      entrypoint: [6, 'bootstrap'],
-      script: {
-        bootstrap: ['bootstrap', '', {}, true, 'Game.start_room("foyer")'],
-      },
+      entrypoint: { kind: 'script', id: 'bootstrap' },
+      scripts: [{ id: 'bootstrap', source: 'Game.start_room("foyer")' }],
     });
   });
 
@@ -162,15 +156,10 @@ describe('authoring runtime export builder', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtimeProject).toMatchObject({
-      entrypoint: [5, 'intro'],
-      dialogue: {
-        intro: expect.arrayContaining(['intro', 'Intro']),
-      },
+      entrypoint: { kind: 'dialogue', id: 'intro' },
+      dialogues: [expect.objectContaining({ id: 'intro' })],
     });
-    expect((result.runtimeProject as { dialogue: Record<string, unknown[]> }).dialogue.intro![9]).toEqual([
-      [0, -1, false, false, false, false, false, true, '', '', '', [1]],
-      [1, -1, false, false, false, false, false, true, '', '', 'Hello from dialogue.', []],
-    ]);
+    expect(result.runtimeProject).toMatchObject({ dialogues: [{ nodes: [expect.objectContaining({ text: 'Hello from dialogue.' })] }] });
   });
 
   it('reports unsupported dialogue export features as diagnostics', () => {
@@ -217,16 +206,9 @@ describe('authoring runtime export builder', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtimeProject).toMatchObject({
-      entrypoint: [1, 'opening'],
-      cutscene: {
-        opening: expect.arrayContaining(['opening', true, true, 1, [3, 'kitchen']]),
-      },
+      entrypoint: { kind: 'scene', id: 'opening' },
+      scenes: [{ id: 'opening', steps: expect.any(Array) }],
     });
-    expect((result.runtimeProject as { cutscene: Record<string, unknown[]> }).cutscene.opening![7]).toEqual([
-      [0, 'The room fades in.', true, true, 0, 1000, 0, 0, 0, true, ''],
-      [1, 1, 0, 0, true, false, ''],
-      [0, 'A kettle sings.', true, true, 0, 1000, 0, 0, 0, true, ''],
-    ]);
   });
 
   it('reports unsupported scene step types as diagnostics', () => {

@@ -17,7 +17,7 @@ describe('platform export acceptance fixture', () => {
   it('does not certify the fixture while reachable conversion gaps remain', () => {
     const project = createPlatformExportAcceptanceFixture();
     const result = buildAuthoringRuntimeExport(project, { projectRoot: '/fixture', profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false } });
-    expect(result.runtimeProject).not.toHaveProperty('layouts');
+    expect(result.runtimeProject).toHaveProperty('layouts');
     expect(result.runtimeProject).not.toHaveProperty('audio');
     expect(platformExportFixtureExpectations.blocked.length).toBeGreaterThan(0);
   });

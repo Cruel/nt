@@ -1,11 +1,9 @@
 #pragma once
 
-#include <cstdint>
-#include <string>
-#include <variant>
+#include <noveltea/core/runtime_value.hpp>
 
 namespace noveltea::script {
 
-using ScriptValue = std::variant<std::monostate, bool, std::int64_t, double, std::string>;
+using ScriptValue = core::RuntimeValue;
 
 } // namespace noveltea::script

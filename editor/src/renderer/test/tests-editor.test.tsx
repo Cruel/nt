@@ -135,7 +135,7 @@ describe('TestsEditor', () => {
     fireEvent.click(screen.getByText('Run Test'));
     await waitFor(() => {
       expect(window.noveltea.runUiPlaybackSpec).toHaveBeenCalledWith(
-        expect.objectContaining({ room: expect.any(Object), entrypoint: [3, 'foyer'] }),
+        expect.objectContaining({ rooms: [expect.objectContaining({ id: 'foyer' })], entrypoint: { kind: 'room', id: 'foyer' } }),
         expect.objectContaining({ steps: [expect.objectContaining({ input: 'ui_click', document_id: 'runtime_title', target: '#nt-title-start' })] }),
       );
     });
