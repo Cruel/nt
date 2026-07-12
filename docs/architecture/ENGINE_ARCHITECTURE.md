@@ -222,3 +222,12 @@ The active architecture uses:
 Keep backend-neutral core code free of SDL3, bgfx, RmlUi, Dear ImGui, Lua, Electron, Android, Emscripten, SFML, and Qt types. Runtime scripting stays Lua-only.
 
 Legacy script text imported from old projects is either valid Lua or fails as Lua with diagnostics surfaced by the runtime/tooling layer.
+# Error propagation policy
+
+Recoverable failures at project, asset, rendering, scripting, and platform boundaries use
+`noveltea::core::Result<T, E>`. `Diagnostic` is the common cross-subsystem error when a narrower typed
+error is not more useful; it preserves a stable code, user-facing message, severity, source path, JSON
+pointer, and nested causes. Libraries return errors and add context, while application boundaries own
+logging and presentation. `Fatal` is reserved for non-recoverable contract or process failures and is
+never used merely because user-authored input is invalid. `Diagnostics` and `append_diagnostics` support
+validation that must report multiple independent problems.

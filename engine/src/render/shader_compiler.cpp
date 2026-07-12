@@ -238,16 +238,15 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
                        "Failed to read shader compiler cache manifest.");
         return nlohmann::json::object();
     }
-    try {
-        auto manifest = nlohmann::json::parse(*text);
-        return manifest.is_object() ? manifest : nlohmann::json::object();
-    } catch (const nlohmann::json::parse_error&) {
+    auto manifest = nlohmann::json::parse(*text, nullptr, false);
+    if (manifest.is_discarded() || !manifest.is_object()) {
         add_diagnostic(diagnostics, ShaderCompileSeverity::Warning,
                        ShaderCompileDiagnosticCode::CacheReadFailed, ShaderId{},
                        ShaderStage::Fragment, {}, {}, path, {}, 0,
                        "Failed to parse shader compiler cache manifest.");
         return nlohmann::json::object();
     }
+    return manifest;
 }
 
 void write_cache_manifest(const std::filesystem::path& path, const nlohmann::json& manifest,

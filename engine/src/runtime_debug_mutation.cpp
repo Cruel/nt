@@ -77,12 +77,10 @@ std::string runtime_debug_set_variable(RuntimeShell& shell, const std::string& v
         return {};
     }
 
-    nlohmann::json value;
-    try {
-        value = nlohmann::json::parse(value_json);
-    } catch (const std::exception& error) {
+    auto value = nlohmann::json::parse(value_json, nullptr, false);
+    if (value.is_discarded()) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "[runtime-preview] debug variable value JSON parse failed: %s", error.what());
+                    "[runtime-preview] debug variable value JSON parse failed");
         return {};
     }
 

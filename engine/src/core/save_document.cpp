@@ -86,13 +86,12 @@ bool require_key(const json& root, std::string_view field, std::vector<DocumentE
 std::optional<json> parse_text(std::string_view text, std::vector<DocumentError>& errors,
                                std::string_view label)
 {
-    try {
-        return json::parse(text.begin(), text.end());
-    } catch (const json::parse_error& e) {
-        add_error(errors, "",
-                  std::string("malformed ") + std::string(label) + " JSON: " + e.what());
+    auto parsed = json::parse(text.begin(), text.end(), nullptr, false);
+    if (parsed.is_discarded()) {
+        add_error(errors, "", std::string("malformed ") + std::string(label) + " JSON");
         return std::nullopt;
     }
+    return parsed;
 }
 
 } // namespace

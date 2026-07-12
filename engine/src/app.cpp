@@ -568,19 +568,15 @@ int noveltea_runtime_run_action(const char* verb_id, const char* object_ids_json
         return 0;
     }
     std::vector<std::string> object_ids;
-    try {
-        const auto parsed = nlohmann::json::parse(object_ids_json);
-        if (!parsed.is_array()) {
+    const auto parsed = nlohmann::json::parse(object_ids_json, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_array()) {
+        return 0;
+    }
+    for (const auto& value : parsed) {
+        if (!value.is_string()) {
             return 0;
         }
-        for (const auto& value : parsed) {
-            if (!value.is_string()) {
-                return 0;
-            }
-            object_ids.push_back(value.get<std::string>());
-        }
-    } catch (const std::exception&) {
-        return 0;
+        object_ids.push_back(value.get<std::string>());
     }
     return noveltea::g_preview_engine->runtime_preview().run_action(verb_id, object_ids) ? 1 : 0;
 }

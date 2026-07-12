@@ -40,19 +40,22 @@ make_text_log_snapshot(const core::RuntimeUIViewState& state);
 
 class NtActiveTextElement final : public Rml::Element {
 public:
-    explicit NtActiveTextElement(const Rml::String& tag);
+    RMLUI_RTTI_DefineWithParent(NtActiveTextElement,
+                                Rml::Element) explicit NtActiveTextElement(const Rml::String& tag);
     void set_snapshot(const ActiveTextComponentSnapshot& snapshot);
 };
 
 class NtMapViewElement final : public Rml::Element {
 public:
-    explicit NtMapViewElement(const Rml::String& tag);
+    RMLUI_RTTI_DefineWithParent(NtMapViewElement,
+                                Rml::Element) explicit NtMapViewElement(const Rml::String& tag);
     void set_snapshot(const MapViewComponentSnapshot& snapshot);
 };
 
 class NtTextLogElement final : public Rml::Element {
 public:
-    explicit NtTextLogElement(const Rml::String& tag);
+    RMLUI_RTTI_DefineWithParent(NtTextLogElement,
+                                Rml::Element) explicit NtTextLogElement(const Rml::String& tag);
     void set_snapshot(const TextLogComponentSnapshot& snapshot);
 };
 

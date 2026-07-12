@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <nlohmann/json_fwd.hpp>
+#include "noveltea/core/diagnostic.hpp"
 
 namespace noveltea::core {
 
@@ -106,6 +107,7 @@ struct RichTextDocument {
     std::string plain_text;
     std::vector<RichTextRun> runs;
     std::vector<RichTextPageBreak> page_breaks;
+    Diagnostics diagnostics;
 };
 
 struct RichTextParseOptions {

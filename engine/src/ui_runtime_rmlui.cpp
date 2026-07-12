@@ -340,6 +340,7 @@ struct RuntimeUI::State {
     ui::rmlui::AssetRmlFileInterface* file_interface = nullptr;
     ui::rmlui::SdlSystemInterface* system_interface = nullptr;
     Rml::RenderInterface* render_interface = nullptr;
+    ui::rmlui::BgfxRenderInterface* bgfx_render_interface = nullptr;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiDocumentBinder* document_binder = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
@@ -647,6 +648,7 @@ void RuntimeUI::cleanup_state()
     m_state->component_registry = nullptr;
     delete m_state->render_interface;
     m_state->render_interface = nullptr;
+    m_state->bgfx_render_interface = nullptr;
     Rml::SetSystemInterface(nullptr);
     Rml::SetFileInterface(nullptr);
     delete m_state->system_interface;
@@ -716,12 +718,11 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     if (headless_render) {
         m_state->render_interface = new HeadlessRenderInterface;
     } else {
-        m_state->render_interface =
+        m_state->bgfx_render_interface =
             new ui::rmlui::BgfxRenderInterface(m_presentation, *assets, shader_materials);
+        m_state->render_interface = m_state->bgfx_render_interface;
     }
-    auto* bgfx_render_interface =
-        dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface);
-    if (bgfx_render_interface && !*bgfx_render_interface) {
+    if (m_state->bgfx_render_interface && !*m_state->bgfx_render_interface) {
         std::fprintf(stderr, "[runtime_ui] bgfx RmlUi renderer failed to initialize\n");
         cleanup_state();
         return false;
@@ -767,8 +768,7 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
 void RuntimeUI::enable_render_perf_logging(bool enabled)
 {
     if (m_state) {
-        if (auto* render =
-                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+        if (auto* render = m_state->bgfx_render_interface) {
             render->set_perf_logging_enabled(enabled);
         }
     }
@@ -777,8 +777,7 @@ void RuntimeUI::enable_render_perf_logging(bool enabled)
 void RuntimeUI::set_rmlui_base_direct_compatibility(bool enabled)
 {
     if (m_state) {
-        if (auto* render =
-                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+        if (auto* render = m_state->bgfx_render_interface) {
             render->set_base_direct_compatibility(enabled);
         }
     }
@@ -914,8 +913,7 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
         m_state->context->SetDimensions(
             Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
         m_state->context->SetDensityIndependentPixelRatio(m_surface.scale_x);
-        if (auto* render =
-                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+        if (auto* render = m_state->bgfx_render_interface) {
             render->resize(presentation);
         }
     }
@@ -924,8 +922,7 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
 void RuntimeUI::begin_frame(float delta_time)
 {
     if (m_state && m_state->context) {
-        if (auto* render =
-                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+        if (auto* render = m_state->bgfx_render_interface) {
             render->begin_frame();
         }
         const auto& source_state = m_state->runtime_host ? m_state->runtime_host->view_state()
@@ -987,8 +984,7 @@ void RuntimeUI::end_frame()
 {
     if (m_state && m_state->context) {
         m_state->context->Render();
-        if (auto* render =
-                dynamic_cast<ui::rmlui::BgfxRenderInterface*>(m_state->render_interface)) {
+        if (auto* render = m_state->bgfx_render_interface) {
             render->end_frame();
         }
     }

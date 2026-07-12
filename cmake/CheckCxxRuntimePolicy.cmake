@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.24)
+
+file(STRINGS "${ALLOWLIST}" allowed REGEX "^[^#].+")
+file(GLOB_RECURSE sources "${SOURCE_ROOT}/engine/*.cpp" "${SOURCE_ROOT}/engine/*.h"
+     "${SOURCE_ROOT}/engine/*.hpp" "${SOURCE_ROOT}/apps/*.cpp" "${SOURCE_ROOT}/apps/*.h"
+     "${SOURCE_ROOT}/apps/*.hpp")
+set(pattern "(^|[^A-Za-z0-9_])(throw|try|catch|dynamic_cast|typeid|std::type_info|std::type_index|std::stoi|std::stol|std::stoll|std::stoul|std::stoull|std::stof|std::stod|std::stold)([^A-Za-z0-9_]|$)|\\.at[ \t\r\n]*\\(")
+set(failures "")
+foreach(source IN LISTS sources)
+    file(RELATIVE_PATH relative "${SOURCE_ROOT}" "${source}")
+    file(READ "${source}" contents)
+    string(REGEX MATCHALL "${pattern}" matches "${contents}")
+    foreach(match IN LISTS matches)
+        set(key "${relative}|${match}")
+        if(NOT key IN_LIST allowed)
+            string(APPEND failures "\n  ${key}")
+        endif()
+    endforeach()
+endforeach()
+if(failures)
+    message(FATAL_ERROR "C++ runtime policy violations:${failures}")
+endif()

@@ -14,6 +14,7 @@ add_executable(noveltea_core_tests
     core/project_model_tests.cpp
     core/player_bootstrap_tests.cpp
     core/project_validator_tests.cpp
+    core/result_tests.cpp
     core/rich_text_tests.cpp
     core/runtime_controller_tests.cpp
     core/runtime_events_tests.cpp

@@ -163,3 +163,10 @@ The binder:
 - `RuntimeUI::bind_runtime_host()` attaches the `RuntimeInputListener` to the runtime document.
 - `RuntimeUI::reload_documents_and_styles()` preserves the runtime game document across reload: it saves whether a runtime document was loaded, unloads all documents, then reloads both the demo and runtime documents. The input listener is reattached after reload if a host is bound.
 - `RuntimeUI::unload_document()` removes the runtime input listener before closing the runtime game document.
+# Type identification
+
+NovelTea custom elements declare RmlUi's `RMLUI_RTTI_DefineWithParent` metadata and document binding
+uses `rmlui_dynamic_cast`. The renderer integration retains the concrete bgfx render-interface pointer
+instead of recovering it with a downcast. `RMLUI_CUSTOM_RTTI` must only be enabled when RmlUi Core, Lua,
+Debugger, rmlui-bgfx, and every consumer are rebuilt consistently; enabling it for NovelTea alone is an
+ABI violation.

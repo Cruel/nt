@@ -592,13 +592,12 @@ nlohmann::json RuntimePlaybackReport::to_json() const
 ProjectLoadResult ProjectTooling::load_project_json(std::string_view source)
 {
     ProjectLoadResult result;
-    try {
-        result.project = ProjectDocument(nlohmann::json::parse(source));
-    } catch (const nlohmann::json::parse_error& parse_error) {
-        result.diagnostics.push_back(
-            error("/", std::string("Malformed project JSON: ") + parse_error.what()));
+    auto parsed = nlohmann::json::parse(source, nullptr, false);
+    if (parsed.is_discarded()) {
+        result.diagnostics.push_back(error("/", "Malformed project JSON"));
         return result;
     }
+    result.project = ProjectDocument(std::move(parsed));
 
     auto validation = validate_project(*result.project);
     result.diagnostics.insert(result.diagnostics.end(), std::make_move_iterator(validation.begin()),
@@ -1133,8 +1132,7 @@ bool RuntimePreviewSession::inject_action(const std::string& verb_id,
     return result.handled;
 }
 
-bool RuntimePreviewSession::debug_set_variable(const std::string& variable_id,
-                                               nlohmann::json value)
+bool RuntimePreviewSession::debug_set_variable(const std::string& variable_id, nlohmann::json value)
 {
     if (!m_host.loaded() || variable_id.empty())
         return false;
@@ -1159,9 +1157,8 @@ bool RuntimePreviewSession::debug_give_object(const std::string& object_id)
     const auto* project = m_host.session().project();
     if (!project || !project->objects().contains(object_id))
         return false;
-    m_host.session().set_object_location(object_id,
-                                         EntityRef{EntityType::CustomScript,
-                                                   std::string(project_ids::player)});
+    m_host.session().set_object_location(
+        object_id, EntityRef{EntityType::CustomScript, std::string(project_ids::player)});
     m_host.refresh_interactions();
     return true;
 }
@@ -1173,8 +1170,8 @@ bool RuntimePreviewSession::debug_remove_inventory_object(const std::string& obj
     const auto* project = m_host.session().project();
     if (!project || !project->objects().contains(object_id))
         return false;
-    m_host.session().set_object_location(
-        object_id, EntityRef{EntityType::CustomScript, "__debug_removed"});
+    m_host.session().set_object_location(object_id,
+                                         EntityRef{EntityType::CustomScript, "__debug_removed"});
     m_host.refresh_interactions();
     return true;
 }

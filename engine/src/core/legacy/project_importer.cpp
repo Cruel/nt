@@ -93,15 +93,12 @@ std::optional<ImportedProject>
 ProjectImporter::import_game_json_text(std::string_view source, std::vector<ImportError>& errors)
 {
     errors.clear();
-    try {
-        return import_game_json(nlohmann::json::parse(source), errors);
-    } catch (const nlohmann::json::parse_error& e) {
-        add_error(errors, std::string("Malformed legacy project JSON: ") + e.what());
-        return std::nullopt;
-    } catch (const std::exception& e) {
-        add_error(errors, std::string("Failed to import legacy project JSON: ") + e.what());
+    auto parsed = nlohmann::json::parse(source, nullptr, false);
+    if (parsed.is_discarded()) {
+        add_error(errors, "Malformed legacy project JSON");
         return std::nullopt;
     }
+    return import_game_json(parsed, errors);
 }
 
 std::optional<ImportedProject> ProjectImporter::import_game_json(const nlohmann::json& root,

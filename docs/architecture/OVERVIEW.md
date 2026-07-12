@@ -10,6 +10,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/OVERVIEW.md` maps the full documentation hierarchy.
 - `docs/build/OVERVIEW.md` describes build/toolchain documentation.
 - `docs/migration/OVERVIEW.md` describes migration status and legacy-reference policy.
+- `docs/architecture/plans/CXX_NO_EXCEPTIONS_IMPLEMENTATION_PLAN.md` defines the repository-wide migration
+  to explicit errors, no C++ exceptions, no compiler RTTI, dependency-specific custom RTTI where needed,
+  and enforced rejection of hidden throwing APIs.
 
 ## Code Areas
 

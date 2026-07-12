@@ -50,7 +50,7 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
         title->SetInnerRML(escape_rml(state.title));
     }
     if (auto* active_text =
-            dynamic_cast<NtActiveTextElement*>(find_component(doc, "nt-active-text"))) {
+            rmlui_dynamic_cast<NtActiveTextElement*>(find_component(doc, "nt-active-text"))) {
         active_text->set_snapshot(make_active_text_snapshot(state));
     } else if (auto* body = find_element(doc, "rt_body", m_logged_missing)) {
         body->SetInnerRML("");
@@ -105,9 +105,8 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
     if (auto* nav = find_element(doc, "rt_navigation", m_logged_missing)) {
         std::ostringstream out;
         for (std::size_t i = 0; i < state.navigation.size(); ++i) {
-            out << "<button class=\"nav\" nt-nav=\"" << i << "\" onclick=\"Game.navigate("
-                << i << ")\">"
-                << escape_rml(state.navigation[i]) << "</button>";
+            out << "<button class=\"nav\" nt-nav=\"" << i << "\" onclick=\"Game.navigate(" << i
+                << ")\">" << escape_rml(state.navigation[i]) << "</button>";
         }
         nav->SetInnerRML(out.str());
     }
@@ -192,12 +191,14 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
         }
         actions->SetInnerRML(out.str());
     }
-    if (auto* text_log = dynamic_cast<NtTextLogElement*>(find_component(doc, "nt-text-log"))) {
+    if (auto* text_log =
+            rmlui_dynamic_cast<NtTextLogElement*>(find_component(doc, "nt-text-log"))) {
         text_log->set_snapshot(make_text_log_snapshot(state));
     } else if (auto* log = find_element(doc, "rt_log", m_logged_missing)) {
         log->SetInnerRML(text_log_rml(make_text_log_snapshot(state)));
     }
-    if (auto* map_view = dynamic_cast<NtMapViewElement*>(find_component(doc, "nt-map-view"))) {
+    if (auto* map_view =
+            rmlui_dynamic_cast<NtMapViewElement*>(find_component(doc, "nt-map-view"))) {
         map_view->set_snapshot(make_map_view_snapshot(state));
     } else if (auto* map = find_element(doc, "rt_map", m_logged_missing)) {
         map->SetInnerRML(map_view_rml(make_map_view_snapshot(state)));

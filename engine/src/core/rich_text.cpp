@@ -176,26 +176,29 @@ void parse_single_arg(StyleTag& tag, std::string_view full, std::string key)
         tag.params[std::move(key)] = parts[1];
 }
 
-void parse_key_values(StyleTag& tag, std::string_view full, bool make_lower)
+bool parse_key_values(StyleTag& tag, std::string_view full, bool make_lower)
 {
     auto parts = split(full, ' ');
     tag.name = parts.empty() ? std::string{} : parts[0];
     for (std::size_t i = 1; i < parts.size(); ++i) {
         auto kv = split(parts[i], '=');
         if (kv.size() != 2)
-            throw std::runtime_error("bad key/value tag");
+            return false;
         if (make_lower) {
             kv[0] = lower(std::move(kv[0]));
             kv[1] = lower(std::move(kv[1]));
         }
         tag.params[kv[0]] = kv[1];
     }
+    return true;
 }
 
-StyleTag parse_style_tag(std::string tag_full, bool& closing)
+std::optional<StyleTag> parse_style_tag(std::string tag_full, bool& closing, std::string& error)
 {
-    if (tag_full.empty())
-        throw std::runtime_error("empty tag");
+    if (tag_full.empty()) {
+        error = "empty tag";
+        return std::nullopt;
+    }
     closing = tag_full[0] == '/';
     if (closing)
         tag_full.erase(0, 1);
@@ -207,7 +210,10 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
 
     if (c == 'a') {
         tag.type = TextStyleType::Animation;
-        parse_key_values(tag, tag_full, true);
+        if (!parse_key_values(tag, tag_full, true)) {
+            error = "bad key/value tag";
+            return std::nullopt;
+        }
         std::map<std::string, std::string> normalized;
         for (const auto& [key, value] : tag.params) {
             if (key.empty())
@@ -250,8 +256,10 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
             if (closing)
                 parts.push_back("");
             tag.name = parts[0];
-            if (parts.size() != 2)
-                throw std::runtime_error("bad border tag");
+            if (parts.size() != 2) {
+                error = "bad border tag";
+                return std::nullopt;
+            }
             if (tag_lower[1] == 'c' || parts[0] == "border-color") {
                 tag.type = TextStyleType::BorderColor;
                 tag.params["color"] = parts[1];
@@ -273,11 +281,13 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
     } else if (c == 'm') {
         if (tag_lower.size() > 2 && tag_lower[1] == 'a' && tag_lower[2] == 't') {
             tag.type = TextStyleType::Material;
-            parse_key_values(tag, tag_full, false);
-            if (tag.params.empty() && !closing)
-                throw std::runtime_error("empty material tag");
+            if (!parse_key_values(tag, tag_full, false) || (tag.params.empty() && !closing)) {
+                error = "invalid material tag";
+                return std::nullopt;
+            }
         } else {
-            throw std::runtime_error("unknown tag");
+            error = "unknown tag";
+            return std::nullopt;
         }
     } else if (c == 'o') {
         tag.type = TextStyleType::Object;
@@ -288,9 +298,10 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
     } else if (c == 's') {
         if (tag_lower.size() > 1 && tag_lower[1] == 'h') {
             tag.type = TextStyleType::Shader;
-            parse_key_values(tag, tag_full, false);
-            if (tag.params.empty() && !closing)
-                throw std::runtime_error("empty shader tag");
+            if (!parse_key_values(tag, tag_full, false) || (tag.params.empty() && !closing)) {
+                error = "invalid shader tag";
+                return std::nullopt;
+            }
         } else if (tag_lower == "strike" || tag_lower == "strikethrough") {
             tag.type = TextStyleType::Strike;
         } else {
@@ -301,7 +312,8 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
         if (tag_lower == "u" || tag_lower == "underline") {
             tag.type = TextStyleType::Underline;
         } else {
-            throw std::runtime_error("unknown tag");
+            error = "unknown tag";
+            return std::nullopt;
         }
     } else if (c == 'x') {
         tag.type = TextStyleType::XOffset;
@@ -310,7 +322,8 @@ StyleTag parse_style_tag(std::string tag_full, bool& closing)
         tag.type = TextStyleType::YOffset;
         parse_single_arg(tag, tag_full, "y");
     } else {
-        throw std::runtime_error("unknown tag");
+        error = "unknown tag";
+        return std::nullopt;
     }
     return tag;
 }
@@ -533,47 +546,56 @@ RichTextDocument parse_rich_text(std::string_view input, const RichTextParseOpti
                 buffer << c;
                 continue;
             }
-            try {
-                bool closing = false;
-                auto tag = parse_style_tag(*tag_text, closing);
-                if (tag.type == TextStyleType::PageBreak) {
-                    if (closing)
-                        throw std::runtime_error("closing page break");
-                    stack.push_back(tag);
-                    push_run(true);
-                    int delay = 0;
-                    if (auto it = tag.params.find("delay"); it != tag.params.end())
-                        delay = static_cast<int>(std::max(parse_float(it->second), 0.0f) * 1000.0f);
-                    document.page_breaks.push_back(RichTextPageBreak{document.runs.size(), delay});
-                    stack.pop_back();
-                    new_group = true;
-                    i = tag_end;
-                    continue;
-                }
-
-                auto it = std::find_if(stack.rbegin(), stack.rend(), [&](const StyleTag& active) {
-                    return active.name == tag.name;
-                });
-                if (closing && it == stack.rend()) {
-                    i = tag_end;
-                    continue;
-                }
-
-                push_run();
-                if (tag.type == TextStyleType::Animation || tag.type == TextStyleType::XOffset ||
-                    tag.type == TextStyleType::YOffset || tag.type == TextStyleType::Material ||
-                    tag.type == TextStyleType::Shader) {
-                    new_group = true;
-                }
-                if (closing) {
-                    stack.erase(std::next(it).base());
-                } else {
-                    stack.push_back(std::move(tag));
-                }
-                i = tag_end;
-            } catch (const std::exception&) {
-                buffer << c;
+            bool closing = false;
+            std::string parse_error;
+            auto parsed_tag = parse_style_tag(*tag_text, closing, parse_error);
+            if (parsed_tag && parsed_tag->type == TextStyleType::PageBreak && closing) {
+                parse_error = "closing page break";
+                parsed_tag.reset();
             }
+            if (!parsed_tag) {
+                document.diagnostics.push_back(Diagnostic{"rich_text.invalid_tag",
+                                                          std::move(parse_error),
+                                                          ErrorSeverity::Warning,
+                                                          {},
+                                                          "/" + std::to_string(i),
+                                                          {}});
+                buffer << c;
+                continue;
+            }
+            auto tag = std::move(*parsed_tag);
+            if (tag.type == TextStyleType::PageBreak) {
+                stack.push_back(tag);
+                push_run(true);
+                int delay = 0;
+                if (auto it = tag.params.find("delay"); it != tag.params.end())
+                    delay = static_cast<int>(std::max(parse_float(it->second), 0.0f) * 1000.0f);
+                document.page_breaks.push_back(RichTextPageBreak{document.runs.size(), delay});
+                stack.pop_back();
+                new_group = true;
+                i = tag_end;
+                continue;
+            }
+
+            auto it = std::find_if(stack.rbegin(), stack.rend(),
+                                   [&](const StyleTag& active) { return active.name == tag.name; });
+            if (closing && it == stack.rend()) {
+                i = tag_end;
+                continue;
+            }
+
+            push_run();
+            if (tag.type == TextStyleType::Animation || tag.type == TextStyleType::XOffset ||
+                tag.type == TextStyleType::YOffset || tag.type == TextStyleType::Material ||
+                tag.type == TextStyleType::Shader) {
+                new_group = true;
+            }
+            if (closing) {
+                stack.erase(std::next(it).base());
+            } else {
+                stack.push_back(std::move(tag));
+            }
+            i = tag_end;
         } else if (c == '\n') {
             push_run();
             new_line = true;

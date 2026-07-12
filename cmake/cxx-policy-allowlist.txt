@@ -1,0 +1,1 @@
+# Temporary entries have the form relative/path|matched token and must cite a removal phase.

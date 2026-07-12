@@ -1100,15 +1100,14 @@ MaterialIdParseResult parse_material_id(std::string_view reference)
 
 ShaderMaterialProjectParseResult parse_shader_material_project_json(std::string_view source)
 {
-    try {
-        const auto value = nlohmann::json::parse(source);
-        return parse_shader_material_project_json_value(value);
-    } catch (const nlohmann::json::parse_error& error) {
+    const auto value = nlohmann::json::parse(source, nullptr, false);
+    if (value.is_discarded()) {
         ShaderMaterialProjectParseResult result;
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidJson, "",
-                       std::string("invalid shader/material JSON: ") + error.what());
+                       "invalid shader/material JSON");
         return result;
     }
+    return parse_shader_material_project_json_value(value);
 }
 
 ShaderMaterialProjectParseResult

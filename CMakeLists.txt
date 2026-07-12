@@ -7,6 +7,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CTest)
+include(NovelTeaCompilerPolicy)
+add_custom_target(cxx-runtime-policy
+    COMMAND "${CMAKE_COMMAND}" -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DALLOWLIST=${CMAKE_SOURCE_DIR}/cmake/cxx-policy-allowlist.txt
+        -P ${CMAKE_SOURCE_DIR}/cmake/CheckCxxRuntimePolicy.cmake
+    COMMENT "Checking shipped C++ sources for exception, RTTI, and throwing APIs"
+    VERBATIM)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES CONFIGURE_DEPENDS

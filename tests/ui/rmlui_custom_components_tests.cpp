@@ -10,6 +10,22 @@ using namespace noveltea;
 using namespace noveltea::core;
 using namespace noveltea::ui::rmlui;
 
+TEST_CASE("RmlUi custom component casts are checked")
+{
+    REQUIRE(Rml::Initialise());
+    {
+        NtActiveTextElement active("nt-active-text");
+        NtMapViewElement map("nt-map-view");
+        Rml::Element* active_base = &active;
+        Rml::Element* map_base = &map;
+
+        CHECK(rmlui_dynamic_cast<NtActiveTextElement*>(active_base) == &active);
+        CHECK(rmlui_dynamic_cast<NtActiveTextElement*>(map_base) == nullptr);
+        CHECK(rmlui_dynamic_cast<Rml::Element*>(active_base) == active_base);
+    }
+    Rml::Shutdown();
+}
+
 TEST_CASE("RmlUi custom component helpers escape non-ActiveText fallback RML")
 {
     RuntimeUIViewState state;

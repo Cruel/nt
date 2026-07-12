@@ -208,58 +208,111 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
                      "versionName", "package", "capabilities", "display"},
                     {"defaultLocale"}, result, ""))
         return result;
-    try {
-        if (root.at("format") != "noveltea.player-config" || root.at("formatVersion") != 1)
-            fail(result, PlayerBootstrapError::ConfigParse, "/formatVersion",
-                 "unsupported player config format");
-        auto& config = result.config;
-        config.display_name = root.at("displayName").get<std::string>();
-        config.application_id = root.at("applicationId").get<std::string>();
-        config.save_namespace = root.at("saveNamespace").get<std::string>();
-        config.version_name = root.at("versionName").get<std::string>();
-        config.default_locale = root.value("defaultLocale", std::string());
-        const auto& package = root.at("package");
-        exact_keys(package, {"path", "sha256", "runtimePackageApi"}, {}, result, "/package");
-        config.package_path = package.at("path").get<std::string>();
-        config.package_sha256 = package.at("sha256").get<std::string>();
-        config.runtime_package_api = package.at("runtimePackageApi").get<std::uint32_t>();
-        const auto& display = root.at("display");
-        exact_keys(display, {"aspectRatio", "orientation", "barColor"}, {}, result, "/display");
-        exact_keys(display.at("aspectRatio"), {"width", "height"}, {}, result,
-                   "/display/aspectRatio");
-        config.display.aspect_width = display.at("aspectRatio").at("width").get<std::uint32_t>();
-        config.display.aspect_height = display.at("aspectRatio").at("height").get<std::uint32_t>();
-        config.display.orientation = display.at("orientation").get<std::string>();
-        config.display.bar_color = display.at("barColor").get<std::string>();
-        config.capabilities = root.at("capabilities").get<std::vector<std::string>>();
-        if (config.display_name.empty() || config.application_id.empty() ||
-            config.save_namespace.empty() || config.version_name.empty())
-            fail(result, PlayerBootstrapError::ConfigParse, "",
-                 "identity strings must not be empty");
-        if (!is_safe_player_relative_path(config.package_path.generic_string()))
-            fail(result, PlayerBootstrapError::ConfigParse, "/package/path",
-                 "package path must be normalized and relative");
-        if (config.package_sha256.size() != 64 ||
-            !std::all_of(config.package_sha256.begin(), config.package_sha256.end(),
-                         [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }))
-            fail(result, PlayerBootstrapError::ConfigParse, "/package/sha256",
-                 "SHA-256 must be 64 lowercase hexadecimal characters");
-        if (config.display.aspect_width == 0 || config.display.aspect_height == 0 ||
-            (config.display.orientation != "landscape" && config.display.orientation != "portrait"))
-            fail(result, PlayerBootstrapError::ConfigParse, "/display", "invalid display metadata");
-        std::set<std::string> unique;
-        for (const auto& capability : config.capabilities) {
-            if (std::find(known_capabilities.begin(), known_capabilities.end(), capability) ==
-                known_capabilities.end())
-                fail(result, PlayerBootstrapError::Capability, "/capabilities",
-                     "unknown capability: " + capability);
-            if (!unique.insert(capability).second)
-                fail(result, PlayerBootstrapError::Capability, "/capabilities",
-                     "duplicate capability: " + capability);
-        }
-    } catch (const json::exception& error) {
+    const auto format = root.find("format");
+    const auto format_version = root.find("formatVersion");
+    const auto display_name = root.find("displayName");
+    const auto application_id = root.find("applicationId");
+    const auto save_namespace = root.find("saveNamespace");
+    const auto version_name = root.find("versionName");
+    const auto package_it = root.find("package");
+    const auto display_it = root.find("display");
+    const auto capabilities = root.find("capabilities");
+    if (format == root.end() || !format->is_string() ||
+        format_version == root.end() || !format_version->is_number_integer() ||
+        display_name == root.end() ||
+        !display_name->is_string() || application_id == root.end() ||
+        !application_id->is_string() || save_namespace == root.end() ||
+        !save_namespace->is_string() || version_name == root.end() || !version_name->is_string() ||
+        package_it == root.end() || !package_it->is_object() || display_it == root.end() ||
+        !display_it->is_object() || capabilities == root.end() || !capabilities->is_array()) {
         fail(result, PlayerBootstrapError::ConfigParse, "",
-             std::string("invalid player config: ") + error.what());
+             "player config fields have invalid types");
+        return result;
+    }
+    if (*format != "noveltea.player-config" || format_version->get<std::int64_t>() != 1) {
+        fail(result, PlayerBootstrapError::ConfigParse, "/formatVersion",
+             "unsupported player config format");
+        return result;
+    }
+    auto& config = result.config;
+    config.display_name = display_name->get<std::string>();
+    config.application_id = application_id->get<std::string>();
+    config.save_namespace = save_namespace->get<std::string>();
+    config.version_name = version_name->get<std::string>();
+    if (const auto locale = root.find("defaultLocale"); locale != root.end()) {
+        if (!locale->is_string()) {
+            fail(result, PlayerBootstrapError::ConfigParse, "/defaultLocale", "expected string");
+            return result;
+        }
+        config.default_locale = locale->get<std::string>();
+    }
+    const auto& package = *package_it;
+    if (!exact_keys(package, {"path", "sha256", "runtimePackageApi"}, {}, result, "/package"))
+        return result;
+    const auto package_path = package.find("path");
+    const auto package_sha = package.find("sha256");
+    const auto package_api = package.find("runtimePackageApi");
+    if (!package_path->is_string() || !package_sha->is_string() ||
+        !package_api->is_number_unsigned()) {
+        fail(result, PlayerBootstrapError::ConfigParse, "/package",
+             "package fields have invalid types");
+        return result;
+    }
+    config.package_path = package_path->get<std::string>();
+    config.package_sha256 = package_sha->get<std::string>();
+    config.runtime_package_api = package_api->get<std::uint32_t>();
+    const auto& display = *display_it;
+    if (!exact_keys(display, {"aspectRatio", "orientation", "barColor"}, {}, result, "/display"))
+        return result;
+    const auto ratio = display.find("aspectRatio");
+    const auto orientation = display.find("orientation");
+    const auto bar_color = display.find("barColor");
+    if (ratio == display.end() || !ratio->is_object() || orientation == display.end() ||
+        !orientation->is_string() || bar_color == display.end() || !bar_color->is_string() ||
+        !exact_keys(*ratio, {"width", "height"}, {}, result, "/display/aspectRatio"))
+        return result;
+    const auto width = ratio->find("width");
+    const auto height = ratio->find("height");
+    if (!width->is_number_unsigned() || !height->is_number_unsigned()) {
+        fail(result, PlayerBootstrapError::ConfigParse, "/display/aspectRatio",
+             "expected unsigned dimensions");
+        return result;
+    }
+    config.display.aspect_width = width->get<std::uint32_t>();
+    config.display.aspect_height = height->get<std::uint32_t>();
+    config.display.orientation = orientation->get<std::string>();
+    config.display.bar_color = bar_color->get<std::string>();
+    for (const auto& capability : *capabilities) {
+        if (!capability.is_string()) {
+            fail(result, PlayerBootstrapError::ConfigParse, "/capabilities",
+                 "expected string entries");
+            return result;
+        }
+        config.capabilities.push_back(capability.get<std::string>());
+    }
+    if (config.display_name.empty() || config.application_id.empty() ||
+        config.save_namespace.empty() || config.version_name.empty())
+        fail(result, PlayerBootstrapError::ConfigParse, "", "identity strings must not be empty");
+    if (!is_safe_player_relative_path(config.package_path.generic_string()))
+        fail(result, PlayerBootstrapError::ConfigParse, "/package/path",
+             "package path must be normalized and relative");
+    if (config.package_sha256.size() != 64 ||
+        !std::all_of(config.package_sha256.begin(), config.package_sha256.end(),
+                     [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }))
+        fail(result, PlayerBootstrapError::ConfigParse, "/package/sha256",
+             "SHA-256 must be 64 lowercase hexadecimal characters");
+    if (config.display.aspect_width == 0 || config.display.aspect_height == 0 ||
+        (config.display.orientation != "landscape" && config.display.orientation != "portrait"))
+        fail(result, PlayerBootstrapError::ConfigParse, "/display", "invalid display metadata");
+    std::set<std::string> unique;
+    for (const auto& capability : config.capabilities) {
+        if (std::find(known_capabilities.begin(), known_capabilities.end(), capability) ==
+            known_capabilities.end())
+            fail(result, PlayerBootstrapError::Capability, "/capabilities",
+                 "unknown capability: " + capability);
+        if (!unique.insert(capability).second)
+            fail(result, PlayerBootstrapError::Capability, "/capabilities",
+                 "duplicate capability: " + capability);
     }
     return result;
 }

@@ -16,11 +16,11 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <charconv>
 #include <map>
 #include <memory>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -73,9 +73,10 @@ std::optional<DisplayProfile> display_profile_from_project(const nlohmann::json&
         return std::nullopt;
     }
     std::uint32_t rgb = 0;
-    try {
-        rgb = static_cast<std::uint32_t>(std::stoul(color_value.substr(1), nullptr, 16));
-    } catch (...) {
+    const auto* first = color_value.data() + 1;
+    const auto* last = color_value.data() + color_value.size();
+    const auto conversion = std::from_chars(first, last, rgb, 16);
+    if (conversion.ec != std::errc{} || conversion.ptr != last) {
         return std::nullopt;
     }
     DisplayProfile profile;
@@ -702,7 +703,8 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] Android smoke read failed: %s",
                      smoke.error.c_str());
-        throw std::runtime_error(smoke.error);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[assets] continuing without Android shader smoke asset");
     }
 #endif
 }
@@ -1594,12 +1596,10 @@ bool Engine::apply_editor_preview_document(const std::string& kind, const std::s
     if (!m_runtime_ui.is_initialized())
         return false;
 
-    nlohmann::json data;
-    try {
-        data = nlohmann::json::parse(data_json.empty() ? "{}" : data_json);
-    } catch (const std::exception& error) {
-        std::fprintf(stderr, "[engine] editor preview JSON failed to parse: %s\n", error.what());
-        preview_bridge::emit_diagnostic("error", "preview-json", "", error.what());
+    auto data = nlohmann::json::parse(data_json.empty() ? "{}" : data_json, nullptr, false);
+    if (data.is_discarded()) {
+        std::fprintf(stderr, "[engine] editor preview JSON failed to parse\n");
+        preview_bridge::emit_diagnostic("error", "preview-json", "", "Malformed preview JSON");
         return false;
     }
 

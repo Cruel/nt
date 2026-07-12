@@ -172,32 +172,30 @@ std::string RuntimePreviewController::fast_forward_to_input()
     constexpr double kTickSeconds = 1.0 / 60.0;
 
     auto parse_snapshot = [this]() {
-        try {
-            const auto snapshot_json = debug_snapshot();
-            if (!snapshot_json.empty()) {
-                return nlohmann::json::parse(snapshot_json);
-            }
-        } catch (const std::exception& error) {
-            return nlohmann::json{
-                {"loaded", false},
-                {"running", false},
-                {"waiting",
-                 {{"kind", "error"},
-                  {"canContinue", false},
-                  {"reason", std::string("runtime debug snapshot parse failed: ") + error.what()}}},
-                {"availableInputs",
-                 {{"continue", false},
-                  {"dialogueOptions", nlohmann::json::array()},
-                  {"navigation", nlohmann::json::array()},
-                  {"actions", nlohmann::json::array()},
-                  {"selectedObjects", nlohmann::json::array()},
-                  {"clickableTargets", nlohmann::json::array()}}},
-                {"variables", nlohmann::json::array()},
-                {"inventory", nlohmann::json::array()},
-                {"selectedObjects", nlohmann::json::array()},
-                {"diagnostics", nlohmann::json::array()},
-                {"saveSnapshot", nlohmann::json::object()},
-                {"controllerState", nlohmann::json::object()}};
+        const auto snapshot_json = debug_snapshot();
+        if (!snapshot_json.empty()) {
+            auto parsed = nlohmann::json::parse(snapshot_json, nullptr, false);
+            if (!parsed.is_discarded())
+                return parsed;
+            return nlohmann::json{{"loaded", false},
+                                  {"running", false},
+                                  {"waiting",
+                                   {{"kind", "error"},
+                                    {"canContinue", false},
+                                    {"reason", "runtime debug snapshot parse failed"}}},
+                                  {"availableInputs",
+                                   {{"continue", false},
+                                    {"dialogueOptions", nlohmann::json::array()},
+                                    {"navigation", nlohmann::json::array()},
+                                    {"actions", nlohmann::json::array()},
+                                    {"selectedObjects", nlohmann::json::array()},
+                                    {"clickableTargets", nlohmann::json::array()}}},
+                                  {"variables", nlohmann::json::array()},
+                                  {"inventory", nlohmann::json::array()},
+                                  {"selectedObjects", nlohmann::json::array()},
+                                  {"diagnostics", nlohmann::json::array()},
+                                  {"saveSnapshot", nlohmann::json::object()},
+                                  {"controllerState", nlohmann::json::object()}};
         }
         return nlohmann::json{{"loaded", false},
                               {"running", false},

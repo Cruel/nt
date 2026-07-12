@@ -188,31 +188,29 @@ ResourceAliasRegistry::material_request(std::string_view alias) const
 
 AssetResult<ResourceAliasRegistry> parse_resource_alias_registry(std::string_view json_text)
 {
-    try {
-        const auto root = nlohmann::json::parse(json_text);
-        if (!root.is_object()) {
-            return fail<ResourceAliasRegistry>("resource alias manifest root must be an object");
-        }
-
-        const nlohmann::json* resources = &root;
-        const auto resources_it = root.find("resources");
-        if (resources_it != root.end()) {
-            if (!resources_it->is_object()) {
-                return fail<ResourceAliasRegistry>(
-                    "resource alias manifest resources must be an object");
-            }
-            resources = &*resources_it;
-        }
-
-        ResourceAliasRegistry registry;
-        parse_audio_aliases(*resources, registry);
-        parse_texture_aliases(*resources, registry);
-        parse_material_aliases(*resources, registry);
-        return {std::move(registry), {}};
-    } catch (const nlohmann::json::parse_error& error) {
-        return fail<ResourceAliasRegistry>(std::string("invalid resource alias manifest JSON: ") +
-                                           error.what());
+    const auto root = nlohmann::json::parse(json_text, nullptr, false);
+    if (root.is_discarded()) {
+        return fail<ResourceAliasRegistry>("invalid resource alias manifest JSON");
     }
+    if (!root.is_object()) {
+        return fail<ResourceAliasRegistry>("resource alias manifest root must be an object");
+    }
+
+    const nlohmann::json* resources = &root;
+    const auto resources_it = root.find("resources");
+    if (resources_it != root.end()) {
+        if (!resources_it->is_object()) {
+            return fail<ResourceAliasRegistry>(
+                "resource alias manifest resources must be an object");
+        }
+        resources = &*resources_it;
+    }
+
+    ResourceAliasRegistry registry;
+    parse_audio_aliases(*resources, registry);
+    parse_texture_aliases(*resources, registry);
+    parse_material_aliases(*resources, registry);
+    return {std::move(registry), {}};
 }
 
 } // namespace noveltea::assets
