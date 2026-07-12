@@ -1,93 +1,137 @@
 import { describe, expect, it } from 'vitest';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
+  defaultDialogueBlock,
   defaultDialogueData,
+  defaultDialogueSegment,
   dialogueCharacterRef,
+  dialogueDataSchema,
   validateDialogueData,
 } from '../../shared/project-schema/authoring-dialogues';
+import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { buildDialoguePreviewDocumentData, dialoguePreviewRevision } from '../../shared/project-schema/dialogue-project';
 
 describe('authoring dialogues schema', () => {
-  it('provides typed dialogue defaults', () => {
-    expect(defaultDialogueData('Intro')).toMatchObject({
+  it('provides strict V2 dialogue defaults without editor state', () => {
+    expect(defaultDialogueData('Intro')).toEqual({
       kind: 'dialogue',
       displayName: 'Intro',
+      defaultSpeaker: null,
+      settings: { showDisabledChoices: true, logMode: 'everything' },
       entryBlockId: 'start',
-      blocks: [{ id: 'start', segments: [{ id: 'line-1', type: 'line' }] }],
-      preview: { selectedBlockId: 'start', selectedSegmentId: 'line-1' },
+      blocks: [{
+        id: 'start',
+        type: 'sequence',
+        label: 'Sequence',
+        defaultSpeaker: null,
+        segments: [{
+          id: 'line-1',
+          type: 'line',
+          speaker: null,
+          text: inlineTextContent(),
+          effects: [],
+          showOnce: false,
+          logged: true,
+          autosaveSafePoint: false,
+        }],
+      }],
+      edges: [],
+      completion: { kind: 'end' },
     });
   });
 
-  it('validates dialogue dependencies and graph IDs', () => {
+  it('rejects legacy shapes and mismatched nested payloads', () => {
+    const legacy = {
+      ...defaultDialogueData('Intro'),
+      settings: { showDisabledChoices: true, allowDisabledChoiceSelection: false, logMode: 'everything' },
+      preview: { selectedBlockId: 'start' },
+    };
+    expect(dialogueDataSchema.safeParse(legacy).success).toBe(false);
+
+    const mismatched = defaultDialogueData('Intro') as unknown as Record<string, unknown>;
+    mismatched.blocks = [{ id: 'start', type: 'choice', label: 'Choice', segments: [] }];
+    expect(dialogueDataSchema.safeParse(mismatched).success).toBe(false);
+  });
+
+  it('enforces block and edge semantics plus redirect cycle rejection', () => {
     const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     const data = defaultDialogueData('Intro');
-    data.defaultSpeaker = dialogueCharacterRef('missing-character');
-    data.entryBlockId = 'missing-entry';
     data.blocks = [
-      ...data.blocks,
-      { ...data.blocks[0]!, id: 'start', label: 'Duplicate Start' },
-      { ...data.blocks[0]!, id: 'orphan', label: 'Orphan', segments: [] },
-    ];
-    data.blocks[0]!.segments = [
-      data.blocks[0]!.segments[0]!,
-      { ...data.blocks[0]!.segments[0]!, id: 'line-1' },
+      defaultDialogueBlock('sequence', 'start', 'Start'),
+      defaultDialogueBlock('choice', 'decision', 'Decision'),
+      { ...defaultDialogueBlock('redirect', 'redirect-a', 'Redirect A'), targetBlockId: 'redirect-b' },
+      { ...defaultDialogueBlock('redirect', 'redirect-b', 'Redirect B'), targetBlockId: 'redirect-a' },
     ];
     data.edges = [
-      { id: 'choice', fromBlockId: 'start', toBlockId: 'missing-target', kind: 'choice', label: '', order: 0, condition: { enabled: false, source: '' }, script: { enabled: false, source: '' } },
-      { id: 'choice', fromBlockId: 'start', toBlockId: 'start', kind: 'next', label: '', order: 0, condition: { enabled: false, source: '' }, script: { enabled: false, source: '' } },
+      { id: 'wrong-choice', kind: 'choice', fromBlockId: 'start', toBlockId: 'decision', label: inlineTextContent('Choose'), effects: [], logged: true, autosaveSafePoint: false },
+      { id: 'wrong-next', kind: 'next', fromBlockId: 'decision', toBlockId: 'start' },
     ];
-    project.dialogues.intro.data = data;
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data };
 
     expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/dialogues/intro/data/defaultSpeaker/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/dialogues/intro/data/entryBlockId', severity: 'error' }),
-      expect.objectContaining({ path: '/dialogues/intro/data/blocks/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/dialogues/intro/data/blocks/0/segments/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/dialogues/intro/data/edges/0/toBlockId', severity: 'error' }),
-      expect.objectContaining({ path: '/dialogues/intro/data/edges/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/dialogues/intro/data/edges/0/label', severity: 'warning' }),
+      expect.objectContaining({ path: '/dialogues/intro/data/blocks/0', severity: 'error' }),
+      expect.objectContaining({ path: '/dialogues/intro/data/blocks/1', severity: 'error' }),
+      expect.objectContaining({ path: '/dialogues/intro/data/blocks', message: expect.stringContaining('Redirect-only cycle'), severity: 'error' }),
     ]));
   });
 
-  it('reports warning-only dialogue diagnostics through project validation', () => {
+  it('validates speakers, stable nested IDs, choice policy, and completion targets', () => {
+    const project = createAuthoringProject();
+    const data = defaultDialogueData('Intro');
+    const line = defaultDialogueSegment('line', 'line-1');
+    data.defaultSpeaker = dialogueCharacterRef('missing-character');
+    data.blocks = [
+      { ...defaultDialogueBlock('sequence', 'start', 'Start'), segments: [line, { ...line }] },
+      defaultDialogueBlock('choice', 'decision', 'Decision'),
+    ];
+    data.edges = [
+      { id: 'next', kind: 'next', fromBlockId: 'start', toBlockId: 'decision' },
+      { id: 'choice', kind: 'choice', fromBlockId: 'decision', toBlockId: 'missing', label: inlineTextContent(''), effects: [], logged: true, autosaveSafePoint: true },
+    ];
+    data.completion = { kind: 'room', id: 'missing-room' };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data };
+
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/dialogues/intro/data/defaultSpeaker', severity: 'error' }),
+      expect.objectContaining({ path: '/dialogues/intro/data/blocks/0/segments/1/id', severity: 'error' }),
+      expect.objectContaining({ path: '/dialogues/intro/data/edges/1/toBlockId', severity: 'error' }),
+      expect.objectContaining({ path: '/dialogues/intro/data/edges/1/label', severity: 'error' }),
+      expect.objectContaining({ path: '/dialogues/intro/data/completion/id', severity: 'error' }),
+    ]));
+  });
+
+  it('reports Dialogue diagnostics through project validation', () => {
     const project = createAuthoringProject();
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
-
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'authoring-dialogues', path: '/dialogues/intro/data/blocks/0/segments/0/text/source', severity: 'warning' }),
+      expect.objectContaining({ category: 'authoring-dialogues', path: '/dialogues/intro/data/blocks/0/segments/0/text', severity: 'warning' }),
     ]));
   });
 
-  it('builds dialogue preview documents with dependency revisions', () => {
+  it('builds V2 preview documents from editor-owned selection', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     const data = defaultDialogueData('Intro');
     data.defaultSpeaker = dialogueCharacterRef('iris');
-    data.blocks[0]!.segments[0]!.text.source = 'Welcome.';
-    data.blocks.push({
-      id: 'choice-result',
-      type: 'linear',
-      label: 'Choice Result',
-      defaultSpeaker: null,
-      segments: [{ ...data.blocks[0]!.segments[0]!, id: 'line-2', text: { mode: 'plain', source: 'You chose well.' } }],
-      link: { targetBlockId: null },
-      graph: { x: 240, y: 0 },
-    });
-    data.edges = [{ id: 'choice', fromBlockId: 'start', toBlockId: 'choice-result', kind: 'choice', label: 'Continue', order: 0, condition: { enabled: false, source: '' }, script: { enabled: false, source: '' } }];
+    const start = data.blocks[0]!;
+    if (start.type !== 'sequence' || start.segments[0]?.type !== 'line') throw new Error('Expected default line.');
+    start.segments[0].text = inlineTextContent('Welcome.');
+    data.blocks.push(defaultDialogueBlock('choice', 'decision', 'Decision'));
+    data.edges = [
+      { id: 'next', kind: 'next', fromBlockId: 'start', toBlockId: 'decision' },
+      { id: 'choice', kind: 'choice', fromBlockId: 'decision', toBlockId: 'start', label: inlineTextContent('Again'), effects: [], logged: true, autosaveSafePoint: false },
+    ];
     project.dialogues.intro = { id: 'intro', label: 'Intro', data };
 
     expect(dialoguePreviewRevision(project, 'intro')).toContain('iris');
-    expect(buildDialoguePreviewDocumentData(project, 'intro')).toMatchObject({
-      schema: 'noveltea.dialogue-preview.v1',
+    expect(buildDialoguePreviewDocumentData(project, 'intro', { selectedBlockId: 'decision', background: 'checker' })).toMatchObject({
+      schema: 'noveltea.dialogue-preview.v2',
       dialogueId: 'intro',
-      selectedBlock: {
-        id: 'start',
-        segments: [expect.objectContaining({ speakerMetadata: expect.objectContaining({ id: 'iris' }) })],
-      },
-      choices: [expect.objectContaining({ label: 'Continue', targetLabel: 'Choice Result' })],
+      selectedBlockId: 'decision',
+      choices: [expect.objectContaining({ targetLabel: 'Sequence' })],
+      preview: { background: 'checker' },
     });
   });
 });

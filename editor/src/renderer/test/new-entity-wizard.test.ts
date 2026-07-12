@@ -88,7 +88,7 @@ describe('new entity wizard registry', () => {
         defaultSpeaker: { $ref: { collection: 'characters', id: 'ada' } },
         segments: [{
           speaker: { $ref: { collection: 'characters', id: 'ada' } },
-          text: { source: 'Hello.' },
+          text: { source: { kind: 'inline', text: 'Hello.' } },
         }],
       }],
     });

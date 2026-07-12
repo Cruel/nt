@@ -2,7 +2,7 @@ import { authoringCollectionKeys, type AuthoringCollectionKey } from './authorin
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
 import { isVariableRef } from './authoring-variables';
 
-export type ReferenceUsageKind = 'extends' | 'entrypoint' | 'explicit-ref' | 'variable-ref';
+export type ReferenceUsageKind = 'extends' | 'entrypoint' | 'explicit-ref' | 'flow-target' | 'variable-ref';
 
 export interface ReferenceUsage {
   sourceCollection: AuthoringCollectionKey | 'project';
@@ -23,6 +23,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isReferenceTarget(value: unknown): value is ReferenceTarget {
   return isRecord(value) && typeof value.collection === 'string' && typeof value.id === 'string';
+}
+
+function flowReferenceTarget(value: unknown): ReferenceTarget | null {
+  if (!isRecord(value) || typeof value.id !== 'string') return null;
+  if (value.kind === 'scene') return { collection: 'scenes', id: value.id };
+  if (value.kind === 'dialogue') return { collection: 'dialogues', id: value.id };
+  if (value.kind === 'room') return { collection: 'rooms', id: value.id };
+  return null;
 }
 
 function addUsage(usages: ReferenceUsage[], usage: ReferenceUsage) {
@@ -61,6 +69,19 @@ function scanDataForExplicitRefs(
       target: { collection: 'variables', id: value.$var },
       kind: 'variable-ref',
     });
+  }
+
+  if (path.endsWith('/continuation') || path.endsWith('/completion')) {
+    const target = flowReferenceTarget(value);
+    if (target) {
+      addUsage(usages, {
+        sourceCollection,
+        sourceId,
+        path,
+        target,
+        kind: 'flow-target',
+      });
+    }
   }
 
   for (const [key, child] of Object.entries(value)) {

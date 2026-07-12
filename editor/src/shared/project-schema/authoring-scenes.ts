@@ -1,5 +1,23 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import {
+  assetRefSchema,
+  characterRefSchema,
+  conditionSchema,
+  dialogueRefSchema,
+  effectSchema,
+  flowTargetSchema,
+  inlineTextContent,
+  layoutRefSchema,
+  materialRefSchema,
+  roomRefSchema,
+  runtimeScalarSchema,
+  sceneRefSchema,
+  scriptRefSchema,
+  textContentSchema,
+  textSourceSchema,
+  variableRefSchema,
+} from './authoring-flow';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { isVariableDefaultValueCompatible, parseVariableData } from './authoring-variables';
 
@@ -23,56 +41,20 @@ export const sceneLayoutActionValues = ['show', 'hide', 'swap'] as const;
 export const sceneLayoutSlotValues = ['hud', 'dialogue-box', 'overlay', 'custom'] as const;
 export const sceneTransitionKindValues = ['fade', 'cut', 'dissolve'] as const;
 
-const typedRef = <Collection extends string>(collection: Collection) => strict({
-  $ref: strict({ collection: z.literal(collection), id: entityIdSchema }),
-});
-export const sceneAssetRefSchema = typedRef('assets');
-export const sceneMaterialRefSchema = typedRef('materials');
-export const sceneCharacterRefSchema = typedRef('characters');
-export const sceneDialogueRefSchema = typedRef('dialogues');
-export const sceneLayoutRefSchema = typedRef('layouts');
-export const sceneVariableRefSchema = typedRef('variables');
-export const sceneRoomRefSchema = typedRef('rooms');
-export const sceneSceneRefSchema = typedRef('scenes');
-export const sceneScriptRefSchema = typedRef('scripts');
-
-export const sceneFlowTargetSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('scene'), id: entityIdSchema }),
-  strict({ kind: z.literal('dialogue'), id: entityIdSchema }),
-  strict({ kind: z.literal('room'), id: entityIdSchema }),
-  strict({ kind: z.literal('return') }),
-  strict({ kind: z.literal('end') }),
-]);
-
-export const sceneTextSourceSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('inline'), text: z.string() }),
-  strict({ kind: z.literal('localized'), key: entityIdSchema }),
-  strict({ kind: z.literal('lua-expression'), source: z.string().min(1) }),
-]);
-export const sceneTextContentSchema = strict({
-  source: sceneTextSourceSchema,
-  markup: z.enum(['plain', 'active-text']),
-});
-
-export const sceneConditionSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('always') }),
-  strict({
-    kind: z.literal('variable-comparison'),
-    variable: sceneVariableRefSchema,
-    operator: z.enum(['equal', 'not-equal', 'less', 'less-equal', 'greater', 'greater-equal', 'truthy', 'falsy']),
-    value: z.union([z.null(), z.boolean(), z.number().finite(), z.string()]).optional(),
-  }),
-  strict({ kind: z.literal('lua-predicate'), source: z.string().min(1) }),
-]);
-
-export const sceneEffectSchema = z.discriminatedUnion('kind', [
-  strict({
-    kind: z.literal('set-variable'),
-    variable: sceneVariableRefSchema,
-    value: z.union([z.null(), z.boolean(), z.number().finite(), z.string()]),
-  }),
-  strict({ kind: z.literal('run-lua-effect'), source: z.string().min(1) }),
-]);
+export const sceneAssetRefSchema = assetRefSchema;
+export const sceneMaterialRefSchema = materialRefSchema;
+export const sceneCharacterRefSchema = characterRefSchema;
+export const sceneDialogueRefSchema = dialogueRefSchema;
+export const sceneLayoutRefSchema = layoutRefSchema;
+export const sceneVariableRefSchema = variableRefSchema;
+export const sceneRoomRefSchema = roomRefSchema;
+export const sceneSceneRefSchema = sceneRefSchema;
+export const sceneScriptRefSchema = scriptRefSchema;
+export const sceneFlowTargetSchema = flowTargetSchema;
+export const sceneTextSourceSchema = textSourceSchema;
+export const sceneTextContentSchema = textContentSchema;
+export const sceneConditionSchema = conditionSchema;
+export const sceneEffectSchema = effectSchema;
 
 const commonRuntimeStep = {
   id: entityIdSchema,
@@ -110,7 +92,7 @@ const audioCueStepSchema = strict({
 });
 const setVariableStepSchema = strict({
   ...commonRuntimeStep, type: z.literal('set-variable'), variable: sceneVariableRefSchema,
-  value: z.union([z.null(), z.boolean(), z.number().finite(), z.string()]),
+  value: runtimeScalarSchema,
 });
 const runLuaStepSchema = strict({
   ...commonRuntimeStep, ...safePoint, type: z.literal('run-lua'), source: z.string().min(1), mayYield: z.boolean(),
@@ -174,7 +156,6 @@ export function parseSceneData(value: unknown): SceneData | null {
   return parsed.success ? parsed.data : null;
 }
 
-const inlineText = (text = '') => ({ source: { kind: 'inline' as const, text }, markup: 'active-text' as const });
 function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepData {
   const id = type === 'comment' ? 'start' : type;
   const common = { id, type, label: label ?? type.replaceAll('-', ' '), enabled: true } as const;
@@ -182,13 +163,13 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
     case 'set-background': return { ...common, type, asset: null, material: null, color: null, fit: 'cover', transition: 'fade' };
     case 'actor-cue': return { ...common, type, slotId: 'actor', character: sceneCharacterRef('character'), action: 'show', poseId: null, expressionId: null, position: 'center', offset: { x: 0, y: 0 }, scale: 1, transition: 'fade' };
     case 'call-dialogue': return { ...common, type, dialogue: sceneDialogueRef('dialogue'), startBlockId: null, autosaveSafePoint: false };
-    case 'show-text': return { ...common, type, text: inlineText(), speaker: null, wait: 'input', autosaveSafePoint: true };
+    case 'show-text': return { ...common, type, text: inlineTextContent(), speaker: null, wait: 'input', autosaveSafePoint: true };
     case 'audio-cue': return { ...common, type, asset: null, channel: 'sound-effect', action: 'play', loop: false, volume: 1, fadeMs: 0, waitForCompletion: false };
     case 'set-variable': return { ...common, type, variable: sceneVariableRef('variable'), value: false };
     case 'run-lua': return { ...common, type, source: '-- Lua', mayYield: true, autosaveSafePoint: false };
     case 'wait': return { ...common, type, waitKind: 'duration', durationMs: 1000, skippable: true };
     case 'conditional-branch': return { ...common, type, branches: [], fallbackStepId: 'start' };
-    case 'choice': return { ...common, type, prompt: null, options: [{ id: 'option', label: inlineText('Option'), effects: [], targetStepId: 'start' }], autosaveSafePoint: true };
+    case 'choice': return { ...common, type, prompt: null, options: [{ id: 'option', label: inlineTextContent('Option'), effects: [], targetStepId: 'start' }], autosaveSafePoint: true };
     case 'set-layout': return { ...common, type, layout: null, action: 'show', slot: 'overlay' };
     case 'transition': return { ...common, type, transitionKind: 'fade', durationMs: 1000, color: null, waitForCompletion: true };
     case 'comment': return { id, type, label: label ?? 'Start', text: '' };

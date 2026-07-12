@@ -102,7 +102,9 @@ describe('authoring runtime export builder', () => {
   it('exports dialogues and allows a dialogue entrypoint', () => {
     const project = roomProject();
     const dialogue = defaultDialogueData('Intro');
-    dialogue.blocks[0]!.segments[0]!.text.source = 'Hello from dialogue.';
+    const start = dialogue.blocks[0]!;
+    if (start.type !== 'sequence' || start.segments[0]?.type !== 'line') throw new Error('Expected default line.');
+    start.segments[0].text.source = { kind: 'inline', text: 'Hello from dialogue.' };
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
     project.entrypoint = { kind: 'dialogue', id: 'intro' };
 
@@ -122,9 +124,11 @@ describe('authoring runtime export builder', () => {
   it('reports unsupported dialogue export features as diagnostics', () => {
     const project = roomProject();
     const dialogue = defaultDialogueData('Intro');
-    dialogue.blocks[0]!.segments[0]!.condition.enabled = true;
-    dialogue.blocks[0]!.segments[0]!.condition.source = 'Game.prop("ok", true)';
-    dialogue.blocks[0]!.segments[0]!.text.mode = 'lua';
+    const start = dialogue.blocks[0]!;
+    if (start.type !== 'sequence' || start.segments[0]?.type !== 'line') throw new Error('Expected default line.');
+    start.segments[0].condition = { kind: 'lua-predicate', source: 'return true' };
+    start.segments[0].text.source = { kind: 'lua-expression', source: 'return "hello"' };
+    start.segments[0].showOnce = true;
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
     project.entrypoint = { kind: 'dialogue', id: 'intro' };
 
@@ -136,7 +140,7 @@ describe('authoring runtime export builder', () => {
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ severity: 'warning', path: expect.stringContaining('/condition') }),
-      expect.objectContaining({ severity: 'warning', path: expect.stringContaining('/text/mode') }),
+      expect.objectContaining({ severity: 'warning', path: expect.stringContaining('/text/source') }),
     ]));
   });
 

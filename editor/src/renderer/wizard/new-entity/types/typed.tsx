@@ -172,13 +172,15 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     ),
     buildPayload: ({ draft }) => {
       const data = defaultDialogueData(draft.basics.label);
+      const start = data.blocks[0];
+      const firstLine = start?.type === 'sequence' && start.segments[0]?.type === 'line' ? start.segments[0] : null;
       const speakerId = selected(draft.options.speakerId);
-      if (speakerId) {
+      if (speakerId && start?.type === 'sequence' && firstLine) {
         data.defaultSpeaker = ref('characters', speakerId);
-        data.blocks[0]!.defaultSpeaker = ref('characters', speakerId);
-        data.blocks[0]!.segments[0]!.speaker = ref('characters', speakerId);
+        start.defaultSpeaker = ref('characters', speakerId);
+        firstLine.speaker = ref('characters', speakerId);
       }
-      data.blocks[0]!.segments[0]!.text.source = String(draft.options.lineText ?? '');
+      if (firstLine) firstLine.text.source = { kind: 'inline', text: String(draft.options.lineText ?? '') };
       return { data };
     },
   },

@@ -92,15 +92,41 @@ function buildDialogues(project: AuthoringProject, diagnostics: ToolDiagnostic[]
   return Object.entries(project.dialogues).flatMap(([id, record]) => {
     const data = parseDialogueData(record.data);
     if (!data) { diagnostics.push(diagnostic(`/dialogues/${id}/data`, `Dialogue '${id}' has invalid dialogue data.`)); return []; }
-    data.blocks.forEach((block, blockIndex) => block.segments.forEach((segment, segmentIndex) => {
-      const path = `/dialogues/${id}/data/blocks/${blockIndex}/segments/${segmentIndex}`;
-      if (segment.condition.enabled) diagnostics.push(diagnostic(`${path}/condition`, `Dialogue condition '${segment.id}' remains a deferred runtime feature.`, 'warning'));
-      if (segment.text.mode === 'lua') diagnostics.push(diagnostic(`${path}/text/mode`, `Lua dialogue text '${segment.id}' is exported as source text.`, 'warning'));
-    }));
-    const nodes = data.blocks.filter((block) => block.type !== 'comment').map((block) => ({
-      id: block.id, text: block.segments.filter((segment) => segment.type !== 'comment' && segment.type !== 'script').map((segment) => segment.text.source).join('\n'),
-      choices: data.edges.filter((edge) => edge.fromBlockId === block.id).map((edge) => ({ label: edge.label || edge.toBlockId, nextNodeId: edge.toBlockId })),
-    }));
+    const sourceText = (text: { source: { kind: string; text?: string; key?: string; source?: string } }) => text.source.kind === 'inline'
+      ? text.source.text ?? ''
+      : text.source.kind === 'localized' ? text.source.key ?? '' : text.source.source ?? '';
+    data.blocks.forEach((block, blockIndex) => {
+      if (block.type !== 'sequence') return;
+      block.segments.forEach((segment, segmentIndex) => {
+        const path = `/dialogues/${id}/data/blocks/${blockIndex}/segments/${segmentIndex}`;
+        if (segment.type === 'line') {
+          if (segment.condition) diagnostics.push(diagnostic(`${path}/condition`, `Dialogue condition '${segment.id}' is not executed by the transitional runtime adapter.`, 'warning'));
+          if (segment.effects.length > 0) diagnostics.push(diagnostic(`${path}/effects`, `Dialogue effects for '${segment.id}' are not executed by the transitional runtime adapter.`, 'warning'));
+          if (segment.text.source.kind === 'lua-expression') diagnostics.push(diagnostic(`${path}/text/source`, `Lua dialogue text '${segment.id}' is exported as source text.`, 'warning'));
+          if (segment.showOnce || segment.autosaveSafePoint) diagnostics.push(diagnostic(`${path}`, `Show-once/autosave policy for '${segment.id}' is deferred to the typed Dialogue runtime.`, 'warning'));
+        } else if (segment.type === 'run-lua') {
+          diagnostics.push(diagnostic(path, `RunLua segment '${segment.id}' is not executed by the transitional runtime adapter.`, 'warning'));
+        }
+      });
+    });
+    data.edges.forEach((edge, edgeIndex) => {
+      if (edge.kind !== 'choice') return;
+      const path = `/dialogues/${id}/data/edges/${edgeIndex}`;
+      if (edge.condition || edge.effects.length > 0 || edge.autosaveSafePoint) diagnostics.push(diagnostic(path, `Choice policy for '${edge.id}' is deferred to the typed Dialogue runtime.`, 'warning'));
+    });
+    const nodes = data.blocks.filter((block) => block.type !== 'comment').map((block) => {
+      const outgoing = data.edges.filter((edge) => edge.fromBlockId === block.id);
+      const text = block.type === 'sequence'
+        ? block.segments.filter((segment) => segment.type === 'line').map((segment) => sourceText(segment.text)).join('\n')
+        : '';
+      const choices = block.type === 'redirect'
+        ? [{ label: 'Continue', nextNodeId: block.targetBlockId }]
+        : outgoing.map((edge) => ({
+          label: edge.kind === 'choice' ? sourceText(edge.label) || edge.toBlockId : 'Continue',
+          nextNodeId: edge.toBlockId,
+        }));
+      return { id: block.id, text, choices };
+    });
     return [{ id, nodes }];
   });
 }

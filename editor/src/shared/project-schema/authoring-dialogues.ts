@@ -1,18 +1,31 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import {
+  characterRefSchema,
+  conditionSchema,
+  effectSchema,
+  flowTargetSchema,
+  inlineTextContent,
+  textContentSchema,
+  type CharacterRef,
+  type Condition,
+  type Effect,
+  type FlowTarget,
+  type TextContent,
+} from './authoring-flow';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { isVariableDefaultValueCompatible, parseVariableData } from './authoring-variables';
 
-export const dialogueBlockTypeValues = ['linear', 'branch', 'link', 'comment'] as const;
+const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+
+export const dialogueBlockTypeValues = ['sequence', 'choice', 'redirect', 'comment'] as const;
 export type DialogueBlockType = (typeof dialogueBlockTypeValues)[number];
 
-export const dialogueSegmentTypeValues = ['line', 'comment', 'script'] as const;
+export const dialogueSegmentTypeValues = ['line', 'run-lua', 'comment'] as const;
 export type DialogueSegmentType = (typeof dialogueSegmentTypeValues)[number];
 
-export const dialogueEdgeKindValues = ['next', 'choice', 'link'] as const;
+export const dialogueEdgeKindValues = ['next', 'choice'] as const;
 export type DialogueEdgeKind = (typeof dialogueEdgeKindValues)[number];
-
-export const dialogueTextModeValues = ['plain', 'active-text', 'lua'] as const;
-export type DialogueTextMode = (typeof dialogueTextModeValues)[number];
 
 export const dialogueLogModeValues = ['everything', 'nothing', 'only-choices', 'only-lines'] as const;
 export type DialogueLogMode = (typeof dialogueLogModeValues)[number];
@@ -20,100 +33,132 @@ export type DialogueLogMode = (typeof dialogueLogModeValues)[number];
 export const dialoguePreviewBackgroundValues = ['dark', 'light', 'checker'] as const;
 export type DialoguePreviewBackground = (typeof dialoguePreviewBackgroundValues)[number];
 
-export const dialogueCharacterRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('characters'), id: z.string().min(1) }),
-});
+export const dialogueCharacterRefSchema = characterRefSchema;
+export const dialogueTextDataSchema = textContentSchema;
+export const dialogueConditionDataSchema = conditionSchema;
+export const dialogueEffectDataSchema = effectSchema;
+export const dialogueCompletionTargetSchema = flowTargetSchema;
 
-export const dialogueTextDataSchema = z.object({
-  mode: z.enum(dialogueTextModeValues).default('plain'),
-  source: z.string().default(''),
-});
-
-export const dialogueConditionDataSchema = z.object({
-  enabled: z.boolean().default(false),
-  source: z.string().default(''),
-});
-
-export const dialogueScriptDataSchema = z.object({
-  enabled: z.boolean().default(false),
-  source: z.string().default(''),
-});
-
-export const dialogueFlagsDataSchema = z.object({
-  showOnce: z.boolean().default(false),
-  autosave: z.boolean().default(false),
-  logged: z.boolean().default(true),
-});
-
-export const dialogueGraphPositionSchema = z.object({
-  x: z.number().finite().default(0),
-  y: z.number().finite().default(0),
-});
-
-export const dialogueSegmentDataSchema = z.object({
+const lineSegmentSchema = strict({
   id: entityIdSchema,
-  type: z.enum(dialogueSegmentTypeValues).default('line'),
-  speaker: dialogueCharacterRefSchema.nullable().default(null),
-  text: dialogueTextDataSchema.default({ mode: 'plain', source: '' }),
-  condition: dialogueConditionDataSchema.default({ enabled: false, source: '' }),
-  script: dialogueScriptDataSchema.default({ enabled: false, source: '' }),
-  flags: dialogueFlagsDataSchema.default({ showOnce: false, autosave: false, logged: true }),
+  type: z.literal('line'),
+  speaker: dialogueCharacterRefSchema.nullable(),
+  text: dialogueTextDataSchema,
+  condition: dialogueConditionDataSchema.optional(),
+  effects: z.array(dialogueEffectDataSchema),
+  showOnce: z.boolean(),
+  logged: z.boolean(),
+  autosaveSafePoint: z.boolean(),
 });
 
-export const dialogueBlockDataSchema = z.object({
+const runLuaSegmentSchema = strict({
   id: entityIdSchema,
-  type: z.enum(dialogueBlockTypeValues).default('linear'),
+  type: z.literal('run-lua'),
+  condition: dialogueConditionDataSchema.optional(),
+  source: z.string().min(1),
+  mayYield: z.boolean(),
+});
+
+const commentSegmentSchema = strict({
+  id: entityIdSchema,
+  type: z.literal('comment'),
+  text: z.string(),
+});
+
+export const dialogueSegmentDataSchema = z.discriminatedUnion('type', [
+  lineSegmentSchema,
+  runLuaSegmentSchema,
+  commentSegmentSchema,
+]);
+
+const sequenceBlockSchema = strict({
+  id: entityIdSchema,
+  type: z.literal('sequence'),
   label: z.string().min(1, 'Block label is required.'),
-  defaultSpeaker: dialogueCharacterRefSchema.nullable().default(null),
-  segments: z.array(dialogueSegmentDataSchema).default([]),
-  link: z.object({
-    targetBlockId: entityIdSchema.nullable().default(null),
-  }).default({ targetBlockId: null }),
-  graph: dialogueGraphPositionSchema.default({ x: 0, y: 0 }),
+  defaultSpeaker: dialogueCharacterRefSchema.nullable(),
+  segments: z.array(dialogueSegmentDataSchema),
 });
 
-export const dialogueEdgeDataSchema = z.object({
+const choiceBlockSchema = strict({
   id: entityIdSchema,
+  type: z.literal('choice'),
+  label: z.string().min(1, 'Block label is required.'),
+});
+
+const redirectBlockSchema = strict({
+  id: entityIdSchema,
+  type: z.literal('redirect'),
+  label: z.string().min(1, 'Block label is required.'),
+  targetBlockId: entityIdSchema,
+});
+
+const commentBlockSchema = strict({
+  id: entityIdSchema,
+  type: z.literal('comment'),
+  label: z.string().min(1, 'Block label is required.'),
+  text: z.string(),
+});
+
+export const dialogueBlockDataSchema = z.discriminatedUnion('type', [
+  sequenceBlockSchema,
+  choiceBlockSchema,
+  redirectBlockSchema,
+  commentBlockSchema,
+]);
+
+const nextEdgeSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('next'),
   fromBlockId: entityIdSchema,
   toBlockId: entityIdSchema,
-  kind: z.enum(dialogueEdgeKindValues).default('next'),
-  label: z.string().default(''),
-  order: z.number().int().nonnegative().default(0),
-  condition: dialogueConditionDataSchema.default({ enabled: false, source: '' }),
-  script: dialogueScriptDataSchema.default({ enabled: false, source: '' }),
 });
 
-export const dialogueSettingsDataSchema = z.object({
-  showDisabledChoices: z.boolean().default(true),
-  allowDisabledChoiceSelection: z.boolean().default(false),
-  logMode: z.enum(dialogueLogModeValues).default('everything'),
+const choiceEdgeSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('choice'),
+  fromBlockId: entityIdSchema,
+  toBlockId: entityIdSchema,
+  label: dialogueTextDataSchema,
+  condition: dialogueConditionDataSchema.optional(),
+  effects: z.array(dialogueEffectDataSchema),
+  logged: z.boolean(),
+  autosaveSafePoint: z.boolean(),
 });
 
-export const dialogueDataSchema = z.object({
-  kind: z.literal('dialogue').default('dialogue'),
-  displayName: z.string().default(''),
-  defaultSpeaker: dialogueCharacterRefSchema.nullable().default(null),
-  settings: dialogueSettingsDataSchema.default({ showDisabledChoices: true, allowDisabledChoiceSelection: false, logMode: 'everything' }),
-  entryBlockId: entityIdSchema.default('start'),
-  blocks: z.array(dialogueBlockDataSchema).default([]),
-  edges: z.array(dialogueEdgeDataSchema).default([]),
-  preview: z.object({
-    selectedBlockId: entityIdSchema.nullable().default(null),
-    selectedSegmentId: entityIdSchema.nullable().default(null),
-    showConditions: z.boolean().default(true),
-    background: z.enum(dialoguePreviewBackgroundValues).default('dark'),
-  }).default({ selectedBlockId: 'start', selectedSegmentId: 'line-1', showConditions: true, background: 'dark' }),
+export const dialogueEdgeDataSchema = z.discriminatedUnion('kind', [
+  nextEdgeSchema,
+  choiceEdgeSchema,
+]);
+
+export const dialogueSettingsDataSchema = strict({
+  showDisabledChoices: z.boolean(),
+  logMode: z.enum(dialogueLogModeValues),
 });
 
-export type DialogueCharacterRef = z.infer<typeof dialogueCharacterRefSchema>;
-export type DialogueTextData = z.infer<typeof dialogueTextDataSchema>;
-export type DialogueConditionData = z.infer<typeof dialogueConditionDataSchema>;
-export type DialogueScriptData = z.infer<typeof dialogueScriptDataSchema>;
-export type DialogueFlagsData = z.infer<typeof dialogueFlagsDataSchema>;
-export type DialogueGraphPosition = z.infer<typeof dialogueGraphPositionSchema>;
+export const dialogueDataSchema = strict({
+  kind: z.literal('dialogue'),
+  displayName: z.string(),
+  defaultSpeaker: dialogueCharacterRefSchema.nullable(),
+  settings: dialogueSettingsDataSchema,
+  entryBlockId: entityIdSchema,
+  blocks: z.array(dialogueBlockDataSchema).min(1),
+  edges: z.array(dialogueEdgeDataSchema),
+  completion: dialogueCompletionTargetSchema,
+});
+
+export type DialogueCharacterRef = CharacterRef;
+export type DialogueTextData = TextContent;
+export type DialogueConditionData = Condition;
+export type DialogueEffectData = Effect;
+export type DialogueCompletionTarget = FlowTarget;
 export type DialogueSegmentData = z.infer<typeof dialogueSegmentDataSchema>;
 export type DialogueBlockData = z.infer<typeof dialogueBlockDataSchema>;
+export type DialogueSequenceBlockData = Extract<DialogueBlockData, { type: 'sequence' }>;
+export type DialogueChoiceBlockData = Extract<DialogueBlockData, { type: 'choice' }>;
+export type DialogueRedirectBlockData = Extract<DialogueBlockData, { type: 'redirect' }>;
 export type DialogueEdgeData = z.infer<typeof dialogueEdgeDataSchema>;
+export type DialogueNextEdgeData = Extract<DialogueEdgeData, { kind: 'next' }>;
+export type DialogueChoiceEdgeData = Extract<DialogueEdgeData, { kind: 'choice' }>;
 export type DialogueSettingsData = z.infer<typeof dialogueSettingsDataSchema>;
 export type DialogueData = z.infer<typeof dialogueDataSchema>;
 
@@ -124,63 +169,82 @@ export interface DialogueSchemaDiagnostic {
   category?: string;
 }
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): DialogueSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-dialogues' };
-}
+const diagnostic = (
+  path: string,
+  message: string,
+  severity: DialogueSchemaDiagnostic['severity'] = 'error',
+): DialogueSchemaDiagnostic => ({ severity, path, message, category: 'authoring-dialogues' });
 
 export function parseDialogueData(value: unknown): DialogueData | null {
   const parsed = dialogueDataSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
 }
 
+export function defaultDialogueSegment<T extends DialogueSegmentType = 'line'>(
+  type: T = 'line' as T,
+  id = type === 'line' ? 'line-1' : type,
+): Extract<DialogueSegmentData, { type: T }> {
+  const segment: DialogueSegmentData = type === 'line'
+    ? {
+      id,
+      type,
+      speaker: null,
+      text: inlineTextContent(),
+      effects: [],
+      showOnce: false,
+      logged: true,
+      autosaveSafePoint: false,
+    }
+    : type === 'run-lua'
+      ? { id, type, source: '-- Lua', mayYield: true }
+      : { id, type, text: '' };
+  return segment as Extract<DialogueSegmentData, { type: T }>;
+}
+
+export function defaultDialogueBlock<T extends DialogueBlockType = 'sequence'>(
+  type: T = 'sequence' as T,
+  id = type === 'sequence' ? 'start' : type,
+  label = type[0]!.toUpperCase() + type.slice(1),
+): Extract<DialogueBlockData, { type: T }> {
+  const block: DialogueBlockData = type === 'sequence'
+    ? { id, type, label, defaultSpeaker: null, segments: [defaultDialogueSegment()] }
+    : type === 'choice'
+      ? { id, type, label }
+      : type === 'redirect'
+        ? { id, type, label, targetBlockId: 'start' }
+        : { id, type, label, text: '' };
+  return block as Extract<DialogueBlockData, { type: T }>;
+}
+
 export function defaultDialogueData(label = 'Dialogue'): DialogueData {
-  return dialogueDataSchema.parse({
+  return {
     kind: 'dialogue',
     displayName: label,
     defaultSpeaker: null,
-    settings: {
-      showDisabledChoices: true,
-      allowDisabledChoiceSelection: false,
-      logMode: 'everything',
-    },
+    settings: { showDisabledChoices: true, logMode: 'everything' },
     entryBlockId: 'start',
-    blocks: [{
-      id: 'start',
-      type: 'linear',
-      label: 'Start',
-      defaultSpeaker: null,
-      segments: [{
-        id: 'line-1',
-        type: 'line',
-        speaker: null,
-        text: { mode: 'plain', source: '' },
-        condition: { enabled: false, source: '' },
-        script: { enabled: false, source: '' },
-        flags: { showOnce: false, autosave: false, logged: true },
-      }],
-      link: { targetBlockId: null },
-      graph: { x: 0, y: 0 },
-    }],
+    blocks: [defaultDialogueBlock()],
     edges: [],
-    preview: { selectedBlockId: 'start', selectedSegmentId: 'line-1', showConditions: true, background: 'dark' },
-  });
+    completion: { kind: 'end' },
+  };
 }
 
-export function isDialogueRecord(record: AuthoringRecordBase | undefined | null): record is AuthoringRecordBase & { data: DialogueData } {
+export function isDialogueRecord(
+  record: AuthoringRecordBase | undefined | null,
+): record is AuthoringRecordBase & { data: DialogueData } {
   return !!record && parseDialogueData(record.data) !== null;
 }
 
-function refId(ref: DialogueCharacterRef | null | undefined): string | null {
-  return ref?.$ref.id ?? null;
-}
+export const dialogueCharacterRef = (id: string): DialogueCharacterRef => ({
+  $ref: { collection: 'characters', id },
+});
 
-function validateCharacterRef(project: AuthoringProject, ref: DialogueCharacterRef | null, path: string, diagnostics: DialogueSchemaDiagnostic[]) {
-  const id = refId(ref);
-  if (!id) return;
-  if (!project.characters[id]) diagnostics.push(diagnostic(`${path}/$ref`, `Missing character '${id}'.`));
-}
-
-function validateUniqueIds(items: Array<{ id: string }>, path: string, label: string, diagnostics: DialogueSchemaDiagnostic[]) {
+function validateUniqueIds(
+  items: readonly { id: string }[],
+  path: string,
+  label: string,
+  diagnostics: DialogueSchemaDiagnostic[],
+) {
   const seen = new Set<string>();
   items.forEach((item, index) => {
     if (seen.has(item.id)) diagnostics.push(diagnostic(`${path}/${index}/id`, `Duplicate ${label} ID '${item.id}'.`));
@@ -188,43 +252,52 @@ function validateUniqueIds(items: Array<{ id: string }>, path: string, label: st
   });
 }
 
-function reachableBlockIds(entryBlockId: string, edges: DialogueEdgeData[]): Set<string> {
+function inlineTextIsEmpty(text: DialogueTextData): boolean {
+  return text.source.kind === 'inline' && !text.source.text.trim();
+}
+
+function graphTargets(data: DialogueData, blockId: string): string[] {
+  const block = data.blocks.find((candidate) => candidate.id === blockId);
+  if (block?.type === 'redirect') return [block.targetBlockId];
+  return data.edges.filter((edge) => edge.fromBlockId === blockId).map((edge) => edge.toBlockId);
+}
+
+function reachableBlockIds(data: DialogueData): Set<string> {
   const reachable = new Set<string>();
-  const stack = [entryBlockId];
+  const stack = [data.entryBlockId];
   while (stack.length > 0) {
     const id = stack.pop()!;
     if (reachable.has(id)) continue;
     reachable.add(id);
-    for (const edge of edges) {
-      if (edge.fromBlockId === id && !reachable.has(edge.toBlockId)) stack.push(edge.toBlockId);
-    }
+    for (const target of graphTargets(data, id)) if (!reachable.has(target)) stack.push(target);
   }
   return reachable;
 }
 
-function detectCycles(edges: DialogueEdgeData[]): Set<string> {
-  const cyclic = new Set<string>();
-  const adjacency = new Map<string, string[]>();
-  for (const edge of edges) {
-    const list = adjacency.get(edge.fromBlockId) ?? [];
-    list.push(edge.toBlockId);
-    adjacency.set(edge.fromBlockId, list);
-  }
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  function visit(id: string) {
-    if (visiting.has(id)) {
-      cyclic.add(id);
-      return;
+function redirectCycles(data: DialogueData): string[][] {
+  const redirects = new Map(
+    data.blocks.filter((block): block is DialogueRedirectBlockData => block.type === 'redirect')
+      .map((block) => [block.id, block.targetBlockId]),
+  );
+  const cycles = new Map<string, string[]>();
+  for (const start of redirects.keys()) {
+    const order: string[] = [];
+    const indexes = new Map<string, number>();
+    let current: string | undefined = start;
+    while (current && redirects.has(current)) {
+      const previous = indexes.get(current);
+      if (previous !== undefined) {
+        const cycle = order.slice(previous);
+        const key = [...cycle].sort().join('|');
+        cycles.set(key, cycle);
+        break;
+      }
+      indexes.set(current, order.length);
+      order.push(current);
+      current = redirects.get(current);
     }
-    if (visited.has(id)) return;
-    visiting.add(id);
-    for (const next of adjacency.get(id) ?? []) visit(next);
-    visiting.delete(id);
-    visited.add(id);
   }
-  for (const id of adjacency.keys()) visit(id);
-  return cyclic;
+  return [...cycles.values()];
 }
 
 export function validateDialogueData(
@@ -232,79 +305,139 @@ export function validateDialogueData(
   dialogueId: string,
   record: AuthoringRecordBase,
 ): DialogueSchemaDiagnostic[] {
-  const diagnostics: DialogueSchemaDiagnostic[] = [];
-  const parsed = dialogueDataSchema.safeParse(record.data);
   const base = `/dialogues/${dialogueId}/data`;
+  const parsed = dialogueDataSchema.safeParse(record.data);
   if (!parsed.success) {
-    for (const issue of parsed.error.issues) diagnostics.push(diagnostic(`${base}/${issue.path.map(String).join('/')}`, issue.message));
-    return diagnostics;
+    return parsed.error.issues.map((issue) => diagnostic(`${base}/${issue.path.join('/')}`, issue.message));
   }
 
   const data = parsed.data;
+  const diagnostics: DialogueSchemaDiagnostic[] = [];
+  const blockById = new Map(data.blocks.map((block) => [block.id, block]));
 
-  validateCharacterRef(project, data.defaultSpeaker, `${base}/defaultSpeaker`, diagnostics);
+  const requireRecord = (collection: keyof AuthoringProject, id: string, path: string) => {
+    const value = project[collection];
+    if (typeof value !== 'object' || value === null || !(id in value)) {
+      diagnostics.push(diagnostic(path, `Missing ${String(collection)} record '${id}'.`));
+    }
+  };
+  const validateCharacter = (ref: DialogueCharacterRef | null, path: string) => {
+    if (ref) requireRecord('characters', ref.$ref.id, path);
+  };
+  const validateVariableValue = (variableId: string, value: unknown, path: string) => {
+    const variableRecord = project.variables[variableId];
+    if (!variableRecord) {
+      requireRecord('variables', variableId, path);
+      return;
+    }
+    const variable = parseVariableData(variableRecord.data);
+    if (!variable || !isVariableDefaultValueCompatible(variable.type, value, variable.enumValues)) {
+      diagnostics.push(diagnostic(path, `Value does not match variable '${variableId}'.`));
+    }
+  };
+  const validateCondition = (condition: DialogueConditionData | undefined, path: string) => {
+    if (condition?.kind === 'variable-comparison') {
+      requireRecord('variables', condition.variable.$ref.id, `${path}/variable`);
+    }
+  };
+  const validateEffects = (effects: readonly DialogueEffectData[], path: string) => {
+    effects.forEach((effect, index) => {
+      if (effect.kind === 'set-variable') {
+        validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);
+      }
+    });
+  };
 
-  if (data.blocks.length === 0) diagnostics.push(diagnostic(`${base}/blocks`, 'Dialogue requires at least one block.'));
+  validateCharacter(data.defaultSpeaker, `${base}/defaultSpeaker`);
   validateUniqueIds(data.blocks, `${base}/blocks`, 'block', diagnostics);
   validateUniqueIds(data.edges, `${base}/edges`, 'edge', diagnostics);
-
-  const blockIds = new Set(data.blocks.map((block) => block.id));
-  if (!blockIds.has(data.entryBlockId)) diagnostics.push(diagnostic(`${base}/entryBlockId`, `Missing entry block '${data.entryBlockId}'.`));
-
+  const segmentIds = new Set<string>();
   data.blocks.forEach((block, blockIndex) => {
-    const blockPath = `${base}/blocks/${blockIndex}`;
-    validateCharacterRef(project, block.defaultSpeaker, `${blockPath}/defaultSpeaker`, diagnostics);
-    validateUniqueIds(block.segments, `${blockPath}/segments`, 'segment', diagnostics);
-    if (block.link.targetBlockId && !blockIds.has(block.link.targetBlockId)) {
-      diagnostics.push(diagnostic(`${blockPath}/link/targetBlockId`, `Missing linked block '${block.link.targetBlockId}'.`));
-    }
-    if (block.segments.length === 0 && block.type !== 'link' && block.type !== 'comment') {
-      diagnostics.push(diagnostic(`${blockPath}/segments`, `Block '${block.id}' has no dialogue segments.`, 'warning'));
-    }
+    if (block.type !== 'sequence') return;
     block.segments.forEach((segment, segmentIndex) => {
-      const segmentPath = `${blockPath}/segments/${segmentIndex}`;
-      validateCharacterRef(project, segment.speaker, `${segmentPath}/speaker`, diagnostics);
-      if (segment.type === 'line' && !segment.text.source.trim()) {
-        diagnostics.push(diagnostic(`${segmentPath}/text/source`, `Line segment '${segment.id}' is empty.`, 'warning'));
+      if (segmentIds.has(segment.id)) {
+        diagnostics.push(diagnostic(
+          `${base}/blocks/${blockIndex}/segments/${segmentIndex}/id`,
+          `Duplicate segment ID '${segment.id}'.`,
+        ));
       }
-      if (segment.condition.enabled && !segment.condition.source.trim()) {
-        diagnostics.push(diagnostic(`${segmentPath}/condition/source`, `Condition is enabled but empty.`, 'warning'));
-      }
-      if (segment.script.enabled && !segment.script.source.trim()) {
-        diagnostics.push(diagnostic(`${segmentPath}/script/source`, `Script is enabled but empty.`, 'warning'));
-      }
+      segmentIds.add(segment.id);
     });
   });
 
-  const edgeOrderKeys = new Set<string>();
-  data.edges.forEach((edge, edgeIndex) => {
-    const edgePath = `${base}/edges/${edgeIndex}`;
-    if (!blockIds.has(edge.fromBlockId)) diagnostics.push(diagnostic(`${edgePath}/fromBlockId`, `Missing source block '${edge.fromBlockId}'.`));
-    if (!blockIds.has(edge.toBlockId)) diagnostics.push(diagnostic(`${edgePath}/toBlockId`, `Missing target block '${edge.toBlockId}'.`));
-    if (edge.fromBlockId === edge.toBlockId) diagnostics.push(diagnostic(edgePath, `Edge '${edge.id}' targets its source block.`, 'warning'));
-    if (edge.kind === 'choice' && !edge.label.trim()) diagnostics.push(diagnostic(`${edgePath}/label`, `Choice edge '${edge.id}' has no label.`, 'warning'));
-    if (edge.condition.enabled && !edge.condition.source.trim()) diagnostics.push(diagnostic(`${edgePath}/condition/source`, `Condition is enabled but empty.`, 'warning'));
-    if (edge.script.enabled && !edge.script.source.trim()) diagnostics.push(diagnostic(`${edgePath}/script/source`, `Script is enabled but empty.`, 'warning'));
-    const orderKey = `${edge.fromBlockId}:${edge.kind}:${edge.order}`;
-    if (edgeOrderKeys.has(orderKey)) diagnostics.push(diagnostic(`${edgePath}/order`, `Duplicate edge order ${edge.order} for ${edge.fromBlockId}/${edge.kind}.`, 'warning'));
-    edgeOrderKeys.add(orderKey);
+  const entryBlock = blockById.get(data.entryBlockId);
+  if (!entryBlock) diagnostics.push(diagnostic(`${base}/entryBlockId`, `Missing entry block '${data.entryBlockId}'.`));
+  else if (entryBlock.type === 'comment') diagnostics.push(diagnostic(`${base}/entryBlockId`, 'A Comment block cannot be the Dialogue entry block.'));
+
+  data.blocks.forEach((block, blockIndex) => {
+    const path = `${base}/blocks/${blockIndex}`;
+    const outgoing = data.edges.filter((edge) => edge.fromBlockId === block.id);
+    if (block.type === 'sequence') {
+      validateCharacter(block.defaultSpeaker, `${path}/defaultSpeaker`);
+      if (outgoing.length > 1 || outgoing.some((edge) => edge.kind !== 'next')) {
+        diagnostics.push(diagnostic(path, `Sequence block '${block.id}' may have at most one Next edge and no Choice edges.`));
+      }
+      block.segments.forEach((segment, segmentIndex) => {
+        const segmentPath = `${path}/segments/${segmentIndex}`;
+        if (segment.type === 'line') {
+          validateCharacter(segment.speaker, `${segmentPath}/speaker`);
+          validateCondition(segment.condition, `${segmentPath}/condition`);
+          validateEffects(segment.effects, `${segmentPath}/effects`);
+          if (inlineTextIsEmpty(segment.text)) diagnostics.push(diagnostic(`${segmentPath}/text`, `Line segment '${segment.id}' is empty.`, 'warning'));
+        } else if (segment.type === 'run-lua') {
+          validateCondition(segment.condition, `${segmentPath}/condition`);
+        }
+      });
+    } else if (block.type === 'choice') {
+      if (outgoing.length === 0) diagnostics.push(diagnostic(path, `Choice block '${block.id}' requires at least one Choice edge.`));
+      if (outgoing.some((edge) => edge.kind !== 'choice')) diagnostics.push(diagnostic(path, `Choice block '${block.id}' may contain only Choice edges.`));
+    } else if (block.type === 'redirect') {
+      if (outgoing.length > 0) diagnostics.push(diagnostic(path, `Redirect block '${block.id}' cannot have outgoing edges.`));
+      const target = blockById.get(block.targetBlockId);
+      if (!target) diagnostics.push(diagnostic(`${path}/targetBlockId`, `Missing redirect target '${block.targetBlockId}'.`));
+      else if (target.type === 'comment') diagnostics.push(diagnostic(`${path}/targetBlockId`, 'A Redirect cannot target a Comment block.'));
+    } else if (outgoing.length > 0) {
+      diagnostics.push(diagnostic(path, `Comment block '${block.id}' cannot have outgoing edges.`));
+    }
   });
 
-  if (blockIds.has(data.entryBlockId)) {
-    const reachable = reachableBlockIds(data.entryBlockId, data.edges);
+  data.edges.forEach((edge, edgeIndex) => {
+    const path = `${base}/edges/${edgeIndex}`;
+    const source = blockById.get(edge.fromBlockId);
+    const target = blockById.get(edge.toBlockId);
+    if (!source) diagnostics.push(diagnostic(`${path}/fromBlockId`, `Missing source block '${edge.fromBlockId}'.`));
+    if (!target) diagnostics.push(diagnostic(`${path}/toBlockId`, `Missing target block '${edge.toBlockId}'.`));
+    else if (target.type === 'comment') diagnostics.push(diagnostic(`${path}/toBlockId`, 'An edge cannot target a Comment block.'));
+    if (source?.type === 'sequence' && edge.kind !== 'next') diagnostics.push(diagnostic(`${path}/kind`, 'A Sequence block may emit only a Next edge.'));
+    if (source?.type === 'choice' && edge.kind !== 'choice') diagnostics.push(diagnostic(`${path}/kind`, 'A Choice block may emit only Choice edges.'));
+    if (source && source.type !== 'sequence' && source.type !== 'choice') diagnostics.push(diagnostic(`${path}/fromBlockId`, `Block '${source.id}' cannot own edges.`));
+    if (edge.kind === 'choice') {
+      validateCondition(edge.condition, `${path}/condition`);
+      validateEffects(edge.effects, `${path}/effects`);
+      if (inlineTextIsEmpty(edge.label)) diagnostics.push(diagnostic(`${path}/label`, `Choice edge '${edge.id}' requires a label.`));
+    }
+  });
+
+  for (const cycle of redirectCycles(data)) {
+    diagnostics.push(diagnostic(`${base}/blocks`, `Redirect-only cycle detected: ${cycle.join(' -> ')} -> ${cycle[0]}.`));
+  }
+
+  if (entryBlock) {
+    const reachable = reachableBlockIds(data);
     data.blocks.forEach((block, blockIndex) => {
-      if (!reachable.has(block.id)) diagnostics.push(diagnostic(`${base}/blocks/${blockIndex}`, `Block '${block.id}' is not reachable from the entry block.`, 'warning'));
+      if (block.type !== 'comment' && !reachable.has(block.id)) {
+        diagnostics.push(diagnostic(`${base}/blocks/${blockIndex}`, `Block '${block.id}' is not reachable from the entry block.`, 'warning'));
+      }
     });
   }
 
-  const cycles = detectCycles(data.edges);
-  if (cycles.size > 0) {
-    diagnostics.push(diagnostic(`${base}/edges`, `Dialogue graph contains a cycle involving ${[...cycles].sort().join(', ')}.`, 'warning'));
+  const completion = data.completion;
+  if (completion.kind === 'scene') requireRecord('scenes', completion.id, `${base}/completion/id`);
+  if (completion.kind === 'dialogue') requireRecord('dialogues', completion.id, `${base}/completion/id`);
+  if (completion.kind === 'room') requireRecord('rooms', completion.id, `${base}/completion/id`);
+  if (completion.kind === 'return' && project.entrypoint?.kind === 'dialogue' && project.entrypoint.id === dialogueId) {
+    diagnostics.push(diagnostic(`${base}/completion`, 'A direct Dialogue entrypoint cannot complete with Return.'));
   }
 
   return diagnostics;
-}
-
-export function dialogueCharacterRef(characterId: string): DialogueCharacterRef {
-  return { $ref: { collection: 'characters', id: characterId } };
 }
