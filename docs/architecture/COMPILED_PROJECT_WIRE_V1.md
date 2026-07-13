@@ -48,3 +48,9 @@ They are generated only through `compileAuthoringProject` by running
 `pnpm goldens:compiled-project` in `editor/`. Tests require byte-identical regeneration and verify that
 the corpus collectively covers the closed Scene, Dialogue, Interaction, text, condition, effect,
 flow-target, resource-source, location, matching, variable, property, and persistence vocabulary.
+
+Phase 5B's native boundary is internal to `noveltea_core`. It consumes the minimal, comprehensive,
+inheritance/property/localization, and resource documents into strict shared DTOs, reuses the native
+strong-ID and closed primitive vocabulary, and returns `core::Diagnostics` for structural failures.
+It intentionally does not retain or publish specialized program payloads; Phase 5C owns their typed
+decoding, and Phase 5D owns semantic linking and the first public `CompiledProject` result.

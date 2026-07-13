@@ -5,6 +5,7 @@ include(Catch)
 add_executable(noveltea_core_tests
     core/compatibility_completion_tests.cpp
     core/compiled_project_model_tests.cpp
+    core/compiled_project_wire_tests.cpp
     core/cutscene_controller_tests.cpp
     core/dialogue_controller_tests.cpp
     core/editor_api_tests.cpp
@@ -27,6 +28,8 @@ add_executable(noveltea_core_tests
     core/runtime_ui_view_tests.cpp
     core/save_document_tests.cpp
 )
+target_include_directories(noveltea_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_compile_definitions(noveltea_core_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_core_tests PRIVATE noveltea_core Catch2::Catch2WithMain)
 target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)
 catch_discover_tests(noveltea_core_tests)
