@@ -18,8 +18,8 @@ Playback, RmlUi, editor preview, tests, debugger, and C ABI adapters decode boun
 
 ## Additive typed kernel state
 
-Phases 6A through 6C add a JSON-free `SessionState`, execution kernel, and shared primitive
-evaluator beside the shipped path. Session creation initializes declared variables and one typed
+Phases 6A through 6D add a JSON-free `SessionState`, execution kernel, shared primitive
+evaluator, and typed Lua invocation boundary beside the shipped path. Session creation initializes declared variables and one typed
 entrypoint frame: Scene and Dialogue roots use `NoReturn`, while Room entry starts the shared
 pre-entry `RoomTransitionFrame`. The public mode, stack, blocker, and fault views are read-only;
 `FlowExecutor` is the only mutation service after initial construction.
@@ -40,18 +40,23 @@ authored-assignment order at each level, then use the declaration default or ret
 value. Overrides remain sparse on their actual owners, so ancestor changes are immediately visible
 without a resolved-value cache.
 
-`SharedPrimitiveEvaluator` is the common typed boundary for conditions, effects, text sources, and
+`SharedPrimitiveEvaluator` is the common core boundary for conditions, effects, text sources, and
 engine waits. It evaluates Always and declared-variable comparisons without coercion, applies
-SetVariable through `SessionState`, resolves inline/localized text through requested/default/fallback
-catalog order, and reports Lua variants as script-boundary errors until Phase 6D supplies their
-execution service. Input, duration, presentation, and audio waits allocate owner-bound typed blockers;
-duration blockers retain remaining logical milliseconds and advance deterministically. Immediate
-waits complete synchronously. ChildFlow remains an atomic frame call rather than a blocker, and
-Script waits remain separate from engine-defined logical waits. Completion, cancellation, and
-duration advancement require the exact owner and typed handle; stale or mismatched operations leave
-the active wait unchanged.
+SetVariable through `SessionState`, and resolves inline/localized text through
+requested/default/fallback catalog order. Its Lua variants remain explicit script-boundary errors so
+backend-neutral core does not depend on Lua. The engine-layer `ScriptInvoker` consumes those typed Lua
+predicate, text, effect, and startup values. Immediate contexts reject yields; yield-capable effects
+return a closed Completed/Suspended result and retain an opaque coroutine only while an exact
+frame-owned Script blocker is active.
 
-This path is test-facing and additive. Feature execution, script invocation, persistence codecs,
+Input, duration, presentation, and audio waits allocate owner-bound typed blockers; duration blockers
+retain remaining logical milliseconds and advance deterministically. Immediate waits complete
+synchronously. ChildFlow remains an atomic frame call rather than a blocker, and opaque Script
+suspensions remain nonserializable and separate from engine-defined logical waits. Completion,
+cancellation, duration advancement, and Lua resume require the exact owner and typed handle; stale or
+mismatched operations leave the active wait unchanged.
+
+This path is test-facing and additive. Feature execution, typed Lua host services, persistence codecs,
 concrete host request queues, and consumer cutover remain owned by later phases. It does not adapt
 compiled data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua,
 or runtime UI consumers.

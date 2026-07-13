@@ -969,7 +969,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         auto script_init = m_scripts.initialize({&m_assets, &m_audio});
         if (!script_init) {
             std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
-                         script_init.error ? script_init.error->message.c_str() : "unknown error");
+                         script_init.error().message.c_str());
             rollback();
             return false;
         }
@@ -1590,7 +1590,7 @@ bool Engine::execute_preview_lua_script(const std::string& source)
         return source.empty();
     auto result = m_scripts.execute(source, "editor_preview.lua");
     if (!result) {
-        const auto& error = *result.error;
+        const auto& error = result.error();
         std::fprintf(stderr, "[engine] editor preview Lua failed: %s\n%s\n", error.message.c_str(),
                      error.traceback.c_str());
         const std::string message =

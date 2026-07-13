@@ -804,7 +804,7 @@ Result<FlowBlocker, Diagnostics> FlowExecutor::block_top(FlowBlockerKind kind)
         case FlowBlockerKind::Audio:
             return AudioFlowBlocker{owner, AudioFlowBlockerHandle{handle}};
         case FlowBlockerKind::Script:
-            return ScriptFlowBlocker{owner, ScriptFlowBlockerHandle{handle}};
+            return ScriptFlowBlocker{owner, ScriptInvocationHandle{handle}};
         }
         return InputFlowBlocker{owner, InputFlowBlockerHandle{handle}};
     }();
@@ -852,15 +852,24 @@ FlowExecutor::advance_duration_blocker(const FlowFrameId& owner,
     return Result<bool, Diagnostics>::success(false);
 }
 
-Result<void, Diagnostics> FlowExecutor::resume_blocker(const FlowFrameId& owner,
-                                                       const AnyFlowBlockerHandle& handle)
+Result<void, Diagnostics> FlowExecutor::validate_blocker(const FlowFrameId& owner,
+                                                         const AnyFlowBlockerHandle& handle) const
 {
     if (m_state.m_execution_fault)
         return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
     if (!m_state.m_blocker || flow_blocker_owner(*m_state.m_blocker) != owner ||
         flow_blocker_handle(*m_state.m_blocker) != handle)
         return Result<void, Diagnostics>::failure(execution_error(
-            "execution.stale_blocker", "Blocker resume does not match the active blocker"));
+            "execution.stale_blocker", "Blocker does not match the active frame and operation"));
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> FlowExecutor::resume_blocker(const FlowFrameId& owner,
+                                                       const AnyFlowBlockerHandle& handle)
+{
+    auto valid = validate_blocker(owner, handle);
+    if (!valid)
+        return valid;
     m_state.m_blocker.reset();
     return Result<void, Diagnostics>::success();
 }

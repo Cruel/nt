@@ -162,15 +162,13 @@ struct InputFlowBlockerTag;
 struct DurationFlowBlockerTag;
 struct PresentationFlowBlockerTag;
 struct AudioFlowBlockerTag;
-struct ScriptFlowBlockerTag;
 using InputFlowBlockerHandle = FlowBlockerHandle<InputFlowBlockerTag>;
 using DurationFlowBlockerHandle = FlowBlockerHandle<DurationFlowBlockerTag>;
 using PresentationFlowBlockerHandle = FlowBlockerHandle<PresentationFlowBlockerTag>;
 using AudioFlowBlockerHandle = FlowBlockerHandle<AudioFlowBlockerTag>;
-using ScriptFlowBlockerHandle = FlowBlockerHandle<ScriptFlowBlockerTag>;
 using AnyFlowBlockerHandle =
     std::variant<InputFlowBlockerHandle, DurationFlowBlockerHandle, PresentationFlowBlockerHandle,
-                 AudioFlowBlockerHandle, ScriptFlowBlockerHandle>;
+                 AudioFlowBlockerHandle, ScriptInvocationHandle>;
 
 enum class FlowBlockerKind : std::uint8_t {
     Input,
@@ -198,7 +196,7 @@ struct AudioFlowBlocker {
 };
 struct ScriptFlowBlocker {
     FlowFrameId owner;
-    ScriptFlowBlockerHandle handle;
+    ScriptInvocationHandle handle;
 };
 using FlowBlocker = std::variant<InputFlowBlocker, DurationFlowBlocker, PresentationFlowBlocker,
                                  AudioFlowBlocker, ScriptFlowBlocker>;

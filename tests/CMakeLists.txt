@@ -106,6 +106,7 @@ add_executable(noveltea_script_tests
 )
 target_include_directories(noveltea_script_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_script_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     SOL_NO_EXCEPTIONS=1
     SOL_NO_RTTI=1
     SOL_ALL_SAFETIES_ON=1

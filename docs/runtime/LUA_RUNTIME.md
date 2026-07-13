@@ -14,13 +14,15 @@ Lua accesses global variables and definition properties only through declared ty
 
 Authored failures are recoverable diagnostics and follow the owning instruction's typed failure semantics. They never cross C++ as exceptions or invoke panic. Panic is process-fatal and reserved for API misuse or unrecoverable Lua-state/allocation corruption.
 
-First-party Lua code follows the completed no-exceptions/no-compiler-RTTI policy. sol2 uses `SOL_NO_EXCEPTIONS`, `SOL_NO_RTTI`, protected calls/results, and safety checks. The transitional optional-based `ScriptResult` is replaced during the scripting phase because it permits invalid states.
+First-party Lua code follows the completed no-exceptions/no-compiler-RTTI policy. sol2 uses `SOL_NO_EXCEPTIONS`, `SOL_NO_RTTI`, protected calls/results, and safety checks. Immediate `ScriptRuntime` operations return `core::Result<T, ScriptError>`; the former optional-based `ScriptResult` no longer exists.
 
 The TypeScript compiler treats Lua text as opaque after structural validation. Preview/export certification invokes the native Lua loader for syntax diagnostics, and shipped package loading repeats syntax validation.
 
 ## Current scaffold
 
-`ScriptRuntime`, restricted Lua setup, protected execution, diagnostics, `RuntimeScriptExecutor`, and the Engine-owned service boundary are retained foundations. Current `ScriptDeferred` commands, generic entity bindings, legacy `Game` helpers, Script entrypoint helpers, arbitrary property/save mutation, and stubs are migration debt. They do not define future behavior and are removed as typed flow/state/command phases land.
+`ScriptRuntime`, restricted Lua setup, protected execution, diagnostics, `RuntimeScriptExecutor`, and the Engine-owned service boundary are retained foundations. `ScriptInvoker` is the additive typed Phase 6D boundary: it executes typed startup hooks, Lua predicates, Lua text expressions, and yield-capable `RunLuaEffect` values. Immediate contexts reject a Lua yield with `ScriptErrorCode::YieldForbidden`. Yield-capable invocation returns only `ScriptInvocationCompleted` or `ScriptInvocationSuspended`; a suspension owns a registry-held opaque Lua coroutine and is paired with the active frame's `ScriptInvocationHandle` and session-owned Script blocker. Resume and cancellation validate both frame and invocation, and completion, cancellation, or failure releases the blocker and coroutine.
+
+Opaque Lua suspension is intentionally distinct from engine-defined duration, input, presentation, and audio waits. It is not serializable and Phase 8 may reject saves while one is active. Current `ScriptDeferred` commands, generic entity bindings, legacy `Game` helpers, Script entrypoint helpers, arbitrary property/save mutation, and stubs remain migration debt. They do not define future behavior and are removed as typed flow/state/command phases land.
 
 Current consumers include Engine, `RuntimeSessionHost`, layout events, preview/playback, tests, and debugger adapters. Existing script runtime, executor, and game-binding tests remain the baseline until replaced with typed condition/result/yield/property tests.
 
@@ -28,9 +30,11 @@ Current consumers include Engine, `RuntimeSessionHost`, layout events, preview/p
 
 The existing runtime controller emits `ScriptDeferred` commands. `RuntimeSessionHost` converts those
 commands into `ScriptRequest` outputs, and the optional engine-layer `RuntimeScriptExecutor` consumes
-them by binding the active host and executing each chunk through `ScriptRuntime`. Results currently
-return as transitional `ScriptResult` values or structured `lua` diagnostics containing message,
-chunk/context, optional source entity, and traceback.
+them by binding the active host and executing each chunk through the immediate `ScriptRuntime`
+boundary. Results use `core::Result<void, ScriptError>` internally and are adapted to the transitional
+`ScriptResult` output event or structured `lua` diagnostics containing message, chunk/context,
+optional source entity, and traceback. The output-event name is legacy protocol vocabulary, not the
+removed C++ result type.
 
 This separation is useful and should survive the migration in typed form:
 

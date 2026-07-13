@@ -111,19 +111,19 @@ TEST_CASE("Game bindings: basic Lua evaluation works")
     // Verify basic evaluations work
     auto r1 = f.runtime.evaluate("42", "basic_int");
     if (!r1)
-        FAIL("42 failed: " + r1.error->message + " | " + r1.error->traceback);
-    CHECK(std::holds_alternative<std::int64_t>(*r1.value));
+        FAIL("42 failed: " + r1.error().message + " | " + r1.error().traceback);
+    CHECK(std::holds_alternative<std::int64_t>(r1.value()));
     auto r2 = f.runtime.evaluate_string("'hello'", "basic_str");
     REQUIRE(r2);
-    CHECK(*r2.value == "hello");
+    CHECK(r2.value() == "hello");
     auto r3 = f.runtime.evaluate("true", "basic_bool");
     REQUIRE(r3);
-    CHECK(std::holds_alternative<bool>(*r3.value));
-    CHECK(std::get<bool>(*r3.value));
+    CHECK(std::holds_alternative<bool>(r3.value()));
+    CHECK(std::get<bool>(r3.value()));
     // Check Game.room works (evaluate_string succeeds for string returns)
     auto r5 = f.runtime.evaluate_string("Game.room.id", "room_id");
     REQUIRE(r5);
-    CHECK(*r5.value == "foyer");
+    CHECK(r5.value() == "foyer");
 }
 
 TEST_CASE("Game bindings: Game.room returns current room")
@@ -131,7 +131,7 @@ TEST_CASE("Game bindings: Game.room returns current room")
     GameBindingsFixture f;
     auto result = f.runtime.evaluate_string("Game.room.id", "room_id");
     REQUIRE(result);
-    CHECK(*result.value == "foyer");
+    CHECK(result.value() == "foyer");
 }
 
 TEST_CASE("Game bindings: Game.room.description returns raw description")
@@ -139,12 +139,12 @@ TEST_CASE("Game bindings: Game.room.description returns raw description")
     GameBindingsFixture f;
     auto res = f.runtime.evaluate("Game.room.description", "desc");
     if (!res)
-        FAIL("Game.room.description failed: " + res.error->message + " | " + res.error->traceback);
+        FAIL("Game.room.description failed: " + res.error().message + " | " +
+             res.error().traceback);
     REQUIRE(res);
     auto result = f.runtime.evaluate_string("Game.room.description", "desc_str");
     REQUIRE(result);
-    REQUIRE(result.value);
-    CHECK(result.value->find("foyer") != std::string::npos);
+    CHECK(result.value().find("foyer") != std::string::npos);
 }
 
 TEST_CASE("Game bindings: Game.room.name returns room name")
@@ -152,7 +152,7 @@ TEST_CASE("Game bindings: Game.room.name returns room name")
     GameBindingsFixture f;
     auto result = f.runtime.evaluate_string("Game.room.name", "name");
     REQUIRE(result);
-    CHECK(*result.value == "Foyer");
+    CHECK(result.value() == "Foyer");
 }
 
 TEST_CASE("Game bindings: Game.prop reads global properties")
@@ -160,17 +160,17 @@ TEST_CASE("Game bindings: Game.prop reads global properties")
     GameBindingsFixture f;
     auto eval_result = f.runtime.evaluate("Game.prop('global_greeting', 'default')", "greeting");
     if (!eval_result) {
-        FAIL("Game.prop evaluation failed: " + eval_result.error->message +
-             " | traceback: " + eval_result.error->traceback);
+        FAIL("Game.prop evaluation failed: " + eval_result.error().message +
+             " | traceback: " + eval_result.error().traceback);
     }
-    CHECK(std::holds_alternative<std::string>(*eval_result.value));
-    if (auto* s = std::get_if<std::string>(&*eval_result.value)) {
+    CHECK(std::holds_alternative<std::string>(eval_result.value()));
+    if (auto* s = std::get_if<std::string>(&eval_result.value())) {
         CHECK(*s == "Hello World");
     }
 
     auto missing = f.runtime.evaluate_string("Game.prop('nonexistent', 'fallback')", "missing");
     REQUIRE(missing);
-    CHECK(*missing.value == "fallback");
+    CHECK(missing.value() == "fallback");
 }
 
 TEST_CASE("Game bindings: Game.set_prop and unset_prop mutate save-backed properties")
@@ -180,14 +180,14 @@ TEST_CASE("Game bindings: Game.set_prop and unset_prop mutate save-backed proper
     REQUIRE(f.runtime.execute("Game.set_prop('runtime_score', 12)", "set_prop"));
     auto score = f.runtime.evaluate("Game.prop('runtime_score')", "runtime_score");
     REQUIRE(score);
-    CHECK(std::get<std::int64_t>(*score.value) == 12);
+    CHECK(std::get<std::int64_t>(score.value()) == 12);
     REQUIRE(f.session.save() != nullptr);
     CHECK(f.session.save()->root()[core::project_ids::properties]["runtime_score"] == 12);
 
     REQUIRE(f.runtime.execute("Game.unset_prop('runtime_score')", "unset_prop"));
     auto missing = f.runtime.evaluate_string("Game.prop('runtime_score', 'missing')", "missing");
     REQUIRE(missing);
-    CHECK(*missing.value == "missing");
+    CHECK(missing.value() == "missing");
 }
 
 TEST_CASE("Game bindings: Game.load_room loads an entity by id")
@@ -195,10 +195,10 @@ TEST_CASE("Game bindings: Game.load_room loads an entity by id")
     GameBindingsFixture f;
     auto result = f.runtime.evaluate_string("Game.load_room('kitchen').name", "kitchen_name");
     if (!result) {
-        FAIL("Game.load_room name failed: " + result.error->message + " | " +
-             result.error->traceback);
+        FAIL("Game.load_room name failed: " + result.error().message + " | " +
+             result.error().traceback);
     }
-    CHECK(*result.value == "Kitchen");
+    CHECK(result.value() == "Kitchen");
 }
 
 TEST_CASE("Game bindings: Game.exists_room checks entity existence")
@@ -206,10 +206,10 @@ TEST_CASE("Game bindings: Game.exists_room checks entity existence")
     GameBindingsFixture f;
     auto exists = f.runtime.evaluate_bool("Game.exists_room('foyer')", "exists");
     REQUIRE(exists);
-    CHECK(*exists.value);
+    CHECK(exists.value());
     auto missing = f.runtime.evaluate_bool("Game.exists_room('nowhere')", "missing");
     REQUIRE(missing);
-    CHECK_FALSE(*missing.value);
+    CHECK_FALSE(missing.value());
 }
 
 TEST_CASE("Game bindings: Game.load_script and ScriptEntity properties")
@@ -217,20 +217,19 @@ TEST_CASE("Game bindings: Game.load_script and ScriptEntity properties")
     GameBindingsFixture f;
     auto id_result = f.runtime.evaluate_string("Game.load_script('greeting').id", "id");
     REQUIRE(id_result);
-    CHECK(*id_result.value == "greeting");
+    CHECK(id_result.value() == "greeting");
 
     auto autorun = f.runtime.evaluate_bool("Game.load_script('greeting').autorun", "autorun");
     REQUIRE(autorun);
-    CHECK_FALSE(*autorun.value);
+    CHECK_FALSE(autorun.value());
 
     auto autorun2 = f.runtime.evaluate_bool("Game.load_script('autorun_demo').autorun", "autorun2");
     REQUIRE(autorun2);
-    CHECK(*autorun2.value);
+    CHECK(autorun2.value());
 
     auto content = f.runtime.evaluate_string("Game.load_script('greeting').content", "content");
     REQUIRE(content);
-    REQUIRE(content.value);
-    CHECK(content.value->find("Hello") != std::string::npos);
+    CHECK(content.value().find("Hello") != std::string::npos);
 }
 
 TEST_CASE("Game bindings: dispatcher-backed shell commands route through RuntimeShell")
@@ -242,21 +241,21 @@ TEST_CASE("Game bindings: dispatcher-backed shell commands route through Runtime
     CHECK(f.shell.mode() == RuntimeShellMode::Game);
     auto started = f.runtime.evaluate_bool("started", "started");
     REQUIRE(started);
-    CHECK(*started.value);
+    CHECK(started.value());
 
     auto pause = f.runtime.execute("paused = Game.pause()", "pause");
     REQUIRE(pause);
     CHECK(f.shell.mode() == RuntimeShellMode::Paused);
     auto paused = f.runtime.evaluate_bool("paused", "paused");
     REQUIRE(paused);
-    CHECK(*paused.value);
+    CHECK(paused.value());
 
     auto resume = f.runtime.execute("resumed = Game.resume()", "resume");
     REQUIRE(resume);
     CHECK(f.shell.mode() == RuntimeShellMode::Game);
     auto resumed = f.runtime.evaluate_bool("resumed", "resumed");
     REQUIRE(resumed);
-    CHECK(*resumed.value);
+    CHECK(resumed.value());
 
     auto menu = f.runtime.execute(R"(
         load_ok = Game.open_load_menu()
@@ -266,10 +265,10 @@ TEST_CASE("Game bindings: dispatcher-backed shell commands route through Runtime
     )",
                                   "menus");
     REQUIRE(menu);
-    CHECK(*f.runtime.evaluate_bool("load_ok", "load_ok").value);
-    CHECK(*f.runtime.evaluate_bool("settings_ok", "settings_ok").value);
-    CHECK(*f.runtime.evaluate_bool("save_ok", "save_ok").value);
-    CHECK(*f.runtime.evaluate_bool("close_ok", "close_ok").value);
+    CHECK(f.runtime.evaluate_bool("load_ok", "load_ok").value());
+    CHECK(f.runtime.evaluate_bool("settings_ok", "settings_ok").value());
+    CHECK(f.runtime.evaluate_bool("save_ok", "save_ok").value());
+    CHECK(f.runtime.evaluate_bool("close_ok", "close_ok").value());
 }
 
 TEST_CASE("Game bindings: dispatcher-backed gameplay helpers build valid payloads")
@@ -292,18 +291,18 @@ TEST_CASE("Game bindings: dispatcher-backed gameplay helpers build valid payload
     )",
                                      "helpers");
     REQUIRE(helpers);
-    CHECK_FALSE(*f.runtime.evaluate_bool("continue_ok", "continue_ok").value);
-    CHECK(*f.runtime.evaluate_bool("navigate_ok", "navigate_ok").value);
-    CHECK_FALSE(*f.runtime.evaluate_bool("choose_ok", "choose_ok").value);
-    CHECK_FALSE(*f.runtime.evaluate_bool("select_ok", "select_ok").value);
-    CHECK(*f.runtime.evaluate_bool("clear_ok", "clear_ok").value);
-    CHECK_FALSE(*f.runtime.evaluate_bool("action_ok", "action_ok").value);
-    CHECK(*f.runtime.evaluate_bool("room_ok", "room_ok").value);
-    CHECK(*f.runtime.evaluate_bool("go_room_ok", "go_room_ok").value);
+    CHECK_FALSE(f.runtime.evaluate_bool("continue_ok", "continue_ok").value());
+    CHECK(f.runtime.evaluate_bool("navigate_ok", "navigate_ok").value());
+    CHECK_FALSE(f.runtime.evaluate_bool("choose_ok", "choose_ok").value());
+    CHECK_FALSE(f.runtime.evaluate_bool("select_ok", "select_ok").value());
+    CHECK(f.runtime.evaluate_bool("clear_ok", "clear_ok").value());
+    CHECK_FALSE(f.runtime.evaluate_bool("action_ok", "action_ok").value());
+    CHECK(f.runtime.evaluate_bool("room_ok", "room_ok").value());
+    CHECK(f.runtime.evaluate_bool("go_room_ok", "go_room_ok").value());
     CHECK(f.shell.host().view_state().title == "Kitchen");
-    CHECK_FALSE(*f.runtime.evaluate_bool("dialogue_ok", "dialogue_ok").value);
-    CHECK_FALSE(*f.runtime.evaluate_bool("scene_ok", "scene_ok").value);
-    CHECK_FALSE(*f.runtime.evaluate_bool("script_ok", "script_ok").value);
+    CHECK_FALSE(f.runtime.evaluate_bool("dialogue_ok", "dialogue_ok").value());
+    CHECK_FALSE(f.runtime.evaluate_bool("scene_ok", "scene_ok").value());
+    CHECK_FALSE(f.runtime.evaluate_bool("script_ok", "script_ok").value());
 }
 
 TEST_CASE("Game bindings: layout layer helper dispatches through RuntimeShell")
@@ -316,8 +315,8 @@ TEST_CASE("Game bindings: layout layer helper dispatches through RuntimeShell")
     )",
                                      "layout_helpers");
     REQUIRE(helpers);
-    CHECK_FALSE(*f.runtime.evaluate_bool("corner_ok", "corner_ok").value);
-    CHECK_FALSE(*f.runtime.evaluate_bool("top_ok", "top_ok").value);
+    CHECK_FALSE(f.runtime.evaluate_bool("corner_ok", "corner_ok").value());
+    CHECK_FALSE(f.runtime.evaluate_bool("top_ok", "top_ok").value());
 }
 
 TEST_CASE("Game bindings: Script.rand and Script.seed produce deterministic sequence")
@@ -327,8 +326,8 @@ TEST_CASE("Game bindings: Script.rand and Script.seed produce deterministic sequ
     REQUIRE(seed1);
     auto r1 = f.runtime.evaluate("Script.rand()", "r1");
     REQUIRE(r1);
-    REQUIRE(std::holds_alternative<double>(*r1.value));
-    double v1 = std::get<double>(*r1.value);
+    REQUIRE(std::holds_alternative<double>(r1.value()));
+    double v1 = std::get<double>(r1.value());
     CHECK(v1 >= 0.0);
     CHECK(v1 < 1.0);
 
@@ -337,8 +336,8 @@ TEST_CASE("Game bindings: Script.rand and Script.seed produce deterministic sequ
     REQUIRE(seed2);
     auto r2 = f.runtime.evaluate("Script.rand()", "r2");
     REQUIRE(r2);
-    REQUIRE(std::holds_alternative<double>(*r2.value));
-    double v2 = std::get<double>(*r2.value);
+    REQUIRE(std::holds_alternative<double>(r2.value()));
+    double v2 = std::get<double>(r2.value());
     CHECK(v1 == v2);
 }
 
@@ -349,13 +348,13 @@ TEST_CASE("Game bindings: Script.eval_expressions evaluates {{ }} templates")
     auto result =
         f.runtime.evaluate_string("Script.eval_expressions('Hello {{ 2 + 3 }}')", "simple");
     REQUIRE(result);
-    CHECK(*result.value == "Hello 5");
+    CHECK(result.value() == "Hello 5");
 
     // Nested property access — Game.room.name is the dedicated field
     auto result2 = f.runtime.evaluate_string(
         R"(Script.eval_expressions('Room: {{ Game.room.name }}'))", "prop");
     REQUIRE(result2);
-    CHECK(*result2.value == "Room: Foyer");
+    CHECK(result2.value() == "Room: Foyer");
 }
 
 TEST_CASE("Game bindings: Log.push adds text log events")
@@ -420,7 +419,7 @@ TEST_CASE("Game bindings: thisEntity / prop / set_prop forward to entity")
     auto result =
         f.runtime.evaluate_string(R"(prop("nonexistent_key", "fallback_val"))", "prop_read");
     REQUIRE(result);
-    CHECK(*result.value == "fallback_val");
+    CHECK(result.value() == "fallback_val");
 }
 
 TEST_CASE("Game bindings: entity set_prop and unset_prop mutate save-backed overrides")
@@ -435,14 +434,14 @@ TEST_CASE("Game bindings: entity set_prop and unset_prop mutate save-backed over
     auto value =
         f.runtime.evaluate_string(R"(Game.load_room("foyer"):prop("runtime_note"))", "entity_prop");
     REQUIRE(value);
-    CHECK(*value.value == "saved");
+    CHECK(value.value() == "saved");
 
     REQUIRE(f.runtime.execute(R"(Game.load_room("foyer"):unset_prop("runtime_note"))",
                               "entity_unset_prop"));
     auto missing = f.runtime.evaluate_string(
         R"(Game.load_room("foyer"):prop("runtime_note", "missing"))", "entity_missing");
     REQUIRE(missing);
-    CHECK(*missing.value == "missing");
+    CHECK(missing.value() == "missing");
 }
 
 TEST_CASE("Game bindings: object location helpers mutate save object locations")
@@ -457,7 +456,7 @@ TEST_CASE("Game bindings: object location helpers mutate save object locations")
 
     auto location_id = f.runtime.evaluate_string("Game.object_location('coin').id", "location_id");
     REQUIRE(location_id);
-    CHECK(*location_id.value == "foyer");
+    CHECK(location_id.value() == "foyer");
 
     REQUIRE(f.runtime.execute("Game.clear_object_location('coin')", "clear_location"));
     CHECK_FALSE(f.session.object_location("coin").has_value());
@@ -479,12 +478,12 @@ TEST_CASE("Game bindings: Script.run executes a Script entity's content")
     GameBindingsFixture f;
     auto exec_result = f.runtime.execute(R"(Script.run("greeting"))", "script_run_exec");
     if (!exec_result) {
-        FAIL("Script.run execution failed: " + exec_result.error->message + " | " +
-             exec_result.error->traceback);
+        FAIL("Script.run execution failed: " + exec_result.error().message + " | " +
+             exec_result.error().traceback);
     }
     auto result = f.runtime.evaluate_string(R"(Script.run("greeting") and "done")", "script_run");
     REQUIRE(result);
-    CHECK(*result.value == "done");
+    CHECK(result.value() == "done");
 }
 
 TEST_CASE("Game bindings: Timer.start creates a one-shot timer")
@@ -500,8 +499,8 @@ TEST_CASE("Game bindings: Timer.start creates a one-shot timer")
     REQUIRE(timer_exec);
     auto result = f.runtime.evaluate("timer_id", "timer_id");
     REQUIRE(result);
-    REQUIRE(std::holds_alternative<std::int64_t>(*result.value));
-    auto tid = static_cast<core::RuntimeTimerId>(std::get<std::int64_t>(*result.value));
+    REQUIRE(std::holds_alternative<std::int64_t>(result.value()));
+    auto tid = static_cast<core::RuntimeTimerId>(std::get<std::int64_t>(result.value()));
     CHECK(tid != 0);
     CHECK(f.session.timers().active(tid));
 }
@@ -519,14 +518,14 @@ TEST_CASE("Game bindings: Timer.cancel and Timer.active inspect timers")
 
     auto was_active = f.runtime.evaluate_bool("was_active", "was_active");
     REQUIRE(was_active);
-    CHECK(*was_active.value);
+    CHECK(was_active.value());
     auto was_cancelled = f.runtime.evaluate_bool("was_cancelled", "was_cancelled");
     REQUIRE(was_cancelled);
-    CHECK(*was_cancelled.value);
+    CHECK(was_cancelled.value());
     auto is_active_after_cancel =
         f.runtime.evaluate_bool("is_active_after_cancel", "is_active_after_cancel");
     REQUIRE(is_active_after_cancel);
-    CHECK_FALSE(*is_active_after_cancel.value);
+    CHECK_FALSE(is_active_after_cancel.value());
 }
 
 TEST_CASE("Game bindings: Game navigation and minimap flags")
@@ -534,10 +533,10 @@ TEST_CASE("Game bindings: Game navigation and minimap flags")
     GameBindingsFixture f;
     auto nav = f.runtime.evaluate_bool("Game.navigation", "nav");
     REQUIRE(nav);
-    CHECK(*nav.value);
+    CHECK(nav.value());
     auto map = f.runtime.evaluate_bool("Game.minimap", "map");
     REQUIRE(map);
-    CHECK(*map.value);
+    CHECK(map.value());
 }
 
 TEST_CASE("Game bindings: Room usertype entity properties via :prop()")
@@ -545,8 +544,8 @@ TEST_CASE("Game bindings: Room usertype entity properties via :prop()")
     GameBindingsFixture f;
     auto chain = f.runtime.evaluate_string("Game.load_room('foyer').name", "load_chain");
     if (!chain)
-        FAIL("load_chain failed: " + chain.error->message + " | " + chain.error->traceback);
-    CHECK(*chain.value == "Foyer");
+        FAIL("load_chain failed: " + chain.error().message + " | " + chain.error().traceback);
+    CHECK(chain.value() == "Foyer");
     // :prop() accesses the entity's properties JSON (not dedicated fields like .name)
     // Use description_raw which IS in the room entity data
     auto exec = f.runtime.execute(R"(
@@ -556,7 +555,7 @@ TEST_CASE("Game bindings: Room usertype entity properties via :prop()")
     REQUIRE(exec);
     auto result = f.runtime.evaluate_string(R"(room:prop("nonexistent", "fallback"))", "room_prop");
     REQUIRE(result);
-    CHECK(*result.value == "fallback");
+    CHECK(result.value() == "fallback");
 }
 
 TEST_CASE("Game bindings: Game bindings are cleared and re-bindable")
@@ -566,17 +565,17 @@ TEST_CASE("Game bindings: Game bindings are cleared and re-bindable")
     // Verify bindings work
     auto r1 = f.runtime.evaluate_string("Game.room.id", "before_clear");
     REQUIRE(r1);
-    CHECK(*r1.value == "foyer");
+    CHECK(r1.value() == "foyer");
 
     // Clear bindings
     f.runtime.clear_game_bindings();
     auto r2 = f.runtime.evaluate("Game", "after_clear");
     REQUIRE(r2);
-    CHECK(std::holds_alternative<std::monostate>(*r2.value));
+    CHECK(std::holds_alternative<std::monostate>(r2.value()));
 
     // Re-bind
     f.runtime.bind_game_session(&f.session);
     auto r3 = f.runtime.evaluate_string("Game.room.id", "after_rebind");
     REQUIRE(r3);
-    CHECK(*r3.value == "foyer");
+    CHECK(r3.value() == "foyer");
 }

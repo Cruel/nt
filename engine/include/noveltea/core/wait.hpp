@@ -10,6 +10,8 @@
 
 namespace noveltea::core {
 
+class FlowExecutor;
+
 // WaitSpec is immutable compiled intent. Runtime handles exist only in ActiveWait.
 struct ImmediateWait {};
 struct InputWait {};
@@ -52,6 +54,7 @@ public:
     auto operator<=>(const CorrelationHandle&) const = default;
 
 private:
+    friend class FlowExecutor;
     explicit CorrelationHandle(std::uint64_t value) : m_value(value) {}
     std::uint64_t m_value;
 };

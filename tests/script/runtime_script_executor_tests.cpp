@@ -343,8 +343,8 @@ TEST_CASE("RuntimePlaybackSession executes Lua setup and check hooks through cal
             diagnostic.severity = core::RuntimeDiagnosticSeverity::Error;
             diagnostic.category = "lua";
             diagnostic.script_context = std::string(context);
-            diagnostic.message = executed.error ? executed.error->message : "Lua hook failed";
-            diagnostic.lua_traceback = executed.error ? executed.error->traceback : std::string{};
+            diagnostic.message = executed.error().message;
+            diagnostic.lua_traceback = executed.error().traceback;
             diagnostic.playback_step_index = step_index;
             result.diagnostics.push_back(std::move(diagnostic));
         }
@@ -384,8 +384,8 @@ TEST_CASE("RuntimePlaybackSession fails on Lua hook errors")
             diagnostic.severity = core::RuntimeDiagnosticSeverity::Error;
             diagnostic.category = "lua";
             diagnostic.script_context = std::string(context);
-            diagnostic.message = executed.error ? executed.error->message : "Lua hook failed";
-            diagnostic.lua_traceback = executed.error ? executed.error->traceback : std::string{};
+            diagnostic.message = executed.error().message;
+            diagnostic.lua_traceback = executed.error().traceback;
             diagnostic.playback_step_index = step_index;
             result.diagnostics.push_back(std::move(diagnostic));
         }

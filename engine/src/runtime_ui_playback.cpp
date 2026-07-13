@@ -238,8 +238,7 @@ void execute_system_layout_lua(script::ScriptRuntime& runtime, const core::Proje
             continue;
         auto result = runtime.execute(lua, "@editor-ui-playback:" + role);
         if (!result) {
-            auto diagnostic = make_playback_diagnostic(0, result.error ? result.error->message
-                                                                       : "layout Lua failed");
+            auto diagnostic = make_playback_diagnostic(0, result.error().message);
             report.diagnostics.push_back(diagnostic);
             report.outputs.push_back(make_diagnostic_output(diagnostic));
         }
@@ -516,8 +515,7 @@ RuntimeUiPlaybackReport RuntimeUiPlaybackSession::run(core::ProjectDocument proj
     script::ScriptRuntime script_runtime;
     auto script_init = script_runtime.initialize(script::ScriptRuntimeConfig{.assets = &assets});
     if (!script_init) {
-        auto diagnostic = make_playback_diagnostic(
-            0, script_init.error ? script_init.error->message : "failed to initialize Lua runtime");
+        auto diagnostic = make_playback_diagnostic(0, script_init.error().message);
         report.diagnostics.push_back(diagnostic);
         report.outputs.push_back(make_diagnostic_output(diagnostic));
         return report;

@@ -1,6 +1,7 @@
 #include "noveltea/script/script_runtime.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/script/script_invoker.hpp"
 #include "script/lua/sol_access.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -11,27 +12,28 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace noveltea::script {
 namespace {
 
-ScriptError make_error(std::string message, std::string chunk, std::string traceback = {})
+ScriptError make_error(ScriptErrorCode code, std::string message, std::string chunk,
+                       std::string traceback = {})
 {
     if (traceback.empty())
         traceback = message;
-    return ScriptError{std::move(message), std::move(chunk), std::move(traceback)};
+    return ScriptError{code, std::move(message), std::move(chunk), std::move(traceback)};
 }
 
 int traceback_handler(lua_State* state)
 {
     const char* message = lua_tostring(state, 1);
     if (!message) {
-        if (luaL_callmeta(state, 1, "__tostring") && lua_type(state, -1) == LUA_TSTRING) {
+        if (luaL_callmeta(state, 1, "__tostring") && lua_type(state, -1) == LUA_TSTRING)
             message = lua_tostring(state, -1);
-        } else {
+        else
             message = luaL_typename(state, 1);
-        }
     }
     luaL_traceback(state, state, message, 1);
     return 1;
@@ -57,41 +59,6 @@ std::string lua_type_name(lua_State* state, int index)
     return lua_typename(state, lua_type(state, index));
 }
 
-ScriptResult<ScriptValue> to_script_value(lua_State* state,
-                                          const sol::protected_function_result& result,
-                                          const std::string& chunk)
-{
-    const int returns = result.return_count();
-    if (returns == 0) {
-        return ScriptResult<ScriptValue>::success(std::monostate{});
-    }
-    if (returns > 1) {
-        return ScriptResult<ScriptValue>::failure(
-            make_error("expression returned multiple values; ScriptRuntime::evaluate expects "
-                       "exactly one result",
-                       chunk));
-    }
-
-    const int index = result.stack_index();
-    switch (lua_type(state, index)) {
-    case LUA_TNIL:
-        return ScriptResult<ScriptValue>::success(std::monostate{});
-    case LUA_TBOOLEAN:
-        return ScriptResult<ScriptValue>::success(lua_toboolean(state, index) != 0);
-    case LUA_TNUMBER:
-        if (lua_isinteger(state, index)) {
-            return ScriptResult<ScriptValue>::success(
-                static_cast<std::int64_t>(lua_tointeger(state, index)));
-        }
-        return ScriptResult<ScriptValue>::success(static_cast<double>(lua_tonumber(state, index)));
-    case LUA_TSTRING:
-        return ScriptResult<ScriptValue>::success(std::string(lua_tostring(state, index)));
-    default:
-        return ScriptResult<ScriptValue>::failure(
-            make_error("unsupported Lua result type: " + lua_type_name(state, index), chunk));
-    }
-}
-
 std::string prefixed_chunk(std::string_view chunk_name)
 {
     std::string name(chunk_name.empty() ? "chunk" : chunk_name);
@@ -100,38 +67,90 @@ std::string prefixed_chunk(std::string_view chunk_name)
     return "=" + name;
 }
 
+core::Result<ScriptValue, ScriptError> to_script_value(lua_State* state, int returns,
+                                                       const std::string& chunk)
+{
+    using Result = core::Result<ScriptValue, ScriptError>;
+    if (returns == 0)
+        return Result::success(std::monostate{});
+    if (returns > 1) {
+        return Result::failure(make_error(
+            ScriptErrorCode::InvalidResult,
+            "expression returned multiple values; ScriptRuntime::evaluate expects exactly one "
+            "result",
+            chunk));
+    }
+
+    const int index = lua_gettop(state);
+    switch (lua_type(state, index)) {
+    case LUA_TNIL:
+        return Result::success(std::monostate{});
+    case LUA_TBOOLEAN:
+        return Result::success(lua_toboolean(state, index) != 0);
+    case LUA_TNUMBER:
+        if (lua_isinteger(state, index))
+            return Result::success(static_cast<std::int64_t>(lua_tointeger(state, index)));
+        return Result::success(static_cast<double>(lua_tonumber(state, index)));
+    case LUA_TSTRING:
+        return Result::success(std::string(lua_tostring(state, index)));
+    default:
+        return Result::failure(
+            make_error(ScriptErrorCode::InvalidResult,
+                       "unsupported Lua result type: " + lua_type_name(state, index), chunk));
+    }
+}
+
+ScriptError lua_failure(lua_State* main, lua_State* thread, ScriptErrorCode code,
+                        const std::string& chunk)
+{
+    const std::string raw = lua_value_message(thread, -1);
+    luaL_traceback(main, thread, raw.c_str(), 1);
+    const std::string traceback = lua_value_message(main, -1);
+    lua_pop(main, 1);
+    std::string message = raw;
+    const std::size_t first_newline = message.find('\n');
+    if (first_newline != std::string::npos)
+        message.resize(first_newline);
+    return make_error(code, std::move(message), chunk, traceback);
+}
+
 } // namespace
 
 struct ScriptRuntime::Impl {
+    struct InvocationRecord {
+        std::uint64_t owner;
+        int thread_reference;
+        std::string chunk;
+    };
+
     sol::state lua{panic_handler};
     const assets::AssetManager* assets = nullptr;
     bool initialized = false;
     sol::protected_function traceback;
+    std::unordered_map<std::uint64_t, InvocationRecord> invocations;
 
-    ScriptError error_from_result(const sol::protected_function_result& result,
-                                  std::string chunk) const
+    lua_State* thread(int reference)
     {
-        const int index = result.stack_index();
-        const std::string traceback_text = lua_value_message(lua.lua_state(), index);
-        std::string message = traceback_text;
-        const std::size_t first_newline = message.find('\n');
-        if (first_newline != std::string::npos) {
-            message.resize(first_newline);
-        }
-        return make_error(std::move(message), std::move(chunk), traceback_text);
+        lua_rawgeti(lua.lua_state(), LUA_REGISTRYINDEX, reference);
+        lua_State* result = lua_tothread(lua.lua_state(), -1);
+        lua_pop(lua.lua_state(), 1);
+        return result;
     }
+
+    void release(int reference) { luaL_unref(lua.lua_state(), LUA_REGISTRYINDEX, reference); }
 };
 
 ScriptRuntime::ScriptRuntime() = default;
 ScriptRuntime::~ScriptRuntime() { shutdown(); }
 
-ScriptResult<void> ScriptRuntime::initialize(ScriptRuntimeConfig config)
+core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig config)
 {
+    using Result = core::Result<void, ScriptError>;
     if (is_initialized())
-        return ScriptResult<void>::success();
+        return Result::success();
     if (!config.assets) {
-        return ScriptResult<void>::failure(
-            make_error("ScriptRuntime requires an AssetManager", "initialize"));
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime requires an AssetManager", "initialize"));
     }
 
     m_impl = std::make_unique<Impl>();
@@ -149,18 +168,18 @@ ScriptResult<void> ScriptRuntime::initialize(ScriptRuntimeConfig config)
     m_impl->traceback = m_impl->lua["__noveltea_traceback"];
     sol::protected_function::set_default_handler(m_impl->traceback);
     bind_noveltea(m_impl->lua.lua_state());
-    if (config.audio) {
+    if (config.audio)
         ::noveltea::script::bind_audio(m_impl->lua.lua_state(), config.audio);
-    }
     install_host_print(m_impl->lua.lua_state());
     m_impl->initialized = true;
-    return ScriptResult<void>::success();
+    return Result::success();
 }
 
 void ScriptRuntime::shutdown()
 {
     if (m_impl) {
         m_impl->initialized = false;
+        m_impl->invocations.clear();
         release_game_binding_state(m_impl->lua.lua_state());
         m_impl.reset();
     }
@@ -168,104 +187,243 @@ void ScriptRuntime::shutdown()
 
 bool ScriptRuntime::is_initialized() const { return m_impl && m_impl->initialized; }
 
-ScriptResult<void> ScriptRuntime::execute(std::string_view source, std::string_view chunk_name)
+core::Result<ScriptValue, ScriptError> ScriptRuntime::evaluate(std::string_view expression,
+                                                               std::string_view chunk_name)
 {
+    using Result = core::Result<ScriptValue, ScriptError>;
     if (!is_initialized()) {
-        return ScriptResult<void>::failure(
-            make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
-    }
-
-    const std::string chunk = prefixed_chunk(chunk_name);
-    sol::load_result loaded = m_impl->lua.load(std::string(source), chunk);
-    if (!loaded.valid()) {
-        sol::error err = loaded;
-        return ScriptResult<void>::failure(make_error(err.what(), chunk));
-    }
-
-    sol::protected_function function(loaded, m_impl->traceback);
-    sol::protected_function_result result = function();
-    if (!result.valid()) {
-        return ScriptResult<void>::failure(m_impl->error_from_result(result, chunk));
-    }
-    return ScriptResult<void>::success();
-}
-
-ScriptResult<void> ScriptRuntime::execute_asset(std::string_view logical_asset_path)
-{
-    if (!is_initialized()) {
-        return ScriptResult<void>::failure(
-            make_error("ScriptRuntime is not initialized", std::string(logical_asset_path)));
-    }
-    auto text = m_impl->assets->read_text(logical_asset_path);
-    if (!text) {
-        return ScriptResult<void>::failure(make_error(text.error, std::string(logical_asset_path)));
-    }
-    return execute(*text.value, "@" + std::string(logical_asset_path));
-}
-
-ScriptResult<ScriptValue> ScriptRuntime::evaluate(std::string_view expression,
-                                                  std::string_view chunk_name)
-{
-    if (!is_initialized()) {
-        return ScriptResult<ScriptValue>::failure(
-            make_error("ScriptRuntime is not initialized", std::string(chunk_name)));
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(chunk_name)));
     }
 
     std::string source = "return ";
     source += expression;
     const std::string chunk = prefixed_chunk(chunk_name);
-    sol::load_result loaded = m_impl->lua.load(source, chunk);
-    if (!loaded.valid()) {
-        sol::error err = loaded;
-        return ScriptResult<ScriptValue>::failure(make_error(err.what(), chunk));
+    lua_State* main = m_impl->lua.lua_state();
+    lua_State* thread = lua_newthread(main);
+    const int reference = luaL_ref(main, LUA_REGISTRYINDEX);
+    const int loaded = luaL_loadbufferx(thread, source.data(), source.size(), chunk.c_str(), "t");
+    if (loaded != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::LoadFailed, chunk);
+        m_impl->release(reference);
+        return Result::failure(std::move(error));
     }
 
-    sol::protected_function function(loaded, m_impl->traceback);
-    sol::protected_function_result result = function();
-    if (!result.valid()) {
-        return ScriptResult<ScriptValue>::failure(m_impl->error_from_result(result, chunk));
+    int returns = 0;
+    const int status = lua_resume(thread, main, 0, &returns);
+    if (status == LUA_YIELD) {
+        m_impl->release(reference);
+        return Result::failure(make_error(ScriptErrorCode::YieldForbidden,
+                                          "synchronous Lua expression attempted to yield", chunk));
     }
-    return to_script_value(m_impl->lua.lua_state(), result, chunk);
+    if (status != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::RuntimeFailed, chunk);
+        m_impl->release(reference);
+        return Result::failure(std::move(error));
+    }
+    auto value = to_script_value(thread, returns, chunk);
+    m_impl->release(reference);
+    return value;
 }
 
-ScriptResult<bool> ScriptRuntime::evaluate_bool(std::string_view expression,
-                                                std::string_view chunk_name)
+core::Result<void, ScriptError> ScriptRuntime::execute(std::string_view source,
+                                                       std::string_view chunk_name)
 {
-    auto result = evaluate(expression, chunk_name);
-    if (!result)
-        return ScriptResult<bool>::failure(*result.error);
-    if (auto* value = std::get_if<bool>(&*result.value)) {
-        return ScriptResult<bool>::success(*value);
+    using Result = core::Result<void, ScriptError>;
+    if (!is_initialized()) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(chunk_name)));
     }
-    return ScriptResult<bool>::failure(
-        make_error("expression did not evaluate to bool", std::string(chunk_name)));
+
+    const std::string chunk = prefixed_chunk(chunk_name);
+    lua_State* main = m_impl->lua.lua_state();
+    lua_State* thread = lua_newthread(main);
+    const int reference = luaL_ref(main, LUA_REGISTRYINDEX);
+    const int loaded = luaL_loadbufferx(thread, source.data(), source.size(), chunk.c_str(), "t");
+    if (loaded != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::LoadFailed, chunk);
+        m_impl->release(reference);
+        return Result::failure(std::move(error));
+    }
+
+    int returns = 0;
+    const int status = lua_resume(thread, main, 0, &returns);
+    if (status == LUA_YIELD) {
+        m_impl->release(reference);
+        return Result::failure(make_error(ScriptErrorCode::YieldForbidden,
+                                          "synchronous Lua execution attempted to yield", chunk));
+    }
+    if (status != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::RuntimeFailed, chunk);
+        m_impl->release(reference);
+        return Result::failure(std::move(error));
+    }
+    m_impl->release(reference);
+    return Result::success();
 }
 
-ScriptResult<std::string> ScriptRuntime::evaluate_string(std::string_view expression,
-                                                         std::string_view chunk_name)
+core::Result<void, ScriptError> ScriptRuntime::execute_asset(std::string_view logical_asset_path)
 {
-    auto result = evaluate(expression, chunk_name);
-    if (!result)
-        return ScriptResult<std::string>::failure(*result.error);
-    if (auto* value = std::get_if<std::string>(&*result.value)) {
-        return ScriptResult<std::string>::success(*value);
+    using Result = core::Result<void, ScriptError>;
+    if (!is_initialized()) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(logical_asset_path)));
     }
-    return ScriptResult<std::string>::failure(
-        make_error("expression did not evaluate to string", std::string(chunk_name)));
+    auto text = m_impl->assets->read_text(logical_asset_path);
+    if (!text) {
+        return Result::failure(
+            make_error(ScriptErrorCode::LoadFailed, text.error, std::string(logical_asset_path)));
+    }
+    return execute(*text.value, "@" + std::string(logical_asset_path));
+}
+
+core::Result<bool, ScriptError> ScriptRuntime::evaluate_bool(std::string_view expression,
+                                                             std::string_view chunk_name)
+{
+    using Result = core::Result<bool, ScriptError>;
+    auto result = evaluate(expression, chunk_name);
+    const auto* evaluated = result.value_if();
+    if (evaluated == nullptr)
+        return Result::failure(result.error());
+    if (const auto* value = std::get_if<bool>(evaluated))
+        return Result::success(*value);
+    return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                      "expression did not evaluate to bool",
+                                      std::string(chunk_name)));
+}
+
+core::Result<std::string, ScriptError> ScriptRuntime::evaluate_string(std::string_view expression,
+                                                                      std::string_view chunk_name)
+{
+    using Result = core::Result<std::string, ScriptError>;
+    auto result = evaluate(expression, chunk_name);
+    const auto* evaluated = result.value_if();
+    if (evaluated == nullptr)
+        return Result::failure(result.error());
+    if (const auto* value = std::get_if<std::string>(evaluated))
+        return Result::success(*value);
+    return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                      "expression did not evaluate to string",
+                                      std::string(chunk_name)));
+}
+
+core::Result<ScriptInvocationOutcome, ScriptError>
+ScriptRuntime::begin_invocation(std::string_view source, std::string_view chunk_name,
+                                const core::FlowFrameId& owner,
+                                const core::ScriptInvocationHandle& invocation)
+{
+    using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
+    if (!is_initialized()) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(chunk_name)));
+    }
+    if (m_impl->invocations.contains(invocation.number())) {
+        return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
+                                          "Lua invocation handle is already active",
+                                          std::string(chunk_name)));
+    }
+
+    const std::string chunk = prefixed_chunk(chunk_name);
+    lua_State* main = m_impl->lua.lua_state();
+    lua_State* thread = lua_newthread(main);
+    const int reference = luaL_ref(main, LUA_REGISTRYINDEX);
+    const int loaded = luaL_loadbufferx(thread, source.data(), source.size(), chunk.c_str(), "t");
+    if (loaded != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::LoadFailed, chunk);
+        m_impl->release(reference);
+        return Result::failure(std::move(error));
+    }
+
+    int returns = 0;
+    const int status = lua_resume(thread, main, 0, &returns);
+    if (status == LUA_YIELD) {
+        m_impl->invocations.emplace(invocation.number(),
+                                    Impl::InvocationRecord{owner.number(), reference, chunk});
+        return Result::success(ScriptInvocationSuspended{owner, invocation});
+    }
+    if (status != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::RuntimeFailed, chunk);
+        m_impl->release(reference);
+        return Result::failure(std::move(error));
+    }
+    m_impl->release(reference);
+    return Result::success(ScriptInvocationCompleted{});
+}
+
+core::Result<ScriptInvocationOutcome, ScriptError>
+ScriptRuntime::resume_invocation(const core::FlowFrameId& owner,
+                                 const core::ScriptInvocationHandle& invocation)
+{
+    using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
+    if (!is_initialized()) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", "resume"));
+    }
+    const auto found = m_impl->invocations.find(invocation.number());
+    if (found == m_impl->invocations.end() || found->second.owner != owner.number()) {
+        return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
+                                          "Lua resume does not match an active invocation",
+                                          "resume"));
+    }
+
+    lua_State* thread = m_impl->thread(found->second.thread_reference);
+    if (thread == nullptr) {
+        return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
+                                          "Lua invocation no longer owns a coroutine", "resume"));
+    }
+    int returns = 0;
+    const int status = lua_resume(thread, m_impl->lua.lua_state(), 0, &returns);
+    if (status == LUA_YIELD)
+        return Result::success(ScriptInvocationSuspended{owner, invocation});
+
+    const int reference = found->second.thread_reference;
+    const std::string chunk = found->second.chunk;
+    m_impl->invocations.erase(found);
+    if (status != LUA_OK) {
+        auto error =
+            lua_failure(m_impl->lua.lua_state(), thread, ScriptErrorCode::RuntimeFailed, chunk);
+        m_impl->release(reference);
+        return Result::failure(std::move(error));
+    }
+    m_impl->release(reference);
+    return Result::success(ScriptInvocationCompleted{});
+}
+
+core::Result<void, ScriptError>
+ScriptRuntime::cancel_invocation(const core::FlowFrameId& owner,
+                                 const core::ScriptInvocationHandle& invocation)
+{
+    using Result = core::Result<void, ScriptError>;
+    if (!is_initialized()) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", "cancel"));
+    }
+    const auto found = m_impl->invocations.find(invocation.number());
+    if (found == m_impl->invocations.end() || found->second.owner != owner.number()) {
+        return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
+                                          "Lua cancellation does not match an active invocation",
+                                          "cancel"));
+    }
+    const int reference = found->second.thread_reference;
+    m_impl->invocations.erase(found);
+    m_impl->release(reference);
+    return Result::success();
 }
 
 void ScriptRuntime::collect_garbage()
 {
-    if (is_initialized()) {
+    if (is_initialized())
         m_impl->lua.collect_garbage();
-    }
 }
 
 void ScriptRuntime::bind_game_session(core::GameSession* session)
 {
-    if (!is_initialized())
-        return;
-    noveltea::script::bind_game_session(m_impl->lua.lua_state(), session);
+    if (is_initialized())
+        noveltea::script::bind_game_session(m_impl->lua.lua_state(), session);
 }
 
 void ScriptRuntime::bind_runtime_host(core::RuntimeSessionHost* host)
@@ -278,30 +436,26 @@ void ScriptRuntime::bind_runtime_host(core::RuntimeSessionHost* host)
 
 void ScriptRuntime::bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher)
 {
-    if (!is_initialized())
-        return;
-    noveltea::script::bind_runtime_command_dispatcher(m_impl->lua.lua_state(), dispatcher);
+    if (is_initialized())
+        noveltea::script::bind_runtime_command_dispatcher(m_impl->lua.lua_state(), dispatcher);
 }
 
 void ScriptRuntime::bind_audio(AudioSystem* audio)
 {
-    if (!is_initialized())
-        return;
-    ::noveltea::script::bind_audio(m_impl->lua.lua_state(), audio);
+    if (is_initialized())
+        ::noveltea::script::bind_audio(m_impl->lua.lua_state(), audio);
 }
 
 void ScriptRuntime::clear_audio_binding()
 {
-    if (!is_initialized())
-        return;
-    noveltea::script::clear_audio_binding(m_impl->lua.lua_state());
+    if (is_initialized())
+        noveltea::script::clear_audio_binding(m_impl->lua.lua_state());
 }
 
 void ScriptRuntime::clear_game_bindings()
 {
-    if (!is_initialized())
-        return;
-    noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
+    if (is_initialized())
+        noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
 }
 
 lua_State* detail::ScriptRuntimeAccess::state(ScriptRuntime& runtime)

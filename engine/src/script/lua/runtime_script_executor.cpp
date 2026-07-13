@@ -161,8 +161,8 @@ void RuntimeScriptExecutor::process_outputs(std::vector<core::RuntimeOutput>& ou
         ran_script = true;
         if (result) {
             outputs.push_back(make_script_result(command, effective_step));
-        } else if (result.error.has_value()) {
-            outputs.push_back(make_diagnostic_output(command, *result.error, effective_step));
+        } else {
+            outputs.push_back(make_diagnostic_output(command, result.error(), effective_step));
         }
     }
 

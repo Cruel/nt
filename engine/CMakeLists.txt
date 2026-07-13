@@ -268,6 +268,7 @@ target_sources(engine PRIVATE
     src/script/lua/bind_game_session.cpp
     src/script/lua/bind_noveltea.cpp
     src/script/lua/runtime_script_executor.cpp
+    src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)

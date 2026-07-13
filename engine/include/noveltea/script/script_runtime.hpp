@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/core/result.hpp"
 #include "noveltea/script/script_result.hpp"
 #include "noveltea/script/script_value.hpp"
 
@@ -24,6 +25,7 @@ namespace noveltea::script {
 namespace detail {
 struct ScriptRuntimeAccess;
 }
+class ScriptInvoker;
 
 struct ScriptRuntimeConfig {
     const assets::AssetManager* assets = nullptr;
@@ -38,18 +40,19 @@ public:
     ScriptRuntime(const ScriptRuntime&) = delete;
     ScriptRuntime& operator=(const ScriptRuntime&) = delete;
 
-    [[nodiscard]] ScriptResult<void> initialize(ScriptRuntimeConfig config);
+    [[nodiscard]] core::Result<void, ScriptError> initialize(ScriptRuntimeConfig config);
     void shutdown();
     [[nodiscard]] bool is_initialized() const;
 
-    [[nodiscard]] ScriptResult<void> execute(std::string_view source,
-                                             std::string_view chunk_name = "chunk");
-    [[nodiscard]] ScriptResult<void> execute_asset(std::string_view logical_asset_path);
-    [[nodiscard]] ScriptResult<ScriptValue> evaluate(std::string_view expression,
-                                                     std::string_view chunk_name = "expression");
-    [[nodiscard]] ScriptResult<bool> evaluate_bool(std::string_view expression,
-                                                   std::string_view chunk_name = "expression");
-    [[nodiscard]] ScriptResult<std::string>
+    [[nodiscard]] core::Result<void, ScriptError> execute(std::string_view source,
+                                                          std::string_view chunk_name = "chunk");
+    [[nodiscard]] core::Result<void, ScriptError>
+    execute_asset(std::string_view logical_asset_path);
+    [[nodiscard]] core::Result<ScriptValue, ScriptError>
+    evaluate(std::string_view expression, std::string_view chunk_name = "expression");
+    [[nodiscard]] core::Result<bool, ScriptError>
+    evaluate_bool(std::string_view expression, std::string_view chunk_name = "expression");
+    [[nodiscard]] core::Result<std::string, ScriptError>
     evaluate_string(std::string_view expression, std::string_view chunk_name = "expression");
 
     void collect_garbage();
@@ -62,7 +65,20 @@ public:
     void clear_game_bindings();
 
 private:
+    friend class ScriptInvoker;
     friend struct detail::ScriptRuntimeAccess;
+
+    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
+    begin_invocation(std::string_view source, std::string_view chunk_name,
+                     const core::FlowFrameId& owner,
+                     const core::ScriptInvocationHandle& invocation);
+    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
+    resume_invocation(const core::FlowFrameId& owner,
+                      const core::ScriptInvocationHandle& invocation);
+    [[nodiscard]] core::Result<void, ScriptError>
+    cancel_invocation(const core::FlowFrameId& owner,
+                      const core::ScriptInvocationHandle& invocation);
+
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };
