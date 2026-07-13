@@ -459,9 +459,9 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         mood, present, property_error = noveltea.properties.get("unknown", "hall", "mood")
         assert(not present and type(property_error) == "string")
 
-        local location, location_error = noveltea.interactables.initial_location("coin")
+        local location, location_error = noveltea.interactables.location("coin")
         assert(location_error == nil and location.kind == "inventory")
-        location, location_error = noveltea.interactables.initial_location("key")
+        location, location_error = noveltea.interactables.location("key")
         assert(location_error == nil and location.kind == "room-placement")
         assert(location.room == "start" and location.placement == "key-placement")
         ok, error_message = noveltea.interactables.move_to_inventory("key")

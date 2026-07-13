@@ -32,7 +32,7 @@ blocker. Resume and cancellation validate both frame and invocation, and complet
 or failure releases the blocker and coroutine.
 
 The typed `noveltea` Lua tables expose collection-specific immutable definition summaries, declared
-variable get/set, property get/set/unset, initial Interactable-location reads, and validated typed
+variable get/set, property get/set/unset, live Interactable-location reads, and validated typed
 requests for Interactable movement, exit navigation, notifications, and flow operations. Flow calls
 have distinct Room-mode transient-start, active-frame child-call, and active-frame tail-replacement
 functions. Lua scalar conversion accepts only nil, boolean, integer, finite number, and string;
@@ -40,10 +40,10 @@ property and variable writes still pass through `SessionState` and `PropertyReso
 Host failures return explicit Lua error values and do not throw or longjmp across C++ frames.
 
 `ScriptHostRequest` is a closed JSON-free variant. Phase 6E queues requests but deliberately does not
-consume them: Scene/Dialogue/Room/Interaction feature execution belongs to Phase 7, current
-Interactable location belongs to Phase 7 state, and command/event adapter cutover belongs to Phase 9.
-The only location read named by the Phase 6E API is therefore `initial_location`; it reads immutable
-compiled definition data and does not masquerade as mutable live state.
+consume them: Scene/Dialogue/Room/Interaction feature execution belongs to Phase 7, and command/event
+adapter cutover belongs to Phase 9. Phase 7A adds the shared live Interactable state, so the typed API
+now exposes `noveltea.interactables.location`; it reads `SessionState` rather than the immutable
+initial declaration. Movement requests remain queued for Phase 7E and do not mutate state early.
 
 Phase 6F composes `ScriptInvoker` with the same state, flow executor, primitive evaluator, and host
 services through `TypedExecutionKernel`. The facade dispatches LuaPredicate, RunLuaEffect, and

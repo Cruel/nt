@@ -62,13 +62,36 @@ and property mutations. It validates definition IDs, property owners and values,
 placement ownership, active mode, Room exits, and flow targets before queuing a closed
 `ScriptHostRequest`. Transient starts, child calls, and tail replacements remain distinct request
 variants. Requests are not executed in Phase 6E; Phase 7 frame visitors and Phase 9 adapters own that
-work. Mutable Interactable state is also Phase 7-owned, so the current typed host exposes immutable
-initial-location reads without adding a premature live-state model.
+work. After Phase 7A, `noveltea.interactables.location` reads the shared live Interactable state.
+Movement requests remain validated queued values until Phase 7E consumes them.
 
 This path is test-facing and additive. Feature execution, host-request consumption, persistence
 codecs, and consumer cutover remain owned by later phases. It does not adapt
 compiled data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua,
 or runtime UI consumers.
+
+## Phase 7A typed feature state and views
+
+Phase 7A extends the additive `SessionState` with the shared mutable state required by the feature
+executors without implementing those executors. Scene-local `ActorState` is keyed by
+`{ SceneId, ActorSlotId }`; each value is validated against a compiled ActorCue, Character, pose, and
+expression. Every compiled Interactable receives exactly one live `InteractableState` initialized
+from its declaration, and named operations validate movement to Inventory, Nowhere, or a matching
+Room placement as well as enabled/visible changes.
+
+The same state owner records Room visit counts, Dialogue line/show-once and choice history, typed
+text-log entries with closed origins, resolved presented text, Scene or Dialogue choices, current
+background, layout slots, Room overlays, logical transition completion, audio-channel state, and Map
+visibility/mode/focus. All containers remain read-only to consumers; mutation uses named
+`Result`-returning operations that validate IDs, nested IDs, resources, enum ranges, and values
+against the immutable `CompiledProject` before changing state. `FlowExecutor` remains the sole owner
+of flow-stack, cursor, blocker, and mode mutation.
+
+`FeatureView` is a closed JSON-free variant of Scene, Dialogue, Room, Interaction, Inventory, and Map
+view records, with separate typed Actor and text-log snapshots used by those presentation contracts.
+These are snapshot/output contracts rather than a second state owner. Phase 7B through 7F build the
+corresponding executors and typed RmlUi adapters. The shipped controller-backed `RuntimeUIViewState`
+path remains unchanged until the later atomic consumer cutover.
 
 `script::TypedExecutionKernel` is the Phase 6 composition root for this additive path. It owns one
 `SessionState` and composes one `FlowExecutor`, `SharedPrimitiveEvaluator`, `ScriptHostServices`, and

@@ -278,13 +278,13 @@ void bind_typed_script_host(lua_State* state, core::ScriptHostServices* host)
 
     sol::table interactables = lua.create_table();
     interactables.set_function(
-        "initial_location", [host](std::string id, sol::this_state state) -> ObjectResult {
+        "location", [host](std::string id, sol::this_state state) -> ObjectResult {
             sol::state_view view(state);
             auto parsed = parse_id<core::InteractableId>(std::move(id));
             const auto* interactable = parsed.value_if();
             if (interactable == nullptr)
                 return failure(view, parsed.error());
-            auto value = host->initial_interactable_location(*interactable);
+            auto value = host->interactable_location(*interactable);
             const auto* location = value.value_if();
             return location ? ObjectResult{location_object(view, *location), nil(view)}
                             : failure(view, value.error());

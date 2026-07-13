@@ -143,14 +143,14 @@ Result<void, Diagnostics> ScriptHostServices::unset_property(const PropertyOwner
 }
 
 Result<compiled::InteractableLocation, Diagnostics>
-ScriptHostServices::initial_interactable_location(const InteractableId& interactable) const
+ScriptHostServices::interactable_location(const InteractableId& interactable) const
 {
-    const auto* definition = m_project.find_interactable(interactable);
-    if (definition == nullptr)
+    const auto* state = m_state.interactable(interactable);
+    if (m_project.find_interactable(interactable) == nullptr || state == nullptr)
         return Result<compiled::InteractableLocation, Diagnostics>::failure(
-            host_error("script_host.unknown_interactable", "Interactable definition is missing"));
-    return Result<compiled::InteractableLocation, Diagnostics>::success(
-        definition->initial_state.location);
+            host_error("script_host.unknown_interactable",
+                       "Interactable definition or live state is missing"));
+    return Result<compiled::InteractableLocation, Diagnostics>::success(state->location);
 }
 
 Result<void, Diagnostics>

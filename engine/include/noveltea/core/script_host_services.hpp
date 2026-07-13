@@ -65,7 +65,7 @@ using ScriptHostRequest =
 
 // Typed, JSON-free services exposed to Lua running through the additive execution kernel. Requests
 // are validated and queued for the owning Phase 7/9 adapters; this class does not implement feature
-// frames, interactable live state, presentation, persistence, or consumer cutover.
+// frames, feature execution, persistence, or consumer cutover.
 class ScriptHostServices {
 public:
     ScriptHostServices(const CompiledProject& project, SessionState& state) noexcept
@@ -85,7 +85,7 @@ public:
                                                            const PropertyId& property);
 
     [[nodiscard]] Result<compiled::InteractableLocation, Diagnostics>
-    initial_interactable_location(const InteractableId& interactable) const;
+    interactable_location(const InteractableId& interactable) const;
     [[nodiscard]] Result<void, Diagnostics>
     request_interactable_location(InteractableId interactable,
                                   compiled::InteractableLocation target);

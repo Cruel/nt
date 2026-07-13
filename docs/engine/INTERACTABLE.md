@@ -25,7 +25,9 @@ Interactions refer to typed Interactable IDs or explicit `AnyInteractable` wildc
 
 The editor authoring schema uses the V2 `interactables` collection with immutable presentation plus
 an explicit initial location/enabled/visible declaration. The editor provides creation and detail
-editing, and validates a room-placement initial location against the matching Room placement. Native
-code and the transitional runtime-export wire still use legacy Object-shaped models only to keep the
-current runtime buildable; Phases 4--8 replace those boundaries with compiled definitions and typed
-state. No old Object compatibility is required.
+editing, and validates a room-placement initial location against the matching Room placement. The
+additive typed runtime decodes native `InteractableDefinition` records and Phase 7A initializes one
+session-owned `InteractableState` per definition. Named mutations reject missing definitions and Room
+placements owned by another Interactable. The typed Lua location read uses this live state; movement
+requests remain queued until Phase 7E executes them. The shipped legacy Object path remains intact
+until the Phase 10 consumer cutover, and no old Object compatibility was added to the typed model.
