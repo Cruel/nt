@@ -122,6 +122,9 @@ enum class RoomTransitionStage : std::uint8_t {
 struct RoomTransitionPosition {
     RoomTransitionStage stage = RoomTransitionStage::SourceCanLeave;
     std::size_t next_effect = 0;
+    bool awaiting_completion = false;
+
+    auto operator<=>(const RoomTransitionPosition&) const = default;
 };
 
 using FlowFramePosition = std::variant<SceneFramePosition, DialogueFramePosition,

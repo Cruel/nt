@@ -34,7 +34,29 @@ Initial entry omits current-room and exit stages. A false condition changes no s
 
 A Room is a valid project entrypoint and continuation target. Entering it clears flow execution and enters Room mode.
 
-## Current implementation scaffold
+## Typed runtime execution
+
+The additive typed kernel executes initial entry, selected-exit navigation, and Room flow targets
+through the shared `RoomTransitionFrame`. `FlowExecutor` is the sole owner of transition stage,
+indexed-effect, blocker, mode, and fault mutation. The Room visitor composes it with the shared
+Condition/Effect evaluators and `SessionState`; it does not maintain a second lifecycle state machine.
+
+The target Room becomes active only after source `canLeave`, the selected exit Condition, target
+`canEnter`, before-leave effects, and before-enter effects complete. The commit atomically publishes
+the target background, authored overlay defaults, and visit increment. After-leave and after-enter
+effects then complete before `RoomMode` is exposed. Yielding effects preserve the exact lifecycle
+stage and effect index. Rejection resumes the source without hooks; fault discard resumes the source
+before the commit point and the target after it.
+
+`RoomView` exposes the current visit count, resolved description text and markup, background
+presentation, overlay layouts and visibility, placement bounds/labels/layouts plus live Interactable
+enabled/visible state, and resolved exit labels/conditions. Room-mode operations provide typed navigation and transient Scene/Dialogue
+starts. Room properties use the shared live `PropertyResolver`; an ancestor runtime override changes
+every unshadowed descendant immediately, while authored or nearer runtime values continue to shadow
+it. Categories and tags are editor metadata and are not present in the runtime definition or lookup
+chain.
+
+## Transitional implementation scaffold
 
 Current authoring, preview, operations, UI, provisional export, and legacy-shaped runtime live in:
 
@@ -49,9 +71,10 @@ engine/include/noveltea/core/runtime_controller.hpp
 ```
 
 The V2 editor schema has replaced paths/hotspots/objects, raw Lua hooks, and embedded preview state
-with strict exits, `RoomPlacement` records, and typed conditions/effects. `ProjectModel::RoomModel`
-and the one-way runtime export adapter remain temporary loading scaffolding; later phases compile and
-execute the V2 model. Legacy Room/Object/Map authoring formats are not preserved.
+with strict exits, `RoomPlacement` records, and typed conditions/effects. The typed compiler, native
+model, Room lifecycle executor, live state, and `RoomView` are complete. `ProjectModel::RoomModel`,
+the one-way runtime export adapter, and controller-backed shipped consumers remain temporary loading
+and cutover scaffolding. Legacy Room/Object/Map authoring formats are not preserved.
 
 ### Pre-3D authoring shape (historical migration reference)
 
@@ -142,9 +165,10 @@ The current native `ProjectModel::RoomModel` stores metadata, raw description, f
 Room Objects and name. The authoring runtime exporter lowers the currently supported Room subset into
 that representation, including description, placement-derived legacy Object IDs, and display name.
 
-Background rendering metadata, overlay Layouts, hotspot bounds, and the final typed Interactable
-location model are not fully represented by that bridge. The bridge should remain until Phase 7's
-Room slice provides equivalent loading, navigation, placement, and presentation behavior.
+Background rendering metadata, overlay Layouts, placement bounds, and the typed Interactable location
+model are available on the additive typed path but are not fully represented by that bridge. The
+bridge remains only until the Phase 10 atomic consumer cutover; it is not an authoritative Room model
+or a compatibility requirement.
 
 ### Current files and retained gaps
 
@@ -159,7 +183,8 @@ engine/include/noveltea/core/runtime_controller.hpp
 engine/include/noveltea/core/game_session.hpp
 ```
 
-Retained gaps include final Room rendering, runtime placement hit testing, native typed exit execution,
-Interactable/Interaction integration, overlay/background export, Map integration, and native live
-property inheritance. The old generic inheritance implementation is not retained, but the behavior
-demonstrated by inherited Room properties such as `map` is explicitly required by the target contract.
+Retained gaps include final shipped-consumer/RmlUi cutover, concrete placement hit testing,
+Interactable/Interaction execution, Map integration, persistence, and external adapters. Typed exit
+execution, lifecycle ordering, visits, overlay/background state, placement presentation, transient
+flows, and live Room property inheritance are implemented on the additive path. The old generic
+inheritance implementation is not retained.

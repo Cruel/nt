@@ -104,15 +104,17 @@ path remains unchanged until the later atomic consumer cutover.
 `ScriptInvoker` against the same immutable `CompiledProject`. Its closed dispatch methods route Lua
 and non-Lua Condition, Effect, and TextSource variants to the appropriate validated service while
 preserving typed errors. It exposes wait and exact script-resume/cancel operations and, after Phase
-7C, executes the complete flat Scene V1 program and compiled Dialogue V2 graph. Room and Interaction
-instruction execution and queued external request consumption remain deferred to their owning
-phases.
+7D, executes the complete flat Scene V1 program, compiled Dialogue V2 graph, and typed Room lifecycle
+transaction. Interaction instruction execution and queued external request consumption remain
+deferred to their owning phases.
 
 `FlowExecutor` remains one logical, noncopyable authority over flow-stack, cursor, blocker, mode, and
 fault mutation. Its implementation is partitioned by responsibility: generic stack and run-loop
 orchestration remains in `flow_executor.cpp`, while typed blocker operations, Room-transition
 operations, Scene cursor/wait/choice operations, and Dialogue cursor/wait/choice operations live in
-dedicated translation units. Later Interaction frame operations should follow the same
+dedicated translation units. Room transition cursor/wait operations remain in the dedicated Room
+translation unit, while the typed Room visitor composes those operations with shared evaluators and
+session state. Later Interaction frame operations should follow the same
 implementation split rather than creating competing flow-state owners.
 
 ## Phase 7B typed Character/Actor and Scene execution
@@ -155,6 +157,30 @@ ordered effects complete. Runtime-facing presentation is exposed as a JSON-free 
 The controller-backed `DialogueController` remains transitional Phase 10 deletion debt. Phase 7C
 does not reroute the shipped runtime UI, preview, playback, debugger, package player, persistence, or
 external request adapters; those consumers remain subject to the planned atomic cutover.
+
+## Phase 7D typed Room execution
+
+The additive Room visitor executes initial entry, direct exit navigation, and Room flow targets
+through one `RoomTransitionFrame`. It evaluates source `canLeave`, the selected exit condition, and
+target `canEnter` before hooks or the room-switch commit. Before-leave, before-enter, after-leave, and
+after-enter effects advance one indexed unit at a time. Yielding Lua effects retain the exact stage
+and effect index and require the matching frame-owned script handle before advancement.
+
+The room-switch commit atomically validates and publishes the target background, authored overlay
+defaults, and visit increment before post-switch hooks run. Rejection before that boundary resumes
+the source Room without running hooks. A pre-commit fault discards to the source; a post-commit fault
+discards to the target. An initial rejected or faulted transition with no source Room ends the typed
+session because no valid Room exists to resume.
+
+In completed Room mode, typed inputs start exit navigation or transient Scene/Dialogue flows.
+`RoomView` resolves the Room description, exits, placement labels, overlays, and live Interactable
+placement visibility from `CompiledProject` plus `SessionState`. Room property reads and mutations
+use the sole shared `PropertyResolver`; runtime ancestor changes are immediately visible to
+unshadowed descendants and do not copy values into child state.
+
+The shipped controller-backed Room, runtime UI, preview, playback, debugger, package player,
+persistence, and external request adapters remain transitional Phase 10 cutover debt. Phase 7D does
+not implement Interaction execution or Map presentation/execution.
 
 ## Current scaffold
 

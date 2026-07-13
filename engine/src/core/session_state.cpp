@@ -583,6 +583,47 @@ Result<void, Diagnostics> SessionState::record_room_visit(const CompiledProject&
     return Result<void, Diagnostics>::success();
 }
 
+Result<void, Diagnostics> SessionState::commit_room_entry(const CompiledProject& project,
+                                                          const RoomId& room)
+{
+    const auto* definition = project.find_room(room);
+    if (definition == nullptr)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.unknown_room", "Room entry target does not exist"));
+    if (!valid_background(project, definition->background))
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.invalid_background",
+                          "Room entry background contains an invalid Asset reference"));
+
+    const auto visit = m_room_visits.find(room);
+    if (visit != m_room_visits.end() && visit->second == std::numeric_limits<std::uint64_t>::max())
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.history_overflow", "Room visit counter cannot be incremented"));
+
+    std::vector<RoomOverlayState> overlays = m_overlays;
+    for (const auto& overlay : definition->overlays) {
+        if (project.find_layout(overlay.layout) == nullptr)
+            return Result<void, Diagnostics>::failure(feature_error(
+                "runtime.invalid_room_overlay", "Room entry overlay references a missing Layout"));
+        const auto found = std::find_if(
+            overlays.begin(), overlays.end(), [&room, &overlay](const RoomOverlayState& state) {
+                return state.room == room && state.overlay == overlay.id;
+            });
+        if (found == overlays.end())
+            overlays.push_back(RoomOverlayState{room, overlay.id, overlay.enabled});
+    }
+
+    if (visit == m_room_visits.end())
+        m_room_visits.emplace(room, 1);
+    else
+        ++visit->second;
+    m_background = definition->background;
+    m_overlays = std::move(overlays);
+    m_presented_text.reset();
+    m_active_choice.reset();
+    return Result<void, Diagnostics>::success();
+}
+
 std::uint64_t SessionState::dialogue_line_visits(const DialogueLineHistoryKey& key) const noexcept
 {
     return history_count(m_dialogue_line_history, key);

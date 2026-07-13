@@ -41,7 +41,16 @@ struct RoomPlacementView {
     RoomPlacementId placement;
     InteractableId interactable;
     compiled::NormalizedRect bounds;
+    std::optional<std::string> label;
+    TextMarkup label_markup = TextMarkup::Plain;
+    std::optional<LayoutId> layout;
     bool enabled;
+    bool visible;
+};
+
+struct RoomOverlayView {
+    RoomOverlayId overlay;
+    LayoutId layout;
     bool visible;
 };
 
@@ -55,10 +64,11 @@ struct RoomExitView {
 
 struct RoomView {
     RoomId room;
+    std::uint64_t visits = 0;
     std::string description;
     TextMarkup description_markup;
     compiled::BackgroundPresentation background;
-    std::vector<RoomOverlayState> overlays;
+    std::vector<RoomOverlayView> overlays;
     std::vector<RoomPlacementView> placements;
     std::vector<RoomExitView> exits;
 };

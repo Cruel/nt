@@ -50,6 +50,12 @@ public:
     start_navigation(const RoomId& target, const compiled::RoomExitRef& selected_exit);
     [[nodiscard]] Result<void, Diagnostics> advance_room_transition(RoomTransitionStage stage,
                                                                     std::size_t next_effect = 0);
+    [[nodiscard]] Result<void, Diagnostics>
+    advance_room_transition(const RoomTransitionPosition& expected_position,
+                            RoomTransitionPosition next_position);
+    [[nodiscard]] Result<void, Diagnostics>
+    mark_room_transition_wait(const RoomTransitionPosition& expected_position,
+                              RoomTransitionPosition next_position);
     [[nodiscard]] Result<void, Diagnostics> reject_room_transition();
     [[nodiscard]] Result<void, Diagnostics> complete_room_transition();
 

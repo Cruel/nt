@@ -184,10 +184,13 @@ bool valid_room_transition_position(const CompiledProject& project,
     case RoomTransitionStage::BeforeLeave:
     case RoomTransitionStage::BeforeEnter:
     case RoomTransitionStage::AfterLeave:
-    case RoomTransitionStage::AfterEnter:
-        return position.next_effect <= room_hook_effect_count(project, transition, position.stage);
+    case RoomTransitionStage::AfterEnter: {
+        const auto effect_count = room_hook_effect_count(project, transition, position.stage);
+        return position.next_effect <= effect_count &&
+               (!position.awaiting_completion || position.next_effect < effect_count);
+    }
     default:
-        return position.next_effect == 0;
+        return position.next_effect == 0 && !position.awaiting_completion;
     }
 }
 

@@ -78,6 +78,8 @@ public:
     [[nodiscard]] std::uint64_t room_visits(const RoomId& room) const noexcept;
     [[nodiscard]] Result<void, Diagnostics> record_room_visit(const CompiledProject& project,
                                                               const RoomId& room);
+    [[nodiscard]] Result<void, Diagnostics> commit_room_entry(const CompiledProject& project,
+                                                              const RoomId& room);
     [[nodiscard]] std::uint64_t
     dialogue_line_visits(const DialogueLineHistoryKey& key) const noexcept;
     [[nodiscard]] std::uint64_t

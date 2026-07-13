@@ -278,6 +278,7 @@ target_sources(engine PRIVATE
     src/script/lua/script_runtime.cpp
     src/script/typed_execution_kernel.cpp
     src/script/typed_execution_dialogue.cpp
+    src/script/typed_execution_room.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)
 target_compile_definitions(engine PRIVATE

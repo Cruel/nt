@@ -45,6 +45,39 @@ std::size_t room_hook_effect_count(const CompiledProject& project,
     return found == room->lifecycle.hooks.end() ? 0 : found->effects.size();
 }
 
+bool is_effect_stage(RoomTransitionStage stage) noexcept
+{
+    return stage == RoomTransitionStage::BeforeLeave || stage == RoomTransitionStage::BeforeEnter ||
+           stage == RoomTransitionStage::AfterLeave || stage == RoomTransitionStage::AfterEnter;
+}
+
+RoomTransitionStage next_stage(const RoomTransitionFrame& transition) noexcept
+{
+    switch (transition.position.stage) {
+    case RoomTransitionStage::SourceCanLeave:
+        return transition.selected_exit ? RoomTransitionStage::ExitCondition
+                                        : RoomTransitionStage::TargetCanEnter;
+    case RoomTransitionStage::ExitCondition:
+        return RoomTransitionStage::TargetCanEnter;
+    case RoomTransitionStage::TargetCanEnter:
+        return transition.source_room ? RoomTransitionStage::BeforeLeave
+                                      : RoomTransitionStage::BeforeEnter;
+    case RoomTransitionStage::BeforeLeave:
+        return RoomTransitionStage::BeforeEnter;
+    case RoomTransitionStage::BeforeEnter:
+        return RoomTransitionStage::CommitRoomSwitch;
+    case RoomTransitionStage::CommitRoomSwitch:
+        return transition.source_room ? RoomTransitionStage::AfterLeave
+                                      : RoomTransitionStage::AfterEnter;
+    case RoomTransitionStage::AfterLeave:
+        return RoomTransitionStage::AfterEnter;
+    case RoomTransitionStage::AfterEnter:
+    case RoomTransitionStage::Complete:
+        return RoomTransitionStage::Complete;
+    }
+    return RoomTransitionStage::Complete;
+}
+
 } // namespace
 
 Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
@@ -85,61 +118,76 @@ Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
 Result<void, Diagnostics> FlowExecutor::advance_room_transition(RoomTransitionStage stage,
                                                                 std::size_t next_effect)
 {
+    if (m_state.m_flow_stack.empty())
+        return fail(execution_error("execution.invalid_room_transition_position",
+                                    "Room transition position is invalid for the active frame"));
+    const auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back());
+    if (transition == nullptr)
+        return fail(execution_error("execution.invalid_room_transition_position",
+                                    "Room transition position is invalid for the active frame"));
+    return advance_room_transition(transition->position,
+                                   RoomTransitionPosition{stage, next_effect, false});
+}
+
+Result<void, Diagnostics>
+FlowExecutor::advance_room_transition(const RoomTransitionPosition& expected_position,
+                                      RoomTransitionPosition next_position)
+{
     auto ready = ensure_flow_ready();
     if (!ready)
         return fail(ready.error());
     auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back());
-    if (transition == nullptr || stage > RoomTransitionStage::Complete)
-        return fail(execution_error("execution.invalid_room_transition_position",
-                                    "Room transition position is invalid for the active frame"));
-    const auto current = transition->position.stage;
-    RoomTransitionStage expected = current;
-    switch (current) {
-    case RoomTransitionStage::SourceCanLeave:
-        expected = transition->selected_exit ? RoomTransitionStage::ExitCondition
-                                             : RoomTransitionStage::TargetCanEnter;
-        break;
-    case RoomTransitionStage::ExitCondition:
-        expected = RoomTransitionStage::TargetCanEnter;
-        break;
-    case RoomTransitionStage::TargetCanEnter:
-        expected = transition->source_room ? RoomTransitionStage::BeforeLeave
-                                           : RoomTransitionStage::BeforeEnter;
-        break;
-    case RoomTransitionStage::BeforeLeave:
-        expected = RoomTransitionStage::BeforeEnter;
-        break;
-    case RoomTransitionStage::BeforeEnter:
-        expected = RoomTransitionStage::CommitRoomSwitch;
-        break;
-    case RoomTransitionStage::CommitRoomSwitch:
-        expected = transition->source_room ? RoomTransitionStage::AfterLeave
-                                           : RoomTransitionStage::AfterEnter;
-        break;
-    case RoomTransitionStage::AfterLeave:
-        expected = RoomTransitionStage::AfterEnter;
-        break;
-    case RoomTransitionStage::AfterEnter:
-        expected = RoomTransitionStage::Complete;
-        break;
-    case RoomTransitionStage::Complete:
-        expected = RoomTransitionStage::Complete;
-        break;
-    }
-    const auto current_effect_count = room_hook_effect_count(m_project, *transition, current);
-    const bool current_is_effect_stage = current == RoomTransitionStage::BeforeLeave ||
-                                         current == RoomTransitionStage::BeforeEnter ||
-                                         current == RoomTransitionStage::AfterLeave ||
-                                         current == RoomTransitionStage::AfterEnter;
-    const bool same_effect_stage = stage == current && current_is_effect_stage &&
-                                   next_effect == transition->position.next_effect + 1 &&
-                                   next_effect <= current_effect_count;
-    const bool can_leave_stage =
-        !current_is_effect_stage || transition->position.next_effect == current_effect_count;
-    if (!same_effect_stage && (!can_leave_stage || stage != expected || next_effect != 0))
+    if (transition == nullptr || transition->position != expected_position ||
+        next_position.stage > RoomTransitionStage::Complete)
+        return fail(
+            execution_error("execution.stale_room_transition_position",
+                            "Room transition advancement does not match the active position"));
+
+    auto valid = validate_position(*transition, FlowFramePosition{next_position});
+    if (!valid)
+        return fail(valid.error());
+
+    const bool effect_stage = is_effect_stage(expected_position.stage);
+    const auto effect_count =
+        room_hook_effect_count(m_project, *transition, expected_position.stage);
+    const bool advances_effect = effect_stage && next_position.stage == expected_position.stage &&
+                                 next_position.next_effect == expected_position.next_effect + 1 &&
+                                 !next_position.awaiting_completion &&
+                                 next_position.next_effect <= effect_count;
+    const bool stage_complete = !effect_stage || (!expected_position.awaiting_completion &&
+                                                  expected_position.next_effect == effect_count);
+    const bool advances_stage = stage_complete && next_position.stage == next_stage(*transition) &&
+                                next_position.next_effect == 0 &&
+                                !next_position.awaiting_completion;
+    if (!advances_effect && !advances_stage)
         return fail(execution_error("execution.invalid_room_transition_position",
                                     "Room transition stages must advance in lifecycle order"));
-    transition->position = {stage, next_effect};
+
+    transition->position = std::move(next_position);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+FlowExecutor::mark_room_transition_wait(const RoomTransitionPosition& expected_position,
+                                        RoomTransitionPosition next_position)
+{
+    if (m_state.m_execution_fault)
+        return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
+    auto* transition = !m_state.m_flow_stack.empty()
+                           ? std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back())
+                           : nullptr;
+    if (transition == nullptr || transition->position != expected_position || !m_state.m_blocker ||
+        flow_blocker_owner(*m_state.m_blocker) != transition->frame_id ||
+        !is_effect_stage(expected_position.stage) || expected_position.awaiting_completion ||
+        next_position.stage != expected_position.stage ||
+        next_position.next_effect != expected_position.next_effect ||
+        !next_position.awaiting_completion)
+        return fail(execution_error("execution.invalid_room_transition_wait",
+                                    "Room transition wait does not match the active hook effect"));
+    auto valid = validate_position(*transition, FlowFramePosition{next_position});
+    if (!valid)
+        return fail(valid.error());
+    transition->position = std::move(next_position);
     return Result<void, Diagnostics>::success();
 }
 

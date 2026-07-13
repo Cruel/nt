@@ -17,7 +17,7 @@ class ScriptRuntime;
 using TypedExecutionError = std::variant<core::Diagnostics, ScriptError>;
 using TypedEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSuspended>;
 
-// Additive composition root for the typed execution kernel. Scene and Dialogue execution are
+// Additive composition root for the typed execution kernel. Scene, Dialogue, and Room execution are
 // implemented here; later Phase 7 slices add the remaining feature visitors and Phase 9 owns
 // external adapters.
 class TypedExecutionKernel {
@@ -68,14 +68,22 @@ public:
     choose_dialogue_option(const core::FlowFrameId& owner,
                            const core::InputFlowBlockerHandle& handle,
                            const core::DialogueEdgeId& edge);
+    [[nodiscard]] core::Result<void, core::Diagnostics> navigate(const core::RoomExitId& exit);
+    [[nodiscard]] core::Result<void, core::Diagnostics> start_transient(const core::SceneId& scene);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    start_transient(const core::DialogueId& dialogue);
     [[nodiscard]] core::Result<core::SceneView, core::Diagnostics> scene_view() const;
     [[nodiscard]] core::Result<core::DialogueView, core::Diagnostics> dialogue_view() const;
+    [[nodiscard]] core::Result<core::RoomView, TypedExecutionError>
+    room_view(std::string_view runtime_locale);
 
 private:
     TypedExecutionKernel(const core::CompiledProject& project, ScriptRuntime& runtime,
                          core::SessionState state) noexcept;
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_dialogue_unit(std::string_view runtime_locale);
+    [[nodiscard]] std::optional<core::FlowRunOutcome>
+    run_room_unit(std::string_view runtime_locale);
 
     const core::CompiledProject& m_project;
     core::SessionState m_state;
