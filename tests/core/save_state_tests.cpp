@@ -2,6 +2,7 @@
 #include <noveltea/core/flow_executor.hpp>
 #include <noveltea/core/property_resolver.hpp>
 #include <noveltea/core/save_state.hpp>
+#include <noveltea/core/save_state_codec.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -117,8 +118,8 @@ TEST_CASE("native SaveState projects only persisted typed session families")
     CHECK(save.play_time == 10ms);
     CHECK(save.variables.size() == project.variables().size());
     REQUIRE(save.property_overrides.size() == 1);
-    CHECK(save.property_overrides.front().owner() == PropertyOwnerRef{id<RoomId>("start")});
-    CHECK(save.property_overrides.front().property_id() == id<PropertyId>("mood"));
+    CHECK(save.property_overrides.front().owner == PropertyOwnerRef{id<RoomId>("start")});
+    CHECK(save.property_overrides.front().property == id<PropertyId>("mood"));
     REQUIRE(save.interactables.size() == project.interactables().size());
     const auto find_interactable = [&save](std::string value) {
         const auto wanted = id<InteractableId>(std::move(value));
@@ -141,7 +142,7 @@ TEST_CASE("native SaveState projects only persisted typed session families")
     CHECK(save.text_log.size() == 1);
     CHECK(save.logical_timers.empty());
     REQUIRE(save.pending_timer_completions.size() == 1);
-    CHECK(save.pending_timer_completions.front().id == timer.value());
+    CHECK(save.pending_timer_completions.front().id.value == timer.value().number());
     CHECK(std::holds_alternative<FlowMode>(save.mode));
     REQUIRE(save.flow_stack.size() == 1);
     CHECK(std::get<SavedRoomTransitionFrame>(save.flow_stack.front()).snapshot_id.value == 1);
@@ -256,5 +257,92 @@ TEST_CASE("save preflight permits logical blockers and rejects unsafe session st
         REQUIRE(snapshot.error().size() == 2);
         CHECK(snapshot.error()[0].code == "save.execution_fault");
         CHECK(snapshot.error()[1].code == "save.external_requests_pending");
+    }
+}
+
+TEST_CASE("typed save codec strictly decodes and links a save against its CompiledProject")
+{
+    const auto project = load_fixture("inheritance-properties-localization.json");
+    auto state = make_state(project);
+    PropertyResolver properties(project, state);
+    REQUIRE(state.set_variable(project, id<VariableId>("flag"), RuntimeValue{true}));
+    REQUIRE(properties.set(PropertyOwnerRef{id<RoomId>("start")}, id<PropertyId>("mood"),
+                           RuntimeValue{std::string{"tense"}}));
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    CHECK(encoded.value()["schema"] == "noveltea.save.state");
+    CHECK(encoded.value()["version"] == SaveStateMetadata::current_format_version);
+
+    auto decoded = decode_save_state(project, encoded.value(), "save-fixture.json");
+    REQUIRE(decoded);
+    CHECK(decoded.value().metadata.project == project.identity().id);
+    CHECK(decoded.value().property_overrides.size() == 1);
+
+    SECTION("unknown wire fields and duplicate semantic records are rejected")
+    {
+        auto invalid = encoded.value();
+        invalid["unexpected"] = true;
+        CHECK_FALSE(decode_save_state_wire(invalid, "save-fixture.json"));
+
+        invalid = encoded.value();
+        invalid["variables"].push_back(invalid["variables"][0]);
+        CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
+    }
+
+    SECTION("project-aware linking rejects stale references and invalid typed values")
+    {
+        auto invalid = encoded.value();
+        invalid["propertyOverrides"][0]["property"] = "missing";
+        CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
+
+        invalid = encoded.value();
+        invalid["variables"][0]["value"] = "not-a-boolean";
+        CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
+    }
+
+    SECTION("zero-duration logical timers remain valid save values")
+    {
+        auto valid = encoded.value();
+        valid["logicalTimers"].push_back({{"id", 1}, {"remainingMs", 0}, {"repeatMs", nullptr}});
+        auto timer_save = decode_save_state(project, valid, "save-fixture.json");
+        REQUIRE(timer_save);
+        REQUIRE(timer_save.value().logical_timers.size() == 1);
+        CHECK(timer_save.value().logical_timers.front().remaining == 0ms);
+    }
+
+    SECTION("native invalid text-log discriminants are rejected before encoding")
+    {
+        auto invalid = snapshot.value();
+        invalid.text_log.push_back(TextLogEntry{static_cast<TextLogEntryKind>(255),
+                                                SystemTextLogOrigin{}, std::nullopt, "bad",
+                                                TextMarkup::Plain});
+        CHECK_FALSE(validate_save_state(project, invalid, "save-fixture.json"));
+        CHECK_FALSE(encode_save_state(project, invalid));
+    }
+
+    SECTION("stale selected-exit Room references fail without dereferencing missing data")
+    {
+        const auto room_project = load_fixture("comprehensive.json");
+        auto room_snapshot = make_save_state(room_project, make_state(room_project));
+        REQUIRE(room_snapshot);
+        REQUIRE(room_snapshot.value().flow_stack.size() == 1);
+        auto& frame = std::get<SavedRoomTransitionFrame>(room_snapshot.value().flow_stack.front());
+        frame.source_room = id<RoomId>("missing-room");
+        frame.selected_exit =
+            compiled::RoomExitRef{id<RoomId>("missing-room"), id<RoomExitId>("missing-exit")};
+        CHECK_FALSE(validate_save_state(room_project, room_snapshot.value(), "save-fixture.json"));
+    }
+
+    SECTION("failed decoding cannot mutate the independently live session")
+    {
+        auto invalid = encoded.value();
+        invalid["metadata"]["project"] = "other-project";
+        CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
+        CHECK(state.variable(project, id<VariableId>("flag")).value() == RuntimeValue{true});
+        CHECK(state.property_override(PropertyOwnerRef{id<RoomId>("start")},
+                                      id<PropertyId>("mood")) != nullptr);
     }
 }

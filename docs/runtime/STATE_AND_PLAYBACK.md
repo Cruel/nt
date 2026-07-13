@@ -29,6 +29,16 @@ contain no live frame/blocker handles, container indexes, pointers, JSON, render
 state. The text-log V1 retention rule is the complete session-owned typed log; storage-level limits
 are not silently applied by the snapshot.
 
+## Phase 8B save codec boundary
+
+`noveltea.save.state` V1 is the explicit JSON boundary for additive typed saves. Its codec performs
+strict structural decoding first, then validates the resulting native `SaveState` against the loaded
+`CompiledProject`. It rejects unknown fields, unsupported versions, malformed IDs, invalid variants,
+non-finite values, duplicate semantic records, stale definition/nested references, incorrect
+variable/property types, non-Save overrides, incoherent flow positions, and blockers not owned by
+the active top frame. It publishes no mutable session state; Phase 8C remains responsible for fresh
+`SessionState`/`FlowExecutor` reconstruction and byte-slot storage.
+
 Every live typed state family has this disposition:
 
 | Session family | Classification | Snapshot/restore rule |
@@ -55,9 +65,9 @@ Every live typed state family has this disposition:
 
 Snapshot preflight reports deterministic typed diagnostics for every detected unsaveable condition.
 `TypedExecutionKernel::snapshot_save` supplies the host-request state to that preflight. Snapshotting
-is additive in 8A: it does not encode/decode JSON, restore a session, access save slots, process
-autosave requests, change settings ownership, or route shipped consumers. Those boundaries remain
-owned by Phases 8B, 8C, 8D, and 10 respectively. The existing `SaveDocument` path remains
+is additive in 8A/8B: it does not restore a session, access save slots, process autosave requests,
+change settings ownership, or route shipped consumers. Those boundaries remain owned by Phases 8C,
+8D, and 10 respectively. The existing `SaveDocument` path remains
 transitional and operational until its atomic cutover owner replaces it.
 
 ## Flow and startup

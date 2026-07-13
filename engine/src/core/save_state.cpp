@@ -76,8 +76,8 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .dialogue_line_history = {},
         .dialogue_choice_history = {},
         .text_log = session.m_text_log,
-        .logical_timers = session.m_logical_timers,
-        .pending_timer_completions = session.m_pending_timer_completions,
+        .logical_timers = {},
+        .pending_timer_completions = {},
         .mode = session.m_mode,
         .flow_stack = {},
         .blocker = std::nullopt,
@@ -92,7 +92,8 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
     for (const auto& value : session.m_property_overrides) {
         const auto* definition = project.find_property(value.property_id());
         if (definition != nullptr && definition->persistence() == PropertyPersistence::Save)
-            save.property_overrides.push_back(value);
+            save.property_overrides.push_back(
+                SavedPropertyOverride{value.owner(), value.property_id(), value.override_value()});
     }
     save.room_visits.reserve(session.m_room_visits.size());
     for (const auto& [room, count] : session.m_room_visits)
@@ -105,6 +106,14 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         save.dialogue_line_history.push_back(SavedDialogueLineHistory{key, count});
     for (const auto& [key, count] : session.m_dialogue_choice_history)
         save.dialogue_choice_history.push_back(SavedDialogueChoiceHistory{key, count});
+    save.logical_timers.reserve(session.m_logical_timers.size());
+    for (const auto& timer : session.m_logical_timers)
+        save.logical_timers.push_back(
+            SavedLogicalTimer{{timer.id.number()}, timer.remaining, timer.repeat_interval});
+    save.pending_timer_completions.reserve(session.m_pending_timer_completions.size());
+    for (const auto& completion : session.m_pending_timer_completions)
+        save.pending_timer_completions.push_back(
+            SavedLogicalTimerCompletion{{completion.id.number()}, completion.occurrences});
     save.flow_stack.reserve(session.m_flow_stack.size());
     for (std::size_t index = 0; index < session.m_flow_stack.size(); ++index)
         save.flow_stack.push_back(save_frame(session.m_flow_stack[index], index));

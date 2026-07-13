@@ -105,6 +105,7 @@ public:
     [[nodiscard]] const PropertyOwnerRef& owner() const noexcept { return m_owner; }
     [[nodiscard]] const PropertyId& property_id() const noexcept { return m_property_id; }
     [[nodiscard]] const RuntimeValue& value() const noexcept { return m_value; }
+    [[nodiscard]] const RuntimeValue& override_value() const noexcept { return m_value; }
 
 private:
     friend Result<PropertyOverride, Diagnostics>
