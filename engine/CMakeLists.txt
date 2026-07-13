@@ -43,6 +43,10 @@ add_library(noveltea_core STATIC
     src/core/save_document.cpp
     src/core/save_state.cpp
     src/core/save_state_codec.cpp
+    src/core/save_state_codec/shared_values.cpp
+    src/core/save_state_codec/flow_codec.cpp
+    src/core/save_state_codec/state_codec.cpp
+    src/core/save_state_codec/validation.cpp
     src/render/material.cpp
     src/render/shader_compiler.cpp
     src/render/shader_manifest.cpp
