@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <charconv>
 #include <fstream>
 #include <limits>
 #include <ranges>
@@ -41,7 +42,15 @@ nlohmann::json* path_member(nlohmann::json& root, std::initializer_list<std::str
 {
     auto* current = &root;
     for (const auto part : path) {
-        current = json_access::member(*current, part);
+        if (current->is_array()) {
+            std::size_t index = 0;
+            const auto parsed = std::from_chars(part.data(), part.data() + part.size(), index);
+            if (parsed.ec != std::errc{} || parsed.ptr != part.data() + part.size())
+                return nullptr;
+            current = json_access::element(*current, index);
+        } else {
+            current = json_access::member(*current, part);
+        }
         if (!current)
             return nullptr;
     }
@@ -55,7 +64,8 @@ TEST_CASE("compiled project shared decoder consumes the Phase 4 golden boundarie
     STATIC_REQUIRE(!std::is_same_v<SharedProject, CompiledProject>);
 
     for (const auto name :
-         {"minimal", "comprehensive", "inheritance-properties-localization", "resources"}) {
+         {"minimal", "comprehensive", "inheritance-properties-localization", "resources",
+          "scene-program", "dialogue-program", "interaction-program"}) {
         auto document = fixture(name);
         REQUIRE_FALSE(document.is_discarded());
         const auto original = document;
@@ -89,6 +99,133 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.rooms.front().placements.front().id.text() == "coin-placement");
     CHECK(project.maps.front().connections.front().exit.exit_id.text() == "north-exit");
     CHECK(project.localization.catalogs.size() == 2);
+}
+
+TEST_CASE("compiled project decoder retains specialized programs and scoped nested IDs")
+{
+    SECTION("Scene and Room hook programs")
+    {
+        auto result = decode_shared_project(fixture("scene-program"), "scene-program.json");
+        REQUIRE(result);
+        const auto& project = result.value();
+        REQUIRE(project.scenes.size() == 2);
+        const auto& opening = project.scenes[1];
+        REQUIRE(opening.program.instructions.size() == 15);
+        CHECK(std::holds_alternative<SetBackgroundInstruction>(opening.program.instructions[0]));
+        CHECK(std::get<ActorCueInstruction>(opening.program.instructions[1]).slot_id.text() ==
+              "hero-slot");
+        CHECK(std::get<CallDialogueSceneInstruction>(opening.program.instructions[2])
+                  .start_block_id->text() == "start");
+        CHECK(std::holds_alternative<ShowTextInstruction>(opening.program.instructions[3]));
+        CHECK(std::holds_alternative<InputWait>(
+            std::get<ShowTextInstruction>(opening.program.instructions[4]).wait));
+        CHECK(std::holds_alternative<AudioCompletionWait>(
+            std::get<AudioCueInstruction>(opening.program.instructions[6]).wait));
+        CHECK(std::holds_alternative<SetVariableSceneInstruction>(opening.program.instructions[7]));
+        CHECK(std::holds_alternative<RunLuaSceneInstruction>(opening.program.instructions[8]));
+        CHECK(std::get<WaitDurationInstruction>(opening.program.instructions[9]).wait.duration() ==
+              std::chrono::milliseconds(1500));
+        CHECK(std::holds_alternative<WaitInputInstruction>(opening.program.instructions[10]));
+        CHECK(std::get<ConditionalBranchInstruction>(opening.program.instructions[11])
+                  .branches.front()
+                  .id.text() == "count-branch");
+        CHECK(std::get<ChoiceSceneInstruction>(opening.program.instructions[12])
+                  .options.front()
+                  .id.text() == "layout-option");
+        CHECK(std::holds_alternative<SetLayoutInstruction>(opening.program.instructions[13]));
+        CHECK(std::holds_alternative<TransitionInstruction>(opening.program.instructions[14]));
+        REQUIRE(project.rooms.size() == 3);
+        REQUIRE(project.rooms[1].lifecycle.hooks.size() == 4);
+        CHECK(project.rooms[1].lifecycle.hooks.front().effects.size() == 1);
+    }
+
+    SECTION("Dialogue program")
+    {
+        auto result = decode_shared_project(fixture("dialogue-program"), "dialogue-program.json");
+        REQUIRE(result);
+        const auto& dialogue = result.value().dialogues[1];
+        CHECK(dialogue.program.entry_block_id.text() == "start");
+        REQUIRE(dialogue.program.blocks.size() == 4);
+        const auto& sequence = std::get<DialogueSequenceBlock>(dialogue.program.blocks[0]);
+        REQUIRE(sequence.segments.size() == 4);
+        CHECK(std::get<DialogueLineSegment>(sequence.segments[0]).id.text() == "inline-line");
+        CHECK(std::holds_alternative<DialogueRunLuaSegment>(sequence.segments[3]));
+        CHECK(std::get<DialogueRedirectBlock>(dialogue.program.blocks[2]).target_block_id.text() ==
+              "final");
+        REQUIRE(dialogue.program.edges.size() == 3);
+        CHECK(std::holds_alternative<DialogueNextEdge>(dialogue.program.edges[0]));
+        CHECK(std::get<DialogueChoiceEdge>(dialogue.program.edges[1]).id.text() ==
+              "choice-redirect");
+    }
+
+    SECTION("Interaction and Verb programs")
+    {
+        auto result =
+            decode_shared_project(fixture("interaction-program"), "interaction-program.json");
+        REQUIRE(result);
+        const auto& project = result.value();
+        REQUIRE(project.verbs.size() == 4);
+        CHECK(project.verbs[2].default_program.instructions.size() == 1);
+        REQUIRE(project.interactions.front().rules.size() == 4);
+        const auto& rules = project.interactions.front().rules;
+        CHECK(std::holds_alternative<AnyInteractionContext>(rules[0].context));
+        REQUIRE(rules[0].program.instructions.size() == 6);
+        CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[0].program.instructions[0]));
+        CHECK(
+            std::holds_alternative<MoveInteractableInstruction>(rules[0].program.instructions[1]));
+        CHECK(std::holds_alternative<SetInteractableStateInstruction>(
+            rules[0].program.instructions[2]));
+        CHECK(std::holds_alternative<NotifyInstruction>(rules[0].program.instructions[3]));
+        CHECK(std::holds_alternative<CallSceneInteractionInstruction>(
+            rules[0].program.instructions[4]));
+        CHECK(std::holds_alternative<CallDialogueInteractionInstruction>(
+            rules[0].program.instructions[5]));
+        CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[1].context));
+        CHECK(std::holds_alternative<PlacementInteractionContext>(rules[2].context));
+        CHECK(std::holds_alternative<PredicateInteractionContext>(rules[3].context));
+        CHECK(std::holds_alternative<AnyInteractableOperand>(rules[1].operands.front()));
+        CHECK(std::get<MoveInteractableInstruction>(rules[2].program.instructions.front())
+                  .id.text() == "room-placement");
+    }
+}
+
+TEST_CASE("compiled project decoder rejects specialized discriminants and incompatible fields")
+{
+    struct Mutation {
+        std::string_view fixture_name;
+        std::initializer_list<std::string_view> path;
+    };
+    const Mutation mutations[] = {
+        {"scene-program", {"definitions", "scenes", "1", "program", "instructions", "0"}},
+        {"dialogue-program", {"definitions", "dialogues", "1", "program", "blocks", "0"}},
+        {"dialogue-program",
+         {"definitions", "dialogues", "1", "program", "blocks", "0", "segments", "0"}},
+        {"dialogue-program", {"definitions", "dialogues", "1", "program", "edges", "0"}},
+        {"interaction-program",
+         {"definitions", "interactions", "0", "rules", "0", "program", "instructions", "0"}},
+        {"interaction-program", {"definitions", "interactions", "0", "rules", "0", "context"}},
+        {"interaction-program",
+         {"definitions", "interactions", "0", "rules", "0", "operands", "0"}},
+    };
+    for (const auto& mutation : mutations) {
+        auto document = fixture(mutation.fixture_name);
+        auto* value = path_member(document, mutation.path);
+        REQUIRE(value != nullptr);
+        (*value)["kind"] = "future-variant";
+        auto result = decode_shared_project(document, std::string(mutation.fixture_name));
+        INFO(mutation.fixture_name);
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_variant"));
+    }
+
+    auto document = fixture("scene-program");
+    auto* instruction =
+        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "8"});
+    REQUIRE(instruction != nullptr);
+    (*instruction)["durationMs"] = 10;
+    auto result = decode_shared_project(document, "scene-program.json");
+    REQUIRE_FALSE(result);
+    CHECK(has_code(result.error(), "compiled_project.unknown_field"));
 }
 
 TEST_CASE("compiled project shared primitives decode closed variants strictly")

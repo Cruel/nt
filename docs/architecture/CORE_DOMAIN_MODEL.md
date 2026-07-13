@@ -162,11 +162,13 @@ base or mutable JSON root.
 
 All recoverable decoding, construction, linking, lookup, execution, and save failures use
 `core::Result` with typed errors or canonical `core::Diagnostics`. Untrusted nlohmann-json input uses
-the audited nonthrowing helpers. The Phase 5B compiled-project boundary now strictly decodes schema
-identity/version, root settings, declarations, resources, shared primitives, and every non-program
-definition field into internal DTOs. It rejects unknown fields and variants, malformed IDs, invalid
-numbers, and directly decoded duplicate IDs with source-aware diagnostics. Program payloads remain
-unpublished and are deliberately owned by Phase 5C; semantic linking and immutable
-`CompiledProject` publication remain owned by Phase 5D. The runtime is built on the completed
+the audited nonthrowing helpers. The Phase 5C compiled-project boundary now strictly decodes schema
+identity/version, root settings, declarations, resources, shared primitives, every definition field,
+and the complete Scene,
+Dialogue, Interaction, Verb-default, and Room-hook program vocabulary into internal DTOs. It retains
+owner-scoped strong nested IDs, rejects unknown fields and variants, malformed IDs, invalid numbers,
+and directly decoded duplicate IDs with source-aware diagnostics, and retains no source JSON.
+Semantic linking and immutable `CompiledProject` publication remain owned by Phase 5D. The runtime is
+built on the completed
 no-exceptions/no-compiler-RTTI policy; user-authored input must never reach assertion, termination,
 throwing access, or unchecked lookup paths.

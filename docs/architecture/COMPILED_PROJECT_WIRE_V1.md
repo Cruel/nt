@@ -49,8 +49,9 @@ They are generated only through `compileAuthoringProject` by running
 the corpus collectively covers the closed Scene, Dialogue, Interaction, text, condition, effect,
 flow-target, resource-source, location, matching, variable, property, and persistence vocabulary.
 
-Phase 5B's native boundary is internal to `noveltea_core`. It consumes the minimal, comprehensive,
-inheritance/property/localization, and resource documents into strict shared DTOs, reuses the native
-strong-ID and closed primitive vocabulary, and returns `core::Diagnostics` for structural failures.
-It intentionally does not retain or publish specialized program payloads; Phase 5C owns their typed
-decoding, and Phase 5D owns semantic linking and the first public `CompiledProject` result.
+Phase 5C's native boundary is internal to `noveltea_core`. It consumes all seven canonical documents
+into strict DTOs, reuses the native strong-ID and closed primitive vocabulary, and returns
+`core::Diagnostics` for structural failures. Scene instructions, Dialogue blocks/segments/edges,
+Interaction rules/instructions/contexts/operands, Verb default programs, and Room hooks decode
+losslessly with owner-scoped nested IDs. The boundary retains no source JSON and remains unpublished;
+Phase 5D owns semantic linking and the first public `CompiledProject` result.

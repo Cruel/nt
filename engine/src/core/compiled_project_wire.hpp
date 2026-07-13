@@ -10,8 +10,8 @@
 
 namespace noveltea::core::compiled::wire {
 
-// Phase 5B boundary DTOs. They are intentionally not CompiledProject inputs: program payloads are
-// decoded in Phase 5C and semantic linking/publication belongs to Phase 5D.
+// Phase 5C boundary DTOs. They are intentionally not CompiledProject inputs: structural decoding is
+// complete here, while semantic linking/publication belongs to Phase 5D.
 struct PropertyAssignment {
     PropertyId property_id;
     RuntimeValue value;
@@ -54,6 +54,7 @@ struct CharacterDefinition {
 struct RoomLifecycle {
     Condition can_enter;
     Condition can_leave;
+    std::vector<RoomHookProgram> hooks;
 };
 struct RoomDefinition {
     PropertyBearingDefinition<RoomId> identity;
@@ -77,23 +78,30 @@ struct VerbDefinition {
     PropertyBearingDefinition<VerbId> identity;
     TextContent action_text;
     std::uint8_t arity;
+    Condition availability;
+    InteractionProgram default_program;
     std::vector<std::string> operand_roles;
     bool quick_action;
 };
 struct InteractionDefinition {
     PropertyBearingDefinition<InteractionId> identity;
+    std::vector<InteractionRule> rules;
 };
 struct SceneDefinition {
     PropertyBearingDefinition<SceneId> identity;
     std::string display_name;
     BackgroundPresentation default_background;
     std::optional<LayoutId> default_layout;
+    SceneProgram program;
+    FlowTarget continuation;
 };
 struct DialogueDefinition {
     PropertyBearingDefinition<DialogueId> identity;
     std::string display_name;
     std::optional<CharacterId> default_speaker;
+    DialogueProgram program;
     DialogueSettings settings;
+    FlowTarget completion;
 };
 struct MapDefinition {
     PropertyBearingDefinition<MapId> identity;

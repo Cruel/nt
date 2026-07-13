@@ -2,6 +2,7 @@
 
 #include "noveltea/core/json_access.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
@@ -1398,6 +1399,174 @@ std::optional<ScriptResource> decode_script(Decoder& decoder, const nlohmann::js
                : std::nullopt;
 }
 
+std::optional<Condition> decode_optional_condition(Decoder& decoder, const nlohmann::json& object,
+                                                   std::string_view pointer, bool& valid)
+{
+    const auto* value = json_access::member(object, "condition");
+    if (!value) {
+        valid = true;
+        return std::nullopt;
+    }
+    auto condition = decode_condition_impl(decoder, *value, pointer_child(pointer, "condition"));
+    valid = condition.has_value();
+    return condition;
+}
+
+std::optional<std::vector<Effect>> decode_effects(Decoder& decoder, const nlohmann::json& value,
+                                                  std::string_view pointer)
+{
+    return decoder.array<Effect>(
+        value, pointer, [&](const nlohmann::json& effect, const std::string& item_pointer) {
+            return decode_effect_impl(decoder, effect, item_pointer);
+        });
+}
+
+std::optional<InteractionInstruction> decode_interaction_instruction(Decoder& decoder,
+                                                                     const nlohmann::json& value,
+                                                                     std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected an interaction instruction object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    const auto* id_value = decoder.member(value, "id", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    auto id = id_value
+                  ? decoder.id<InteractionInstructionId>(*id_value, pointer_child(pointer, "id"))
+                  : std::nullopt;
+    if (!kind || !id)
+        return std::nullopt;
+    if (*kind == "apply-effect") {
+        decoder.object(value, pointer, {"effect", "id", "kind"});
+        const auto* effect_value = decoder.member(value, "effect", pointer);
+        auto effect = effect_value ? decode_effect_impl(decoder, *effect_value,
+                                                        pointer_child(pointer, "effect"))
+                                   : std::nullopt;
+        return effect ? std::optional<InteractionInstruction>(
+                            ApplyEffectInstruction{std::move(*id), std::move(*effect)})
+                      : std::nullopt;
+    }
+    if (*kind == "move-interactable") {
+        decoder.object(value, pointer, {"id", "interactable", "kind", "target"});
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        const auto* target_value = decoder.member(value, "target", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        auto target =
+            target_value ? decode_location(decoder, *target_value, pointer_child(pointer, "target"))
+                         : std::nullopt;
+        return interactable && target
+                   ? std::optional<InteractionInstruction>(MoveInteractableInstruction{
+                         std::move(*id), std::move(*interactable), std::move(*target)})
+                   : std::nullopt;
+    }
+    if (*kind == "set-interactable-state") {
+        decoder.object(value, pointer, {"enabled", "id", "interactable", "kind", "visible"});
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        std::optional<bool> enabled;
+        bool enabled_ok = true;
+        if (const auto* field = json_access::member(value, "enabled")) {
+            enabled = decoder.boolean(*field, pointer_child(pointer, "enabled"));
+            enabled_ok = enabled.has_value();
+        }
+        std::optional<bool> visible;
+        bool visible_ok = true;
+        if (const auto* field = json_access::member(value, "visible")) {
+            visible = decoder.boolean(*field, pointer_child(pointer, "visible"));
+            visible_ok = visible.has_value();
+        }
+        return interactable && enabled_ok && visible_ok
+                   ? std::optional<InteractionInstruction>(SetInteractableStateInstruction{
+                         std::move(*id), std::move(*interactable), enabled, visible})
+                   : std::nullopt;
+    }
+    if (*kind == "notify") {
+        decoder.object(value, pointer, {"id", "kind", "message"});
+        const auto* message_value = decoder.member(value, "message", pointer);
+        auto message = message_value
+                           ? decode_text(decoder, *message_value, pointer_child(pointer, "message"))
+                           : std::nullopt;
+        return message ? std::optional<InteractionInstruction>(
+                             NotifyInstruction{std::move(*id), std::move(*message)})
+                       : std::nullopt;
+    }
+    if (*kind == "call-scene") {
+        decoder.object(value, pointer, {"id", "kind", "scene"});
+        const auto* scene_value = decoder.member(value, "scene", pointer);
+        auto scene = scene_value
+                         ? decode_reference<SceneId>(decoder, *scene_value,
+                                                     pointer_child(pointer, "scene"), "scene")
+                         : std::nullopt;
+        return scene ? std::optional<InteractionInstruction>(
+                           CallSceneInteractionInstruction{std::move(*id), std::move(*scene)})
+                     : std::nullopt;
+    }
+    if (*kind == "call-dialogue") {
+        decoder.object(value, pointer, {"dialogue", "id", "kind"});
+        const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
+        auto dialogue =
+            dialogue_value
+                ? decode_reference<DialogueId>(decoder, *dialogue_value,
+                                               pointer_child(pointer, "dialogue"), "dialogue")
+                : std::nullopt;
+        return dialogue ? std::optional<InteractionInstruction>(CallDialogueInteractionInstruction{
+                              std::move(*id), std::move(*dialogue)})
+                        : std::nullopt;
+    }
+    decoder.object(value, pointer, {"id", "kind"});
+    decoder.error(k_code_variant, "Unknown interaction instruction variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<InteractionProgram>
+decode_interaction_program(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"completion", "instructions", "outcome"}))
+        return std::nullopt;
+    const auto* instructions_value = decoder.member(value, "instructions", pointer);
+    const auto* completion_value = decoder.member(value, "completion", pointer);
+    const auto* outcome_value = decoder.member(value, "outcome", pointer);
+    auto instructions =
+        instructions_value
+            ? decoder.array<InteractionInstruction>(
+                  *instructions_value, pointer_child(pointer, "instructions"),
+                  [&](const nlohmann::json& instruction, const std::string& item_pointer) {
+                      return decode_interaction_instruction(decoder, instruction, item_pointer);
+                  })
+            : std::nullopt;
+    auto completion = completion_value
+                          ? decode_flow_target_impl(decoder, *completion_value,
+                                                    pointer_child(pointer, "completion"))
+                          : std::nullopt;
+    auto outcome = outcome_value ? decoder.enumeration<InteractionOutcome>(
+                                       *outcome_value, pointer_child(pointer, "outcome"),
+                                       {{"handled", InteractionOutcome::Handled},
+                                        {"unhandled", InteractionOutcome::Unhandled}})
+                                 : std::nullopt;
+    if (!instructions || !completion || !outcome)
+        return std::nullopt;
+    decoder.duplicate_ids(
+        *instructions, pointer_child(pointer, "instructions"),
+        [](const InteractionInstruction& instruction) -> const InteractionInstructionId& {
+            return std::visit(
+                [](const auto& typed) -> const InteractionInstructionId& { return typed.id; },
+                instruction);
+        });
+    return InteractionProgram{std::move(*instructions), std::move(*completion), *outcome};
+}
+
 std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nlohmann::json& value,
                                                     std::string_view pointer)
 {
@@ -1631,11 +1800,35 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                          ? decode_condition_impl(decoder, *leave_value,
                                                  pointer_child(lifecycle_pointer, "canLeave"))
                          : std::nullopt;
-        if (hooks_value && !hooks_value->is_array())
-            decoder.error(k_code_type, "Expected an array.",
-                          pointer_child(lifecycle_pointer, "hooks"));
-        if (enter && leave && hooks_value && hooks_value->is_array())
-            lifecycle = RoomLifecycle{std::move(*enter), std::move(*leave)};
+        auto hooks =
+            hooks_value
+                ? decoder.array<RoomHookProgram>(
+                      *hooks_value, pointer_child(lifecycle_pointer, "hooks"),
+                      [&](const nlohmann::json& hook,
+                          const std::string& hook_pointer) -> std::optional<RoomHookProgram> {
+                          if (!decoder.object(hook, hook_pointer, {"effects", "hook"}))
+                              return std::nullopt;
+                          const auto* kind_value = decoder.member(hook, "hook", hook_pointer);
+                          const auto* effects_value = decoder.member(hook, "effects", hook_pointer);
+                          auto kind = kind_value
+                                          ? decoder.enumeration<RoomHookKind>(
+                                                *kind_value, pointer_child(hook_pointer, "hook"),
+                                                {{"before-enter", RoomHookKind::BeforeEnter},
+                                                 {"after-enter", RoomHookKind::AfterEnter},
+                                                 {"before-leave", RoomHookKind::BeforeLeave},
+                                                 {"after-leave", RoomHookKind::AfterLeave}})
+                                          : std::nullopt;
+                          auto effects =
+                              effects_value ? decode_effects(decoder, *effects_value,
+                                                             pointer_child(hook_pointer, "effects"))
+                                            : std::nullopt;
+                          return kind && effects ? std::optional<RoomHookProgram>(
+                                                       RoomHookProgram{*kind, std::move(*effects)})
+                                                 : std::nullopt;
+                      })
+                : std::nullopt;
+        if (enter && leave && hooks)
+            lifecycle = RoomLifecycle{std::move(*enter), std::move(*leave), std::move(*hooks)};
     }
     auto overlays =
         overlays_value
@@ -1904,15 +2097,19 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
     }
     auto quick = quick_value ? decoder.boolean(*quick_value, pointer_child(pointer, "quickAction"))
                              : std::nullopt;
-    if (availability_value && !availability_value->is_object())
-        decoder.error(k_code_type, "Expected an object.", pointer_child(pointer, "availability"));
-    if (program_value && !program_value->is_object())
-        decoder.error(k_code_type, "Expected an object.", pointer_child(pointer, "defaultProgram"));
-    if (!identity || !action || !arity || !roles || !quick || !availability_value ||
-        !availability_value->is_object() || !program_value || !program_value->is_object())
+    auto availability = availability_value
+                            ? decode_condition_impl(decoder, *availability_value,
+                                                    pointer_child(pointer, "availability"))
+                            : std::nullopt;
+    auto program = program_value
+                       ? decode_interaction_program(decoder, *program_value,
+                                                    pointer_child(pointer, "defaultProgram"))
+                       : std::nullopt;
+    if (!identity || !action || !arity || !availability || !program || !roles || !quick)
         return std::nullopt;
-    return VerbDefinition{std::move(*identity), std::move(*action), *arity, std::move(*roles),
-                          *quick};
+    return VerbDefinition{
+        std::move(*identity), std::move(*action), *arity, std::move(*availability),
+        std::move(*program),  std::move(*roles),  *quick};
 }
 
 std::optional<InteractionDefinition>
@@ -1922,11 +2119,703 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
         return std::nullopt;
     auto identity = decode_identity<InteractionId>(decoder, value, pointer);
     const auto* rules_value = decoder.member(value, "rules", pointer);
-    if (rules_value && !rules_value->is_array())
-        decoder.error(k_code_type, "Expected an array.", pointer_child(pointer, "rules"));
-    if (!identity || !rules_value || !rules_value->is_array())
+    auto rules =
+        rules_value
+            ? decoder.array<InteractionRule>(
+                  *rules_value, pointer_child(pointer, "rules"),
+                  [&](const nlohmann::json& rule,
+                      const std::string& rule_pointer) -> std::optional<InteractionRule> {
+                      if (!decoder.object(rule, rule_pointer,
+                                          {"context", "id", "operands", "program", "verb"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(rule, "id", rule_pointer);
+                      const auto* verb_value = decoder.member(rule, "verb", rule_pointer);
+                      const auto* context_value = decoder.member(rule, "context", rule_pointer);
+                      const auto* operands_value = decoder.member(rule, "operands", rule_pointer);
+                      const auto* program_value = decoder.member(rule, "program", rule_pointer);
+                      auto id = id_value ? decoder.id<InteractionRuleId>(
+                                               *id_value, pointer_child(rule_pointer, "id"))
+                                         : std::nullopt;
+                      auto verb = verb_value ? decode_reference<VerbId>(
+                                                   decoder, *verb_value,
+                                                   pointer_child(rule_pointer, "verb"), "verb")
+                                             : std::nullopt;
+                      std::optional<InteractionContext> context;
+                      if (context_value && context_value->is_object()) {
+                          const auto context_pointer = pointer_child(rule_pointer, "context");
+                          const auto* kind_value =
+                              decoder.member(*context_value, "kind", context_pointer);
+                          auto kind = kind_value
+                                          ? decoder.string(*kind_value,
+                                                           pointer_child(context_pointer, "kind"))
+                                          : std::nullopt;
+                          if (kind && *kind == "any") {
+                              decoder.object(*context_value, context_pointer, {"kind"});
+                              context = AnyInteractionContext{};
+                          } else if (kind && *kind == "active-room") {
+                              decoder.object(*context_value, context_pointer, {"kind", "room"});
+                              const auto* room_value =
+                                  decoder.member(*context_value, "room", context_pointer);
+                              auto room = room_value
+                                              ? decode_reference<RoomId>(
+                                                    decoder, *room_value,
+                                                    pointer_child(context_pointer, "room"), "room")
+                                              : std::nullopt;
+                              if (room)
+                                  context = ActiveRoomInteractionContext{std::move(*room)};
+                          } else if (kind && *kind == "room-placement") {
+                              decoder.object(*context_value, context_pointer,
+                                             {"kind", "placement"});
+                              const auto* placement_value =
+                                  decoder.member(*context_value, "placement", context_pointer);
+                              auto placement =
+                                  placement_value ? decode_placement_ref(
+                                                        decoder, *placement_value,
+                                                        pointer_child(context_pointer, "placement"))
+                                                  : std::nullopt;
+                              if (placement)
+                                  context = PlacementInteractionContext{std::move(*placement)};
+                          } else if (kind && *kind == "predicate") {
+                              decoder.object(*context_value, context_pointer,
+                                             {"condition", "kind"});
+                              const auto* condition_value =
+                                  decoder.member(*context_value, "condition", context_pointer);
+                              auto condition =
+                                  condition_value ? decode_condition_impl(
+                                                        decoder, *condition_value,
+                                                        pointer_child(context_pointer, "condition"))
+                                                  : std::nullopt;
+                              if (condition)
+                                  context = PredicateInteractionContext{std::move(*condition)};
+                          } else if (kind) {
+                              decoder.object(*context_value, context_pointer, {"kind"});
+                              decoder.error(k_code_variant,
+                                            "Unknown interaction context variant '" + *kind + "'.",
+                                            pointer_child(context_pointer, "kind"));
+                          }
+                      } else if (context_value) {
+                          decoder.error(k_code_type, "Expected an object.",
+                                        pointer_child(rule_pointer, "context"));
+                      }
+                      auto operands =
+                          operands_value
+                              ? decoder.array<InteractionOperand>(
+                                    *operands_value, pointer_child(rule_pointer, "operands"),
+                                    [&](const nlohmann::json& operand,
+                                        const std::string& operand_pointer)
+                                        -> std::optional<InteractionOperand> {
+                                        if (!operand.is_object()) {
+                                            decoder.error(k_code_type,
+                                                          "Expected an operand object.",
+                                                          operand_pointer);
+                                            return std::nullopt;
+                                        }
+                                        const auto* kind_value =
+                                            decoder.member(operand, "kind", operand_pointer);
+                                        auto kind =
+                                            kind_value ? decoder.string(
+                                                             *kind_value,
+                                                             pointer_child(operand_pointer, "kind"))
+                                                       : std::nullopt;
+                                        if (kind && *kind == "any-interactable") {
+                                            decoder.object(operand, operand_pointer, {"kind"});
+                                            return InteractionOperand{AnyInteractableOperand{}};
+                                        }
+                                        if (kind && *kind == "exact") {
+                                            decoder.object(operand, operand_pointer,
+                                                           {"interactable", "kind"});
+                                            const auto* interactable_value = decoder.member(
+                                                operand, "interactable", operand_pointer);
+                                            auto interactable =
+                                                interactable_value
+                                                    ? decode_reference<InteractableId>(
+                                                          decoder, *interactable_value,
+                                                          pointer_child(operand_pointer,
+                                                                        "interactable"),
+                                                          "interactable")
+                                                    : std::nullopt;
+                                            return interactable
+                                                       ? std::optional<InteractionOperand>(
+                                                             ExactOperand{std::move(*interactable)})
+                                                       : std::nullopt;
+                                        }
+                                        if (kind) {
+                                            decoder.object(operand, operand_pointer, {"kind"});
+                                            decoder.error(k_code_variant,
+                                                          "Unknown interaction operand variant '" +
+                                                              *kind + "'.",
+                                                          pointer_child(operand_pointer, "kind"));
+                                        }
+                                        return std::nullopt;
+                                    })
+                              : std::nullopt;
+                      if (operands && operands->size() > 2) {
+                          decoder.error(k_code_type, "At most two operands are allowed.",
+                                        pointer_child(rule_pointer, "operands"));
+                          operands.reset();
+                      }
+                      auto program =
+                          program_value
+                              ? decode_interaction_program(decoder, *program_value,
+                                                           pointer_child(rule_pointer, "program"))
+                              : std::nullopt;
+                      if (id && verb && context && operands && program)
+                          return InteractionRule{std::move(*id), std::move(*verb),
+                                                 std::move(*context), std::move(*operands),
+                                                 std::move(*program)};
+                      return std::nullopt;
+                  })
+            : std::nullopt;
+    if (rules)
+        decoder.duplicate_ids(
+            *rules, pointer_child(pointer, "rules"),
+            [](const InteractionRule& rule) -> const InteractionRuleId& { return rule.id; });
+    if (!identity || !rules)
         return std::nullopt;
-    return InteractionDefinition{std::move(*identity)};
+    return InteractionDefinition{std::move(*identity), std::move(*rules)};
+}
+
+std::optional<SceneInstruction>
+decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected a Scene instruction object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    const auto* id_value = decoder.member(value, "id", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    auto id =
+        id_value ? decoder.id<SceneStepId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
+    bool condition_ok = false;
+    auto condition = decode_optional_condition(decoder, value, pointer, condition_ok);
+    if (!kind || !id || !condition_ok)
+        return std::nullopt;
+#define SCENE_FIELDS(...) decoder.object(value, pointer, {"condition", "id", "kind", __VA_ARGS__})
+    if (*kind == "set-background") {
+        SCENE_FIELDS("asset", "color", "fit", "material", "transition");
+        const auto* asset_value = decoder.member(value, "asset", pointer);
+        const auto* color_value = decoder.member(value, "color", pointer);
+        const auto* fit_value = decoder.member(value, "fit", pointer);
+        const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* transition_value = decoder.member(value, "transition", pointer);
+        std::optional<AssetId> asset;
+        bool asset_ok = asset_value != nullptr;
+        if (asset_value && !asset_value->is_null()) {
+            asset = decode_reference<AssetId>(decoder, *asset_value,
+                                              pointer_child(pointer, "asset"), "asset");
+            asset_ok = asset.has_value();
+        }
+        std::optional<std::string> color;
+        bool color_ok = color_value != nullptr;
+        if (color_value && !color_value->is_null()) {
+            color = decoder.string(*color_value, pointer_child(pointer, "color"));
+            color_ok = color.has_value();
+        }
+        auto fit =
+            fit_value
+                ? decoder.enumeration<BackgroundFit>(*fit_value, pointer_child(pointer, "fit"),
+                                                     {{"cover", BackgroundFit::Cover},
+                                                      {"contain", BackgroundFit::Contain},
+                                                      {"stretch", BackgroundFit::Stretch},
+                                                      {"center", BackgroundFit::Center}})
+                : std::nullopt;
+        std::optional<MaterialId> material;
+        bool material_ok = material_value != nullptr;
+        if (material_value && !material_value->is_null()) {
+            material = decode_reference<MaterialId>(decoder, *material_value,
+                                                    pointer_child(pointer, "material"), "material");
+            material_ok = material.has_value();
+        }
+        auto transition = transition_value
+                              ? decoder.enumeration<BackgroundTransition>(
+                                    *transition_value, pointer_child(pointer, "transition"),
+                                    {{"none", BackgroundTransition::None},
+                                     {"fade", BackgroundTransition::Fade},
+                                     {"cut", BackgroundTransition::Cut}})
+                              : std::nullopt;
+        return asset_ok && color_ok && fit && material_ok && transition
+                   ? std::optional<SceneInstruction>(SetBackgroundInstruction{
+                         std::move(*id), std::move(condition),
+                         BackgroundPresentation{std::move(asset), std::move(color), *fit,
+                                                std::move(material)},
+                         *transition})
+                   : std::nullopt;
+    }
+    if (*kind == "actor-cue") {
+        SCENE_FIELDS("action", "character", "expressionId", "offset", "poseId", "position", "scale",
+                     "slotId", "transition");
+        const auto* action_value = decoder.member(value, "action", pointer);
+        const auto* character_value = decoder.member(value, "character", pointer);
+        const auto* expression_value = decoder.member(value, "expressionId", pointer);
+        const auto* offset_value = decoder.member(value, "offset", pointer);
+        const auto* pose_value = decoder.member(value, "poseId", pointer);
+        const auto* position_value = decoder.member(value, "position", pointer);
+        const auto* scale_value = decoder.member(value, "scale", pointer);
+        const auto* slot_value = decoder.member(value, "slotId", pointer);
+        const auto* transition_value = decoder.member(value, "transition", pointer);
+        auto action = action_value ? decoder.enumeration<ActorCueAction>(
+                                         *action_value, pointer_child(pointer, "action"),
+                                         {{"show", ActorCueAction::Show},
+                                          {"hide", ActorCueAction::Hide},
+                                          {"move", ActorCueAction::Move},
+                                          {"pose", ActorCueAction::Pose},
+                                          {"expression", ActorCueAction::Expression}})
+                                   : std::nullopt;
+        auto character =
+            character_value
+                ? decode_reference<CharacterId>(decoder, *character_value,
+                                                pointer_child(pointer, "character"), "character")
+                : std::nullopt;
+        std::optional<CharacterExpressionId> expression;
+        bool expression_ok = expression_value != nullptr;
+        if (expression_value && !expression_value->is_null()) {
+            expression = decoder.id<CharacterExpressionId>(*expression_value,
+                                                           pointer_child(pointer, "expressionId"));
+            expression_ok = expression.has_value();
+        }
+        auto offset = offset_value
+                          ? decode_vector2(decoder, *offset_value, pointer_child(pointer, "offset"))
+                          : std::nullopt;
+        std::optional<CharacterPoseId> pose;
+        bool pose_ok = pose_value != nullptr;
+        if (pose_value && !pose_value->is_null()) {
+            pose = decoder.id<CharacterPoseId>(*pose_value, pointer_child(pointer, "poseId"));
+            pose_ok = pose.has_value();
+        }
+        auto position = position_value ? decoder.enumeration<ActorPosition>(
+                                             *position_value, pointer_child(pointer, "position"),
+                                             {{"left", ActorPosition::Left},
+                                              {"center", ActorPosition::Center},
+                                              {"right", ActorPosition::Right},
+                                              {"custom", ActorPosition::Custom}})
+                                       : std::nullopt;
+        auto scale = scale_value
+                         ? decoder.finite_number(*scale_value, pointer_child(pointer, "scale"))
+                         : std::nullopt;
+        if (scale && *scale <= 0.0) {
+            decoder.error(k_code_number, "Scale must be positive.",
+                          pointer_child(pointer, "scale"));
+            scale.reset();
+        }
+        auto slot = slot_value
+                        ? decoder.id<ActorSlotId>(*slot_value, pointer_child(pointer, "slotId"))
+                        : std::nullopt;
+        auto transition = transition_value
+                              ? decoder.enumeration<ActorTransition>(
+                                    *transition_value, pointer_child(pointer, "transition"),
+                                    {{"none", ActorTransition::None},
+                                     {"fade", ActorTransition::Fade},
+                                     {"slide", ActorTransition::Slide}})
+                              : std::nullopt;
+        if (!action || !character || !expression_ok || !offset || !pose_ok || !position || !scale ||
+            !slot || !transition)
+            return std::nullopt;
+        return ActorCueInstruction{std::move(*id),
+                                   std::move(condition),
+                                   *action,
+                                   std::move(*character),
+                                   std::move(expression),
+                                   std::move(*offset),
+                                   std::move(pose),
+                                   *position,
+                                   *scale,
+                                   std::move(*slot),
+                                   *transition};
+    }
+    if (*kind == "call-dialogue") {
+        SCENE_FIELDS("autosaveSafePoint", "dialogue", "startBlockId");
+        const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
+        const auto* block_value = decoder.member(value, "startBlockId", pointer);
+        auto safe = safe_value
+                        ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
+                        : std::nullopt;
+        auto dialogue =
+            dialogue_value
+                ? decode_reference<DialogueId>(decoder, *dialogue_value,
+                                               pointer_child(pointer, "dialogue"), "dialogue")
+                : std::nullopt;
+        std::optional<DialogueBlockId> block;
+        bool block_ok = block_value != nullptr;
+        if (block_value && !block_value->is_null()) {
+            block =
+                decoder.id<DialogueBlockId>(*block_value, pointer_child(pointer, "startBlockId"));
+            block_ok = block.has_value();
+        }
+        return safe && dialogue && block_ok
+                   ? std::optional<SceneInstruction>(
+                         CallDialogueSceneInstruction{std::move(*id), std::move(condition), *safe,
+                                                      std::move(*dialogue), std::move(block)})
+                   : std::nullopt;
+    }
+    if (*kind == "show-text") {
+        SCENE_FIELDS("autosaveSafePoint", "speaker", "text", "wait");
+        const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        const auto* speaker_value = decoder.member(value, "speaker", pointer);
+        const auto* text_value = decoder.member(value, "text", pointer);
+        const auto* wait_value = decoder.member(value, "wait", pointer);
+        auto safe = safe_value
+                        ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
+                        : std::nullopt;
+        std::optional<CharacterId> speaker;
+        bool speaker_ok = speaker_value != nullptr;
+        if (speaker_value && !speaker_value->is_null()) {
+            speaker = decode_reference<CharacterId>(decoder, *speaker_value,
+                                                    pointer_child(pointer, "speaker"), "character");
+            speaker_ok = speaker.has_value();
+        }
+        auto text = text_value ? decode_text(decoder, *text_value, pointer_child(pointer, "text"))
+                               : std::nullopt;
+        auto wait_name =
+            wait_value ? decoder.string(*wait_value, pointer_child(pointer, "wait")) : std::nullopt;
+        std::optional<InputInstructionWait> wait;
+        if (wait_name && *wait_name == "input")
+            wait = InputWait{};
+        else if (wait_name && *wait_name == "immediate")
+            wait = ImmediateWait{};
+        else if (wait_name)
+            decoder.error(k_code_enum, "Unknown wait value '" + *wait_name + "'.",
+                          pointer_child(pointer, "wait"));
+        return safe && speaker_ok && text && wait
+                   ? std::optional<SceneInstruction>(ShowTextInstruction{
+                         std::move(*id), std::move(condition), *safe, std::move(speaker),
+                         std::move(*text), std::move(*wait)})
+                   : std::nullopt;
+    }
+    if (*kind == "audio-cue") {
+        SCENE_FIELDS("action", "asset", "channel", "fadeMs", "loop", "volume", "waitForCompletion");
+        const auto* action_value = decoder.member(value, "action", pointer);
+        const auto* asset_value = decoder.member(value, "asset", pointer);
+        const auto* channel_value = decoder.member(value, "channel", pointer);
+        const auto* fade_value = decoder.member(value, "fadeMs", pointer);
+        const auto* loop_value = decoder.member(value, "loop", pointer);
+        const auto* volume_value = decoder.member(value, "volume", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
+        auto action =
+            action_value
+                ? decoder.enumeration<AudioAction>(*action_value, pointer_child(pointer, "action"),
+                                                   {{"play", AudioAction::Play},
+                                                    {"stop", AudioAction::Stop},
+                                                    {"fade-in", AudioAction::FadeIn},
+                                                    {"fade-out", AudioAction::FadeOut}})
+                : std::nullopt;
+        std::optional<AssetId> asset;
+        bool asset_ok = asset_value != nullptr;
+        if (asset_value && !asset_value->is_null()) {
+            asset = decode_reference<AssetId>(decoder, *asset_value,
+                                              pointer_child(pointer, "asset"), "asset");
+            asset_ok = asset.has_value();
+        }
+        auto channel = channel_value ? decoder.enumeration<AudioChannel>(
+                                           *channel_value, pointer_child(pointer, "channel"),
+                                           {{"sound-effect", AudioChannel::SoundEffect},
+                                            {"music", AudioChannel::Music},
+                                            {"voice", AudioChannel::Voice},
+                                            {"ambient", AudioChannel::Ambient}})
+                                     : std::nullopt;
+        auto fade = fade_value ? decoder.unsigned_integer<std::uint64_t>(
+                                     *fade_value, pointer_child(pointer, "fadeMs"))
+                               : std::nullopt;
+        auto loop = loop_value ? decoder.boolean(*loop_value, pointer_child(pointer, "loop"))
+                               : std::nullopt;
+        auto volume = volume_value
+                          ? decoder.finite_number(*volume_value, pointer_child(pointer, "volume"))
+                          : std::nullopt;
+        if (volume && (*volume < 0.0 || *volume > 1.0)) {
+            decoder.error(k_code_number, "Volume must be between zero and one.",
+                          pointer_child(pointer, "volume"));
+            volume.reset();
+        }
+        auto waits = wait_value
+                         ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                         : std::nullopt;
+        if (!action || !asset_ok || !channel || !fade || !loop || !volume || !waits)
+            return std::nullopt;
+        AudioInstructionWait wait = *waits ? AudioInstructionWait{AudioCompletionWait{}}
+                                           : AudioInstructionWait{ImmediateWait{}};
+        return AudioCueInstruction{
+            std::move(*id), std::move(condition), *action, std::move(asset), *channel, *fade, *loop,
+            *volume,        std::move(wait)};
+    }
+    if (*kind == "set-variable") {
+        SCENE_FIELDS("value", "variable");
+        const auto* variable_value = decoder.member(value, "variable", pointer);
+        const auto* assignment_value = decoder.member(value, "value", pointer);
+        auto variable =
+            variable_value
+                ? decode_reference<VariableId>(decoder, *variable_value,
+                                               pointer_child(pointer, "variable"), "variable")
+                : std::nullopt;
+        auto assignment = assignment_value ? decode_runtime_value(decoder, *assignment_value,
+                                                                  pointer_child(pointer, "value"))
+                                           : std::nullopt;
+        return variable && assignment ? std::optional<SceneInstruction>(SetVariableSceneInstruction{
+                                            std::move(*id), std::move(condition),
+                                            std::move(*variable), std::move(*assignment)})
+                                      : std::nullopt;
+    }
+    if (*kind == "run-lua") {
+        SCENE_FIELDS("autosaveSafePoint", "mayYield", "source");
+        const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        const auto* yield_value = decoder.member(value, "mayYield", pointer);
+        const auto* source_value = decoder.member(value, "source", pointer);
+        auto safe = safe_value
+                        ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
+                        : std::nullopt;
+        auto may_yield = yield_value
+                             ? decoder.boolean(*yield_value, pointer_child(pointer, "mayYield"))
+                             : std::nullopt;
+        auto source = source_value
+                          ? decoder.string(*source_value, pointer_child(pointer, "source"), true)
+                          : std::nullopt;
+        return safe && may_yield && source ? std::optional<SceneInstruction>(RunLuaSceneInstruction{
+                                                 std::move(*id), std::move(condition), *safe,
+                                                 *may_yield, std::move(*source)})
+                                           : std::nullopt;
+    }
+    if (*kind == "wait-duration") {
+        SCENE_FIELDS("durationMs", "skippable");
+        const auto* duration_value = decoder.member(value, "durationMs", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
+        auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *duration_value, pointer_child(pointer, "durationMs"))
+                                       : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        if (!duration || !skippable ||
+            *duration > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+            if (duration)
+                decoder.error(k_code_number, "Duration is outside the supported range.",
+                              pointer_child(pointer, "durationMs"));
+            return std::nullopt;
+        }
+        auto wait_result = DurationWait::create(std::chrono::milliseconds(*duration));
+        std::optional<DurationWait> wait;
+        (void)wait_result.transform([&](const DurationWait& decoded) {
+            wait = decoded;
+            return true;
+        });
+        return wait ? std::optional<SceneInstruction>(WaitDurationInstruction{
+                          std::move(*id), std::move(condition), std::move(*wait), *skippable})
+                    : std::nullopt;
+    }
+    if (*kind == "wait-input") {
+        SCENE_FIELDS("skippable");
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        return skippable ? std::optional<SceneInstruction>(WaitInputInstruction{
+                               std::move(*id), std::move(condition), *skippable})
+                         : std::nullopt;
+    }
+    if (*kind == "conditional-branch") {
+        SCENE_FIELDS("branches", "fallbackInstructionId");
+        const auto* branches_value = decoder.member(value, "branches", pointer);
+        const auto* fallback_value = decoder.member(value, "fallbackInstructionId", pointer);
+        auto branches =
+            branches_value
+                ? decoder.array<SceneBranch>(
+                      *branches_value, pointer_child(pointer, "branches"),
+                      [&](const nlohmann::json& branch,
+                          const std::string& branch_pointer) -> std::optional<SceneBranch> {
+                          if (!decoder.object(branch, branch_pointer,
+                                              {"condition", "id", "targetInstructionId"}))
+                              return std::nullopt;
+                          const auto* branch_id_value =
+                              decoder.member(branch, "id", branch_pointer);
+                          const auto* branch_condition_value =
+                              decoder.member(branch, "condition", branch_pointer);
+                          const auto* target_value =
+                              decoder.member(branch, "targetInstructionId", branch_pointer);
+                          auto branch_id =
+                              branch_id_value
+                                  ? decoder.id<SceneBranchId>(*branch_id_value,
+                                                              pointer_child(branch_pointer, "id"))
+                                  : std::nullopt;
+                          auto branch_condition =
+                              branch_condition_value
+                                  ? decode_condition_impl(
+                                        decoder, *branch_condition_value,
+                                        pointer_child(branch_pointer, "condition"))
+                                  : std::nullopt;
+                          auto target =
+                              target_value
+                                  ? decoder.id<SceneStepId>(
+                                        *target_value,
+                                        pointer_child(branch_pointer, "targetInstructionId"))
+                                  : std::nullopt;
+                          return branch_id && branch_condition && target
+                                     ? std::optional<SceneBranch>(SceneBranch{
+                                           std::move(*branch_id), std::move(*branch_condition),
+                                           std::move(*target)})
+                                     : std::nullopt;
+                      })
+                : std::nullopt;
+        auto fallback = fallback_value
+                            ? decoder.id<SceneStepId>(
+                                  *fallback_value, pointer_child(pointer, "fallbackInstructionId"))
+                            : std::nullopt;
+        if (branches)
+            decoder.duplicate_ids(
+                *branches, pointer_child(pointer, "branches"),
+                [](const SceneBranch& branch) -> const SceneBranchId& { return branch.id; });
+        return branches && fallback ? std::optional<SceneInstruction>(ConditionalBranchInstruction{
+                                          std::move(*id), std::move(condition),
+                                          std::move(*branches), std::move(*fallback)})
+                                    : std::nullopt;
+    }
+    if (*kind == "choice") {
+        SCENE_FIELDS("autosaveSafePoint", "options", "prompt");
+        const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        const auto* options_value = decoder.member(value, "options", pointer);
+        const auto* prompt_value = decoder.member(value, "prompt", pointer);
+        auto safe = safe_value
+                        ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
+                        : std::nullopt;
+        auto options =
+            options_value
+                ? decoder.array<SceneChoiceOption>(
+                      *options_value, pointer_child(pointer, "options"),
+                      [&](const nlohmann::json& option,
+                          const std::string& option_pointer) -> std::optional<SceneChoiceOption> {
+                          if (!decoder.object(
+                                  option, option_pointer,
+                                  {"condition", "effects", "id", "label", "targetInstructionId"}))
+                              return std::nullopt;
+                          const auto* option_id_value =
+                              decoder.member(option, "id", option_pointer);
+                          const auto* effects_value =
+                              decoder.member(option, "effects", option_pointer);
+                          const auto* label_value = decoder.member(option, "label", option_pointer);
+                          const auto* target_value =
+                              decoder.member(option, "targetInstructionId", option_pointer);
+                          auto option_id =
+                              option_id_value
+                                  ? decoder.id<SceneChoiceOptionId>(
+                                        *option_id_value, pointer_child(option_pointer, "id"))
+                                  : std::nullopt;
+                          bool option_condition_ok = false;
+                          auto option_condition = decode_optional_condition(
+                              decoder, option, option_pointer, option_condition_ok);
+                          auto effects =
+                              effects_value
+                                  ? decode_effects(decoder, *effects_value,
+                                                   pointer_child(option_pointer, "effects"))
+                                  : std::nullopt;
+                          auto label = label_value
+                                           ? decode_text(decoder, *label_value,
+                                                         pointer_child(option_pointer, "label"))
+                                           : std::nullopt;
+                          auto target =
+                              target_value
+                                  ? decoder.id<SceneStepId>(
+                                        *target_value,
+                                        pointer_child(option_pointer, "targetInstructionId"))
+                                  : std::nullopt;
+                          if (option_id && option_condition_ok && effects && label && target)
+                              return SceneChoiceOption{
+                                  std::move(*option_id), std::move(option_condition),
+                                  std::move(*effects), std::move(*label), std::move(*target)};
+                          return std::nullopt;
+                      })
+                : std::nullopt;
+        if (options && options->empty()) {
+            decoder.error(k_code_type, "At least one choice option is required.",
+                          pointer_child(pointer, "options"));
+            options.reset();
+        }
+        std::optional<TextContent> prompt;
+        bool prompt_ok = prompt_value != nullptr;
+        if (prompt_value && !prompt_value->is_null()) {
+            prompt = decode_text(decoder, *prompt_value, pointer_child(pointer, "prompt"));
+            prompt_ok = prompt.has_value();
+        }
+        if (options)
+            decoder.duplicate_ids(
+                *options, pointer_child(pointer, "options"),
+                [](const SceneChoiceOption& option) -> const SceneChoiceOptionId& {
+                    return option.id;
+                });
+        return safe && options && prompt_ok
+                   ? std::optional<SceneInstruction>(
+                         ChoiceSceneInstruction{std::move(*id), std::move(condition), *safe,
+                                                std::move(*options), std::move(prompt)})
+                   : std::nullopt;
+    }
+    if (*kind == "set-layout") {
+        SCENE_FIELDS("action", "layout", "slot");
+        const auto* action_value = decoder.member(value, "action", pointer);
+        const auto* layout_value = decoder.member(value, "layout", pointer);
+        const auto* slot_value = decoder.member(value, "slot", pointer);
+        auto action =
+            action_value
+                ? decoder.enumeration<LayoutAction>(*action_value, pointer_child(pointer, "action"),
+                                                    {{"show", LayoutAction::Show},
+                                                     {"hide", LayoutAction::Hide},
+                                                     {"swap", LayoutAction::Swap}})
+                : std::nullopt;
+        std::optional<LayoutId> layout;
+        bool layout_ok = layout_value != nullptr;
+        if (layout_value && !layout_value->is_null()) {
+            layout = decode_reference<LayoutId>(decoder, *layout_value,
+                                                pointer_child(pointer, "layout"), "layout");
+            layout_ok = layout.has_value();
+        }
+        auto slot =
+            slot_value
+                ? decoder.enumeration<LayoutSlot>(*slot_value, pointer_child(pointer, "slot"),
+                                                  {{"hud", LayoutSlot::Hud},
+                                                   {"dialogue-box", LayoutSlot::DialogueBox},
+                                                   {"overlay", LayoutSlot::Overlay},
+                                                   {"custom", LayoutSlot::Custom}})
+                : std::nullopt;
+        return action && layout_ok && slot
+                   ? std::optional<SceneInstruction>(SetLayoutInstruction{
+                         std::move(*id), std::move(condition), *action, std::move(layout), *slot})
+                   : std::nullopt;
+    }
+    if (*kind == "transition") {
+        SCENE_FIELDS("color", "durationMs", "transitionKind", "waitForCompletion");
+        const auto* color_value = decoder.member(value, "color", pointer);
+        const auto* duration_value = decoder.member(value, "durationMs", pointer);
+        const auto* transition_value = decoder.member(value, "transitionKind", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
+        std::optional<std::string> color;
+        bool color_ok = color_value != nullptr;
+        if (color_value && !color_value->is_null()) {
+            color = decoder.string(*color_value, pointer_child(pointer, "color"));
+            color_ok = color.has_value();
+        }
+        auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *duration_value, pointer_child(pointer, "durationMs"))
+                                       : std::nullopt;
+        auto transition = transition_value
+                              ? decoder.enumeration<TransitionKind>(
+                                    *transition_value, pointer_child(pointer, "transitionKind"),
+                                    {{"fade", TransitionKind::Fade},
+                                     {"cut", TransitionKind::Cut},
+                                     {"dissolve", TransitionKind::Dissolve}})
+                              : std::nullopt;
+        auto waits = wait_value
+                         ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                         : std::nullopt;
+        if (!color_ok || !duration || !transition || !waits)
+            return std::nullopt;
+        PresentationInstructionWait wait =
+            *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
+                   : PresentationInstructionWait{ImmediateWait{}};
+        return TransitionInstruction{std::move(*id), std::move(condition), std::move(color),
+                                     *duration,      *transition,          std::move(wait)};
+    }
+#undef SCENE_FIELDS
+    decoder.object(value, pointer, {"condition", "id", "kind"});
+    decoder.error(k_code_variant, "Unknown Scene instruction variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
 }
 
 std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::json& value,
@@ -1956,15 +2845,316 @@ std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::js
                                             pointer_child(pointer, "defaultLayout"), "layout");
         layout_ok = layout.has_value();
     }
-    if (program_value && !program_value->is_object())
-        decoder.error(k_code_type, "Expected an object.", pointer_child(pointer, "program"));
-    if (continuation_value && !continuation_value->is_object())
-        decoder.error(k_code_type, "Expected an object.", pointer_child(pointer, "continuation"));
-    if (!identity || !display || !background || !layout_ok || !program_value ||
-        !program_value->is_object() || !continuation_value || !continuation_value->is_object())
+    std::optional<SceneProgram> program;
+    if (program_value &&
+        decoder.object(*program_value, pointer_child(pointer, "program"), {"instructions"})) {
+        const auto program_pointer = pointer_child(pointer, "program");
+        const auto* instructions_value =
+            decoder.member(*program_value, "instructions", program_pointer);
+        auto instructions =
+            instructions_value
+                ? decoder.array<SceneInstruction>(
+                      *instructions_value, pointer_child(program_pointer, "instructions"),
+                      [&](const nlohmann::json& instruction,
+                          const std::string& instruction_pointer) {
+                          return decode_scene_instruction(decoder, instruction,
+                                                          instruction_pointer);
+                      })
+                : std::nullopt;
+        if (instructions) {
+            decoder.duplicate_ids(
+                *instructions, pointer_child(program_pointer, "instructions"),
+                [](const SceneInstruction& instruction) -> const SceneStepId& {
+                    return std::visit(
+                        [](const auto& typed) -> const SceneStepId& { return typed.id; },
+                        instruction);
+                });
+            program = SceneProgram{std::move(*instructions)};
+        }
+    }
+    auto continuation = continuation_value
+                            ? decode_flow_target_impl(decoder, *continuation_value,
+                                                      pointer_child(pointer, "continuation"))
+                            : std::nullopt;
+    if (!identity || !display || !background || !layout_ok || !program || !continuation)
         return std::nullopt;
     return SceneDefinition{std::move(*identity), std::move(*display), std::move(*background),
-                           std::move(layout)};
+                           std::move(layout),    std::move(*program), std::move(*continuation)};
+}
+
+std::optional<DialogueSegment>
+decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected a Dialogue segment object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    const auto* id_value = decoder.member(value, "id", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    auto id = id_value ? decoder.id<DialogueSegmentId>(*id_value, pointer_child(pointer, "id"))
+                       : std::nullopt;
+    bool condition_ok = false;
+    auto condition = decode_optional_condition(decoder, value, pointer, condition_ok);
+    if (!kind || !id || !condition_ok)
+        return std::nullopt;
+    if (*kind == "line") {
+        decoder.object(value, pointer,
+                       {"autosaveSafePoint", "condition", "effects", "id", "kind", "logged",
+                        "showOnce", "speaker", "text"});
+        const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        const auto* effects_value = decoder.member(value, "effects", pointer);
+        const auto* logged_value = decoder.member(value, "logged", pointer);
+        const auto* once_value = decoder.member(value, "showOnce", pointer);
+        const auto* speaker_value = decoder.member(value, "speaker", pointer);
+        const auto* text_value = decoder.member(value, "text", pointer);
+        auto safe = safe_value
+                        ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
+                        : std::nullopt;
+        auto effects = effects_value ? decode_effects(decoder, *effects_value,
+                                                      pointer_child(pointer, "effects"))
+                                     : std::nullopt;
+        auto logged = logged_value
+                          ? decoder.boolean(*logged_value, pointer_child(pointer, "logged"))
+                          : std::nullopt;
+        auto once = once_value ? decoder.boolean(*once_value, pointer_child(pointer, "showOnce"))
+                               : std::nullopt;
+        std::optional<CharacterId> speaker;
+        bool speaker_ok = speaker_value != nullptr;
+        if (speaker_value && !speaker_value->is_null()) {
+            speaker = decode_reference<CharacterId>(decoder, *speaker_value,
+                                                    pointer_child(pointer, "speaker"), "character");
+            speaker_ok = speaker.has_value();
+        }
+        auto text = text_value ? decode_text(decoder, *text_value, pointer_child(pointer, "text"))
+                               : std::nullopt;
+        if (safe && effects && logged && once && speaker_ok && text)
+            return DialogueLineSegment{std::move(*id),      *safe,           std::move(condition),
+                                       std::move(*effects), *logged,         *once,
+                                       std::move(speaker),  std::move(*text)};
+        return std::nullopt;
+    }
+    if (*kind == "run-lua") {
+        decoder.object(value, pointer, {"condition", "id", "kind", "mayYield", "source"});
+        const auto* yield_value = decoder.member(value, "mayYield", pointer);
+        const auto* source_value = decoder.member(value, "source", pointer);
+        auto may_yield = yield_value
+                             ? decoder.boolean(*yield_value, pointer_child(pointer, "mayYield"))
+                             : std::nullopt;
+        auto source = source_value
+                          ? decoder.string(*source_value, pointer_child(pointer, "source"), true)
+                          : std::nullopt;
+        return may_yield && source
+                   ? std::optional<DialogueSegment>(DialogueRunLuaSegment{
+                         std::move(*id), std::move(condition), *may_yield, std::move(*source)})
+                   : std::nullopt;
+    }
+    decoder.object(value, pointer, {"condition", "id", "kind"});
+    decoder.error(k_code_variant, "Unknown Dialogue segment variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<DialogueProgram>
+decode_dialogue_program(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"blocks", "edges", "entryBlockId"}))
+        return std::nullopt;
+    const auto* blocks_value = decoder.member(value, "blocks", pointer);
+    const auto* edges_value = decoder.member(value, "edges", pointer);
+    const auto* entry_value = decoder.member(value, "entryBlockId", pointer);
+    auto blocks =
+        blocks_value
+            ? decoder.array<DialogueBlock>(
+                  *blocks_value, pointer_child(pointer, "blocks"),
+                  [&](const nlohmann::json& block,
+                      const std::string& block_pointer) -> std::optional<DialogueBlock> {
+                      if (!block.is_object()) {
+                          decoder.error(k_code_type, "Expected a Dialogue block object.",
+                                        block_pointer);
+                          return std::nullopt;
+                      }
+                      const auto* kind_value = decoder.member(block, "kind", block_pointer);
+                      const auto* id_value = decoder.member(block, "id", block_pointer);
+                      auto kind = kind_value ? decoder.string(*kind_value,
+                                                              pointer_child(block_pointer, "kind"))
+                                             : std::nullopt;
+                      auto id = id_value ? decoder.id<DialogueBlockId>(
+                                               *id_value, pointer_child(block_pointer, "id"))
+                                         : std::nullopt;
+                      if (!kind || !id)
+                          return std::nullopt;
+                      if (*kind == "choice") {
+                          decoder.object(block, block_pointer, {"id", "kind"});
+                          return DialogueBlock{DialogueChoiceBlock{std::move(*id)}};
+                      }
+                      if (*kind == "redirect") {
+                          decoder.object(block, block_pointer, {"id", "kind", "targetBlockId"});
+                          const auto* target_value =
+                              decoder.member(block, "targetBlockId", block_pointer);
+                          auto target = target_value
+                                            ? decoder.id<DialogueBlockId>(
+                                                  *target_value,
+                                                  pointer_child(block_pointer, "targetBlockId"))
+                                            : std::nullopt;
+                          return target ? std::optional<DialogueBlock>(DialogueRedirectBlock{
+                                              std::move(*id), std::move(*target)})
+                                        : std::nullopt;
+                      }
+                      if (*kind == "sequence") {
+                          decoder.object(block, block_pointer,
+                                         {"defaultSpeaker", "id", "kind", "segments"});
+                          const auto* speaker_value =
+                              decoder.member(block, "defaultSpeaker", block_pointer);
+                          const auto* segments_value =
+                              decoder.member(block, "segments", block_pointer);
+                          std::optional<CharacterId> speaker;
+                          bool speaker_ok = speaker_value != nullptr;
+                          if (speaker_value && !speaker_value->is_null()) {
+                              speaker = decode_reference<CharacterId>(
+                                  decoder, *speaker_value,
+                                  pointer_child(block_pointer, "defaultSpeaker"), "character");
+                              speaker_ok = speaker.has_value();
+                          }
+                          auto segments =
+                              segments_value
+                                  ? decoder.array<DialogueSegment>(
+                                        *segments_value, pointer_child(block_pointer, "segments"),
+                                        [&](const nlohmann::json& segment,
+                                            const std::string& segment_pointer) {
+                                            return decode_dialogue_segment(decoder, segment,
+                                                                           segment_pointer);
+                                        })
+                                  : std::nullopt;
+                          if (segments)
+                              decoder.duplicate_ids(
+                                  *segments, pointer_child(block_pointer, "segments"),
+                                  [](const DialogueSegment& segment) -> const DialogueSegmentId& {
+                                      return std::visit(
+                                          [](const auto& typed) -> const DialogueSegmentId& {
+                                              return typed.id;
+                                          },
+                                          segment);
+                                  });
+                          return speaker_ok && segments
+                                     ? std::optional<DialogueBlock>(
+                                           DialogueSequenceBlock{std::move(*id), std::move(speaker),
+                                                                 std::move(*segments)})
+                                     : std::nullopt;
+                      }
+                      decoder.object(block, block_pointer, {"id", "kind"});
+                      decoder.error(k_code_variant,
+                                    "Unknown Dialogue block variant '" + *kind + "'.",
+                                    pointer_child(block_pointer, "kind"));
+                      return std::nullopt;
+                  })
+            : std::nullopt;
+    auto edges =
+        edges_value
+            ? decoder.array<DialogueEdge>(
+                  *edges_value, pointer_child(pointer, "edges"),
+                  [&](const nlohmann::json& edge,
+                      const std::string& edge_pointer) -> std::optional<DialogueEdge> {
+                      if (!edge.is_object()) {
+                          decoder.error(k_code_type, "Expected a Dialogue edge object.",
+                                        edge_pointer);
+                          return std::nullopt;
+                      }
+                      const auto* kind_value = decoder.member(edge, "kind", edge_pointer);
+                      const auto* id_value = decoder.member(edge, "id", edge_pointer);
+                      const auto* from_value = decoder.member(edge, "fromBlockId", edge_pointer);
+                      const auto* to_value = decoder.member(edge, "toBlockId", edge_pointer);
+                      auto kind = kind_value ? decoder.string(*kind_value,
+                                                              pointer_child(edge_pointer, "kind"))
+                                             : std::nullopt;
+                      auto id = id_value ? decoder.id<DialogueEdgeId>(
+                                               *id_value, pointer_child(edge_pointer, "id"))
+                                         : std::nullopt;
+                      auto from = from_value
+                                      ? decoder.id<DialogueBlockId>(
+                                            *from_value, pointer_child(edge_pointer, "fromBlockId"))
+                                      : std::nullopt;
+                      auto to = to_value ? decoder.id<DialogueBlockId>(
+                                               *to_value, pointer_child(edge_pointer, "toBlockId"))
+                                         : std::nullopt;
+                      if (!kind || !id || !from || !to)
+                          return std::nullopt;
+                      if (*kind == "next") {
+                          decoder.object(edge, edge_pointer,
+                                         {"fromBlockId", "id", "kind", "toBlockId"});
+                          return DialogueEdge{
+                              DialogueNextEdge{std::move(*id), std::move(*from), std::move(*to)}};
+                      }
+                      if (*kind == "choice") {
+                          decoder.object(edge, edge_pointer,
+                                         {"autosaveSafePoint", "condition", "effects",
+                                          "fromBlockId", "id", "kind", "label", "logged",
+                                          "toBlockId"});
+                          const auto* safe_value =
+                              decoder.member(edge, "autosaveSafePoint", edge_pointer);
+                          const auto* effects_value = decoder.member(edge, "effects", edge_pointer);
+                          const auto* label_value = decoder.member(edge, "label", edge_pointer);
+                          const auto* logged_value = decoder.member(edge, "logged", edge_pointer);
+                          bool condition_ok = false;
+                          auto condition =
+                              decode_optional_condition(decoder, edge, edge_pointer, condition_ok);
+                          auto safe =
+                              safe_value
+                                  ? decoder.boolean(*safe_value, pointer_child(edge_pointer,
+                                                                               "autosaveSafePoint"))
+                                  : std::nullopt;
+                          auto effects =
+                              effects_value ? decode_effects(decoder, *effects_value,
+                                                             pointer_child(edge_pointer, "effects"))
+                                            : std::nullopt;
+                          auto label = label_value
+                                           ? decode_text(decoder, *label_value,
+                                                         pointer_child(edge_pointer, "label"))
+                                           : std::nullopt;
+                          auto logged = logged_value
+                                            ? decoder.boolean(*logged_value,
+                                                              pointer_child(edge_pointer, "logged"))
+                                            : std::nullopt;
+                          if (condition_ok && safe && effects && label && logged)
+                              return DialogueChoiceEdge{std::move(*id),
+                                                        *safe,
+                                                        std::move(condition),
+                                                        std::move(*effects),
+                                                        std::move(*from),
+                                                        std::move(*label),
+                                                        *logged,
+                                                        std::move(*to)};
+                          return std::nullopt;
+                      }
+                      decoder.object(edge, edge_pointer,
+                                     {"fromBlockId", "id", "kind", "toBlockId"});
+                      decoder.error(k_code_variant,
+                                    "Unknown Dialogue edge variant '" + *kind + "'.",
+                                    pointer_child(edge_pointer, "kind"));
+                      return std::nullopt;
+                  })
+            : std::nullopt;
+    auto entry = entry_value ? decoder.id<DialogueBlockId>(*entry_value,
+                                                           pointer_child(pointer, "entryBlockId"))
+                             : std::nullopt;
+    if (blocks)
+        decoder.duplicate_ids(
+            *blocks, pointer_child(pointer, "blocks"),
+            [](const DialogueBlock& block) -> const DialogueBlockId& {
+                return std::visit(
+                    [](const auto& typed) -> const DialogueBlockId& { return typed.id; }, block);
+            });
+    if (edges)
+        decoder.duplicate_ids(
+            *edges, pointer_child(pointer, "edges"),
+            [](const DialogueEdge& edge) -> const DialogueEdgeId& {
+                return std::visit(
+                    [](const auto& typed) -> const DialogueEdgeId& { return typed.id; }, edge);
+            });
+    return blocks && edges && entry ? std::optional<DialogueProgram>(DialogueProgram{
+                                          std::move(*blocks), std::move(*edges), std::move(*entry)})
+                                    : std::nullopt;
 }
 
 std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohmann::json& value,
@@ -2011,15 +3201,17 @@ std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohma
         if (log && disabled)
             settings = DialogueSettings{*log, *disabled};
     }
-    if (program_value && !program_value->is_object())
-        decoder.error(k_code_type, "Expected an object.", pointer_child(pointer, "program"));
-    if (completion_value && !completion_value->is_object())
-        decoder.error(k_code_type, "Expected an object.", pointer_child(pointer, "completion"));
-    if (!identity || !display || !speaker_ok || !settings || !program_value ||
-        !program_value->is_object() || !completion_value || !completion_value->is_object())
+    auto program = program_value ? decode_dialogue_program(decoder, *program_value,
+                                                           pointer_child(pointer, "program"))
+                                 : std::nullopt;
+    auto completion = completion_value
+                          ? decode_flow_target_impl(decoder, *completion_value,
+                                                    pointer_child(pointer, "completion"))
+                          : std::nullopt;
+    if (!identity || !display || !speaker_ok || !program || !settings || !completion)
         return std::nullopt;
-    return DialogueDefinition{std::move(*identity), std::move(*display), std::move(speaker),
-                              std::move(*settings)};
+    return DialogueDefinition{std::move(*identity), std::move(*display),  std::move(speaker),
+                              std::move(*program),  std::move(*settings), std::move(*completion)};
 }
 
 std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& value,
