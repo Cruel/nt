@@ -311,6 +311,20 @@ if(NOVELTEA_BUILD_FUZZERS)
                 LABELS "robustness;fuzz-smoke")
         endif()
     endforeach()
+
+    add_executable(noveltea_fuzz_compiled_project_decoder
+        fuzz/compiled_project_decoder_fuzz.cpp)
+    target_compile_definitions(noveltea_fuzz_compiled_project_decoder PRIVATE
+        NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(noveltea_fuzz_compiled_project_decoder PRIVATE noveltea_core)
+    noveltea_configure_fuzz_target(noveltea_fuzz_compiled_project_decoder)
+    if(NOT NOVELTEA_USE_LIBFUZZER)
+        add_test(
+            NAME noveltea_fuzz_compiled_project_decoder_smoke
+            COMMAND noveltea_fuzz_compiled_project_decoder)
+        set_tests_properties(noveltea_fuzz_compiled_project_decoder_smoke PROPERTIES
+            LABELS "robustness;fuzz-smoke;compiled-project")
+    endif()
 endif()
 
 # --- No committed shader headers check ---

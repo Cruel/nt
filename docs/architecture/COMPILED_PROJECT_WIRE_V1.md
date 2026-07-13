@@ -58,3 +58,9 @@ all gameplay references, declarations, inheritance, nested targets, resource clo
 then publishes one immutable indexed `CompiledProject` only after every check passes. Source JSON is
 never retained. Material references remain unresolved typed IDs until the separate Phase 5E manifest
 path; existing runtime consumers are not rerouted before Phase 10.
+
+`noveltea_fuzz_compiled_project_decoder` is the dedicated Phase 5F decoder fuzz target. Its
+non-libFuzzer smoke run feeds malformed JSON and all seven canonical documents through the same
+nonthrowing parser and `decode_compiled_project` boundary under the Linux sanitizer preset. A
+failed parse is passed to the decoder as its discarded JSON value, so the same Result/diagnostic path
+is exercised without an assertion or exception.
