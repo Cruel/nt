@@ -30,3 +30,21 @@ Phase 4C uses a separate `CompiledProjectSharedDraft` implementation type while 
 are still incomplete. That draft contains all shared declarations, resources, definitions,
 inheritance edges, and authored assignments, but omits program-owned fields entirely. It is never
 accepted by `compiledProjectWireV1Schema`, serialized as gameplay JSON, or exposed to consumers.
+
+## Cross-language decoder corpus
+
+The exact Phase 5 decoder inputs live under
+`editor/src/renderer/test/fixtures/compiled-project-golden/`:
+
+- `minimal.json`;
+- `comprehensive.json`;
+- `inheritance-properties-localization.json`;
+- `resources.json`;
+- `scene-program.json`;
+- `dialogue-program.json`;
+- `interaction-program.json`.
+
+They are generated only through `compileAuthoringProject` by running
+`pnpm goldens:compiled-project` in `editor/`. Tests require byte-identical regeneration and verify that
+the corpus collectively covers the closed Scene, Dialogue, Interaction, text, condition, effect,
+flow-target, resource-source, location, matching, variable, property, and persistence vocabulary.

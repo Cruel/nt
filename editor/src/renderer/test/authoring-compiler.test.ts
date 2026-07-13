@@ -37,31 +37,26 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
-  it('normalizes a detached input, reports every explicit stage, and never publishes a partial project', () => {
+  it('normalizes a detached input and publishes only a strict, canonical complete project', () => {
     const project = validProject();
     const before = JSON.stringify(project);
 
     const result = compileAuthoringProject(project);
 
     expect(JSON.stringify(project)).toBe(before);
-    expect(result.ok).toBe(false);
-    expect('project' in result).toBe(false);
-    expect('canonicalJson' in result).toBe(false);
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      code: 'COMPILER_FINAL_ASSEMBLY_PENDING_PHASE_4F',
-      severity: 'error',
-      sourcePath: 'authoring-project',
-      jsonPointer: '/',
-    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(JSON.parse(result.canonicalJson)).toEqual(result.project);
+    expect(result.diagnostics).toEqual([]);
     expect(result.stages).toEqual([
       { name: 'normalize', status: 'completed' },
       { name: 'semantic-validation', status: 'completed' },
       { name: 'link', status: 'completed' },
-      { name: 'lower', status: 'failed' },
-      { name: 'collect-resources', status: 'skipped' },
-      { name: 'assemble', status: 'skipped' },
-      { name: 'validate-wire', status: 'skipped' },
-      { name: 'serialize', status: 'skipped' },
+      { name: 'lower', status: 'completed' },
+      { name: 'collect-resources', status: 'completed' },
+      { name: 'assemble', status: 'completed' },
+      { name: 'validate-wire', status: 'completed' },
+      { name: 'serialize', status: 'completed' },
     ]);
   });
 
@@ -197,44 +192,6 @@ describe('authoring compiler framework', () => {
       'COMPILER_SCENE_EXPRESSION_MISSING',
       'COMPILER_SCENE_DIALOGUE_BLOCK_MISSING',
     ]);
-  });
-
-  it('rejects type-invalid variable conditions and effects before Scene and Room lowering', () => {
-    const project = validProject();
-    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
-    const scene = defaultSceneData('Typed Scene');
-    scene.steps = [{
-      ...defaultSceneStep('show-text'),
-      id: 'typed-text',
-      condition: {
-        kind: 'variable-comparison',
-        variable: { $ref: { collection: 'variables', id: 'flag' } },
-        operator: 'equal',
-        value: 'not-a-boolean',
-      },
-    }];
-    project.scenes.typed = { id: 'typed', label: 'Typed', data: scene };
-    project.rooms.foyer!.data.lifecycle.beforeEnter = [{
-      kind: 'set-variable',
-      variable: { $ref: { collection: 'variables', id: 'flag' } },
-      value: 'not-a-boolean',
-    }];
-
-    const result = compileAuthoringProject(project);
-
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      jsonPointer: '/rooms/foyer/data/lifecycle/beforeEnter/0/value',
-      message: "Value does not match variable 'flag'.",
-    }));
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      jsonPointer: '/scenes/typed/data/steps/0/condition/value',
-      message: "Value does not match variable 'flag'.",
-    }));
-    expect(result.stages.find((stage) => stage.name === 'semantic-validation')).toEqual({
-      name: 'semantic-validation',
-      status: 'failed',
-    });
   });
 
   it('rejects type-invalid variable conditions and effects before Scene and Room lowering', () => {
@@ -437,95 +394,6 @@ describe('authoring compiler framework', () => {
     expect(buildDraft(['foyer', 'hall'])).toEqual(buildDraft(['hall', 'foyer']));
   });
 
-  it('rejects type-invalid Dialogue, Interaction, and Verb variable usage before lowering', () => {
-    const project = validProject();
-    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
-
-    const dialogue = defaultDialogueData('Typed Dialogue');
-    dialogue.blocks = [{
-      ...defaultDialogueBlock('sequence', 'start'),
-      segments: [{
-        ...defaultDialogueSegment('line', 'line'),
-        condition: {
-          kind: 'variable-comparison',
-          variable: { $ref: { collection: 'variables', id: 'flag' } },
-          operator: 'equal',
-          value: 'not-a-boolean',
-        },
-      }],
-    }];
-    project.dialogues.typed = { id: 'typed', label: 'Typed', data: dialogue };
-
-    const verb = defaultVerbData('Use');
-    verb.availability = {
-      kind: 'variable-comparison',
-      variable: { $ref: { collection: 'variables', id: 'flag' } },
-      operator: 'equal',
-      value: 'not-a-boolean',
-    };
-    project.verbs.use = { id: 'use', label: 'Use', data: verb };
-
-    const interaction = defaultInteractionData();
-    interaction.rules = [{
-      id: 'typed-rule',
-      verb: { $ref: { collection: 'verbs', id: 'use' } },
-      operands: [],
-      context: {
-        kind: 'predicate',
-        condition: {
-          kind: 'variable-comparison',
-          variable: { $ref: { collection: 'variables', id: 'flag' } },
-          operator: 'equal',
-          value: 'not-a-boolean',
-        },
-      },
-      program: {
-        instructions: [{
-          id: 'bad-effect',
-          kind: 'apply-effect',
-          effect: {
-            kind: 'set-variable',
-            variable: { $ref: { collection: 'variables', id: 'flag' } },
-            value: 'not-a-boolean',
-          },
-        }],
-        completion: { kind: 'return' },
-        outcome: 'handled',
-      },
-    }];
-    project.interactions.typed = { id: 'typed', label: 'Typed', data: interaction };
-
-    const result = compileAuthoringProject(project);
-
-    expect(result.ok).toBe(false);
-    for (const pointer of [
-      '/dialogues/typed/data/blocks/0/segments/0/condition/value',
-      '/interactions/typed/data/rules/0/context/condition/value',
-      '/interactions/typed/data/rules/0/program/instructions/0/effect/value',
-      '/verbs/use/data/availability/value',
-    ]) {
-      expect(result.diagnostics).toContainEqual(expect.objectContaining({
-        jsonPointer: pointer,
-        message: "Value does not match variable 'flag'.",
-      }));
-    }
-  });
-
-  it('produces identical specialized program drafts independently of collection map insertion order', () => {
-    const buildDraft = (roomOrder: readonly string[]) => {
-      const project = validProject(roomOrder);
-      project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
-      project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
-      project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
-      project.interactions.look = { id: 'look', label: 'Look', data: defaultInteractionData() };
-      const shared = lowerSharedAuthoringProject(project).draft!;
-      const sceneRoom = lowerSceneAndRoomPrograms(project, shared).draft!;
-      return lowerDialogueAndInteractionPrograms(project, sceneRoom).draft!;
-    };
-
-    expect(buildDraft(['foyer', 'hall'])).toEqual(buildDraft(['hall', 'foyer']));
-  });
-
   it('requires a strict compiled entrypoint before shared lowering', () => {
     const project = validProject();
     project.entrypoint = null;
@@ -544,6 +412,9 @@ describe('authoring compiler framework', () => {
     const reordered = compileAuthoringProject(validProject(['hall', 'foyer']));
     expect(first.diagnostics).toEqual(reordered.diagnostics);
     expect(first.stages).toEqual(reordered.stages);
+    expect(first.ok).toBe(true);
+    expect(reordered.ok).toBe(true);
+    if (first.ok && reordered.ok) expect(first.canonicalJson).toBe(reordered.canonicalJson);
   });
 
   it('builds shared symbols for every collection and representative nested stable-ID namespaces', () => {

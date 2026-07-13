@@ -56,13 +56,24 @@ The editor allocates collision-free IDs on creation and preserves them during ed
 validation rejects duplicates within each program.
 
 Phase 4D and 4E use focused expected-output, malformed-input, and deterministic-order tests at their
-draft boundaries and through `compileAuthoringProject`. The checked-in minimal, comprehensive, and
-edge-case canonical wire corpus remains owned by Phase 4F, because only that slice performs resource
-closure, final assembly, strict wire validation, and canonical serialization. Earlier program slices
-must not establish competing partial-wire golden formats.
+draft boundaries and through `compileAuthoringProject`. Phase 4F completes resource closure and
+assembly. Every authored runtime resource remains in the compiled tables because approved Lua APIs
+may resolve stable IDs dynamically; the compiler also walks every typed Asset and Layout reference in
+the assembled document and rejects an absent gameplay resource. Material references remain typed but
+resolve through the separate authoritative shader/material manifest rather than being copied into
+gameplay JSON.
 
-The complete-program draft deliberately remains unpublished until Phase 4F performs resource closure,
-final assembly, strict wire validation, and canonical serialization. `compileAuthoringProject`
-therefore reports `COMPILER_FINAL_ASSEMBLY_PENDING_PHASE_4F`; it does not fabricate final assembly or
-publish partial gameplay JSON. Preview, playback, package export, and CLI remain on their explicitly
-transitional runtime-project adapter until the Phase 4G cutover.
+`compileAuthoringProject` now strictly validates and publishes the complete wire value and canonical
+JSON together. Definition/resource tables are stable-ID sorted while authored semantic sequences stay
+in authored order. The checked-in corpus under
+`editor/src/renderer/test/fixtures/compiled-project-golden/` contains seven exact decoder inputs:
+minimal, comprehensive, inheritance/property/localization, resources, Scene program, Dialogue
+program, and Interaction program. The corpus covers every top-level definition/declaration/resource
+family, all specialized program discriminants, typed resource references, inline and asset-backed
+resource sources, every variable/property scalar type, both persistence policies, inheritance edges,
+and nested stable IDs. `pnpm goldens:compiled-project` regenerates the documents from the sole compiler
+API; the test suite rejects byte drift and explicitly verifies the closed decoder vocabulary.
+
+Tests also prove editor metadata and representative authoring collection insertion order cannot affect
+bytes. Preview, playback, package export, and CLI remain on their explicitly transitional
+runtime-project adapter until the atomic Phase 10 cutover.

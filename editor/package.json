@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "goldens:compiled-project": "vite-node scripts/generate-compiled-project-goldens.ts",
     "engine:preview:build": "node scripts/build-engine-preview.mjs",
     "engine:preview:clean": "node -e \"require('node:fs').rmSync('../build/web-debug/apps/sandbox',{recursive:true,force:true})\""
   },

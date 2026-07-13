@@ -101,6 +101,51 @@ interface LoweringResult {
   project?: CompiledProjectWireV1;
 }
 
+interface ResourceReferenceClosure {
+  assets: ReadonlySet<string>;
+  layouts: ReadonlySet<string>;
+  materials: ReadonlySet<string>;
+}
+
+function collectResourceReferenceClosure(project: CompiledProjectWireV1): ResourceReferenceClosure {
+  const assets = new Set<string>();
+  const layouts = new Set<string>();
+  const materials = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (value === null || typeof value !== 'object') return;
+    const record = Object.fromEntries(Object.entries(value));
+    if (typeof record.id === 'string') {
+      if (record.kind === 'asset') assets.add(record.id);
+      else if (record.kind === 'layout') layouts.add(record.id);
+      else if (record.kind === 'material') materials.add(record.id);
+    }
+    Object.values(record).forEach(visit);
+  };
+  visit(project);
+  return { assets, layouts, materials };
+}
+
+function validateResourceClosure(project: CompiledProjectWireV1): CompiledDiagnostic[] {
+  const closure = collectResourceReferenceClosure(project);
+  const availableAssets = new Set(project.resources.assets.map((resource) => resource.id));
+  const availableLayouts = new Set(project.resources.layouts.map((resource) => resource.id));
+  const diagnostics: CompiledDiagnostic[] = [];
+  for (const assetId of [...closure.assets].sort()) {
+    if (!availableAssets.has(assetId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_ASSET_MISSING', 'error', '/resources/assets', `Referenced asset '${assetId}' is absent from the gameplay resource table.`));
+  }
+  for (const layoutId of [...closure.layouts].sort()) {
+    if (!availableLayouts.has(layoutId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_LAYOUT_MISSING', 'error', '/resources/layouts', `Referenced layout '${layoutId}' is absent from the gameplay resource table.`));
+  }
+  // Materials remain typed references resolved by the separate authoritative
+  // shader/material manifest. They are intentionally not copied into gameplay.
+  void closure.materials;
+  return diagnostics;
+}
+
 const authoringSourcePath = 'authoring-project';
 
 function escapeJsonPointerSegment(segment: string): string {
@@ -330,10 +375,7 @@ function linkAuthoringProject(context: CompilerContext): void {
   addStage(context, 'link', hasErrors(context.diagnostics) ? 'failed' : 'completed');
 }
 
-/**
- * Phase 4C produces a deterministic shared draft. The error remains until
- * Phase 4D/4E add every specialized program, preventing partial publication.
- */
+/** Lowers every specialized family into the complete, unpublished wire draft. */
 function lowerAuthoringProject(project: AuthoringProject, _symbols: AuthoringSymbolTables): LoweringResult {
   const shared = lowerSharedAuthoringProject(project);
   const diagnostics = shared.diagnostics.map((diagnostic) => makeDiagnostic(
@@ -358,19 +400,10 @@ function lowerAuthoringProject(project: AuthoringProject, _symbols: AuthoringSym
         diagnostic.path,
         diagnostic.message,
       )));
-      if (remainingPrograms.draft) {
-        diagnostics.push(makeDiagnostic(
-          'COMPILER_FINAL_ASSEMBLY_PENDING_PHASE_4F',
-          'error',
-          '/',
-          'All specialized programs are lowered; resource closure, final assembly, wire validation, and canonical serialization remain for Phase 4F.',
-        ));
-      }
+      if (remainingPrograms.draft) return { diagnostics, project: remainingPrograms.draft };
     }
   }
-  return {
-    diagnostics,
-  };
+  return { diagnostics };
 }
 
 function finish(context: CompilerContext): CompileFailure {
@@ -409,9 +442,15 @@ export function compileAuthoringProject(project: AuthoringProject): CompileResul
     return finish(context);
   }
 
-  // 4F owns resource closure and final assembly. These already explicit
-  // pipeline boundaries are retained so later slices extend this one API.
-  addStage(context, 'collect-resources', 'completed');
+  const resourceDiagnostics = validateResourceClosure(lowered.project);
+  context.diagnostics.push(...resourceDiagnostics);
+  addStage(context, 'collect-resources', hasErrors(resourceDiagnostics) ? 'failed' : 'completed');
+  if (hasErrors(context.diagnostics)) {
+    addSkippedStages(context, ['assemble', 'validate-wire', 'serialize']);
+    return finish(context);
+  }
+  // Lowerers sort definition/resource tables by stable ID and preserve every
+  // semantically ordered authored array. Assembly publishes that complete value.
   addStage(context, 'assemble', 'completed');
   const validated = compiledProjectWireV1Schema.safeParse(lowered.project);
   if (!validated.success) {
