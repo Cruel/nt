@@ -383,7 +383,8 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                        (!candidate->next_instruction ||
                         has_interaction_instruction(*program, *candidate->next_instruction)) &&
                        candidate->fallback_stage <= InteractionFallbackStage::Complete &&
-                       candidate->outcome <= InteractionExecutionOutcome::Failed;
+                       candidate->outcome <= InteractionExecutionOutcome::Failed &&
+                       (!candidate->awaiting_completion || candidate->next_instruction.has_value());
             } else {
                 const auto* candidate = std::get_if<RoomTransitionPosition>(&position);
                 return candidate != nullptr &&
@@ -483,13 +484,13 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
     const FlowFrameId id{m_state.m_next_frame_id++};
-    m_state.m_flow_stack.emplace_back(InteractionFrame{id,
-                                                       std::move(invocation),
-                                                       std::move(program_reference),
-                                                       {first_interaction_instruction(*program),
-                                                        InteractionFallbackStage::SelectedProgram,
-                                                        InteractionExecutionOutcome::Pending},
-                                                       ResumeRoomDestination{room->room}});
+    m_state.m_flow_stack.emplace_back(InteractionFrame{
+        id,
+        std::move(invocation),
+        std::move(program_reference),
+        {first_interaction_instruction(*program), InteractionFallbackStage::SelectedProgram,
+         InteractionExecutionOutcome::Pending, false},
+        ResumeRoomDestination{room->room}});
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }

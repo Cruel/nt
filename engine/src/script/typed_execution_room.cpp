@@ -282,7 +282,8 @@ TypedExecutionKernel::room_view(std::string_view runtime_locale)
                         .background = room->background,
                         .overlays = {},
                         .placements = {},
-                        .exits = {}};
+                        .exits = {},
+                        .controls = {}};
     for (const auto& overlay : room->overlays) {
         const auto state = std::find_if(m_state.overlays().begin(), m_state.overlays().end(),
                                         [&room, &overlay](const core::RoomOverlayState& candidate) {
@@ -332,6 +333,11 @@ TypedExecutionKernel::room_view(std::string_view runtime_locale)
         view.exits.push_back(
             {exit.id, exit.target, exit.direction, std::move(*label_value), *enabled_value});
     }
+    auto inventory = inventory_view(runtime_locale);
+    auto* inventory_value = inventory.value_if();
+    if (inventory_value == nullptr)
+        return core::Result<core::RoomView, TypedExecutionError>::failure(inventory.error());
+    view.controls = std::move(inventory_value->controls);
     return core::Result<core::RoomView, TypedExecutionError>::success(std::move(view));
 }
 

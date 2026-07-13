@@ -89,6 +89,12 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     choose_dialogue_option(const FlowFrameId& owner, const InputFlowBlockerHandle& handle,
                            const DialogueEdgeId& edge);
+    [[nodiscard]] Result<void, Diagnostics>
+    advance_interaction(const InteractionFramePosition& expected_position,
+                        InteractionProgramRef next_program, InteractionFramePosition next_position);
+    [[nodiscard]] Result<void, Diagnostics>
+    mark_interaction_wait(const InteractionFramePosition& expected_position,
+                          InteractionFramePosition next_position);
     [[nodiscard]] Result<void, Diagnostics> fault(Diagnostics diagnostics);
     [[nodiscard]] Result<void, Diagnostics> begin_run();
     void end_run() noexcept;

@@ -238,6 +238,13 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
             ++executed;
             continue;
         }
+        if (std::holds_alternative<core::InteractionFrame>(m_state.flow_stack().back())) {
+            auto outcome = run_interaction_unit(runtime_locale);
+            if (outcome)
+                return *outcome;
+            ++executed;
+            continue;
+        }
         const auto* frame = std::get_if<core::SceneFrame>(&m_state.flow_stack().back());
         if (frame == nullptr)
             return fault(

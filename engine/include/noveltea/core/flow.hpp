@@ -106,6 +106,9 @@ struct InteractionFramePosition {
     std::optional<InteractionInstructionId> next_instruction;
     InteractionFallbackStage fallback_stage = InteractionFallbackStage::SelectedProgram;
     InteractionExecutionOutcome outcome = InteractionExecutionOutcome::Pending;
+    bool awaiting_completion = false;
+
+    auto operator<=>(const InteractionFramePosition&) const = default;
 };
 
 enum class RoomTransitionStage : std::uint8_t {

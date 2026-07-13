@@ -69,6 +69,8 @@ public:
                            const core::InputFlowBlockerHandle& handle,
                            const core::DialogueEdgeId& edge);
     [[nodiscard]] core::Result<void, core::Diagnostics> navigate(const core::RoomExitId& exit);
+    [[nodiscard]] core::Result<void, TypedExecutionError>
+    interact(core::VerbId verb, std::vector<core::InteractableId> operands);
     [[nodiscard]] core::Result<void, core::Diagnostics> start_transient(const core::SceneId& scene);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     start_transient(const core::DialogueId& dialogue);
@@ -76,6 +78,10 @@ public:
     [[nodiscard]] core::Result<core::DialogueView, core::Diagnostics> dialogue_view() const;
     [[nodiscard]] core::Result<core::RoomView, TypedExecutionError>
     room_view(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<core::InteractionView, TypedExecutionError>
+    interaction_view(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<core::InventoryView, TypedExecutionError>
+    inventory_view(std::string_view runtime_locale);
 
 private:
     TypedExecutionKernel(const core::CompiledProject& project, ScriptRuntime& runtime,
@@ -84,6 +90,8 @@ private:
     run_dialogue_unit(std::string_view runtime_locale);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_room_unit(std::string_view runtime_locale);
+    [[nodiscard]] std::optional<core::FlowRunOutcome>
+    run_interaction_unit(std::string_view runtime_locale);
 
     const core::CompiledProject& m_project;
     core::SessionState m_state;

@@ -180,7 +180,31 @@ unshadowed descendants and do not copy values into child state.
 
 The shipped controller-backed Room, runtime UI, preview, playback, debugger, package player,
 persistence, and external request adapters remain transitional Phase 10 cutover debt. Phase 7D does
-not implement Interaction execution or Map presentation/execution.
+not implement Map presentation/execution.
+
+## Phase 7E typed Interaction execution
+
+The additive Interaction visitor accepts a typed Verb plus ordered Interactable operands only from
+completed Room mode. It validates operand count and live enabled state, evaluates the complete Verb
+availability chain root-to-child, and selects one matching Interaction rule by exact-operand count
+before explicit wildcards, with compiled declaration order as the final deterministic tie-break.
+Active-Room, Room-placement proximity, and predicate contexts are evaluated against typed session
+state and shared conditions. Equal-specificity authoring ties continue to produce compiler warnings.
+
+Interaction programs execute ApplyEffect, MoveInteractable, SetInteractableState, Notify, CallScene,
+and CallDialogue instructions with a stable typed cursor. Yielding Lua effects retain the exact
+instruction until the frame-owned script blocker completes. Child Scene and Dialogue frames return
+to the next Interaction instruction. Handled programs apply their typed FlowTarget; Unhandled
+programs continue from the selected rule to Verb defaults child-to-root. Failed instructions
+fail-stop without fallback. After the root remains Unhandled, V1 emits the deterministic typed
+undefined-interaction notification, `Nothing happens.`; the wire currently has no separate authored
+project fallback program.
+
+`SessionState` remains the only owner of Interactable location, enabled, and visible state.
+`InteractionView`, `InventoryView`, and Room interaction controls expose typed presentation without
+generic JSON. Quick verbs are marked explicitly and every control reports inherited availability.
+The shipped controller/runtime-UI consumer path remains Phase 10 cutover debt; final typed RmlUi and
+Map integration remain Phase 7F.
 
 ## Current scaffold
 

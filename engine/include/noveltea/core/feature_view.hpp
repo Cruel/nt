@@ -62,6 +62,14 @@ struct RoomExitView {
     bool enabled;
 };
 
+struct InteractionControlView {
+    VerbId verb;
+    std::string label;
+    std::uint8_t arity = 0;
+    bool quick_action = false;
+    bool enabled = false;
+};
+
 struct RoomView {
     RoomId room;
     std::uint64_t visits = 0;
@@ -71,6 +79,7 @@ struct RoomView {
     std::vector<RoomOverlayView> overlays;
     std::vector<RoomPlacementView> placements;
     std::vector<RoomExitView> exits;
+    std::vector<InteractionControlView> controls;
 };
 
 struct InteractionView {
@@ -90,6 +99,7 @@ struct InventoryItemView {
 };
 struct InventoryView {
     std::vector<InventoryItemView> items;
+    std::vector<InteractionControlView> controls;
 };
 
 struct TextLogView {

@@ -29,5 +29,6 @@ editing, and validates a room-placement initial location against the matching Ro
 additive typed runtime decodes native `InteractableDefinition` records and Phase 7A initializes one
 session-owned `InteractableState` per definition. Named mutations reject missing definitions and Room
 placements owned by another Interactable. The typed Lua location read uses this live state; movement
-requests remain queued until Phase 7E executes them. The shipped legacy Object path remains intact
+requests are consumed by the additive Phase 7E Interaction visitor through the same session-owned
+mutation methods. The shipped legacy Object path remains intact
 until the Phase 10 consumer cutover, and no old Object compatibility was added to the typed model.
