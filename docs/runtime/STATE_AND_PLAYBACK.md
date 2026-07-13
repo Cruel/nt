@@ -18,8 +18,9 @@ Playback, RmlUi, editor preview, tests, debugger, and C ABI adapters decode boun
 
 ## Additive typed kernel state
 
-Phases 6A through 6D add a JSON-free `SessionState`, execution kernel, shared primitive
-evaluator, and typed Lua invocation boundary beside the shipped path. Session creation initializes declared variables and one typed
+Phases 6A through 6E add a JSON-free `SessionState`, execution kernel, shared primitive evaluator,
+typed Lua invocation boundary, and closed typed Lua host-request vocabulary beside the shipped path.
+Session creation initializes declared variables and one typed
 entrypoint frame: Scene and Dialogue roots use `NoReturn`, while Room entry starts the shared
 pre-entry `RoomTransitionFrame`. The public mode, stack, blocker, and fault views are read-only;
 `FlowExecutor` is the only mutation service after initial construction.
@@ -56,8 +57,16 @@ suspensions remain nonserializable and separate from engine-defined logical wait
 cancellation, duration advancement, and Lua resume require the exact owner and typed handle; stale or
 mismatched operations leave the active wait unchanged.
 
-This path is test-facing and additive. Feature execution, typed Lua host services, persistence codecs,
-concrete host request queues, and consumer cutover remain owned by later phases. It does not adapt
+`ScriptHostServices` uses the same `SessionState` and `PropertyResolver` paths for declared variable
+and property mutations. It validates definition IDs, property owners and values, Interactable
+placement ownership, active mode, Room exits, and flow targets before queuing a closed
+`ScriptHostRequest`. Transient starts, child calls, and tail replacements remain distinct request
+variants. Requests are not executed in Phase 6E; Phase 7 frame visitors and Phase 9 adapters own that
+work. Mutable Interactable state is also Phase 7-owned, so the current typed host exposes immutable
+initial-location reads without adding a premature live-state model.
+
+This path is test-facing and additive. Feature execution, host-request consumption, persistence
+codecs, and consumer cutover remain owned by later phases. It does not adapt
 compiled data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua,
 or runtime UI consumers.
 

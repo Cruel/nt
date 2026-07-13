@@ -1,6 +1,7 @@
 #include "noveltea/script/script_invoker.hpp"
 
 #include "noveltea/core/flow_executor.hpp"
+#include "noveltea/core/script_host_services.hpp"
 #include "noveltea/script/script_runtime.hpp"
 
 #include <string>
@@ -16,6 +17,15 @@ ScriptError blocker_error(const core::Diagnostics& diagnostics, std::string oper
 }
 
 } // namespace
+
+ScriptInvoker::ScriptInvoker(ScriptRuntime& runtime, core::FlowExecutor& executor,
+                             core::ScriptHostServices& host) noexcept
+    : m_runtime(runtime), m_executor(executor), m_host(host)
+{
+    m_runtime.bind_typed_host(&m_host);
+}
+
+ScriptInvoker::~ScriptInvoker() { m_runtime.clear_typed_host(); }
 
 core::Result<void, ScriptError> ScriptInvoker::run_startup(const core::compiled::StartupHook& hook)
 {

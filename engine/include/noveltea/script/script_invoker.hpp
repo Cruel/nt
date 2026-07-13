@@ -8,20 +8,25 @@
 
 namespace noveltea::core {
 class FlowExecutor;
-}
+class ScriptHostServices;
+} // namespace noveltea::core
 
 namespace noveltea::script {
 
 class ScriptRuntime;
 
-// Coordinates opaque Lua coroutine ownership with the session-owned Script blocker. It does not
-// execute feature frames or expose Lua host services; those remain in their owning later slices.
+// Coordinates typed Lua host access and opaque coroutine ownership with the session-owned Script
+// blocker. It does not execute feature frames or consume queued host requests.
 class ScriptInvoker {
 public:
-    ScriptInvoker(ScriptRuntime& runtime, core::FlowExecutor& executor) noexcept
-        : m_runtime(runtime), m_executor(executor)
-    {
-    }
+    ScriptInvoker(ScriptRuntime& runtime, core::FlowExecutor& executor,
+                  core::ScriptHostServices& host) noexcept;
+    ~ScriptInvoker();
+
+    ScriptInvoker(const ScriptInvoker&) = delete;
+    ScriptInvoker& operator=(const ScriptInvoker&) = delete;
+    ScriptInvoker(ScriptInvoker&&) = delete;
+    ScriptInvoker& operator=(ScriptInvoker&&) = delete;
 
     [[nodiscard]] core::Result<void, ScriptError>
     run_startup(const core::compiled::StartupHook& hook);
@@ -40,6 +45,7 @@ public:
 private:
     ScriptRuntime& m_runtime;
     core::FlowExecutor& m_executor;
+    core::ScriptHostServices& m_host;
 };
 
 } // namespace noveltea::script

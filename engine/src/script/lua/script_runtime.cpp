@@ -458,6 +458,20 @@ void ScriptRuntime::clear_game_bindings()
         noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
 }
 
+void ScriptRuntime::bind_typed_host(core::ScriptHostServices* host)
+{
+    if (!is_initialized())
+        return;
+    noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
+    noveltea::script::bind_typed_script_host(m_impl->lua.lua_state(), host);
+}
+
+void ScriptRuntime::clear_typed_host()
+{
+    if (is_initialized())
+        noveltea::script::clear_typed_script_host(m_impl->lua.lua_state());
+}
+
 lua_State* detail::ScriptRuntimeAccess::state(ScriptRuntime& runtime)
 {
     return runtime.m_impl ? runtime.m_impl->lua.lua_state() : nullptr;

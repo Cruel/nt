@@ -8,6 +8,7 @@ class RuntimeCommandDispatcher;
 namespace core {
 class GameSession;
 class RuntimeSessionHost;
+class ScriptHostServices;
 } // namespace core
 } // namespace noveltea
 
@@ -38,5 +39,7 @@ void bind_runtime_command_dispatcher(lua_State* state,
                                      noveltea::RuntimeCommandDispatcher* dispatcher);
 void clear_game_bindings(lua_State* state);
 void release_game_binding_state(lua_State* state);
+void bind_typed_script_host(lua_State* state, noveltea::core::ScriptHostServices* host);
+void clear_typed_script_host(lua_State* state);
 
 } // namespace noveltea::script

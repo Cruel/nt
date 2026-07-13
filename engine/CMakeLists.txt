@@ -31,6 +31,7 @@ add_library(noveltea_core STATIC
     src/core/runtime_project_codec.cpp
     src/core/runtime_session_host.cpp
     src/core/runtime_ui_view.cpp
+    src/core/script_host_services.cpp
     src/core/session_state.cpp
     src/core/shared_evaluator.cpp
     src/core/property_resolver.cpp
@@ -267,6 +268,7 @@ target_sources(engine PRIVATE
     src/script/lua/bind_audio.cpp
     src/script/lua/bind_game_session.cpp
     src/script/lua/bind_noveltea.cpp
+    src/script/lua/bind_typed_script_host.cpp
     src/script/lua/runtime_script_executor.cpp
     src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
@@ -282,6 +284,7 @@ set(NOVELTEA_SOL2_SOURCES
     src/script/lua/bind_audio.cpp
     src/script/lua/bind_game_session.cpp
     src/script/lua/bind_noveltea.cpp
+    src/script/lua/bind_typed_script_host.cpp
     src/script/lua/script_runtime.cpp
 )
 if(MSVC)

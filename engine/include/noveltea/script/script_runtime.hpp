@@ -18,6 +18,7 @@ class AssetManager;
 namespace noveltea::core {
 class GameSession;
 class RuntimeSessionHost;
+class ScriptHostServices;
 } // namespace noveltea::core
 
 namespace noveltea::script {
@@ -63,6 +64,8 @@ public:
     void bind_audio(AudioSystem* audio);
     void clear_audio_binding();
     void clear_game_bindings();
+    void bind_typed_host(core::ScriptHostServices* host);
+    void clear_typed_host();
 
 private:
     friend class ScriptInvoker;

@@ -20,11 +20,39 @@ The TypeScript compiler treats Lua text as opaque after structural validation. P
 
 ## Current scaffold
 
-`ScriptRuntime`, restricted Lua setup, protected execution, diagnostics, `RuntimeScriptExecutor`, and the Engine-owned service boundary are retained foundations. `ScriptInvoker` is the additive typed Phase 6D boundary: it executes typed startup hooks, Lua predicates, Lua text expressions, and yield-capable `RunLuaEffect` values. Immediate contexts reject a Lua yield with `ScriptErrorCode::YieldForbidden`. Yield-capable invocation returns only `ScriptInvocationCompleted` or `ScriptInvocationSuspended`; a suspension owns a registry-held opaque Lua coroutine and is paired with the active frame's `ScriptInvocationHandle` and session-owned Script blocker. Resume and cancellation validate both frame and invocation, and completion, cancellation, or failure releases the blocker and coroutine.
+`ScriptRuntime`, restricted Lua setup, protected execution, diagnostics, `RuntimeScriptExecutor`, and
+the Engine-owned service boundary are retained foundations. `ScriptInvoker` is the additive typed
+Phase 6D/6E boundary: it executes typed startup hooks, Lua predicates, Lua text expressions, and
+yield-capable `RunLuaEffect` values while installing one `ScriptHostServices` binding for the same
+`CompiledProject` and `SessionState`. Immediate contexts reject a Lua yield with
+`ScriptErrorCode::YieldForbidden`. Yield-capable invocation returns only
+`ScriptInvocationCompleted` or `ScriptInvocationSuspended`; a suspension owns a registry-held opaque
+Lua coroutine and is paired with the active frame's `ScriptInvocationHandle` and session-owned Script
+blocker. Resume and cancellation validate both frame and invocation, and completion, cancellation,
+or failure releases the blocker and coroutine.
+
+The typed `noveltea` Lua tables expose collection-specific immutable definition summaries, declared
+variable get/set, property get/set/unset, initial Interactable-location reads, and validated typed
+requests for Interactable movement, exit navigation, notifications, and flow operations. Flow calls
+have distinct Room-mode transient-start, active-frame child-call, and active-frame tail-replacement
+functions. Lua scalar conversion accepts only nil, boolean, integer, finite number, and string;
+property and variable writes still pass through `SessionState` and `PropertyResolver` validation.
+Host failures return explicit Lua error values and do not throw or longjmp across C++ frames.
+
+`ScriptHostRequest` is a closed JSON-free variant. Phase 6E queues requests but deliberately does not
+consume them: Scene/Dialogue/Room/Interaction feature execution belongs to Phase 7, current
+Interactable location belongs to Phase 7 state, and command/event adapter cutover belongs to Phase 9.
+The only location read named by the Phase 6E API is therefore `initial_location`; it reads immutable
+compiled definition data and does not masquerade as mutable live state.
 
 Opaque Lua suspension is intentionally distinct from engine-defined duration, input, presentation, and audio waits. It is not serializable and Phase 8 may reject saves while one is active. Current `ScriptDeferred` commands, generic entity bindings, legacy `Game` helpers, Script entrypoint helpers, arbitrary property/save mutation, and stubs remain migration debt. They do not define future behavior and are removed as typed flow/state/command phases land.
 
 Current consumers include Engine, `RuntimeSessionHost`, layout events, preview/playback, tests, and debugger adapters. Existing script runtime, executor, and game-binding tests remain the baseline until replaced with typed condition/result/yield/property tests.
+
+Typed-kernel invocation clears the transitional `Game`, `Save`, `Script`, generic property, and entity
+globals before installing `ScriptHostServices`, so typed scripts cannot reach their JSON-backed
+capabilities. The shipped path retains those compatibility globals until the owning Phase 7--10
+capabilities migrate; Phase 6E does not reroute those consumers or delete working behavior.
 
 ### Current request/execution path
 

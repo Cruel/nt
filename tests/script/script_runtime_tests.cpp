@@ -6,6 +6,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/flow_executor.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
+#include "noveltea/core/script_host_services.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/script/script_invoker.hpp"
 #include "noveltea/script/script_runtime.hpp"
@@ -27,20 +28,22 @@ namespace {
 
 assets::AssetBytes bytes(std::string text) { return assets::AssetBytes(text.begin(), text.end()); }
 
-core::CompiledProject load_script_project()
+core::CompiledProject load_compiled_fixture(std::string_view filename)
 {
-    std::ifstream input(
-        std::string(NOVELTEA_SOURCE_DIR) +
-        "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
+    std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
+                        "/editor/src/renderer/test/fixtures/compiled-project-golden/" +
+                        std::string(filename));
     REQUIRE(input.good());
     const std::string source((std::istreambuf_iterator<char>(input)),
                              std::istreambuf_iterator<char>());
     auto document = nlohmann::json::parse(source, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
-    auto decoded = core::decode_compiled_project(document, "scene-program.json");
+    auto decoded = core::decode_compiled_project(document, std::string(filename));
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
+
+core::CompiledProject load_script_project() { return load_compiled_fixture("scene-program.json"); }
 
 struct RuntimeFixture {
     std::shared_ptr<assets::MemoryAssetSource> memory =
@@ -263,7 +266,8 @@ TEST_CASE("ScriptRuntime rejects yields from every immediate invocation form")
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor);
+    core::ScriptHostServices host(project, state);
+    script::ScriptInvoker invoker(fixture.runtime, executor, host);
 
     REQUIRE(invoker.run_startup(core::compiled::StartupHook{"startup_ran = true"}));
     auto startup_value = fixture.runtime.evaluate_bool("startup_ran", "startup-value");
@@ -301,7 +305,8 @@ TEST_CASE("ScriptInvoker suspends and resumes only its exact flow frame and invo
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor);
+    core::ScriptHostServices host(project, state);
+    script::ScriptInvoker invoker(fixture.runtime, executor, host);
 
     auto started = invoker.invoke(
         core::RunLuaEffect{"coroutine.yield(); invocation_completed = true"}, "effect-suspension");
@@ -336,7 +341,8 @@ TEST_CASE("ScriptInvoker validates frame ownership and supports exact cancellati
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor);
+    core::ScriptHostServices host(project, state);
+    script::ScriptInvoker invoker(fixture.runtime, executor, host);
 
     auto first =
         invoker.invoke("coroutine.yield(); cancelled_continued = true", "cancelled-effect");
@@ -380,7 +386,8 @@ TEST_CASE("ScriptInvoker propagates nested failures after suspension")
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor);
+    core::ScriptHostServices host(project, state);
+    script::ScriptInvoker invoker(fixture.runtime, executor, host);
 
     auto started = invoker.invoke(R"(
         local function nested_failure()
@@ -398,6 +405,158 @@ TEST_CASE("ScriptInvoker propagates nested failures after suspension")
     CHECK(resumed.error().message.find("nested resume boom") != std::string::npos);
     CHECK(resumed.error().traceback.find("nested_failure") != std::string::npos);
     CHECK_FALSE(state.blocker());
+}
+
+TEST_CASE("typed Lua host services expose validated state and closed requests only")
+{
+    STATIC_REQUIRE(std::variant_size_v<core::ScriptHostRequest> == 8);
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    auto project = load_script_project();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor executor(project, state);
+    core::ScriptHostServices host(project, state);
+    script::ScriptInvoker invoker(fixture.runtime, executor, host);
+
+    REQUIRE(fixture.runtime.execute(R"(
+        assert(Game == nil and Save == nil and Script == nil)
+        assert(prop == nil and set_prop == nil and thisEntity == nil)
+
+        local scene, scene_error = noveltea.project.scene("opening")
+        assert(scene_error == nil and scene.id == "opening" and scene.display_name == "Opening")
+        local missing, missing_error = noveltea.project.room("missing")
+        assert(missing == nil and type(missing_error) == "string")
+
+        local count, count_error = noveltea.variables.get("count")
+        assert(count_error == nil and count == 2)
+        local ok, error_message = noveltea.variables.set("count", 7)
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.variables.set("count", "seven")
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.variables.set("missing", 1)
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.variables.set("count", {})
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.variables.set("ratio", math.huge)
+        assert(not ok and type(error_message) == "string")
+
+        local mood, present, property_error = noveltea.properties.get("room", "hall", "mood")
+        assert(property_error == nil and present and mood == "tense")
+        ok, error_message = noveltea.properties.set("room", "hall", "mood", "calm")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.properties.set("room", "hall", "mood", "invalid")
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.properties.set("scene", "opening", "mood", "calm")
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.properties.set("room", "hall", "mood", nil)
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.properties.unset("room", "hall", "mood")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.properties.set("dialogue", "intro", "note", nil)
+        assert(ok and error_message == nil)
+        mood, present, property_error = noveltea.properties.get("unknown", "hall", "mood")
+        assert(not present and type(property_error) == "string")
+
+        local location, location_error = noveltea.interactables.initial_location("coin")
+        assert(location_error == nil and location.kind == "inventory")
+        location, location_error = noveltea.interactables.initial_location("key")
+        assert(location_error == nil and location.kind == "room-placement")
+        assert(location.room == "start" and location.placement == "key-placement")
+        ok, error_message = noveltea.interactables.move_to_inventory("key")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.interactables.move_to_nowhere("dust")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.interactables.move_to_placement(
+            "key", "start", "key-placement")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.interactables.move_to_placement(
+            "key", "hall", "coin-placement")
+        assert(not ok and type(error_message) == "string")
+
+        ok, error_message = noveltea.flow.call_scene("closing")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.call_dialogue("intro")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.replace_scene("closing")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.replace_dialogue("intro")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.replace_room("hall")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.return_to_caller()
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.end_flow()
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.start_transient_scene("closing")
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.navigation.via_exit("start", "north-exit")
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.notify("Found the key")
+        assert(ok and error_message == nil)
+    )",
+                                    "typed-host"));
+
+    REQUIRE(host.variable(core::VariableId::create("count").value()).value() ==
+            core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(host.requests().size() == 11);
+    CHECK(std::holds_alternative<core::MoveInteractableRequest>(host.requests()[0]));
+    CHECK(std::holds_alternative<core::MoveInteractableRequest>(host.requests()[1]));
+    CHECK(std::holds_alternative<core::MoveInteractableRequest>(host.requests()[2]));
+    CHECK(std::holds_alternative<core::CallChildSceneRequest>(host.requests()[3]));
+    CHECK(std::holds_alternative<core::CallChildDialogueRequest>(host.requests()[4]));
+    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[5]));
+    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[6]));
+    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[7]));
+    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[8]));
+    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[9]));
+    CHECK(std::holds_alternative<core::NotificationRequest>(host.requests()[10]));
+    auto drained = host.take_requests();
+    CHECK(drained.size() == 11);
+    CHECK(host.requests().empty());
+}
+
+TEST_CASE("typed Lua host services distinguish Room transient and navigation requests")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    auto project = load_compiled_fixture("comprehensive.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor executor(project, state);
+
+    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::BeforeEnter));
+    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::BeforeEnter, 1));
+    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::CommitRoomSwitch));
+    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::AfterEnter));
+    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::AfterEnter, 1));
+    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::Complete));
+    REQUIRE(executor.complete_room_transition());
+
+    core::ScriptHostServices host(project, state);
+    script::ScriptInvoker invoker(fixture.runtime, executor, host);
+    REQUIRE(fixture.runtime.execute(R"(
+        local ok, error_message = noveltea.flow.start_transient_scene("opening")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.start_transient_dialogue("intro")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.navigation.via_exit("start", "north-exit")
+        assert(ok and error_message == nil)
+        ok, error_message = noveltea.flow.call_scene("opening")
+        assert(not ok and type(error_message) == "string")
+        ok, error_message = noveltea.flow.replace_scene("opening")
+        assert(not ok and type(error_message) == "string")
+    )",
+                                    "typed-room-host"));
+
+    REQUIRE(host.requests().size() == 3);
+    CHECK(std::holds_alternative<core::StartTransientSceneRequest>(host.requests()[0]));
+    CHECK(std::holds_alternative<core::StartTransientDialogueRequest>(host.requests()[1]));
+    const auto* navigation = std::get_if<core::NavigationRequest>(&host.requests()[2]);
+    REQUIRE(navigation != nullptr);
+    CHECK(navigation->target == core::RoomId::create("hall").value());
 }
 
 TEST_CASE("ScriptRuntime does not expose unsafe standard libraries by default")
