@@ -10,7 +10,8 @@ engine/include/noveltea/core/project_model.hpp|EntityMetadata;CutsceneSegmentMod
 engine/include/noveltea/core/legacy/entity_schema.hpp|parse_entity_record;parse_project_entities|temporary-migration-adapter|core|Legacy positional schema reader|10
 engine/include/noveltea/core/legacy/project_importer.hpp|ProjectImporter::import_game_json|temporary-migration-adapter|core|Legacy game import adapter|10
 engine/include/noveltea/core/entity_ref.hpp|EntityRef::to_json;EntityRef::from_json|temporary-migration-codec|core|Legacy numeric entity references|10
-engine/include/noveltea/core/save_document.hpp|SaveDocument;SettingsDocument|temporary-migration-debt|core|JSON-backed save and settings roots|8-10
+engine/include/noveltea/core/save_document.hpp|SaveDocument|temporary-migration-debt|core|JSON-backed legacy save root|10
+engine/include/noveltea/core/runtime_user_settings_codec.hpp|encode_runtime_user_settings;decode_runtime_user_settings|codec|core|Strict versioned runtime-user-settings boundary around a JSON-free native value|permanent-boundary
 engine/include/noveltea/core/game_session.hpp|GameSession::property;set_property;entity_property;append_log;notify|temporary-migration-debt|core|Generic JSON session property and message state|8-9
 engine/include/noveltea/core/cutscene_controller.hpp|CutsceneController::save_state;restore_state|temporary-migration-debt|core|Legacy cutscene checkpoint state|7-8
 engine/include/noveltea/core/dialogue_controller.hpp|DialogueController::save_state;restore_state|temporary-migration-debt|core|Legacy dialogue checkpoint state|7-8

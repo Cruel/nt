@@ -10,10 +10,6 @@ namespace {
 
 using nlohmann::json;
 
-constexpr std::string_view size_factor_key = "sizeFactor";
-constexpr std::string_view active_profile_key = "activeProfile";
-constexpr std::string_view profiles_key = "profiles";
-
 std::string key(std::string_view value) { return std::string(value); }
 
 void add_error(std::vector<DocumentError>& errors, std::string_view path, std::string message)
@@ -54,24 +50,6 @@ bool expect_number(const json& value, std::vector<DocumentError>& errors, std::s
         return true;
     }
     add_error(errors, path, "expected number");
-    return false;
-}
-
-bool expect_integer(const json& value, std::vector<DocumentError>& errors, std::string_view path)
-{
-    if (value.is_number_integer()) {
-        return true;
-    }
-    add_error(errors, path, "expected integer");
-    return false;
-}
-
-bool expect_string(const json& value, std::vector<DocumentError>& errors, std::string_view path)
-{
-    if (value.is_string()) {
-        return true;
-    }
-    add_error(errors, path, "expected string");
     return false;
 }
 
@@ -324,118 +302,5 @@ void FilesystemSaveSlotStore::delete_slot(SaveSlotId slot)
     std::error_code error;
     std::filesystem::remove(slot_path(slot), error);
 }
-
-SettingsDocument::SettingsDocument() : m_root(json::object()) {}
-SettingsDocument::SettingsDocument(json root) : m_root(std::move(root)) {}
-
-SettingsDocument SettingsDocument::defaults()
-{
-    json root = json::object();
-    root[size_factor_key] = 1.0;
-    root[profiles_key] = json::array();
-    root[active_profile_key] = -1;
-    return SettingsDocument(std::move(root));
-}
-
-std::optional<SettingsDocument>
-SettingsDocument::parse_json_text(std::string_view text, std::vector<DocumentError>& errors)
-{
-    auto root = parse_text(text, errors, "settings.conf");
-    if (!root.has_value()) {
-        return std::nullopt;
-    }
-    SettingsDocument document(std::move(*root));
-    if (!document.validate(errors)) {
-        return std::nullopt;
-    }
-    return document;
-}
-
-bool SettingsDocument::validate(std::vector<DocumentError>& errors) const
-{
-    if (!expect_object(m_root, errors, "")) {
-        return false;
-    }
-
-    bool ok = true;
-    ok = require_key(m_root, size_factor_key, errors) && ok;
-    ok = require_key(m_root, profiles_key, errors) && ok;
-    ok = require_key(m_root, active_profile_key, errors) && ok;
-    if (!ok) {
-        return false;
-    }
-
-    const auto& size_factor = *json_access::member(m_root, size_factor_key);
-    const auto& profile_values = *json_access::member(m_root, profiles_key);
-    const auto& active_profile = *json_access::member(m_root, active_profile_key);
-
-    ok = expect_number(size_factor, errors, "/sizeFactor") && ok;
-    ok = expect_array(profile_values, errors, "/profiles") && ok;
-    ok = expect_integer(active_profile, errors, "/activeProfile") && ok;
-
-    if (profile_values.is_array()) {
-        for (std::size_t i = 0; i < profile_values.size(); ++i) {
-            const auto path = "/profiles/" + std::to_string(i);
-            const auto& profile = profile_values[i];
-            if (!profile.is_array() || profile.size() != 1) {
-                add_error(errors, path, "expected profile array [name]");
-                ok = false;
-                continue;
-            }
-            ok = expect_string(profile[0], errors, path + "/0") && ok;
-        }
-    }
-
-    if (active_profile.is_number_integer() && profile_values.is_array()) {
-        const int active = json_access::get_or<int>(active_profile, -1);
-        const auto count = static_cast<int>(profile_values.size());
-        if (active >= count) {
-            add_error(errors, "/activeProfile", "active profile index is out of range");
-            ok = false;
-        }
-    }
-
-    return ok;
-}
-
-double SettingsDocument::font_size_multiplier() const
-{
-    return json_access::value_or(m_root, size_factor_key, 1.0);
-}
-
-int SettingsDocument::active_profile_index() const
-{
-    return json_access::value_or(m_root, active_profile_key, -1);
-}
-
-std::vector<Profile> SettingsDocument::profiles() const
-{
-    std::vector<Profile> out;
-    const auto it = m_root.find(key(profiles_key));
-    if (it == m_root.end() || !it->is_array()) {
-        return out;
-    }
-    for (const auto& item : *it) {
-        if (item.is_array() && item.size() == 1 && item[0].is_string()) {
-            out.push_back(Profile{json_access::get_or<std::string>(item[0], {})});
-        }
-    }
-    return out;
-}
-
-std::string SettingsDocument::dump() const { return m_root.dump(); }
-
-namespace profile_paths {
-
-std::string profile_directory_name(int profile_index) { return std::to_string(profile_index); }
-
-std::string slot_filename(int slot) { return std::to_string(slot) + std::string(save_extension); }
-
-std::string slot_path(int profile_index, int slot)
-{
-    return profile_directory_name(profile_index) + "/" + slot_filename(slot);
-}
-
-} // namespace profile_paths
 
 } // namespace noveltea::core

@@ -49,7 +49,8 @@ encoder, or external protocol adapter and must remain outside domain models afte
 | `core/project_model.hpp::{EntityMetadata, CutsceneSegmentModel, ProjectModel}` | Temporary migration debt | Generic properties, raw segments, and retained document root | 10 |
 | `core/legacy/entity_schema.hpp` and `core/legacy/project_importer.hpp` | Temporary migration adapter | Legacy positional schema/import only | 10 |
 | `core/entity_ref.hpp::{to_json, from_json}` | Temporary migration codec | Numeric legacy entity references | 10 |
-| `core/save_document.hpp::{SaveDocument, SettingsDocument}` | Temporary migration debt | JSON-backed save/settings roots | 8/10 |
+| `core/save_document.hpp::SaveDocument` | Temporary migration debt | JSON-backed legacy save root | 10 |
+| `core/runtime_user_settings_codec.hpp` | Permanent codec | Strict `noveltea.runtime.user-settings` V1 boundary around a JSON-free native value | 11 retains |
 | `core/game_session.hpp` generic property/log/notification APIs | Temporary migration debt | JSON session state and generic property mutation | 8/9 |
 | `core/{cutscene,dialogue,runtime}_controller.hpp` state/snapshot APIs and `ControllerCommand::data` | Temporary migration debt | JSON controller state and commands | 6, 8, 9 |
 | `core/runtime_events.hpp::RuntimeEvent::data` | Temporary migration debt | Internal event payload | 9 |

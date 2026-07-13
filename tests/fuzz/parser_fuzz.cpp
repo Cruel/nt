@@ -2,6 +2,7 @@
 #include <noveltea/core/legacy/project_package_reader.hpp>
 #include <noveltea/core/rich_text.hpp>
 #include <noveltea/core/runtime_project_codec.hpp>
+#include <noveltea/core/runtime_user_settings_codec.hpp>
 #include <noveltea/core/save_document.hpp>
 
 #include <cstddef>
@@ -38,6 +39,9 @@ void exercise_input(std::span<const std::uint8_t> bytes)
     const auto parsed = nlohmann::json::parse(text, nullptr, false);
     if (!parsed.is_discarded())
         (void)noveltea::core::decode_runtime_project(parsed);
+#elif NOVELTEA_FUZZ_KIND == 5
+    const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    (void)noveltea::core::decode_runtime_user_settings_text(text, "fuzz-input.json");
 #else
 #error "NOVELTEA_FUZZ_KIND must select a parser"
 #endif

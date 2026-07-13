@@ -26,6 +26,7 @@ add_executable(noveltea_core_tests
     core/runtime_controller_tests.cpp
     core/runtime_events_tests.cpp
     core/runtime_project_codec_tests.cpp
+    core/runtime_user_settings_tests.cpp
     core/runtime_session_host_tests.cpp
     core/runtime_ui_view_tests.cpp
     core/save_document_tests.cpp
@@ -297,15 +298,17 @@ if(EMSCRIPTEN)
 endif()
 
 if(NOVELTEA_BUILD_FUZZERS)
-    foreach(_noveltea_fuzz_kind IN ITEMS 1 2 3 4)
+    foreach(_noveltea_fuzz_kind IN ITEMS 1 2 3 4 5)
         if(_noveltea_fuzz_kind EQUAL 1)
             set(_noveltea_fuzz_name json)
         elseif(_noveltea_fuzz_kind EQUAL 2)
             set(_noveltea_fuzz_name rich_text)
         elseif(_noveltea_fuzz_kind EQUAL 3)
             set(_noveltea_fuzz_name package)
-        else()
+        elseif(_noveltea_fuzz_kind EQUAL 4)
             set(_noveltea_fuzz_name runtime_project)
+        else()
+            set(_noveltea_fuzz_name runtime_user_settings)
         endif()
         set(_noveltea_fuzz_target "noveltea_fuzz_${_noveltea_fuzz_name}")
         add_executable("${_noveltea_fuzz_target}" fuzz/parser_fuzz.cpp)

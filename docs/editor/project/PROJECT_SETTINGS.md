@@ -13,7 +13,10 @@ The command palette/quick-open surface is not implemented yet, so Project Settin
 
 ## Stored Data
 
-Project Settings edits the authoring project document through undoable command-bus operations. It does not write editor preferences.
+Project Settings edits the authoring project document through undoable command-bus operations. It
+does not write editor preferences, runtime user settings, or game progress. Editor preferences remain
+in the Electron `noveltea-preferences` store; runtime user settings and typed saves use their separate
+C++ versioned contracts.
 ComfyUI connection settings and workflow-library management are editor-wide surfaces. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
 
 Metadata uses existing project root fields:

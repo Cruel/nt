@@ -69,6 +69,36 @@ the current state. Other host requests still make snapshot preflight fail and re
 Phase 9 adapters. The legacy `SaveDocument` stores remain operational solely for shipped consumers
 until the Phase 10 atomic cutover.
 
+## Phase 8D runtime user settings and ownership boundaries
+
+Runtime user settings are a separate native `RuntimeUserSettings` value and strict
+`noveltea.runtime.user-settings` version 1 JSON boundary. V1 contains one implemented player
+preference, `textScale`, which defaults to `1.0` and must be a positive finite number. The codec
+rejects missing and unknown fields, unsupported schema names or versions, malformed JSON, incorrect
+types, and invalid values through `core::Diagnostics`. The native value contains no JSON, and the
+codec does not read or write a game save.
+
+The old `SettingsDocument`, profile arrays, active-profile index, and profile-based save-path helpers
+were unused legacy compatibility scaffolding and are intentionally removed. Runtime user settings do
+not select or group typed save slots. A platform settings store or settings-menu adapter can persist
+the versioned bytes later without changing this contract; Phase 8D does not add an unimplemented
+settings vocabulary or reroute shipped runtime consumers.
+
+The four settings/state owners are distinct:
+
+| Data | Owner and contract |
+| --- | --- |
+| Game progress | Native `SaveState`, serialized only as `noveltea.save.state` V1 through the typed save codec and byte-only slot stores. |
+| Runtime user settings | Native `RuntimeUserSettings`, serialized only as `noveltea.runtime.user-settings` V1; never embedded in `SaveState`. |
+| Editor preferences | Electron renderer `usePreferencesStore`, persisted under `noveltea-preferences`; never decoded by C++ or written to authoring projects. |
+| Project settings | Authoring Project V2 and `CompiledProject` runtime settings; project-authored game/package defaults, never mutable user progress. |
+
+Phase 10 still owns deletion of the shipped legacy `SaveDocument`, its JSON-owning memory/filesystem
+slot APIs, controller checkpoint JSON, fake player/Object locations, legacy project/session records,
+and their compatibility Lua/runtime consumers. Those paths remain operational until the atomic
+consumer cutover. Phase 9 owns typed external command/event adapters; browser and Android persistence
+remain platform adapters over the typed byte contracts.
+
 Every live typed state family has this disposition:
 
 | Session family | Classification | Snapshot/restore rule |
