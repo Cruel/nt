@@ -45,6 +45,12 @@ Interactable location belongs to Phase 7 state, and command/event adapter cutove
 The only location read named by the Phase 6E API is therefore `initial_location`; it reads immutable
 compiled definition data and does not masquerade as mutable live state.
 
+Phase 6F composes `ScriptInvoker` with the same state, flow executor, primitive evaluator, and host
+services through `TypedExecutionKernel`. The facade dispatches LuaPredicate, RunLuaEffect, and
+LuaTextExpression variants while non-Lua alternatives continue through `SharedPrimitiveEvaluator`.
+Script suspensions remain frame-owned and opaque; engine waits remain separately typed and logical.
+The facade is test-facing until the Phase 7 feature visitors and Phase 10 consumer cutover are ready.
+
 Opaque Lua suspension is intentionally distinct from engine-defined duration, input, presentation, and audio waits. It is not serializable and Phase 8 may reject saves while one is active. Current `ScriptDeferred` commands, generic entity bindings, legacy `Game` helpers, Script entrypoint helpers, arbitrary property/save mutation, and stubs remain migration debt. They do not define future behavior and are removed as typed flow/state/command phases land.
 
 Current consumers include Engine, `RuntimeSessionHost`, layout events, preview/playback, tests, and debugger adapters. Existing script runtime, executor, and game-binding tests remain the baseline until replaced with typed condition/result/yield/property tests.

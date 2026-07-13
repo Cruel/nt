@@ -272,6 +272,7 @@ target_sources(engine PRIVATE
     src/script/lua/runtime_script_executor.cpp
     src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
+    src/script/typed_execution_kernel.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)
 target_compile_definitions(engine PRIVATE

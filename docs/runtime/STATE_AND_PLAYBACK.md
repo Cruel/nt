@@ -18,7 +18,7 @@ Playback, RmlUi, editor preview, tests, debugger, and C ABI adapters decode boun
 
 ## Additive typed kernel state
 
-Phases 6A through 6E add a JSON-free `SessionState`, execution kernel, shared primitive evaluator,
+Phases 6A through 6F add a JSON-free `SessionState`, execution kernel, shared primitive evaluator,
 typed Lua invocation boundary, and closed typed Lua host-request vocabulary beside the shipped path.
 Session creation initializes declared variables and one typed
 entrypoint frame: Scene and Dialogue roots use `NoReturn`, while Room entry starts the shared
@@ -69,6 +69,13 @@ This path is test-facing and additive. Feature execution, host-request consumpti
 codecs, and consumer cutover remain owned by later phases. It does not adapt
 compiled data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua,
 or runtime UI consumers.
+
+`script::TypedExecutionKernel` is the Phase 6 composition root for this additive path. It owns one
+`SessionState` and composes one `FlowExecutor`, `SharedPrimitiveEvaluator`, `ScriptHostServices`, and
+`ScriptInvoker` against the same immutable `CompiledProject`. Its closed dispatch methods route Lua
+and non-Lua Condition, Effect, and TextSource variants to the appropriate validated service while
+preserving typed errors. It exposes wait and exact script-resume/cancel operations, but does not
+execute Scene, Dialogue, Room, or Interaction instructions and does not consume queued host requests.
 
 ## Current scaffold
 
