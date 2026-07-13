@@ -30,6 +30,8 @@ add_library(noveltea_core STATIC
     src/core/runtime_project_codec.cpp
     src/core/runtime_session_host.cpp
     src/core/runtime_ui_view.cpp
+    src/core/session_state.cpp
+    src/core/property_resolver.cpp
     src/core/save_document.cpp
     src/render/material.cpp
     src/render/shader_compiler.cpp

@@ -16,6 +16,23 @@ Entrypoint is exactly Room, Scene, or Dialogue. A separate synchronous startup L
 
 Playback, RmlUi, editor preview, tests, debugger, and C ABI adapters decode boundary input into typed internal commands and expose typed events/views. Internal command/event/state payloads contain no JSON.
 
+## Additive typed kernel state
+
+Phase 6A adds a JSON-free `SessionState` beside the shipped path. It initializes declared variables
+from `CompiledProject`, enforces their scalar and enum types, stores the closed Room/Flow/Ended mode,
+and can hold one typed logical `ActiveWait`. Feature state, persistence, frame state, and concrete host
+request queues remain owned by their later slices; no placeholder request schema is authoritative.
+
+`PropertyResolver` is the sole typed property read/mutation path for this state. It validates the
+property declaration, owner existence and kind, nullability, enum membership, scalar type, and finite
+numbers. Reads traverse the immutable same-type parent indexes directly in runtime-override,
+authored-assignment order at each level, then use the declaration default or return a typed missing
+value. Overrides remain sparse on their actual owners, so ancestor changes are immediately visible
+without a resolved-value cache.
+
+This path is test-facing and additive. It does not adapt compiled data back into legacy data or reroute
+Engine, preview, package launch, editor playback, Lua, or runtime UI consumers.
+
 ## Current scaffold
 
 The shipped path still uses `GameSession`, `RuntimeController`, JSON-bearing `RuntimeInput`/`RuntimeOutput`, `SaveDocument`, controller snapshots, numeric entities, and `ProjectModel`. `RuntimeSessionHost::apply_input`, deterministic playback, slot-store abstraction, and editor test integration are useful seams to retain, but their payloads and internals are replaced in Phases 6--10.

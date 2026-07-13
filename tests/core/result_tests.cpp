@@ -9,6 +9,15 @@ TEST_CASE("result transforms values")
     REQUIRE(result);
     CHECK(result.value() == 22);
 }
+TEST_CASE("result exposes checked nonthrowing value access")
+{
+    auto success = DiagnosticResult<int>::success(7);
+    REQUIRE(success.value_if() != nullptr);
+    CHECK(*success.value_if() == 7);
+
+    const auto failure = DiagnosticResult<int>::failure(Diagnostic{"result.failed", "No value"});
+    CHECK(failure.value_if() == nullptr);
+}
 TEST_CASE("result preserves diagnostic context")
 {
     const Diagnostic error{"project.missing_field", "Required field is absent",

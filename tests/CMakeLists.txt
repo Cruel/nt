@@ -28,6 +28,7 @@ add_executable(noveltea_core_tests
     core/runtime_session_host_tests.cpp
     core/runtime_ui_view_tests.cpp
     core/save_document_tests.cpp
+    core/session_state_tests.cpp
 )
 target_include_directories(noveltea_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_core_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

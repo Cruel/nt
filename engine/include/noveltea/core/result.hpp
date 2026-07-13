@@ -30,6 +30,16 @@ public:
         assert(has_value());
         return std::move(std::get<Value>(m_storage).value);
     }
+    [[nodiscard]] T* value_if() noexcept
+    {
+        auto* value = std::get_if<Value>(&m_storage);
+        return value == nullptr ? nullptr : &value->value;
+    }
+    [[nodiscard]] const T* value_if() const noexcept
+    {
+        const auto* value = std::get_if<Value>(&m_storage);
+        return value == nullptr ? nullptr : &value->value;
+    }
     [[nodiscard]] E& error() &
     {
         assert(!has_value());
