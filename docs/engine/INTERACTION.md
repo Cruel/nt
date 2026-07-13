@@ -8,7 +8,7 @@ Exact operands outrank wildcards. Equal-specificity ties use declared rule order
 
 ## Program
 
-An `InteractionProgram` is an ordered list containing only ApplyEffect, MoveInteractable, SetInteractableState, Notify, CallScene, and CallDialogue, followed by one typed `FlowTarget`. Child Scene/Dialogue calls push frames and return to the next instruction. Final targets use normal tail-continuation rules. Execution produces typed `Handled`, `Unhandled`, or `Failed` outcomes where Verb fallback requires them.
+An `InteractionProgram` is an ordered list containing only ApplyEffect, MoveInteractable, SetInteractableState, Notify, CallScene, and CallDialogue, followed by one typed `FlowTarget` and an authored successful outcome of `Handled` or `Unhandled`. Child Scene/Dialogue calls push frames and return to the next instruction. Final targets use normal tail-continuation rules. Runtime instruction or child-flow failure produces `Failed`; it is not an authored success result.
 
 Interaction is property-bearing and may `extends` another Interaction only for declared custom-property lookup. Rules and programs do not merge or inherit.
 
@@ -19,6 +19,10 @@ Interaction is property-bearing and may `extends` another Interaction only for d
 - **Mutable:** Interaction flow frames, changed variables/interactable state, and property overrides in `SessionState`.
 - **Tooling only:** categories, tags, colors, sort keys, notes, graph layout, selection, and previews.
 
-## Current implementation scaffold
+## Current authoring implementation
 
-The editor authoring schema now uses the V2 `interactions` collection. Its payload is still temporary Phase 3 scaffolding until the complete rule and program contract is implemented. Runtime code and the transitional runtime-export wire still use legacy Action-shaped data while Phases 4--7 introduce deterministic matching and typed programs. No Action API or serialized shape is preserved.
+Phase 3E implements strict V2 rules, exact/AnyInteractable operands, explicit context variants, and
+closed program instructions. Editor creation and detail paths use undoable typed updates; validation
+checks arity, IDs, room placements, references, duplicate rule IDs, and equal-specificity warnings.
+Runtime matching and execution remain Phases 4--7 work. The transitional runtime-export adapter does
+not acquire an Action compatibility path.

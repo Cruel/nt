@@ -27,6 +27,10 @@ import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { PlaceholderEntityEditor } from '@/editors/placeholder/PlaceholderEntityEditor';
+import { InteractionEditor } from '@/editors/interactions/InteractionEditor';
+import { MapEditor } from '@/editors/maps/MapEditor';
+import { ScriptModuleEditor } from '@/editors/scripts/ScriptModuleEditor';
+import { VerbEditor } from '@/editors/verbs/VerbEditor';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
@@ -162,6 +166,30 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Placeholder Entity',
     icon: Puzzle,
     component: PlaceholderEntityEditor,
+  },
+  {
+    type: 'verb-detail',
+    label: 'Verb Detail',
+    icon: Puzzle,
+    component: VerbEditor,
+  },
+  {
+    type: 'interaction-detail',
+    label: 'Interaction Detail',
+    icon: Puzzle,
+    component: InteractionEditor,
+  },
+  {
+    type: 'map-detail',
+    label: 'Map Detail',
+    icon: Puzzle,
+    component: MapEditor,
+  },
+  {
+    type: 'script-module-detail',
+    label: 'Script Module Detail',
+    icon: FileCode,
+    component: ScriptModuleEditor,
   },
   {
     type: 'variables',

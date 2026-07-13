@@ -11,7 +11,7 @@ function project() {
   next.rooms.classroom = { id: 'classroom', label: 'Classroom', data: {} as never };
   next.scenes.opening = { id: 'opening', label: 'Opening Scene', data: {} as never };
   next.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', data: {} as never };
-  next.scripts.boot = { id: 'boot', label: 'Boot Script', data: { kind: 'script-module', source: '' } };
+  next.scripts.boot = { id: 'boot', label: 'Boot Script', data: { kind: 'script-module', source: { kind: 'inline-lua', source: '' } } };
   next.editor.recordMetadata = {
     assets: { logo: { tags: ['Sarah'] } },
     layouts: { coolLayout: { tags: ['cool'] }, sadf: { tags: ['cool'] } },

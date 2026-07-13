@@ -16,6 +16,8 @@ export const variableRefSchema = typedRef('variables');
 export const roomRefSchema = typedRef('rooms');
 export const sceneRefSchema = typedRef('scenes');
 export const scriptRefSchema = typedRef('scripts');
+export const interactableRefSchema = typedRef('interactables');
+export const verbRefSchema = typedRef('verbs');
 
 export const runtimeScalarSchema = z.union([
   z.null(),
@@ -75,6 +77,8 @@ export type VariableRef = z.infer<typeof variableRefSchema>;
 export type RoomRef = z.infer<typeof roomRefSchema>;
 export type SceneRef = z.infer<typeof sceneRefSchema>;
 export type ScriptRef = z.infer<typeof scriptRefSchema>;
+export type InteractableRef = z.infer<typeof interactableRefSchema>;
+export type VerbRef = z.infer<typeof verbRefSchema>;
 export type RuntimeScalar = z.infer<typeof runtimeScalarSchema>;
 export type FlowTarget = z.infer<typeof flowTargetSchema>;
 export type TextSource = z.infer<typeof textSourceSchema>;

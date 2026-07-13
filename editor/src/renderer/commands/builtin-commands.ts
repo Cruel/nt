@@ -33,6 +33,10 @@ import { replaceInteractableDataPatches } from '@/project/interactable-operation
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
+import { replaceInteractionDataPatches } from '@/project/interaction-operations';
+import { replaceMapDataPatches } from '@/project/map-operations';
+import { replaceScriptModuleDataPatches } from '@/project/script-module-operations';
+import { replaceVerbDataPatches } from '@/project/verb-operations';
 import { replaceTestDataPatches } from '@/project/test-operations';
 import { replaceLayoutDataPatches } from '@/project/layout-operations';
 import {
@@ -284,6 +288,10 @@ const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown
 const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
 const testReplaceDataSchema = z.object({ testId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
+const verbReplaceDataSchema = z.object({ verbId: entityIdSchema, data: z.unknown() });
+const interactionReplaceDataSchema = z.object({ interactionId: entityIdSchema, data: z.unknown() });
+const mapReplaceDataSchema = z.object({ mapId: entityIdSchema, data: z.unknown() });
+const scriptModuleReplaceDataSchema = z.object({ scriptId: entityIdSchema, data: z.unknown() });
 const setSystemLayoutSchema = z.object({
   role: z.enum(systemLayoutRoleValues),
   layoutId: entityIdSchema.nullable(),
@@ -406,6 +414,18 @@ export const sceneReplaceDataCommand: CommandHandler = ({ document, payload }) =
 export const testReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(testReplaceDataSchema, payload, (parsed) => replaceTestDataPatches(document, parsed));
 
+export const verbReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(verbReplaceDataSchema, payload, (parsed) => replaceVerbDataPatches(document, parsed));
+
+export const interactionReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(interactionReplaceDataSchema, payload, (parsed) => replaceInteractionDataPatches(document, parsed));
+
+export const mapReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(mapReplaceDataSchema, payload, (parsed) => replaceMapDataPatches(document, parsed));
+
+export const scriptModuleReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(scriptModuleReplaceDataSchema, payload, (parsed) => replaceScriptModuleDataPatches(document, parsed));
+
 export const projectUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectMetadataSchema, payload, (parsed) => updateProjectMetadataPatches(document, parsed));
 
@@ -487,6 +507,10 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.replaceData': roomReplaceDataCommand,
     'scene.replaceData': sceneReplaceDataCommand,
     'test.replaceData': testReplaceDataCommand,
+    'verb.replaceData': verbReplaceDataCommand,
+    'interaction.replaceData': interactionReplaceDataCommand,
+    'map.replaceData': mapReplaceDataCommand,
+    'script.replaceData': scriptModuleReplaceDataCommand,
     'project.updateMetadata': projectUpdateMetadataCommand,
     'project.setEntrypoint': projectSetEntrypointCommand,
     'project.setStartup': projectSetStartupCommand,
@@ -539,6 +563,10 @@ export function labelForCommand(type: string): string {
     case 'room.replaceData': return 'Update room';
     case 'scene.replaceData': return 'Update scene';
     case 'test.replaceData': return 'Update test';
+    case 'verb.replaceData': return 'Update verb';
+    case 'interaction.replaceData': return 'Update interaction';
+    case 'map.replaceData': return 'Update map';
+    case 'script.replaceData': return 'Update Script Module';
     case 'project.updateMetadata': return 'Update project metadata';
     case 'project.setEntrypoint': return 'Set project entrypoint';
     case 'project.setStartup': return 'Update project startup';

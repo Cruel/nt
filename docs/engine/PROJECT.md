@@ -28,7 +28,13 @@ The gameplay document is separate from the package manifest and shader/material 
 
 ## Current implementation scaffold
 
-Phase 3A currently implements the strict `noveltea.authoring.project` V2 root infrastructure, collection-specific record maps, `interactables`/`interactions`, same-type `extends`, declared typed properties and assignments, variables, localization, editor-only record metadata, and the strict Room/Scene/Dialogue entrypoint plus separate startup hook. It is not yet a completed authoritative V2 cutover: provisional Interactable, Verb, Interaction, Map, and Script Module payload shells still require their final contracts.
+Phases 3A--3E implement the strict `noveltea.authoring.project` V2 root infrastructure,
+collection-specific record maps, `interactables`/`interactions`, same-type `extends`, declared typed
+properties and assignments, variables, localization, editor-only record metadata, the strict
+Room/Scene/Dialogue entrypoint plus separate startup hook, and complete Interactable, Verb,
+Interaction, Map, and Script Module contracts. Phase 3 remains in progress until Phase 3F migrates
+all fixtures and consumers through the final collection-wide strictness and authoritative-cutover
+gate.
 
 The native runtime still uses `ProjectDocument`, `ProjectModel`, numeric entity tags, and partial room-oriented export. Those paths remain build scaffolding only and do not alter the V2 authoring contract.
 

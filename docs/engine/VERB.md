@@ -14,6 +14,8 @@ Availability conditions are evaluated root-to-child and all must pass. Default p
 - `Unhandled` continues to the parent;
 - `Failed` aborts without fallback.
 
+`Handled` and `Unhandled` are explicit successful outcomes on the authored default Interaction Program. `Failed` is produced only by runtime execution failure.
+
 Only after the root returns `Unhandled` does the project undefined-interaction fallback run. No program lists or structural fields merge, and editor categories/tags have no effect.
 
 ## Authoring, compiled, and state disposition
@@ -23,6 +25,10 @@ Only after the root returns `Unhandled` does the project undefined-interaction f
 - **Mutable:** only property overrides and execution frames/results in `SessionState`; the definition is immutable.
 - **Tooling only:** labels/notes not explicitly runtime-visible, categories, tags, colors, sort keys, and editor preview state.
 
-## Current implementation scaffold
+## Current authoring implementation
 
-The current authoring project has a broad `verbs` collection and the legacy runtime uses numeric Verb entities and Action lookup. It does not implement this typed arity, program, or fallback contract. Those paths are migration scaffolding for Phases 3--7 and receive no compatibility guarantees.
+Phase 3E implements the strict V2 Verb schema and editor creation/detail path. A Verb records arity,
+ordered role labels, action text, quick-action state, availability, and a closed default Interaction
+Program. Validation rejects role-count/arity mismatches and invalid program references. The runtime
+export adapter still emits only its documented shallow legacy representation; compiled lowering and
+Verb fallback execution remain Phases 4--7 work.

@@ -93,7 +93,7 @@ describe('authoring runtime export builder', () => {
     project.scripts.bootstrap = {
       id: 'bootstrap',
       label: 'Bootstrap',
-      data: { kind: 'script-module', source: 'Game.start_room("foyer")' },
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'Game.start_room("foyer")' } },
     };
     project.startupHook = { source: 'require("bootstrap")' };
     expect(project.entrypoint).toEqual({ kind: 'room', id: 'foyer' });

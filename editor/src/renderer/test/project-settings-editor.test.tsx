@@ -29,7 +29,7 @@ function project() {
   next.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
   next.scenes.opening = { id: 'opening', label: 'Opening Scene', data: defaultSceneData('Opening Scene') };
   next.dialogues.intro = { id: 'intro', label: 'Intro Dialogue', data: defaultDialogueData('Intro Dialogue') };
-  next.scripts.boot = { id: 'boot', label: 'Boot Script', data: { kind: 'script-module', source: '' } };
+  next.scripts.boot = { id: 'boot', label: 'Boot Script', data: { kind: 'script-module', source: { kind: 'inline-lua', source: '' } } };
   next.layouts.main = { id: 'main', label: 'Main Layout', data: defaultLayoutData('Main Layout') };
   next.assets['main-font'] = {
     id: 'main-font',

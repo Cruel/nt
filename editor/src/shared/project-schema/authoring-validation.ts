@@ -4,15 +4,19 @@ import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './au
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
 import { validateInteractableData } from './authoring-interactables';
+import { validateInteractionData, validateInteractionProgram } from './authoring-interactions';
 import { validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
+import { validateMapData } from './authoring-maps';
 import { isPropertyValueCompatible, type PropertyOwnerKind } from './authoring-properties';
 import { validateRoomData } from './authoring-rooms';
 import { validateTypedProjectSettings } from './authoring-project-settings';
 import { validateSceneData } from './authoring-scenes';
+import { validateScriptModuleData } from './authoring-script-modules';
 import { validateShaderData } from './authoring-shaders';
 import { validateTestData } from './authoring-tests';
 import { validateVariableData } from './authoring-variables';
+import { parseVerbData } from './authoring-verbs';
 import {
   authoringProjectSchema,
   isValidEntityId,
@@ -160,8 +164,19 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   for (const [id, record] of Object.entries(project.characters)) diagnostics.push(...validateCharacterData(project, id, record));
   for (const [id, record] of Object.entries(project.rooms)) diagnostics.push(...validateRoomData(project, id, record));
   for (const [id, record] of Object.entries(project.interactables)) diagnostics.push(...validateInteractableData(project, id, record));
+  for (const [id, record] of Object.entries(project.verbs)) {
+    const data = parseVerbData(record.data);
+    if (!data) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data`, 'Verb record data must contain a valid Verb definition.', 'authoring-verbs'));
+    else {
+      if (data.availability.kind === 'variable-comparison' && !project.variables[data.availability.variable.$ref.id]) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref`, `Missing variable '${data.availability.variable.$ref.id}'.`, 'authoring-verbs'));
+      diagnostics.push(...validateInteractionProgram(project, data.defaultProgram, `/verbs/${escapePathSegment(id)}/data/defaultProgram`));
+    }
+  }
+  for (const [id, record] of Object.entries(project.interactions)) diagnostics.push(...validateInteractionData(project, id, record));
   for (const [id, record] of Object.entries(project.dialogues)) diagnostics.push(...validateDialogueData(project, id, record));
   for (const [id, record] of Object.entries(project.scenes)) diagnostics.push(...validateSceneData(project, id, record));
+  for (const [id, record] of Object.entries(project.maps)) diagnostics.push(...validateMapData(project, id, record));
+  for (const [id, record] of Object.entries(project.scripts)) diagnostics.push(...validateScriptModuleData(project, id, record));
   for (const [id, record] of Object.entries(project.tests)) diagnostics.push(...validateTestData(project, id, record));
   return diagnostics;
 }

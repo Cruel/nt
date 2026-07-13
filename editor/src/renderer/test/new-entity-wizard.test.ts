@@ -94,10 +94,14 @@ describe('new entity wizard registry', () => {
     });
   });
 
-  it('keeps only later-slice types metadata-only', () => {
+  it('creates typed Phase 3E records without placeholder payloads', () => {
     const project = createAuthoringProject();
     expect(newEntityWizardDefinition('interactables').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('interactables').buildPayload({ project, draft: draft('interactables') })).toMatchObject({ data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } } });
-    expect(newEntityWizardDefinition('scripts').buildPayload({ project, draft: draft('scripts') })).toEqual({ data: { kind: 'script-module', source: '' } });
+    expect(newEntityWizardDefinition('verbs').supportLevel).toBe('typed');
+    expect(newEntityWizardDefinition('interactions').supportLevel).toBe('typed');
+    expect(newEntityWizardDefinition('maps').supportLevel).toBe('typed');
+    expect(newEntityWizardDefinition('scripts').supportLevel).toBe('typed');
+    expect(newEntityWizardDefinition('scripts').buildPayload({ project, draft: draft('scripts') })).toEqual({ data: { kind: 'script-module', source: { kind: 'inline-lua', source: '' } } });
   });
 });

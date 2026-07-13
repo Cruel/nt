@@ -225,6 +225,32 @@ export function buildTestDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
+export function buildVerbDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:verb-detail:verbs:${entityId}`,
+    title,
+    editorType: 'verb-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:verbs:${entityId}`,
+      collection: 'verbs',
+      entityId,
+    },
+  };
+}
+
+export function buildInteractionDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return { id: `tab:interaction-detail:interactions:${entityId}`, title, editorType: 'interaction-detail', resource: { kind: 'record', stableId: `record:interactions:${entityId}`, collection: 'interactions', entityId } };
+}
+
+export function buildMapDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return { id: `tab:map-detail:maps:${entityId}`, title, editorType: 'map-detail', resource: { kind: 'record', stableId: `record:maps:${entityId}`, collection: 'maps', entityId } };
+}
+
+export function buildScriptModuleDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return { id: `tab:script-module-detail:scripts:${entityId}`, title, editorType: 'script-module-detail', resource: { kind: 'record', stableId: `record:scripts:${entityId}`, collection: 'scripts', entityId } };
+}
+
 export function buildPlaceholderEntityTabForRecord(collection: string, entityId: string, title = entityId): WorkbenchTab {
   return {
     id: `tab:placeholder:${collection}:${entityId}`,
@@ -313,6 +339,10 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'dialogues' && node.entityId) return buildDialogueDetailTabForRecord(node.entityId, title);
   if (node.collection === 'scenes' && node.entityId) return buildSceneDetailTabForRecord(node.entityId, title);
   if (node.collection === 'tests' && node.entityId) return buildTestDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'verbs' && node.entityId) return buildVerbDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'interactions' && node.entityId) return buildInteractionDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'maps' && node.entityId) return buildMapDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'scripts' && node.entityId) return buildScriptModuleDetailTabForRecord(node.entityId, title);
   if (node.collection && node.entityId) return buildPlaceholderEntityTabForRecord(node.collection, node.entityId, title);
   return null;
 }

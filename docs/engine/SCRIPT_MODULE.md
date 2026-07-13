@@ -21,6 +21,11 @@ Lua VM and coroutine state are never serialized. Saving is rejected while suspen
 
 The TypeScript compiler treats Lua as opaque text after structural validation. Preview/export certification and shipped package loading use the native Lua loader for syntax diagnostics; no JavaScript Lua parser dependency is introduced.
 
-## Current implementation scaffold
+## Current authoring implementation
 
-The current editor exports broad script records and native `ScriptRuntime` supports restricted Lua plus transitional game bindings. Legacy Script/CustomScript numeric entities, implicit execution paths, optional-based script results, and generic property APIs are temporary migration debt. Phases 3, 4, 6, and 7 replace them without compatibility shims.
+Phase 3E implements a strict mutually exclusive source union: inline Lua or a typed script Asset
+reference. The editor exposes both choices and validation confirms that an asset-backed source is a
+script asset. The temporary runtime-export adapter exports inline modules and reports an explicit
+deferral for asset-backed modules; native package loading and execution remain Phases 4, 6, and 7.
+Legacy Script/CustomScript entities, implicit execution, and generic property APIs gain no
+compatibility path.

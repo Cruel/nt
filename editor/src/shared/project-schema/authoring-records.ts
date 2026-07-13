@@ -3,15 +3,19 @@ import { assetDataSchema } from './authoring-assets';
 import { entityIdSchema } from './authoring-common';
 import { characterDataSchema } from './authoring-characters';
 import { interactableDataSchema } from './authoring-interactables';
+import { interactionDataSchema } from './authoring-interactions';
 import { dialogueDataSchema } from './authoring-dialogues';
 import { layoutDataSchema } from './authoring-layouts';
 import { materialDataSchema } from './authoring-materials';
+import { mapDataSchema } from './authoring-maps';
 import { propertyAssignmentsSchema } from './authoring-properties';
 import { roomDataSchema } from './authoring-rooms';
 import { sceneDataSchema } from './authoring-scenes';
 import { shaderDataSchema } from './authoring-shaders';
+import { scriptModuleDataSchema } from './authoring-script-modules';
 import { testDataSchema } from './authoring-tests';
 import { variableDataSchema } from './authoring-variables';
+import { verbDataSchema } from './authoring-verbs';
 
 const recordIdentityShape = {
   id: entityIdSchema,
@@ -32,16 +36,6 @@ function propertyRecordSchema<Data extends z.ZodType>(data: Data) {
   return z.object({ ...recordIdentityShape, ...propertyRecordShape, data }).strict();
 }
 
-// Phase 3A wires every planned collection into the strict V2 project envelope.
-// Remaining minimal payloads are temporary scaffolding for their later slices.
-export const verbDataSchema = z.object({ kind: z.literal('verb').default('verb') }).strict();
-export const interactionDataSchema = z.object({ kind: z.literal('interaction').default('interaction') }).strict();
-export const mapDataSchema = z.object({ kind: z.literal('map').default('map') }).strict();
-export const scriptModuleDataSchema = z.object({
-  kind: z.literal('script-module').default('script-module'),
-  source: z.string().default(''),
-}).strict();
-
 export const assetRecordSchema = recordSchema(assetDataSchema.strict());
 export const variableRecordSchema = recordSchema(variableDataSchema.strict());
 export const shaderRecordSchema = recordSchema(shaderDataSchema.strict());
@@ -49,7 +43,7 @@ export const materialRecordSchema = recordSchema(materialDataSchema.strict());
 export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());
 export const characterRecordSchema = propertyRecordSchema(characterDataSchema.strict());
 export const roomRecordSchema = propertyRecordSchema(roomDataSchema.strict());
-export const interactableRecordSchema = propertyRecordSchema(interactableDataSchema);
+export const interactableRecordSchema = propertyRecordSchema(interactableDataSchema.strict());
 export const verbRecordSchema = propertyRecordSchema(verbDataSchema);
 export const interactionRecordSchema = propertyRecordSchema(interactionDataSchema);
 export const dialogueRecordSchema = propertyRecordSchema(dialogueDataSchema.strict());

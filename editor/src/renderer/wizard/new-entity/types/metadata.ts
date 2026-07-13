@@ -1,4 +1,8 @@
 import { visualForCollection } from '../../../workspace/collection-visuals';
+import { defaultInteractionData } from '../../../../shared/project-schema/authoring-interactions';
+import { defaultMapData } from '../../../../shared/project-schema/authoring-maps';
+import { defaultScriptModuleData } from '../../../../shared/project-schema/authoring-script-modules';
+import { defaultVerbData } from '../../../../shared/project-schema/authoring-verbs';
 import type { NewEntityWizardTypeDefinition } from './common';
 
 function visual(collection: NewEntityWizardTypeDefinition['collection']) {
@@ -15,27 +19,27 @@ export const metadataWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     buildPayload: () => ({ data: { kind: 'binary', source: { type: 'project-file', path: 'assets/binary/file.bin' }, aliases: [] } }),
   },
   {
-    collection: 'verbs', category: 'logic', supportLevel: 'metadata-only',
+    collection: 'verbs', category: 'logic', supportLevel: 'typed',
     summary: 'Player verbs for interaction authoring.',
-    currentScope: 'Creates the strict Phase 3A shell; behavior fields arrive in a later Phase 3 slice.',
-    ...visual('verbs'), buildPayload: () => ({ data: { kind: 'verb' } }),
+    currentScope: 'Creates a typed zero-operand verb with an editable availability rule and default program.',
+    ...visual('verbs'), buildPayload: ({ draft }) => ({ data: defaultVerbData(draft.basics.label) }),
   },
   {
-    collection: 'interactions', category: 'logic', supportLevel: 'metadata-only',
+    collection: 'interactions', category: 'logic', supportLevel: 'typed',
     summary: 'Bindings between verbs, interactables, scripts, and runtime outcomes.',
-    currentScope: 'Creates the strict Phase 3A shell; rules arrive in a later Phase 3 slice.',
-    ...visual('interactions'), buildPayload: () => ({ data: { kind: 'interaction' } }),
+    currentScope: 'Creates a typed interaction with an initially empty ordered rule list.',
+    ...visual('interactions'), buildPayload: () => ({ data: defaultInteractionData() }),
   },
   {
-    collection: 'maps', category: 'world', supportLevel: 'metadata-only',
+    collection: 'maps', category: 'world', supportLevel: 'typed',
     summary: 'World-map presentation records.',
-    currentScope: 'Creates the strict Phase 3A shell; map content arrives in a later Phase 3 slice.',
-    ...visual('maps'), buildPayload: () => ({ data: { kind: 'map' } }),
+    currentScope: 'Creates a typed map presentation with editable exit-backed locations and connections.',
+    ...visual('maps'), buildPayload: () => ({ data: defaultMapData() }),
   },
   {
-    collection: 'scripts', category: 'logic', supportLevel: 'metadata-only',
+    collection: 'scripts', category: 'logic', supportLevel: 'typed',
     summary: 'Explicit Lua script modules.',
-    currentScope: 'Creates a strict inline Lua module shell.',
-    ...visual('scripts'), buildPayload: () => ({ data: { kind: 'script-module', source: '' } }),
+    currentScope: 'Creates a typed inline Lua module; source can be switched to a script asset.',
+    ...visual('scripts'), buildPayload: () => ({ data: defaultScriptModuleData() }),
   },
 ];

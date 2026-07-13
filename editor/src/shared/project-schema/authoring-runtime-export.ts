@@ -4,6 +4,7 @@ import type { ExportProfileData, ExportShaderVariant } from './authoring-export'
 import { parseDialogueData } from './authoring-dialogues';
 import { parseRoomData } from './authoring-rooms';
 import { parseSceneData } from './authoring-scenes';
+import { parseScriptModuleData } from './authoring-script-modules';
 import { getSystemLayoutSetting, parseLayoutData } from './authoring-layouts';
 import { parseVariableData } from './authoring-variables';
 import { buildShaderMaterialProject } from './shader-material-project';
@@ -145,8 +146,17 @@ function buildScenes(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
     return [{ id, steps: data.steps.filter((step) => !('enabled' in step) || step.enabled).map((step) => step.id) }];
   });
 }
-function buildScripts(project: AuthoringProject) {
-  return Object.entries(project.scripts).map(([id, record]) => ({ id, source: typeof record.data.source === 'string' ? record.data.source : '' }));
+function buildScripts(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
+  return Object.entries(project.scripts).map(([id, record]) => {
+    const data = parseScriptModuleData(record.data);
+    if (!data) {
+      diagnostics.push(diagnostic(`/scripts/${id}/data`, `Script Module '${id}' has invalid source data.`));
+      return { id, source: '' };
+    }
+    if (data.source.kind === 'inline-lua') return { id, source: data.source.source };
+    diagnostics.push(diagnostic(`/scripts/${id}/data/source`, `Asset-backed Script Module '${id}' is deferred by the transitional runtime adapter.`, 'warning'));
+    return { id, source: '' };
+  });
 }
 function buildLayouts(project: AuthoringProject, assets: { id: string }[]) {
   const assetIds = new Set(assets.map((asset) => asset.id));
@@ -193,7 +203,7 @@ export function buildAuthoringRuntimeExport(project: AuthoringProject, options: 
     entrypoint: { kind: kind ?? 'room', id: project.entrypoint?.id ?? '' }, variables: buildVariables(project, diagnostics), assets, assetAliases: [],
     rooms: buildRooms(project, diagnostics), objects: simpleRecords(project.interactables),
     verbs: Object.entries(project.verbs).map(([id, record]) => ({ id, label: record.label })), actions: [],
-    dialogues: buildDialogues(project, diagnostics), scenes: buildScenes(project, diagnostics), maps: [], scripts: buildScripts(project), layouts,
+    dialogues: buildDialogues(project, diagnostics), scenes: buildScenes(project, diagnostics), maps: [], scripts: buildScripts(project, diagnostics), layouts,
     runtimeUi: { defaultLayoutId: defaultLayout && layouts.some((layout) => layout.id === defaultLayout) ? defaultLayout : null, themeAssetId: null },
     display: runtimeDisplay, platform,
   };
