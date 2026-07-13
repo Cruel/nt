@@ -25,3 +25,8 @@ versioned documents.
 This is a TypeScript-only contract in Phase 4A. It does not add C++ decoding or change preview,
 playback, package, or CLI consumers; those remain on the transitional path until the later atomic
 cutover slice.
+
+Phase 4C uses a separate `CompiledProjectSharedDraft` implementation type while specialized programs
+are still incomplete. That draft contains all shared declarations, resources, definitions,
+inheritance edges, and authored assignments, but omits program-owned fields entirely. It is never
+accepted by `compiledProjectWireV1Schema`, serialized as gameplay JSON, or exposed to consumers.

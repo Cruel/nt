@@ -16,6 +16,9 @@ import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseTestData } from './project-schema/authoring-tests';
 import { validateAuthoringProject } from './project-schema/authoring-validation';
+import {
+  lowerSharedAuthoringProject,
+} from './authoring-compiler-shared-lowering';
 
 export const compilerStageNames = [
   'normalize',
@@ -319,18 +322,27 @@ function linkAuthoringProject(context: CompilerContext): void {
 }
 
 /**
- * Phase 4C replaces this with the shared-definition lowerer. Keeping the
- * failure here prevents an incomplete authoritative compiled document from
- * leaking to preview, export, or Phase 5.
+ * Phase 4C produces a deterministic shared draft. The error remains until
+ * Phase 4D/4E add every specialized program, preventing partial publication.
  */
-function lowerAuthoringProject(_project: AuthoringProject, _symbols: AuthoringSymbolTables): LoweringResult {
-  return {
-    diagnostics: [makeDiagnostic(
-      'COMPILER_LOWERING_PENDING_PHASE_4C',
+function lowerAuthoringProject(project: AuthoringProject, _symbols: AuthoringSymbolTables): LoweringResult {
+  const shared = lowerSharedAuthoringProject(project);
+  const diagnostics = shared.diagnostics.map((diagnostic) => makeDiagnostic(
+    diagnostic.code,
+    'error',
+    diagnostic.path,
+    diagnostic.message,
+  ));
+  if (shared.draft) {
+    diagnostics.push(makeDiagnostic(
+      'COMPILER_PROGRAM_LOWERING_PENDING_PHASE_4D_4E',
       'error',
       '/',
-      'Compiled definition lowering begins in Phase 4C; no partial compiled project is published.',
-    )],
+      'Shared declarations and definitions are lowered; Scene, RoomHook, Dialogue, and Interaction programs remain for Phase 4D/4E.',
+    ));
+  }
+  return {
+    diagnostics,
   };
 }
 

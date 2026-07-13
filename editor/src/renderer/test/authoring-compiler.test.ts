@@ -6,6 +6,8 @@ import {
   resolveAuthoringSymbol,
   resolveNestedAuthoringSymbol,
 } from '../../shared/authoring-compiler';
+import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
+import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultDialogueBlock, defaultDialogueData, defaultDialogueSegment } from '../../shared/project-schema/authoring-dialogues';
@@ -13,9 +15,12 @@ import { defaultInteractionData } from '../../shared/project-schema/authoring-in
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData, roomInteractableRef } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
 import { defaultTestAssertion, defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
+import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
+import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 
 function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
   const project = createAuthoringProject({ id: 'compiler-demo', name: 'Compiler Demo' });
@@ -40,7 +45,7 @@ describe('authoring compiler framework', () => {
     expect('project' in result).toBe(false);
     expect('canonicalJson' in result).toBe(false);
     expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      code: 'COMPILER_LOWERING_PENDING_PHASE_4C',
+      code: 'COMPILER_PROGRAM_LOWERING_PENDING_PHASE_4D_4E',
       severity: 'error',
       sourcePath: 'authoring-project',
       jsonPointer: '/',
@@ -55,6 +60,74 @@ describe('authoring compiler framework', () => {
       { name: 'validate-wire', status: 'skipped' },
       { name: 'serialize', status: 'skipped' },
     ]);
+  });
+
+  it('lowers every Phase 4C shared definition without flattening inheritance or retaining editor metadata', () => {
+    const project = validProject();
+    project.editor = {
+      ...project.editor,
+      tags: { records: { favorite: { name: 'Favorite', color: '#ff0000', sortKey: '1' } } },
+      recordMetadata: { rooms: { foyer: { tags: ['favorite'], color: '#ff0000', sortKey: '1' } } },
+    };
+    project.properties.mood = {
+      id: 'mood', label: 'Mood', description: 'Current mood', type: 'enum', nullable: false,
+      defaultValue: 'calm', enumValues: ['calm', 'tense'], ownerKinds: ['room'], persistence: 'Save',
+    };
+    project.variables.visited = {
+      id: 'visited', label: 'Visited', description: 'Editor-only label', data: defaultVariableData('boolean'),
+    };
+    project.assets.hero = {
+      id: 'hero', label: 'Hero sprite', description: 'Import metadata is tooling-only',
+      data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/images/hero.png', aliases: ['hero.sprite'], contentHash: 'abc' }),
+    };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
+
+    const baseRoom = project.rooms.foyer!;
+    baseRoom.properties = { mood: 'calm' };
+    project.rooms.hall = {
+      ...project.rooms.hall!,
+      extends: 'foyer',
+      properties: { mood: 'tense' },
+    };
+    const character = defaultCharacterData('Hero');
+    character.poses[0]!.sprite = { $ref: { collection: 'assets', id: 'hero' } };
+    project.characters.hero = { id: 'hero', label: 'Hero', description: 'Tooling description', data: character };
+    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
+    project.interactions.look = { id: 'look', label: 'Look rules', data: defaultInteractionData() };
+    project.maps.house = { id: 'house', label: 'House', data: defaultMapData() };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
+    project.startupHook = { source: 'bootstrap()' };
+    project.localization.catalogs.en = { greeting: 'Hello' };
+
+    const result = lowerSharedAuthoringProject(project);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.draft).toBeDefined();
+    const draft = result.draft!;
+    expect(draft.definitions.rooms.map((room) => room.id)).toEqual(['foyer', 'hall']);
+    expect(draft.definitions.rooms[1]).toMatchObject({
+      id: 'hall', extends: 'foyer', propertyAssignments: [{ propertyId: 'mood', value: 'tense' }],
+    });
+    expect(draft.definitions.characters[0]?.poses[0]?.sprite).toEqual({ kind: 'asset', id: 'hero' });
+    expect(draft.properties).toEqual([expect.objectContaining({ id: 'mood', enumValues: ['calm', 'tense'] })]);
+    expect(draft.variables).toEqual([{ id: 'visited', type: 'boolean', defaultValue: false, enumValues: [] }]);
+    expect(draft.resources.assets).toEqual([{ id: 'hero', kind: 'image', path: 'assets/images/hero.png', aliases: ['hero.sprite'] }]);
+    expect(draft.localization.catalogs).toEqual([{ locale: 'en', entries: [{ key: 'greeting', value: 'Hello' }] }]);
+    expect(JSON.stringify(draft)).not.toContain('selection');
+    expect(JSON.stringify(draft)).not.toContain('Tooling description');
+    expect(JSON.stringify(draft)).not.toContain('Import metadata');
+    expect(JSON.stringify(draft)).not.toContain('objects');
+    expect(Object.keys(draft.definitions)).not.toContain('actions');
+  });
+
+  it('requires a strict compiled entrypoint before shared lowering', () => {
+    const project = validProject();
+    project.entrypoint = null;
+    const result = lowerSharedAuthoringProject(project);
+    expect(result.draft).toBeUndefined();
+    expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'COMPILER_ENTRYPOINT_REQUIRED', path: '/entrypoint' })]);
   });
 
   it('strictly rejects invalid V2 boundary data and produces deterministic diagnostics independent of map insertion order', () => {
