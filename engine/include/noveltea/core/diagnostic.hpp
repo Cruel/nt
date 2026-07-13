@@ -15,9 +15,9 @@ struct Diagnostic {
     std::string code;
     std::string message;
     ErrorSeverity severity = ErrorSeverity::Error;
-    std::string source_path;
-    std::string json_pointer;
-    std::vector<Diagnostic> causes;
+    std::string source_path{};
+    std::string json_pointer{};
+    std::vector<Diagnostic> causes{};
     [[nodiscard]] bool is_fatal() const noexcept { return severity == ErrorSeverity::Fatal; }
     [[nodiscard]] Diagnostic with_context(std::string path, std::string pointer = {}) const
     {

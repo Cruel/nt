@@ -142,6 +142,29 @@ describe('CompiledProject Wire V1', () => {
     }).success).toBe(false);
   });
 
+  it('requires wire durations to use whole milliseconds', () => {
+    const fixture = representativeWireFixture();
+    const fractionalDurationFixture = {
+      ...fixture,
+      definitions: {
+        ...fixture.definitions,
+        scenes: [{
+          ...fixture.definitions.scenes[0]!,
+          program: {
+            instructions: [{
+              id: 'fractional-wait',
+              kind: 'wait-duration',
+              durationMs: 0.5,
+              skippable: true,
+            }],
+          },
+        }],
+      },
+    };
+
+    expect(compiledProjectWireV1Schema.safeParse(fractionalDurationFixture).success).toBe(false);
+  });
+
   it('canonicalizes object keys without changing compiler-owned array order', () => {
     const fixture = parseCompiledProjectWireV1(representativeWireFixture());
     fixture.definitions.scenes.push({

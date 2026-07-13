@@ -62,6 +62,19 @@ The compiled project root owns project identity, runtime settings, feature flags
 entrypoint, definition collections, resource IDs, and lookup indexes. It is not an entity and cannot
 be addressed through property-owner APIs.
 
+The Phase 5A native model lives in `core/compiled_project.hpp`. `CompiledProject` privately owns each
+compiled collection in a vector and exposes only const collection views. It builds a distinct
+ID-to-index map for variables, property declarations, gameplay resources, and every definition kind;
+lookups use checked `find_*` functions and return null for missing IDs. Same-type `extends` IDs remain
+on each property-bearing definition, while separate type-specific parent-index maps provide bounded
+ancestor traversal without raw pointers. Construction publishes a value only after collection indexes
+and inheritance indexes are coherent and all Phase 5A structural invariants have been checked,
+including finite/ranged geometry and presentation values, declaration defaults, enum ranges, and
+collection-shape constraints. Compiled Scene timing values use whole nonnegative milliseconds so the
+wire contract maps losslessly to the shared `DurationWait` vocabulary. The transitional
+`RuntimeProject` remains a separate, operational scaffold and has not been adapted to or rerouted
+through this model.
+
 ## IDs and references
 
 Every project and nested ID is a validated owned string matching

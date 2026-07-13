@@ -88,7 +88,7 @@ const showTextStepSchema = strict({
 const audioCueStepSchema = strict({
   ...commonRuntimeStep, type: z.literal('audio-cue'), asset: sceneAssetRefSchema.nullable(),
   channel: z.enum(sceneAudioChannelValues), action: z.enum(sceneAudioActionValues), loop: z.boolean(),
-  volume: z.number().finite().min(0).max(1), fadeMs: z.number().finite().nonnegative(), waitForCompletion: z.boolean(),
+  volume: z.number().finite().min(0).max(1), fadeMs: z.number().int().nonnegative(), waitForCompletion: z.boolean(),
 });
 const setVariableStepSchema = strict({
   ...commonRuntimeStep, type: z.literal('set-variable'), variable: sceneVariableRefSchema,
@@ -98,7 +98,7 @@ const runLuaStepSchema = strict({
   ...commonRuntimeStep, ...safePoint, type: z.literal('run-lua'), source: z.string().min(1), mayYield: z.boolean(),
 });
 const waitStepSchema = z.discriminatedUnion('waitKind', [
-  strict({ ...commonRuntimeStep, type: z.literal('wait'), waitKind: z.literal('duration'), durationMs: z.number().finite().nonnegative(), skippable: z.boolean() }),
+  strict({ ...commonRuntimeStep, type: z.literal('wait'), waitKind: z.literal('duration'), durationMs: z.number().int().nonnegative(), skippable: z.boolean() }),
   strict({ ...commonRuntimeStep, type: z.literal('wait'), waitKind: z.literal('input'), skippable: z.boolean() }),
 ]);
 const branchArmSchema = strict({ id: entityIdSchema, condition: sceneConditionSchema, targetStepId: entityIdSchema });
@@ -118,7 +118,7 @@ const setLayoutStepSchema = strict({
 });
 const transitionStepSchema = strict({
   ...commonRuntimeStep, type: z.literal('transition'), transitionKind: z.enum(sceneTransitionKindValues),
-  durationMs: z.number().finite().nonnegative(), color: z.string().nullable(), waitForCompletion: z.boolean(),
+  durationMs: z.number().int().nonnegative(), color: z.string().nullable(), waitForCompletion: z.boolean(),
 });
 const commentStepSchema = strict({ id: entityIdSchema, label: z.string().min(1), type: z.literal('comment'), text: z.string() });
 

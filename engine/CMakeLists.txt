@@ -1,4 +1,5 @@
 add_library(noveltea_core STATIC
+    src/core/compiled_project.cpp
     src/core/cutscene_controller.cpp
     src/core/dialogue_controller.cpp
     src/core/editor_api.cpp

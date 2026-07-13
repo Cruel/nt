@@ -39,6 +39,8 @@ struct PropertyDefinitionInput {
     std::optional<RuntimeValue> default_value;
     std::vector<PropertyOwnerKind> allowed_owners;
     PropertyPersistence persistence;
+    std::string label{};
+    std::string description{};
 };
 
 class PropertyDefinition {
@@ -56,6 +58,8 @@ public:
         return m_allowed_owners;
     }
     [[nodiscard]] PropertyPersistence persistence() const noexcept { return m_persistence; }
+    [[nodiscard]] const std::string& label() const noexcept { return m_label; }
+    [[nodiscard]] const std::string& description() const noexcept { return m_description; }
 
 private:
     friend Result<PropertyDefinition, Diagnostics>
@@ -63,7 +67,8 @@ private:
     explicit PropertyDefinition(PropertyDefinitionInput input)
         : m_id(std::move(input.id)), m_value_type(std::move(input.value_type)),
           m_nullable(input.nullable), m_default_value(std::move(input.default_value)),
-          m_allowed_owners(std::move(input.allowed_owners)), m_persistence(input.persistence)
+          m_allowed_owners(std::move(input.allowed_owners)), m_persistence(input.persistence),
+          m_label(std::move(input.label)), m_description(std::move(input.description))
     {
     }
     PropertyId m_id;
@@ -72,6 +77,8 @@ private:
     std::optional<RuntimeValue> m_default_value;
     std::vector<PropertyOwnerKind> m_allowed_owners;
     PropertyPersistence m_persistence;
+    std::string m_label;
+    std::string m_description;
 };
 
 class PropertyAssignment {
