@@ -82,6 +82,7 @@ public:
                                                              std::vector<std::byte>& bytes);
 
     [[nodiscard]] static bool is_safe_package_path(std::string_view path) noexcept;
+    [[nodiscard]] static bool is_allowed_package_path(std::string_view path) noexcept;
 };
 
 } // namespace noveltea::core

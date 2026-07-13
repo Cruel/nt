@@ -508,6 +508,8 @@ TEST_CASE("ProjectPackageWriter reports output directory creation failures")
 TEST_CASE("ProjectPackageWriter rejects unsafe paths and reports missing shader variants")
 {
     CHECK(ProjectPackageWriter::is_safe_package_path("text/intro.txt"));
+    CHECK(ProjectPackageWriter::is_allowed_package_path("assets/images/intro.png"));
+    CHECK_FALSE(ProjectPackageWriter::is_allowed_package_path("notes/intro.txt"));
     CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("../intro.txt"));
     CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("scripts/../intro.lua"));
     CHECK_FALSE(ProjectPackageWriter::is_safe_package_path("/absolute/image"));

@@ -4,6 +4,7 @@ include(Catch)
 
 add_executable(noveltea_core_tests
     core/compatibility_completion_tests.cpp
+    core/compiled_package_tests.cpp
     core/compiled_project_model_tests.cpp
     core/compiled_project_wire_tests.cpp
     core/cutscene_controller_tests.cpp

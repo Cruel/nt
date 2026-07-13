@@ -45,7 +45,8 @@ bool has_allowed_package_prefix(std::string_view path)
         path == shader_materials_entry) {
         return true;
     }
-    if (starts_with(path, "fonts/") || starts_with(path, "textures/")) {
+    if (starts_with(path, "assets/") || starts_with(path, "fonts/") ||
+        starts_with(path, "textures/")) {
         return true;
     }
     return std::any_of(auxiliary_prefixes.begin(), auxiliary_prefixes.end(),
@@ -565,6 +566,11 @@ PackageExportResult ProjectPackageWriter::write_to_memory(const ProjectDocument&
 {
     bytes.clear();
     return write_zip(project, options, bytes);
+}
+
+bool ProjectPackageWriter::is_allowed_package_path(std::string_view path) noexcept
+{
+    return is_safe_package_path(path) && has_allowed_package_prefix(path);
 }
 
 bool ProjectPackageWriter::is_safe_package_path(std::string_view path) noexcept

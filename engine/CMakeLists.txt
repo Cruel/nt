@@ -1,4 +1,5 @@
 add_library(noveltea_core STATIC
+    src/core/compiled_package.cpp
     src/core/compiled_project.cpp
     src/core/compiled_project_validation.cpp
     src/core/compiled_project_codec/definitions_decoder.cpp

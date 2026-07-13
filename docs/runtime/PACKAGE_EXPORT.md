@@ -9,7 +9,8 @@ Runtime packages use the existing runtime-compatible entry layout:
 
 - `game`: normalized runtime game schema, derived from the editor project schema and stripped of authoring-only data.
 - `image`: optional package cover image.
-- `fonts/*` and `textures/*`: project font and texture assets.
+- `assets/*`: canonical typed-compiler asset paths retained by `noveltea.compiled.project`.
+- `fonts/*` and `textures/*`: existing project font and texture package paths retained while functional consumers remain transitional.
 - `audio/`, `data/`, `music/`, `resources/`, `scripts/`, `sounds/`, `text/`, and `texts/`: safe auxiliary project resources.
 - `shaders/bgfx/<variant>/*.bin`: compiled bgfx shader variants for supported targets.
 - `shader-materials.json`: runtime shader/material metadata, including shader interface records, material records, generated binary references, and binding metadata needed to run material-backed content.
@@ -24,10 +25,20 @@ backslashes, duplicate separators, absolute roots, or namespace-style colons.
 
 `manifest.json` uses format `noveltea.runtime-package` with `format_version` 1. It records package
 kind, creator, project name/version, included shader variants, package entries, and stable
-per-entry checksums when checksum generation is enabled. If shader/material metadata is included,
-`shader_materials.entry` points at `shader-materials.json` and records the schema and whether source
-fields were stripped. The manifest is additive metadata; current runtime loading still consumes
-exported packages through the legacy-compatible package fallback.
+per-entry CRC32 checksums when checksum generation is enabled. If shader/material metadata is
+included, `shader_materials.entry` points at `shader-materials.json` and records the schema and
+whether source fields were stripped. Player capabilities remain in the separate `player.json`
+bootstrap contract and are not duplicated here.
+
+The additive Phase 5E native boundary strictly decodes this manifest and the separate
+`noveltea.shader-materials.v1` document. Package assembly takes an archive-reader-produced inventory,
+checks paths, sizes, and declared checksums, requires `game`, gameplay assets, shader metadata, and
+compiled binaries, and verifies project identity, shader bindings/variants, and gameplay Material
+closure before publishing a JSON-free `LoadedCompiledPackage`. Asset, Layout, Script, and Material
+lookups use prepared checked registries. The manifest's authoring material inheritance has already
+been validated and flattened by `buildShaderMaterialProject`; runtime material records remain complete
+standalone definitions. Current functional runtime loading still uses the legacy-compatible package
+fallback until the atomic Phase 10 cutover.
 
 ## Editor Hook
 

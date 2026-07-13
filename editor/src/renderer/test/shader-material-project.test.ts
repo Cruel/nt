@@ -86,6 +86,39 @@ describe('buildShaderMaterialProject', () => {
     });
   });
 
+  it('validates and flattens authored material inheritance into the runtime manifest', () => {
+    const project = projectWithShaderMaterial();
+    project.materials.base = {
+      id: 'base',
+      label: 'Base',
+      data: {
+        ...defaultMaterialData('Base', 'noise'),
+        uniforms: [{ name: 'u_amount', value: 0.25 }],
+      },
+    };
+    project.materials.child = {
+      id: 'child',
+      label: 'Child',
+      data: {
+        ...defaultMaterialData('Child', 'noise'),
+        baseMaterialId: 'base',
+        textures: [{ sampler: 's_noise', source: { $ref: { collection: 'assets', id: 'noise-texture' } }, filtering: 'repeat-linear' }],
+      },
+    };
+
+    const built = buildShaderMaterialProject(project);
+    expect(built.diagnostics).toEqual([]);
+    expect(built.project.materials.child).toMatchObject({
+      shader: 'noise',
+      uniforms: { u_amount: 0.25 },
+      textures: { s_noise: { source: 'project:/assets/images/noise.png', sampler: 'repeat-linear' } },
+    });
+    expect(built.project.materials.child).not.toHaveProperty('baseMaterialId');
+
+    project.materials.base.data = { ...defaultMaterialData('Base', 'noise'), baseMaterialId: 'child' };
+    expect(buildShaderMaterialProject(project).diagnostics.some((item) => item.message.includes('cycle'))).toBe(true);
+  });
+
   it('builds shader square preview data with internal template references', () => {
     const project = projectWithShaderMaterial();
     expect(shaderPreviewRevision(project, 'noise')).toContain('noise');

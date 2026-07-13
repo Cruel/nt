@@ -170,7 +170,20 @@ owner-scoped references, inheritance, declarations and assignments, variable usa
 targets, gameplay Asset/Layout closure, and Map topology before building indexes and atomically
 publishing `CompiledProject`. Failed linking publishes no partial model, Material IDs remain typed for
 the separate Phase 5E manifest path, and neither successful nor failed decoding retains source JSON.
-The provisional `noveltea.runtime.project` schema is explicitly rejected by this decoder while its
-separate transitional consumer remains operational until Phase 10. The runtime is built on the
-completed no-exceptions/no-compiler-RTTI policy; user-authored input must never reach assertion,
+
+Phase 5E adds separate strict decoders for `noveltea.runtime-package` V1 and
+`noveltea.shader-materials.v1`. `LoadedCompiledPackage` owns the already-decoded gameplay project,
+typed package manifest, optional JSON-free shader/material model, and checked Asset/Layout/Script/
+Material registries. Assembly verifies actual archive inventory against declared paths, sizes, and
+optional CRC32 checksums; requires gameplay assets and shader binaries; validates project identity,
+shader role bindings and selected variants; and closes every gameplay Material reference before
+publication. The manifest does not retain archive bytes or boundary JSON. Material inheritance
+remains an authoring concern: the authoritative editor builder validates its graph and emits each
+runtime material as a flattened complete definition, which the native decoder then validates against
+its shader interface. Platform capabilities remain in the separate player bootstrap contract rather
+than being duplicated in the package manifest.
+
+The provisional `noveltea.runtime.project` schema is explicitly rejected by the gameplay decoder
+while its separate transitional consumer remains operational until Phase 10. The runtime is built on
+the completed no-exceptions/no-compiler-RTTI policy; user-authored input must never reach assertion,
 termination, throwing access, or unchecked lookup paths.
