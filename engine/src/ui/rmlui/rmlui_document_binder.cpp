@@ -102,6 +102,7 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
         }
         options->SetInnerRML(out.str());
     }
+
     if (auto* nav = find_element(doc, "rt_navigation", m_logged_missing)) {
         std::ostringstream out;
         for (std::size_t i = 0; i < state.navigation.size(); ++i) {
@@ -191,6 +192,141 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
         }
         actions->SetInnerRML(out.str());
     }
+    if (auto* text_log =
+            rmlui_dynamic_cast<NtTextLogElement*>(find_component(doc, "nt-text-log"))) {
+        text_log->set_snapshot(make_text_log_snapshot(state));
+    } else if (auto* log = find_element(doc, "rt_log", m_logged_missing)) {
+        log->SetInnerRML(text_log_rml(make_text_log_snapshot(state)));
+    }
+    if (auto* map_view =
+            rmlui_dynamic_cast<NtMapViewElement*>(find_component(doc, "nt-map-view"))) {
+        map_view->set_snapshot(make_map_view_snapshot(state));
+    } else if (auto* map = find_element(doc, "rt_map", m_logged_missing)) {
+        map->SetInnerRML(map_view_rml(make_map_view_snapshot(state)));
+    }
+}
+
+void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
+                                   const core::TypedRuntimeUIViewState& state)
+{
+    if (auto* mode = find_element(doc, "rt_mode", m_logged_missing))
+        mode->SetInnerRML(escape_rml(state.mode));
+
+    std::string title;
+    std::string notification;
+    if (state.map && state.map->title)
+        title = *state.map->title;
+    if (state.interaction && state.interaction->notification)
+        notification = *state.interaction->notification;
+    if (auto* title_slot = find_element(doc, "rt_title", m_logged_missing))
+        title_slot->SetInnerRML(escape_rml(title));
+    if (auto* note = find_element(doc, "rt_notification", m_logged_missing))
+        note->SetInnerRML(escape_rml(notification));
+
+    if (auto* active_text =
+            rmlui_dynamic_cast<NtActiveTextElement*>(find_component(doc, "nt-active-text"))) {
+        active_text->set_snapshot(make_active_text_snapshot(state));
+    } else if (auto* body = find_element(doc, "rt_body", m_logged_missing)) {
+        body->SetInnerRML(paragraph_rml(make_active_text_snapshot(state).body));
+    }
+
+    if (auto* options = find_element(doc, "rt_options", m_logged_missing)) {
+        std::ostringstream out;
+        if (state.scene && state.scene->choice) {
+            for (const auto& option : state.scene->choice->options) {
+                out << "<button class=\"option" << (option.enabled ? "" : " disabled")
+                    << "\" nt-scene-option=\"" << escape_rml(option.option.text()) << "\"";
+                if (!option.enabled)
+                    out << " disabled";
+                out << ">" << escape_rml(option.label) << "</button>";
+            }
+        } else if (state.dialogue && state.dialogue->choice) {
+            for (const auto& option : state.dialogue->choice->options) {
+                out << "<button class=\"option" << (option.enabled ? "" : " disabled")
+                    << "\" nt-dialogue-edge=\"" << escape_rml(option.edge.text()) << "\"";
+                if (!option.enabled)
+                    out << " disabled";
+                out << ">" << escape_rml(option.label) << "</button>";
+            }
+        }
+        options->SetInnerRML(out.str());
+    }
+
+    if (auto* actors = find_element(doc, "rt_actors", m_logged_missing)) {
+        std::ostringstream out;
+        if (state.scene) {
+            for (const auto& actor : state.scene->actors) {
+                if (!actor.visible)
+                    continue;
+                out << "<div class=\"actor\" data-character-id=\""
+                    << escape_rml(actor.character.text()) << "\" data-slot-id=\""
+                    << escape_rml(actor.key.slot.text()) << "\" data-pose-id=\""
+                    << escape_rml(actor.pose.text()) << "\" data-expression-id=\""
+                    << escape_rml(actor.expression.text()) << "\" data-presentation-complete=\""
+                    << (actor.presentation_complete ? "true" : "false") << "\"></div>";
+            }
+        }
+        actors->SetInnerRML(out.str());
+    }
+
+    if (auto* nav = find_element(doc, "rt_navigation", m_logged_missing)) {
+        std::ostringstream out;
+        if (state.room) {
+            for (const auto& exit : state.room->exits) {
+                out << "<button class=\"nav" << (exit.enabled ? "" : " disabled")
+                    << "\" nt-room-exit=\"" << escape_rml(exit.exit.text()) << "\"";
+                if (!exit.enabled)
+                    out << " disabled";
+                out << ">" << escape_rml(exit.label) << "</button>";
+            }
+        }
+        nav->SetInnerRML(out.str());
+    }
+
+    if (auto* objects = find_element(doc, "rt_objects", m_logged_missing)) {
+        std::ostringstream out;
+        if (state.room) {
+            for (const auto& placement : state.room->placements) {
+                if (!placement.visible)
+                    continue;
+                out << "<button class=\"object" << (placement.enabled ? "" : " disabled")
+                    << "\" nt-interactable=\"" << escape_rml(placement.interactable.text()) << "\"";
+                if (!placement.enabled)
+                    out << " disabled";
+                out << ">" << escape_rml(placement.label.value_or(placement.interactable.text()))
+                    << "</button>";
+            }
+        }
+        objects->SetInnerRML(out.str());
+    }
+
+    if (auto* inventory = find_element(doc, "rt_inventory", m_logged_missing)) {
+        std::ostringstream out;
+        for (const auto& item : state.inventory.items) {
+            if (!item.visible)
+                continue;
+            out << "<button class=\"object" << (item.enabled ? "" : " disabled")
+                << "\" nt-interactable=\"" << escape_rml(item.interactable.text()) << "\"";
+            if (!item.enabled)
+                out << " disabled";
+            out << ">" << escape_rml(item.display_name) << "</button>";
+        }
+        inventory->SetInnerRML(out.str());
+    }
+
+    if (auto* actions = find_element(doc, "rt_actions", m_logged_missing)) {
+        std::ostringstream out;
+        const auto* controls = state.room ? &state.room->controls : &state.inventory.controls;
+        for (const auto& control : *controls) {
+            out << "<button class=\"action" << (control.enabled ? "" : " disabled")
+                << "\" nt-verb=\"" << escape_rml(control.verb.text()) << "\"";
+            if (!control.enabled)
+                out << " disabled";
+            out << ">" << escape_rml(control.label) << "</button>";
+        }
+        actions->SetInnerRML(out.str());
+    }
+
     if (auto* text_log =
             rmlui_dynamic_cast<NtTextLogElement*>(find_component(doc, "nt-text-log"))) {
         text_log->set_snapshot(make_text_log_snapshot(state));

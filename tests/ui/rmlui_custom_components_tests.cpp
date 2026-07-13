@@ -71,6 +71,58 @@ TEST_CASE("RmlUi custom component snapshots tolerate empty runtime state")
     CHECK(text_log_rml(log) == "<p class=\"nt-text-log__empty\">No log entries</p>");
 }
 
+TEST_CASE("RmlUi typed Map snapshot preserves strong IDs and typed selection targets")
+{
+    const auto map_id = MapId::create("house");
+    const auto room_id = RoomId::create("start");
+    const auto target_room = RoomId::create("hall");
+    const auto source_location = MapLocationId::create("start-location");
+    const auto target_location = MapLocationId::create("hall-location");
+    const auto connection_id = MapConnectionId::create("start-hall");
+    const auto exit_id = RoomExitId::create("north-exit");
+    REQUIRE(map_id);
+    REQUIRE(room_id);
+    REQUIRE(target_room);
+    REQUIRE(source_location);
+    REQUIRE(target_location);
+    REQUIRE(connection_id);
+    REQUIRE(exit_id);
+
+    TypedRuntimeUIViewState state;
+    state.mode = "room";
+    state.map = MapView{.map = map_id.value(),
+                        .mode = compiled::InitialMapMode::Minimap,
+                        .visible = true,
+                        .current_room = room_id.value(),
+                        .title = "House",
+                        .background = std::nullopt,
+                        .layout = std::nullopt,
+                        .locations = {{source_location.value(),
+                                       room_id.value(),
+                                       {0.0, 0.0},
+                                       compiled::PointMapShape{},
+                                       "Start",
+                                       false},
+                                      {target_location.value(),
+                                       target_room.value(),
+                                       {1.0, 0.0},
+                                       compiled::PointMapShape{},
+                                       "Hall",
+                                       true}},
+                        .connections = {{connection_id.value(),
+                                         {room_id.value(), exit_id.value()},
+                                         source_location.value(),
+                                         target_location.value(),
+                                         true}}};
+
+    const auto rml = map_view_rml(make_map_view_snapshot(state));
+    CHECK(rml.find("data-map-id=\"house\"") != std::string::npos);
+    CHECK(rml.find("data-exit-id=\"north-exit\"") != std::string::npos);
+    CHECK(rml.find("nt-map-location=\"hall-location\"") != std::string::npos);
+    CHECK(rml.find("nt-map-connection=\"start-hall\"") != std::string::npos);
+    CHECK(rml.find("nt-map-view__room--focused") != std::string::npos);
+}
+
 TEST_CASE("RmlUi custom component snapshots are deterministic for map and log")
 {
     RuntimeUIViewState state;

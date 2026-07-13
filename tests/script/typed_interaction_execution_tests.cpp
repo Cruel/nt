@@ -140,6 +140,15 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
     const auto* selected = std::get_if<core::InteractionRuleProgramRef>(&*active.value().program);
     REQUIRE(selected != nullptr);
     CHECK(selected->rule == id<core::InteractionRuleId>("any-context"));
+    auto runtime_ui = kernel->runtime_ui_view("en");
+    REQUIRE(runtime_ui);
+    CHECK(runtime_ui.value().mode == "interaction");
+    REQUIRE(runtime_ui.value().interaction);
+    CHECK(runtime_ui.value().interaction->verb == active.value().verb);
+    CHECK(runtime_ui.value().interaction->operands == active.value().operands);
+    CHECK_FALSE(runtime_ui.value().scene);
+    CHECK_FALSE(runtime_ui.value().dialogue);
+    CHECK_FALSE(runtime_ui.value().room);
     drive_interaction(*kernel);
 
     const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));

@@ -206,6 +206,33 @@ generic JSON. Quick verbs are marked explicitly and every control reports inheri
 The shipped controller/runtime-UI consumer path remains Phase 10 cutover debt; final typed RmlUi and
 Map integration remain Phase 7F.
 
+## Phase 7F typed Map and RmlUi integration
+
+The additive typed kernel now owns Map presentation through session-owned `MapPresentationState`.
+`MapView` resolves localized title and location labels, resources, mode, visibility, focus, current
+Room, and connection availability. Compiled Map connections are presentation records over
+authoritative `RoomExitRef` values. Selecting a location changes focus only. Activating a selectable
+connection delegates to the existing typed Room navigation transaction and therefore cannot bypass
+conditions, lifecycle hooks, the room-switch commit, visits, or fault recovery.
+
+`TypedRuntimeUIViewState` aggregates the active `SceneView`, `DialogueView`, `RoomView`, or
+`InteractionView` with `InventoryView`, `TextLogView`, optional `MapView`, and Scene-owned
+`ActorView` records. `RuntimeUiDocumentBinder` has a separate typed overload that consumes those
+records directly. The typed custom-component path emits strong-ID attributes rather than
+controller-owned JSON or numeric entity indexes.
+
+This is still an additive path. Phase 9 owns external typed command/event adapters, including live
+activation of `nt-map-location`, `nt-map-connection`, typed choices, exits, Interactables, and Verbs.
+Phase 10 atomically switches the shipped runtime UI, preview, playback, debugger, and package player
+to the typed kernel and then deletes the legacy controller view path.
+
+The durable Phase 7 disposition is fixed as follows: the V1 undefined Interaction fallback remains
+the typed canonical `Nothing happens.` notification until a future schema revision adds an authored
+fallback; Map topology is exclusively Room-exit-derived; all property-bearing definitions use the
+shared live `PropertyResolver`; categories and tags have no runtime effect; typed persistence belongs
+to Phase 8; typed external commands and events belong to Phase 9; and shipped-consumer cutover plus
+legacy-controller deletion belong to Phase 10.
+
 ## Current scaffold
 
 The shipped path still uses `GameSession`, `RuntimeController`, JSON-bearing `RuntimeInput`/`RuntimeOutput`, `SaveDocument`, controller snapshots, numeric entities, and `ProjectModel`. `RuntimeSessionHost::apply_input`, deterministic playback, slot-store abstraction, and editor test integration are useful seams to retain, but their payloads and internals are replaced in Phases 6--10.

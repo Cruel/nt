@@ -204,6 +204,15 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     CHECK(view.value().exits.front().exit == id<core::RoomExitId>("north-exit"));
     CHECK(view.value().exits.front().target == id<core::RoomId>("hall"));
     CHECK(view.value().exits.front().enabled);
+    auto runtime_ui = kernel->runtime_ui_view("en");
+    REQUIRE(runtime_ui);
+    CHECK(runtime_ui.value().mode == "room");
+    REQUIRE(runtime_ui.value().room);
+    CHECK(runtime_ui.value().room->room == view.value().room);
+    CHECK(runtime_ui.value().room->description == view.value().description);
+    CHECK_FALSE(runtime_ui.value().scene);
+    CHECK_FALSE(runtime_ui.value().dialogue);
+    CHECK_FALSE(runtime_ui.value().interaction);
 
     REQUIRE(kernel->start_transient(id<core::SceneId>("opening")));
     REQUIRE(std::holds_alternative<core::SceneFrame>(kernel->state().flow_stack().back()));

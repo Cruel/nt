@@ -4,6 +4,7 @@
 #include <string>
 
 #include <noveltea/core/runtime_ui_view.hpp>
+#include <noveltea/core/feature_view.hpp>
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementInstancer.h>
@@ -23,6 +24,10 @@ struct MapViewComponentSnapshot {
     core::RuntimeUIMapView map;
 };
 
+struct TypedMapViewComponentSnapshot {
+    std::optional<core::MapView> map;
+};
+
 struct TextLogComponentSnapshot {
     std::string entries_rml;
 };
@@ -31,11 +36,18 @@ struct TextLogComponentSnapshot {
 [[nodiscard]] std::string paragraph_rml(std::string_view text);
 [[nodiscard]] ActiveTextComponentSnapshot
 make_active_text_snapshot(const core::RuntimeUIViewState& state);
+[[nodiscard]] ActiveTextComponentSnapshot
+make_active_text_snapshot(const core::TypedRuntimeUIViewState& state);
 [[nodiscard]] MapViewComponentSnapshot
 make_map_view_snapshot(const core::RuntimeUIViewState& state);
+[[nodiscard]] TypedMapViewComponentSnapshot
+make_map_view_snapshot(const core::TypedRuntimeUIViewState& state);
 [[nodiscard]] TextLogComponentSnapshot
 make_text_log_snapshot(const core::RuntimeUIViewState& state);
+[[nodiscard]] TextLogComponentSnapshot
+make_text_log_snapshot(const core::TypedRuntimeUIViewState& state);
 [[nodiscard]] std::string map_view_rml(const MapViewComponentSnapshot& snapshot);
+[[nodiscard]] std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot);
 [[nodiscard]] std::string text_log_rml(const TextLogComponentSnapshot& snapshot);
 
 class NtActiveTextElement final : public Rml::Element {
@@ -50,6 +62,7 @@ public:
     RMLUI_RTTI_DefineWithParent(NtMapViewElement,
                                 Rml::Element) explicit NtMapViewElement(const Rml::String& tag);
     void set_snapshot(const MapViewComponentSnapshot& snapshot);
+    void set_snapshot(const TypedMapViewComponentSnapshot& snapshot);
 };
 
 class NtTextLogElement final : public Rml::Element {

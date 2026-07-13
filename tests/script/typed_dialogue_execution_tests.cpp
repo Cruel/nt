@@ -237,6 +237,15 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     REQUIRE(view.value().line);
     CHECK(view.value().line->text == "Inline dialogue.");
     CHECK(view.value().line->speaker == core::CharacterId::create("hero").value());
+    auto runtime_ui = kernel->runtime_ui_view("en");
+    REQUIRE(runtime_ui);
+    CHECK(runtime_ui.value().mode == "dialogue");
+    REQUIRE(runtime_ui.value().dialogue);
+    REQUIRE(runtime_ui.value().dialogue->line);
+    CHECK(runtime_ui.value().dialogue->line->text == view.value().line->text);
+    CHECK_FALSE(runtime_ui.value().scene);
+    CHECK_FALSE(runtime_ui.value().room);
+    CHECK_FALSE(runtime_ui.value().interaction);
     CHECK(kernel->state().dialogue_line_visits(
               {core::DialogueId::create("intro").value(),
                core::DialogueSegmentId::create("inline-line").value()}) == 1);

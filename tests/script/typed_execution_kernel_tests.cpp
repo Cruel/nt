@@ -228,6 +228,17 @@ TEST_CASE("typed Scene execution covers the complete V1 instruction vocabulary a
     CHECK(view.value().actors.front().character == core::CharacterId::create("hero").value());
     CHECK_FALSE(view.value().actors.front().visible);
     CHECK_FALSE(view.value().actors.front().presentation_complete);
+    auto runtime_ui = kernel->runtime_ui_view("en");
+    REQUIRE(runtime_ui);
+    CHECK(runtime_ui.value().mode == "scene");
+    REQUIRE(runtime_ui.value().scene);
+    CHECK(runtime_ui.value().scene->scene == view.value().scene);
+    REQUIRE(runtime_ui.value().scene->actors.size() == 1);
+    CHECK(runtime_ui.value().scene->actors.front().character ==
+          view.value().actors.front().character);
+    CHECK_FALSE(runtime_ui.value().dialogue);
+    CHECK_FALSE(runtime_ui.value().room);
+    CHECK_FALSE(runtime_ui.value().interaction);
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));

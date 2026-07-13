@@ -82,6 +82,19 @@ public:
     interaction_view(std::string_view runtime_locale);
     [[nodiscard]] core::Result<core::InventoryView, TypedExecutionError>
     inventory_view(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<void, core::Diagnostics> present_map(
+        const core::MapId& map, std::optional<core::compiled::InitialMapMode> mode = std::nullopt,
+        bool visible = true, std::optional<core::MapLocationId> focused_location = std::nullopt);
+    [[nodiscard]] core::Result<void, core::Diagnostics> hide_map();
+    [[nodiscard]] core::Result<core::MapView, TypedExecutionError>
+    map_view(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<void, TypedExecutionError>
+    select_map_location(const core::MapLocationId& location, std::string_view runtime_locale = {});
+    [[nodiscard]] core::Result<void, TypedExecutionError>
+    activate_map_connection(const core::MapConnectionId& connection,
+                            std::string_view runtime_locale = {});
+    [[nodiscard]] core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>
+    runtime_ui_view(std::string_view runtime_locale);
 
 private:
     TypedExecutionKernel(const core::CompiledProject& project, ScriptRuntime& runtime,

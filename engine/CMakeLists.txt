@@ -280,6 +280,7 @@ target_sources(engine PRIVATE
     src/script/typed_execution_kernel.cpp
     src/script/typed_execution_dialogue.cpp
     src/script/typed_execution_interaction.cpp
+    src/script/typed_execution_map.cpp
     src/script/typed_execution_room.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)

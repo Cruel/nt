@@ -103,6 +103,7 @@ add_executable(noveltea_script_tests
     script/script_runtime_tests.cpp
     script/typed_dialogue_execution_tests.cpp
     script/typed_interaction_execution_tests.cpp
+    script/typed_map_execution_tests.cpp
     script/typed_execution_kernel_tests.cpp
     script/typed_room_execution_tests.cpp
     script/game_bindings_tests.cpp

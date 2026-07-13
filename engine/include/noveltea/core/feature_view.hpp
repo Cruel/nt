@@ -125,8 +125,23 @@ struct MapView {
     MapId map;
     compiled::InitialMapMode mode;
     bool visible;
+    std::optional<RoomId> current_room;
+    std::optional<std::string> title;
+    std::optional<AssetId> background;
+    std::optional<LayoutId> layout;
     std::vector<MapLocationView> locations;
     std::vector<MapConnectionView> connections;
+};
+
+struct TypedRuntimeUIViewState {
+    std::string mode;
+    std::optional<SceneView> scene;
+    std::optional<DialogueView> dialogue;
+    std::optional<RoomView> room;
+    std::optional<InteractionView> interaction;
+    InventoryView inventory;
+    TextLogView text_log;
+    std::optional<MapView> map;
 };
 
 using FeatureView =

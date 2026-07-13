@@ -133,6 +133,13 @@ The binder:
 - Separates room objects from inventory objects into `rt_objects` and `rt_inventory` slots.
 - Feeds `RuntimeUIViewState` into the Phase 5 custom components when the document contains
   `nt-active-text`, `nt-text-log`, or `nt-map-view`.
+- Provides an additive typed overload that consumes `TypedRuntimeUIViewState` directly. It maps
+  typed Scene, Dialogue, Room, Interaction, inventory, text-log, Actor, and Map records to runtime
+  slots without first constructing controller commands or generic JSON payloads.
+- Typed Map output exposes stable `nt-map-location` focus targets and `nt-map-connection` navigation
+  targets. Connections are enabled only when their authoritative Room exit is selectable from the
+  active Room. Phase 9/10 own live input-adapter and consumer cutover; the typed binder itself does
+  not invent a second navigation path.
 - RuntimeUI may bind a borrowed engine `TweenService`. When present, ActiveText body changes
   start deterministic `runtime-ui` reveal/alpha tweens and expose current progress to the direct
   ActiveText snapshot. Without a bound service, RuntimeUI advances reveal and alpha with the same

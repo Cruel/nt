@@ -4,6 +4,7 @@
 #include <unordered_set>
 
 #include <noveltea/core/runtime_ui_view.hpp>
+#include <noveltea/core/feature_view.hpp>
 
 #include <RmlUi/Core/ElementDocument.h>
 
@@ -14,6 +15,7 @@ public:
     RuntimeUiDocumentBinder();
 
     void bind(Rml::ElementDocument& doc, const core::RuntimeUIViewState& state);
+    void bind(Rml::ElementDocument& doc, const core::TypedRuntimeUIViewState& state);
 
     void clear_missing_slot_log();
 
