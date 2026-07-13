@@ -7,6 +7,7 @@
 #include "noveltea/script/typed_execution_kernel.hpp"
 
 #include <fstream>
+#include <chrono>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -64,6 +65,31 @@ core::FlowBlocker active_blocker(const TypedExecutionKernel& kernel)
     REQUIRE(kernel.state().blocker());
     return *kernel.state().blocker();
 }
+
+class FailingWriteStore final : public core::TypedSaveSlotStore {
+public:
+    [[nodiscard]] core::Result<bool, core::Diagnostics>
+    has_slot(core::TypedSaveSlotId) const override
+    {
+        return core::Result<bool, core::Diagnostics>::success(false);
+    }
+    [[nodiscard]] core::Result<std::string, core::Diagnostics>
+    read_slot(core::TypedSaveSlotId) const override
+    {
+        return core::Result<std::string, core::Diagnostics>::failure(core::Diagnostics{
+            core::Diagnostic{.code = "test.short_read", .message = "short read"}});
+    }
+    [[nodiscard]] core::Result<void, core::Diagnostics> write_slot(core::TypedSaveSlotId,
+                                                                   std::string_view) override
+    {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+            core::Diagnostic{.code = "test.short_write", .message = "short write"}});
+    }
+    [[nodiscard]] core::Result<void, core::Diagnostics> delete_slot(core::TypedSaveSlotId) override
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
+};
 
 } // namespace
 
@@ -168,6 +194,92 @@ TEST_CASE("typed execution kernel save preflight owns the host request boundary"
     CHECK(pending.error().front().code == "save.external_requests_pending");
     CHECK(kernel->host().take_requests().size() == 1);
     REQUIRE(kernel->snapshot_save());
+}
+
+TEST_CASE("typed kernel manual save load and autosave share the strict byte contract")
+{
+    RuntimeFixture fixture;
+    auto project = load_fixture("scene-program.json");
+    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    core::TypedMemorySaveSlotStore store;
+    const auto manual = core::TypedSaveSlotId::manual(3);
+    const auto count = core::VariableId::create("count").value();
+
+    REQUIRE(kernel->state().set_variable(project, count, core::RuntimeValue{std::int64_t{8}}));
+    auto metadata = kernel->save_slot(store, manual);
+    REQUIRE(metadata);
+    CHECK(metadata.value().project == project.identity().id);
+    const auto encoded = store.read_slot(manual);
+    REQUIRE(encoded);
+    CHECK(encoded.value().find("noveltea.save.state") != std::string::npos);
+
+    REQUIRE(kernel->state().set_variable(project, count, core::RuntimeValue{std::int64_t{99}}));
+    auto loaded = TypedExecutionKernel::load_slot(project, fixture.runtime, store, manual);
+    REQUIRE(loaded);
+    CHECK(loaded.value()->state().variable(project, count).value() ==
+          core::RuntimeValue{std::int64_t{8}});
+    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{99}});
+
+    kernel->host().request_autosave_safe_point(core::SceneId::create("opening").value(),
+                                               core::SceneStepId::create("background").value());
+    REQUIRE(kernel->consume_autosave(store));
+    CHECK(kernel->consume_autosave(store).value() == false);
+    REQUIRE(store.has_slot(core::TypedSaveSlotId::autosave()).value());
+    auto autosave = TypedExecutionKernel::load_slot(project, fixture.runtime, store,
+                                                    core::TypedSaveSlotId::autosave());
+    REQUIRE(autosave);
+    CHECK(autosave.value()->state().variable(project, count).value() ==
+          core::RuntimeValue{std::int64_t{99}});
+}
+
+TEST_CASE("typed slot load and autosave failures leave live state atomic")
+{
+    RuntimeFixture fixture;
+    auto project = load_fixture("scene-program.json");
+    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    const auto count = core::VariableId::create("count").value();
+    REQUIRE(kernel->state().set_variable(project, count, core::RuntimeValue{std::int64_t{11}}));
+
+    FailingWriteStore failing;
+    auto short_read = TypedExecutionKernel::load_slot(project, fixture.runtime, failing,
+                                                      core::TypedSaveSlotId::manual(0));
+    REQUIRE_FALSE(short_read);
+    CHECK(short_read.error().front().code == "test.short_read");
+    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{11}});
+
+    core::TypedMemorySaveSlotStore store;
+    const auto slot = core::TypedSaveSlotId::manual(1);
+    REQUIRE(store.write_slot(slot, "{corrupt"));
+    auto corrupt = TypedExecutionKernel::load_slot(project, fixture.runtime, store, slot);
+    REQUIRE_FALSE(corrupt);
+    CHECK(corrupt.error().front().code == "save_codec.malformed_json");
+    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{11}});
+
+    REQUIRE(kernel->save_slot(store, slot));
+    auto document = nlohmann::json::parse(store.read_slot(slot).value(), nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    document["metadata"]["project"] = "stale-project";
+    REQUIRE(store.write_slot(slot, document.dump()));
+    auto stale = TypedExecutionKernel::load_slot(project, fixture.runtime, store, slot);
+    REQUIRE_FALSE(stale);
+    CHECK(stale.error().front().code == "save_codec.project_mismatch");
+    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{11}});
+
+    kernel->host().request_autosave_safe_point(core::SceneId::create("opening").value(),
+                                               core::SceneStepId::create("background").value());
+    auto failed_autosave = kernel->consume_autosave(failing);
+    REQUIRE_FALSE(failed_autosave);
+    CHECK(failed_autosave.error().front().code == "test.short_write");
+    CHECK(kernel->host().autosave_safe_point_count() == 1);
+
+    core::TypedMemorySaveSlotStore retry_store;
+    REQUIRE(kernel->consume_autosave(retry_store));
+    CHECK(kernel->host().autosave_safe_point_count() == 0);
+    CHECK(kernel->consume_autosave(retry_store).value() == false);
 }
 
 TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-stops errors")

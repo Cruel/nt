@@ -323,6 +323,17 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(encode_save_state(project, invalid));
     }
 
+    SECTION("text encoding rejects invalid UTF-8 without entering a throwing JSON path")
+    {
+        auto invalid = snapshot.value();
+        invalid.text_log.push_back(TextLogEntry{TextLogEntryKind::Notification,
+                                                SystemTextLogOrigin{}, std::nullopt,
+                                                std::string{"\xc3\x28", 2}, TextMarkup::Plain});
+        auto text = encode_save_state_text(project, invalid);
+        REQUIRE_FALSE(text);
+        CHECK(text.error().front().code == "save_codec.invalid_utf8");
+    }
+
     SECTION("stale selected-exit Room references fail without dereferencing missing data")
     {
         const auto room_project = load_fixture("comprehensive.json");
@@ -344,5 +355,122 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK(state.variable(project, id<VariableId>("flag")).value() == RuntimeValue{true});
         CHECK(state.property_override(PropertyOwnerRef{id<RoomId>("start")},
                                       id<PropertyId>("mood")) != nullptr);
+    }
+}
+
+TEST_CASE("typed save restoration atomically reconstructs fresh session ownership")
+{
+    const auto project = load_fixture("inheritance-properties-localization.json");
+    auto state = make_state(project);
+    PropertyResolver properties(project, state);
+    const auto start = PropertyOwnerRef{id<RoomId>("start")};
+    const auto hall = PropertyOwnerRef{id<RoomId>("hall")};
+    const auto tower = PropertyOwnerRef{id<RoomId>("tower")};
+    const auto visits = id<PropertyId>("visit-count");
+    const auto enabled = id<PropertyId>("enabled");
+
+    REQUIRE(properties.set(start, visits, RuntimeValue{std::int64_t{5}}));
+    REQUIRE(properties.set(hall, visits, RuntimeValue{std::int64_t{9}}));
+    REQUIRE(properties.set(start, enabled, RuntimeValue{false}));
+    REQUIRE(state.advance_time(125ms));
+    auto timer = state.start_logical_timer(500ms);
+    REQUIRE(timer);
+    FlowExecutor flow(project, state);
+    auto duration = DurationWait::create(300ms);
+    REQUIRE(duration);
+    REQUIRE(flow.block_duration(duration.value()));
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    auto restored = FlowExecutor::restore_session(project, snapshot.value());
+    REQUIRE(restored);
+    PropertyResolver restored_properties(project, restored.value());
+
+    CHECK(restored.value().play_time() == 125ms);
+    REQUIRE(restored.value().logical_timers().size() == 1);
+    CHECK(restored.value().logical_timers().front().remaining == 500ms);
+    REQUIRE(restored.value().blocker());
+    REQUIRE(std::holds_alternative<DurationFlowBlocker>(*restored.value().blocker()));
+    CHECK(std::get<DurationFlowBlocker>(*restored.value().blocker()).remaining == 300ms);
+    CHECK(flow_frame_id(restored.value().flow_stack().front()).number() !=
+          flow_frame_id(state.flow_stack().front()).number());
+    const auto start_visits = restored_properties.get(start, visits);
+    const auto hall_visits = restored_properties.get(hall, visits);
+    const auto tower_visits = restored_properties.get(tower, visits);
+    const auto start_enabled = restored_properties.get(start, enabled);
+    REQUIRE(start_visits);
+    REQUIRE(hall_visits);
+    REQUIRE(tower_visits);
+    REQUIRE(start_enabled);
+    CHECK(std::get<RuntimeValue>(start_visits.value()) == RuntimeValue{std::int64_t{5}});
+    CHECK(std::get<RuntimeValue>(hall_visits.value()) == RuntimeValue{std::int64_t{9}});
+    CHECK(std::get<RuntimeValue>(tower_visits.value()) == RuntimeValue{std::int64_t{9}});
+    CHECK(std::get<RuntimeValue>(start_enabled.value()) == RuntimeValue{true});
+
+    REQUIRE(properties.unset(hall, visits));
+    auto without_child = make_save_state(project, state);
+    REQUIRE(without_child);
+    auto restored_without_child = FlowExecutor::restore_session(project, without_child.value());
+    REQUIRE(restored_without_child);
+    PropertyResolver fallback(project, restored_without_child.value());
+    const auto fallback_visits = fallback.get(hall, visits);
+    REQUIRE(fallback_visits);
+    CHECK(std::get<RuntimeValue>(fallback_visits.value()) == RuntimeValue{std::int64_t{7}});
+}
+
+TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue flow")
+{
+    SECTION("completed Room reconstructs deterministic definition-owned presentation")
+    {
+        const auto project = load_fixture("inheritance-properties-localization.json");
+        auto snapshot = make_save_state(project, make_state(project));
+        REQUIRE(snapshot);
+        snapshot.value().mode = RoomMode{id<RoomId>("start")};
+        snapshot.value().flow_stack.clear();
+        snapshot.value().blocker.reset();
+        auto restored = FlowExecutor::restore_session(project, snapshot.value());
+        REQUIRE(restored);
+        CHECK(std::holds_alternative<RoomMode>(restored.value().mode()));
+        CHECK(restored.value().flow_stack().empty());
+        REQUIRE(restored.value().background());
+        REQUIRE(restored.value().overlays().size() == 1);
+        CHECK(restored.value().overlays().front().visible);
+        CHECK_FALSE(restored.value().map_presentation());
+    }
+
+    SECTION("nested Dialogue frame receives fresh ownership and restores its input wait")
+    {
+        const auto project = load_fixture("scene-program.json");
+        auto snapshot = make_save_state(project, make_state(project));
+        REQUIRE(snapshot);
+        REQUIRE(snapshot.value().flow_stack.size() == 1);
+        snapshot.value().flow_stack.push_back(SavedDialogueFrame{
+            SavedFlowFrameId{2},
+            id<DialogueId>("intro"),
+            {id<DialogueBlockId>("start"), id<DialogueSegmentId>("intro-line"), std::nullopt,
+             DialogueFramePosition::Stage::PresentSegment, 0, false},
+            CallerDestination{}});
+        snapshot.value().blocker = SavedInputBlocker{SavedFlowFrameId{2}};
+        auto restored = FlowExecutor::restore_session(project, snapshot.value());
+        REQUIRE(restored);
+        REQUIRE(restored.value().flow_stack().size() == 2);
+        CHECK(std::holds_alternative<SceneFrame>(restored.value().flow_stack().front()));
+        CHECK(std::holds_alternative<DialogueFrame>(restored.value().flow_stack().back()));
+        REQUIRE(restored.value().blocker());
+        CHECK(flow_blocker_owner(*restored.value().blocker()) ==
+              flow_frame_id(restored.value().flow_stack().back()));
+    }
+
+    SECTION("transient Scene roots retain their ResumeRoom destination")
+    {
+        const auto project = load_fixture("scene-program.json");
+        auto snapshot = make_save_state(project, make_state(project));
+        REQUIRE(snapshot);
+        auto& root = std::get<SavedSceneFrame>(snapshot.value().flow_stack.front());
+        root.destination = ResumeRoomDestination{id<RoomId>("start")};
+        auto restored = FlowExecutor::restore_session(project, snapshot.value());
+        REQUIRE(restored);
+        CHECK(std::holds_alternative<ResumeRoomDestination>(
+            flow_return_destination(restored.value().flow_stack().front())));
     }
 }

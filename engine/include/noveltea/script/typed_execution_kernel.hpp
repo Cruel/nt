@@ -2,6 +2,7 @@
 
 #include "noveltea/core/script_host_services.hpp"
 #include "noveltea/core/save_state.hpp"
+#include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/script/script_invoker.hpp"
@@ -25,6 +26,12 @@ class TypedExecutionKernel {
 public:
     [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
     create(const core::CompiledProject& project, ScriptRuntime& runtime);
+    [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
+    restore(const core::CompiledProject& project, ScriptRuntime& runtime,
+            const core::SaveState& save);
+    [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
+    load_slot(const core::CompiledProject& project, ScriptRuntime& runtime,
+              core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot);
 
     ~TypedExecutionKernel() = default;
     TypedExecutionKernel(const TypedExecutionKernel&) = delete;
@@ -38,6 +45,10 @@ public:
     [[nodiscard]] core::ScriptHostServices& host() noexcept { return m_host; }
     [[nodiscard]] const core::ScriptHostServices& host() const noexcept { return m_host; }
     [[nodiscard]] core::Result<core::SaveState, core::Diagnostics> snapshot_save() const;
+    [[nodiscard]] core::Result<core::SaveStateMetadata, core::Diagnostics>
+    save_slot(core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot) const;
+    [[nodiscard]] core::Result<bool, core::Diagnostics>
+    consume_autosave(core::TypedSaveSlotStore& store);
 
     [[nodiscard]] core::Result<bool, TypedExecutionError>
     evaluate(const core::Condition& condition);

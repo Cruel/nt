@@ -1,6 +1,7 @@
 #include "noveltea/script/typed_execution_kernel.hpp"
 
 #include "noveltea/script/script_runtime.hpp"
+#include "noveltea/core/save_state_codec.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -79,6 +80,37 @@ TypedExecutionKernel::create(const core::CompiledProject& project, ScriptRuntime
     return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::success(
         std::unique_ptr<TypedExecutionKernel>(
             new TypedExecutionKernel(project, runtime, std::move(*value))));
+}
+
+core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
+TypedExecutionKernel::restore(const core::CompiledProject& project, ScriptRuntime& runtime,
+                              const core::SaveState& save)
+{
+    auto state = core::FlowExecutor::restore_session(project, save);
+    auto* value = state.value_if();
+    if (value == nullptr)
+        return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::failure(
+            state.error());
+    return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::success(
+        std::unique_ptr<TypedExecutionKernel>(
+            new TypedExecutionKernel(project, runtime, std::move(*value))));
+}
+
+core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
+TypedExecutionKernel::load_slot(const core::CompiledProject& project, ScriptRuntime& runtime,
+                                core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot)
+{
+    auto bytes = store.read_slot(slot);
+    const auto* text = bytes.value_if();
+    if (text == nullptr)
+        return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::failure(
+            bytes.error());
+    auto save = core::decode_save_state_text(project, *text, "save-slot");
+    const auto* value = save.value_if();
+    if (value == nullptr)
+        return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::failure(
+            save.error());
+    return restore(project, runtime, *value);
 }
 
 core::Result<bool, TypedExecutionError>
@@ -715,7 +747,37 @@ core::Result<core::SaveState, core::Diagnostics> TypedExecutionKernel::snapshot_
 {
     return core::make_save_state(
         m_project, m_state,
-        core::SaveSnapshotContext{.in_flight_external_requests = m_host.requests().size()});
+        core::SaveSnapshotContext{.in_flight_external_requests =
+                                      m_host.in_flight_external_request_count()});
+}
+
+core::Result<core::SaveStateMetadata, core::Diagnostics>
+TypedExecutionKernel::save_slot(core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot) const
+{
+    auto save = snapshot_save();
+    const auto* value = save.value_if();
+    if (value == nullptr)
+        return core::Result<core::SaveStateMetadata, core::Diagnostics>::failure(save.error());
+    auto bytes = core::encode_save_state_text(m_project, *value);
+    const auto* text = bytes.value_if();
+    if (text == nullptr)
+        return core::Result<core::SaveStateMetadata, core::Diagnostics>::failure(bytes.error());
+    auto written = store.write_slot(slot, *text);
+    if (!written)
+        return core::Result<core::SaveStateMetadata, core::Diagnostics>::failure(written.error());
+    return core::Result<core::SaveStateMetadata, core::Diagnostics>::success(value->metadata);
+}
+
+core::Result<bool, core::Diagnostics>
+TypedExecutionKernel::consume_autosave(core::TypedSaveSlotStore& store)
+{
+    if (m_host.autosave_safe_point_count() == 0)
+        return core::Result<bool, core::Diagnostics>::success(false);
+    auto saved = save_slot(store, core::TypedSaveSlotId::autosave());
+    if (!saved)
+        return core::Result<bool, core::Diagnostics>::failure(saved.error());
+    (void)m_host.consume_autosave_safe_points();
+    return core::Result<bool, core::Diagnostics>::success(true);
 }
 
 } // namespace noveltea::script

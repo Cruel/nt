@@ -323,4 +323,32 @@ std::vector<ScriptHostRequest> ScriptHostServices::take_requests() noexcept
     return result;
 }
 
+std::size_t ScriptHostServices::autosave_safe_point_count() const noexcept
+{
+    return static_cast<std::size_t>(
+        std::count_if(m_requests.begin(), m_requests.end(), [](const ScriptHostRequest& request) {
+            return std::holds_alternative<AutosaveSafePointRequest>(request) ||
+                   std::holds_alternative<DialogueLineAutosaveSafePointRequest>(request) ||
+                   std::holds_alternative<DialogueChoiceAutosaveSafePointRequest>(request);
+        }));
+}
+
+std::size_t ScriptHostServices::in_flight_external_request_count() const noexcept
+{
+    return m_requests.size() - autosave_safe_point_count();
+}
+
+std::size_t ScriptHostServices::consume_autosave_safe_points() noexcept
+{
+    const auto is_autosave = [](const ScriptHostRequest& request) {
+        return std::holds_alternative<AutosaveSafePointRequest>(request) ||
+               std::holds_alternative<DialogueLineAutosaveSafePointRequest>(request) ||
+               std::holds_alternative<DialogueChoiceAutosaveSafePointRequest>(request);
+    };
+    const auto before = m_requests.size();
+    m_requests.erase(std::remove_if(m_requests.begin(), m_requests.end(), is_autosave),
+                     m_requests.end());
+    return before - m_requests.size();
+}
+
 } // namespace noveltea::core

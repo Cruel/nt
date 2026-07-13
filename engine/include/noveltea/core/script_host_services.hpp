@@ -118,7 +118,10 @@ public:
     {
         return m_requests;
     }
+    [[nodiscard]] std::size_t autosave_safe_point_count() const noexcept;
+    [[nodiscard]] std::size_t in_flight_external_request_count() const noexcept;
     [[nodiscard]] std::vector<ScriptHostRequest> take_requests() noexcept;
+    [[nodiscard]] std::size_t consume_autosave_safe_points() noexcept;
 
 private:
     [[nodiscard]] Result<void, Diagnostics> require_room_mode(std::string operation) const;

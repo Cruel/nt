@@ -29,6 +29,7 @@ public:
 
 private:
     friend class SessionState;
+    friend class FlowExecutor;
     explicit LogicalTimerId(std::uint64_t value) noexcept : m_value(value) {}
     std::uint64_t m_value;
 };

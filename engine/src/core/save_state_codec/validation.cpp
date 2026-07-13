@@ -484,8 +484,10 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                   "Flow frame is stale, duplicate, or incoherent.");
         const auto destination = std::visit(
             [](const auto& value) -> const ReturnDestination& { return value.destination; }, frame);
-        if (item_index == 0 ? !std::holds_alternative<NoReturnDestination>(destination)
-                            : std::holds_alternative<NoReturnDestination>(destination))
+        const bool destination_is_coherent =
+            item_index == 0 ? !std::holds_alternative<CallerDestination>(destination)
+                            : std::holds_alternative<CallerDestination>(destination);
+        if (!destination_is_coherent)
             error("save_codec.incoherent_flow", "Flow return destinations are incoherent.");
     }
     if (save.blocker) {

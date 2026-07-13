@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <string_view>
 
 namespace noveltea::core {
 
@@ -20,5 +21,10 @@ namespace noveltea::core {
 [[nodiscard]] Result<SaveState, Diagnostics> decode_save_state(const CompiledProject& project,
                                                                const nlohmann::json& document,
                                                                std::string source_path = {});
+[[nodiscard]] Result<std::string, Diagnostics>
+encode_save_state_text(const CompiledProject& project, const SaveState& save);
+[[nodiscard]] Result<SaveState, Diagnostics> decode_save_state_text(const CompiledProject& project,
+                                                                    std::string_view text,
+                                                                    std::string source_path = {});
 
 } // namespace noveltea::core

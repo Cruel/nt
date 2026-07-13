@@ -39,6 +39,36 @@ variable/property types, non-Save overrides, incoherent flow positions, and bloc
 the active top frame. It publishes no mutable session state; Phase 8C remains responsible for fresh
 `SessionState`/`FlowExecutor` reconstruction and byte-slot storage.
 
+## Phase 8C restore and typed slot storage
+
+The additive typed kernel can now restore only by constructing a fresh validated `SessionState` and
+publishing a new `TypedExecutionKernel`. `FlowExecutor::restore_session` revalidates the native save,
+reconstructs every frame, return destination, cursor, blocker, timer, and pending completion with
+fresh session-local handles, and leaves the current kernel untouched on any read, decode, link, or
+restore failure. Loading starts from a fresh session, so omitted Session-policy overrides reset;
+Save-policy overrides remain sparse on their actual owners and retain live inheritance behavior.
+
+Non-persisted Actor, text/choice, layout, transition, audio, and Map presentation state is cleared.
+Completed Room mode and committed Room transitions reconstruct their background and overlay defaults
+from the immutable Room definition. Pre-commit transitions retain source-Room presentation when one
+exists. Input and duration blockers receive fresh owner-bound handles; presentation and audio waits
+remain omitted and resume from their saved logical completion cursor. The first typed view after a
+load is therefore deterministic and contains no backend snapshot.
+
+`TypedSaveSlotStore` is a byte-only boundary with distinct manual and reserved autosave identities.
+Its memory and filesystem implementations never own `SaveState`, `SaveDocument`, or a JSON DOM. The
+filesystem backend derives contained filenames from the typed identity, checks complete reads and
+writes, and replaces a destination by renaming a completed temporary file. Manual save/load and
+autosave all use `encode_save_state_text`/`decode_save_state_text`; malformed JSON, invalid UTF-8,
+stale project identity, missing slots, incomplete I/O, and failed replacement return diagnostics.
+Browser and Android persistence remain platform adapters over this byte contract.
+
+Autosave-safe-point requests are removed from the typed host queue exactly once and only after the
+associated typed operation has queued them. Multiple pending safe points coalesce into one write of
+the current state. Other host requests still make snapshot preflight fail and remain queued for their
+Phase 9 adapters. The legacy `SaveDocument` stores remain operational solely for shipped consumers
+until the Phase 10 atomic cutover.
+
 Every live typed state family has this disposition:
 
 | Session family | Classification | Snapshot/restore rule |

@@ -38,6 +38,7 @@ add_library(noveltea_core STATIC
     src/core/runtime_ui_view.cpp
     src/core/script_host_services.cpp
     src/core/session_state.cpp
+    src/core/session_restore.cpp
     src/core/shared_evaluator.cpp
     src/core/property_resolver.cpp
     src/core/save_document.cpp
@@ -47,6 +48,7 @@ add_library(noveltea_core STATIC
     src/core/save_state_codec/flow_codec.cpp
     src/core/save_state_codec/state_codec.cpp
     src/core/save_state_codec/validation.cpp
+    src/core/typed_save_slot_store.cpp
     src/render/material.cpp
     src/render/shader_compiler.cpp
     src/render/shader_manifest.cpp
