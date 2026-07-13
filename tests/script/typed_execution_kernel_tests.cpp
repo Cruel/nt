@@ -153,6 +153,23 @@ TEST_CASE("typed execution kernel initializes each Phase 6 frame category from c
     CHECK(has_root_frame<core::InteractionFrame>(kernel));
 }
 
+TEST_CASE("typed execution kernel save preflight owns the host request boundary")
+{
+    RuntimeFixture fixture;
+    auto project = load_fixture("scene-program.json");
+    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+
+    REQUIRE(kernel->snapshot_save());
+    REQUIRE(kernel->host().request_notification("pending"));
+    auto pending = kernel->snapshot_save();
+    REQUIRE_FALSE(pending);
+    CHECK(pending.error().front().code == "save.external_requests_pending");
+    CHECK(kernel->host().take_requests().size() == 1);
+    REQUIRE(kernel->snapshot_save());
+}
+
 TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-stops errors")
 {
     RuntimeFixture fixture;

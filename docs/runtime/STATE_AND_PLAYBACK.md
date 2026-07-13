@@ -10,6 +10,56 @@
 
 Manual save fails with typed diagnostics at nonserializable suspension points. Autosaves occur only at compiler-marked safe points after associated effects complete. Engine-defined serializable wait tokens are the only saveable script suspensions.
 
+## Phase 8A native save snapshot contract
+
+The additive typed path now owns monotonic play time in whole milliseconds and data-only logical
+timers. A logical timer has a session-local strong ID, nonnegative remaining duration, and an optional
+positive repeat interval. Advancing session time atomically advances timers and queues coalesced typed
+completion counts. These completion records are deterministic pending gameplay work and are included
+in a snapshot until consumed; no callback, Lua closure, event listener, or adapter handle enters
+session or save state. Phase 9 owns conversion of those typed completions into external events.
+
+`SaveState` is a JSON-free native value. Its format metadata binds the snapshot to the compiled
+project ID and project version. It contains declared variable values, sparse Save-policy property
+overrides, unique Interactable state/location, Room visits, Dialogue line/show-once and choice
+history, the complete already-filtered typed text log, logical timers and pending timer completions,
+runtime mode, saved flow frames, and an optional serializable blocker. Saved frames retain stable
+definition and nested IDs plus a snapshot-local frame number used only to reconnect a blocker. They
+contain no live frame/blocker handles, container indexes, pointers, JSON, renderer handles, or Lua
+state. The text-log V1 retention rule is the complete session-owned typed log; storage-level limits
+are not silently applied by the snapshot.
+
+Every live typed state family has this disposition:
+
+| Session family | Classification | Snapshot/restore rule |
+| --- | --- | --- |
+| Variables | Persisted | Store every declared value in compiled declaration order. |
+| Property overrides | Persisted selectively | Store only declarations with `Save` policy, once on the actual owner; omit `Session` values and never materialize inheritance. |
+| Interactable location/enabled/visible | Persisted | Store the exact Room placement, Inventory, or Nowhere variant. |
+| Room visits; Dialogue line/show-once and choice history | Persisted | Store stable Room, Dialogue, segment, and edge IDs with counts. |
+| Typed text log | Persisted | Retain the complete already-filtered session log and its stable typed origins. |
+| Play time, logical timers, pending timer completions | Persisted | Store millisecond durations and coalesced typed completion counts. |
+| Runtime mode, flow stack, logical cursor/substate, return destination | Persisted | Store stable definition/nested IDs; Phase 8C reconstructs fresh live frame IDs through `FlowExecutor`. |
+| Frame, blocker, and timer allocation counters | Reconstructed | Allocate fresh runtime handles above every restored snapshot-local identity; counters are not project identity or controller state. |
+| Input blocker | Persisted | Restore as a fresh input wait owned by the reconstructed frame. |
+| Duration blocker | Persisted | Restore its remaining logical milliseconds under a fresh handle. |
+| Actor presentation, background, layouts, overlays, presented text/choice | Reconstructed | Rebuild the first view from the saved mode/frame cursor and immutable definitions; clear state with no active logical owner. |
+| Presentation transition and audio-channel state | Reconstructed | Resume at the documented logical post-operation state; backend/tween/sample position is never restored. |
+| Map presentation | Reconstructed | Rebuild from compiled Map defaults and saved gameplay mode; begin hidden with no transient focus until gameplay presents it again. |
+| Presentation/audio blockers | Reconstructed | Omit the blocker and resume the saved logical operation at its post-operation state. |
+| Execution fault | Transient/unsaveable | Reject snapshotting. Fault recovery or reload must happen first. |
+| Opaque Lua suspension | Transient/unsaveable | Reject snapshotting; native coroutine state is never serialized. |
+| In-flight flow execution | Transient/unsaveable | Reject snapshotting until the executor reaches a stable boundary. |
+| `ScriptHostServices` requests, including autosave triggers | Transient/unsaveable | Consume or reject them before snapshotting; they are not progress. |
+| Adapter outputs, renderer/RmlUi/audio/tween/backend state | Transient | Owned outside `SessionState` and never snapshotted. |
+
+Snapshot preflight reports deterministic typed diagnostics for every detected unsaveable condition.
+`TypedExecutionKernel::snapshot_save` supplies the host-request state to that preflight. Snapshotting
+is additive in 8A: it does not encode/decode JSON, restore a session, access save slots, process
+autosave requests, change settings ownership, or route shipped consumers. Those boundaries remain
+owned by Phases 8B, 8C, 8D, and 10 respectively. The existing `SaveDocument` path remains
+transitional and operational until its atomic cutover owner replaces it.
+
 ## Flow and startup
 
 Entrypoint is exactly Room, Scene, or Dialogue. A separate synchronous startup Lua hook must succeed before it begins. `SessionState` owns the authoritative stack and blocker, while one `FlowExecutor` is the sole mutation service for Scene, Dialogue, Interaction, and RoomTransition frame variants. Child Scene/Dialogue calls advance the caller before pushing and Return resumes it; terminal Scene/Dialogue targets tail-replace, Room targets begin the shared Room transition pipeline, and End clears flow according to the fixed continuation contract.

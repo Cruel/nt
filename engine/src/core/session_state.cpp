@@ -379,6 +379,96 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
         FlowMode{}, std::move(*initial_stack), std::move(variables), std::move(interactables), 2));
 }
 
+Result<void, Diagnostics> SessionState::advance_time(std::chrono::milliseconds elapsed)
+{
+    if (elapsed.count() < 0)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_elapsed_time", "Elapsed logical time cannot be negative"));
+    if (elapsed.count() > std::chrono::milliseconds::max().count() - m_play_time.count())
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.elapsed_time_overflow", "Logical play time would overflow"));
+
+    auto timers = m_logical_timers;
+    auto completions = m_pending_timer_completions;
+    for (auto& timer : timers) {
+        if (elapsed < timer.remaining) {
+            timer.remaining -= elapsed;
+            continue;
+        }
+
+        if (!timer.repeat_interval) {
+            completions.push_back(LogicalTimerCompletion{timer.id, 1});
+            timer.remaining = std::chrono::milliseconds{-1};
+            continue;
+        }
+
+        const auto beyond_first = elapsed - timer.remaining;
+        const auto interval = *timer.repeat_interval;
+        const auto extra = static_cast<std::uint64_t>(beyond_first.count() / interval.count());
+        if (extra == std::numeric_limits<std::uint64_t>::max())
+            return Result<void, Diagnostics>::failure(feature_error(
+                "runtime.timer_completion_overflow", "Logical timer occurrence count overflowed"));
+        const auto occurrences = extra + 1;
+        const auto remainder = beyond_first.count() % interval.count();
+        timer.remaining =
+            remainder == 0 ? interval : std::chrono::milliseconds{interval.count() - remainder};
+        const auto existing = std::find_if(
+            completions.begin(), completions.end(),
+            [&timer](const LogicalTimerCompletion& item) { return item.id == timer.id; });
+        if (existing != completions.end()) {
+            if (occurrences > std::numeric_limits<std::uint64_t>::max() - existing->occurrences)
+                return Result<void, Diagnostics>::failure(
+                    feature_error("runtime.timer_completion_overflow",
+                                  "Logical timer occurrence count overflowed"));
+            existing->occurrences += occurrences;
+        } else {
+            completions.push_back(LogicalTimerCompletion{timer.id, occurrences});
+        }
+    }
+    timers.erase(
+        std::remove_if(timers.begin(), timers.end(),
+                       [](const LogicalTimer& timer) { return timer.remaining.count() < 0; }),
+        timers.end());
+
+    m_play_time += elapsed;
+    m_logical_timers = std::move(timers);
+    m_pending_timer_completions = std::move(completions);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<LogicalTimerId, Diagnostics>
+SessionState::start_logical_timer(std::chrono::milliseconds initial_duration,
+                                  std::optional<std::chrono::milliseconds> repeat_interval)
+{
+    if (initial_duration.count() < 0 || (repeat_interval && repeat_interval->count() <= 0))
+        return Result<LogicalTimerId, Diagnostics>::failure(feature_error(
+            "runtime.invalid_logical_timer",
+            "Logical timers require a nonnegative duration and a positive repeat interval"));
+    if (m_next_logical_timer_id == 0)
+        return Result<LogicalTimerId, Diagnostics>::failure(feature_error(
+            "runtime.logical_timer_id_exhausted", "Logical timer identifiers are exhausted"));
+    const LogicalTimerId id{m_next_logical_timer_id++};
+    m_logical_timers.push_back(LogicalTimer{id, initial_duration, repeat_interval});
+    return Result<LogicalTimerId, Diagnostics>::success(id);
+}
+
+bool SessionState::cancel_logical_timer(const LogicalTimerId& id) noexcept
+{
+    const auto found = std::find_if(m_logical_timers.begin(), m_logical_timers.end(),
+                                    [&id](const LogicalTimer& timer) { return timer.id == id; });
+    if (found == m_logical_timers.end())
+        return false;
+    m_logical_timers.erase(found);
+    return true;
+}
+
+std::vector<LogicalTimerCompletion> SessionState::take_timer_completions() noexcept
+{
+    auto completions = std::move(m_pending_timer_completions);
+    m_pending_timer_completions.clear();
+    return completions;
+}
+
 Result<RuntimeValue, Diagnostics> SessionState::variable(const CompiledProject& project,
                                                          const VariableId& id) const
 {

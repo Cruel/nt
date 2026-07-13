@@ -29,6 +29,7 @@ add_executable(noveltea_core_tests
     core/runtime_session_host_tests.cpp
     core/runtime_ui_view_tests.cpp
     core/save_document_tests.cpp
+    core/save_state_tests.cpp
     core/session_state_tests.cpp
     core/shared_evaluator_tests.cpp
 )

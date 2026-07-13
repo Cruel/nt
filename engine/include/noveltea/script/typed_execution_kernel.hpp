@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/script_host_services.hpp"
+#include "noveltea/core/save_state.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/script/script_invoker.hpp"
@@ -36,6 +37,7 @@ public:
     [[nodiscard]] core::FlowExecutor& flow() noexcept { return m_flow; }
     [[nodiscard]] core::ScriptHostServices& host() noexcept { return m_host; }
     [[nodiscard]] const core::ScriptHostServices& host() const noexcept { return m_host; }
+    [[nodiscard]] core::Result<core::SaveState, core::Diagnostics> snapshot_save() const;
 
     [[nodiscard]] core::Result<bool, TypedExecutionError>
     evaluate(const core::Condition& condition);

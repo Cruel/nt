@@ -711,4 +711,11 @@ core::Result<core::SceneView, core::Diagnostics> TypedExecutionKernel::scene_vie
     return core::Result<core::SceneView, core::Diagnostics>::success(std::move(view));
 }
 
+core::Result<core::SaveState, core::Diagnostics> TypedExecutionKernel::snapshot_save() const
+{
+    return core::make_save_state(
+        m_project, m_state,
+        core::SaveSnapshotContext{.in_flight_external_requests = m_host.requests().size()});
+}
+
 } // namespace noveltea::script

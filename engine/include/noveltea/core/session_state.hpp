@@ -7,6 +7,9 @@
 #include "noveltea/core/result.hpp"
 
 #include <cstddef>
+#include <chrono>
+#include <compare>
+#include <cstdint>
 #include <optional>
 #include <utility>
 #include <unordered_map>
@@ -14,6 +17,32 @@
 #include <vector>
 
 namespace noveltea::core {
+
+struct SaveState;
+struct SaveSnapshotContext;
+
+class LogicalTimerId {
+public:
+    LogicalTimerId() = delete;
+    [[nodiscard]] std::uint64_t number() const noexcept { return m_value; }
+    auto operator<=>(const LogicalTimerId&) const = default;
+
+private:
+    friend class SessionState;
+    explicit LogicalTimerId(std::uint64_t value) noexcept : m_value(value) {}
+    std::uint64_t m_value;
+};
+
+struct LogicalTimer {
+    LogicalTimerId id;
+    std::chrono::milliseconds remaining;
+    std::optional<std::chrono::milliseconds> repeat_interval;
+};
+
+struct LogicalTimerCompletion {
+    LogicalTimerId id;
+    std::uint64_t occurrences;
+};
 
 struct RoomMode {
     RoomId room;
@@ -37,6 +66,22 @@ public:
     {
         return m_execution_fault;
     }
+    [[nodiscard]] std::chrono::milliseconds play_time() const noexcept { return m_play_time; }
+    [[nodiscard]] Result<void, Diagnostics> advance_time(std::chrono::milliseconds elapsed);
+    [[nodiscard]] Result<LogicalTimerId, Diagnostics>
+    start_logical_timer(std::chrono::milliseconds initial_duration,
+                        std::optional<std::chrono::milliseconds> repeat_interval = std::nullopt);
+    [[nodiscard]] bool cancel_logical_timer(const LogicalTimerId& id) noexcept;
+    [[nodiscard]] const std::vector<LogicalTimer>& logical_timers() const noexcept
+    {
+        return m_logical_timers;
+    }
+    [[nodiscard]] const std::vector<LogicalTimerCompletion>&
+    pending_timer_completions() const noexcept
+    {
+        return m_pending_timer_completions;
+    }
+    [[nodiscard]] std::vector<LogicalTimerCompletion> take_timer_completions() noexcept;
 
     [[nodiscard]] Result<RuntimeValue, Diagnostics> variable(const CompiledProject& project,
                                                              const VariableId& id) const;
@@ -144,6 +189,8 @@ public:
 private:
     friend class FlowExecutor;
     friend class PropertyResolver;
+    friend Result<SaveState, Diagnostics> make_save_state(const CompiledProject&,
+                                                          const SessionState&, SaveSnapshotContext);
 
     SessionState(RuntimeMode mode, FlowStack flow_stack,
                  std::unordered_map<VariableId, RuntimeValue> variables,
@@ -178,6 +225,10 @@ private:
     std::optional<LogicalTransitionState> m_transition;
     std::vector<AudioChannelState> m_audio_channels;
     std::optional<MapPresentationState> m_map_presentation;
+    std::chrono::milliseconds m_play_time{0};
+    std::vector<LogicalTimer> m_logical_timers;
+    std::vector<LogicalTimerCompletion> m_pending_timer_completions;
+    std::uint64_t m_next_logical_timer_id = 1;
     std::uint64_t m_next_frame_id;
     std::uint64_t m_next_blocker_handle = 1;
     bool m_flow_running = false;

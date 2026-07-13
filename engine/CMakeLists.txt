@@ -41,6 +41,7 @@ add_library(noveltea_core STATIC
     src/core/shared_evaluator.cpp
     src/core/property_resolver.cpp
     src/core/save_document.cpp
+    src/core/save_state.cpp
     src/render/material.cpp
     src/render/shader_compiler.cpp
     src/render/shader_manifest.cpp
