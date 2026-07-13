@@ -162,13 +162,15 @@ base or mutable JSON root.
 
 All recoverable decoding, construction, linking, lookup, execution, and save failures use
 `core::Result` with typed errors or canonical `core::Diagnostics`. Untrusted nlohmann-json input uses
-the audited nonthrowing helpers. The Phase 5C compiled-project boundary now strictly decodes schema
-identity/version, root settings, declarations, resources, shared primitives, every definition field,
-and the complete Scene,
-Dialogue, Interaction, Verb-default, and Room-hook program vocabulary into internal DTOs. It retains
-owner-scoped strong nested IDs, rejects unknown fields and variants, malformed IDs, invalid numbers,
-and directly decoded duplicate IDs with source-aware diagnostics, and retains no source JSON.
-Semantic linking and immutable `CompiledProject` publication remain owned by Phase 5D. The runtime is
-built on the completed
-no-exceptions/no-compiler-RTTI policy; user-authored input must never reach assertion, termination,
-throwing access, or unchecked lookup paths.
+the audited nonthrowing helpers. `decode_compiled_project` is the Phase 5D public gameplay boundary.
+It strictly decodes schema identity/version, root settings, declarations, resources, shared
+primitives, every definition field, and the complete Scene, Dialogue, Interaction, Verb-default, and
+Room-hook program vocabulary into internal DTOs. A distinct semantic pass then validates typed and
+owner-scoped references, inheritance, declarations and assignments, variable usage, graph/program
+targets, gameplay Asset/Layout closure, and Map topology before building indexes and atomically
+publishing `CompiledProject`. Failed linking publishes no partial model, Material IDs remain typed for
+the separate Phase 5E manifest path, and neither successful nor failed decoding retains source JSON.
+The provisional `noveltea.runtime.project` schema is explicitly rejected by this decoder while its
+separate transitional consumer remains operational until Phase 10. The runtime is built on the
+completed no-exceptions/no-compiler-RTTI policy; user-authored input must never reach assertion,
+termination, throwing access, or unchecked lookup paths.

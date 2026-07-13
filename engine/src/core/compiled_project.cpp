@@ -1,5 +1,7 @@
 #include "noveltea/core/compiled_project.hpp"
 
+#include "compiled_project_validation.hpp"
+
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -435,6 +437,10 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
     VALIDATE_PARENTS(dialogues, "dialogue");
     VALIDATE_PARENTS(maps, "map");
 #undef VALIDATE_PARENTS
+
+    diagnostics = compiled::detail::validate_semantics(input);
+    if (!diagnostics.empty())
+        return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics));
 
     return Result<CompiledProject, Diagnostics>::success(CompiledProject(std::move(input)));
 }

@@ -1,8 +1,10 @@
 add_library(noveltea_core STATIC
     src/core/compiled_project.cpp
+    src/core/compiled_project_validation.cpp
     src/core/compiled_project_codec/definitions_decoder.cpp
     src/core/compiled_project_codec/dialogue_decoder.cpp
     src/core/compiled_project_codec/interaction_decoder.cpp
+    src/core/compiled_project_codec/linker.cpp
     src/core/compiled_project_codec/project_decoder.cpp
     src/core/compiled_project_codec/project_fields.cpp
     src/core/compiled_project_codec/scene_decoder.cpp

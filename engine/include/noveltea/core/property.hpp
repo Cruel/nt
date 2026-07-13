@@ -86,6 +86,7 @@ public:
     PropertyAssignment() = delete;
     [[nodiscard]] const PropertyId& property_id() const noexcept { return m_property_id; }
     [[nodiscard]] const RuntimeValue& value() const noexcept { return m_value; }
+    [[nodiscard]] const RuntimeValue& assigned_value() const noexcept { return m_value; }
 
 private:
     friend Result<PropertyAssignment, Diagnostics>

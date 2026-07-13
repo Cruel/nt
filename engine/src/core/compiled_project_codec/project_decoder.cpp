@@ -57,8 +57,14 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     auto schema = schema_value ? decoder.string(*schema_value, "/schema") : std::nullopt;
     if (schema && *schema != "noveltea.compiled.project") {
-        decoder.error("compiled_project.unsupported_schema",
-                      "Expected schema 'noveltea.compiled.project'.", "/schema");
+        if (*schema == "noveltea.runtime.project")
+            decoder.error("compiled_project.unsupported_provisional_schema",
+                          "The provisional 'noveltea.runtime.project' schema is unsupported; "
+                          "expected 'noveltea.compiled.project' version 1.",
+                          "/schema");
+        else
+            decoder.error("compiled_project.unsupported_schema",
+                          "Expected schema 'noveltea.compiled.project'.", "/schema");
         schema.reset();
     }
     auto version = version_value

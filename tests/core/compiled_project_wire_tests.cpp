@@ -1,5 +1,6 @@
 #include "core/compiled_project_wire.hpp"
 
+#include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/json_access.hpp>
 
 #include <catch2/catch_test_macros.hpp>
@@ -282,7 +283,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         document["schemaVersion"] = 2;
         auto result = decode_shared_project(document, "minimal.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.unsupported_schema"));
+        CHECK(has_code(result.error(), "compiled_project.unsupported_provisional_schema"));
         CHECK(has_code(result.error(), "compiled_project.unsupported_version"));
     }
 
@@ -396,6 +397,430 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         auto result = decode_shared_project(document, "comprehensive.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.duplicate_id"));
+    }
+}
+
+TEST_CASE("compiled project public decoder atomically publishes all Phase 4 goldens")
+{
+    for (const auto name :
+         {"minimal", "comprehensive", "inheritance-properties-localization", "resources",
+          "scene-program", "dialogue-program", "interaction-program"}) {
+        auto document = fixture(name);
+        const auto original = document;
+        auto result =
+            noveltea::core::decode_compiled_project(document, std::string(name) + ".json");
+        INFO(name);
+        REQUIRE(result);
+        CHECK(document == original);
+        CHECK(result.value().identity().id.text().starts_with("golden-"));
+        CHECK(result.value().find_room(RoomId::create("start").value()) != nullptr);
+    }
+
+    auto inheritance = noveltea::core::decode_compiled_project(
+        fixture("inheritance-properties-localization"), "inheritance.json");
+    REQUIRE(inheritance);
+    const auto child = RoomId::create("hall").value();
+    REQUIRE(inheritance.value().find_room(child) != nullptr);
+    REQUIRE(inheritance.value().room_parent_index(child));
+    CHECK_FALSE(inheritance.value().find_room(child)->identity.property_assignments.empty());
+
+    auto comprehensive =
+        noveltea::core::decode_compiled_project(fixture("comprehensive"), "comprehensive.json");
+    REQUIRE(comprehensive);
+    const auto& complete = comprehensive.value();
+    CHECK(complete.variables().size() == 5);
+    CHECK(complete.properties().size() == 5);
+    CHECK(complete.assets().size() == 9);
+    CHECK(complete.layouts().size() == 2);
+    CHECK(complete.scripts().size() == 2);
+    CHECK(complete.characters().size() == 1);
+    CHECK(complete.rooms().size() == 3);
+    CHECK(complete.interactables().size() == 3);
+    CHECK(complete.verbs().size() == 1);
+    CHECK(complete.interactions().size() == 1);
+    CHECK(complete.scenes().size() == 1);
+    CHECK(complete.dialogues().size() == 1);
+    CHECK(complete.maps().size() == 1);
+    CHECK(complete.find_variable(VariableId::create("count").value()) != nullptr);
+    CHECK(complete.find_property(PropertyId::create("mood").value()) != nullptr);
+    CHECK(complete.find_asset(AssetId::create("image-main").value()) != nullptr);
+    CHECK(complete.find_layout(LayoutId::create("hud-inline").value()) != nullptr);
+    CHECK(complete.find_script(ScriptId::create("inline-module").value()) != nullptr);
+    CHECK(complete.find_character(CharacterId::create("hero").value()) != nullptr);
+    CHECK(complete.find_interactable(InteractableId::create("coin").value()) != nullptr);
+    CHECK(complete.find_verb(VerbId::create("look").value()) != nullptr);
+    CHECK(complete.find_interaction(InteractionId::create("look").value()) != nullptr);
+    CHECK(complete.find_scene(SceneId::create("opening").value()) != nullptr);
+    CHECK(complete.find_dialogue(DialogueId::create("intro").value()) != nullptr);
+    CHECK(complete.find_map(MapId::create("house").value()) != nullptr);
+    REQUIRE(complete.layouts().front().dependencies.materials.size() == 1);
+    CHECK(complete.layouts().front().dependencies.materials.front().text() == "sprite-material");
+
+    auto scene = noveltea::core::decode_compiled_project(fixture("scene-program"), "scene.json");
+    REQUIRE(scene);
+    REQUIRE(scene.value().scenes().size() == 2);
+    CHECK(scene.value().scenes()[1].program.instructions.size() == 15);
+
+    auto dialogue =
+        noveltea::core::decode_compiled_project(fixture("dialogue-program"), "dialogue.json");
+    REQUIRE(dialogue);
+    REQUIRE(dialogue.value().dialogues().size() == 2);
+    CHECK(dialogue.value().dialogues()[1].program.blocks.size() == 4);
+    CHECK(dialogue.value().dialogues()[1].program.edges.size() == 3);
+
+    auto interaction =
+        noveltea::core::decode_compiled_project(fixture("interaction-program"), "interaction.json");
+    REQUIRE(interaction);
+    REQUIRE(interaction.value().interactions().size() == 2);
+    CHECK(interaction.value().interactions().front().rules.size() == 4);
+}
+
+TEST_CASE("compiled project public decoder rejects semantic linking failures")
+{
+    SECTION("unresolved entrypoint")
+    {
+        auto document = fixture("minimal");
+        document["entrypoint"]["room"]["id"] = "missing-room";
+        auto result = noveltea::core::decode_compiled_project(document, "minimal.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+    }
+
+    SECTION("inheritance cycle")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* rooms = path_member(document, {"definitions", "rooms"});
+        REQUIRE(rooms != nullptr);
+        auto* first = json_access::element(*rooms, 0);
+        auto* second = json_access::element(*rooms, 1);
+        REQUIRE(first != nullptr);
+        REQUIRE(second != nullptr);
+        (*first)["extends"] = (*second)["id"];
+        (*second)["extends"] = (*first)["id"];
+        auto result = noveltea::core::decode_compiled_project(document, "inheritance.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled.invalid_inheritance"));
+    }
+
+    SECTION("inheritance self-reference")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* room = path_member(document, {"definitions", "rooms", "0"});
+        REQUIRE(room != nullptr);
+        (*room)["extends"] = (*room)["id"];
+        auto result = noveltea::core::decode_compiled_project(document, "inheritance.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled.invalid_inheritance"));
+    }
+
+    SECTION("inheritance missing parent")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* room = path_member(document, {"definitions", "rooms", "0"});
+        REQUIRE(room != nullptr);
+        (*room)["extends"] = "missing-room";
+        auto result = noveltea::core::decode_compiled_project(document, "inheritance.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled.invalid_inheritance"));
+    }
+
+    SECTION("property declaration and assignment mismatch")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* rooms = path_member(document, {"definitions", "rooms"});
+        REQUIRE(rooms != nullptr);
+        auto* room = json_access::element(*rooms, 0);
+        REQUIRE(room != nullptr);
+        auto* assignments = json_access::member(*room, "propertyAssignments");
+        REQUIRE(assignments != nullptr);
+        auto* assignment = json_access::element(*assignments, 0);
+        REQUIRE(assignment != nullptr);
+        (*assignment)["value"] = false;
+        auto result = noveltea::core::decode_compiled_project(document, "inheritance.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "domain.invalid_property_assignment"));
+    }
+
+    SECTION("property owner restriction")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* scene = path_member(document, {"definitions", "scenes", "0"});
+        REQUIRE(scene != nullptr);
+        (*scene)["propertyAssignments"] =
+            nlohmann::json::array({{{"propertyId", "mood"}, {"value", "calm"}}});
+        auto result = noveltea::core::decode_compiled_project(document, "properties.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "domain.invalid_property_assignment"));
+    }
+
+    SECTION("property nullability")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* assignment =
+            path_member(document, {"definitions", "rooms", "0", "propertyAssignments", "0"});
+        REQUIRE(assignment != nullptr);
+        (*assignment)["value"] = nullptr;
+        auto result = noveltea::core::decode_compiled_project(document, "properties.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "domain.invalid_property_assignment"));
+    }
+
+    SECTION("property enum membership")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* assignment =
+            path_member(document, {"definitions", "rooms", "0", "propertyAssignments", "0"});
+        REQUIRE(assignment != nullptr);
+        (*assignment)["value"] = "angry";
+        auto result = noveltea::core::decode_compiled_project(document, "properties.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "domain.invalid_property_assignment"));
+    }
+
+    SECTION("invalid property default")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* property = path_member(document, {"properties", "1"});
+        REQUIRE(property != nullptr);
+        (*property)["defaultValue"] = "angry";
+        auto result = noveltea::core::decode_compiled_project(document, "properties.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "domain.invalid_property_definition"));
+    }
+
+    SECTION("invalid property persistence")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* property = path_member(document, {"properties", "0"});
+        REQUIRE(property != nullptr);
+        (*property)["persistence"] = "Forever";
+        auto result = noveltea::core::decode_compiled_project(document, "properties.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_value"));
+    }
+
+    SECTION("unresolved property declaration")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* assignment =
+            path_member(document, {"definitions", "rooms", "0", "propertyAssignments", "0"});
+        REQUIRE(assignment != nullptr);
+        (*assignment)["propertyId"] = "missing-property";
+        auto result = noveltea::core::decode_compiled_project(document, "properties.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+    }
+
+    SECTION("variable assignment mismatch")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "7"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["value"] = "wrong-type";
+        auto result = noveltea::core::decode_compiled_project(document, "scene.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.variable_type_mismatch"));
+    }
+
+    SECTION("variable default enum membership")
+    {
+        auto document = fixture("inheritance-properties-localization");
+        auto* variable = path_member(document, {"variables", "2"});
+        REQUIRE(variable != nullptr);
+        (*variable)["defaultValue"] = "angry";
+        auto result = noveltea::core::decode_compiled_project(document, "variables.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled.invalid_model"));
+    }
+
+    SECTION("condition comparison type mismatch")
+    {
+        auto document = fixture("scene-program");
+        auto* condition =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "11",
+                                   "branches", "0", "condition"});
+        REQUIRE(condition != nullptr);
+        (*condition)["value"] = "not-an-integer";
+        auto result = noveltea::core::decode_compiled_project(document, "condition.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.variable_type_mismatch"));
+    }
+
+    SECTION("missing Scene branch target")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "11"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["fallbackInstructionId"] = "missing-step";
+        auto result = noveltea::core::decode_compiled_project(document, "scene.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
+    }
+
+    SECTION("duplicate Scene step ID")
+    {
+        auto document = fixture("scene-program");
+        auto* instructions =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions"});
+        REQUIRE(instructions != nullptr);
+        REQUIRE(instructions->size() > 1);
+        (*instructions)[1]["id"] = (*instructions)[0]["id"];
+        auto result = noveltea::core::decode_compiled_project(document, "scene.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.duplicate_id"));
+    }
+
+    SECTION("missing Dialogue graph target")
+    {
+        auto document = fixture("dialogue-program");
+        auto* edge =
+            path_member(document, {"definitions", "dialogues", "1", "program", "edges", "0"});
+        REQUIRE(edge != nullptr);
+        (*edge)["toBlockId"] = "missing-block";
+        auto result = noveltea::core::decode_compiled_project(document, "dialogue.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
+    }
+
+    SECTION("duplicate Dialogue block ID")
+    {
+        auto document = fixture("dialogue-program");
+        auto* blocks =
+            path_member(document, {"definitions", "dialogues", "1", "program", "blocks"});
+        REQUIRE(blocks != nullptr);
+        REQUIRE(blocks->size() > 1);
+        (*blocks)[1]["id"] = (*blocks)[0]["id"];
+        auto result = noveltea::core::decode_compiled_project(document, "dialogue.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.duplicate_id"));
+    }
+
+    SECTION("Dialogue redirect-only cycle")
+    {
+        auto document = fixture("dialogue-program");
+        auto* blocks =
+            path_member(document, {"definitions", "dialogues", "1", "program", "blocks"});
+        REQUIRE(blocks != nullptr);
+        REQUIRE(blocks->size() >= 4);
+        (*blocks)[2]["targetBlockId"] = (*blocks)[2]["id"];
+        auto result = noveltea::core::decode_compiled_project(document, "dialogue.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_dialogue_graph"));
+    }
+
+    SECTION("interaction arity mismatch")
+    {
+        auto document = fixture("interaction-program");
+        auto* operands =
+            path_member(document, {"definitions", "interactions", "0", "rules", "0", "operands"});
+        REQUIRE(operands != nullptr);
+        operands->clear();
+        auto result = noveltea::core::decode_compiled_project(document, "interaction.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.interaction_arity_mismatch"));
+    }
+
+    SECTION("Room placement references a missing Interactable")
+    {
+        auto document = fixture("comprehensive");
+        auto* placement =
+            path_member(document, {"definitions", "rooms", "0", "placements", "0", "interactable"});
+        REQUIRE(placement != nullptr);
+        (*placement)["id"] = "missing-interactable";
+        auto result = noveltea::core::decode_compiled_project(document, "room.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+    }
+
+    SECTION("Room exit references a missing Room")
+    {
+        auto document = fixture("comprehensive");
+        auto* target = path_member(document, {"definitions", "rooms", "0", "exits", "0", "target"});
+        REQUIRE(target != nullptr);
+        (*target)["id"] = "missing-room";
+        auto result = noveltea::core::decode_compiled_project(document, "room.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+    }
+
+    SECTION("Character defaults reference a missing pose")
+    {
+        auto document = fixture("comprehensive");
+        auto* defaults = path_member(document, {"definitions", "characters", "0", "defaults"});
+        REQUIRE(defaults != nullptr);
+        (*defaults)["poseId"] = "missing-pose";
+        auto result = noveltea::core::decode_compiled_project(document, "character.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
+    }
+
+    SECTION("gameplay Layout dependency references a missing Asset")
+    {
+        auto document = fixture("resources");
+        auto* image =
+            path_member(document, {"resources", "layouts", "0", "dependencies", "images", "0"});
+        REQUIRE(image != nullptr);
+        (*image)["id"] = "missing-asset";
+        auto result = noveltea::core::decode_compiled_project(document, "resources.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+    }
+
+    SECTION("gameplay Script source references a missing Asset")
+    {
+        auto document = fixture("resources");
+        auto* asset = path_member(document, {"resources", "scripts", "0", "source", "asset"});
+        REQUIRE(asset != nullptr);
+        (*asset)["id"] = "missing-asset";
+        auto result = noveltea::core::decode_compiled_project(document, "resources.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+    }
+
+    SECTION("inconsistent Map topology")
+    {
+        auto document = fixture("comprehensive");
+        auto* connection = path_member(document, {"definitions", "maps", "0", "connections", "0"});
+        REQUIRE(connection != nullptr);
+        (*connection)["targetLocationId"] = (*connection)["sourceLocationId"];
+        auto result = noveltea::core::decode_compiled_project(document, "map.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.inconsistent_map_topology"));
+    }
+
+    SECTION("Map connection references a missing location")
+    {
+        auto document = fixture("comprehensive");
+        auto* connection = path_member(document, {"definitions", "maps", "0", "connections", "0"});
+        REQUIRE(connection != nullptr);
+        (*connection)["sourceLocationId"] = "missing-location";
+        auto result = noveltea::core::decode_compiled_project(document, "map.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
+    }
+
+    SECTION("direct Scene entrypoint cannot return")
+    {
+        auto document = fixture("scene-program");
+        document["entrypoint"] = {{"kind", "scene"},
+                                  {"scene", {{"kind", "scene"}, {"id", "opening"}}}};
+        auto* continuation = path_member(document, {"definitions", "scenes", "1", "continuation"});
+        REQUIRE(continuation != nullptr);
+        *continuation = {{"kind", "return"}};
+        auto result = noveltea::core::decode_compiled_project(document, "scene.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_entrypoint_continuation"));
+    }
+
+    SECTION("provisional schema is explicitly unsupported")
+    {
+        auto document = fixture("minimal");
+        document["schema"] = "noveltea.runtime.project";
+        auto result = noveltea::core::decode_compiled_project(document, "legacy.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unsupported_provisional_schema"));
     }
 }
 
