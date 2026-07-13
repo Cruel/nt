@@ -409,7 +409,7 @@ TEST_CASE("ScriptInvoker propagates nested failures after suspension")
 
 TEST_CASE("typed Lua host services expose validated state and closed requests only")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::ScriptHostRequest> == 9);
+    STATIC_REQUIRE(std::variant_size_v<core::ScriptHostRequest> == 11);
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
     auto project = load_script_project();

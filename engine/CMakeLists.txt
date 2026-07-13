@@ -16,6 +16,7 @@ add_library(noveltea_core STATIC
     src/core/entity_ref.cpp
     src/core/flow_executor.cpp
     src/core/flow_executor_blockers.cpp
+    src/core/flow_executor_dialogue.cpp
     src/core/flow_executor_room.cpp
     src/core/flow_executor_scene.cpp
     src/core/entity_type.cpp
@@ -276,6 +277,7 @@ target_sources(engine PRIVATE
     src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
     src/script/typed_execution_kernel.cpp
+    src/script/typed_execution_dialogue.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)
 target_compile_definitions(engine PRIVATE

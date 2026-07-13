@@ -87,6 +87,19 @@ Graph positions, viewport, selected block/segment, collapsed blocks, preview bac
 display are stored in `noveltea.editor.tab-state.dialogue.v2`, not in Dialogue content. The preview
 adapter emits `noveltea.dialogue-preview.v2` from Dialogue data plus those editor-owned options.
 
+## Typed runtime execution
+
+The additive typed execution kernel is the sole Dialogue executor on the `CompiledProject` path. It
+executes Sequence, Choice, and Redirect blocks; Line and RunLua segments; Next and Choice edges;
+conditions, text sources, ordered effects, disabled-choice policy, history/show-once, logging, safe
+points, redirects, nested Return, and completion targets through `FlowExecutor` and `SessionState`.
+
+The mutable cursor retains stable block, segment, edge, and effect positions across input and Lua
+suspension. Advancement is validated and atomic: a failed effect, invalid target, stale blocker, or
+disabled choice does not consume the active position. Current line and choice presentation are
+published as a typed `DialogueView`; line/choice history and typed text-log entries have one
+session-owned source of truth.
+
 ## Transitional runtime adapter
 
 The package exporter still targets the pre-Phase-5 runtime project envelope. It lowers Sequence,
@@ -94,8 +107,11 @@ Choice, and Redirect structure into that temporary node representation and emits
 conditions, effects, Lua expressions/instructions, show-once, and autosave behavior the transitional
 runtime cannot execute. This is a one-way adapter, not a second authoring model.
 
-The final typed `DialogueProgram` compiler, native model, and FlowExecutor integration are later-phase
-work.
+The typed compiler, native model, and `FlowExecutor` integration are complete. The shipped
+controller-backed runtime UI, preview, playback, debugger, package, and persistence consumers still
+use the transitional path until the Phase 10 atomic cutover. `DialogueController` is retained only as
+explicit deletion debt for that cutover; it is not a compatibility requirement or a second
+authoritative Dialogue model.
 
 ## Implementation files
 
@@ -107,9 +123,17 @@ editor/src/renderer/project/dialogue-operations.ts
 editor/src/renderer/editors/dialogues/DialogueEditor.tsx
 editor/src/renderer/editors/dialogues/DialogueGraph.tsx
 editor/src/shared/project-schema/authoring-runtime-export.ts
+engine/include/noveltea/core/compiled_project.hpp
+engine/include/noveltea/core/feature_state.hpp
+engine/include/noveltea/core/feature_view.hpp
+engine/include/noveltea/core/flow.hpp
+engine/include/noveltea/core/flow_executor.hpp
+engine/src/core/flow_executor_dialogue.cpp
+engine/src/script/typed_execution_dialogue.cpp
 editor/src/renderer/test/authoring-dialogues.test.ts
 editor/src/renderer/test/dialogue-operations.test.ts
 editor/src/renderer/test/dialogue-editor.test.tsx
+tests/script/typed_dialogue_execution_tests.cpp
 ```
 
 ## Authoring, compiled, and state disposition

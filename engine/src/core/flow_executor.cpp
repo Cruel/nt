@@ -342,15 +342,20 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                 switch (candidate->stage) {
                 case DialogueFramePosition::Stage::EnterBlock:
                 case DialogueFramePosition::Stage::Complete:
-                    return !candidate->segment && !candidate->edge && candidate->next_effect == 0;
+                    return !candidate->segment && !candidate->edge && candidate->next_effect == 0 &&
+                           !candidate->awaiting_completion;
                 case DialogueFramePosition::Stage::PresentSegment:
-                    return segment != nullptr && !candidate->edge && candidate->next_effect == 0;
+                    return segment != nullptr && !candidate->edge && candidate->next_effect == 0 &&
+                           (!candidate->awaiting_completion ||
+                            std::holds_alternative<compiled::DialogueRunLuaSegment>(*segment));
                 case DialogueFramePosition::Stage::ApplySegmentEffects: {
                     const auto* line = segment == nullptr
                                            ? nullptr
                                            : std::get_if<compiled::DialogueLineSegment>(segment);
                     return line != nullptr && !candidate->edge &&
-                           candidate->next_effect <= line->effects.size();
+                           candidate->next_effect <= line->effects.size() &&
+                           (!candidate->awaiting_completion ||
+                            candidate->next_effect < line->effects.size());
                 }
                 case DialogueFramePosition::Stage::PresentChoices:
                     return std::holds_alternative<compiled::DialogueChoiceBlock>(*block) &&
@@ -359,10 +364,13 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                     const auto* choice =
                         edge == nullptr ? nullptr : std::get_if<compiled::DialogueChoiceEdge>(edge);
                     return choice != nullptr && !candidate->segment &&
-                           candidate->next_effect <= choice->effects.size();
+                           candidate->next_effect <= choice->effects.size() &&
+                           (!candidate->awaiting_completion ||
+                            candidate->next_effect < choice->effects.size());
                 }
                 case DialogueFramePosition::Stage::FollowEdge:
-                    return edge != nullptr && !candidate->segment && candidate->next_effect == 0;
+                    return edge != nullptr && !candidate->segment && candidate->next_effect == 0 &&
+                           !candidate->awaiting_completion;
                 }
                 return false;
             } else if constexpr (std::is_same_v<Frame, InteractionFrame>) {

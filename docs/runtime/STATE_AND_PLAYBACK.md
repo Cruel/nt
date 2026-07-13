@@ -104,15 +104,16 @@ path remains unchanged until the later atomic consumer cutover.
 `ScriptInvoker` against the same immutable `CompiledProject`. Its closed dispatch methods route Lua
 and non-Lua Condition, Effect, and TextSource variants to the appropriate validated service while
 preserving typed errors. It exposes wait and exact script-resume/cancel operations and, after Phase
-7B, executes the complete flat Scene V1 program. Dialogue, Room, and Interaction instruction
-execution and queued external request consumption remain deferred to their owning phases.
+7C, executes the complete flat Scene V1 program and compiled Dialogue V2 graph. Room and Interaction
+instruction execution and queued external request consumption remain deferred to their owning
+phases.
 
 `FlowExecutor` remains one logical, noncopyable authority over flow-stack, cursor, blocker, mode, and
 fault mutation. Its implementation is partitioned by responsibility: generic stack and run-loop
 orchestration remains in `flow_executor.cpp`, while typed blocker operations, Room-transition
-operations, and Scene cursor/wait/choice operations live in dedicated translation units. Later
-Dialogue and Interaction frame operations should follow the same implementation split rather than
-creating competing flow-state owners.
+operations, Scene cursor/wait/choice operations, and Dialogue cursor/wait/choice operations live in
+dedicated translation units. Later Interaction frame operations should follow the same
+implementation split rather than creating competing flow-state owners.
 
 ## Phase 7B typed Character/Actor and Scene execution
 
@@ -134,7 +135,26 @@ completed, including after a child Dialogue returns and after every selected cho
 The controller-backed `CutsceneController` remains transitional Phase 10 deletion debt because the
 shipped runtime UI, preview, playback, debugger, and package consumers have not yet made their atomic
 cutover. Phase 7B does not route those consumers through the additive kernel and does not implement
-Dialogue, Room, Interaction, Map, persistence, or external adapter behavior.
+Room, Interaction, Map, persistence, or external adapter behavior.
+
+## Phase 7C typed Dialogue execution
+
+The additive Dialogue visitor executes compiled Sequence, Choice, and Redirect blocks without JSON.
+It resolves Line and RunLua segments, Next and Choice edges, synchronous conditions and text sources,
+speaker fallback, ordered effects, typed input and script blockers, redirects, nested Return, and
+terminal completion through the shared flow stack. The frame retains stable block, segment, edge,
+and effect positions while input or Lua is suspended. Failed effects, invalid targets, stale handles,
+and disabled selections do not partially advance the cursor.
+
+Dialogue history, show-once state, current line, active choice, and text log remain owned by
+`SessionState`. `showDisabledChoices` controls visibility only; disabled options remain
+unselectable. Global log mode and per-item suppression are applied before session-owned typed log
+entries are appended. Line and choice safe points queue distinct typed host requests only after their
+ordered effects complete. Runtime-facing presentation is exposed as a JSON-free `DialogueView`.
+
+The controller-backed `DialogueController` remains transitional Phase 10 deletion debt. Phase 7C
+does not reroute the shipped runtime UI, preview, playback, debugger, package player, persistence, or
+external request adapters; those consumers remain subject to the planned atomic cutover.
 
 ## Current scaffold
 

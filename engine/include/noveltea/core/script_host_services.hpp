@@ -61,11 +61,20 @@ struct AutosaveSafePointRequest {
     SceneId scene;
     SceneStepId step;
 };
+struct DialogueLineAutosaveSafePointRequest {
+    DialogueId dialogue;
+    DialogueSegmentId segment;
+};
+struct DialogueChoiceAutosaveSafePointRequest {
+    DialogueId dialogue;
+    DialogueEdgeId edge;
+};
 
 using ScriptHostRequest =
     std::variant<MoveInteractableRequest, NavigationRequest, StartTransientSceneRequest,
                  StartTransientDialogueRequest, CallChildSceneRequest, CallChildDialogueRequest,
-                 TailReplaceFlowRequest, NotificationRequest, AutosaveSafePointRequest>;
+                 TailReplaceFlowRequest, NotificationRequest, AutosaveSafePointRequest,
+                 DialogueLineAutosaveSafePointRequest, DialogueChoiceAutosaveSafePointRequest>;
 
 // Typed, JSON-free services exposed to Lua and the additive feature kernel. Requests are validated
 // and queued for their owning Phase 7/9 adapters; this class does not execute external adapters,
@@ -102,6 +111,8 @@ public:
     [[nodiscard]] Result<void, Diagnostics> request_tail_replacement(FlowTarget target);
     [[nodiscard]] Result<void, Diagnostics> request_notification(std::string message);
     void request_autosave_safe_point(SceneId scene, SceneStepId step);
+    void request_autosave_safe_point(DialogueId dialogue, DialogueSegmentId segment);
+    void request_autosave_safe_point(DialogueId dialogue, DialogueEdgeId edge);
 
     [[nodiscard]] const std::vector<ScriptHostRequest>& requests() const noexcept
     {

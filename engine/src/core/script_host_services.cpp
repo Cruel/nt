@@ -304,6 +304,18 @@ void ScriptHostServices::request_autosave_safe_point(SceneId scene, SceneStepId 
     m_requests.emplace_back(AutosaveSafePointRequest{std::move(scene), std::move(step)});
 }
 
+void ScriptHostServices::request_autosave_safe_point(DialogueId dialogue, DialogueSegmentId segment)
+{
+    m_requests.emplace_back(
+        DialogueLineAutosaveSafePointRequest{std::move(dialogue), std::move(segment)});
+}
+
+void ScriptHostServices::request_autosave_safe_point(DialogueId dialogue, DialogueEdgeId edge)
+{
+    m_requests.emplace_back(
+        DialogueChoiceAutosaveSafePointRequest{std::move(dialogue), std::move(edge)});
+}
+
 std::vector<ScriptHostRequest> ScriptHostServices::take_requests() noexcept
 {
     std::vector<ScriptHostRequest> result;

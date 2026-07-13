@@ -74,6 +74,15 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     choose_scene_option(const FlowFrameId& owner, const InputFlowBlockerHandle& handle,
                         const SceneChoiceOptionId& option);
+    [[nodiscard]] Result<void, Diagnostics>
+    advance_dialogue(const DialogueId& dialogue, const DialogueFramePosition& expected_position,
+                     DialogueFramePosition next_position);
+    [[nodiscard]] Result<void, Diagnostics>
+    mark_dialogue_wait(const DialogueId& dialogue, const DialogueFramePosition& expected_position,
+                       DialogueFramePosition next_position);
+    [[nodiscard]] Result<void, Diagnostics>
+    choose_dialogue_option(const FlowFrameId& owner, const InputFlowBlockerHandle& handle,
+                           const DialogueEdgeId& edge);
     [[nodiscard]] Result<void, Diagnostics> fault(Diagnostics diagnostics);
     [[nodiscard]] Result<void, Diagnostics> begin_run();
     void end_run() noexcept;

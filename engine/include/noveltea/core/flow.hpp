@@ -72,6 +72,9 @@ struct DialogueFramePosition {
         Complete
     } stage = Stage::EnterBlock;
     std::size_t next_effect = 0;
+    bool awaiting_completion = false;
+
+    auto operator<=>(const DialogueFramePosition&) const = default;
 };
 
 struct InteractionInvocationContext {

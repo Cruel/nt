@@ -264,7 +264,8 @@ bool valid_dialogue_choice(const CompiledProject& project,
                             return choice != nullptr && choice->id == option.edge &&
                                    choice->from_block_id == state.block;
                         });
-        if (!exists || std::find(seen.begin(), seen.end(), option.edge) != seen.end())
+        if (!exists || option.markup > TextMarkup::ActiveText ||
+            std::find(seen.begin(), seen.end(), option.edge) != seen.end())
             return false;
         seen.push_back(option.edge);
     }

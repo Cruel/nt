@@ -109,6 +109,7 @@ struct DialogueChoiceOptionState {
     DialogueEdgeId edge;
     std::string label;
     bool enabled = true;
+    TextMarkup markup = TextMarkup::Plain;
 };
 struct DialogueChoiceState {
     DialogueId dialogue;

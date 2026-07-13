@@ -223,7 +223,14 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
             return core::FlowModeChangedOutcome{m_state.mode()};
         if (m_state.flow_stack().empty())
             return fault(execution_error("execution.invalid_stack",
-                                         "Flow mode requires an active Scene frame"));
+                                         "Flow mode requires an active typed frame"));
+        if (std::holds_alternative<core::DialogueFrame>(m_state.flow_stack().back())) {
+            auto outcome = run_dialogue_unit(runtime_locale);
+            if (outcome)
+                return *outcome;
+            ++executed;
+            continue;
+        }
         const auto* frame = std::get_if<core::SceneFrame>(&m_state.flow_stack().back());
         if (frame == nullptr)
             return fault(
