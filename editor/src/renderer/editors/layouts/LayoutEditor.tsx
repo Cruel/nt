@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
 import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -64,10 +65,13 @@ function toggleRef<T extends { $ref: { id: string } }>(refs: T[], ref: T): T[] {
   return refs.some((item) => item.$ref.id === id) ? refs.filter((item) => item.$ref.id !== id) : [...refs, ref];
 }
 
-function parseSampleState(text: string): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
+const jsonValueSchema = z.json();
+type JsonValue = z.infer<typeof jsonValueSchema>;
+
+function parseSampleState(text: string): { ok: true; value: Record<string, JsonValue> } | { ok: false; message: string } {
   try {
-    const value = JSON.parse(text) as unknown;
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) return { ok: true, value: value as Record<string, unknown> };
+    const parsed = jsonValueSchema.safeParse(JSON.parse(text));
+    if (parsed.success && typeof parsed.data === 'object' && parsed.data !== null && !Array.isArray(parsed.data)) return { ok: true, value: parsed.data };
     return { ok: false, message: 'Sample state must be a JSON object.' };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : 'Invalid sample state JSON.' };

@@ -19,7 +19,7 @@ export const assetAliasPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 export const assetSourceSchema = z.object({
   type: z.literal('project-file'),
   path: z.string().min(1),
-});
+}).strict();
 
 export const assetDataSchema = z.object({
   kind: z.enum(assetKindValues),
@@ -37,8 +37,8 @@ export const assetDataSchema = z.object({
     width: z.number().positive().optional(),
     height: z.number().positive().optional(),
     durationSeconds: z.number().nonnegative().optional(),
-  }).optional(),
-});
+  }).strict().optional(),
+}).strict();
 
 export type AssetData = z.infer<typeof assetDataSchema>;
 

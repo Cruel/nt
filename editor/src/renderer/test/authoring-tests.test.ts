@@ -51,7 +51,7 @@ describe('authoring tests schema', () => {
     const data = defaultTestData('Smoke');
     data.entrypoint = testSceneRef('missing-scene');
     data.steps = [
-      { ...defaultTestStep('run-action'), id: 'step', label: 'Action', runAction: { verb: { $ref: { collection: 'verbs', id: 'missing-verb' } }, interactables: [{ $ref: { collection: 'interactables', id: 'missing-object' } }] } },
+      { ...defaultTestStep('run-interaction'), id: 'step', label: 'Interaction', runInteraction: { verb: { $ref: { collection: 'verbs', id: 'missing-verb' } }, interactables: [{ $ref: { collection: 'interactables', id: 'missing-interactable' } }] } },
       { ...defaultTestStep('tick'), id: 'step', label: 'Duplicate', assertions: [
         { ...defaultTestAssertion('property-equals'), id: 'assertion', label: 'Property', key: '', variable: null },
         { ...defaultTestAssertion('mode'), id: 'assertion', label: 'Mode', value: '' },
@@ -62,8 +62,8 @@ describe('authoring tests schema', () => {
     expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/tests/smoke/data/entrypoint/$ref', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runAction/verb/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runAction/interactables/0/$ref', severity: 'error' }),
+      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/verb/$ref', severity: 'error' }),
+      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/interactables/0/$ref', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/1/id', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/0/key', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/1/value', severity: 'error' }),

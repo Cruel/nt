@@ -5,8 +5,8 @@ import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
 
 const assetRecordRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
-});
+  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
+}).strict();
 
 const fontAssetRefSchema = assetRecordRefSchema.nullable();
 const imageAssetRefSchema = assetRecordRefSchema.nullable();
@@ -84,7 +84,7 @@ export const MAX_ASPECT_RATIO_COMPONENT = 10_000;
 
 const aspectRatioComponentSchema = z.number().int().positive().max(MAX_ASPECT_RATIO_COMPONENT);
 export const projectDisplaySettingsSchema = z.object({
-  aspectRatio: z.object({ width: aspectRatioComponentSchema, height: aspectRatioComponentSchema }),
+  aspectRatio: z.object({ width: aspectRatioComponentSchema, height: aspectRatioComponentSchema }).strict(),
   orientation: z.enum(['landscape', 'portrait']),
   barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Bar color must be a six-digit hex color.'),
 }).strict();

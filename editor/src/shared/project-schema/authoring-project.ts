@@ -70,8 +70,6 @@ export interface AuthoringRecordBase {
   properties?: PropertyAssignments;
 }
 
-export type AuthoringCollection = Record<EntityId, AuthoringRecordBase>;
-
 export interface CreateAuthoringProjectOptions {
   id?: string;
   name?: string;

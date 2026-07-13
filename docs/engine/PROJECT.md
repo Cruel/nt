@@ -28,13 +28,14 @@ The gameplay document is separate from the package manifest and shader/material 
 
 ## Current implementation scaffold
 
-Phases 3A--3E implement the strict `noveltea.authoring.project` V2 root infrastructure,
+Phases 3A--3F implement the complete strict `noveltea.authoring.project` V2 boundary,
 collection-specific record maps, `interactables`/`interactions`, same-type `extends`, declared typed
 properties and assignments, variables, localization, editor-only record metadata, the strict
 Room/Scene/Dialogue entrypoint plus separate startup hook, and complete Interactable, Verb,
-Interaction, Map, and Script Module contracts. Phase 3 remains in progress until Phase 3F migrates
-all fixtures and consumers through the final collection-wide strictness and authoritative-cutover
-gate.
+Interaction, Map, and Script Module contracts. Every ordinary V2 collection now rejects unknown
+fields at arbitrary nested authoring levels; checked-in editor fixtures and consumers use the V2
+collection names and contracts. The one-way legacy runtime-export adapter remains a documented
+pre-Phase-4 boundary only.
 
 The native runtime still uses `ProjectDocument`, `ProjectModel`, numeric entity tags, and partial room-oriented export. Those paths remain build scaffolding only and do not alter the V2 authoring contract.
 
@@ -53,7 +54,7 @@ Phases 3--10 replace this scaffold. No legacy format, universal parent behavior,
 
 ### Current V2 authoring document
 
-The editor currently reads and writes the V2 scaffolding directly. V1 and legacy collection names are rejected by the normal parser, but this state remains transitional until every admitted collection has its complete schema. The Phase 3A root resembles:
+The editor reads and writes strict V2 directly. V1 and legacy collection names are rejected by the normal parser. The root resembles:
 
 ```ts
 interface AuthoringProject {
@@ -66,27 +67,27 @@ interface AuthoringProject {
     author: string;
     description: string;
   };
-  settings: Record<string, unknown>;
+  settings: TypedProjectSettings;
   startupHook: { source: string } | null;
   entrypoint: { kind: 'room' | 'scene' | 'dialogue'; id: string } | null;
   properties: Record<PropertyId, PropertyDefinition>;
   localization: AuthoringLocalization;
   editor: EditorProjectState;
-  assets: AuthoringCollection;
-  variables: AuthoringCollection;
-  shaders: AuthoringCollection;
-  materials: AuthoringCollection;
-  layouts: AuthoringCollection;
-  characters: AuthoringCollection;
-  rooms: AuthoringCollection;
-  interactables: InteractableAuthoringCollection;
-  verbs: AuthoringCollection;
-  interactions: InteractionAuthoringCollection;
-  dialogues: AuthoringCollection;
-  scenes: AuthoringCollection;
-  maps: AuthoringCollection;
-  scripts: AuthoringCollection;
-  tests: AuthoringCollection;
+  assets: Record<EntityId, AssetAuthoringRecord>;
+  variables: Record<EntityId, VariableAuthoringRecord>;
+  shaders: Record<EntityId, ShaderAuthoringRecord>;
+  materials: Record<EntityId, MaterialAuthoringRecord>;
+  layouts: Record<EntityId, LayoutAuthoringRecord>;
+  characters: Record<EntityId, CharacterAuthoringRecord>;
+  rooms: Record<EntityId, RoomAuthoringRecord>;
+  interactables: Record<EntityId, InteractableAuthoringRecord>;
+  verbs: Record<EntityId, VerbAuthoringRecord>;
+  interactions: Record<EntityId, InteractionAuthoringRecord>;
+  dialogues: Record<EntityId, DialogueAuthoringRecord>;
+  scenes: Record<EntityId, SceneAuthoringRecord>;
+  maps: Record<EntityId, MapAuthoringRecord>;
+  scripts: Record<EntityId, ScriptAuthoringRecord>;
+  tests: Record<EntityId, TestAuthoringRecord>;
 }
 ```
 

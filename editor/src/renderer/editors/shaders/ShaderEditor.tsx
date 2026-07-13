@@ -19,9 +19,11 @@ import {
   shaderRoleValues,
   shaderStageValues,
   shaderUniformTypeValues,
+  shaderUniformValueSchema,
   type ShaderData,
   type ShaderStageData,
   type ShaderUniformData,
+  type ShaderUniformValue,
 } from '../../../shared/project-schema/authoring-shaders';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { restoredDraftPayload, useEditorDraftDirty, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
@@ -76,14 +78,13 @@ function updateShader(shaderId: string, next: ShaderData, label: string) {
   });
 }
 
-function parseScalarValue(type: string, value: string): unknown {
-  if (type === 'float') return Number.parseFloat(value || '0');
-  if (type === 'int') return Number.parseInt(value || '0', 10);
-  if (type === 'bool') return value === 'true';
-  if (['vec2', 'vec3', 'vec4', 'color'].includes(type)) {
-    return value.split(',').map((item) => Number.parseFloat(item.trim() || '0'));
-  }
-  return value;
+function parseScalarValue(type: ShaderUniformData['type'], value: string): ShaderUniformValue {
+  const raw = type === 'float' ? Number.parseFloat(value || '0')
+    : type === 'int' ? Number.parseInt(value || '0', 10)
+      : type === 'bool' ? value === 'true'
+        : value.split(',').map((item) => Number.parseFloat(item.trim() || '0'));
+  const parsed = shaderUniformValueSchema.safeParse(raw);
+  return parsed.success ? parsed.data : 0;
 }
 
 function valueToText(value: unknown): string {

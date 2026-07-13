@@ -7,9 +7,9 @@ export const testInputTypeValues = [
   'continue',
   'dialogue-option',
   'navigate',
-  'select-object',
-  'clear-object-selection',
-  'run-action',
+  'select-interactable',
+  'clear-interactable-selection',
+  'run-interaction',
   'load-save',
   'set-entrypoint',
   'ui-click',
@@ -22,7 +22,7 @@ export const testAssertionTypeValues = [
   'title',
   'text-log-contains',
   'property-equals',
-  'object-location',
+  'interactable-location',
   'inventory-contains',
   'output-type',
   'diagnostic-category',
@@ -32,7 +32,7 @@ export type TestAssertionType = (typeof testAssertionTypeValues)[number];
 export const testEntrypointCollectionValues = ['scenes', 'rooms', 'dialogues'] as const;
 
 export const testRefSchema = <Collection extends string>(collection: Collection) =>
-  z.object({ $ref: z.object({ collection: z.literal(collection), id: z.string().min(1) }) });
+  z.object({ $ref: z.object({ collection: z.literal(collection), id: z.string().min(1) }).strict() }).strict();
 
 export const testSceneRefSchema = testRefSchema('scenes');
 export const testRoomRefSchema = testRefSchema('rooms');
@@ -58,11 +58,11 @@ export const testAssertionDataSchema = z.object({
   label: z.string().default('Assertion'),
   value: z.string().default(''),
   key: z.string().default(''),
-  expected: z.unknown().default(null),
+  expected: z.json().default(null),
   entity: testAnyRefSchema.nullable().default(null),
   variable: testVariableRefSchema.nullable().default(null),
   enabled: z.boolean().default(true),
-});
+}).strict();
 
 export const testStepDataSchema = z.object({
   id: entityIdSchema,
@@ -72,20 +72,20 @@ export const testStepDataSchema = z.object({
   deltaSeconds: z.number().finite().nonnegative().nullable().default(null),
   initScript: z.string().default(''),
   checkScript: z.string().default(''),
-  tick: z.object({ deltaSeconds: z.number().finite().nonnegative().default(0) }).default({ deltaSeconds: 0 }),
-  dialogueOption: z.object({ optionIndex: z.number().int().nonnegative().default(0) }).default({ optionIndex: 0 }),
-  navigate: z.object({ direction: z.number().int().min(0).max(7).default(1), target: testRoomRefSchema.nullable().default(null) }).default({ direction: 1, target: null }),
-  selectObject: z.object({ object: testInteractableRefSchema.nullable().default(null) }).default({ object: null }),
-  runAction: z.object({ verb: testVerbRefSchema.nullable().default(null), interactables: z.array(testInteractableRefSchema).default([]) }).default({ verb: null, interactables: [] }),
-  loadSave: z.object({ slotId: z.string().default(''), payload: z.unknown().default(null) }).default({ slotId: '', payload: null }),
-  setEntrypoint: z.object({ entrypoint: testEntrypointRefSchema.nullable().default(null) }).default({ entrypoint: null }),
+  tick: z.object({ deltaSeconds: z.number().finite().nonnegative().default(0) }).strict().default({ deltaSeconds: 0 }),
+  dialogueOption: z.object({ optionIndex: z.number().int().nonnegative().default(0) }).strict().default({ optionIndex: 0 }),
+  navigate: z.object({ direction: z.number().int().min(0).max(7).default(1), target: testRoomRefSchema.nullable().default(null) }).strict().default({ direction: 1, target: null }),
+  selectInteractable: z.object({ interactable: testInteractableRefSchema.nullable().default(null) }).strict().default({ interactable: null }),
+  runInteraction: z.object({ verb: testVerbRefSchema.nullable().default(null), interactables: z.array(testInteractableRefSchema).default([]) }).strict().default({ verb: null, interactables: [] }),
+  loadSave: z.object({ slotId: z.string().default(''), payload: z.json().default(null) }).strict().default({ slotId: '', payload: null }),
+  setEntrypoint: z.object({ entrypoint: testEntrypointRefSchema.nullable().default(null) }).strict().default({ entrypoint: null }),
   uiClick: z.object({
     documentId: z.string().default('runtime_title'),
     target: z.string().default('#nt-title-start'),
     selector: z.string().default('#nt-title-start'),
-  }).default({ documentId: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' }),
+  }).strict().default({ documentId: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' }),
   assertions: z.array(testAssertionDataSchema).default([]),
-});
+}).strict();
 
 export const testDataSchema = z.object({
   kind: z.literal('test').default('test'),
@@ -100,8 +100,8 @@ export const testDataSchema = z.object({
     selectedStepId: entityIdSchema.nullable().default(null),
     selectedObservationIndex: z.number().int().nonnegative().nullable().default(null),
     autoOpenReport: z.boolean().default(true),
-  }).default({ selectedStepId: 'start', selectedObservationIndex: null, autoOpenReport: true }),
-});
+  }).strict().default({ selectedStepId: 'start', selectedObservationIndex: null, autoOpenReport: true }),
+}).strict();
 
 export type TestSceneRef = z.infer<typeof testSceneRefSchema>;
 export type TestRoomRef = z.infer<typeof testRoomRefSchema>;
@@ -191,8 +191,8 @@ function validateAssertion(assertion: TestAssertionData, path: string, diagnosti
   if (assertion.type === 'property-equals' && !assertion.key.trim() && !assertion.variable) {
     diagnostics.push(diagnostic(`${path}/key`, 'property-equals assertion requires a key or variable reference.'));
   }
-  if (assertion.type === 'object-location' && !assertion.key.trim()) {
-    diagnostics.push(diagnostic(`${path}/key`, 'object-location assertion requires an object key.'));
+  if (assertion.type === 'interactable-location' && !assertion.key.trim()) {
+    diagnostics.push(diagnostic(`${path}/key`, 'interactable-location assertion requires an interactable key.'));
   }
 }
 
@@ -202,10 +202,10 @@ function validateStep(project: AuthoringProject, step: TestStepData, path: strin
   if (!step.enabled) return;
   if (step.input === 'navigate' && (step.navigate.direction < 0 || step.navigate.direction > 7)) diagnostics.push(diagnostic(`${path}/navigate/direction`, 'Navigation direction must be 0 through 7.'));
   if (step.input === 'dialogue-option' && step.dialogueOption.optionIndex < 0) diagnostics.push(diagnostic(`${path}/dialogueOption/optionIndex`, 'Dialogue option index cannot be negative.'));
-  if (step.input === 'select-object') validateRef(project, step.selectObject.object, `${path}/selectObject/object`, diagnostics);
-  if (step.input === 'run-action') {
-    validateRef(project, step.runAction.verb, `${path}/runAction/verb`, diagnostics);
-    step.runAction.interactables.forEach((object, index) => validateRef(project, object, `${path}/runAction/interactables/${index}`, diagnostics));
+  if (step.input === 'select-interactable') validateRef(project, step.selectInteractable.interactable, `${path}/selectInteractable/interactable`, diagnostics);
+  if (step.input === 'run-interaction') {
+    validateRef(project, step.runInteraction.verb, `${path}/runInteraction/verb`, diagnostics);
+    step.runInteraction.interactables.forEach((interactable, index) => validateRef(project, interactable, `${path}/runInteraction/interactables/${index}`, diagnostics));
   }
   if (step.input === 'set-entrypoint') validateRef(project, step.setEntrypoint.entrypoint, `${path}/setEntrypoint/entrypoint`, diagnostics);
   if (step.input === 'ui-click') {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AuthoredRuntimeValue } from './authoring-properties';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const variableTypeValues = ['boolean', 'integer', 'number', 'string', 'enum'] as const;
@@ -7,15 +8,21 @@ export const variableScopeValues = ['global'] as const;
 export type VariableType = (typeof variableTypeValues)[number];
 export type VariableScope = (typeof variableScopeValues)[number];
 
-export const variableRefSchema = z.object({ $var: z.string().min(1) });
+const variableDefaultValueSchema = z.union([
+  z.boolean(),
+  z.number().finite(),
+  z.string(),
+]);
+
+export const variableRefSchema = z.object({ $var: z.string().min(1) }).strict();
 
 export const variableDataSchema = z.object({
   kind: z.literal('variable').default('variable'),
   type: z.enum(variableTypeValues),
-  defaultValue: z.unknown(),
+  defaultValue: variableDefaultValueSchema,
   scope: z.enum(variableScopeValues).default('global'),
   enumValues: z.array(z.string()).optional(),
-});
+}).strict();
 
 export type VariableRef = z.infer<typeof variableRefSchema>;
 export type VariableData = z.infer<typeof variableDataSchema>;
@@ -52,7 +59,7 @@ export function parseVariableData(value: unknown): VariableData | null {
   return parsed.success ? parsed.data : null;
 }
 
-export function defaultValueForVariableType(type: VariableType, enumValues?: readonly string[]): unknown {
+export function defaultValueForVariableType(type: VariableType, enumValues?: readonly string[]): Exclude<AuthoredRuntimeValue, null> {
   if (type === 'boolean') return false;
   if (type === 'integer') return 0;
   if (type === 'number') return 0;
@@ -78,7 +85,7 @@ export function defaultVariableData(type: VariableType = 'boolean'): VariableDat
   });
 }
 
-export function isVariableDefaultValueCompatible(type: VariableType, value: unknown, enumValues?: readonly string[]): boolean {
+export function isVariableDefaultValueCompatible(type: VariableType, value: unknown, enumValues?: readonly string[]): value is Exclude<AuthoredRuntimeValue, null> {
   if (type === 'boolean') return typeof value === 'boolean';
   if (type === 'integer') return isFiniteNumber(value) && Number.isInteger(value);
   if (type === 'number') return isFiniteNumber(value);
@@ -87,7 +94,7 @@ export function isVariableDefaultValueCompatible(type: VariableType, value: unkn
   return typeof value === 'string' && values.includes(value);
 }
 
-export function normalizeVariableDefaultValue(type: VariableType, value: unknown, enumValues?: readonly string[]): unknown {
+export function normalizeVariableDefaultValue(type: VariableType, value: unknown, enumValues?: readonly string[]): Exclude<AuthoredRuntimeValue, null> {
   if (isVariableDefaultValueCompatible(type, value, enumValues)) return value;
   return defaultValueForVariableType(type, enumValues);
 }
@@ -102,7 +109,7 @@ export function parseVariableDefaultText(
   type: VariableType,
   text: string,
   enumValues?: readonly string[],
-): { ok: true; value: unknown } | { ok: false; message: string } {
+): { ok: true; value: Exclude<AuthoredRuntimeValue, null> } | { ok: false; message: string } {
   const trimmed = text.trim();
   if (type === 'boolean') {
     if (trimmed === 'true') return { ok: true, value: true };

@@ -32,22 +32,22 @@ export type LayoutPreviewBackground = (typeof layoutPreviewBackgroundValues)[num
 export type SystemLayoutRole = (typeof systemLayoutRoleValues)[number];
 
 export const layoutAssetRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
-});
+  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
+}).strict();
 
 export const layoutMaterialRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('materials'), id: z.string().min(1) }),
-});
+  $ref: z.object({ collection: z.literal('materials'), id: z.string().min(1) }).strict(),
+}).strict();
 
 export const layoutRecordRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('layouts'), id: z.string().min(1) }),
-});
+  $ref: z.object({ collection: z.literal('layouts'), id: z.string().min(1) }).strict(),
+}).strict();
 
 export const layoutSourceDataSchema = z.object({
   sourceMode: z.enum(layoutSourceModeValues).default('inline'),
   sourceText: z.string().default(''),
   sourceAsset: layoutAssetRefSchema.nullable().default(null),
-});
+}).strict();
 
 export const layoutDependencyDataSchema = z.object({
   images: z.array(layoutAssetRefSchema).default([]),
@@ -55,17 +55,17 @@ export const layoutDependencyDataSchema = z.object({
   stylesheets: z.array(layoutAssetRefSchema).default([]),
   materials: z.array(layoutMaterialRefSchema).default([]),
   scripts: z.array(layoutAssetRefSchema).default([]),
-});
+}).strict();
 
 export const layoutScriptDataSchema = z.object({
   enabled: z.boolean().default(true),
   namespace: z.string().trim().optional(),
-});
+}).strict();
 
 export const layoutMountDataSchema = z.object({
   defaultParent: z.string().trim().optional(),
   scopedStyles: z.boolean().default(true),
-});
+}).strict();
 
 export const layoutDataSchema = z.object({
   kind: z.literal('layout').default('layout'),
@@ -84,13 +84,13 @@ export const layoutDataSchema = z.object({
     materials: [],
     scripts: [],
   }),
-  sampleState: z.record(z.string(), z.unknown()).default({}),
+  sampleState: z.record(z.string(), z.json()).default({}),
   preview: z.object({
     width: z.number().int().min(160).max(7680).default(1280),
     height: z.number().int().min(90).max(4320).default(720),
     background: z.enum(layoutPreviewBackgroundValues).default('dark'),
-  }).default({ width: 1280, height: 720, background: 'dark' }),
-});
+  }).strict().default({ width: 1280, height: 720, background: 'dark' }),
+}).strict();
 
 export const systemLayoutSettingsSchema = z.object({
   title: layoutRecordRefSchema.nullable().optional(),

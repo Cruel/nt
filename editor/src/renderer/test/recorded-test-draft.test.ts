@@ -28,9 +28,9 @@ describe('recorded test draft conversion', () => {
         { id: 'continue-1', input: 'continue', label: 'Continue' },
         { id: 'choice-1', input: 'dialogue-option', dialogueOption: { optionIndex: 2 } },
         { id: 'navigate-1', input: 'navigate', navigate: { direction: 1, target: null } },
-        { id: 'select-1', input: 'select-object', selectObject: { object: { $ref: { collection: 'interactables', id: 'lamp' } } } },
-        { id: 'clear-1', input: 'clear-object-selection' },
-        { id: 'action-1', input: 'run-action', runAction: { verb: { $ref: { collection: 'verbs', id: 'look' } }, interactables: [{ $ref: { collection: 'interactables', id: 'lamp' } }] } },
+        { id: 'select-1', input: 'select-interactable', selectInteractable: { interactable: { $ref: { collection: 'interactables', id: 'lamp' } } } },
+        { id: 'clear-1', input: 'clear-interactable-selection' },
+        { id: 'action-1', input: 'run-interaction', runInteraction: { verb: { $ref: { collection: 'verbs', id: 'look' } }, interactables: [{ $ref: { collection: 'interactables', id: 'lamp' } }] } },
       ],
       preview: { selectedStepId: 'continue-1' },
     });

@@ -27,11 +27,11 @@ export type ShaderUniformType = (typeof shaderUniformTypeValues)[number];
 export type ShaderInputBinding = (typeof shaderInputBindingValues)[number];
 
 export const shaderRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('shaders'), id: z.string().min(1) }),
-});
+  $ref: z.object({ collection: z.literal('shaders'), id: z.string().min(1) }).strict(),
+}).strict();
 export const shaderSourceAssetRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
-});
+  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
+}).strict();
 
 export const shaderStageDataSchema = z.object({
   stage: z.enum(shaderStageValues),
@@ -39,27 +39,42 @@ export const shaderStageDataSchema = z.object({
   sourceAsset: shaderSourceAssetRefSchema.nullable().optional(),
   sourceText: z.string().optional(),
   compiled: z.record(z.string(), z.string()).default({}),
-});
+}).strict();
+
+export const shaderUniformValueSchema = z.union([
+  z.null(),
+  z.number().finite(),
+  z.boolean(),
+  z.tuple([z.number().finite(), z.number().finite()]),
+  z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
+  z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()]),
+  z.object({
+    r: z.number().finite(),
+    g: z.number().finite(),
+    b: z.number().finite(),
+    a: z.number().finite(),
+  }).strict(),
+]);
 
 export const shaderUniformDataSchema = z.object({
   name: z.string().min(1),
   type: z.enum(shaderUniformTypeValues),
-  default: z.unknown().optional(),
+  default: shaderUniformValueSchema.optional(),
   range: z.tuple([z.number(), z.number()]).optional(),
   label: z.string().optional(),
   binding: z.enum(shaderInputBindingValues).nullable().optional(),
-});
+}).strict();
 
 export const shaderSamplerDataSchema = z.object({
   name: z.string().min(1),
   type: z.literal('texture2d').default('texture2d'),
-});
+}).strict();
 
 export const shaderRoleBindingDataSchema = z.object({
   role: z.enum(shaderRoleValues),
   vertexShader: shaderRefSchema.nullable().optional(),
   fragmentShader: shaderRefSchema.nullable().optional(),
-});
+}).strict();
 
 export const shaderDataSchema = z.object({
   kind: z.literal('shader').default('shader'),
@@ -69,11 +84,12 @@ export const shaderDataSchema = z.object({
   samplers: z.array(shaderSamplerDataSchema).default([]),
   roles: z.array(z.enum(shaderRoleValues)).default(['engine-2d']),
   roleBindings: z.array(shaderRoleBindingDataSchema).default([]),
-});
+}).strict();
 
 export type ShaderSourceAssetRef = z.infer<typeof shaderSourceAssetRefSchema>;
 export type ShaderRef = z.infer<typeof shaderRefSchema>;
 export type ShaderStageData = z.infer<typeof shaderStageDataSchema>;
+export type ShaderUniformValue = z.infer<typeof shaderUniformValueSchema>;
 export type ShaderUniformData = z.infer<typeof shaderUniformDataSchema>;
 export type ShaderSamplerData = z.infer<typeof shaderSamplerDataSchema>;
 export type ShaderRoleBindingData = z.infer<typeof shaderRoleBindingDataSchema>;

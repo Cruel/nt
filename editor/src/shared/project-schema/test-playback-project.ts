@@ -41,9 +41,9 @@ const inputToNative: Record<TestInputType, string> = {
   continue: 'continue',
   'dialogue-option': 'dialogue_option',
   navigate: 'navigate',
-  'select-object': 'select_object',
-  'clear-object-selection': 'clear_object_selection',
-  'run-action': 'run_action',
+  'select-interactable': 'select_object',
+  'clear-interactable-selection': 'clear_object_selection',
+  'run-interaction': 'run_action',
   'load-save': 'load_save',
   'set-entrypoint': 'set_entrypoint',
   'ui-click': 'ui_click',
@@ -55,7 +55,7 @@ const assertionToNative: Record<TestAssertionData['type'], string> = {
   title: 'title',
   'text-log-contains': 'text_log_contains',
   'property-equals': 'property_equals',
-  'object-location': 'object_location',
+  'interactable-location': 'object_location',
   'inventory-contains': 'inventory_contains',
   'output-type': 'output_type',
   'diagnostic-category': 'diagnostic_category',
@@ -92,10 +92,10 @@ function buildNativeStep(step: TestStepData) {
 
   if (step.input === 'dialogue-option') result.option_index = step.dialogueOption.optionIndex;
   if (step.input === 'navigate') result.direction = step.navigate.direction;
-  if (step.input === 'select-object') result.object_id = refId(step.selectObject.object);
-  if (step.input === 'run-action') {
-    result.verb_id = refId(step.runAction.verb);
-    result.object_ids = step.runAction.interactables.map((object) => object.$ref.id);
+  if (step.input === 'select-interactable') result.object_id = refId(step.selectInteractable.interactable);
+  if (step.input === 'run-interaction') {
+    result.verb_id = refId(step.runInteraction.verb);
+    result.object_ids = step.runInteraction.interactables.map((interactable) => interactable.$ref.id);
   }
   if (step.input === 'load-save') {
     result.payload = step.loadSave.payload ?? {};

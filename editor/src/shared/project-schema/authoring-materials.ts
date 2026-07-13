@@ -4,6 +4,7 @@ import { entityIdSchema } from './authoring-common';
 import type { AuthoringProject, AuthoringRecordBase, ReferenceTarget } from './authoring-project';
 import {
   isUniformValueCompatible,
+  shaderUniformValueSchema,
   shaderRoleValues,
   type ShaderData,
   type ShaderRole,
@@ -22,31 +23,31 @@ export type MaterialBlend = (typeof materialBlendValues)[number];
 export type MaterialTextureFiltering = (typeof materialTextureFilteringValues)[number];
 
 export const assetTextureRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
-});
+  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
+}).strict();
 
 export const materialTextureSourceSchema = z.union([
   assetTextureRefSchema,
-  z.object({ alias: z.string().min(1) }),
-  z.object({ uri: z.string().min(1) }),
+  z.object({ alias: z.string().min(1) }).strict(),
+  z.object({ uri: z.string().min(1) }).strict(),
 ]);
 
 export const materialUniformOverrideSchema = z.object({
   name: z.string().min(1),
-  value: z.unknown(),
-});
+  value: shaderUniformValueSchema,
+}).strict();
 
 export const materialTextureDataSchema = z.object({
   sampler: z.string().min(1),
   source: materialTextureSourceSchema,
   filtering: z.enum(materialTextureFilteringValues).default('clamp-linear'),
-});
+}).strict();
 
 export const materialDataSchema = z.object({
   kind: z.literal('material').default('material'),
   baseMaterialId: entityIdSchema.nullable().default(null),
   displayName: z.string().optional(),
-  shader: z.object({ $ref: z.object({ collection: z.literal('shaders'), id: z.string().min(1) }) }).nullable().default(null),
+  shader: z.object({ $ref: z.object({ collection: z.literal('shaders'), id: z.string().min(1) }).strict() }).strict().nullable().default(null),
   role: z.enum(shaderRoleValues).default('engine-2d'),
   blend: z.enum(materialBlendValues).default('premultiplied-alpha'),
   uniforms: z.array(materialUniformOverrideSchema).default([]),
@@ -54,8 +55,8 @@ export const materialDataSchema = z.object({
   preview: z.object({
     geometry: z.enum(materialPreviewGeometryValues).default('quad'),
     background: z.enum(materialPreviewBackgroundValues).default('checker'),
-  }).default({ geometry: 'quad', background: 'checker' }),
-});
+  }).strict().default({ geometry: 'quad', background: 'checker' }),
+}).strict();
 
 export type AssetTextureRef = z.infer<typeof assetTextureRefSchema>;
 export type MaterialTextureSource = z.infer<typeof materialTextureSourceSchema>;

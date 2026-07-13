@@ -21,12 +21,12 @@ export const exportProfileSchema = z.object({
   includeOnlyReferencedAssets: z.boolean().default(true),
   includeTests: z.boolean().default(false),
   previewAfterExport: z.boolean().default(false),
-});
+}).strict();
 
 export const exportSettingsSchema = z.object({
   selectedProfileId: z.string().default('runtime-default'),
   profiles: z.array(exportProfileSchema).default([]),
-});
+}).strict();
 
 export interface ExportProfileData {
   id: string;
@@ -49,8 +49,7 @@ export interface ExportSettingsData {
   profiles: ExportProfileData[];
 }
 
-export function defaultExportProfile(project?: Pick<AuthoringProject, 'project'> | null): ExportProfileData {
-  const projectName = project?.project.name?.trim() || 'New Project';
+export function defaultExportProfile(_project?: Pick<AuthoringProject, 'project'> | null): ExportProfileData {
   return exportProfileSchema.parse({
     id: 'runtime-default',
     label: 'Runtime Package',
@@ -65,7 +64,6 @@ export function defaultExportProfile(project?: Pick<AuthoringProject, 'project'>
     includeOnlyReferencedAssets: true,
     includeTests: false,
     previewAfterExport: false,
-    _projectName: projectName,
   });
 }
 

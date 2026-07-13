@@ -19,7 +19,7 @@ import {
   type MaterialUniformOverride,
 } from '../../../shared/project-schema/authoring-materials';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { parseShaderData, shaderRoleValues, type ShaderUniformData } from '../../../shared/project-schema/authoring-shaders';
+import { parseShaderData, shaderRoleValues, shaderUniformValueSchema, type ShaderUniformData, type ShaderUniformValue } from '../../../shared/project-schema/authoring-shaders';
 import { buildMaterialPreviewDocumentData, materialPreviewRevision } from '../../../shared/project-schema/shader-material-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
@@ -31,12 +31,13 @@ function updateMaterial(materialId: string, next: MaterialData, label: string) {
   });
 }
 
-function parseUniformValue(type: ShaderUniformData['type'], text: string): unknown {
-  if (type === 'float') return Number.parseFloat(text || '0');
-  if (type === 'int') return Number.parseInt(text || '0', 10);
-  if (type === 'bool') return text === 'true';
-  if (['vec2', 'vec3', 'vec4', 'color'].includes(type)) return text.split(',').map((item) => Number.parseFloat(item.trim() || '0'));
-  return text;
+function parseUniformValue(type: ShaderUniformData['type'], text: string): ShaderUniformValue {
+  const raw = type === 'float' ? Number.parseFloat(text || '0')
+    : type === 'int' ? Number.parseInt(text || '0', 10)
+      : type === 'bool' ? text === 'true'
+        : text.split(',').map((item) => Number.parseFloat(item.trim() || '0'));
+  const parsed = shaderUniformValueSchema.safeParse(raw);
+  return parsed.success ? parsed.data : 0;
 }
 
 function valueToText(value: unknown): string {
@@ -85,7 +86,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
     updateMaterial(activeMaterialId, next, label);
   }
 
-  function setUniform(declaration: ShaderUniformData, value: unknown) {
+  function setUniform(declaration: ShaderUniformData, value: ShaderUniformValue) {
     const uniforms = data.uniforms.filter((item) => item.name !== declaration.name);
     commit({ ...data, uniforms: [...uniforms, { name: declaration.name, value }] }, 'Set material uniform');
   }

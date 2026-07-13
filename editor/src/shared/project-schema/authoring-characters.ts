@@ -8,11 +8,11 @@ export const characterPreviewBackgroundValues = ['transparent', 'checker', 'dark
 export type CharacterPreviewBackground = (typeof characterPreviewBackgroundValues)[number];
 
 export const characterAssetRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }),
+  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
 }).strict();
 
 export const characterMaterialRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('materials'), id: z.string().min(1) }),
+  $ref: z.object({ collection: z.literal('materials'), id: z.string().min(1) }).strict(),
 }).strict();
 
 export const characterVector2Schema = z.object({
@@ -52,7 +52,7 @@ export const characterDataSchema = z.object({
   defaults: z.object({
     poseId: entityIdSchema,
     expressionId: entityIdSchema,
-  }).default({ poseId: 'default', expressionId: 'neutral' }),
+  }).strict().default({ poseId: 'default', expressionId: 'neutral' }),
   poses: z.array(characterPoseDataSchema).default([]),
   expressions: z.array(characterExpressionDataSchema).default([]),
 }).strict();

@@ -97,7 +97,7 @@ The test-specific shape is stored under `record.data`.
   fixedDeltaSeconds: number | null,
   initScript: string,
   checkScript: string,
-  startingInventory: TestObjectRef[],
+  startingInventory: TestInteractableRef[],
   steps: TestStepData[],
   preview: {
     selectedStepId: string | null,
@@ -125,7 +125,7 @@ execute it. The editor treats these as Lua source because NovelTea runtime
 scripting is Lua.
 
 `startingInventory` is modeled but not yet surfaced heavily in the UI. It stores
-object references for future runtime state setup once authoring-to-runtime
+Interactable references for future runtime state setup once authoring-to-runtime
 conversion exists.
 
 `preview` is editor-only state. It controls which step/report row is focused and
@@ -142,7 +142,7 @@ Reference helpers are defined in `authoring-tests.ts`:
 testSceneRef(id)
 testRoomRef(id)
 testDialogueRef(id)
-testObjectRef(id)
+testInteractableRef(id)
 testVerbRef(id)
 testVariableRef(id)
 ```
@@ -158,7 +158,7 @@ dialogues
 Step/action/assertion fields currently use references to:
 
 ```text
-objects
+interactables
 verbs
 variables
 maps
@@ -186,9 +186,9 @@ Each test step has this common shape:
   tick: { deltaSeconds: number },
   dialogueOption: { optionIndex: number },
   navigate: { direction: number, target: TestRoomRef | null },
-  selectObject: { object: TestObjectRef | null },
-  runAction: { verb: TestVerbRef | null, objects: TestObjectRef[] },
-  loadSave: { slotId: string, payload: unknown },
+  selectInteractable: { interactable: TestInteractableRef | null },
+  runInteraction: { verb: TestVerbRef | null, interactables: TestInteractableRef[] },
+  loadSave: { slotId: string, payload: JsonValue },
   setEntrypoint: { entrypoint: TestEntrypointRef | null },
   assertions: TestAssertionData[],
 }
@@ -220,9 +220,9 @@ the native playback runner names.
 | `continue` | `continue` | none |
 | `dialogue-option` | `dialogue_option` | `dialogueOption.optionIndex` |
 | `navigate` | `navigate` | `navigate.direction`, `navigate.target` |
-| `select-object` | `select_object` | `selectObject.object` |
-| `clear-object-selection` | `clear_object_selection` | none |
-| `run-action` | `run_action` | `runAction.verb`, `runAction.objects` |
+| `select-interactable` | `select_object` | `selectInteractable.interactable` |
+| `clear-interactable-selection` | `clear_object_selection` | none |
+| `run-interaction` | `run_action` | `runInteraction.verb`, `runInteraction.interactables` |
 | `load-save` | `load_save` | `loadSave.slotId`, `loadSave.payload` |
 | `set-entrypoint` | `set_entrypoint` | `setEntrypoint.entrypoint` |
 
@@ -268,7 +268,7 @@ editor and snake_case in the native spec.
 | `title` | `title` | `value` |
 | `text-log-contains` | `text_log_contains` | `value` |
 | `property-equals` | `property_equals` | `key` or `variable`, `expected` |
-| `object-location` | `object_location` | `key`, optional `entity` |
+| `interactable-location` | `object_location` | `key`, optional `entity` |
 | `inventory-contains` | `inventory_contains` | `value` |
 | `output-type` | `output_type` | `value` |
 | `diagnostic-category` | `diagnostic_category` | `value` |
@@ -464,8 +464,8 @@ The adapter maps editor spellings to native spellings:
 
 ```ts
 dialogue-option -> dialogue_option
-select-object   -> select_object
-run-action      -> run_action
+select-interactable   -> select_object
+run-interaction       -> run_action
 load-save       -> load_save
 set-entrypoint  -> set_entrypoint
 ```
@@ -587,8 +587,8 @@ Use kebab-case in the authoring schema when naming editor-facing enum values:
 
 ```text
 dialogue-option
-select-object
-run-action
+select-interactable
+run-interaction
 ```
 
 Use snake_case only when serializing to the native playback spec:
@@ -628,11 +628,11 @@ not fake successful playback for authoring tests.
 
 The next meaningful work is the authoring-to-runtime conversion layer. It should:
 
-1. define how authoring scenes, rooms, dialogues, objects, verbs, variables, and
+1. define how authoring scenes, rooms, dialogues, interactables, verbs, variables, and
    assets map into runtime entities;
 2. provide stable runtime `EntityRef` generation for authoring refs;
 3. serialize authoring test entrypoints and `set-entrypoint` payloads;
-4. serialize starting inventory and object locations in runtime state terms;
+4. serialize starting inventory and interactable locations in runtime state terms;
 5. make `getAuthoringTestRunReadiness()` return `runnable` only when a complete
    runtime-compatible project/spec pair can be produced;
 6. run authoring tests through `runPlaybackSpec(project, spec)` and display real

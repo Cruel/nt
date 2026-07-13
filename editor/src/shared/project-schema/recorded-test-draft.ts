@@ -90,19 +90,19 @@ export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActi
     case 'select-object':
       return withStepIdentity(
         {
-          ...defaultTestStep('select-object', action.label || `Select ${input.objectId || 'object'}`),
-          selectObject: { object: input.objectId ? testInteractableRef(input.objectId) : null },
+          ...defaultTestStep('select-interactable', action.label || `Select ${input.objectId || 'interactable'}`),
+          selectInteractable: { interactable: input.objectId ? testInteractableRef(input.objectId) : null },
         },
         action,
         index,
       );
     case 'clear-object-selection':
-      return withStepIdentity(defaultTestStep('clear-object-selection', action.label || 'Clear object selection'), action, index);
+      return withStepIdentity(defaultTestStep('clear-interactable-selection', action.label || 'Clear interactable selection'), action, index);
     case 'run-action':
       return withStepIdentity(
         {
-          ...defaultTestStep('run-action', action.label || `Run ${input.verbId || 'action'}`),
-          runAction: {
+          ...defaultTestStep('run-interaction', action.label || `Run ${input.verbId || 'interaction'}`),
+          runInteraction: {
             verb: input.verbId ? testVerbRef(input.verbId) : null,
             interactables: (input.objectIds ?? []).filter((id) => id.trim()).map((id) => testInteractableRef(id)),
           },
