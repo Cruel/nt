@@ -12,26 +12,38 @@ Manual save fails with typed diagnostics at nonserializable suspension points. A
 
 ## Flow and startup
 
-Entrypoint is exactly Room, Scene, or Dialogue. A separate synchronous startup Lua hook must succeed before it begins. One `FlowExecutor` runs Scene, Dialogue, Interaction, and RoomHook frame variants. Child Scene/Dialogue calls push and Return resumes; terminal targets tail-replace, enter Room, Return, or End according to the fixed continuation contract.
+Entrypoint is exactly Room, Scene, or Dialogue. A separate synchronous startup Lua hook must succeed before it begins. `SessionState` owns the authoritative stack and blocker, while one `FlowExecutor` is the sole mutation service for Scene, Dialogue, Interaction, and RoomTransition frame variants. Child Scene/Dialogue calls advance the caller before pushing and Return resumes it; terminal Scene/Dialogue targets tail-replace, Room targets begin the shared Room transition pipeline, and End clears flow according to the fixed continuation contract.
 
 Playback, RmlUi, editor preview, tests, debugger, and C ABI adapters decode boundary input into typed internal commands and expose typed events/views. Internal command/event/state payloads contain no JSON.
 
 ## Additive typed kernel state
 
-Phase 6A adds a JSON-free `SessionState` beside the shipped path. It initializes declared variables
-from `CompiledProject`, enforces their scalar and enum types, stores the closed Room/Flow/Ended mode,
-and can hold one typed logical `ActiveWait`. Feature state, persistence, frame state, and concrete host
-request queues remain owned by their later slices; no placeholder request schema is authoritative.
+Phases 6A and 6B add a JSON-free `SessionState` and execution kernel beside the shipped path. Session
+creation initializes declared variables and one typed entrypoint frame: Scene and Dialogue roots use
+`NoReturn`, while Room entry starts the shared pre-entry `RoomTransitionFrame`. The public mode,
+stack, blocker, and fault views are read-only; `FlowExecutor` is the only mutation service after
+initial construction.
 
-`PropertyResolver` is the sole typed property read/mutation path for this state. It validates the
+The session-owned `FlowStack` is a closed Scene/Dialogue/Interaction/RoomTransition variant with
+opaque fresh frame IDs, stable typed positions, and Caller/ResumeRoom/NoReturn destinations. Child
+calls validate and advance their caller before an atomic push. Return, terminal tail replacement,
+Room transition, rejection, completion, and End enforce the fixed mode/stack contract. Owner-bound
+blockers require an exact frame, handle, and kind match. Execution faults are fail-stop without an
+Error gameplay mode, and explicit discard selects the captured Room, the pre/post-commit transition
+Room, or Ended according to the frame contract. The bounded non-reentrant driver currently returns a
+typed not-yet-migrated fault for positive-budget feature execution; Phase 7 owns those frame visitors.
+
+`PropertyResolver` remains the sole typed property read/mutation path for this state. It validates the
 property declaration, owner existence and kind, nullability, enum membership, scalar type, and finite
 numbers. Reads traverse the immutable same-type parent indexes directly in runtime-override,
 authored-assignment order at each level, then use the declaration default or return a typed missing
 value. Overrides remain sparse on their actual owners, so ancestor changes are immediately visible
 without a resolved-value cache.
 
-This path is test-facing and additive. It does not adapt compiled data back into legacy data or reroute
-Engine, preview, package launch, editor playback, Lua, or runtime UI consumers.
+This path is test-facing and additive. Feature execution, script invocation, persistence, concrete
+host request queues, and consumer cutover remain owned by later phases. It does not adapt compiled
+data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua, or
+runtime UI consumers.
 
 ## Current scaffold
 

@@ -1,9 +1,9 @@
 #pragma once
 
 #include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/flow.hpp"
 #include "noveltea/core/property.hpp"
 #include "noveltea/core/result.hpp"
-#include "noveltea/core/wait.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -20,8 +20,8 @@ struct FlowMode {};
 struct EndedMode {};
 using RuntimeMode = std::variant<RoomMode, FlowMode, EndedMode>;
 
-// Phase 6A state is intentionally limited to execution-kernel state. Feature state and persistence
-// are added by their owning phases rather than mirrored from the transitional GameSession.
+// Typed kernel state remains intentionally separate from feature state and persistence, which are
+// added by their owning phases rather than mirrored from the transitional GameSession.
 class SessionState {
 public:
     SessionState() = delete;
@@ -29,7 +29,12 @@ public:
     [[nodiscard]] static Result<SessionState, Diagnostics> create(const CompiledProject& project);
 
     [[nodiscard]] const RuntimeMode& mode() const noexcept { return m_mode; }
-    void set_mode(RuntimeMode mode) { m_mode = std::move(mode); }
+    [[nodiscard]] const FlowStack& flow_stack() const noexcept { return m_flow_stack; }
+    [[nodiscard]] const std::optional<FlowBlocker>& blocker() const noexcept { return m_blocker; }
+    [[nodiscard]] const std::optional<Diagnostics>& execution_fault() const noexcept
+    {
+        return m_execution_fault;
+    }
 
     [[nodiscard]] Result<RuntimeValue, Diagnostics> variable(const CompiledProject& project,
                                                              const VariableId& id) const;
@@ -43,18 +48,15 @@ public:
         return m_property_overrides.size();
     }
 
-    [[nodiscard]] const std::optional<ActiveWait>& active_wait() const noexcept
-    {
-        return m_active_wait;
-    }
-    void set_active_wait(ActiveWait wait) { m_active_wait = std::move(wait); }
-    void clear_active_wait() noexcept { m_active_wait.reset(); }
-
 private:
+    friend class FlowExecutor;
     friend class PropertyResolver;
 
-    SessionState(RuntimeMode mode, std::unordered_map<VariableId, RuntimeValue> variables)
-        : m_mode(std::move(mode)), m_variables(std::move(variables))
+    SessionState(RuntimeMode mode, FlowStack flow_stack,
+                 std::unordered_map<VariableId, RuntimeValue> variables,
+                 std::uint64_t next_frame_id)
+        : m_mode(std::move(mode)), m_flow_stack(std::move(flow_stack)),
+          m_variables(std::move(variables)), m_next_frame_id(next_frame_id)
     {
     }
 
@@ -63,9 +65,14 @@ private:
                                  const PropertyId& property) noexcept;
 
     RuntimeMode m_mode;
+    FlowStack m_flow_stack;
+    std::optional<FlowBlocker> m_blocker;
+    std::optional<Diagnostics> m_execution_fault;
     std::unordered_map<VariableId, RuntimeValue> m_variables;
     std::vector<PropertyOverride> m_property_overrides;
-    std::optional<ActiveWait> m_active_wait;
+    std::uint64_t m_next_frame_id;
+    std::uint64_t m_next_blocker_handle = 1;
+    bool m_flow_running = false;
 };
 
 } // namespace noveltea::core

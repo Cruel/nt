@@ -20,7 +20,9 @@ boundary validates and links that untrusted document into an immutable native `C
 session's lifetime. Runtime services and execution frames use lifetime-bounded const references or
 typed IDs; they do not share ownership or retain pointers into definition vectors.
 
-`RuntimeSessionHost` also owns one `FlowExecutor` and mutable `SessionState`. Renderer, RmlUi, Lua,
+`RuntimeSessionHost` also owns one `FlowExecutor` and mutable `SessionState`. `SessionState` owns the
+authoritative flow stack, blocker, and mutable frame positions; `FlowExecutor` is the sole mutation
+service and retains no duplicate controller stack or hidden continuation state. Renderer, RmlUi, Lua,
 platform, audio, debugger, and editor adapters do not own gameplay state. They receive typed commands
 or views and return typed input at explicit boundaries.
 
@@ -35,16 +37,32 @@ The model deliberately separates five concerns:
    `SceneProgram`, `DialogueProgram`, and `InteractionProgram`. Room lifecycle execution uses typed
    room-hook content; it is not a universal entity program.
 4. **Flow frames** are mutable execution cursors. `FlowFrame` is a closed variant of Scene, Dialogue,
-   Interaction, and RoomHook frames, run by one `FlowExecutor`. Child Scene or Dialogue calls push a
-   frame and Return resumes the caller; terminal continuations tail-replace, enter Room mode, return,
-   or end as their typed target specifies.
+   Interaction, and RoomTransition frames, run by one `FlowExecutor`. A RoomTransition frame owns the
+   complete enter/leave transaction and executes the immutable Room hook programs at explicit stages.
+   Child Scene or Dialogue calls push a frame and Return resumes the caller; terminal continuations
+   tail-replace, begin a Room transition, return, or end as their typed target specifies.
 5. **Session state** is mutable game progress and presentation-independent logical state. It never
    mutates compiled definitions or stores decoded JSON as a secondary source of truth.
 
-The top-level gameplay `RuntimeMode` is exactly Room, Flow, or Ended. Loading and error presentation
-belong to host/UI boundaries and are not persisted gameplay modes. Closed definitions, instructions,
-frames, modes, commands, and events use variants and exhaustive visitation, with no compiler RTTI,
-downcasts, or entity base hierarchy.
+The top-level gameplay `RuntimeMode` is exactly Room, Flow, or Ended. Room and Ended modes require an
+empty flow stack; Flow mode requires a non-empty stack. Loading, execution faults, and error
+presentation belong to host/kernel/UI status and are not persisted gameplay modes. Closed
+definitions, instructions, frames, blockers, modes, commands, and events use variants and exhaustive
+visitation, with no compiler RTTI, downcasts, or entity base hierarchy.
+
+Every live frame has a session-local `FlowFrameId`, stable definition/nested-program position, and a
+closed return destination: Caller, ResumeRoom, or NoReturn. Child calls advance the caller before
+pushing a fresh Scene or Dialogue frame. Return pops a child, resumes the captured Room for a transient
+root flow, or fails for a direct-entry NoReturn root. Scene/Dialogue terminal targets tail-replace at
+the same depth while preserving the return destination and allocating a fresh frame ID. Room targets
+replace the current chain with a RoomTransition frame; they never bypass Room conditions/hooks or
+assign Room mode directly. End clears the stack and blockers.
+
+The executor advances iteratively until blocked, a mode transition completes, an instruction budget
+yields, or typed diagnostics fault the kernel. One blocker may belong to the active frame and is bound
+to its exact frame ID and typed operation handle. Stale or wrong-frame resumes fail without mutation.
+Faulted execution is fail-stop until abort/reload; completed earlier instructions are not rolled back,
+and the failing instruction does not advance.
 
 ## Definitions and resources
 

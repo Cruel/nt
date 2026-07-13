@@ -12,7 +12,7 @@ This table is the authoritative V2 ownership map. Authoring records are editor-o
 | Characters | Character records | `CharacterDefinition` | Immutable definition; presented instances are `ActorState` |
 | Scenes | Scene records and strict steps | `SceneDefinition` + `SceneProgram` | Scene flow frame and logical waits |
 | Dialogues | Dialogue graph records | `DialogueDefinition` + `DialogueProgram` | Dialogue frame, show-once/history state |
-| Rooms | Room records, placements, exits, hooks | `RoomDefinition` | Active Room, visits, RoomHook frames |
+| Rooms | Room records, placements, exits, hooks | `RoomDefinition` | Active Room, visits, RoomTransition frames |
 | Interactables | Unique Interactable records and initial declarations | `InteractableDefinition` | Unique location, enabled/visible state |
 | Verbs | Verb records | `VerbDefinition` + default `InteractionProgram` | Immutable; fallback execution and property overrides only |
 | Interactions | Ordered rules/programs | `InteractionRule` + `InteractionProgram` | Interaction frames and effects on typed state |
@@ -43,7 +43,14 @@ Room exits own navigation topology. `RoomExit { RoomExitId, target RoomId, condi
 
 ### Scene and Dialogue calls
 
-One `FlowExecutor` runs Scene, Dialogue, Interaction, and RoomHook frame variants. A Scene or Interaction call to Scene/Dialogue pushes a child frame; Return pops it and resumes the next caller instruction. A terminal Scene/Dialogue target tail-replaces. Room clears flow and enters Room mode; End clears flow and enters Ended mode. Return is invalid at a direct project entrypoint.
+`SessionState` owns one explicit flow stack and blocker; one non-state-owning `FlowExecutor` is the sole
+mutation service. It runs Scene, Dialogue, Interaction, and RoomTransition frame variants. A Scene or
+Interaction call to Scene/Dialogue advances the caller and pushes a fresh child frame; Return pops it
+and resumes that caller. A terminal Scene/Dialogue target tail-replaces at the same depth while
+preserving the frame's return destination. A Room target replaces the chain with a RoomTransition
+frame and therefore still runs the applicable Room conditions and hooks before Room mode begins. End
+clears flow and enters Ended mode. Return is invalid at a direct project entrypoint, but a transient
+root flow started from Room mode may Return to its captured Room.
 
 ## Inheritance and properties
 

@@ -39,17 +39,58 @@ bool variable_value_matches(const compiled::VariableDefinition& definition,
         definition.value_type);
 }
 
-RuntimeMode initial_mode(const compiled::Entrypoint& entrypoint)
+std::optional<SceneStepId> first_scene_step(const compiled::SceneDefinition& scene)
 {
-    return std::visit(
-        [](const auto& id) -> RuntimeMode {
+    if (scene.program.instructions.empty())
+        return std::nullopt;
+    return std::visit([](const auto& instruction) { return instruction.id; },
+                      scene.program.instructions.front());
+}
+
+Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project,
+                                                  const FlowFrameId& frame_id)
+{
+    FlowStack stack;
+    const bool valid = std::visit(
+        [&project, &stack, &frame_id](const auto& id) {
             using T = std::decay_t<decltype(id)>;
-            if constexpr (std::is_same_v<T, RoomId>)
-                return RoomMode{id};
-            else
-                return FlowMode{};
+            if constexpr (std::is_same_v<T, RoomId>) {
+                if (project.find_room(id) == nullptr)
+                    return false;
+                stack.emplace_back(RoomTransitionFrame{
+                    .frame_id = frame_id,
+                    .source_room = std::nullopt,
+                    .target_room = id,
+                    .selected_exit = std::nullopt,
+                    .position = {RoomTransitionStage::TargetCanEnter, 0},
+                });
+                return true;
+            } else if constexpr (std::is_same_v<T, SceneId>) {
+                const auto* scene = project.find_scene(id);
+                if (scene == nullptr)
+                    return false;
+                stack.emplace_back(SceneFrame{
+                    frame_id, id, {first_scene_step(*scene), {}}, NoReturnDestination{}});
+                return true;
+            } else {
+                const auto* dialogue = project.find_dialogue(id);
+                if (dialogue == nullptr)
+                    return false;
+                stack.emplace_back(
+                    DialogueFrame{frame_id,
+                                  id,
+                                  {dialogue->program.entry_block_id, std::nullopt, std::nullopt,
+                                   DialogueFramePosition::Stage::EnterBlock, 0},
+                                  NoReturnDestination{}});
+                return true;
+            }
         },
-        entrypoint);
+        project.entrypoint());
+    if (!valid)
+        return Result<FlowStack, Diagnostics>::failure(Diagnostics{
+            Diagnostic{.code = "execution.invalid_entrypoint",
+                       .message = "Compiled project entrypoint cannot initialize a flow frame"}});
+    return Result<FlowStack, Diagnostics>::success(std::move(stack));
 }
 
 } // namespace
@@ -64,8 +105,12 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
             return Result<SessionState, Diagnostics>::failure(variable_error(
                 "runtime.duplicate_variable", declaration.id, "was initialized more than once"));
     }
+    auto stack = initial_flow_stack(project, FlowFrameId{1});
+    auto* initial_stack = stack.value_if();
+    if (initial_stack == nullptr)
+        return Result<SessionState, Diagnostics>::failure(stack.error());
     return Result<SessionState, Diagnostics>::success(
-        SessionState(initial_mode(project.entrypoint()), std::move(variables)));
+        SessionState(FlowMode{}, std::move(*initial_stack), std::move(variables), 2));
 }
 
 Result<RuntimeValue, Diagnostics> SessionState::variable(const CompiledProject& project,

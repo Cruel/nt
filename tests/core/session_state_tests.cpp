@@ -3,7 +3,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <chrono>
 #include <limits>
 #include <string>
 #include <type_traits>
@@ -148,9 +147,13 @@ TEST_CASE("session state initializes declared variables and enforces their types
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
 
-    const auto* room_mode = std::get_if<RoomMode>(&state.mode());
-    REQUIRE(room_mode != nullptr);
-    CHECK(room_mode->room == id<RoomId>("hall"));
+    CHECK(std::holds_alternative<FlowMode>(state.mode()));
+    REQUIRE(state.flow_stack().size() == 1);
+    const auto* transition = std::get_if<RoomTransitionFrame>(&state.flow_stack().front());
+    REQUIRE(transition != nullptr);
+    CHECK_FALSE(transition->source_room);
+    CHECK(transition->target_room == id<RoomId>("hall"));
+    CHECK(transition->position.stage == RoomTransitionStage::TargetCanEnter);
     CHECK(state.variable(compiled_project, id<VariableId>("flag")).value() == RuntimeValue{false});
     CHECK(state.variable(compiled_project, id<VariableId>("count")).value() ==
           RuntimeValue{std::int64_t{2}});
@@ -249,27 +252,20 @@ TEST_CASE("property mutations enforce declaration owner nullability enum and sca
         resolver.unset(PropertyOwnerRef{id<RoomId>("missing-room")}, id<PropertyId>("mood")));
 }
 
-TEST_CASE("session state holds closed runtime mode and typed logical wait state")
+TEST_CASE("session state exposes closed runtime mode and session-owned flow state read-only")
 {
     STATIC_REQUIRE(std::variant_size_v<RuntimeMode> == 3);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, RuntimeMode>, RoomMode>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, RuntimeMode>, FlowMode>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<2, RuntimeMode>, EndedMode>);
+    STATIC_REQUIRE(std::variant_size_v<FlowFrame> == 4);
 
     const auto compiled_project = project();
     auto state_result = SessionState::create(compiled_project);
     REQUIRE(state_result);
-    auto state = std::move(state_result).value();
-    CHECK_FALSE(state.active_wait());
-
-    auto duration = DurationWait::create(std::chrono::milliseconds{25});
-    REQUIRE(duration);
-    state.set_active_wait(DurationWaitState{std::move(duration).value()});
-    REQUIRE(state.active_wait());
-    CHECK(std::holds_alternative<DurationWaitState>(*state.active_wait()));
-    state.clear_active_wait();
-    CHECK_FALSE(state.active_wait());
-
-    state.set_mode(EndedMode{});
-    CHECK(std::holds_alternative<EndedMode>(state.mode()));
+    const auto state = std::move(state_result).value();
+    CHECK(std::holds_alternative<FlowMode>(state.mode()));
+    CHECK(state.flow_stack().size() == 1);
+    CHECK_FALSE(state.blocker());
+    CHECK_FALSE(state.execution_fault());
 }
