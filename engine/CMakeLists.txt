@@ -15,6 +15,9 @@ add_library(noveltea_core STATIC
     src/core/editor_api.cpp
     src/core/entity_ref.cpp
     src/core/flow_executor.cpp
+    src/core/flow_executor_blockers.cpp
+    src/core/flow_executor_room.cpp
+    src/core/flow_executor_scene.cpp
     src/core/entity_type.cpp
     src/core/game_session.cpp
     src/core/legacy/entity_schema.cpp

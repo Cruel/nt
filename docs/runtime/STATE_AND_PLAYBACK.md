@@ -107,6 +107,13 @@ preserving typed errors. It exposes wait and exact script-resume/cancel operatio
 7B, executes the complete flat Scene V1 program. Dialogue, Room, and Interaction instruction
 execution and queued external request consumption remain deferred to their owning phases.
 
+`FlowExecutor` remains one logical, noncopyable authority over flow-stack, cursor, blocker, mode, and
+fault mutation. Its implementation is partitioned by responsibility: generic stack and run-loop
+orchestration remains in `flow_executor.cpp`, while typed blocker operations, Room-transition
+operations, and Scene cursor/wait/choice operations live in dedicated translation units. Later
+Dialogue and Interaction frame operations should follow the same implementation split rather than
+creating competing flow-state owners.
+
 ## Phase 7B typed Character/Actor and Scene execution
 
 The additive Scene visitor executes every compiled Scene instruction without JSON: step conditions,
