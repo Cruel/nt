@@ -22,7 +22,10 @@ Interaction is property-bearing and may `extends` another Interaction only for d
 ## Current authoring implementation
 
 Phase 3E implements strict V2 rules, exact/AnyInteractable operands, explicit context variants, and
-closed program instructions. Editor creation and detail paths use undoable typed updates; validation
-checks arity, IDs, room placements, references, duplicate rule IDs, and equal-specificity warnings.
-Runtime matching and execution remain Phases 4--7 work. The transitional runtime-export adapter does
+closed program instructions. Every instruction has a stable nested ID; the editor allocates a unique
+ID when creating it and preserves that identity through editing and reordering. Editor creation and
+detail paths use undoable typed updates; validation checks arity, instruction and rule IDs, room
+placements, references, duplicate IDs, and equal-specificity warnings. Phase 4E lowers every rule and
+instruction losslessly into the specialized compiled program while preserving authored order.
+Runtime matching and execution remain Phases 6--7 work. The transitional runtime-export adapter does
 not acquire an Action compatibility path.

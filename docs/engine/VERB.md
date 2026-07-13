@@ -29,6 +29,9 @@ Only after the root returns `Unhandled` does the project undefined-interaction f
 
 Phase 3E implements the strict V2 Verb schema and editor creation/detail path. A Verb records arity,
 ordered role labels, action text, quick-action state, availability, and a closed default Interaction
-Program. Validation rejects role-count/arity mismatches and invalid program references. The runtime
-export adapter still emits only its documented shallow legacy representation; compiled lowering and
-Verb fallback execution remain Phases 4--7 work.
+Program whose instructions carry stable nested IDs. Validation rejects role-count/arity mismatches,
+duplicate instruction IDs, and invalid program references. Phase 4E lowers each Verb's own
+availability condition and default program while retaining the `extends` edge; this preserves the
+root-to-child availability and child-to-root fallback order without flattening structural data. The
+runtime export adapter still emits only its documented shallow transitional representation; Verb
+fallback execution remains Phase 6--7 work.

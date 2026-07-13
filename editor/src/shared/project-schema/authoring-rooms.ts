@@ -13,6 +13,7 @@ import {
 } from './authoring-flow';
 import { parseLayoutData } from './authoring-layouts';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { validateVariableRuntimeValue } from './authoring-variable-usage';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -90,10 +91,21 @@ function uniqueIds(items: readonly { id: string }[], path: string, label: string
   items.forEach((item, index) => { if (seen.has(item.id)) diagnostics.push(diagnostic(`${path}/${index}/id`, `Duplicate ${label} ID '${item.id}'.`)); seen.add(item.id); });
 }
 function validateCondition(project: AuthoringProject, condition: z.infer<typeof conditionSchema>, path: string, diagnostics: RoomSchemaDiagnostic[]) {
-  if (condition.kind === 'variable-comparison' && !project.variables[condition.variable.$ref.id]) diagnostics.push(diagnostic(`${path}/variable/$ref`, `Missing variable '${condition.variable.$ref.id}'.`));
+  if (condition.kind !== 'variable-comparison') return;
+  const variableId = condition.variable.$ref.id;
+  if (condition.value === undefined) {
+    if (!project.variables[variableId]) diagnostics.push(diagnostic(`${path}/variable/$ref`, `Missing variable '${variableId}'.`));
+    return;
+  }
+  const result = validateVariableRuntimeValue(project, variableId, condition.value);
+  if (!result.ok) diagnostics.push(diagnostic(result.kind === 'missing' ? `${path}/variable/$ref` : `${path}/value`, result.message));
 }
 function validateEffects(project: AuthoringProject, effects: readonly z.infer<typeof effectSchema>[], path: string, diagnostics: RoomSchemaDiagnostic[]) {
-  effects.forEach((effect, index) => { if (effect.kind === 'set-variable' && !project.variables[effect.variable.$ref.id]) diagnostics.push(diagnostic(`${path}/${index}/variable/$ref`, `Missing variable '${effect.variable.$ref.id}'.`)); });
+  effects.forEach((effect, index) => {
+    if (effect.kind !== 'set-variable') return;
+    const result = validateVariableRuntimeValue(project, effect.variable.$ref.id, effect.value);
+    if (!result.ok) diagnostics.push(diagnostic(result.kind === 'missing' ? `${path}/${index}/variable/$ref` : `${path}/${index}/value`, result.message));
+  });
 }
 export function validateRoomData(project: AuthoringProject, roomId: string, record: AuthoringRecordBase): RoomSchemaDiagnostic[] {
   const base = `/rooms/${roomId}/data`; const parsed = roomDataSchema.safeParse(record.data);

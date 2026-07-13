@@ -7,11 +7,14 @@ import {
   resolveNestedAuthoringSymbol,
 } from '../../shared/authoring-compiler';
 import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
+import { lowerSceneAndRoomPrograms } from '../../shared/authoring-compiler-scene-room-lowering';
+import { lowerDialogueAndInteractionPrograms } from '../../shared/authoring-compiler-dialogue-interaction-lowering';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultDialogueBlock, defaultDialogueData, defaultDialogueSegment } from '../../shared/project-schema/authoring-dialogues';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
+import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
@@ -45,7 +48,7 @@ describe('authoring compiler framework', () => {
     expect('project' in result).toBe(false);
     expect('canonicalJson' in result).toBe(false);
     expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      code: 'COMPILER_PROGRAM_LOWERING_PENDING_PHASE_4D_4E',
+      code: 'COMPILER_FINAL_ASSEMBLY_PENDING_PHASE_4F',
       severity: 'error',
       sourcePath: 'authoring-project',
       jsonPointer: '/',
@@ -120,6 +123,407 @@ describe('authoring compiler framework', () => {
     expect(JSON.stringify(draft)).not.toContain('Import metadata');
     expect(JSON.stringify(draft)).not.toContain('objects');
     expect(Object.keys(draft.definitions)).not.toContain('actions');
+  });
+
+  it('lowers every Scene instruction and ordered Room lifecycle hook without comments or disabled steps', () => {
+    const project = validProject();
+    project.assets.media = { id: 'media', label: 'Media', data: assetDataFromImportMetadata({ kind: 'image', projectRelativePath: 'assets/media.png', aliases: [], contentHash: 'hash' }) };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    project.characters.hero = { id: 'hero', label: 'Hero', data: defaultCharacterData('Hero') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
+    const scene = defaultSceneData('Opening');
+    scene.steps = [
+      { ...defaultSceneStep('set-background'), id: 'background', asset: { $ref: { collection: 'assets', id: 'media' } } },
+      { ...defaultSceneStep('actor-cue'), id: 'actor', character: { $ref: { collection: 'characters', id: 'hero' } }, poseId: 'default', expressionId: 'neutral' },
+      { ...defaultSceneStep('call-dialogue'), id: 'dialogue', dialogue: { $ref: { collection: 'dialogues', id: 'intro' } }, startBlockId: 'start' },
+      { ...defaultSceneStep('show-text'), id: 'text' },
+      { ...defaultSceneStep('audio-cue'), id: 'audio', asset: { $ref: { collection: 'assets', id: 'media' } } },
+      { ...defaultSceneStep('set-variable'), id: 'variable', variable: { $ref: { collection: 'variables', id: 'flag' } }, value: true },
+      { ...defaultSceneStep('run-lua'), id: 'lua' },
+      { ...defaultSceneStep('wait'), id: 'duration' },
+      { id: 'input', label: 'input', enabled: true, type: 'wait', waitKind: 'input', skippable: false },
+      { ...defaultSceneStep('conditional-branch'), id: 'branch', branches: [{ id: 'yes', condition: { kind: 'always' }, targetStepId: 'layout' }], fallbackStepId: 'transition' },
+      { ...defaultSceneStep('choice'), id: 'choice', options: [{ id: 'continue', label: { source: { kind: 'inline', text: 'Continue' }, markup: 'plain' }, effects: [{ kind: 'set-variable', variable: { $ref: { collection: 'variables', id: 'flag' } }, value: true }], targetStepId: 'layout' }] },
+      { ...defaultSceneStep('set-layout'), id: 'layout', layout: { $ref: { collection: 'layouts', id: 'hud' } } },
+      { ...defaultSceneStep('transition'), id: 'transition' },
+      { ...defaultSceneStep('show-text'), id: 'disabled', enabled: false },
+      { ...defaultSceneStep('comment'), id: 'note' },
+    ];
+    scene.continuation = { kind: 'room', id: 'foyer' };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
+    const room = project.rooms.foyer!.data;
+    room.lifecycle.beforeEnter = [{ kind: 'set-variable', variable: { $ref: { collection: 'variables', id: 'flag' } }, value: true }];
+    room.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'after_enter()' }];
+    room.lifecycle.beforeLeave = [{ kind: 'run-lua-effect', source: 'before_leave()' }];
+    room.lifecycle.afterLeave = [{ kind: 'set-variable', variable: { $ref: { collection: 'variables', id: 'flag' } }, value: false }];
+
+    const shared = lowerSharedAuthoringProject(project);
+    expect(shared.diagnostics).toEqual([]);
+    const result = lowerSceneAndRoomPrograms(project, shared.draft!);
+    expect(result.diagnostics).toEqual([]);
+    const lowered = result.draft!;
+    expect(lowered.definitions.scenes[0]!.program.instructions.map((instruction) => instruction.kind)).toEqual([
+      'set-background', 'actor-cue', 'call-dialogue', 'show-text', 'audio-cue', 'set-variable', 'run-lua',
+      'wait-duration', 'wait-input', 'conditional-branch', 'choice', 'set-layout', 'transition',
+    ]);
+    expect(lowered.definitions.scenes[0]!.continuation).toEqual({ kind: 'room', room: { kind: 'room', id: 'foyer' } });
+    expect(lowered.definitions.rooms.find((candidate) => candidate.id === 'foyer')!.lifecycle.hooks).toEqual([
+      { hook: 'before-enter', effects: [{ kind: 'set-variable', variable: { kind: 'variable', id: 'flag' }, value: true }] },
+      { hook: 'after-enter', effects: [{ kind: 'run-lua-effect', source: 'after_enter()' }] },
+      { hook: 'before-leave', effects: [{ kind: 'run-lua-effect', source: 'before_leave()' }] },
+      { hook: 'after-leave', effects: [{ kind: 'set-variable', variable: { kind: 'variable', id: 'flag' }, value: false }] },
+    ]);
+  });
+
+  it('rejects Scene targets removed from runtime lowering and unresolved instruction-local nested references', () => {
+    const project = validProject();
+    project.characters.hero = { id: 'hero', label: 'Hero', data: defaultCharacterData('Hero') };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
+    const scene = defaultSceneData('Broken');
+    scene.steps = [
+      { ...defaultSceneStep('conditional-branch'), id: 'branch', branches: [], fallbackStepId: 'note' },
+      { ...defaultSceneStep('actor-cue'), id: 'actor', character: { $ref: { collection: 'characters', id: 'hero' } }, poseId: 'missing', expressionId: 'missing' },
+      { ...defaultSceneStep('call-dialogue'), id: 'dialogue', dialogue: { $ref: { collection: 'dialogues', id: 'intro' } }, startBlockId: 'missing' },
+      { ...defaultSceneStep('comment'), id: 'note' },
+    ];
+    project.scenes.broken = { id: 'broken', label: 'Broken', data: scene };
+    const shared = lowerSharedAuthoringProject(project);
+    const result = lowerSceneAndRoomPrograms(project, shared.draft!);
+    expect(result.draft).toBeUndefined();
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'COMPILER_SCENE_TARGET_NOT_EXECUTABLE',
+      'COMPILER_SCENE_POSE_MISSING',
+      'COMPILER_SCENE_EXPRESSION_MISSING',
+      'COMPILER_SCENE_DIALOGUE_BLOCK_MISSING',
+    ]);
+  });
+
+  it('rejects type-invalid variable conditions and effects before Scene and Room lowering', () => {
+    const project = validProject();
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    const scene = defaultSceneData('Typed Scene');
+    scene.steps = [{
+      ...defaultSceneStep('show-text'),
+      id: 'typed-text',
+      condition: {
+        kind: 'variable-comparison',
+        variable: { $ref: { collection: 'variables', id: 'flag' } },
+        operator: 'equal',
+        value: 'not-a-boolean',
+      },
+    }];
+    project.scenes.typed = { id: 'typed', label: 'Typed', data: scene };
+    project.rooms.foyer!.data.lifecycle.beforeEnter = [{
+      kind: 'set-variable',
+      variable: { $ref: { collection: 'variables', id: 'flag' } },
+      value: 'not-a-boolean',
+    }];
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      jsonPointer: '/rooms/foyer/data/lifecycle/beforeEnter/0/value',
+      message: "Value does not match variable 'flag'.",
+    }));
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      jsonPointer: '/scenes/typed/data/steps/0/condition/value',
+      message: "Value does not match variable 'flag'.",
+    }));
+    expect(result.stages.find((stage) => stage.name === 'semantic-validation')).toEqual({
+      name: 'semantic-validation',
+      status: 'failed',
+    });
+  });
+
+  it('rejects type-invalid variable conditions and effects before Scene and Room lowering', () => {
+    const project = validProject();
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    const scene = defaultSceneData('Typed Scene');
+    scene.steps = [{
+      ...defaultSceneStep('show-text'),
+      id: 'typed-text',
+      condition: {
+        kind: 'variable-comparison',
+        variable: { $ref: { collection: 'variables', id: 'flag' } },
+        operator: 'equal',
+        value: 'not-a-boolean',
+      },
+    }];
+    project.scenes.typed = { id: 'typed', label: 'Typed', data: scene };
+    project.rooms.foyer!.data.lifecycle.beforeEnter = [{
+      kind: 'set-variable',
+      variable: { $ref: { collection: 'variables', id: 'flag' } },
+      value: 'not-a-boolean',
+    }];
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      jsonPointer: '/rooms/foyer/data/lifecycle/beforeEnter/0/value',
+      message: "Value does not match variable 'flag'.",
+    }));
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      jsonPointer: '/scenes/typed/data/steps/0/condition/value',
+      message: "Value does not match variable 'flag'.",
+    }));
+    expect(result.stages.find((stage) => stage.name === 'semantic-validation')).toEqual({
+      name: 'semantic-validation',
+      status: 'failed',
+    });
+  });
+
+  it('losslessly lowers Dialogue graphs, Interaction instructions and retained Verb fallback chains', () => {
+    const project = validProject();
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.rooms.foyer!.data.placements = [{ id: 'key-place', interactable: roomInteractableRef('key'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, presentation: { label: null, layout: null } }];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
+    const dialogue = defaultDialogueData('Intro');
+    dialogue.blocks = [
+      { ...defaultDialogueBlock('sequence', 'start'), segments: [
+        { ...defaultDialogueSegment('line', 'welcome'), effects: [{ kind: 'set-variable', variable: { $ref: { collection: 'variables', id: 'flag' } }, value: true }], showOnce: true, logged: false, autosaveSafePoint: true },
+        { ...defaultDialogueSegment('run-lua', 'script'), condition: { kind: 'always' }, mayYield: true },
+        { ...defaultDialogueSegment('comment', 'note') },
+      ] },
+      defaultDialogueBlock('choice', 'choice'),
+      { ...defaultDialogueBlock('redirect', 'redirect'), targetBlockId: 'start' },
+      defaultDialogueBlock('comment', 'comment'),
+    ];
+    dialogue.edges = [
+      { id: 'next', kind: 'next', fromBlockId: 'start', toBlockId: 'choice' },
+      { id: 'choose', kind: 'choice', fromBlockId: 'choice', toBlockId: 'redirect', label: { source: { kind: 'inline', text: 'Again' }, markup: 'plain' }, condition: { kind: 'always' }, effects: [{ kind: 'run-lua-effect', source: 'again()' }], logged: true, autosaveSafePoint: true },
+    ];
+    dialogue.completion = { kind: 'scene', id: 'opening' };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
+
+    const baseVerb = defaultVerbData('Use');
+    baseVerb.arity = 1; baseVerb.operandRoles = ['target']; baseVerb.availability = { kind: 'lua-predicate', source: 'base_available()' };
+    baseVerb.defaultProgram = { instructions: [{ id: 'base-notify', kind: 'notify', message: { source: { kind: 'inline', text: 'Base' }, markup: 'plain' } }], completion: { kind: 'return' }, outcome: 'unhandled' };
+    project.verbs.use = { id: 'use', label: 'Use', data: baseVerb };
+    const childVerb = defaultVerbData('Unlock');
+    childVerb.arity = 1; childVerb.operandRoles = ['target']; childVerb.availability = { kind: 'always' };
+    childVerb.defaultProgram = { instructions: [{ id: 'child-call', kind: 'call-dialogue', dialogue: { $ref: { collection: 'dialogues', id: 'intro' } } }], completion: { kind: 'return' }, outcome: 'handled' };
+    project.verbs.unlock = { id: 'unlock', label: 'Unlock', extends: 'use', data: childVerb };
+
+    const interaction = defaultInteractionData();
+    interaction.rules = [{
+      id: 'unlock-key', verb: { $ref: { collection: 'verbs', id: 'unlock' } },
+      operands: [{ kind: 'exact', interactable: { $ref: { collection: 'interactables', id: 'key' } } }],
+      context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'key-place' } },
+      program: {
+        instructions: [
+          { id: 'effect', kind: 'apply-effect', effect: { kind: 'set-variable', variable: { $ref: { collection: 'variables', id: 'flag' } }, value: true } },
+          { id: 'move', kind: 'move-interactable', interactable: { $ref: { collection: 'interactables', id: 'key' } }, target: { kind: 'inventory' } },
+          { id: 'state', kind: 'set-interactable-state', interactable: { $ref: { collection: 'interactables', id: 'key' } }, visible: false },
+          { id: 'notify', kind: 'notify', message: { source: { kind: 'inline', text: 'Unlocked' }, markup: 'plain' } },
+          { id: 'scene', kind: 'call-scene', scene: { $ref: { collection: 'scenes', id: 'opening' } } },
+          { id: 'dialogue', kind: 'call-dialogue', dialogue: { $ref: { collection: 'dialogues', id: 'intro' } } },
+        ], completion: { kind: 'room', id: 'hall' }, outcome: 'handled',
+      },
+    }, {
+      id: 'any-key', verb: { $ref: { collection: 'verbs', id: 'unlock' } },
+      operands: [{ kind: 'any-interactable' }], context: { kind: 'predicate', condition: { kind: 'always' } },
+      program: defaultInteractionProgram(),
+    }];
+    project.interactions.unlock = { id: 'unlock', label: 'Unlock', data: interaction };
+
+    const shared = lowerSharedAuthoringProject(project).draft!;
+    const sceneRoom = lowerSceneAndRoomPrograms(project, shared).draft!;
+    const result = lowerDialogueAndInteractionPrograms(project, sceneRoom);
+    expect(result.diagnostics).toEqual([]);
+    const compiled = result.draft!;
+    const loweredDialogue = compiled.definitions.dialogues[0]!;
+    expect(loweredDialogue.program.blocks.map((block) => block.kind)).toEqual(['sequence', 'choice', 'redirect']);
+    expect(loweredDialogue.program.blocks[0]).toMatchObject({ segments: [{ id: 'welcome', kind: 'line' }, { id: 'script', kind: 'run-lua' }] });
+    expect(loweredDialogue.program.edges.map((edge) => edge.kind)).toEqual(['next', 'choice']);
+    expect(loweredDialogue.completion).toEqual({ kind: 'scene', scene: { kind: 'scene', id: 'opening' } });
+    expect(compiled.definitions.verbs.map((verb) => ({ id: verb.id, extends: verb.extends, availability: verb.availability.kind, outcome: verb.defaultProgram.outcome }))).toEqual([
+      { id: 'unlock', extends: 'use', availability: 'always', outcome: 'handled' },
+      { id: 'use', extends: null, availability: 'lua-predicate', outcome: 'unhandled' },
+    ]);
+    expect(compiled.definitions.interactions[0]!.rules[0]!.program.instructions.map((instruction) => instruction.id)).toEqual(['effect', 'move', 'state', 'notify', 'scene', 'dialogue']);
+    expect(compiled.definitions.interactions[0]!.rules.map((rule) => rule.operands[0]!.kind)).toEqual(['exact', 'any-interactable']);
+  });
+
+  it('rejects type-invalid Dialogue, Interaction, and Verb variable usage before lowering', () => {
+    const project = validProject();
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+
+    const dialogue = defaultDialogueData('Typed Dialogue');
+    dialogue.blocks = [{
+      ...defaultDialogueBlock('sequence', 'start'),
+      segments: [{
+        ...defaultDialogueSegment('line', 'line'),
+        condition: {
+          kind: 'variable-comparison',
+          variable: { $ref: { collection: 'variables', id: 'flag' } },
+          operator: 'equal',
+          value: 'not-a-boolean',
+        },
+      }],
+    }];
+    project.dialogues.typed = { id: 'typed', label: 'Typed', data: dialogue };
+
+    const verb = defaultVerbData('Use');
+    verb.availability = {
+      kind: 'variable-comparison',
+      variable: { $ref: { collection: 'variables', id: 'flag' } },
+      operator: 'equal',
+      value: 'not-a-boolean',
+    };
+    project.verbs.use = { id: 'use', label: 'Use', data: verb };
+
+    const interaction = defaultInteractionData();
+    interaction.rules = [{
+      id: 'typed-rule',
+      verb: { $ref: { collection: 'verbs', id: 'use' } },
+      operands: [],
+      context: {
+        kind: 'predicate',
+        condition: {
+          kind: 'variable-comparison',
+          variable: { $ref: { collection: 'variables', id: 'flag' } },
+          operator: 'equal',
+          value: 'not-a-boolean',
+        },
+      },
+      program: {
+        instructions: [{
+          id: 'bad-effect',
+          kind: 'apply-effect',
+          effect: {
+            kind: 'set-variable',
+            variable: { $ref: { collection: 'variables', id: 'flag' } },
+            value: 'not-a-boolean',
+          },
+        }],
+        completion: { kind: 'return' },
+        outcome: 'handled',
+      },
+    }];
+    project.interactions.typed = { id: 'typed', label: 'Typed', data: interaction };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(false);
+    for (const pointer of [
+      '/dialogues/typed/data/blocks/0/segments/0/condition/value',
+      '/interactions/typed/data/rules/0/context/condition/value',
+      '/interactions/typed/data/rules/0/program/instructions/0/effect/value',
+      '/verbs/use/data/availability/value',
+    ]) {
+      expect(result.diagnostics).toContainEqual(expect.objectContaining({
+        jsonPointer: pointer,
+        message: "Value does not match variable 'flag'.",
+      }));
+    }
+  });
+
+  it('produces identical specialized program drafts independently of collection map insertion order', () => {
+    const buildDraft = (roomOrder: readonly string[]) => {
+      const project = validProject(roomOrder);
+      project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
+      project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
+      project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
+      project.interactions.look = { id: 'look', label: 'Look', data: defaultInteractionData() };
+      const shared = lowerSharedAuthoringProject(project).draft!;
+      const sceneRoom = lowerSceneAndRoomPrograms(project, shared).draft!;
+      return lowerDialogueAndInteractionPrograms(project, sceneRoom).draft!;
+    };
+
+    expect(buildDraft(['foyer', 'hall'])).toEqual(buildDraft(['hall', 'foyer']));
+  });
+
+  it('rejects type-invalid Dialogue, Interaction, and Verb variable usage before lowering', () => {
+    const project = validProject();
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+
+    const dialogue = defaultDialogueData('Typed Dialogue');
+    dialogue.blocks = [{
+      ...defaultDialogueBlock('sequence', 'start'),
+      segments: [{
+        ...defaultDialogueSegment('line', 'line'),
+        condition: {
+          kind: 'variable-comparison',
+          variable: { $ref: { collection: 'variables', id: 'flag' } },
+          operator: 'equal',
+          value: 'not-a-boolean',
+        },
+      }],
+    }];
+    project.dialogues.typed = { id: 'typed', label: 'Typed', data: dialogue };
+
+    const verb = defaultVerbData('Use');
+    verb.availability = {
+      kind: 'variable-comparison',
+      variable: { $ref: { collection: 'variables', id: 'flag' } },
+      operator: 'equal',
+      value: 'not-a-boolean',
+    };
+    project.verbs.use = { id: 'use', label: 'Use', data: verb };
+
+    const interaction = defaultInteractionData();
+    interaction.rules = [{
+      id: 'typed-rule',
+      verb: { $ref: { collection: 'verbs', id: 'use' } },
+      operands: [],
+      context: {
+        kind: 'predicate',
+        condition: {
+          kind: 'variable-comparison',
+          variable: { $ref: { collection: 'variables', id: 'flag' } },
+          operator: 'equal',
+          value: 'not-a-boolean',
+        },
+      },
+      program: {
+        instructions: [{
+          id: 'bad-effect',
+          kind: 'apply-effect',
+          effect: {
+            kind: 'set-variable',
+            variable: { $ref: { collection: 'variables', id: 'flag' } },
+            value: 'not-a-boolean',
+          },
+        }],
+        completion: { kind: 'return' },
+        outcome: 'handled',
+      },
+    }];
+    project.interactions.typed = { id: 'typed', label: 'Typed', data: interaction };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(false);
+    for (const pointer of [
+      '/dialogues/typed/data/blocks/0/segments/0/condition/value',
+      '/interactions/typed/data/rules/0/context/condition/value',
+      '/interactions/typed/data/rules/0/program/instructions/0/effect/value',
+      '/verbs/use/data/availability/value',
+    ]) {
+      expect(result.diagnostics).toContainEqual(expect.objectContaining({
+        jsonPointer: pointer,
+        message: "Value does not match variable 'flag'.",
+      }));
+    }
+  });
+
+  it('produces identical specialized program drafts independently of collection map insertion order', () => {
+    const buildDraft = (roomOrder: readonly string[]) => {
+      const project = validProject(roomOrder);
+      project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
+      project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
+      project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
+      project.interactions.look = { id: 'look', label: 'Look', data: defaultInteractionData() };
+      const shared = lowerSharedAuthoringProject(project).draft!;
+      const sceneRoom = lowerSceneAndRoomPrograms(project, shared).draft!;
+      return lowerDialogueAndInteractionPrograms(project, sceneRoom).draft!;
+    };
+
+    expect(buildDraft(['foyer', 'hall'])).toEqual(buildDraft(['hall', 'foyer']));
   });
 
   it('requires a strict compiled entrypoint before shared lowering', () => {
@@ -201,7 +605,7 @@ describe('authoring compiler framework', () => {
       verb: { $ref: { collection: 'verbs', id: 'look' } },
       operands: [],
       context: { kind: 'any' },
-      program: { instructions: [], completion: { kind: 'return' }, outcome: 'unhandled' },
+      program: { instructions: [{ id: 'notice', kind: 'notify', message: { source: { kind: 'inline', text: 'Look' }, markup: 'plain' } }], completion: { kind: 'return' }, outcome: 'unhandled' },
     }];
     project.interactions.look = { id: 'look', label: 'Look', data: interaction };
 

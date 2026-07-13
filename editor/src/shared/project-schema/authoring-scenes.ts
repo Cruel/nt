@@ -19,7 +19,7 @@ import {
   variableRefSchema,
 } from './authoring-flow';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import { isVariableDefaultValueCompatible, parseVariableData } from './authoring-variables';
+import { validateVariableRuntimeValue } from './authoring-variable-usage';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -205,19 +205,14 @@ export function validateSceneData(project: AuthoringProject, sceneId: string, re
     if (typeof value !== 'object' || value === null || !(id in value)) diagnostics.push(diagnostic(path, `Missing ${String(collection)} record '${id}'.`));
   };
   const validateVariableValue = (variableId: string, value: unknown, path: string) => {
-    const record = project.variables[variableId];
-    if (!record) {
-      requireRecord('variables', variableId, path);
-      return;
-    }
-    const variable = parseVariableData(record.data);
-    if (!variable || !isVariableDefaultValueCompatible(variable.type, value, variable.enumValues)) {
-      diagnostics.push(diagnostic(path, `Value does not match variable '${variableId}'.`));
-    }
+    const result = validateVariableRuntimeValue(project, variableId, value);
+    if (!result.ok) diagnostics.push(diagnostic(path, result.message));
   };
   const validateCondition = (condition: SceneConditionData | undefined, path: string) => {
     if (condition?.kind === 'variable-comparison') {
-      requireRecord('variables', condition.variable.$ref.id, `${path}/variable`);
+      const variableId = condition.variable.$ref.id;
+      if (condition.value === undefined) requireRecord('variables', variableId, `${path}/variable`);
+      else validateVariableValue(variableId, condition.value, `${path}/value`);
     }
   };
   const validateEffects = (effects: readonly SceneEffectData[], path: string) => {

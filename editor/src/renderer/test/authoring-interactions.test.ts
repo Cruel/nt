@@ -29,6 +29,24 @@ describe('authoring interactions', () => {
     expect(diagnostics.filter((item) => item.severity === 'warning')).toEqual([]);
   });
 
+  it('rejects duplicate stable instruction IDs', () => {
+    const project = createAuthoringProject();
+    project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
+    const data = defaultInteractionData();
+    data.rules = [{
+      id: 'look-rule', verb: { $ref: { collection: 'verbs', id: 'look' } }, operands: [], context: { kind: 'any' },
+      program: {
+        instructions: [
+          { id: 'notice', kind: 'notify', message: { source: { kind: 'inline', text: 'One' }, markup: 'plain' } },
+          { id: 'notice', kind: 'notify', message: { source: { kind: 'inline', text: 'Two' }, markup: 'plain' } },
+        ],
+        completion: { kind: 'return' }, outcome: 'handled',
+      },
+    }];
+    const diagnostics = validateInteractionData(project, 'rules', { id: 'rules', label: 'Rules', data });
+    expect(diagnostics).toContainEqual(expect.objectContaining({ path: '/interactions/rules/data/rules/0/program/instructions/1/id', severity: 'error' }));
+  });
+
   it('indexes typed Verb and Interactable references', () => {
     const project = createAuthoringProject();
     project.interactables.key = { id: 'key', label: 'Key', extends: null, properties: {}, data: defaultInteractableData('Key') };

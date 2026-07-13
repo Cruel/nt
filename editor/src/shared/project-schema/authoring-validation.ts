@@ -17,6 +17,7 @@ import { validateShaderData } from './authoring-shaders';
 import { validateTestData } from './authoring-tests';
 import { validateVariableData } from './authoring-variables';
 import { parseVerbData } from './authoring-verbs';
+import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import {
   authoringProjectSchema,
   isValidEntityId,
@@ -168,7 +169,15 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
     const data = parseVerbData(record.data);
     if (!data) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data`, 'Verb record data must contain a valid Verb definition.', 'authoring-verbs'));
     else {
-      if (data.availability.kind === 'variable-comparison' && !project.variables[data.availability.variable.$ref.id]) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref`, `Missing variable '${data.availability.variable.$ref.id}'.`, 'authoring-verbs'));
+      if (data.availability.kind === 'variable-comparison') {
+        const variableId = data.availability.variable.$ref.id;
+        if (data.availability.value === undefined) {
+          if (!project.variables[variableId]) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref`, `Missing variable '${variableId}'.`, 'authoring-verbs'));
+        } else {
+          const result = validateVariableRuntimeValue(project, variableId, data.availability.value);
+          if (!result.ok) diagnostics.push(diagnostic('error', result.kind === 'missing' ? `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref` : `/verbs/${escapePathSegment(id)}/data/availability/value`, result.message, 'authoring-verbs'));
+        }
+      }
       diagnostics.push(...validateInteractionProgram(project, data.defaultProgram, `/verbs/${escapePathSegment(id)}/data/defaultProgram`));
     }
   }

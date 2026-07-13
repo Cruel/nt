@@ -16,9 +16,10 @@ import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseTestData } from './project-schema/authoring-tests';
 import { validateAuthoringProject } from './project-schema/authoring-validation';
-import {
-  lowerSharedAuthoringProject,
-} from './authoring-compiler-shared-lowering';
+import { parseVerbData } from './project-schema/authoring-verbs';
+import { lowerSharedAuthoringProject } from './authoring-compiler-shared-lowering';
+import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lowering';
+import { lowerDialogueAndInteractionPrograms } from './authoring-compiler-dialogue-interaction-lowering';
 
 export const compilerStageNames = [
   'normalize',
@@ -52,6 +53,7 @@ export const compilerNestedNamespaces = [
   'dialogue-segment',
   'dialogue-edge',
   'interaction-rule',
+  'interaction-instruction',
   'map-location',
   'map-connection',
   'test-step',
@@ -265,9 +267,16 @@ export function buildAuthoringSymbolTables(project: AuthoringProject): Authoring
     });
     data?.edges.forEach((edge, index) => addNestedSymbol(nested, 'dialogue-edge', ownerId, edge.id, `/dialogues/${escapeJsonPointerSegment(ownerId)}/data/edges/${index}`));
   });
+  Object.entries(project.verbs).forEach(([ownerId, record]) => {
+    const data = parseVerbData(record.data);
+    data?.defaultProgram.instructions.forEach((instruction, index) => addNestedSymbol(nested, 'interaction-instruction', `verb:${ownerId}`, instruction.id, `/verbs/${escapeJsonPointerSegment(ownerId)}/data/defaultProgram/instructions/${index}`));
+  });
   Object.entries(project.interactions).forEach(([ownerId, record]) => {
     const data = parseInteractionData(record.data);
-    data?.rules.forEach((rule, index) => addNestedSymbol(nested, 'interaction-rule', ownerId, rule.id, `/interactions/${escapeJsonPointerSegment(ownerId)}/data/rules/${index}`));
+    data?.rules.forEach((rule, ruleIndex) => {
+      addNestedSymbol(nested, 'interaction-rule', ownerId, rule.id, `/interactions/${escapeJsonPointerSegment(ownerId)}/data/rules/${ruleIndex}`);
+      rule.program.instructions.forEach((instruction, instructionIndex) => addNestedSymbol(nested, 'interaction-instruction', `interaction:${ownerId}:${rule.id}`, instruction.id, `/interactions/${escapeJsonPointerSegment(ownerId)}/data/rules/${ruleIndex}/program/instructions/${instructionIndex}`));
+    });
   });
   Object.entries(project.maps).forEach(([ownerId, record]) => {
     const data = parseMapData(record.data);
@@ -334,12 +343,30 @@ function lowerAuthoringProject(project: AuthoringProject, _symbols: AuthoringSym
     diagnostic.message,
   ));
   if (shared.draft) {
-    diagnostics.push(makeDiagnostic(
-      'COMPILER_PROGRAM_LOWERING_PENDING_PHASE_4D_4E',
+    const programs = lowerSceneAndRoomPrograms(project, shared.draft);
+    diagnostics.push(...programs.diagnostics.map((diagnostic) => makeDiagnostic(
+      diagnostic.code,
       'error',
-      '/',
-      'Shared declarations and definitions are lowered; Scene, RoomHook, Dialogue, and Interaction programs remain for Phase 4D/4E.',
-    ));
+      diagnostic.path,
+      diagnostic.message,
+    )));
+    if (programs.draft) {
+      const remainingPrograms = lowerDialogueAndInteractionPrograms(project, programs.draft);
+      diagnostics.push(...remainingPrograms.diagnostics.map((diagnostic) => makeDiagnostic(
+        diagnostic.code,
+        'error',
+        diagnostic.path,
+        diagnostic.message,
+      )));
+      if (remainingPrograms.draft) {
+        diagnostics.push(makeDiagnostic(
+          'COMPILER_FINAL_ASSEMBLY_PENDING_PHASE_4F',
+          'error',
+          '/',
+          'All specialized programs are lowered; resource closure, final assembly, wire validation, and canonical serialization remain for Phase 4F.',
+        ));
+      }
+    }
   }
   return {
     diagnostics,

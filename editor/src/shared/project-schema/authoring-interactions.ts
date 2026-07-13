@@ -8,6 +8,7 @@ import {
 } from './authoring-interaction-programs';
 import { parseRoomData } from './authoring-rooms';
 import { parseVerbData } from './authoring-verbs';
+import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -78,8 +79,11 @@ function validateFlowTarget(project: AuthoringProject, target: InteractionRule['
 
 export function validateInteractionProgram(project: AuthoringProject, program: InteractionRule['program'], path: string): InteractionSchemaDiagnostic[] {
   const diagnostics: InteractionSchemaDiagnostic[] = [];
+  const instructionIds = new Set<string>();
   for (const [index, instruction] of program.instructions.entries()) {
     const instructionPath = `${path}/instructions/${index}`;
+    if (instructionIds.has(instruction.id)) diagnostics.push(diagnostic(`${instructionPath}/id`, `Duplicate interaction instruction ID '${instruction.id}'.`));
+    instructionIds.add(instruction.id);
     if ((instruction.kind === 'move-interactable' || instruction.kind === 'set-interactable-state') && !project.interactables[instruction.interactable.$ref.id]) {
       diagnostics.push(diagnostic(`${instructionPath}/interactable/$ref`, `Missing interactable '${instruction.interactable.$ref.id}'.`));
     }
@@ -91,8 +95,20 @@ export function validateInteractionProgram(project: AuthoringProject, program: I
     }
     if (instruction.kind === 'call-scene' && !project.scenes[instruction.scene.$ref.id]) diagnostics.push(diagnostic(`${instructionPath}/scene/$ref`, `Missing scene '${instruction.scene.$ref.id}'.`));
     if (instruction.kind === 'call-dialogue' && !project.dialogues[instruction.dialogue.$ref.id]) diagnostics.push(diagnostic(`${instructionPath}/dialogue/$ref`, `Missing dialogue '${instruction.dialogue.$ref.id}'.`));
-    if (instruction.kind === 'apply-effect' && instruction.effect.kind === 'set-variable' && !project.variables[instruction.effect.variable.$ref.id]) {
-      diagnostics.push(diagnostic(`${instructionPath}/effect/variable/$ref`, `Missing variable '${instruction.effect.variable.$ref.id}'.`));
+    if (instruction.kind === 'apply-effect' && instruction.effect.kind === 'set-variable') {
+      const result = validateVariableRuntimeValue(
+        project,
+        instruction.effect.variable.$ref.id,
+        instruction.effect.value,
+      );
+      if (!result.ok) {
+        diagnostics.push(diagnostic(
+          result.kind === 'missing'
+            ? `${instructionPath}/effect/variable/$ref`
+            : `${instructionPath}/effect/value`,
+          result.message,
+        ));
+      }
     }
   }
   validateFlowTarget(project, program.completion, `${path}/completion`, diagnostics);
@@ -121,7 +137,16 @@ export function validateInteractionData(project: AuthoringProject, interactionId
     }
     if (rule.context.kind === 'active-room' && !project.rooms[rule.context.room.$ref.id]) diagnostics.push(diagnostic(`${path}/context/room/$ref`, `Missing room '${rule.context.room.$ref.id}'.`));
     if (rule.context.kind === 'room-placement') validateRoomPlacement(project, rule.context.placement.room, rule.context.placement.placement, `${path}/context/placement`, diagnostics);
-    if (rule.context.kind === 'predicate' && rule.context.condition.kind === 'variable-comparison' && !project.variables[rule.context.condition.variable.$ref.id]) diagnostics.push(diagnostic(`${path}/context/condition/variable/$ref`, `Missing variable '${rule.context.condition.variable.$ref.id}'.`));
+    if (rule.context.kind === 'predicate' && rule.context.condition.kind === 'variable-comparison') {
+      const condition = rule.context.condition;
+      const variableId = condition.variable.$ref.id;
+      if (condition.value === undefined) {
+        if (!project.variables[variableId]) diagnostics.push(diagnostic(`${path}/context/condition/variable/$ref`, `Missing variable '${variableId}'.`));
+      } else {
+        const result = validateVariableRuntimeValue(project, variableId, condition.value);
+        if (!result.ok) diagnostics.push(diagnostic(result.kind === 'missing' ? `${path}/context/condition/variable/$ref` : `${path}/context/condition/value`, result.message));
+      }
+    }
     diagnostics.push(...validateInteractionProgram(project, rule.program, `${path}/program`));
     const key = JSON.stringify({
       verb: rule.verb.$ref.id,
