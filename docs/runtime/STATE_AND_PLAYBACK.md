@@ -18,11 +18,11 @@ Playback, RmlUi, editor preview, tests, debugger, and C ABI adapters decode boun
 
 ## Additive typed kernel state
 
-Phases 6A and 6B add a JSON-free `SessionState` and execution kernel beside the shipped path. Session
-creation initializes declared variables and one typed entrypoint frame: Scene and Dialogue roots use
-`NoReturn`, while Room entry starts the shared pre-entry `RoomTransitionFrame`. The public mode,
-stack, blocker, and fault views are read-only; `FlowExecutor` is the only mutation service after
-initial construction.
+Phases 6A through 6C add a JSON-free `SessionState`, execution kernel, and shared primitive
+evaluator beside the shipped path. Session creation initializes declared variables and one typed
+entrypoint frame: Scene and Dialogue roots use `NoReturn`, while Room entry starts the shared
+pre-entry `RoomTransitionFrame`. The public mode, stack, blocker, and fault views are read-only;
+`FlowExecutor` is the only mutation service after initial construction.
 
 The session-owned `FlowStack` is a closed Scene/Dialogue/Interaction/RoomTransition variant with
 opaque fresh frame IDs, stable typed positions, and Caller/ResumeRoom/NoReturn destinations. Child
@@ -40,10 +40,21 @@ authored-assignment order at each level, then use the declaration default or ret
 value. Overrides remain sparse on their actual owners, so ancestor changes are immediately visible
 without a resolved-value cache.
 
-This path is test-facing and additive. Feature execution, script invocation, persistence, concrete
-host request queues, and consumer cutover remain owned by later phases. It does not adapt compiled
-data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua, or
-runtime UI consumers.
+`SharedPrimitiveEvaluator` is the common typed boundary for conditions, effects, text sources, and
+engine waits. It evaluates Always and declared-variable comparisons without coercion, applies
+SetVariable through `SessionState`, resolves inline/localized text through requested/default/fallback
+catalog order, and reports Lua variants as script-boundary errors until Phase 6D supplies their
+execution service. Input, duration, presentation, and audio waits allocate owner-bound typed blockers;
+duration blockers retain remaining logical milliseconds and advance deterministically. Immediate
+waits complete synchronously. ChildFlow remains an atomic frame call rather than a blocker, and
+Script waits remain separate from engine-defined logical waits. Completion, cancellation, and
+duration advancement require the exact owner and typed handle; stale or mismatched operations leave
+the active wait unchanged.
+
+This path is test-facing and additive. Feature execution, script invocation, persistence codecs,
+concrete host request queues, and consumer cutover remain owned by later phases. It does not adapt
+compiled data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua,
+or runtime UI consumers.
 
 ## Current scaffold
 

@@ -812,6 +812,46 @@ Result<FlowBlocker, Diagnostics> FlowExecutor::block_top(FlowBlockerKind kind)
     return Result<FlowBlocker, Diagnostics>::success(std::move(blocker));
 }
 
+Result<FlowBlocker, Diagnostics> FlowExecutor::block_duration(DurationWait duration)
+{
+    auto blocker = block_top(FlowBlockerKind::Duration);
+    auto* value = blocker.value_if();
+    if (value == nullptr)
+        return blocker;
+    auto* typed = std::get_if<DurationFlowBlocker>(value);
+    if (typed == nullptr) {
+        m_state.m_blocker.reset();
+        return Result<FlowBlocker, Diagnostics>::failure(execution_error(
+            "execution.invalid_blocker", "Duration wait did not allocate a Duration blocker"));
+    }
+    typed->remaining = duration.duration();
+    m_state.m_blocker = *typed;
+    return blocker;
+}
+
+Result<bool, Diagnostics>
+FlowExecutor::advance_duration_blocker(const FlowFrameId& owner,
+                                       const DurationFlowBlockerHandle& handle,
+                                       std::chrono::milliseconds elapsed)
+{
+    if (m_state.m_execution_fault)
+        return Result<bool, Diagnostics>::failure(*m_state.m_execution_fault);
+    if (elapsed.count() < 0)
+        return Result<bool, Diagnostics>::failure(execution_error(
+            "execution.invalid_wait_elapsed", "Duration wait elapsed time cannot be negative"));
+    auto* blocker =
+        m_state.m_blocker ? std::get_if<DurationFlowBlocker>(&*m_state.m_blocker) : nullptr;
+    if (blocker == nullptr || blocker->owner != owner || blocker->handle != handle)
+        return Result<bool, Diagnostics>::failure(execution_error(
+            "execution.stale_blocker", "Duration wait update does not match the active blocker"));
+    if (elapsed >= blocker->remaining) {
+        m_state.m_blocker.reset();
+        return Result<bool, Diagnostics>::success(true);
+    }
+    blocker->remaining -= elapsed;
+    return Result<bool, Diagnostics>::success(false);
+}
+
 Result<void, Diagnostics> FlowExecutor::resume_blocker(const FlowFrameId& owner,
                                                        const AnyFlowBlockerHandle& handle)
 {

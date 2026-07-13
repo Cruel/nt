@@ -54,6 +54,10 @@ public:
     [[nodiscard]] Result<void, Diagnostics> complete_room_transition();
 
     [[nodiscard]] Result<FlowBlocker, Diagnostics> block_top(FlowBlockerKind kind);
+    [[nodiscard]] Result<FlowBlocker, Diagnostics> block_duration(DurationWait duration);
+    [[nodiscard]] Result<bool, Diagnostics>
+    advance_duration_blocker(const FlowFrameId& owner, const DurationFlowBlockerHandle& handle,
+                             std::chrono::milliseconds elapsed);
     [[nodiscard]] Result<void, Diagnostics> resume_blocker(const FlowFrameId& owner,
                                                            const AnyFlowBlockerHandle& handle);
     [[nodiscard]] Result<void, Diagnostics> cancel_blocker(const FlowFrameId& owner,

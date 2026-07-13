@@ -2,6 +2,7 @@
 
 #include "noveltea/core/compiled_project.hpp"
 
+#include <chrono>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
@@ -185,6 +186,7 @@ struct InputFlowBlocker {
 struct DurationFlowBlocker {
     FlowFrameId owner;
     DurationFlowBlockerHandle handle;
+    std::chrono::milliseconds remaining{0};
 };
 struct PresentationFlowBlocker {
     FlowFrameId owner;
