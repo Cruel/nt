@@ -36,11 +36,23 @@ using ReturnDestination =
     std::variant<CallerDestination, ResumeRoomDestination, NoReturnDestination>;
 
 struct SceneStepReady {};
+struct SceneInstructionCompletionPosition {
+    std::optional<SceneStepId> next_step;
+    bool autosave_safe_point = false;
+};
+struct SceneAutosavePendingPosition {
+    SceneStepId completed_step;
+    std::optional<SceneStepId> next_step;
+};
+struct SceneChoiceSelectionPosition {};
 struct SceneChoiceEffectPosition {
     SceneChoiceOptionId option;
     std::size_t next_effect = 0;
+    bool awaiting_completion = false;
 };
-using SceneStepSubstate = std::variant<SceneStepReady, SceneChoiceEffectPosition>;
+using SceneStepSubstate =
+    std::variant<SceneStepReady, SceneInstructionCompletionPosition, SceneAutosavePendingPosition,
+                 SceneChoiceSelectionPosition, SceneChoiceEffectPosition>;
 struct SceneFramePosition {
     std::optional<SceneStepId> next_step;
     SceneStepSubstate substate = SceneStepReady{};

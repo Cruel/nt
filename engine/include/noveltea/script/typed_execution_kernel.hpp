@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/script_host_services.hpp"
+#include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/script/script_invoker.hpp"
 
@@ -16,8 +17,8 @@ class ScriptRuntime;
 using TypedExecutionError = std::variant<core::Diagnostics, ScriptError>;
 using TypedEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSuspended>;
 
-// Test-facing additive composition root for the Phase 6 typed execution kernel. It deliberately
-// does not execute feature programs or consume host requests; those remain owned by Phases 7 and 9.
+// Additive composition root for the typed execution kernel. Scene execution is implemented here;
+// later Phase 7 slices add the remaining feature visitors and Phase 9 owns external adapters.
 class TypedExecutionKernel {
 public:
     [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
@@ -56,6 +57,13 @@ public:
     resume_script(const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation);
     [[nodiscard]] core::Result<void, ScriptError>
     cancel_script(const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation);
+
+    [[nodiscard]] core::FlowRunOutcome run_until_blocked(std::size_t instruction_budget,
+                                                         std::string_view runtime_locale = {});
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    choose_scene_option(const core::FlowFrameId& owner, const core::InputFlowBlockerHandle& handle,
+                        const core::SceneChoiceOptionId& option);
+    [[nodiscard]] core::Result<core::SceneView, core::Diagnostics> scene_view() const;
 
 private:
     TypedExecutionKernel(const core::CompiledProject& project, ScriptRuntime& runtime,

@@ -57,15 +57,19 @@ struct TailReplaceFlowRequest {
 struct NotificationRequest {
     std::string message;
 };
+struct AutosaveSafePointRequest {
+    SceneId scene;
+    SceneStepId step;
+};
 
 using ScriptHostRequest =
     std::variant<MoveInteractableRequest, NavigationRequest, StartTransientSceneRequest,
                  StartTransientDialogueRequest, CallChildSceneRequest, CallChildDialogueRequest,
-                 TailReplaceFlowRequest, NotificationRequest>;
+                 TailReplaceFlowRequest, NotificationRequest, AutosaveSafePointRequest>;
 
-// Typed, JSON-free services exposed to Lua running through the additive execution kernel. Requests
-// are validated and queued for the owning Phase 7/9 adapters; this class does not implement feature
-// frames, feature execution, persistence, or consumer cutover.
+// Typed, JSON-free services exposed to Lua and the additive feature kernel. Requests are validated
+// and queued for their owning Phase 7/9 adapters; this class does not execute external adapters,
+// persistence, or consumer cutover.
 class ScriptHostServices {
 public:
     ScriptHostServices(const CompiledProject& project, SessionState& state) noexcept
@@ -97,6 +101,7 @@ public:
     request_child(DialogueId dialogue, std::optional<DialogueBlockId> start_block = std::nullopt);
     [[nodiscard]] Result<void, Diagnostics> request_tail_replacement(FlowTarget target);
     [[nodiscard]] Result<void, Diagnostics> request_notification(std::string message);
+    void request_autosave_safe_point(SceneId scene, SceneStepId step);
 
     [[nodiscard]] const std::vector<ScriptHostRequest>& requests() const noexcept
     {

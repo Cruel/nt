@@ -65,6 +65,19 @@ public:
     [[nodiscard]] Result<void, Diagnostics> cancel_blocker(const FlowFrameId& owner,
                                                            const AnyFlowBlockerHandle& handle);
 
+    [[nodiscard]] Result<void, Diagnostics> advance_scene(const SceneId& scene,
+                                                          const SceneStepId& expected_step,
+                                                          SceneFramePosition next_position);
+    [[nodiscard]] Result<void, Diagnostics> mark_scene_wait(const SceneId& scene,
+                                                            const SceneStepId& expected_step,
+                                                            SceneStepSubstate substate);
+    [[nodiscard]] Result<void, Diagnostics>
+    choose_scene_option(const FlowFrameId& owner, const InputFlowBlockerHandle& handle,
+                        const SceneChoiceOptionId& option);
+    [[nodiscard]] Result<void, Diagnostics> fault(Diagnostics diagnostics);
+    [[nodiscard]] Result<void, Diagnostics> begin_run();
+    void end_run() noexcept;
+
     [[nodiscard]] FlowRunOutcome run_until_blocked(std::size_t instruction_budget);
     [[nodiscard]] Result<void, Diagnostics> discard_fault();
 

@@ -299,6 +299,11 @@ Result<void, Diagnostics> ScriptHostServices::request_notification(std::string m
     return Result<void, Diagnostics>::success();
 }
 
+void ScriptHostServices::request_autosave_safe_point(SceneId scene, SceneStepId step)
+{
+    m_requests.emplace_back(AutosaveSafePointRequest{std::move(scene), std::move(step)});
+}
+
 std::vector<ScriptHostRequest> ScriptHostServices::take_requests() noexcept
 {
     std::vector<ScriptHostRequest> result;

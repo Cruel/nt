@@ -51,6 +51,20 @@ template<class Frame> bool has_root_frame(const TypedExecutionKernel& kernel)
            std::holds_alternative<Frame>(kernel.state().flow_stack().front());
 }
 
+const core::SceneFrame& active_scene(const TypedExecutionKernel& kernel)
+{
+    REQUIRE_FALSE(kernel.state().flow_stack().empty());
+    const auto* frame = std::get_if<core::SceneFrame>(&kernel.state().flow_stack().back());
+    REQUIRE(frame != nullptr);
+    return *frame;
+}
+
+core::FlowBlocker active_blocker(const TypedExecutionKernel& kernel)
+{
+    REQUIRE(kernel.state().blocker());
+    return *kernel.state().blocker();
+}
+
 } // namespace
 
 TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host state")
@@ -184,6 +198,175 @@ TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-sto
     const auto* script_error = std::get_if<ScriptError>(&bad_lua.error());
     REQUIRE(script_error != nullptr);
     CHECK(script_error->code == ScriptErrorCode::YieldForbidden);
+}
+
+TEST_CASE("typed Scene execution covers the complete V1 instruction vocabulary atomically")
+{
+    RuntimeFixture fixture;
+    REQUIRE(
+        fixture.runtime.execute("function show_hero() return true end\n"
+                                "function dynamic_line() return 'Dynamic line.' end\n"
+                                "function run_scene_effect() coroutine.yield() end\n"
+                                "function take_layout_branch() return false end\n"
+                                "function can_transition() return true end\n"
+                                "function prepare_transition() noveltea.notify('prepared') end\n"
+                                "function transition_label() return 'Transition' end",
+                                "scene-test-setup"));
+    auto project = load_fixture("scene-program.json");
+    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+
+    auto first = kernel->run_until_blocked(2, "en");
+    const auto* first_budget = std::get_if<core::FlowBudgetYieldOutcome>(&first);
+    REQUIRE(first_budget != nullptr);
+    CHECK(first_budget->executed_units == 2);
+    auto view = kernel->scene_view();
+    REQUIRE(view);
+    REQUIRE(view.value().background);
+    REQUIRE(view.value().actors.size() == 1);
+    CHECK(view.value().actors.front().character == core::CharacterId::create("hero").value());
+    CHECK_FALSE(view.value().actors.front().visible);
+    CHECK_FALSE(view.value().actors.front().presentation_complete);
+
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(std::holds_alternative<core::DialogueFrame>(kernel->state().flow_stack().back()));
+    REQUIRE(kernel->flow().return_from_flow());
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(
+        std::holds_alternative<core::AutosaveSafePointRequest>(kernel->host().requests().back()));
+
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(kernel->state().presented_text()->text == "Inline text.");
+    CHECK(kernel->state().text_log().size() == 1);
+
+    auto localized = kernel->run_until_blocked(1, "en");
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(localized));
+    auto localized_blocker = active_blocker(*kernel);
+    CHECK(kernel->state().presented_text()->text == "Welcome.");
+    const auto localized_owner = core::flow_blocker_owner(localized_blocker);
+    const auto localized_handle = core::flow_blocker_handle(localized_blocker);
+    REQUIRE(kernel->complete(localized_owner, localized_handle));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_scene(*kernel).position.next_step ==
+          core::SceneStepId::create("lua-text").value());
+
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
+    auto lua_text_blocker = active_blocker(*kernel);
+    REQUIRE(kernel->complete(core::flow_blocker_owner(lua_text_blocker),
+                             core::flow_blocker_handle(lua_text_blocker)));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(kernel->state().presented_text()->text == "Dynamic line.");
+
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
+    auto audio_blocker = active_blocker(*kernel);
+    CHECK(core::flow_blocker_kind(audio_blocker) == core::FlowBlockerKind::Audio);
+    REQUIRE(kernel->complete(core::flow_blocker_owner(audio_blocker),
+                             core::flow_blocker_handle(audio_blocker)));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(kernel->state().audio_channels().size() == 1);
+    CHECK(kernel->state().audio_channels().front().playing);
+
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(kernel->state().variable(project, core::VariableId::create("flag").value()).value() ==
+          core::RuntimeValue{true});
+
+    auto script = kernel->run_until_blocked(1, "en");
+    const auto* script_blocked = std::get_if<core::FlowBlockedOutcome>(&script);
+    REQUIRE(script_blocked != nullptr);
+    const auto* script_wait = std::get_if<core::ScriptFlowBlocker>(&script_blocked->blocker);
+    REQUIRE(script_wait != nullptr);
+    auto resumed = kernel->resume_script(script_wait->owner, script_wait->handle);
+    REQUIRE(resumed);
+    CHECK(std::holds_alternative<ScriptInvocationCompleted>(resumed.value()));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
+    auto duration_blocker = active_blocker(*kernel);
+    const auto* duration = std::get_if<core::DurationFlowBlocker>(&duration_blocker);
+    REQUIRE(duration != nullptr);
+    REQUIRE(kernel->advance(duration->owner, duration->handle, std::chrono::milliseconds{1500}));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
+    auto input_blocker = active_blocker(*kernel);
+    REQUIRE(kernel->cancel(core::flow_blocker_owner(input_blocker),
+                           core::flow_blocker_handle(input_blocker)));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
+    auto choice_blocker = active_blocker(*kernel);
+    const auto* choice_input = std::get_if<core::InputFlowBlocker>(&choice_blocker);
+    REQUIRE(choice_input != nullptr);
+    auto choice_view = kernel->scene_view();
+    REQUIRE(choice_view);
+    REQUIRE(choice_view.value().choice);
+    CHECK(choice_view.value().choice->options.size() == 2);
+    CHECK_FALSE(kernel->choose_scene_option(choice_input->owner, choice_input->handle,
+                                            core::SceneChoiceOptionId::create("missing").value()));
+    REQUIRE(kernel->state().blocker());
+    REQUIRE(
+        kernel->choose_scene_option(choice_input->owner, choice_input->handle,
+                                    core::SceneChoiceOptionId::create("layout-option").value()));
+    CHECK_FALSE(kernel->state().blocker());
+    CHECK_FALSE(
+        kernel->choose_scene_option(choice_input->owner, choice_input->handle,
+                                    core::SceneChoiceOptionId::create("layout-option").value()));
+
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(kernel->state().variable(project, core::VariableId::create("ratio").value()).value() ==
+          core::RuntimeValue{0.75});
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(kernel->state().layouts().size() == 1);
+    CHECK(kernel->state().layouts().front().layout == core::LayoutId::create("hud-assets").value());
+
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
+    auto transition_blocker = active_blocker(*kernel);
+    REQUIRE(kernel->state().transition());
+    CHECK_FALSE(kernel->state().transition()->complete);
+    REQUIRE(kernel->complete(core::flow_blocker_owner(transition_blocker),
+                             core::flow_blocker_handle(transition_blocker)));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(kernel->state().transition()->complete);
+
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_scene(*kernel).scene == core::SceneId::create("closing").value());
+}
+
+TEST_CASE("typed Scene failures preserve the stable cursor and stale resumes do not mutate state")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.execute("function show_hero() error('actor condition failed') end",
+                                    "scene-failure-setup"));
+    auto project = load_fixture("scene-program.json");
+    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    const auto before = active_scene(*kernel).position.next_step;
+    auto failed = kernel->run_until_blocked(1, "en");
+    REQUIRE(std::holds_alternative<core::FlowFaultOutcome>(failed));
+    CHECK(active_scene(*kernel).position.next_step == before);
+    CHECK(kernel->state().execution_fault());
 }
 
 } // namespace noveltea::script::test

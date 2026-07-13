@@ -31,8 +31,11 @@ calls validate and advance their caller before an atomic push. Return, terminal 
 Room transition, rejection, completion, and End enforce the fixed mode/stack contract. Owner-bound
 blockers require an exact frame, handle, and kind match. Execution faults are fail-stop without an
 Error gameplay mode, and explicit discard selects the captured Room, the pre/post-commit transition
-Room, or Ended according to the frame contract. The bounded non-reentrant driver currently returns a
-typed not-yet-migrated fault for positive-budget feature execution; Phase 7 owns those frame visitors.
+Room, or Ended according to the frame contract. The core-only bounded driver still returns a typed
+not-yet-migrated fault for feature frames that need script-aware dispatch. The additive
+`TypedExecutionKernel` now owns the sole typed Scene visitor and uses the same `FlowExecutor` for
+every cursor, stack, blocker, continuation, and fault mutation. Dialogue, RoomTransition, and
+Interaction visitors remain owned by their later Phase 7 slices.
 
 `PropertyResolver` remains the sole typed property read/mutation path for this state. It validates the
 property declaration, owner existence and kind, nullability, enum membership, scalar type, and finite
@@ -63,10 +66,13 @@ placement ownership, active mode, Room exits, and flow targets before queuing a 
 `ScriptHostRequest`. Transient starts, child calls, and tail replacements remain distinct request
 variants. Requests are not executed in Phase 6E; Phase 7 frame visitors and Phase 9 adapters own that
 work. After Phase 7A, `noveltea.interactables.location` reads the shared live Interactable state.
-Movement requests remain validated queued values until Phase 7E consumes them.
+Movement requests remain validated queued values until Phase 7E consumes them. The same closed queue
+now carries Scene autosave-safe-point requests after the associated instruction, wait, child
+Dialogue, or ordered choice effects have completed; persistence remains Phase 8 and external request
+adaptation remains Phase 9.
 
-This path is test-facing and additive. Feature execution, host-request consumption, persistence
-codecs, and consumer cutover remain owned by later phases. It does not adapt
+This path is additive. Host-request consumption, persistence codecs, and consumer cutover remain
+owned by later phases. It does not adapt
 compiled data back into legacy data or reroute Engine, preview, package launch, editor playback, Lua,
 or runtime UI consumers.
 
@@ -93,12 +99,35 @@ These are snapshot/output contracts rather than a second state owner. Phase 7B t
 corresponding executors and typed RmlUi adapters. The shipped controller-backed `RuntimeUIViewState`
 path remains unchanged until the later atomic consumer cutover.
 
-`script::TypedExecutionKernel` is the Phase 6 composition root for this additive path. It owns one
+`script::TypedExecutionKernel` is the composition root for this additive path. It owns one
 `SessionState` and composes one `FlowExecutor`, `SharedPrimitiveEvaluator`, `ScriptHostServices`, and
 `ScriptInvoker` against the same immutable `CompiledProject`. Its closed dispatch methods route Lua
 and non-Lua Condition, Effect, and TextSource variants to the appropriate validated service while
-preserving typed errors. It exposes wait and exact script-resume/cancel operations, but does not
-execute Scene, Dialogue, Room, or Interaction instructions and does not consume queued host requests.
+preserving typed errors. It exposes wait and exact script-resume/cancel operations and, after Phase
+7B, executes the complete flat Scene V1 program. Dialogue, Room, and Interaction instruction
+execution and queued external request consumption remain deferred to their owning phases.
+
+## Phase 7B typed Character/Actor and Scene execution
+
+The additive Scene visitor executes every compiled Scene instruction without JSON: step conditions,
+background and actor cues, text, audio, variables, yield-capable Lua, input, duration, presentation,
+and audio waits, branches, choices with ordered effects, layouts, transitions, child Dialogue calls,
+and terminal continuations. Stable Scene IDs remain at the current instruction while a wait, Lua
+suspension, choice selection, or choice effect is incomplete. Exact blocker ownership is required to
+resume, cancel, advance, or choose; invalid and stale operations leave the cursor and presentation
+state unchanged.
+
+Scene-local actors are created or updated only through validated `SessionState` operations. Their
+Character, pose, expression, logical placement, visibility, and logical presentation-completion state
+are live values; `CharacterDefinition` remains immutable. Resolved Scene text, choices, actors,
+backgrounds, layouts, transitions, and audio channels are exposed through a JSON-free `SceneView` for
+runtime-UI consumers. Scene safe points emit typed host requests only after the associated unit has
+completed, including after a child Dialogue returns and after every selected choice effect commits.
+
+The controller-backed `CutsceneController` remains transitional Phase 10 deletion debt because the
+shipped runtime UI, preview, playback, debugger, and package consumers have not yet made their atomic
+cutover. Phase 7B does not route those consumers through the additive kernel and does not implement
+Dialogue, Room, Interaction, Map, persistence, or external adapter behavior.
 
 ## Current scaffold
 
