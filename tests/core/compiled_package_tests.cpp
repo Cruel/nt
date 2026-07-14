@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <noveltea/core/compiled_package.hpp>
+#include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/json_access.hpp>
 

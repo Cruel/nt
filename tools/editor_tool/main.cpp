@@ -4,9 +4,11 @@
 #include <noveltea/core/editor_runtime_protocol.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
 #include <noveltea/script/compiled_runtime.hpp>
+#include <noveltea/script/compiled_runtime_loader.hpp>
 #include <noveltea/script/script_runtime.hpp>
 #include <noveltea/core/json_access.hpp>
 #include <noveltea/render/shader_compiler.hpp>
+#include <noveltea/render/material_codec.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -182,7 +184,7 @@ Result<void, Diagnostics> certify_compiled_export(
         return Result<void, Diagnostics>::failure(std::move(diagnostics));
     }
     TypedMemorySaveSlotStore saves;
-    auto runtime = noveltea::script::CompiledRuntime::load_preview(
+    auto runtime = noveltea::script::load_compiled_runtime_preview(
         project, options.shader_material_metadata, scripts, saves, "en");
     if (!runtime)
         return Result<void, Diagnostics>::failure(std::move(runtime).error());
@@ -238,7 +240,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!initialized)
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
-    auto runtime = noveltea::script::CompiledRuntime::load_preview(
+    auto runtime = noveltea::script::load_compiled_runtime_preview(
         *project, std::nullopt, scripts, saves, "en");
     if (!runtime)
         return fail("Compiled runtime load failed.",

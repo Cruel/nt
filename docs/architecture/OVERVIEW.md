@@ -13,6 +13,10 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   `noveltea.compiled.project` V1 contract that the future native decoder consumes.
 - `docs/architecture/AUTHORING_COMPILER.md` describes the pure staged authoring compiler and its
   deterministic diagnostic/publication rules.
+- `docs/architecture/PHASE_11A_SERIALIZATION_OWNERSHIP.md` is the temporary Phase 11 migration
+  inventory for shipped C++ JSON occurrences, exact boundary classifications, owning targets,
+  extracted codec modules, and test-only uses. Keep it through 11B and 11C, then migrate durable rules
+  into permanent architecture/build documentation and delete this inventory before Phase 11 closes.
 - `docs/OVERVIEW.md` maps the full documentation hierarchy.
 - `docs/build/OVERVIEW.md` describes build/toolchain documentation.
 - `docs/migration/OVERVIEW.md` describes migration status and legacy-reference policy.

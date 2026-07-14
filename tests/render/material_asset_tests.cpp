@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/render/material.hpp"
+#include "noveltea/render/material_codec.hpp"
 
 #include <string_view>
 #include <variant>

@@ -1,5 +1,6 @@
 add_library(noveltea_core STATIC
     src/core/compiled_package.cpp
+    src/core/compiled_package_codec.cpp
     src/core/compiled_project.cpp
     src/core/compiled_project_validation.cpp
     src/core/compiled_project_codec/definitions_decoder.cpp
@@ -21,6 +22,7 @@ add_library(noveltea_core STATIC
     src/core/package_export.cpp
     src/core/player_bootstrap.cpp
     src/core/rich_text.cpp
+    src/core/rich_text_codec.cpp
     src/core/runtime_messages.cpp
     src/core/runtime_user_settings.cpp
     src/core/runtime_user_settings_codec.cpp
@@ -37,6 +39,7 @@ add_library(noveltea_core STATIC
     src/core/save_state_codec/validation.cpp
     src/core/typed_save_slot_store.cpp
     src/render/material.cpp
+    src/render/material_codec.cpp
     src/render/shader_compiler.cpp
     src/render/shader_manifest.cpp
 )
@@ -270,6 +273,7 @@ target_sources(engine PRIVATE
     src/script/lua/bind_noveltea.cpp
     src/script/lua/bind_typed_script_host.cpp
     src/script/compiled_runtime.cpp
+    src/script/compiled_runtime_loader.cpp
     src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
     src/script/typed_execution_kernel.cpp

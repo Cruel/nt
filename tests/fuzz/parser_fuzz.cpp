@@ -1,4 +1,5 @@
 #include <noveltea/core/rich_text.hpp>
+#include <noveltea/core/rich_text_codec.hpp>
 #include <noveltea/core/runtime_user_settings_codec.hpp>
 
 #include <cstddef>
@@ -16,9 +17,9 @@ void exercise_input(std::span<const std::uint8_t> bytes)
     const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     const auto parsed = noveltea::core::parse_rich_text(text);
     (void)noveltea::core::strip_rich_text_tags(text);
-    const auto encoded = noveltea::core::to_json(parsed);
+    const auto encoded = noveltea::core::encode_rich_text_document(parsed);
     noveltea::core::RichTextDocument decoded;
-    (void)noveltea::core::rich_text_from_json(encoded, decoded);
+    (void)noveltea::core::decode_rich_text_document(encoded, decoded);
 #elif NOVELTEA_FUZZ_KIND == 2
     const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     (void)noveltea::core::decode_runtime_user_settings_text(text, "fuzz-input.json");

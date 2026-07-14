@@ -1,4 +1,5 @@
 #include <noveltea/core/rich_text.hpp>
+#include <noveltea/core/rich_text_codec.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -111,7 +112,7 @@ TEST_CASE("Rich text JSON round-trips semantic document data")
         "[[Key|key-object]] [b][i]bold[/i][/b] [c=#bed]color[/c][p=0.5][a1 e=s t=2]shake[/a1]");
 
     RichTextDocument copy;
-    REQUIRE(rich_text_from_json(to_json(doc), copy));
+    REQUIRE(decode_rich_text_document(encode_rich_text_document(doc), copy));
 
     CHECK(copy.source == doc.source);
     CHECK(copy.plain_text == doc.plain_text);
@@ -129,4 +130,21 @@ TEST_CASE("Rich text JSON round-trips semantic document data")
     CHECK(found_shake);
     REQUIRE(copy.page_breaks.size() == 1);
     CHECK(copy.page_breaks[0].delay_ms == 500);
+}
+
+TEST_CASE("Rich text codec keeps its named wire shape and rejects malformed collections")
+{
+    const auto encoded = encode_rich_text_document(parse_rich_text("[b]hello[/b]"));
+    REQUIRE(encoded.is_object());
+    CHECK(encoded.at("source") == "[b]hello[/b]");
+    CHECK(encoded.at("plain_text") == "hello");
+    REQUIRE(encoded.at("runs").is_array());
+    REQUIRE(encoded.at("page_breaks").is_array());
+
+    RichTextDocument output;
+    CHECK_FALSE(decode_rich_text_document(nlohmann::json::array(), output));
+    CHECK_FALSE(decode_rich_text_document(nlohmann::json{{"runs", "not-an-array"}}, output));
+    CHECK_FALSE(decode_rich_text_document(
+        nlohmann::json{{"runs", nlohmann::json::array({"not-an-object"})}}, output));
+    CHECK_FALSE(decode_rich_text_document(nlohmann::json{{"page_breaks", "not-an-array"}}, output));
 }

@@ -12,8 +12,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <nlohmann/json_fwd.hpp>
-
 namespace noveltea::core {
 
 enum class RuntimePackageKind : std::uint8_t {
@@ -147,14 +145,6 @@ private:
     std::optional<ShaderMaterialProject> m_shader_materials;
     PreparedResourceRegistries m_resources;
 };
-
-[[nodiscard]] Result<RuntimePackageManifest, Diagnostics>
-decode_runtime_package_manifest(const nlohmann::json& value,
-                                std::string source_path = "manifest.json");
-
-[[nodiscard]] Result<ShaderMaterialProject, Diagnostics>
-decode_shader_material_manifest(const nlohmann::json& value,
-                                std::string source_path = "shader-materials.json");
 
 [[nodiscard]] Result<LoadedCompiledPackage, Diagnostics>
 assemble_compiled_package(CompiledProject project, RuntimePackageManifest manifest,

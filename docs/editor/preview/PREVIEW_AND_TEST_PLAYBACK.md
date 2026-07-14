@@ -13,7 +13,9 @@ Compiler or native Lua-certification errors block load and remain actionable edi
 
 The dedicated Play preview owns its engine iframe for the open-tab lifetime. A
 `runtime-load-project` transport message carries the compiled project, asset mappings, and optional
-shader/material metadata. The preview C ABI lowers this to `CompiledRuntime::load_preview`.
+shader/material metadata. The preview C ABI lowers this through
+`load_compiled_runtime_preview`, while `CompiledRuntime::create` receives only the validated typed
+package.
 
 The transport message name is an external protocol operation, not a schema name. Its `project`
 payload must be `noveltea.compiled.project` version 1.

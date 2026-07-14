@@ -4,6 +4,7 @@
 
 #include <noveltea/core/package_export.hpp>
 #include <noveltea/render/material.hpp>
+#include <noveltea/render/material_codec.hpp>
 #include <noveltea/render/shader_manifest.hpp>
 
 #include <algorithm>

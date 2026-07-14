@@ -2,8 +2,6 @@
 
 #include "noveltea/render/shader.hpp"
 
-#include <nlohmann/json_fwd.hpp>
-
 #include <optional>
 #include <string>
 #include <string_view>
@@ -130,11 +128,6 @@ using MaterialParseResult = ShaderMaterialProjectParseResult;
 
 [[nodiscard]] ShaderIdParseResult parse_shader_id(std::string_view reference);
 [[nodiscard]] MaterialIdParseResult parse_material_id(std::string_view reference);
-
-[[nodiscard]] ShaderMaterialProjectParseResult
-parse_shader_material_project_json(std::string_view source);
-[[nodiscard]] ShaderMaterialProjectParseResult
-parse_shader_material_project_json_value(const nlohmann::json& value);
 
 [[nodiscard]] const ShaderDefinition* find_shader(const ShaderMaterialProject& project,
                                                   const ShaderId& id) noexcept;

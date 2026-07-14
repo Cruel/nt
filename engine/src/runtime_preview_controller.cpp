@@ -46,8 +46,7 @@ std::optional<core::RuntimeValue> runtime_value_from_json(const nlohmann::json& 
     return std::nullopt;
 }
 
-nlohmann::json preview_entity_ref(std::string type, std::string id,
-                                  std::string collection = {})
+nlohmann::json preview_entity_ref(std::string type, std::string id, std::string collection = {})
 {
     nlohmann::json result = {{"type", std::move(type)}, {"id", std::move(id)}};
     if (!collection.empty())
@@ -115,13 +114,13 @@ nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState
 
     nlohmann::json inventory = nlohmann::json::array();
     for (const auto& item : view.inventory.items) {
-        inventory.push_back({{"id", item.interactable.text()},
-                             {"label", item.display_name},
-                             {"selected", std::find(view.selected_interactables.begin(),
-                                                     view.selected_interactables.end(),
-                                                     item.interactable) !=
-                                              view.selected_interactables.end()},
-                             {"enabled", item.enabled}});
+        inventory.push_back(
+            {{"id", item.interactable.text()},
+             {"label", item.display_name},
+             {"selected",
+              std::find(view.selected_interactables.begin(), view.selected_interactables.end(),
+                        item.interactable) != view.selected_interactables.end()},
+             {"enabled", item.enabled}});
     }
 
     nlohmann::json diagnostic_list = nlohmann::json::array();
@@ -183,15 +182,13 @@ nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState
 
     if (view.room) {
         snapshot["currentRoomId"] = view.room->room.text();
-        snapshot["currentEntity"] =
-            preview_entity_ref("room", view.room->room.text(), "rooms");
+        snapshot["currentEntity"] = preview_entity_ref("room", view.room->room.text(), "rooms");
     } else if (view.dialogue) {
         snapshot["currentDialogueId"] = view.dialogue->dialogue.text();
         snapshot["currentEntity"] =
             preview_entity_ref("dialogue", view.dialogue->dialogue.text(), "dialogues");
     } else if (view.scene) {
-        snapshot["currentEntity"] =
-            preview_entity_ref("scene", view.scene->scene.text(), "scenes");
+        snapshot["currentEntity"] = preview_entity_ref("scene", view.scene->scene.text(), "scenes");
     }
 
     return snapshot;
@@ -413,11 +410,11 @@ std::string RuntimePreviewController::fast_forward_to_input()
             break;
         }
     }
-    return nlohmann::json{{"reason", reason},
-                          {"stepsApplied", applied},
-                          {"ticksApplied", applied},
-                          {"finalSnapshot",
-                           nlohmann::json::parse(debug_snapshot(), nullptr, false)}}
+    return nlohmann::json{
+        {"reason", reason},
+        {"stepsApplied", applied},
+        {"ticksApplied", applied},
+        {"finalSnapshot", nlohmann::json::parse(debug_snapshot(), nullptr, false)}}
         .dump();
 }
 
@@ -426,8 +423,7 @@ std::string RuntimePreviewController::debug_snapshot() const
     const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
     if (!view)
         return {};
-    return encode_preview_debug_snapshot(*view,
-                                         m_engine.m_runtime_ui.typed_runtime_diagnostics(),
+    return encode_preview_debug_snapshot(*view, m_engine.m_runtime_ui.typed_runtime_diagnostics(),
                                          m_engine.m_preview_running)
         .dump();
 }

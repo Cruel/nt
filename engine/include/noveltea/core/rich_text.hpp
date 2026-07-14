@@ -6,7 +6,6 @@
 #include <string_view>
 #include <vector>
 
-#include <nlohmann/json_fwd.hpp>
 #include "noveltea/core/diagnostic.hpp"
 
 namespace noveltea::core {
@@ -140,10 +139,5 @@ struct RichTextTimelineItem {
                                                            std::size_t max_plain_chars);
 [[nodiscard]] std::vector<RichTextTimelineItem>
 make_rich_text_timeline(const RichTextDocument& document, std::size_t max_plain_chars);
-
-[[nodiscard]] nlohmann::json to_json(const RichTextDocument& document);
-[[nodiscard]] nlohmann::json to_json(const RichTextPage& page);
-[[nodiscard]] nlohmann::json to_json(const RichTextTimelineItem& item);
-[[nodiscard]] bool rich_text_from_json(const nlohmann::json& value, RichTextDocument& out);
 
 } // namespace noveltea::core

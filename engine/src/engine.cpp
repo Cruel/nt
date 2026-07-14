@@ -6,7 +6,9 @@
 #include "noveltea/core/json_access.hpp"
 #include "noveltea/math/geometry.hpp"
 #include "noveltea/render/material.hpp"
+#include "noveltea/render/material_codec.hpp"
 #include "noveltea/preview_bridge.hpp"
+#include "noveltea/script/compiled_runtime_loader.hpp"
 #include "platform/sdl/sdl_platform.hpp"
 
 #include <SDL3/SDL.h>
@@ -80,8 +82,8 @@ const char* preview_severity(core::ErrorSeverity severity)
 
 void emit_preview_diagnostic(const core::Diagnostic& diagnostic)
 {
-    std::string message = diagnostic.code.empty() ? diagnostic.message
-                                                  : diagnostic.code + ": " + diagnostic.message;
+    std::string message =
+        diagnostic.code.empty() ? diagnostic.message : diagnostic.code + ": " + diagnostic.message;
     std::string path = diagnostic.source_path;
     if (!diagnostic.json_pointer.empty()) {
         if (!path.empty())
@@ -89,8 +91,8 @@ void emit_preview_diagnostic(const core::Diagnostic& diagnostic)
         else
             path = diagnostic.json_pointer;
     }
-    preview_bridge::emit_diagnostic(preview_severity(diagnostic.severity), "runtime",
-                                    path.c_str(), message.c_str());
+    preview_bridge::emit_diagnostic(preview_severity(diagnostic.severity), "runtime", path.c_str(),
+                                    message.c_str());
     for (const auto& cause : diagnostic.causes)
         emit_preview_diagnostic(cause);
 }
@@ -844,7 +846,7 @@ bool Engine::load_compiled_project(const std::string& logical_path)
             }
             shader_materials = std::move(parsed);
         }
-        loaded = script::CompiledRuntime::load_preview(
+        loaded = script::load_compiled_runtime_preview(
             std::move(gameplay), std::move(shader_materials), m_scripts, *m_save_slots, "en");
     } else {
         std::string package_error;
@@ -857,7 +859,7 @@ bool Engine::load_compiled_project(const std::string& logical_path)
         }
         m_assets.clear_namespace("project");
         m_assets.mount("project", package->assets);
-        loaded = script::CompiledRuntime::load(
+        loaded = script::load_compiled_runtime(
             script::CompiledRuntimeLoadInput{.gameplay = std::move(package->gameplay),
                                              .manifest = std::move(package->manifest),
                                              .shader_materials =
@@ -924,9 +926,9 @@ bool Engine::load_compiled_project(const std::string& logical_path)
     }
     const auto& identity = project.identity();
     const auto& title_screen = project.settings().title_screen;
-    m_runtime_ui.bind_title_document(
-        title_screen.show_project_title ? identity.name : std::string{}, title_screen.subtitle,
-        title_screen.start_label);
+    m_runtime_ui.bind_title_document(title_screen.show_project_title ? identity.name
+                                                                     : std::string{},
+                                     title_screen.subtitle, title_screen.start_label);
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
     m_compiled_project_path = logical_path;
     return true;

@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/render/shader_compiler.hpp"
+#include "noveltea/render/material_codec.hpp"
 
 #include <chrono>
 #include <filesystem>
