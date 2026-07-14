@@ -106,6 +106,7 @@ catch_discover_tests(noveltea_runtime_shell_tests)
 # --- Script tests (Lua is mandatory) ---
 
 add_executable(noveltea_script_tests
+    script/compiled_runtime_tests.cpp
     script/script_runtime_tests.cpp
     script/typed_dialogue_execution_tests.cpp
     script/typed_interaction_execution_tests.cpp

@@ -48,6 +48,10 @@ public:
 
     [[nodiscard]] core::Result<void, ScriptError> execute(std::string_view source,
                                                           std::string_view chunk_name = "chunk");
+    [[nodiscard]] core::Result<void, ScriptError> certify(std::string_view source,
+                                                          std::string_view chunk_name = "chunk");
+    [[nodiscard]] core::Result<void, ScriptError>
+    certify_asset(std::string_view logical_asset_path);
     [[nodiscard]] core::Result<void, ScriptError>
     execute_asset(std::string_view logical_asset_path);
     [[nodiscard]] core::Result<ScriptValue, ScriptError>

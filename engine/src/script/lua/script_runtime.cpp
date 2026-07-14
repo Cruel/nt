@@ -280,6 +280,44 @@ void ScriptRuntime::shutdown()
 
 bool ScriptRuntime::is_initialized() const { return m_impl && m_impl->initialized; }
 
+core::Result<void, ScriptError> ScriptRuntime::certify(std::string_view source,
+                                                       std::string_view chunk_name)
+{
+    using Result = core::Result<void, ScriptError>;
+    if (!is_initialized()) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(chunk_name)));
+    }
+
+    const std::string chunk = prefixed_chunk(chunk_name);
+    lua_State* state = m_impl->lua.lua_state();
+    const int loaded = luaL_loadbufferx(state, source.data(), source.size(), chunk.c_str(), "t");
+    if (loaded != LUA_OK) {
+        const std::string message = lua_value_message(state, -1);
+        lua_pop(state, 1);
+        return Result::failure(make_error(ScriptErrorCode::LoadFailed, message, chunk, message));
+    }
+    lua_pop(state, 1);
+    return Result::success();
+}
+
+core::Result<void, ScriptError> ScriptRuntime::certify_asset(std::string_view logical_asset_path)
+{
+    using Result = core::Result<void, ScriptError>;
+    if (!is_initialized()) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(logical_asset_path)));
+    }
+    auto text = m_impl->assets->read_text(logical_asset_path);
+    if (!text) {
+        return Result::failure(
+            make_error(ScriptErrorCode::LoadFailed, text.error, std::string(logical_asset_path)));
+    }
+    return certify(*text.value, "@" + std::string(logical_asset_path));
+}
+
 core::Result<ScriptValue, ScriptError> ScriptRuntime::evaluate(std::string_view expression,
                                                                std::string_view chunk_name)
 {

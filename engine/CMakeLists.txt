@@ -288,6 +288,7 @@ target_sources(engine PRIVATE
     src/script/lua/bind_noveltea.cpp
     src/script/lua/bind_typed_script_host.cpp
     src/script/lua/runtime_script_executor.cpp
+    src/script/compiled_runtime.cpp
     src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
     src/script/typed_execution_kernel.cpp

@@ -138,6 +138,41 @@ this environment. The Android player has no NovelTea JNI gameplay/runtime comman
 no placeholder JNI adapter was introduced. Android, Windows, and macOS builds were not executed as
 part of this local Phase 9E verification and retain their CI/platform-build ownership.
 
+## Phase 10A final-path readiness
+
+Phase 10A adds the final path without changing a shipped consumer. `script::CompiledRuntime` is the
+composition owner for one decoded and assembled `LoadedCompiledPackage`, one `TypedRuntimeSession`,
+and its typed startup result. Its loader performs the strict compiled-project, runtime-manifest,
+shader/material-manifest, and package-inventory checks before session construction. It then certifies
+all inline Lua-bearing runtime fields plus inline and asset-backed Script/Layout resources using the
+real Lua loader without executing them. The package-owned `CompiledProject` outlives the session that
+references it, and the path has no `RuntimeSessionHost`, legacy controller, generic message, or JSON
+state dependency after decoding.
+
+The additive editor boundary is `publishCompiledArtifact` in
+`editor/src/shared/compiled-artifact-publication.ts`. It calls only `compileAuthoringProject` and
+publishes the same `CompiledProjectWireV1`, canonical gameplay JSON bytes, diagnostics, and stage
+reports. It does not duplicate lowering, canonicalization, validation, or diagnostic policy.
+
+### Phase 10B production cutover inventory
+
+The following production call sites remain deliberately unchanged in 10A and must move together in
+10B. Their existing tests are the named regression owners for the atomic cutover.
+
+| Consumer | Current production call site | Current test owner / required 10B proof |
+| --- | --- | --- |
+| Full-game preview and recorded testing | `editor/src/renderer/editors/preview/FullGamePreviewEditor.tsx` and `editor/src/shared/project-schema/test-playback-project.ts` call `buildAuthoringRuntimeExport` | `full-game-preview-editor.test.tsx`, `test-playback-project.test.ts`, `recorded-test-draft.test.ts`, plus byte-equivalence against `publishCompiledArtifact` |
+| Runtime package export UI/workflow | `editor/src/renderer/export/PackageExportDialog.tsx` and `package-export-workflow.ts` call `buildAuthoringRuntimeExport` | `package-export-dialog.test.tsx`, `package-export-workflow.test.ts`, `package-export-panel.test.tsx` |
+| Playable platform export and export CLI orchestration | `editor/src/main/services/platform-export-orchestration-service.ts` calls `buildAuthoringRuntimeExport`; editor-tool commands still use legacy `ProjectTooling`/`RuntimePlaybackSession` | platform staging/export/CLI tests and a canonical gameplay byte-equivalence test across UI and CLI |
+| Preview Web/C ABI | `engine/src/app.cpp` exports `noveltea_runtime_*`, routed by `RuntimePreviewController` to `Engine::load_runtime_project` | engine preview protocol tests, malformed boundary tests, and typed debug/playback golden tests |
+| Engine and sandbox bootstrap | `engine/src/engine.cpp::Engine::load_runtime_project` selects provisional JSON or legacy package paths and constructs `RuntimeShell` | runtime shell, preview controller, sandbox runtime package smoke, representative Room/Scene/Dialogue launch tests |
+| Packaged player bootstrap | `apps/player/main.cpp` validates player configuration while `Engine` still performs legacy/provisional gameplay loading | player bootstrap tests, desktop/Web/Android compile coverage, packaged launch acceptance fixtures |
+| Native editor tooling playback/preview | `engine/src/core/editor_api.cpp::{RuntimePlaybackSession,RuntimePreviewSession}` and `tools/editor_tool/main.cpp` use `ProjectDocument` and legacy runtime state | editor API tests, editor-tool tests, playback reports, debug mutation/snapshot tests |
+
+No entry in this table is permitted to move independently. 10B must route all of them through the
+shared compiled artifact and `CompiledRuntime` in one change, then prove identical gameplay bytes and
+diagnostics before Phase 10C deletes the legacy graph.
+
 ## Phase 0 guardrails
 
 - Do not implement a new runtime feature first in `ProjectDocument`, `ProjectModel`, `GameSession`,
