@@ -28,11 +28,10 @@ if(EXISTS "${_legacy_package_source}/game")
     file(REMOVE_RECURSE "${_legacy_package_tmp}")
     file(MAKE_DIRECTORY "${_legacy_package_tmp}")
     file(COPY "${_legacy_package_source}/" DESTINATION "${_legacy_package_tmp}")
-    if(EXISTS "${NOVELTEA_SHADER_ASSET_SOURCE}/shaders")
-        file(COPY "${NOVELTEA_SHADER_ASSET_SOURCE}/shaders" DESTINATION "${_legacy_package_tmp}")
-    else()
-        message(FATAL_ERROR "Missing shader asset tree for runtime package export: ${NOVELTEA_SHADER_ASSET_SOURCE}/shaders")
-    endif()
+    file(COPY_FILE
+        "${CMAKE_CURRENT_LIST_DIR}/../editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
+        "${_legacy_package_tmp}/game")
+    file(REMOVE "${_legacy_package_tmp}/shader-materials.json")
 
     file(GLOB_RECURSE _legacy_package_files RELATIVE "${_legacy_package_tmp}" "${_legacy_package_tmp}/*")
     list(SORT _legacy_package_files)
@@ -42,17 +41,9 @@ if(EXISTS "${_legacy_package_source}/game")
     set(_legacy_package_variant_separator "")
     foreach(_entry IN LISTS _legacy_package_files)
         if(NOT IS_DIRECTORY "${_legacy_package_tmp}/${_entry}")
-            string(APPEND _legacy_package_entries_json "${_legacy_package_entry_separator}    { \"path\": \"${_entry}\" }")
+            file(SIZE "${_legacy_package_tmp}/${_entry}" _entry_size)
+            string(APPEND _legacy_package_entries_json "${_legacy_package_entry_separator}    { \"path\": \"${_entry}\", \"size\": ${_entry_size} }")
             set(_legacy_package_entry_separator ",\n")
-        endif()
-    endforeach()
-    file(GLOB _legacy_package_shader_variant_dirs LIST_DIRECTORIES true
-         "${_legacy_package_tmp}/shaders/bgfx/*")
-    foreach(_variant_dir IN LISTS _legacy_package_shader_variant_dirs)
-        if(IS_DIRECTORY "${_variant_dir}")
-            get_filename_component(_variant "${_variant_dir}" NAME)
-            string(APPEND _legacy_package_shader_variants_json "${_legacy_package_variant_separator}    \"${_variant}\"")
-            set(_legacy_package_variant_separator ",\n")
         endif()
     endforeach()
     file(WRITE "${_legacy_package_tmp}/manifest.json"
@@ -62,14 +53,14 @@ if(EXISTS "${_legacy_package_source}/game")
   \"kind\": \"runtime\",
   \"created_by\": \"StageNovelTeaAssets.cmake\",
   \"project\": {
-    \"name\": \"runtime_phase9_package\",
-    \"version\": \"1.0\"
+    \"name\": \"Golden Minimal\",
+    \"version\": \"0.1.0\"
   },
   \"shader_variants\": [
 ${_legacy_package_shader_variants_json}
   ],
   \"entries\": [
-${_legacy_package_entries_json}${_legacy_package_entry_separator}    { \"path\": \"manifest.json\" }
+${_legacy_package_entries_json}
   ],
   \"checksums\": {}
 }

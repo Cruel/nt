@@ -32,6 +32,10 @@ public:
 
     [[nodiscard]] static core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
     load(CompiledRuntimeLoadInput input, ScriptRuntime& scripts, core::TypedSaveSlotStore& saves);
+    [[nodiscard]] static core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
+    load_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
+                 ScriptRuntime& scripts, core::TypedSaveSlotStore& saves,
+                 std::string runtime_locale = {});
 
     [[nodiscard]] const core::LoadedCompiledPackage& package() const noexcept { return m_package; }
     [[nodiscard]] TypedRuntimeSession& session() noexcept { return *m_session; }

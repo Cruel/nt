@@ -1,6 +1,7 @@
 #include "noveltea/runtime_preview_controller.hpp"
 
 #include "noveltea/core/json_access.hpp"
+#include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/runtime_debug_mutation.hpp"
@@ -9,13 +10,48 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <exception>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include <nlohmann/json.hpp>
 
 namespace noveltea {
+namespace {
+
+std::string typed_mutation_result(bool accepted, std::string kind, std::string id,
+                                  std::string message = {})
+{
+    return nlohmann::json{{"accepted", accepted},
+                          {"kind", std::move(kind)},
+                          {"id", std::move(id)},
+                          {"message", std::move(message)}}
+        .dump();
+}
+
+std::optional<core::RuntimeValue> runtime_value_from_json(const nlohmann::json& value)
+{
+    if (value.is_boolean())
+        return core::json_access::get_or<bool>(value, false);
+    if (value.is_number_integer())
+        return core::json_access::get_or<std::int64_t>(value, 0);
+    if (value.is_number_float()) {
+        const auto number = core::json_access::get_or<double>(value, 0.0);
+        if (std::isfinite(number))
+            return number;
+        return std::nullopt;
+    }
+    if (value.is_string())
+        return core::json_access::get_or<std::string>(value, {});
+    if (value.is_null())
+        return std::monostate{};
+    return std::nullopt;
+}
+
+} // namespace
 
 RuntimePreviewController::RuntimePreviewController(Engine& engine) noexcept : m_engine(engine) {}
 
@@ -36,6 +72,13 @@ bool RuntimePreviewController::reset()
 
 bool RuntimePreviewController::start()
 {
+    if (m_engine.m_compiled_runtime) {
+        m_engine.m_preview_running = true;
+        const bool handled = m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::StartRuntimeInput{}});
+        preview_bridge::emit_state_changed(m_engine.m_demo_position, m_engine.m_preview_running);
+        return handled;
+    }
     if (!m_engine.m_runtime_shell.loaded()) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "[runtime-preview] cannot start without a loaded runtime project");
@@ -51,6 +94,13 @@ bool RuntimePreviewController::start()
 
 bool RuntimePreviewController::stop()
 {
+    if (m_engine.m_compiled_runtime) {
+        m_engine.m_preview_running = false;
+        const bool handled = m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::StopRuntimeInput{}});
+        preview_bridge::emit_state_changed(m_engine.m_demo_position, m_engine.m_preview_running);
+        return handled;
+    }
     if (!m_engine.m_runtime_shell.loaded()) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "[runtime-preview] cannot stop without a loaded runtime project");
@@ -63,6 +113,11 @@ bool RuntimePreviewController::stop()
 
 bool RuntimePreviewController::step(double delta_seconds)
 {
+    if (m_engine.m_compiled_runtime) {
+        return m_engine.m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
+            core::AdvanceTimeInput{std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::duration<double>(std::max(0.0, delta_seconds)))}});
+    }
     if (!m_engine.m_runtime_shell.loaded()) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "[runtime-preview] cannot step without a loaded runtime project");
@@ -89,6 +144,9 @@ bool RuntimePreviewController::apply_input(core::RuntimeInput input)
 
 bool RuntimePreviewController::continue_dialogue()
 {
+    if (m_engine.m_compiled_runtime)
+        return m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::ContinueInput{}});
     core::RuntimeInput input;
     input.type = core::RuntimeInputType::Continue;
     return apply_input(std::move(input));
@@ -96,6 +154,15 @@ bool RuntimePreviewController::continue_dialogue()
 
 bool RuntimePreviewController::select_dialogue_option(int option_index)
 {
+    if (m_engine.m_compiled_runtime) {
+        const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
+        if (!view || !view->dialogue || !view->dialogue->choice || option_index < 0 ||
+            static_cast<std::size_t>(option_index) >= view->dialogue->choice->options.size())
+            return false;
+        return m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::SelectDialogueChoiceInput{
+                view->dialogue->choice->options[static_cast<std::size_t>(option_index)].edge}});
+    }
     core::RuntimeInput input;
     input.type = core::RuntimeInputType::SelectDialogueOption;
     input.index = option_index;
@@ -104,6 +171,19 @@ bool RuntimePreviewController::select_dialogue_option(int option_index)
 
 bool RuntimePreviewController::navigate(int direction)
 {
+    if (m_engine.m_compiled_runtime) {
+        const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
+        if (!view || !view->room)
+            return false;
+        const auto exit = std::find_if(
+            view->room->exits.begin(), view->room->exits.end(), [&](const auto& candidate) {
+                return candidate.enabled && static_cast<int>(candidate.direction) == direction;
+            });
+        if (exit == view->room->exits.end())
+            return false;
+        return m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::NavigateRoomInput{exit->exit}});
+    }
     core::RuntimeInput input;
     input.type = core::RuntimeInputType::Navigate;
     input.direction = direction;
@@ -112,6 +192,13 @@ bool RuntimePreviewController::navigate(int direction)
 
 bool RuntimePreviewController::select_object(const std::string& object_id)
 {
+    if (m_engine.m_compiled_runtime) {
+        auto id = core::InteractableId::create(object_id);
+        const auto* typed_id = id.value_if();
+        return typed_id &&
+               m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+                   core::RuntimeInputMessage{core::SelectInteractablesInput{{*typed_id}}});
+    }
     core::RuntimeInput input;
     input.type = core::RuntimeInputType::SelectObject;
     input.object_ids = {object_id};
@@ -120,6 +207,9 @@ bool RuntimePreviewController::select_object(const std::string& object_id)
 
 bool RuntimePreviewController::clear_object_selection()
 {
+    if (m_engine.m_compiled_runtime)
+        return m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::ClearInteractableSelectionInput{}});
     core::RuntimeInput input;
     input.type = core::RuntimeInputType::ClearObjectSelection;
     return apply_input(std::move(input));
@@ -128,6 +218,20 @@ bool RuntimePreviewController::clear_object_selection()
 bool RuntimePreviewController::run_action(const std::string& verb_id,
                                           const std::vector<std::string>& object_ids)
 {
+    if (m_engine.m_compiled_runtime) {
+        auto verb = core::VerbId::create(verb_id);
+        if (!verb)
+            return false;
+        std::vector<core::InteractableId> operands;
+        for (const auto& text : object_ids) {
+            auto id = core::InteractableId::create(text);
+            if (!id)
+                return false;
+            operands.push_back(std::move(*id.value_if()));
+        }
+        return m_engine.m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
+            core::InvokeInteractionInput{std::move(*verb.value_if()), std::move(operands)}});
+    }
     core::RuntimeInput input;
     input.type = core::RuntimeInputType::RunAction;
     input.verb_id = verb_id;
@@ -138,26 +242,80 @@ bool RuntimePreviewController::run_action(const std::string& verb_id,
 std::string RuntimePreviewController::set_variable(const std::string& variable_id,
                                                    const std::string& value_json)
 {
+    if (m_engine.m_compiled_runtime) {
+        auto id = core::VariableId::create(variable_id);
+        auto json = nlohmann::json::parse(value_json, nullptr, false);
+        auto value = json.is_discarded() ? std::nullopt : runtime_value_from_json(json);
+        if (!id || !value)
+            return typed_mutation_result(false, "set-variable", variable_id, "invalid value");
+        const bool accepted =
+            m_engine.m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
+                core::SetVariableDebugInput{std::move(*id.value_if()), std::move(*value)}});
+        return typed_mutation_result(accepted, "set-variable", variable_id);
+    }
     return runtime_debug_set_variable(m_engine.m_runtime_shell, variable_id, value_json);
 }
 
 std::string RuntimePreviewController::reset_variable(const std::string& variable_id)
 {
+    if (m_engine.m_compiled_runtime) {
+        auto id = core::VariableId::create(variable_id);
+        if (!id)
+            return typed_mutation_result(false, "reset-variable", variable_id, "invalid id");
+        const auto* definition =
+            m_engine.m_compiled_runtime->package().project().find_variable(*id.value_if());
+        if (!definition)
+            return typed_mutation_result(false, "reset-variable", variable_id, "unknown variable");
+        const bool accepted =
+            m_engine.m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
+                core::SetVariableDebugInput{*id.value_if(), definition->default_value}});
+        return typed_mutation_result(accepted, "reset-variable", variable_id);
+    }
     return runtime_debug_reset_variable(m_engine.m_runtime_shell, variable_id);
 }
 
 std::string RuntimePreviewController::give_object(const std::string& object_id)
 {
+    if (m_engine.m_compiled_runtime) {
+        auto id = core::InteractableId::create(object_id);
+        if (!id)
+            return typed_mutation_result(false, "give-object", object_id, "invalid id");
+        auto result = m_engine.m_compiled_runtime->session().script_request_interactable_location(
+            *id.value_if(), core::compiled::InventoryLocation{});
+        return typed_mutation_result(static_cast<bool>(result), "give-object", object_id,
+                                     result ? "" : result.error().front().message);
+    }
     return runtime_debug_give_object(m_engine.m_runtime_shell, object_id);
 }
 
 std::string RuntimePreviewController::remove_inventory_object(const std::string& object_id)
 {
+    if (m_engine.m_compiled_runtime) {
+        auto id = core::InteractableId::create(object_id);
+        if (!id)
+            return typed_mutation_result(false, "remove-object", object_id, "invalid id");
+        auto result = m_engine.m_compiled_runtime->session().script_request_interactable_location(
+            *id.value_if(), core::compiled::NowhereLocation{});
+        return typed_mutation_result(static_cast<bool>(result), "remove-object", object_id,
+                                     result ? "" : result.error().front().message);
+    }
     return runtime_debug_remove_inventory_object(m_engine.m_runtime_shell, object_id);
 }
 
 std::string RuntimePreviewController::teleport_room(const std::string& room_id)
 {
+    if (m_engine.m_compiled_runtime) {
+        auto id = core::RoomId::create(room_id);
+        if (!id)
+            return typed_mutation_result(false, "teleport-room", room_id, "invalid id");
+        auto result = m_engine.m_compiled_runtime->session().script_request_tail_replacement(
+            core::FlowTarget{*id.value_if()});
+        if (result)
+            (void)m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+                core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+        return typed_mutation_result(static_cast<bool>(result), "teleport-room", room_id,
+                                     result ? "" : result.error().front().message);
+    }
     auto mutation = runtime_debug_teleport_room(m_engine.m_runtime_shell, room_id);
     if (mutation.has_runtime_result) {
         m_engine.process_runtime_result(mutation.runtime_result);
@@ -167,6 +325,49 @@ std::string RuntimePreviewController::teleport_room(const std::string& room_id)
 
 std::string RuntimePreviewController::fast_forward_to_input()
 {
+    if (m_engine.m_compiled_runtime) {
+        constexpr int kMaxSteps = 800;
+        constexpr double kTickSeconds = 1.0 / 60.0;
+        int applied = 0;
+        std::string reason = "stabilization-limit";
+        for (; applied < kMaxSteps; ++applied) {
+            const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
+            if (!view) {
+                reason = "unloaded";
+                break;
+            }
+            if ((view->dialogue && view->dialogue->choice &&
+                 !view->dialogue->choice->options.empty()) ||
+                (view->scene && view->scene->choice && !view->scene->choice->options.empty())) {
+                reason = "choice-available";
+                break;
+            }
+            if (view->room && std::any_of(view->room->exits.begin(), view->room->exits.end(),
+                                          [](const auto& exit) { return exit.enabled; })) {
+                reason = "navigation-available";
+                break;
+            }
+            const auto& controls = view->room ? view->room->controls : view->inventory.controls;
+            if (std::any_of(controls.begin(), controls.end(),
+                            [](const auto& control) { return control.enabled; })) {
+                reason = "action-available";
+                break;
+            }
+            if (view->can_continue) {
+                if (!continue_dialogue()) {
+                    reason = "error";
+                    break;
+                }
+            } else if (!step(kTickSeconds)) {
+                reason = view->mode == "ended" ? "game-end" : "explicit-input";
+                break;
+            }
+        }
+        return nlohmann::json{{"reason", reason},
+                              {"stepsApplied", applied},
+                              {"snapshot", nlohmann::json::parse(debug_snapshot(), nullptr, false)}}
+            .dump();
+    }
     constexpr int kMaxSemanticInputs = 500;
     constexpr int kMaxSimulatedTicks = 300;
     constexpr int kMaxUnchangedTicks = 20;
@@ -343,6 +544,14 @@ std::string RuntimePreviewController::fast_forward_to_input()
 
 std::string RuntimePreviewController::debug_snapshot() const
 {
+    if (m_engine.m_compiled_runtime) {
+        const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
+        if (!view)
+            return {};
+        return core::editor::encode_editor_debug_snapshot_text(
+            *view, m_engine.m_typed_runtime_outputs,
+            m_engine.m_runtime_ui.typed_runtime_diagnostics(), m_engine.m_preview_running);
+    }
     return make_runtime_debug_snapshot(m_engine.m_runtime_shell, m_engine.m_preview_running);
 }
 

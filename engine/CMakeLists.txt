@@ -151,6 +151,12 @@ add_library(engine STATIC
     src/ui/rmlui/rmlui_template_resolver.cpp
     src/ui_runtime_rmlui.cpp
 )
+target_include_directories(engine PRIVATE
+    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_compile_definitions(engine PRIVATE
+    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
+)
 
 if(EMSCRIPTEN)
     # miniaudio embeds EM_ASM JavaScript using Emscripten's $0/$1 parameter

@@ -664,6 +664,11 @@ thead, tbody, tfoot {
       try {
         fs.mkdirTree('/assets/project');
         fs.writeFile(editorRuntimeProjectPath, JSON.stringify(message.project || {}, null, 2));
+        if (message.shaderMaterialMetadata) {
+          fs.writeFile('/assets/project/shader-materials.json', JSON.stringify(message.shaderMaterialMetadata));
+        } else {
+          try { fs.unlink('/assets/project/shader-materials.json'); } catch {}
+        }
       } catch (error) {
         failCommand(message, `Could not write runtime project into preview filesystem: ${error && error.message ? error.message : String(error)}`, { category: 'runtime-project' });
         return;

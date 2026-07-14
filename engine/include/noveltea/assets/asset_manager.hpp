@@ -17,6 +17,7 @@ namespace noveltea::assets {
 class AssetManager {
 public:
     void mount(std::string namespace_name, AssetSourcePtr source);
+    void clear_namespace(std::string_view namespace_name);
     void mount_directory(std::string namespace_name, std::filesystem::path root,
                          bool writable = false);
     void mount_legacy_package(std::string namespace_name,

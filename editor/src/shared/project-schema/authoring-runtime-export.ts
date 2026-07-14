@@ -11,6 +11,7 @@ import { buildShaderMaterialProject } from './shader-material-project';
 import type { PackageExportOptions, ToolDiagnostic } from '../editor-tooling';
 import { normalizeProjectDisplaySettings, projectSettingsFromProject } from './authoring-project-settings';
 import { RUNTIME_PROJECT_SCHEMA, RUNTIME_PROJECT_SCHEMA_VERSION, runtimeProjectSchema } from './runtime-project';
+import { publishCompiledArtifact } from '../compiled-artifact-publication';
 
 export interface ExportFileEntry { source: string; packagePath: string; assetId?: string; kind?: AssetKind }
 export type PackageFileEntry = ExportFileEntry;
@@ -27,7 +28,6 @@ export interface AuthoringRuntimeExportBuildResult {
   manifestPreview: ExportManifestPreview; packageOptions: PackageExportOptions; diagnostics: ToolDiagnostic[];
 }
 
-type RuntimeEntrypointKind = 'room' | 'dialogue' | 'scene';
 function diagnostic(path: string, message: string, severity: ToolDiagnostic['severity'] = 'error', category = 'authoring-export'): ToolDiagnostic {
   return { severity, path, message, category };
 }
@@ -176,7 +176,13 @@ function requiredShaderBinaryPaths(metadata: unknown, variants: readonly ExportS
 export function hasAuthoringShadersOrMaterials(project: AuthoringProject) { return Object.keys(project.shaders).length > 0 || Object.keys(project.materials).length > 0; }
 
 export function buildAuthoringRuntimeExport(project: AuthoringProject, options: AuthoringRuntimeExportBuildOptions): AuthoringRuntimeExportBuildResult {
-  const diagnostics: ToolDiagnostic[] = [];
+  const published = publishCompiledArtifact(project);
+  const diagnostics: ToolDiagnostic[] = published.diagnostics.map((item) => ({
+    severity: item.severity,
+    path: item.jsonPointer,
+    message: item.message,
+    category: item.code,
+  }));
   const display = normalizeProjectDisplaySettings(projectSettingsFromProject(project).display);
   const runtimeDisplay = { aspect_ratio: display.aspectRatio, orientation: display.orientation, bar_color: display.barColor };
   const portrait = display.orientation === 'portrait';
@@ -186,29 +192,17 @@ export function buildAuthoringRuntimeExport(project: AuthoringProject, options: 
     web: { orientation: display.orientation, query: `orientation=${display.orientation}` },
     android: { orientation: display.orientation, gradleProperty: `novelteaOrientation=${display.orientation}`, screenOrientation: portrait ? 'sensorPortrait' : 'sensorLandscape' },
   };
-  const fileEntries = buildFileEntries(project, options, diagnostics);
-  const assets = fileEntries.map((entry) => ({ id: entry.assetId!, path: `project:/${entry.packagePath}`, mediaType: entry.kind ?? 'binary' }));
-  const kind: RuntimeEntrypointKind | undefined = project.entrypoint?.kind;
-  if (!project.entrypoint) diagnostics.push(diagnostic('/entrypoint', 'Project entrypoint is required for runtime export.'));
-  else {
-    const collection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
-    if (!project[collection][project.entrypoint.id]) diagnostics.push(diagnostic('/entrypoint', `Entrypoint ${kind} '${project.entrypoint.id}' does not exist.`));
-  }
-  const layouts = buildLayouts(project, assets);
-  const defaultLayout = getSystemLayoutSetting(project, 'game-hud')?.$ref.id;
-  const runtimeProject = {
-    schema: RUNTIME_PROJECT_SCHEMA, schemaVersion: RUNTIME_PROJECT_SCHEMA_VERSION,
-    identity: { id: project.project.id, name: project.project.name, version: project.project.version, author: project.project.author, website: '' },
-    settings: { locale: 'en', defaultFont: '', allowSaves: true },
-    entrypoint: { kind: kind ?? 'room', id: project.entrypoint?.id ?? '' }, variables: buildVariables(project, diagnostics), assets, assetAliases: [],
-    rooms: buildRooms(project, diagnostics), objects: simpleRecords(project.interactables),
-    verbs: Object.entries(project.verbs).map(([id, record]) => ({ id, label: record.label })), actions: [],
-    dialogues: buildDialogues(project, diagnostics), scenes: buildScenes(project, diagnostics), maps: [], scripts: buildScripts(project, diagnostics), layouts,
-    runtimeUi: { defaultLayoutId: defaultLayout && layouts.some((layout) => layout.id === defaultLayout) ? defaultLayout : null, themeAssetId: null },
-    display: runtimeDisplay, platform,
-  };
-  const checkedRuntimeProject = runtimeProjectSchema.safeParse(runtimeProject);
-  if (!checkedRuntimeProject.success) diagnostics.push(...checkedRuntimeProject.error.issues.map((issue) => diagnostic(`/${issue.path.join('/')}`, issue.message)));
+  const compiledAssets = published.ok ? published.project.project.resources.assets : [];
+  const fileEntries = compiledAssets.flatMap((asset): ExportFileEntry[] => {
+    const authored = parseAssetData(project.assets[asset.id]?.data);
+    if (!authored || (options.profile.kind === 'runtime' && authored.kind === 'shader-source')) return [];
+    return [{
+      source: absoluteSourcePath(options.projectRoot, authored.source.path),
+      packagePath: asset.path,
+      assetId: asset.id,
+      kind: authored.kind,
+    }];
+  });
   const shaderBuild = buildShaderMaterialProject(project);
   diagnostics.push(...shaderBuild.diagnostics.map((item) => ({ ...item, category: item.category ?? 'shader' })));
   const hasMetadata = Object.keys(shaderBuild.project.shaders).length > 0 || Object.keys(shaderBuild.project.materials).length > 0;
@@ -217,5 +211,30 @@ export function buildAuthoringRuntimeExport(project: AuthoringProject, options: 
   const required = shaderMaterialMetadata ? requiredShaderBinaryPaths(shaderMaterialMetadata, shaderVariants) : [];
   const manifestPreview = { projectName: project.project.name, projectVersion: project.project.version, entryCount: 1 + fileEntries.length + required.length + (shaderMaterialMetadata ? 1 : 0), assetCount: fileEntries.length, shaderVariants, requiredShaderBinaryPaths: required, display: runtimeDisplay, platform };
   const packageOptions: PackageExportOptions = { kind: options.profile.kind, projectName: project.project.name, projectVersion: project.project.version, createdBy: 'noveltea-editor', includeChecksums: options.profile.includeChecksums, stripShaderSources: options.profile.stripShaderSources, shaderVariants, shaderMaterialMetadata, requiredShaderBinaryPaths: required, fileEntries: fileEntries.map(({ source, packagePath }) => ({ source, packagePath })), display: runtimeDisplay, platform };
-  return { ok: !diagnostics.some((item) => item.severity === 'error'), runtimeProject: checkedRuntimeProject.success ? checkedRuntimeProject.data : runtimeProject, shaderMaterialMetadata, requiredShaderBinaryPaths: required, fileEntries, manifestPreview, packageOptions, diagnostics };
+  return {
+    ok: published.ok && !diagnostics.some((item) => item.severity === 'error'),
+    runtimeProject: published.ok ? published.project.project : undefined,
+    shaderMaterialMetadata,
+    requiredShaderBinaryPaths: required,
+    fileEntries,
+    manifestPreview,
+    packageOptions,
+    diagnostics,
+  };
 }
+
+// Kept until Phase 10C removes the provisional runtime-project implementation and its helpers.
+export const retainedLegacyRuntimeProjectBuilders = {
+  schema: RUNTIME_PROJECT_SCHEMA,
+  schemaVersion: RUNTIME_PROJECT_SCHEMA_VERSION,
+  runtimeProjectSchema,
+  buildVariables,
+  buildRooms,
+  simpleRecords,
+  buildDialogues,
+  buildScenes,
+  buildScripts,
+  buildLayouts,
+  getSystemLayoutSetting,
+  buildFileEntries,
+} as const;

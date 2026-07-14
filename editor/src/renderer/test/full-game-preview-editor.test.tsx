@@ -263,7 +263,11 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
     const request = latestRequest(editorPort, 'runtime-load-project') as { project?: unknown } | undefined;
-    expect(request?.project).toMatchObject({ schema: 'noveltea.runtime.project', rooms: [expect.objectContaining({ id: 'foyer' })], entrypoint: { kind: 'room', id: 'foyer' } });
+    expect(request?.project).toMatchObject({
+      schema: 'noveltea.compiled.project',
+      definitions: { rooms: [expect.objectContaining({ id: 'foyer' })] },
+      entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
+    });
     await resolveLatest(editorPort, previewPort, 'runtime-load-project');
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
   });

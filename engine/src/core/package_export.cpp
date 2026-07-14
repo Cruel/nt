@@ -430,7 +430,7 @@ bool add_zip_entry(mz_zip_archive& archive, const PendingEntry& entry, PackageEx
     return true;
 }
 
-PackageExportResult write_zip(const ProjectDocument& project, const PackageExportOptions& options,
+PackageExportResult write_zip(const nlohmann::json& project, const PackageExportOptions& options,
                               std::vector<std::byte>& bytes)
 {
     PackageExportResult result;
@@ -524,6 +524,13 @@ PackageExportResult ProjectPackageWriter::write_to_file(const ProjectDocument& p
                                                         const std::filesystem::path& path,
                                                         const PackageExportOptions& options)
 {
+    return write_to_file(project.root(), path, options);
+}
+
+PackageExportResult ProjectPackageWriter::write_to_file(const nlohmann::json& project,
+                                                        const std::filesystem::path& path,
+                                                        const PackageExportOptions& options)
+{
     std::vector<std::byte> bytes;
     auto result = write_to_memory(project, options, bytes);
     if (!result.success) {
@@ -561,6 +568,13 @@ PackageExportResult ProjectPackageWriter::write_to_file(const ProjectDocument& p
 }
 
 PackageExportResult ProjectPackageWriter::write_to_memory(const ProjectDocument& project,
+                                                          const PackageExportOptions& options,
+                                                          std::vector<std::byte>& bytes)
+{
+    return write_to_memory(project.root(), options, bytes);
+}
+
+PackageExportResult ProjectPackageWriter::write_to_memory(const nlohmann::json& project,
                                                           const PackageExportOptions& options,
                                                           std::vector<std::byte>& bytes)
 {

@@ -1,6 +1,8 @@
 #include "noveltea/engine.hpp"
 
 #include "noveltea/audio/audio_backend.hpp"
+#include "noveltea/assets/asset_source.hpp"
+#include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/core/json_access.hpp"
 #include "noveltea/core/legacy/project_package_reader.hpp"
 #include "noveltea/core/project_ids.hpp"
@@ -27,6 +29,13 @@
 
 #include <nlohmann/json.hpp>
 
+#define MINIZ_NO_ZLIB_APIS
+#if __has_include(<miniz/miniz.h>)
+#include <miniz/miniz.h>
+#else
+#include <miniz.h>
+#endif
+
 namespace noveltea {
 
 Engine::Engine() : m_audio(make_miniaudio_backend()), m_runtime_preview(*this) {}
@@ -47,7 +56,110 @@ constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
 constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
 
-std::optional<DisplayProfile> display_profile_from_project(const nlohmann::json& root)
+struct ExtractedCompiledPackage {
+    nlohmann::json gameplay;
+    nlohmann::json manifest;
+    std::optional<nlohmann::json> shader_materials;
+    std::vector<core::RuntimePackageFile> files;
+    std::shared_ptr<assets::MemoryAssetSource> assets;
+};
+
+bool safe_package_path(std::string_view path)
+{
+    if (path.empty() || path.front() == '/' || path.find('\\') != path.npos ||
+        path.find(':') != path.npos)
+        return false;
+    std::size_t begin = 0;
+    while (begin <= path.size()) {
+        const auto end = path.find('/', begin);
+        const auto part = path.substr(begin, end == path.npos ? path.size() - begin : end - begin);
+        if (part.empty() || part == "." || part == "..")
+            return false;
+        if (end == path.npos)
+            return true;
+        begin = end + 1;
+    }
+    return true;
+}
+
+std::optional<std::uint32_t> parse_bar_color_rgba(std::string_view value)
+{
+    if (value.size() != 7 || value.front() != '#')
+        return std::nullopt;
+    std::uint32_t rgb = 0;
+    const auto* first = value.data() + 1;
+    const auto* last = value.data() + value.size();
+    const auto parsed = std::from_chars(first, last, rgb, 16);
+    if (parsed.ec != std::errc{} || parsed.ptr != last)
+        return std::nullopt;
+    return (rgb << 8) | 0xffu;
+}
+
+std::optional<ExtractedCompiledPackage>
+extract_compiled_package(std::span<const std::uint8_t> bytes, std::string& error)
+{
+    mz_zip_archive archive{};
+    if (!mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0)) {
+        error = "runtime package is not a valid ZIP archive";
+        return std::nullopt;
+    }
+    ExtractedCompiledPackage result;
+    result.assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto count = mz_zip_reader_get_num_files(&archive);
+    for (mz_uint index = 0; index < count; ++index) {
+        mz_zip_archive_file_stat stat{};
+        if (!mz_zip_reader_file_stat(&archive, index, &stat)) {
+            error = "runtime package entry metadata cannot be read";
+            mz_zip_reader_end(&archive);
+            return std::nullopt;
+        }
+        const std::string path = stat.m_filename;
+        if (path.empty() || path.back() == '/')
+            continue;
+        if (!safe_package_path(path)) {
+            error = "runtime package contains an unsafe entry path: " + path;
+            mz_zip_reader_end(&archive);
+            return std::nullopt;
+        }
+        size_t size = 0;
+        void* extracted = mz_zip_reader_extract_to_heap(&archive, index, &size, 0);
+        if (!extracted) {
+            error = "runtime package entry cannot be read: " + path;
+            mz_zip_reader_end(&archive);
+            return std::nullopt;
+        }
+        const auto* first = static_cast<const std::uint8_t*>(extracted);
+        assets::AssetBytes asset_bytes(first, first + size);
+        if (path == "game" || path == "manifest.json" || path == "shader-materials.json") {
+            auto document = nlohmann::json::parse(first, first + size, nullptr, false);
+            if (document.is_discarded()) {
+                mz_free(extracted);
+                mz_zip_reader_end(&archive);
+                error = "runtime package JSON entry is malformed: " + path;
+                return std::nullopt;
+            }
+            if (path == "game")
+                result.gameplay = std::move(document);
+            else if (path == "manifest.json")
+                result.manifest = std::move(document);
+            else
+                result.shader_materials = std::move(document);
+        } else {
+            result.assets->add(path, asset_bytes, "runtime package");
+        }
+        result.files.push_back({path, static_cast<std::uint64_t>(size), std::nullopt});
+        mz_free(extracted);
+    }
+    mz_zip_reader_end(&archive);
+    if (result.gameplay.is_null() || result.manifest.is_null()) {
+        error = "runtime package is missing game or manifest.json";
+        return std::nullopt;
+    }
+    return result;
+}
+
+[[maybe_unused]] std::optional<DisplayProfile>
+display_profile_from_project(const nlohmann::json& root)
 {
     const auto display = root.find("display");
     if (display == root.end()) {
@@ -318,7 +430,7 @@ std::string json_string_or_empty(const nlohmann::json& object, std::string_view 
     return found->get<std::string>();
 }
 
-std::string title_start_label(const nlohmann::json& root)
+[[maybe_unused]] std::string title_start_label(const nlohmann::json& root)
 {
     if (!root.is_object())
         return {};
@@ -728,135 +840,94 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         return false;
     }
 
-    std::string project_title;
-    std::string start_label;
-    auto load_document = [&](core::ProjectDocument document) {
-        const auto parsed_display = display_profile_from_project(document.root());
-        if (!parsed_display) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                        "[runtime] invalid /display; using 16:9 landscape with black bars");
-        }
-        m_display_profile = parsed_display.value_or(DisplayProfile{});
-        m_presentation = make_presentation_metrics(
-            m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
-        m_renderer.resize(m_presentation);
-        m_runtime_ui.resize(m_presentation);
-        project_title = json_string_or_empty(document.root(), core::project_ids::project_name);
-        start_label = title_start_label(document.root());
-        assets::FontAssetConfig font_config;
-        if (document.root().contains(core::project_ids::project_font_default) &&
-            document.root()[core::project_ids::project_font_default].is_string()) {
-            font_config.default_alias = core::json_access::get_or<std::string>(
-                document.root()[core::project_ids::project_font_default], {});
-        }
-        const auto add_font_map = [&](std::string_view key) {
-            if (!document.root().contains(key) || !document.root()[key].is_object()) {
-                return;
-            }
-            for (const auto& [alias, value] : document.root()[key].items()) {
-                assets::FontFamilyAssetDesc family;
-                family.alias = alias;
-                family.synthetic_styles = true;
-                if (value.is_string()) {
-                    family.regular =
-                        FontDesc{.asset_path = core::json_access::get_or<std::string>(value, {})};
-                } else if (value.is_object()) {
-                    const auto read_face = [&](std::string_view face) -> FontDesc {
-                        if (value.contains(face) && value[face].is_string()) {
-                            return FontDesc{.asset_path = core::json_access::get_or<std::string>(
-                                                value[face], {})};
-                        }
-                        return {};
-                    };
-                    family.regular = read_face("regular");
-                    if (auto bold = read_face("bold"); !bold.asset_path.empty()) {
-                        family.bold = bold;
-                    }
-                    if (auto italic = read_face("italic"); !italic.asset_path.empty()) {
-                        family.italic = italic;
-                    }
-                    if (auto bold_italic = read_face("bold_italic");
-                        !bold_italic.asset_path.empty()) {
-                        family.bold_italic = bold_italic;
-                    } else if (auto boldItalic = read_face("boldItalic");
-                               !boldItalic.asset_path.empty()) {
-                        family.bold_italic = boldItalic;
-                    }
-                    if (value.contains("syntheticStyles") &&
-                        value["syntheticStyles"].is_boolean()) {
-                        family.synthetic_styles =
-                            core::json_access::get_or<bool>(value["syntheticStyles"], false);
-                    }
-                }
-                if (!family.alias.empty() && !family.regular.asset_path.empty()) {
-                    font_config.families.push_back(std::move(family));
-                }
-            }
-        };
-        add_font_map(core::project_ids::engine_fonts);
-        add_font_map(core::project_ids::project_fonts);
-        m_assets.configure_fonts(std::move(font_config));
-        auto result = m_runtime_shell.load_project(std::move(document));
-        for (const auto& diagnostic : result.diagnostics) {
-            const char* severity = "info";
-            if (diagnostic.severity == core::SessionDiagnosticSeverity::Warning)
-                severity = "warning";
-            if (diagnostic.severity == core::SessionDiagnosticSeverity::Error)
-                severity = "error";
-            SDL_Log("[runtime] %s %s %s", severity, diagnostic.path.c_str(),
-                    diagnostic.message.c_str());
-        }
-        if (!result.success) {
-            std::fprintf(stderr, "[engine] runtime project failed validation: %s\n",
-                         logical_path.c_str());
-            return false;
-        }
-        m_script_executor.initialize(&m_scripts, &m_runtime_shell.host());
-        return true;
-    };
-
     const auto& bytes = blob.value->bytes;
     const std::string text(bytes.begin(), bytes.end());
-    auto json = nlohmann::json::parse(text, nullptr, false);
-    if (!json.is_discarded()) {
-        if (!load_document(core::ProjectDocument(std::move(json)))) {
-            return false;
-        }
-    } else {
-        std::vector<core::legacy::PackageError> errors;
-        auto package = core::legacy::ProjectPackageReader::read(
-            std::span<const std::uint8_t>(bytes.data(), bytes.size()), errors);
-        if (!package) {
-            std::fprintf(stderr,
-                         "[engine] runtime project is neither JSON nor a valid package: %s\n",
-                         logical_path.c_str());
-            for (const auto& error : errors) {
-                std::fprintf(stderr, "[engine] legacy package import failed: %s\n",
-                             error.message.c_str());
+    auto gameplay = nlohmann::json::parse(text, nullptr, false);
+    core::Result<std::unique_ptr<script::CompiledRuntime>, core::Diagnostics> loaded =
+        core::Result<std::unique_ptr<script::CompiledRuntime>, core::Diagnostics>::failure({});
+    if (!gameplay.is_discarded()) {
+        std::optional<nlohmann::json> shader_materials;
+        auto shader_text = m_assets.read_text("project:/shader-materials.json");
+        if (shader_text) {
+            auto parsed = nlohmann::json::parse(*shader_text.value, nullptr, false);
+            if (parsed.is_discarded()) {
+                std::fprintf(stderr, "[engine] malformed project:/shader-materials.json\n");
+                return false;
             }
+            shader_materials = std::move(parsed);
+        }
+        loaded = script::CompiledRuntime::load_preview(
+            std::move(gameplay), std::move(shader_materials), m_scripts, m_typed_saves, "en");
+    } else {
+        std::string package_error;
+        auto package = extract_compiled_package(
+            std::span<const std::uint8_t>(bytes.data(), bytes.size()), package_error);
+        if (!package) {
+            std::fprintf(stderr, "[engine] compiled package load failed: %s\n",
+                         package_error.c_str());
             return false;
         }
-        m_assets.mount_legacy_package("project", *package);
-        if (!load_project_shader_materials()) {
-            return false;
-        }
-        if (!load_document(std::move(package->imported_project.document))) {
-            return false;
-        }
-        SDL_Log("[engine] mounted legacy runtime package assets: %s", logical_path.c_str());
+        m_assets.clear_namespace("project");
+        m_assets.mount("project", package->assets);
+        loaded = script::CompiledRuntime::load(
+            script::CompiledRuntimeLoadInput{.gameplay = std::move(package->gameplay),
+                                             .manifest = std::move(package->manifest),
+                                             .shader_materials =
+                                                 std::move(package->shader_materials),
+                                             .files = std::move(package->files),
+                                             .runtime_locale = "en"},
+            m_scripts, m_typed_saves);
     }
 
-    m_runtime_ui.bind_runtime_host(m_runtime_shell.loaded() ? &m_runtime_shell.host() : nullptr);
-    m_runtime_ui.bind_runtime_command_dispatcher(
-        m_runtime_shell.loaded() ? &m_runtime_shell.dispatcher() : nullptr);
-    m_runtime_shell.bind_runtime_ui(m_runtime_shell.loaded() ? &m_runtime_ui : nullptr);
-    m_scripts.bind_runtime_command_dispatcher(
-        m_runtime_shell.loaded() ? &m_runtime_shell.dispatcher() : nullptr);
-    if (m_runtime_shell.loaded()) {
-        if (m_runtime_shell.mount_title_layout() != 0) {
-            m_runtime_ui.bind_title_document(project_title, "", start_label);
+    if (!loaded) {
+        for (const auto& diagnostic : loaded.error())
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",
+                         diagnostic.code.c_str(), diagnostic.source_path.c_str(),
+                         diagnostic.message.c_str());
+        return false;
+    }
+
+    m_compiled_runtime = std::move(*loaded.value_if());
+    const auto& project = m_compiled_runtime->package().project();
+    m_shader_materials =
+        m_compiled_runtime->package().shader_materials().value_or(ShaderMaterialProject{});
+    const auto& display = project.settings().display;
+    m_display_profile.aspect_ratio =
+        normalize_aspect_ratio({display.aspect_ratio.width, display.aspect_ratio.height});
+    m_display_profile.orientation =
+        display.orientation == core::compiled::DisplayOrientation::Portrait
+            ? ScreenOrientation::Portrait
+            : ScreenOrientation::Landscape;
+    if (const auto parsed_color = parse_bar_color_rgba(display.bar_color))
+        m_display_profile.bar_color_rgba = *parsed_color;
+    m_presentation = make_presentation_metrics(
+        m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
+    m_renderer.resize(m_presentation);
+    m_runtime_ui.resize(m_presentation);
+
+    assets::FontAssetConfig fonts;
+    if (project.settings().text.default_font) {
+        if (const auto* font = project.find_asset(*project.settings().text.default_font)) {
+            fonts.default_alias = font->id.text();
+            fonts.families.push_back(assets::FontFamilyAssetDesc{
+                .alias = font->id.text(),
+                .regular = FontDesc{.asset_path = "project:/" + font->path},
+                .bold = std::nullopt,
+                .italic = std::nullopt,
+                .bold_italic = std::nullopt,
+                .synthetic_styles = true});
         }
     }
+    m_assets.configure_fonts(std::move(fonts));
+    m_runtime_ui.bind_runtime_host(nullptr);
+    m_runtime_ui.bind_runtime_command_dispatcher(nullptr);
+    m_runtime_shell.bind_runtime_ui(nullptr);
+    m_scripts.clear_game_bindings();
+    m_runtime_ui.bind_typed_runtime_session(&m_compiled_runtime->session());
+    m_typed_runtime_outputs = m_compiled_runtime->startup_result().outputs;
+    m_typed_runtime_diagnostics = m_compiled_runtime->startup_result().diagnostics;
+    (void)m_runtime_ui.dispatch_typed_runtime_input(
+        core::RuntimeInputMessage{core::StopRuntimeInput{}});
     SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
     m_runtime_project_path = logical_path;
     return true;
@@ -1432,7 +1503,11 @@ void Engine::update(float dt)
     m_elapsed_seconds += dt;
     m_audio.update(dt);
     m_tweens.advance(dt);
-    if (m_runtime_shell.loaded()) {
+    if (m_compiled_runtime) {
+        (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
+            core::AdvanceTimeInput{std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::duration<float>(std::max(0.0f, dt)))}});
+    } else if (m_runtime_shell.loaded()) {
         auto result = m_runtime_shell.update(dt);
         process_runtime_result(result);
     }
@@ -1498,7 +1573,8 @@ void Engine::render()
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
-    const float transition_opacity = m_runtime_shell.transitions().black_opacity();
+    const float transition_opacity =
+        m_compiled_runtime ? 0.0f : m_runtime_shell.transitions().black_opacity();
     if (transition_opacity > 0.0f) {
         m_renderer.draw_fullscreen_color(Color{0.0f, 0.0f, 0.0f, transition_opacity});
     }

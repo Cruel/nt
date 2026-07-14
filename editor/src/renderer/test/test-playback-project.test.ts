@@ -14,46 +14,36 @@ import {
 import { buildRuntimePlaybackSpecFromAuthoringTest, getAuthoringTestRunReadiness } from '../../shared/project-schema/test-playback-project';
 
 describe('authoring test playback project adapter', () => {
-  it('serializes every supported authoring input to native playback spelling', () => {
+  it('serializes stable authoring inputs to the strict typed playback protocol', () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
-    data.fixedDeltaSeconds = 0.016;
-    data.initScript = 'setup()';
-    data.checkScript = 'check()';
     data.steps = [
       { ...defaultTestStep('tick'), id: 'tick', label: 'Tick', tick: { deltaSeconds: 0.25 } },
       { ...defaultTestStep('continue'), id: 'continue', label: 'Continue' },
-      { ...defaultTestStep('dialogue-option'), id: 'choice', label: 'Choice', dialogueOption: { optionIndex: 2 } },
-      { ...defaultTestStep('navigate'), id: 'navigate', label: 'Navigate', navigate: { direction: 3, target: null } },
       { ...defaultTestStep('select-interactable'), id: 'select', label: 'Select', selectInteractable: { interactable: testInteractableRef('lamp') } },
       { ...defaultTestStep('clear-interactable-selection'), id: 'clear', label: 'Clear' },
       { ...defaultTestStep('run-interaction'), id: 'action', label: 'Action', runInteraction: { verb: testVerbRef('look'), interactables: [testInteractableRef('lamp')] } },
-      { ...defaultTestStep('load-save'), id: 'load', label: 'Load', loadSave: { slotId: 'quick', payload: { mode: 'test' } } },
-      { ...defaultTestStep('set-entrypoint'), id: 'entrypoint', label: 'Entrypoint', setEntrypoint: { entrypoint: testSceneRef('opening') } },
+      { ...defaultTestStep('load-save'), id: 'load', label: 'Load', loadSave: { slotId: 'slot-2', payload: null } },
       { ...defaultTestStep('continue'), id: 'disabled', label: 'Disabled', enabled: false },
     ];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke').spec).toMatchObject({
       id: 'smoke',
-      fixed_delta_seconds: 0.016,
-      init: 'setup()',
-      check: 'check()',
+      schema: 'noveltea.editor.playback',
+      version: 1,
       steps: [
-        { input: 'tick', delta_seconds: 0.25 },
-        { input: 'continue' },
-        { input: 'dialogue_option', option_index: 2 },
-        { input: 'navigate', direction: 3 },
-        { input: 'select_object', object_id: 'lamp' },
-        { input: 'clear_object_selection' },
-        { input: 'run_action', verb_id: 'look', object_ids: ['lamp'] },
-        { input: 'load_save', payload: { slot_id: 'quick', payload: { mode: 'test' } } },
-        { input: 'set_entrypoint', entity_ref: null },
+        { index: 0, input: { type: 'advance-time', microseconds: 250000 } },
+        { index: 1, input: { type: 'continue' } },
+        { index: 2, input: { type: 'select-interactables', interactables: ['lamp'] } },
+        { index: 3, input: { type: 'clear-selection' } },
+        { index: 4, input: { type: 'invoke-interaction', verb: 'look', operands: ['lamp'] } },
+        { index: 5, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
       ],
     });
   });
 
-  it('serializes every supported assertion type to native playback spelling', () => {
+  it('blocks assertions until they have a typed playback representation', () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
     data.steps = [{
@@ -75,39 +65,27 @@ describe('authoring test playback project adapter', () => {
     }];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    expect(buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke').spec).toMatchObject({
-      steps: [{
-        input: 'continue',
-        assertions: [
-          { type: 'mode', value: 'dialogue' },
-          { type: 'current_room', value: 'foyer' },
-          { type: 'title', value: 'Opening' },
-          { type: 'text_log_contains', value: 'Hello' },
-          { type: 'property_equals', key: 'flag', expected: true },
-          { type: 'object_location', key: 'lamp', entity_ref: { id: 'lamp' } },
-          { type: 'inventory_contains', value: 'key' },
-          { type: 'output_type', value: 'state' },
-          { type: 'diagnostic_category', value: 'playback' },
-        ],
-      }],
-    });
+    const result = buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true);
   });
 
-  it('explains current authoring-to-runtime conversion limitations', () => {
+  it('publishes the same compiled artifact for runnable playback', () => {
     const project = createAuthoringProject();
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
+    project.entrypoint = { kind: 'scene', id: 'opening' };
     const data = defaultTestData('Smoke');
     data.entrypoint = testSceneRef('opening');
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({
-      runnable: false,
-      reason: 'not-runnable-authoring-conversion-missing',
-      diagnostics: [expect.objectContaining({ category: 'authoring-test-playback' })],
+    expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: true, reason: 'runnable' });
+    expect(buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke').project).toMatchObject({
+      schema: 'noveltea.compiled.project',
+      entrypoint: { kind: 'scene', scene: { kind: 'scene', id: 'opening' } },
     });
   });
 
-  it('serializes ui-click steps to the UI playback runner with an exported runtime project', () => {
+  it('rejects ui-click rather than falling back to legacy UI playback', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.entrypoint = { kind: 'room', id: 'foyer' };
@@ -122,15 +100,10 @@ describe('authoring test playback project adapter', () => {
 
     const result = buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
 
-    expect(result).toMatchObject({
-      ok: true,
-      runner: 'runtime-ui',
-      spec: {
-        id: 'smoke',
-        steps: [{ input: 'ui_click', document_id: 'runtime_title', target: '#nt-title-start', selector: '#nt-title-start' }],
-      },
-    });
-    expect(result.project).toMatchObject({ rooms: [expect.objectContaining({ id: 'foyer' })], entrypoint: { kind: 'room', id: 'foyer' } });
-    expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: true, reason: 'runnable' });
+    expect(result.ok).toBe(false);
+    expect(result.runner).toBe('runtime');
+    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true);
+    expect(result.project).toMatchObject({ schema: 'noveltea.compiled.project' });
+    expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: false });
   });
 });

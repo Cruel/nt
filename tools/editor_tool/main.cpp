@@ -1,4 +1,11 @@
 #include <noveltea/core/editor_api.hpp>
+#include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/core/package_export.hpp>
+#include <noveltea/assets/asset_manager.hpp>
+#include <noveltea/core/editor_runtime_protocol.hpp>
+#include <noveltea/core/typed_save_slot_store.hpp>
+#include <noveltea/script/compiled_runtime.hpp>
+#include <noveltea/script/script_runtime.hpp>
 #include <noveltea/core/json_access.hpp>
 #include <noveltea/core/project_ids.hpp>
 #include <noveltea/render/shader_compiler.hpp>
@@ -143,6 +150,161 @@ nlohmann::json ok(nlohmann::json payload = nlohmann::json::object())
 nlohmann::json fail(std::string message, nlohmann::json diagnostics = nlohmann::json::array())
 {
     return {{"ok", false}, {"error", std::move(message)}, {"diagnostics", std::move(diagnostics)}};
+}
+
+nlohmann::json compiled_diagnostics_to_json(const Diagnostics& diagnostics)
+{
+    auto result = nlohmann::json::array();
+    for (const auto& diagnostic : diagnostics) {
+        const char* severity = "error";
+        switch (diagnostic.severity) {
+        case ErrorSeverity::Info:
+            severity = "info";
+            break;
+        case ErrorSeverity::Warning:
+            severity = "warning";
+            break;
+        case ErrorSeverity::Error:
+            severity = "error";
+            break;
+        case ErrorSeverity::Fatal:
+            severity = "error";
+            break;
+        }
+        result.push_back({{"severity", severity},
+                          {"category", diagnostic.code},
+                          {"path", diagnostic.source_path},
+                          {"message", diagnostic.message}});
+    }
+    return result;
+}
+
+Result<void, Diagnostics> certify_compiled_export(
+    const nlohmann::json& project, const PackageExportOptions& options)
+{
+    auto source = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    Diagnostics diagnostics;
+    for (const auto& entry : options.file_entries) {
+        auto content = read_file(entry.source);
+        if (!content) {
+            diagnostics.push_back({.code = "export.asset_read_failed",
+                                   .message = "Could not read export asset '" +
+                                              entry.source.string() + "'.",
+                                   .severity = ErrorSeverity::Error,
+                                   .source_path = entry.package_path});
+            continue;
+        }
+        source->add("project:/" + entry.package_path,
+                    noveltea::assets::AssetBytes(content->begin(), content->end()),
+                    entry.source.string());
+    }
+    if (!diagnostics.empty())
+        return Result<void, Diagnostics>::failure(std::move(diagnostics));
+
+    noveltea::assets::AssetManager assets;
+    assets.mount("project", std::move(source));
+    noveltea::script::ScriptRuntime scripts;
+    auto initialized = scripts.initialize({&assets});
+    if (!initialized) {
+        diagnostics.push_back({.code = "runtime.lua_initialization_failed",
+                               .message = initialized.error().message,
+                               .severity = ErrorSeverity::Error,
+                               .source_path = initialized.error().chunk});
+        return Result<void, Diagnostics>::failure(std::move(diagnostics));
+    }
+    TypedMemorySaveSlotStore saves;
+    auto runtime = noveltea::script::CompiledRuntime::load_preview(
+        project, options.shader_material_metadata, scripts, saves, "en");
+    if (!runtime)
+        return Result<void, Diagnostics>::failure(std::move(runtime).error());
+    return Result<void, Diagnostics>::success();
+}
+
+std::optional<nlohmann::json> compiled_project_from_request(const nlohmann::json& request,
+                                                            nlohmann::json& error_response)
+{
+    const auto project_it = request.find("project");
+    if (project_it == request.end()) {
+        error_response = fail("Request requires compiled project.");
+        return std::nullopt;
+    }
+    nlohmann::json project = *project_it;
+    if (project.is_string())
+        project = nlohmann::json::parse(json_access::get_or<std::string>(project, {}), nullptr,
+                                        false);
+    if (project.is_discarded()) {
+        error_response = fail("Compiled project JSON is malformed.");
+        return std::nullopt;
+    }
+    auto decoded = decode_compiled_project(project, "game");
+    if (!decoded) {
+        error_response = fail("Compiled project validation failed.",
+                              compiled_diagnostics_to_json(decoded.error()));
+        return std::nullopt;
+    }
+    return project;
+}
+
+bool diagnostics_have_errors(const Diagnostics& diagnostics)
+{
+    return std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+        return diagnostic.severity == ErrorSeverity::Error ||
+               diagnostic.severity == ErrorSeverity::Fatal;
+    });
+}
+
+nlohmann::json run_compiled_playback(const nlohmann::json& request)
+{
+    nlohmann::json error_response;
+    auto project = compiled_project_from_request(request, error_response);
+    if (!project)
+        return error_response;
+    const auto spec_it = request.find("spec");
+    if (spec_it == request.end())
+        return fail("Request requires a playback spec.");
+
+    noveltea::assets::AssetManager assets;
+    noveltea::script::ScriptRuntime scripts;
+    auto initialized = scripts.initialize({&assets});
+    if (!initialized)
+        return fail("Lua runtime initialization failed.");
+    TypedMemorySaveSlotStore saves;
+    auto runtime = noveltea::script::CompiledRuntime::load_preview(
+        *project, std::nullopt, scripts, saves, "en");
+    if (!runtime)
+        return fail("Compiled runtime load failed.",
+                    compiled_diagnostics_to_json(runtime.error()));
+
+    auto decoded_spec = editor::decode_editor_playback(*spec_it);
+    if (!decoded_spec)
+        return fail("Playback spec parse failed.",
+                    compiled_diagnostics_to_json(decoded_spec.error()));
+
+    std::vector<editor::TypedPlaybackStepReport> steps;
+    bool passed = true;
+    const auto* typed_spec = decoded_spec.value_if();
+    if (!typed_spec)
+        return fail("Playback spec parse failed.");
+    for (const auto& step : typed_spec->steps) {
+        auto result = runtime.value_if()->get()->session().apply(step.input);
+        editor::TypedPlaybackStepReport report;
+        report.index = step.index;
+        report.handled =
+            result.disposition == noveltea::script::RuntimeInputDisposition::Handled;
+        report.outputs = std::move(result.outputs);
+        report.diagnostics = std::move(result.diagnostics);
+        if (result.disposition == noveltea::script::RuntimeInputDisposition::Failed ||
+            diagnostics_have_errors(report.diagnostics))
+            passed = false;
+        steps.push_back(std::move(report));
+    }
+    const auto final_view = steps.empty()
+                                ? runtime.value_if()->get()->startup_result().view
+                                : runtime.value_if()->get()->session().apply(
+                                      RuntimeInputMessage{AdvanceTimeInput{}})
+                                      .view;
+    return ok({{"report", editor::encode_editor_playback_report(
+                               typed_spec->id, steps, final_view, passed)}});
 }
 
 std::optional<ProjectDocument> project_from_request(const nlohmann::json& request,
@@ -344,68 +506,11 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
     }
 
     if (command == "run-test") {
-        nlohmann::json error_response;
-        auto project = project_from_request(request, error_response);
-        if (!project)
-            return error_response;
-
-        std::vector<ToolDiagnostic> diagnostics;
-        std::optional<RuntimePlaybackSpec> spec;
-        if (auto spec_json = request.find("spec"); spec_json != request.end()) {
-            spec = RuntimePlaybackSession::parse_spec(*spec_json, diagnostics, "/spec");
-        } else {
-            const auto test_id = json_access::value_or(request, "testId", std::string{});
-            auto specs = RuntimePlaybackSession::specs_from_project(*project, diagnostics);
-            for (auto& candidate : specs) {
-                if (candidate.id == test_id) {
-                    spec = std::move(candidate);
-                    break;
-                }
-            }
-            if (!spec && diagnostics.empty())
-                diagnostics.push_back(
-                    ToolDiagnostic{DiagnosticSeverity::Error, "/testId", "Unknown test id."});
-        }
-        if (!spec)
-            return fail("Playback spec parse failed.", diagnostics_to_json(diagnostics));
-
-        RuntimePlaybackSession playback;
-        auto report = playback.run(std::move(*project), *spec);
-        return ok(
-            {{"report", report.to_json()}, {"diagnostics", diagnostics_to_json(diagnostics)}});
+        return run_compiled_playback(request);
     }
 
     if (command == "run-ui-test") {
-        nlohmann::json error_response;
-        auto project = project_from_request(request, error_response);
-        if (!project)
-            return error_response;
-
-        std::vector<ToolDiagnostic> diagnostics;
-        std::optional<noveltea::RuntimeUiPlaybackSpec> spec;
-        if (auto spec_json = request.find("spec"); spec_json != request.end()) {
-            spec = noveltea::RuntimeUiPlaybackSession::parse_spec(*spec_json, diagnostics, "/spec");
-        } else {
-            const auto test_id = json_access::value_or(request, "testId", std::string{});
-            auto specs =
-                noveltea::RuntimeUiPlaybackSession::specs_from_project(*project, diagnostics);
-            for (auto& candidate : specs) {
-                if (candidate.id == test_id) {
-                    spec = std::move(candidate);
-                    break;
-                }
-            }
-            if (!spec && diagnostics.empty())
-                diagnostics.push_back(
-                    ToolDiagnostic{DiagnosticSeverity::Error, "/testId", "Unknown test id."});
-        }
-        if (!spec)
-            return fail("UI playback spec parse failed.", diagnostics_to_json(diagnostics));
-
-        noveltea::RuntimeUiPlaybackSession playback;
-        auto report = playback.run(std::move(*project), *spec);
-        return ok(
-            {{"report", report.to_json()}, {"diagnostics", diagnostics_to_json(diagnostics)}});
+        return run_compiled_playback(request);
     }
 
     if (command == "compile-shaders") {
@@ -430,7 +535,7 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
 
     if (command == "export-package") {
         nlohmann::json error_response;
-        auto project = project_from_request(request, error_response);
+        auto project = compiled_project_from_request(request, error_response);
         if (!project)
             return error_response;
         const auto output = json_access::value_or(request, "outputPath", std::string{});
@@ -439,7 +544,11 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         const auto options =
             export_options_from_json(
                 json_access::value_or(request, "options", nlohmann::json::object()));
-        auto result = ProjectTooling::export_project_package(*project, output, options);
+        auto certified = certify_compiled_export(*project, options);
+        if (!certified)
+            return fail("Compiled project export readiness failed.",
+                        compiled_diagnostics_to_json(certified.error()));
+        auto result = ProjectPackageWriter::write_to_file(*project, output, options);
         return ok({{"success", result.success},
                    {"diagnostics", export_diagnostics_to_json(result.diagnostics)},
                    {"manifest", result.manifest},

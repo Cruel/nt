@@ -35,23 +35,23 @@ describe('authoring runtime export builder', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtimeProject).toMatchObject({
-      schema: 'noveltea.runtime.project', schemaVersion: 1,
-      identity: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
-      entrypoint: { kind: 'room', id: 'foyer' },
-      rooms: expect.arrayContaining([
-        expect.objectContaining({ id: 'foyer', description: 'A quiet foyer.', name: 'Foyer' }),
-        expect.objectContaining({ id: 'kitchen', description: 'A bright kitchen.', name: 'Kitchen' }),
-      ]),
+      schema: 'noveltea.compiled.project', schemaVersion: 1,
+      project: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
+      entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
+      definitions: { rooms: expect.arrayContaining([
+        expect.objectContaining({ id: 'foyer', displayName: 'Foyer' }),
+        expect.objectContaining({ id: 'kitchen', displayName: 'Kitchen' }),
+      ]) },
     });
-    expect(result.runtimeProject).toMatchObject({ assets: [expect.objectContaining({ id: 'foyer', path: 'project:/textures/foyer.png' })] });
+    expect(result.runtimeProject).toMatchObject({ resources: { assets: [expect.objectContaining({ id: 'foyer', path: 'assets/images/foyer.png' })] } });
     expect(result.runtimeProject).not.toHaveProperty('editor');
     expect(result.runtimeProject).not.toHaveProperty('tests');
     expect(result.fileEntries).toEqual([
-      expect.objectContaining({ source: '/project/assets/images/foyer.png', packagePath: 'textures/foyer.png', assetId: 'foyer' }),
+      expect.objectContaining({ source: '/project/assets/images/foyer.png', packagePath: 'assets/images/foyer.png', assetId: 'foyer' }),
     ]);
-    expect(result.packageOptions.fileEntries).toEqual([{ source: '/project/assets/images/foyer.png', packagePath: 'textures/foyer.png' }]);
+    expect(result.packageOptions.fileEntries).toEqual([{ source: '/project/assets/images/foyer.png', packagePath: 'assets/images/foyer.png' }]);
     expect(result.packageOptions.shaderVariants).toEqual([]);
-    expect(result.runtimeProject).toMatchObject({ display: { aspect_ratio: { width: 16, height: 9 }, orientation: 'landscape', bar_color: '#000000' } });
+    expect(result.runtimeProject).toMatchObject({ settings: { display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' } } });
     expect(result.packageOptions.display).toEqual({ aspect_ratio: { width: 16, height: 9 }, orientation: 'landscape', bar_color: '#000000' });
     expect(result.packageOptions.platform).toEqual({
       orientation: 'landscape',
@@ -115,13 +115,13 @@ describe('authoring runtime export builder', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtimeProject).toMatchObject({
-      entrypoint: { kind: 'dialogue', id: 'intro' },
-      dialogues: [expect.objectContaining({ id: 'intro' })],
+      entrypoint: { kind: 'dialogue', dialogue: { kind: 'dialogue', id: 'intro' } },
+      definitions: { dialogues: [expect.objectContaining({ id: 'intro' })] },
     });
-    expect(result.runtimeProject).toMatchObject({ dialogues: [{ nodes: [expect.objectContaining({ text: 'Hello from dialogue.' })] }] });
+    expect(result.runtimeProject).toMatchObject({ definitions: { dialogues: [{ program: { blocks: expect.any(Array) } }] } });
   });
 
-  it('reports unsupported dialogue export features as diagnostics', () => {
+  it('preserves supported typed dialogue features without lossy warnings', () => {
     const project = roomProject();
     const dialogue = defaultDialogueData('Intro');
     const start = dialogue.blocks[0]!;
@@ -138,13 +138,10 @@ describe('authoring runtime export builder', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: 'warning', path: expect.stringContaining('/condition') }),
-      expect.objectContaining({ severity: 'warning', path: expect.stringContaining('/text/source') }),
-    ]));
+    expect(result.diagnostics.filter((item) => item.severity === 'warning')).toEqual([]);
   });
 
-  it('exports typed scenes through the transitional runtime adapter', () => {
+  it('exports typed scenes through the compiled runtime artifact', () => {
     const project = roomProject();
     const scene = defaultSceneData('Opening');
     scene.continuation = { kind: 'room', id: 'kitchen' };
@@ -163,12 +160,12 @@ describe('authoring runtime export builder', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtimeProject).toMatchObject({
-      entrypoint: { kind: 'scene', id: 'opening' },
-      scenes: [{ id: 'opening', steps: expect.any(Array) }],
+      entrypoint: { kind: 'scene', scene: { kind: 'scene', id: 'opening' } },
+      definitions: { scenes: [{ id: 'opening', program: { instructions: expect.any(Array) } }] },
     });
   });
 
-  it('reports unsupported scene step types as diagnostics', () => {
+  it('preserves supported scene presentation instructions without lossy warnings', () => {
     const project = roomProject();
     const scene = defaultSceneData('Opening');
     scene.steps = [
@@ -187,9 +184,6 @@ describe('authoring runtime export builder', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: 'warning', path: expect.stringContaining('/steps/0') }),
-      expect.objectContaining({ severity: 'warning', path: expect.stringContaining('/steps/1') }),
-    ]));
+    expect(result.diagnostics.filter((item) => item.severity === 'warning')).toEqual([]);
   });
 });

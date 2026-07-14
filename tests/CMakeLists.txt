@@ -359,19 +359,19 @@ add_test(
 
 if(TARGET noveltea-sandbox)
     add_test(
-        NAME noveltea_sandbox_runtime_legacy_package_smoke
+        NAME noveltea_sandbox_runtime_compiled_package_smoke
         COMMAND /bin/sh -c
             "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
     )
-    set_tests_properties(noveltea_sandbox_runtime_legacy_package_smoke PROPERTIES
+    set_tests_properties(noveltea_sandbox_runtime_compiled_package_smoke PROPERTIES
         LABELS "runtime;assets"
     )
     add_test(
-        NAME noveltea_sandbox_runtime_material_package_smoke
+        NAME noveltea_sandbox_runtime_compiled_package_repeat_smoke
         COMMAND /bin/sh -c
             "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
     )
-    set_tests_properties(noveltea_sandbox_runtime_material_package_smoke PROPERTIES
-        LABELS "runtime;assets;material"
+    set_tests_properties(noveltea_sandbox_runtime_compiled_package_repeat_smoke PROPERTIES
+        LABELS "runtime;assets"
     )
 endif()

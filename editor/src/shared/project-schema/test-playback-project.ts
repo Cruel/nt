@@ -4,10 +4,7 @@ import { selectedExportProfile } from './authoring-export';
 import { buildAuthoringRuntimeExport } from './authoring-runtime-export';
 import {
   parseTestData,
-  type TestAssertionData,
   type TestData,
-  type TestEntrypointRef,
-  type TestInputType,
   type TestStepData,
 } from './authoring-tests';
 
@@ -36,82 +33,30 @@ function diagnostic(severity: ToolDiagnostic['severity'], path: string, message:
   return { severity, path, message, category };
 }
 
-const inputToNative: Record<TestInputType, string> = {
-  tick: 'tick',
-  continue: 'continue',
-  'dialogue-option': 'dialogue_option',
-  navigate: 'navigate',
-  'select-interactable': 'select_object',
-  'clear-interactable-selection': 'clear_object_selection',
-  'run-interaction': 'run_action',
-  'load-save': 'load_save',
-  'set-entrypoint': 'set_entrypoint',
-  'ui-click': 'ui_click',
-};
-
-const assertionToNative: Record<TestAssertionData['type'], string> = {
-  mode: 'mode',
-  'current-room': 'current_room',
-  title: 'title',
-  'text-log-contains': 'text_log_contains',
-  'property-equals': 'property_equals',
-  'interactable-location': 'object_location',
-  'inventory-contains': 'inventory_contains',
-  'output-type': 'output_type',
-  'diagnostic-category': 'diagnostic_category',
-};
-
 function refId(ref: { $ref: { id: string } } | null | undefined): string {
   return ref?.$ref.id ?? '';
 }
 
-function buildNativeEntrypoint(_entrypoint: TestEntrypointRef | null): null {
-  return null;
-}
-
-function buildNativeAssertion(assertion: TestAssertionData) {
-  const result: Record<string, unknown> = {
-    type: assertionToNative[assertion.type],
-    value: assertion.value,
-    key: assertion.variable?.$ref.id ?? assertion.key,
-  };
-  if (assertion.expected !== undefined) result.expected = assertion.expected;
-  if (assertion.entity) result.entity_ref = { id: assertion.entity.$ref.id };
-  return result;
-}
-
-function buildNativeStep(step: TestStepData) {
-  const result: Record<string, unknown> = {
-    input: inputToNative[step.input],
-    assertions: step.assertions.filter((assertion) => assertion.enabled).map(buildNativeAssertion),
-  };
+function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   const delta = step.deltaSeconds ?? (step.input === 'tick' ? step.tick.deltaSeconds : null);
-  if (delta !== null) result.delta_seconds = delta;
-  if (step.initScript.trim()) result.init = step.initScript;
-  if (step.checkScript.trim()) result.check = step.checkScript;
-
-  if (step.input === 'dialogue-option') result.option_index = step.dialogueOption.optionIndex;
-  if (step.input === 'navigate') result.direction = step.navigate.direction;
-  if (step.input === 'select-interactable') result.object_id = refId(step.selectInteractable.interactable);
+  if (step.input === 'tick') return { type: 'advance-time', microseconds: Math.round((delta ?? 0) * 1_000_000) };
+  if (step.input === 'continue') return { type: 'continue' };
+  if (step.input === 'select-interactable') return { type: 'select-interactables', interactables: [refId(step.selectInteractable.interactable)] };
+  if (step.input === 'clear-interactable-selection') return { type: 'clear-selection' };
   if (step.input === 'run-interaction') {
-    result.verb_id = refId(step.runInteraction.verb);
-    result.object_ids = step.runInteraction.interactables.map((interactable) => interactable.$ref.id);
+    return {
+      type: 'invoke-interaction',
+      verb: refId(step.runInteraction.verb),
+      operands: step.runInteraction.interactables.map((interactable) => interactable.$ref.id),
+    };
   }
   if (step.input === 'load-save') {
-    result.payload = step.loadSave.payload ?? {};
-    if (step.loadSave.slotId.trim()) result.payload = { slot_id: step.loadSave.slotId, payload: step.loadSave.payload };
+    const slot = step.loadSave.slotId.trim();
+    if (slot === 'autosave') return { type: 'load', slot: { kind: 'autosave' } };
+    const number = Number(slot.replace(/^slot-?/, ''));
+    if (Number.isInteger(number) && number >= 0) return { type: 'load', slot: { kind: 'manual', number } };
   }
-  if (step.input === 'set-entrypoint') result.entity_ref = buildNativeEntrypoint(step.setEntrypoint.entrypoint);
-  if (step.input === 'ui-click') {
-    result.document_id = step.uiClick.documentId;
-    result.target = step.uiClick.target || step.uiClick.selector;
-    result.selector = step.uiClick.selector || step.uiClick.target;
-  }
-  return result;
-}
-
-function hasEnabledUiClick(data: TestData) {
-  return data.steps.some((step) => step.enabled && step.input === 'ui-click');
+  return null;
 }
 
 function runtimeProjectForAuthoring(project: AuthoringProject): { project?: unknown; diagnostics: ToolDiagnostic[]; ok: boolean } {
@@ -124,19 +69,29 @@ function runtimeProjectForAuthoring(project: AuthoringProject): { project?: unkn
 
 export function buildRuntimePlaybackSpecFromTestData(testId: string, data: TestData): RuntimePlaybackSpecBuildResult {
   const diagnostics: ToolDiagnostic[] = [];
-  const spec: Record<string, unknown> = {
-    id: testId,
-    steps: data.steps.filter((step) => step.enabled).map(buildNativeStep),
-  };
-  if (data.fixedDeltaSeconds !== null) spec.fixed_delta_seconds = data.fixedDeltaSeconds;
-  if (data.initScript.trim()) spec.init = data.initScript;
-  if (data.checkScript.trim()) spec.check = data.checkScript;
-  const entrypoint = buildNativeEntrypoint(data.entrypoint);
-  if (entrypoint) spec.entrypoint = entrypoint;
-  if (data.entrypoint) {
-    diagnostics.push(diagnostic('warning', `/tests/${testId}/data/entrypoint`, 'Authoring entrypoints are not yet convertible to runtime EntityRef values.'));
+  const steps: Array<{ index: number; input: Record<string, unknown> }> = [];
+  data.steps.filter((step) => step.enabled).forEach((step, index) => {
+    const input = buildTypedInput(step);
+    if (!input) {
+      diagnostics.push(diagnostic('error', `/tests/${testId}/data/steps/${index}/input`, `Input '${step.input}' does not have a stable typed runtime identity.`));
+      return;
+    }
+    if (step.initScript.trim() || step.checkScript.trim() || step.assertions.some((assertion) => assertion.enabled)) {
+      diagnostics.push(diagnostic('error', `/tests/${testId}/data/steps/${index}`, 'Per-step scripts and assertions have not been lowered to the typed playback protocol.'));
+      return;
+    }
+    steps.push({ index, input });
+  });
+  if (data.initScript.trim() || data.checkScript.trim()) {
+    diagnostics.push(diagnostic('error', `/tests/${testId}/data`, 'Test-level scripts have not been lowered to the typed playback protocol.'));
   }
-  return { ok: true, runner: hasEnabledUiClick(data) ? 'runtime-ui' : 'runtime', spec, diagnostics };
+  const spec: Record<string, unknown> = {
+    schema: 'noveltea.editor.playback',
+    version: 1,
+    id: testId,
+    steps,
+  };
+  return { ok: !diagnostics.some((item) => item.severity === 'error'), runner: 'runtime', spec, diagnostics };
 }
 
 export function buildRuntimePlaybackSpecFromAuthoringTest(project: AuthoringProject, testId: string): RuntimePlaybackSpecBuildResult {
@@ -149,8 +104,6 @@ export function buildRuntimePlaybackSpecFromAuthoringTest(project: AuthoringProj
     return { ok: false, diagnostics: [diagnostic('error', `/tests/${testId}/data`, 'Test data is invalid.')] };
   }
   const built = buildRuntimePlaybackSpecFromTestData(testId, data);
-  if (built.runner !== 'runtime-ui') return built;
-
   const runtimeProject = runtimeProjectForAuthoring(project);
   return {
     ...built,
@@ -180,22 +133,6 @@ export function getAuthoringTestRunReadiness(project: unknown, testId: string): 
       diagnostics: [diagnostic('error', `/tests/${testId}/data`, 'Test data is invalid.')],
     };
   }
-  const hasUiClick = hasEnabledUiClick(data);
-  if (hasUiClick) {
-    const runtimeProject = runtimeProjectForAuthoring(project);
-    if (!runtimeProject.ok) {
-      return {
-        runnable: false,
-        reason: 'not-runnable-authoring-conversion-missing',
-        diagnostics: runtimeProject.diagnostics,
-      };
-    }
-    return {
-      runnable: true,
-      reason: 'runnable',
-      diagnostics: runtimeProject.diagnostics.filter((item) => item.severity !== 'error'),
-    };
-  }
   if (!data.entrypoint) {
     return {
       runnable: false,
@@ -203,9 +140,25 @@ export function getAuthoringTestRunReadiness(project: unknown, testId: string): 
       diagnostics: [diagnostic('warning', `/tests/${testId}/data/entrypoint`, 'Choose an entrypoint before this test can run.')],
     };
   }
+  const playback = buildRuntimePlaybackSpecFromTestData(testId, data);
+  if (!playback.ok) {
+    return {
+      runnable: false,
+      reason: 'not-runnable-missing-runtime-support',
+      diagnostics: playback.diagnostics,
+    };
+  }
+  const runtimeProject = runtimeProjectForAuthoring(project);
+  if (!runtimeProject.ok) {
+    return {
+      runnable: false,
+      reason: 'not-runnable-authoring-conversion-missing',
+      diagnostics: runtimeProject.diagnostics,
+    };
+  }
   return {
-    runnable: false,
-    reason: 'not-runnable-authoring-conversion-missing',
-    diagnostics: [diagnostic('warning', `/tests/${testId}`, 'Authoring-to-runtime project conversion is not implemented yet, so this authoring test can be edited but not run.')],
+    runnable: true,
+    reason: 'runnable',
+    diagnostics: runtimeProject.diagnostics.filter((item) => item.severity !== 'error'),
   };
 }

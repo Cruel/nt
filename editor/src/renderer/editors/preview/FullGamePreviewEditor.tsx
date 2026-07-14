@@ -280,11 +280,12 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   return `${base}-${index}`;
 }
 
-function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { runtimeProject: unknown | null; previewAssets: Array<{ sourcePath: string; runtimePath: string }>; revision: string | null; entries: Omit<RuntimeLogEntry, 'id'>[]; ok: boolean } {
+function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { runtimeProject: unknown | null; shaderMaterialMetadata: unknown | null; previewAssets: Array<{ sourcePath: string; runtimePath: string }>; revision: string | null; entries: Omit<RuntimeLogEntry, 'id'>[]; ok: boolean } {
   if (!project) {
     return {
       ok: false,
       runtimeProject: null,
+      shaderMaterialMetadata: null,
       previewAssets: [],
       revision: null,
       entries: [{ label: 'No authoring project is open', detail: 'Open or create a project before using the Play tab.', severity: 'warning' }],
@@ -299,6 +300,7 @@ function runtimeProjectDiagnosticEntries(project: AuthoringProject | null): { ru
   return {
     ok: exported.ok,
     runtimeProject: exported.runtimeProject ?? null,
+    shaderMaterialMetadata: exported.shaderMaterialMetadata ?? null,
     previewAssets: exported.fileEntries.map((entry) => ({ sourcePath: entry.source, runtimePath: entry.packagePath })),
     revision: exported.runtimeProject ? runtimeProjectRevision(exported.runtimeProject) : null,
     entries,
@@ -1058,7 +1060,11 @@ export function FullGamePreviewEditor() {
       }));
       return false;
     }
-    await context.controller.loadRuntimeProject(exported.runtimeProject, exported.previewAssets);
+    await context.controller.loadRuntimeProject(
+      exported.runtimeProject,
+      exported.previewAssets,
+      exported.shaderMaterialMetadata,
+    );
     setRuntimeProjectState({
       loadedRuntimeProjectRevision: exported.revision,
       currentRuntimeProjectRevision: exported.revision,

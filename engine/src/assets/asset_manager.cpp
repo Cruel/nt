@@ -504,6 +504,11 @@ void AssetManager::mount(std::string namespace_name, AssetSourcePtr source)
     m_mounts[std::move(namespace_name)].push_back(std::move(source));
 }
 
+void AssetManager::clear_namespace(std::string_view namespace_name)
+{
+    m_mounts.erase(std::string(namespace_name));
+}
+
 void AssetManager::mount_directory(std::string namespace_name, std::filesystem::path root,
                                    bool writable)
 {

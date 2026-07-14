@@ -220,6 +220,7 @@ export type EditorToPreviewMessage =
       type: 'runtime-load-project';
       requestId: string;
       project: unknown;
+      shaderMaterialMetadata?: unknown;
       assets?: Array<{ sourcePath: string; runtimePath: string }>;
     }
   | { version: 1; type: 'runtime-start'; requestId: string }
@@ -585,6 +586,8 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return true;
     case 'runtime-load-project':
       return 'project' in value && (
+        value.shaderMaterialMetadata === undefined || isRecord(value.shaderMaterialMetadata)
+      ) && (
         value.assets === undefined
         || (Array.isArray(value.assets) && value.assets.every((item) => isRecord(item)
           && typeof item.sourcePath === 'string'

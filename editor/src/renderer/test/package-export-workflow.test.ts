@@ -45,7 +45,10 @@ describe('package export workflow', () => {
 
     expect(result.success).toBe(true);
     expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
-      expect.objectContaining({ identity: expect.objectContaining({ name: 'Workflow Demo' }), entrypoint: { kind: 'room', id: 'foyer' } }),
+      expect.objectContaining({
+        project: expect.objectContaining({ name: 'Workflow Demo' }),
+        entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
+      }),
       '/project/out.ntpkg',
       expect.objectContaining({ kind: 'runtime', projectName: 'Workflow Demo' }),
     );

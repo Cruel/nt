@@ -38,7 +38,7 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       setBottomPanel('test-playback');
       return;
     }
-    const runnerProject = spec.runner === 'runtime-ui' ? spec.project ?? activeProject : activeProject;
+    const runnerProject = spec.project ?? activeProject;
     const result = spec.runner === 'runtime-ui'
       ? await window.noveltea.runUiPlaybackSpec(runnerProject, spec.spec)
       : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);

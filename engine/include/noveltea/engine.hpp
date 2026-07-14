@@ -14,6 +14,7 @@
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/runtime_script_executor.hpp"
+#include "noveltea/script/compiled_runtime.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -117,6 +118,10 @@ private:
     TweenService m_tweens;
     script::ScriptRuntime m_scripts;
     script::RuntimeScriptExecutor m_script_executor;
+    core::TypedMemorySaveSlotStore m_typed_saves;
+    std::unique_ptr<script::CompiledRuntime> m_compiled_runtime;
+    std::vector<core::RuntimeOutputMessage> m_typed_runtime_outputs;
+    core::Diagnostics m_typed_runtime_diagnostics;
     ShaderMaterialProject m_shader_materials;
     RuntimeUI m_runtime_ui;
     RuntimeShell m_runtime_shell;

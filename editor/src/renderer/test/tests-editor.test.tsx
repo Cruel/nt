@@ -108,15 +108,15 @@ describe('TestsEditor', () => {
 
     fireEvent.click(screen.getByText('Run Test'));
     await waitFor(() => {
-      expect(useWorkspaceStore.getState().lastPlaybackReport).toMatchObject({
-        id: 'smoke',
-        passed: false,
-        diagnostics: [expect.objectContaining({ category: 'authoring-test-playback' })],
-      });
+      const report = useWorkspaceStore.getState().lastPlaybackReport as
+        | { id?: string; passed?: boolean; diagnostics?: Array<{ severity?: string }> }
+        | null;
+      expect(report).toMatchObject({ id: 'smoke', passed: false });
+      expect(report?.diagnostics?.some((item) => item.severity === 'error')).toBe(true);
     });
   });
 
-  it('runs ui-click tests through the UI playback API', async () => {
+  it('blocks ui-click tests instead of routing to the legacy UI playback API', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.entrypoint = { kind: 'room', id: 'foyer' };
@@ -128,16 +128,14 @@ describe('TestsEditor', () => {
 
     render(<TestsEditor tab={tab} />);
 
-    expect(screen.getByText('runnable')).toBeInTheDocument();
+    expect(screen.getByText('not runnable')).toBeInTheDocument();
     expect(screen.getByDisplayValue('runtime_title')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue('#nt-title-start').length).toBeGreaterThanOrEqual(1);
 
     fireEvent.click(screen.getByText('Run Test'));
     await waitFor(() => {
-      expect(window.noveltea.runUiPlaybackSpec).toHaveBeenCalledWith(
-        expect.objectContaining({ rooms: [expect.objectContaining({ id: 'foyer' })], entrypoint: { kind: 'room', id: 'foyer' } }),
-        expect.objectContaining({ steps: [expect.objectContaining({ input: 'ui_click', document_id: 'runtime_title', target: '#nt-title-start' })] }),
-      );
+      expect(window.noveltea.runUiPlaybackSpec).not.toHaveBeenCalled();
+      expect(useWorkspaceStore.getState().lastPlaybackReport).toMatchObject({ passed: false });
     });
   });
 });

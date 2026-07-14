@@ -14,11 +14,12 @@ describe('platform export acceptance fixture', () => {
     expect(project.rooms.foyer?.data.exits).toHaveLength(1);
     expect(platformExportFixtureExpectations.blocked).toEqual(expect.arrayContaining(['runtime-rmlui-layout-mount', 'runtime-audio-playback', 'save-reload-acceptance']));
   });
-  it('does not certify the fixture while reachable conversion gaps remain', () => {
+  it('publishes the complete compiled resource and execution contract', () => {
     const project = createPlatformExportAcceptanceFixture();
     const result = buildAuthoringRuntimeExport(project, { projectRoot: '/fixture', profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false } });
-    expect(result.runtimeProject).toHaveProperty('layouts');
-    expect(result.runtimeProject).not.toHaveProperty('audio');
+    expect(result.runtimeProject).toHaveProperty('resources.layouts');
+    expect(result.runtimeProject).toHaveProperty('definitions.scenes');
+    expect(result.runtimeProject).toHaveProperty('definitions.rooms');
     expect(platformExportFixtureExpectations.blocked.length).toBeGreaterThan(0);
   });
 });
