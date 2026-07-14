@@ -19,6 +19,13 @@ the closed typed input vocabulary directly to `TypedExecutionKernel`, `SessionSt
 or failed disposition; the current typed runtime view; ordered typed outputs; and
 `core::Diagnostics`.
 
+`RuntimeUI` can bind this façade additively through its typed runtime adapter. RmlUi event handlers
+under `Game.ui` create only typed inputs. The adapter acknowledges typed internal host requests,
+publishes the typed view, and routes transient presentation/audio operations to dedicated typed
+sinks. Blocking operations carry their exact operation ID, owning flow frame, and completion handle;
+a sink cannot release a different blocker. The shipped controller-based UI remains isolated until
+the Phase 10 atomic cutover.
+
 Host operations use session-local typed request IDs. A failed host operation stays pending for an
 explicit retry, while successful acknowledgement consumes it. Autosave safe points remain queued
 until persistence succeeds. Blocking presentation and audio operations require the exact operation

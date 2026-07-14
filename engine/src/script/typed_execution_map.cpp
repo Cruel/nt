@@ -209,7 +209,9 @@ TypedExecutionKernel::runtime_ui_view(std::string_view runtime_locale)
                                        .interaction = std::nullopt,
                                        .inventory = {},
                                        .text_log = {m_state.text_log()},
-                                       .map = std::nullopt};
+                                       .map = std::nullopt,
+                                       .selected_interactables = {},
+                                       .can_continue = false};
     auto inventory = inventory_view(runtime_locale);
     auto* inventory_value = inventory.value_if();
     if (inventory_value == nullptr)

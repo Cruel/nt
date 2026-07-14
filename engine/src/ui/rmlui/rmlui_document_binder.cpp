@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <sstream>
+#include <algorithm>
 
 namespace noveltea::ui::rmlui {
 
@@ -35,6 +36,35 @@ std::string image_rml(std::string_view path, std::string_view css_class, std::st
     out << "<img class=\"" << css_class << "\" src=\"" << escape_rml(path) << "\" alt=\""
         << escape_rml(label) << "\"/>";
     return out.str();
+}
+
+std::string lua_string_argument(std::string_view value)
+{
+    std::string out;
+    out.reserve(value.size() + 2);
+    out.push_back('\'');
+    for (const char ch : value) {
+        if (ch == '\\' || ch == '\'')
+            out.push_back('\\');
+        if (ch == '\n') {
+            out += "\\n";
+        } else if (ch == '\r') {
+            out += "\\r";
+        } else {
+            out.push_back(ch);
+        }
+    }
+    out.push_back('\'');
+    return out;
+}
+
+std::string typed_onclick(std::string_view function, std::string_view argument = {})
+{
+    std::string call = "Game.ui." + std::string(function) + "(";
+    if (!argument.empty())
+        call += lua_string_argument(argument);
+    call += ")";
+    return " onclick=\"" + escape_rml(call) + "\"";
 }
 
 } // namespace
@@ -207,16 +237,17 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc, const core::Runtim
 }
 
 void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
-                                   const core::TypedRuntimeUIViewState& state)
+                                   const core::TypedRuntimeUIViewState& state,
+                                   std::string_view output_notification)
 {
     if (auto* mode = find_element(doc, "rt_mode", m_logged_missing))
         mode->SetInnerRML(escape_rml(state.mode));
 
     std::string title;
-    std::string notification;
+    std::string notification(output_notification);
     if (state.map && state.map->title)
         title = *state.map->title;
-    if (state.interaction && state.interaction->notification)
+    if (notification.empty() && state.interaction && state.interaction->notification)
         notification = *state.interaction->notification;
     if (auto* title_slot = find_element(doc, "rt_title", m_logged_missing))
         title_slot->SetInnerRML(escape_rml(title));
@@ -230,20 +261,27 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
         body->SetInnerRML(paragraph_rml(make_active_text_snapshot(state).body));
     }
 
+    if (auto* prompt = find_element(doc, "rt_prompt", m_logged_missing)) {
+        prompt->SetInnerRML(state.can_continue
+                                ? "<button class=\"continue\"" + typed_onclick("continue") +
+                                      ">Continue</button>"
+                                : "");
+    }
+
     if (auto* options = find_element(doc, "rt_options", m_logged_missing)) {
         std::ostringstream out;
         if (state.scene && state.scene->choice) {
             for (const auto& option : state.scene->choice->options) {
-                out << "<button class=\"option" << (option.enabled ? "" : " disabled")
-                    << "\" nt-scene-option=\"" << escape_rml(option.option.text()) << "\"";
+                out << "<button class=\"option" << (option.enabled ? "" : " disabled") << "\""
+                    << typed_onclick("choose_scene", option.option.text());
                 if (!option.enabled)
                     out << " disabled";
                 out << ">" << escape_rml(option.label) << "</button>";
             }
         } else if (state.dialogue && state.dialogue->choice) {
             for (const auto& option : state.dialogue->choice->options) {
-                out << "<button class=\"option" << (option.enabled ? "" : " disabled")
-                    << "\" nt-dialogue-edge=\"" << escape_rml(option.edge.text()) << "\"";
+                out << "<button class=\"option" << (option.enabled ? "" : " disabled") << "\""
+                    << typed_onclick("choose_dialogue", option.edge.text());
                 if (!option.enabled)
                     out << " disabled";
                 out << ">" << escape_rml(option.label) << "</button>";
@@ -273,8 +311,8 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
         std::ostringstream out;
         if (state.room) {
             for (const auto& exit : state.room->exits) {
-                out << "<button class=\"nav" << (exit.enabled ? "" : " disabled")
-                    << "\" nt-room-exit=\"" << escape_rml(exit.exit.text()) << "\"";
+                out << "<button class=\"nav" << (exit.enabled ? "" : " disabled") << "\""
+                    << typed_onclick("navigate_room", exit.exit.text());
                 if (!exit.enabled)
                     out << " disabled";
                 out << ">" << escape_rml(exit.label) << "</button>";
@@ -290,7 +328,12 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
                 if (!placement.visible)
                     continue;
                 out << "<button class=\"object" << (placement.enabled ? "" : " disabled")
-                    << "\" nt-interactable=\"" << escape_rml(placement.interactable.text()) << "\"";
+                    << (std::find(state.selected_interactables.begin(),
+                                  state.selected_interactables.end(),
+                                  placement.interactable) != state.selected_interactables.end()
+                            ? " selected"
+                            : "")
+                    << "\"" << typed_onclick("toggle_interactable", placement.interactable.text());
                 if (!placement.enabled)
                     out << " disabled";
                 out << ">" << escape_rml(placement.label.value_or(placement.interactable.text()))
@@ -306,7 +349,12 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
             if (!item.visible)
                 continue;
             out << "<button class=\"object" << (item.enabled ? "" : " disabled")
-                << "\" nt-interactable=\"" << escape_rml(item.interactable.text()) << "\"";
+                << (std::find(state.selected_interactables.begin(),
+                              state.selected_interactables.end(),
+                              item.interactable) != state.selected_interactables.end()
+                        ? " selected"
+                        : "")
+                << "\"" << typed_onclick("toggle_interactable", item.interactable.text());
             if (!item.enabled)
                 out << " disabled";
             out << ">" << escape_rml(item.display_name) << "</button>";
@@ -316,10 +364,13 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
 
     if (auto* actions = find_element(doc, "rt_actions", m_logged_missing)) {
         std::ostringstream out;
+        if (!state.selected_interactables.empty())
+            out << "<button class=\"clear-selection\"" << typed_onclick("clear_selection")
+                << ">Clear selection</button>";
         const auto* controls = state.room ? &state.room->controls : &state.inventory.controls;
         for (const auto& control : *controls) {
-            out << "<button class=\"action" << (control.enabled ? "" : " disabled")
-                << "\" nt-verb=\"" << escape_rml(control.verb.text()) << "\"";
+            out << "<button class=\"action" << (control.enabled ? "" : " disabled") << "\""
+                << typed_onclick("invoke_interaction", control.verb.text());
             if (!control.enabled)
                 out << " disabled";
             out << ">" << escape_rml(control.label) << "</button>";

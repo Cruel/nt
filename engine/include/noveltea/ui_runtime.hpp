@@ -9,6 +9,7 @@
 
 #include "noveltea/active_text_layout.hpp"
 #include "noveltea/core/runtime_session_host.hpp"
+#include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_ui_view.hpp"
 #include "noveltea/runtime_command.hpp"
 #include "noveltea/surface.hpp"
@@ -23,9 +24,29 @@ class AssetManager;
 }
 namespace script {
 class ScriptRuntime;
-}
+class TypedRuntimeSession;
+} // namespace script
 struct ShaderMaterialProject;
 class TweenService;
+
+enum class TypedRuntimeOperationDisposition : std::uint8_t {
+    Completed,
+    Pending
+};
+
+class TypedRuntimePresentationSink {
+public:
+    virtual ~TypedRuntimePresentationSink() = default;
+    [[nodiscard]] virtual core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
+    apply(const core::PresentationOperation& operation) = 0;
+};
+
+class TypedRuntimeAudioSink {
+public:
+    virtual ~TypedRuntimeAudioSink() = default;
+    [[nodiscard]] virtual core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
+    apply(const core::AudioOperation& operation) = 0;
+};
 
 enum class RuntimeUiPlaybackClickStatus {
     Dispatched,
@@ -106,6 +127,12 @@ public:
     bool active_text_direct_render_enabled() const;
     void bind_runtime_host(core::RuntimeSessionHost* host);
     void bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher);
+    void bind_typed_runtime_session(script::TypedRuntimeSession* session);
+    void bind_typed_presentation_sink(TypedRuntimePresentationSink* sink);
+    void bind_typed_audio_sink(TypedRuntimeAudioSink* sink);
+    [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);
+    [[nodiscard]] const core::TypedRuntimeUIViewState* typed_runtime_view_state() const noexcept;
+    [[nodiscard]] const core::Diagnostics& typed_runtime_diagnostics() const noexcept;
     void bind_tween_service(TweenService* tweens);
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
                                       const std::string& event, std::function<void()> callback);

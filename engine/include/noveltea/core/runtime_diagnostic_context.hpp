@@ -56,11 +56,20 @@ struct PlaybackRuntimeContext {
     std::size_t step_index = 0;
     auto operator<=>(const PlaybackRuntimeContext&) const = default;
 };
+enum class RuntimeHostOperationKind : std::uint8_t {
+    Presentation,
+    Audio
+};
+struct HostOperationRuntimeContext {
+    RuntimeHostOperationKind kind;
+    std::uint64_t operation = 0;
+    auto operator<=>(const HostOperationRuntimeContext&) const = default;
+};
 
 using RuntimeDiagnosticContextValue =
     std::variant<SceneRuntimeContext, DialogueRuntimeContext, RoomRuntimeContext,
                  InteractionRuntimeContext, FlowFrameRuntimeContext, ScriptRuntimeContext,
-                 PlaybackRuntimeContext>;
+                 PlaybackRuntimeContext, HostOperationRuntimeContext>;
 
 struct RuntimeDiagnosticContext {
     RuntimeDiagnosticContextValue value;

@@ -99,6 +99,7 @@ add_executable(noveltea_runtime_shell_tests
     runtime/runtime_shell_tests.cpp
 )
 target_link_libraries(noveltea_runtime_shell_tests PRIVATE engine Catch2::Catch2WithMain)
+target_compile_definitions(noveltea_runtime_shell_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 catch_discover_tests(noveltea_runtime_shell_tests)
 
 # --- Script tests (Lua is mandatory) ---

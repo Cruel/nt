@@ -84,6 +84,7 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
                     .kind = transition->kind,
                     .duration = std::chrono::milliseconds{0},
                     .color = transition->color,
+                    .owner = blocker->owner,
                     .completion = blocker->handle};
                 m_pending_presentation = operation;
                 outputs.emplace_back(core::PresentationOperation{operation});
@@ -105,6 +106,7 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
                     .asset = channel.asset,
                     .loop = channel.loop,
                     .volume = channel.volume,
+                    .owner = blocker->owner,
                     .completion = blocker->handle};
                 m_pending_audio = operation;
                 outputs.emplace_back(operation);
@@ -277,6 +279,11 @@ void TypedRuntimeSession::append_view(TypedRuntimeSessionResult& result)
         return;
     }
     result.view = std::move(*view.value_if());
+    result.view.selected_interactables = m_selection;
+    const bool has_choice = (result.view.scene && result.view.scene->choice) ||
+                            (result.view.dialogue && result.view.dialogue->choice);
+    result.view.can_continue =
+        active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice;
     result.outputs.emplace_back(core::RuntimeViewPublication{result.view});
 }
 

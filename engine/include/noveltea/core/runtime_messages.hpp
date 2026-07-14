@@ -168,6 +168,7 @@ struct TransitionPresentationOperation {
     compiled::TransitionKind kind;
     std::chrono::milliseconds duration{0};
     std::optional<std::string> color;
+    std::optional<FlowFrameId> owner;
     std::optional<PresentationFlowBlockerHandle> completion;
     bool operator==(const TransitionPresentationOperation&) const = default;
 };
@@ -189,6 +190,7 @@ struct AudioOperation {
     std::chrono::milliseconds fade{0};
     bool loop = false;
     double volume = 1.0;
+    std::optional<FlowFrameId> owner;
     std::optional<AudioFlowBlockerHandle> completion;
     bool operator==(const AudioOperation&) const = default;
 };

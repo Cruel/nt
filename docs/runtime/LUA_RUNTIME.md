@@ -10,6 +10,26 @@ Immediate calls return `core::Result<T, ScriptError>`. Yield-capable effects/ins
 
 Lua accesses global variables and definition properties only through declared typed APIs. Property set validates owner kind, property type, and nullability; unset removes one override and resumes inheritance. Lua cannot inspect/replace generic JSON, reparent definitions, construct numeric entities, or mutate immutable definitions.
 
+## Final ownership
+
+`ScriptRuntime` owns the Lua VM. One stable runtime-level `RuntimeScriptApi` owns the complete
+script-facing command/query facade exposed through `Game`, `noveltea`, Layout-event functions, and any
+strict generic command helper. It routes semantic operations through narrow typed ports to the active
+`TypedRuntimeSession`, kernel state/query services, save services, and the presentation/audio/system
+services that exist in the runtime composition root.
+
+`RuntimeScriptApi` does not own or expose concrete subsystems. It never gives Lua a renderer, RmlUi
+context, Layout manager, audio voice, save-store object, `FlowExecutor`, `SessionState`, or native
+pointer-backed entity wrapper. `ScriptHostServices` remains the narrower kernel-owned service for
+typed definition/state access and Flow-owned host requests; it is not the public aggregate script
+controller.
+
+The VM binds to `RuntimeScriptApi` once. Reset, load, and kernel replacement retarget its current
+typed session/query ports atomically. Public Lua closures do not point directly at a kernel-owned
+`ScriptHostServices`, so destroying an old kernel cannot clear or invalidate the new script API.
+Commands that could re-enter Flow or external systems are queued and drained after the active Lua
+invocation reaches a safe boundary.
+
 ## Failure and policy
 
 Authored failures are recoverable diagnostics and follow the owning instruction's typed failure semantics. They never cross C++ as exceptions or invoke panic. Panic is process-fatal and reserved for API misuse or unrecoverable Lua-state/allocation corruption.
@@ -60,6 +80,12 @@ globals before installing `ScriptHostServices`, so typed scripts cannot reach th
 capabilities. The shipped path retains those compatibility globals until the owning Phase 7--10
 capabilities migrate; Phase 6E does not reroute those consumers or delete working behavior.
 
+This kernel-owned binding is additive scaffolding, not the final binding lifetime. Phase 9D replaces
+it with `RuntimeScriptApi`; Phase 10 removes `GameBinding`, `build_game_table`,
+`bind_game_session`, `bind_runtime_host`, `bind_runtime_command_dispatcher`, the matching
+`ScriptRuntime` methods, and the legacy `RuntimeScriptExecutor` host-binding path after shipped
+consumers cut over.
+
 ### Current request/execution path
 
 The existing runtime controller emits `ScriptDeferred` commands. `RuntimeSessionHost` converts those
@@ -106,6 +132,19 @@ Game.command("runtime.navigate", { direction = 0 })
 These helpers are valuable because shell UI, tests, preview, and Lua use the same dispatcher path.
 Their names and Object/Action payloads are transitional, but the shared command-routing principle is
 retained in Phase 9.
+
+The additive replacement RmlUi path is separate from those dispatcher bindings. RmlUi event handlers
+call `Game.ui.continue`, `choose_scene`, `choose_dialogue`, `navigate_room`,
+`navigate_map_connection`, `toggle_interactable`, `clear_selection`, and `invoke_interaction`.
+These functions accept stable ID strings, validate them against the current typed view, and dispatch
+closed `RuntimeInputMessage` alternatives directly.
+
+General gameplay-script Lua cutover remains Phase 9D/10 work. The target retains broad scripting
+control through named typed helpers for gameplay, flow, state, save, menu, Layout, presentation,
+audio, and notification operations. Convenience helpers may select from the current ordered typed
+view and immediately lower to stable IDs. A generic `Game.command(name, table)`-style facade may also
+remain, but only as a strict external adapter over a closed script-safe command registry; it may not
+forward arbitrary Lua tables or JSON into runtime internals.
 
 Current `Game.start_room`, `Game.go_to_room`, `Game.start_dialogue`, and `Game.start_scene` route
 through the transitional host/controller when their current runtime subset supports the target.

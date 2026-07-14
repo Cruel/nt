@@ -7,13 +7,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 #include <SDL3/SDL_events.h>
+#include <RmlUi/Core/Element.h>
 
 #include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/assets/asset_source.hpp>
 #include <noveltea/core/project_ids.hpp>
+#include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/script/script_runtime.hpp>
+#include <noveltea/script/typed_runtime_session.hpp>
 
 #include <algorithm>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -176,6 +181,118 @@ struct HeadlessUiFixture {
     RuntimeUI ui;
 };
 
+core::CompiledProject load_compiled_project(std::string_view filename, bool omit_child_dialogue)
+{
+    const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
+                             "/editor/src/renderer/test/fixtures/compiled-project-golden/" +
+                             std::string(filename);
+    std::ifstream input(path);
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)),
+                             std::istreambuf_iterator<char>());
+    auto document = nlohmann::json::parse(source, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    if (omit_child_dialogue) {
+        auto& scenes = document["definitions"]["scenes"];
+        for (auto& scene : scenes) {
+            if (scene["id"] != "opening")
+                continue;
+            auto& instructions = scene["program"]["instructions"];
+            instructions.erase(
+                std::remove_if(instructions.begin(), instructions.end(),
+                               [](const auto& item) { return item["kind"] == "call-dialogue"; }),
+                instructions.end());
+        }
+    }
+    auto decoded = core::decode_compiled_project(document, path);
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
+struct TypedHeadlessUiFixture {
+    explicit TypedHeadlessUiFixture(std::string_view filename, bool omit_child_dialogue = false)
+        : project(load_compiled_project(filename, omit_child_dialogue))
+    {
+#ifdef NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT
+        assets.mount_directory("project", NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT);
+#endif
+#ifdef NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT
+        assets.mount_directory("system", NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT);
+#endif
+        REQUIRE(runtime.initialize(script::ScriptRuntimeConfig{.assets = &assets}));
+        REQUIRE(runtime.execute("function initialize_fixture() end\n"
+                                "function after_enter_start() end\n"
+                                "function before_leave_start() end\n"
+                                "function can_leave_start() return true end\n"
+                                "function can_unlock() return true end\n"
+                                "function combine_items() end\n"
+                                "function hall_description() return 'Hall' end\n"
+                                "function key_label() return 'Key' end\n"
+                                "function tower_open() return true end\n"
+                                "function after_localized_line() end\n"
+                                "function show_lua_line() return true end\n"
+                                "function dialogue_line() return 'Lua line.' end\n"
+                                "function yielding_dialogue_effect() end\n"
+                                "function can_finish_dialogue() return true end\n"
+                                "function final_choice_label() return 'Finish' end\n"
+                                "function finish_dialogue() end\n"
+                                "function show_hero() return true end\n"
+                                "function dynamic_line() return 'Dynamic line.' end\n"
+                                "function run_scene_effect() end\n"
+                                "function take_layout_branch() return false end\n"
+                                "function can_transition() return true end\n"
+                                "function transition_label() return 'Transition' end\n"
+                                "function prepare_transition() end\n",
+                                "typed-ui-fixture"));
+        auto created = script::TypedRuntimeSession::create(project, runtime, saves, "en");
+        REQUIRE(created);
+        session = std::move(created).value();
+        REQUIRE(ui.initialize(&assets, nullptr, false, &runtime, nullptr, true));
+        REQUIRE(ui.load_runtime_document());
+        ui.bind_typed_runtime_session(session.get());
+    }
+
+    core::CompiledProject project;
+    assets::AssetManager assets;
+    script::ScriptRuntime runtime;
+    core::TypedMemorySaveSlotStore saves;
+    std::unique_ptr<script::TypedRuntimeSession> session;
+    RuntimeUI ui;
+};
+
+struct CompletingPresentationSink final : TypedRuntimePresentationSink {
+    core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
+    apply(const core::PresentationOperation& operation) override
+    {
+        ++count;
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::TransitionPresentationOperation>) {
+                    saw_owned_completion = value.owner.has_value() && value.completion.has_value();
+                }
+            },
+            operation);
+        return core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>::success(
+            TypedRuntimeOperationDisposition::Completed);
+    }
+    int count = 0;
+    bool saw_owned_completion = false;
+};
+
+struct CompletingAudioSink final : TypedRuntimeAudioSink {
+    core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
+    apply(const core::AudioOperation& operation) override
+    {
+        ++count;
+        saw_owned_completion = operation.owner.has_value() && operation.completion.has_value();
+        return core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>::success(
+            TypedRuntimeOperationDisposition::Completed);
+    }
+    int count = 0;
+    bool saw_owned_completion = false;
+};
+
 std::string rml_with_body(std::string body)
 {
     return "<rml><head><title>test</title><link type=\"text/rcss\" "
@@ -192,6 +309,176 @@ TEST_CASE("RuntimeShell starts in boot mode")
     CHECK(shell.mode() == RuntimeShellMode::Boot);
     CHECK_FALSE(shell.loaded());
     CHECK_FALSE(shell.paused());
+}
+
+TEST_CASE("typed RmlUi Lua drives Room selection interaction Map and navigation")
+{
+    TypedHeadlessUiFixture fixture("comprehensive.json");
+    REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+        core::RuntimeInputMessage{core::StartRuntimeInput{}}));
+    const auto* view = fixture.ui.typed_runtime_view_state();
+    REQUIRE(view != nullptr);
+    REQUIRE(view->room);
+    CHECK(view->room->room.text() == "start");
+
+    auto* objects = static_cast<Rml::Element*>(fixture.ui.element("runtime_game", "rt_objects"));
+    REQUIRE(objects != nullptr);
+    CHECK(objects->GetInnerRML().find("Game.ui.toggle_interactable('key')") != std::string::npos);
+    CHECK(objects->GetInnerRML().find("nt-interactable") == std::string::npos);
+
+    Rml::ElementList buttons;
+    objects->GetElementsByTagName(buttons, "button");
+    const auto button = std::find_if(buttons.begin(), buttons.end(), [](Rml::Element* candidate) {
+        return candidate && candidate->GetAttribute<Rml::String>("onclick", "") ==
+                                "Game.ui.toggle_interactable('key')";
+    });
+    REQUIRE(button != buttons.end());
+    REQUIRE((*button)->DispatchEvent("click", Rml::Dictionary{}));
+    view = fixture.ui.typed_runtime_view_state();
+    REQUIRE(view != nullptr);
+    REQUIRE(view->selected_interactables.size() == 1);
+    CHECK(view->selected_interactables.front().text() == "key");
+
+    REQUIRE(fixture.runtime.execute("assert(Game.ui.clear_selection())\n"
+                                    "assert(Game.ui.invoke_interaction('look'))",
+                                    "typed-ui-interaction"));
+    CHECK(fixture.ui.typed_runtime_diagnostics().empty());
+
+    auto flag = core::VariableId::create("flag");
+    REQUIRE(flag);
+    REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+        core::RuntimeInputMessage{core::SetVariableDebugInput{flag.value(), true}}));
+    REQUIRE(fixture.runtime.execute("assert(Game.ui.navigate_room('north-exit'))",
+                                    "typed-ui-room-navigation"));
+    view = fixture.ui.typed_runtime_view_state();
+    REQUIRE(view != nullptr);
+    REQUIRE(view->room);
+    CHECK(view->room->room.text() == "hall");
+
+    REQUIRE(fixture.runtime.execute("assert(not Game.ui.navigate_room('not valid'))",
+                                    "typed-ui-invalid-id"));
+    REQUIRE_FALSE(fixture.ui.typed_runtime_diagnostics().empty());
+    CHECK(fixture.ui.typed_runtime_diagnostics().back().code == "domain.invalid_id");
+}
+
+TEST_CASE("typed RmlUi Lua drives Dialogue continuation and stable-ID choice")
+{
+    TypedHeadlessUiFixture fixture("dialogue-program.json");
+    REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+        core::RuntimeInputMessage{core::StartRuntimeInput{}}));
+
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        const auto* view = fixture.ui.typed_runtime_view_state();
+        REQUIRE(view != nullptr);
+        REQUIRE(view->dialogue);
+        if (view->dialogue->choice)
+            break;
+        REQUIRE(view->can_continue);
+        REQUIRE(fixture.runtime.execute("assert(Game.ui.continue())", "typed-ui-continue"));
+    }
+
+    const auto* view = fixture.ui.typed_runtime_view_state();
+    REQUIRE(view != nullptr);
+    REQUIRE(view->dialogue);
+    REQUIRE(view->dialogue->choice);
+    REQUIRE_FALSE(view->dialogue->choice->options.empty());
+    CHECK_FALSE(view->text_log.entries.empty());
+    auto* options = static_cast<Rml::Element*>(fixture.ui.element("runtime_game", "rt_options"));
+    REQUIRE(options != nullptr);
+    CHECK(options->GetInnerRML().find("Game.ui.choose_dialogue") != std::string::npos);
+    CHECK(options->GetInnerRML().find("nt-dialogue-edge") == std::string::npos);
+    auto* log = static_cast<Rml::Element*>(fixture.ui.element("runtime_game", "rt_log"));
+    REQUIRE(log != nullptr);
+    CHECK_FALSE(log->GetInnerRML().empty());
+    const std::string edge = view->dialogue->choice->options.front().edge.text();
+    REQUIRE(fixture.runtime.execute("assert(Game.ui.choose_dialogue('" + edge + "'))",
+                                    "typed-ui-choice"));
+    CHECK(fixture.ui.typed_runtime_diagnostics().empty());
+}
+
+TEST_CASE("typed ActiveText click continues without a legacy runtime dispatcher")
+{
+    TypedHeadlessUiFixture fixture("dialogue-program.json");
+    REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+        core::RuntimeInputMessage{core::StartRuntimeInput{}}));
+
+    const auto* initial = fixture.ui.typed_runtime_view_state();
+    REQUIRE(initial != nullptr);
+    REQUIRE(initial->dialogue);
+    REQUIRE(initial->can_continue);
+    const auto initial_text = initial->dialogue->line->text;
+
+    fixture.ui.begin_frame(10.0f);
+    auto* active_text = static_cast<Rml::Element*>(fixture.ui.element("runtime_game", "rt_body"));
+    REQUIRE(active_text != nullptr);
+    REQUIRE(active_text->DispatchEvent("click", Rml::Dictionary{}));
+    REQUIRE(active_text->DispatchEvent("click", Rml::Dictionary{}));
+
+    const auto* advanced = fixture.ui.typed_runtime_view_state();
+    REQUIRE(advanced != nullptr);
+    REQUIRE(advanced->dialogue);
+    REQUIRE(advanced->dialogue->line);
+    CHECK(advanced->dialogue->line->text != initial_text);
+    CHECK(fixture.ui.typed_runtime_diagnostics().empty());
+}
+
+TEST_CASE("typed runtime UI consumes notification host requests without legacy event data")
+{
+    TypedHeadlessUiFixture fixture("interaction-program.json");
+    REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+        core::RuntimeInputMessage{core::StartRuntimeInput{}}));
+    REQUIRE(fixture.runtime.execute("assert(Game.ui.toggle_interactable('key'))\n"
+                                    "assert(Game.ui.invoke_interaction('use'))",
+                                    "typed-ui-notification"));
+
+    auto* notification =
+        static_cast<Rml::Element*>(fixture.ui.element("runtime_game", "rt_notification"));
+    REQUIRE(notification != nullptr);
+    CHECK_FALSE(notification->GetInnerRML().empty());
+    CHECK(fixture.ui.typed_runtime_diagnostics().empty());
+}
+
+TEST_CASE("typed runtime UI consumes Scene presentation and audio operations through typed sinks")
+{
+    TypedHeadlessUiFixture fixture("scene-program.json", true);
+    CompletingPresentationSink presentation;
+    CompletingAudioSink audio;
+    fixture.ui.bind_typed_presentation_sink(&presentation);
+    fixture.ui.bind_typed_audio_sink(&audio);
+    REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+        core::RuntimeInputMessage{core::StartRuntimeInput{}}));
+
+    for (int attempt = 0; attempt < 64 && (presentation.count == 0 || audio.count == 0);
+         ++attempt) {
+        const auto* view = fixture.ui.typed_runtime_view_state();
+        REQUIRE(view != nullptr);
+        if (view->dialogue && view->dialogue->choice && !view->dialogue->choice->options.empty()) {
+            const auto edge = view->dialogue->choice->options.front().edge;
+            REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+                core::RuntimeInputMessage{core::SelectDialogueChoiceInput{edge}}));
+        } else if (view->scene && view->scene->choice && !view->scene->choice->options.empty()) {
+            const std::string option = view->scene->choice->options.front().option.text();
+            REQUIRE(fixture.runtime.execute("assert(Game.ui.choose_scene('" + option + "'))",
+                                            "typed-ui-scene-choice"));
+        } else if (view->can_continue) {
+            REQUIRE(
+                fixture.runtime.execute("assert(Game.ui.continue())", "typed-ui-scene-continue"));
+        } else {
+            REQUIRE(fixture.ui.dispatch_typed_runtime_input(
+                core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::seconds{2}}}));
+        }
+    }
+
+    const auto* final_view = fixture.ui.typed_runtime_view_state();
+    CAPTURE(final_view ? final_view->mode : std::string{"missing"},
+            fixture.session->kernel().state().flow_stack().size(),
+            fixture.session->kernel().state().blocker().has_value(),
+            fixture.ui.typed_runtime_diagnostics().size());
+    CHECK(presentation.count > 0);
+    CHECK(audio.count > 0);
+    CHECK(presentation.saw_owned_completion);
+    CHECK(audio.saw_owned_completion);
+    CHECK(fixture.ui.typed_runtime_diagnostics().empty());
 }
 
 TEST_CASE("RuntimeTransitionManager cut completes immediately")

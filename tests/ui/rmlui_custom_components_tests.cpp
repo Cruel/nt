@@ -118,8 +118,9 @@ TEST_CASE("RmlUi typed Map snapshot preserves strong IDs and typed selection tar
     const auto rml = map_view_rml(make_map_view_snapshot(state));
     CHECK(rml.find("data-map-id=\"house\"") != std::string::npos);
     CHECK(rml.find("data-exit-id=\"north-exit\"") != std::string::npos);
-    CHECK(rml.find("nt-map-location=\"hall-location\"") != std::string::npos);
-    CHECK(rml.find("nt-map-connection=\"start-hall\"") != std::string::npos);
+    CHECK(rml.find("data-location-id=\"hall-location\"") != std::string::npos);
+    CHECK(rml.find("Game.ui.navigate_map_connection(&#39;start-hall&#39;)") != std::string::npos);
+    CHECK(rml.find("nt-map-connection") == std::string::npos);
     CHECK(rml.find("nt-map-view__room--focused") != std::string::npos);
 }
 

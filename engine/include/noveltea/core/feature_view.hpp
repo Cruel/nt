@@ -142,6 +142,8 @@ struct TypedRuntimeUIViewState {
     InventoryView inventory;
     TextLogView text_log;
     std::optional<MapView> map;
+    std::vector<InteractableId> selected_interactables;
+    bool can_continue = false;
 };
 
 using FeatureView =

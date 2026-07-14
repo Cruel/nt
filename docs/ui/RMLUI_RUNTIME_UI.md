@@ -71,11 +71,35 @@ may call `Game.*` directly for simple controls:
 More complex Layouts should route through a namespaced Lua function in a script file, then call the
 same `Game.*` dispatcher-backed API from that function.
 
-## Temporary Built-In Gameplay Attributes
+### Additive typed runtime UI
 
-The system fallback gameplay document and current custom component fallback output still emit a
-narrow set of `nt-*` attributes. These are temporary compatibility for built-in gameplay UI, not the
-preferred authoring API for project Layouts:
+The replacement runtime binds its RmlUi-facing operations under `Game.ui`. Generated replacement
+controls and authored replacement Layouts use stable typed IDs rather than controller indexes:
+
+```xml
+<button onclick="Game.ui.continue()">Continue</button>
+<button onclick="Game.ui.choose_scene('layout-option')">Show layout</button>
+<button onclick="Game.ui.choose_dialogue('choice-final')">Finish</button>
+<button onclick="Game.ui.navigate_room('north-exit')">North</button>
+<button onclick="Game.ui.toggle_interactable('key')">Key</button>
+<button onclick="Game.ui.invoke_interaction('look')">Look</button>
+```
+
+`Game.ui.navigate_map_connection`, `Game.ui.clear_selection`, and the operations above validate
+their string arguments against the current typed view before constructing a
+`RuntimeInputMessage`. RmlUi/Lua strings never become generic runtime commands or JSON payloads.
+ActiveText hit testing is the one direct C++ UI call because it must resolve a rendered glyph/object
+at a coordinate; it enters the same typed adapter after resolving and validating the ID.
+
+`TypedRuntimeUIViewState` is authoritative for selection and continue affordances. The typed binder
+updates ActiveText, Scene and Dialogue choices, Room and inventory controls, Map, text log, and
+notifications. Typed presentation and audio operations go to dedicated sinks that contain no RmlUi,
+renderer, bgfx, or audio-device handles and return exact operation completion to the session.
+
+## Legacy Built-In Gameplay Attributes
+
+The shipped legacy gameplay path still recognizes a narrow set of `nt-*` attributes. They are not
+emitted or inspected by the replacement typed binder and remain Phase 10 deletion debt:
 
 | Attribute | Maps To | Value |
 |---|---|---|

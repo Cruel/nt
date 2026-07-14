@@ -39,6 +39,20 @@ std::string escape_rml(std::string_view value)
     return escaped;
 }
 
+std::string escape_lua_string(std::string_view value)
+{
+    std::string out;
+    out.reserve(value.size() + 2);
+    out.push_back('\'');
+    for (const char ch : value) {
+        if (ch == '\\' || ch == '\'')
+            out.push_back('\\');
+        out.push_back(ch);
+    }
+    out.push_back('\'');
+    return out;
+}
+
 std::string paragraph_rml(std::string_view text)
 {
     if (text.empty())
@@ -248,7 +262,7 @@ ActiveTextComponentSnapshot make_active_text_snapshot(const core::TypedRuntimeUI
     if (text != nullptr) {
         snapshot.body = text->text;
         snapshot.rich_text = core::parse_rich_text(text->text);
-        snapshot.awaiting_continue = true;
+        snapshot.awaiting_continue = state.can_continue;
     } else if (state.room) {
         snapshot.body = state.room->description;
         snapshot.rich_text = core::parse_rich_text(state.room->description);
@@ -421,8 +435,10 @@ std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
             << "\" data-source-location-id=\"" << escape_rml(connection.source.text())
             << "\" data-target-location-id=\"" << escape_rml(connection.target.text())
             << "\" data-exit-room-id=\"" << escape_rml(connection.exit.room.text())
-            << "\" data-exit-id=\"" << escape_rml(connection.exit.exit_id.text())
-            << "\" nt-map-connection=\"" << escape_rml(connection.connection.text()) << "\"";
+            << "\" data-exit-id=\"" << escape_rml(connection.exit.exit_id.text()) << "\" onclick=\""
+            << escape_rml("Game.ui.navigate_map_connection(" +
+                          escape_lua_string(connection.connection.text()) + ")")
+            << "\"";
         if (!connection.selectable)
             out << " disabled";
         out << "></button>";
@@ -437,8 +453,7 @@ std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
             out << " nt-map-view__room--focused";
         out << "\" data-location-id=\"" << escape_rml(location.location.text())
             << "\" data-room-id=\"" << escape_rml(location.room.text()) << "\"" << " data-x=\""
-            << location.position.x << "\" data-y=\"" << location.position.y
-            << "\" nt-map-location=\"" << escape_rml(location.location.text()) << "\">"
+            << location.position.x << "\" data-y=\"" << location.position.y << "\">"
             << escape_rml(location.label.value_or(location.room.text())) << "</button>";
     }
     out << "</div></div>";
