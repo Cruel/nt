@@ -135,6 +135,7 @@ struct MapView {
 
 struct TypedRuntimeUIViewState {
     std::string mode;
+    bool gameplay_paused = false;
     std::optional<SceneView> scene;
     std::optional<DialogueView> dialogue;
     std::optional<RoomView> room;

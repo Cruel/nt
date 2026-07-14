@@ -18,7 +18,7 @@
 namespace noveltea::script::test {
 namespace {
 
-core::CompiledProject load_project(std::string_view filename)
+nlohmann::json load_document(std::string_view filename)
 {
     const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
                              "/editor/src/renderer/test/fixtures/compiled-project-golden/" +
@@ -29,9 +29,19 @@ core::CompiledProject load_project(std::string_view filename)
                              std::istreambuf_iterator<char>());
     const auto document = nlohmann::json::parse(source, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
-    auto decoded = core::decode_compiled_project(document, path);
+    return document;
+}
+
+core::CompiledProject decode_document(nlohmann::json document, std::string source)
+{
+    auto decoded = core::decode_compiled_project(document, std::move(source));
     REQUIRE(decoded);
     return std::move(decoded).value();
+}
+
+core::CompiledProject load_project(std::string_view filename)
+{
+    return decode_document(load_document(filename), std::string(filename));
 }
 
 template<class T> core::StrongId<T> make_id(std::string value)
@@ -317,6 +327,319 @@ TEST_CASE("runtime script API teardown removes public closures instead of leavin
         "script-api-after-teardown");
     REQUIRE(cleared);
     CHECK(cleared.value());
+}
+
+TEST_CASE("runtime Lua random state is deterministic across save load and invalid ranges")
+{
+    Fixture fixture;
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = noveltea.random.seed(77); assert(ok and err == nil)\n"
+        "random_first = assert(noveltea.random.integer(-20, 20))\n"
+        "ok, err = Game.save(12); assert(ok and err == nil)",
+        "typed-random-save"));
+    (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+
+    REQUIRE(fixture.runtime.execute(
+        "random_expected = assert(noveltea.random.integer(-20, 20))\n"
+        "local before = assert(noveltea.random.number())\n"
+        "local value, err = noveltea.random.integer(5, 4); assert(value == nil and err ~= nil)\n"
+        "random_after_invalid = assert(noveltea.random.number())",
+        "typed-random-after-save"));
+    auto expected = fixture.runtime.evaluate("random_expected", "typed-random-expected");
+    REQUIRE(expected);
+
+    REQUIRE(fixture.runtime.execute("local ok = Game.load(12); assert(ok)", "typed-random-load"));
+    (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(fixture.runtime.execute("random_restored = assert(noveltea.random.integer(-20, 20))",
+                                    "typed-random-restored"));
+    auto restored = fixture.runtime.evaluate("random_restored", "typed-random-restored-value");
+    REQUIRE(restored);
+    CHECK(restored.value() == expected.value());
+
+    REQUIRE(fixture.runtime.execute(
+        "noveltea.random.seed(991)\n"
+        "local value, err = noveltea.random.integer(2, 1); assert(value == nil and err ~= nil)\n"
+        "random_after_failure = assert(noveltea.random.integer(1, 1000))\n"
+        "noveltea.random.seed(991)\n"
+        "random_without_failure = assert(noveltea.random.integer(1, 1000))",
+        "typed-random-atomic"));
+    auto atomic = fixture.runtime.evaluate_bool("random_after_failure == random_without_failure",
+                                                "typed-random-atomic-result");
+    REQUIRE(atomic);
+    CHECK(atomic.value());
+
+    REQUIRE(fixture.runtime.execute(
+        "math.randomseed(31337); math_random = math.random(1, 100000)\n"
+        "noveltea.random.seed(31337); typed_random = assert(noveltea.random.integer(1, 100000))",
+        "typed-math-random"));
+    auto math_matches =
+        fixture.runtime.evaluate_bool("math_random == typed_random", "typed-math-random-result");
+    REQUIRE(math_matches);
+    CHECK(math_matches.value());
+}
+
+TEST_CASE("runtime Lua Map and layout controls use typed state and validated navigation")
+{
+    Fixture fixture;
+    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.view.room);
+    CHECK(started.view.room->room.text() == "start");
+
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = noveltea.map.present('house', {mode='full-map', visible=true, "
+        "focus='hall-location'}); assert(ok and err == nil)\n"
+        "local state = assert(noveltea.map.state()); assert(state.map == 'house' and "
+        "state.mode == 'full-map' and state.focused_location == 'hall-location')\n"
+        "ok, err = noveltea.layouts.set('custom', 'hud-assets'); assert(ok and err == nil)\n"
+        "layout_value = assert(noveltea.layouts.get('custom'))",
+        "typed-map-layout"));
+    auto view = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(view.diagnostics.empty());
+    REQUIRE(view.view.map);
+    CHECK(view.view.map->map.text() == "house");
+    CHECK(view.view.map->mode == core::compiled::InitialMapMode::FullMap);
+    CHECK(view.view.map->locations[1].focused);
+    REQUIRE(view.view.scene == std::nullopt);
+    auto layout_value = fixture.runtime.evaluate_string("layout_value", "layout-value");
+    REQUIRE(layout_value);
+    CHECK(layout_value.value() == "hud-assets");
+    CHECK(std::count_if(view.outputs.begin(), view.outputs.end(), [](const auto& output) {
+              return std::holds_alternative<core::RuntimeViewPublication>(output);
+          }) == 1);
+
+    REQUIRE(fixture.runtime.execute(
+        "local before = assert(noveltea.map.state())\n"
+        "local ok, err = noveltea.map.present('missing', {mode='minimap'}); "
+        "assert(not ok and err ~= nil)\n"
+        "local after = assert(noveltea.map.state()); assert(after.map == before.map)\n"
+        "ok, err = noveltea.layouts.set('custom', 'missing'); assert(not ok and err ~= nil)\n"
+        "assert(noveltea.layouts.get('custom') == 'hud-assets')\n"
+        "ok, err = noveltea.map.activate('start-hall'); assert(ok and err == nil)",
+        "typed-map-layout-atomic"));
+    auto requested = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    const core::TypedHostRequest* request = nullptr;
+    for (const auto& output : requested.outputs) {
+        if (const auto* value = std::get_if<core::TypedHostRequest>(&output)) {
+            request = value;
+            break;
+        }
+    }
+    REQUIRE(request != nullptr);
+    REQUIRE(std::holds_alternative<core::NavigationHostRequest>(*request));
+    const auto request_id = std::get<core::NavigationHostRequest>(*request).id;
+    auto navigated = fixture.session->apply(
+        core::RuntimeInputMessage{core::AcknowledgeHostRequestInput{request_id}});
+    REQUIRE(navigated.diagnostics.empty());
+    REQUIRE(navigated.view.room);
+    CHECK(navigated.view.room->room.text() == "hall");
+
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = noveltea.map.hide(); assert(ok and err == nil)\n"
+        "ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)\n"
+        "assert(noveltea.layouts.get('custom') == nil)",
+        "typed-map-layout-clear"));
+    auto cleared = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(cleared.view.map);
+    CHECK_FALSE(cleared.view.map->visible);
+}
+
+TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
+{
+    Fixture fixture;
+    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.pause(); assert(ok and err == nil)\n"
+                                    "ok, err = Game.pause(); assert(ok and err == nil)\n"
+                                    "paused_value = assert(Game.paused())\n"
+                                    "ok, err = Game.save(13); assert(ok and err == nil)",
+                                    "typed-pause"));
+    auto paused = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(paused.diagnostics.empty());
+    CHECK(paused.view.gameplay_paused);
+    auto paused_value = fixture.runtime.evaluate_bool("paused_value", "typed-pause-value");
+    REQUIRE(paused_value);
+    CHECK(paused_value.value());
+
+    auto blocked = fixture.session->apply(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(blocked.disposition == RuntimeInputDisposition::Unhandled);
+    CHECK(blocked.view.gameplay_paused);
+
+    REQUIRE(fixture.runtime.execute("local ok = Game.load(13); assert(ok)", "typed-pause-load"));
+    auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(loaded.diagnostics.empty());
+    CHECK_FALSE(loaded.view.gameplay_paused);
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil); "
+                                    "assert(Game.paused() == false)",
+                                    "typed-pause-resume"));
+}
+
+TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["instructions"] = nlohmann::json::array(
+        {{{"id", "pause"},
+          {"kind", "run-lua"},
+          {"autosaveSafePoint", false},
+          {"mayYield", false},
+          {"source", "local ok, err = Game.pause(); assert(ok and err == nil)"}},
+         {{"id", "after-pause"},
+          {"kind", "set-variable"},
+          {"variable", {{"kind", "variable"}, {"id", "count"}}},
+          {"value", 77}}});
+    auto project = decode_document(std::move(document), "typed-pause-in-flow.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, runtime, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto paused = session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(paused.diagnostics.empty());
+    CHECK(paused.view.gameplay_paused);
+    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{2}});
+
+    REQUIRE(runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil)",
+                            "typed-pause-in-flow-resume"));
+    auto resumed = session->apply(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    REQUIRE(resumed.diagnostics.empty());
+    CHECK_FALSE(resumed.view.gameplay_paused);
+    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{77}});
+}
+
+TEST_CASE("runtime Lua text log validates metadata and survives save restore")
+{
+    Fixture fixture;
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = noveltea.text_log.append('notification', 'system', "
+        "'[b]Saved[/b]', 'active-text'); assert(ok and err == nil)\n"
+        "ok, err = noveltea.text_log.append('line', 'system', 'bad', 'plain'); "
+        "assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.text_log.append('notification', 'legacy', 'bad', 'plain'); "
+        "assert(not ok and err ~= nil)\n"
+        "ok, err = Game.save(14); assert(ok and err == nil)",
+        "typed-text-log"));
+    auto saved = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(saved.diagnostics.empty());
+    REQUIRE(saved.view.text_log.entries.size() == 1);
+    CHECK(saved.view.text_log.entries.front().text == "[b]Saved[/b]");
+    CHECK(saved.view.text_log.entries.front().markup == core::TextMarkup::ActiveText);
+
+    REQUIRE(fixture.runtime.execute("local ok = noveltea.text_log.clear(); assert(ok)\n"
+                                    "ok = Game.load(14); assert(ok)",
+                                    "typed-text-log-load"));
+    auto restored = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(restored.diagnostics.empty());
+    REQUIRE(restored.view.text_log.entries.size() == 1);
+    CHECK(restored.view.text_log.entries.front().text == "[b]Saved[/b]");
+}
+
+TEST_CASE(
+    "runtime Lua audio emits typed operations and awaited completion resumes exact invocation")
+{
+    Fixture immediate;
+    REQUIRE(immediate.runtime.execute(
+        "local ok, err = audio.play('audio-voice', 'voice', "
+        "{fade_ms=25, volume=0.5, loop=false}); assert(ok and err == nil)\n"
+        "local state = assert(audio.state('voice')); assert(state.playing and "
+        "state.asset == 'audio-voice' and state.volume == 0.5)\n"
+        "ok, err = audio.play('missing', 'voice'); assert(not ok and err ~= nil)\n"
+        "ok, err = audio.play('image-main', 'voice'); assert(not ok and err ~= nil)\n"
+        "state = assert(audio.state('voice')); assert(state.asset == 'audio-voice')",
+        "typed-audio-immediate"));
+    auto emitted = immediate.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    const core::AudioOperation* immediate_operation = nullptr;
+    for (const auto& output : emitted.outputs) {
+        if (const auto* value = std::get_if<core::AudioOperation>(&output)) {
+            immediate_operation = value;
+            break;
+        }
+    }
+    REQUIRE(immediate_operation != nullptr);
+    CHECK(immediate_operation->action == core::compiled::AudioAction::FadeIn);
+    CHECK(immediate_operation->channel == core::compiled::AudioChannel::Voice);
+    CHECK(immediate_operation->asset == make_id<core::AssetIdTag>("audio-voice"));
+    CHECK_FALSE(immediate_operation->owner);
+    CHECK_FALSE(immediate_operation->completion);
+
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["instructions"] = nlohmann::json::array(
+        {{{"id", "lua"},
+          {"kind", "run-lua"},
+          {"autosaveSafePoint", false},
+          {"mayYield", true},
+          {"source", "local ok, err = audio.play_and_wait('audio-voice', 'voice', {volume=0.4}); "
+                     "assert(ok and err == nil); noveltea.variables.set('count', 50); "
+                     "ok, err = audio.stop_and_wait('voice', {fade_ms=5}); "
+                     "assert(ok and err == nil); noveltea.variables.set('count', 77)"}}});
+    auto project = decode_document(std::move(document), "typed-audio-await.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, runtime, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto blocked = session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    const core::AudioOperation* awaited = nullptr;
+    for (const auto& output : blocked.outputs) {
+        if (const auto* value = std::get_if<core::AudioOperation>(&output)) {
+            awaited = value;
+            break;
+        }
+    }
+    REQUIRE(awaited != nullptr);
+    REQUIRE(awaited->owner);
+    REQUIRE(awaited->completion);
+    REQUIRE(std::holds_alternative<core::ScriptInvocationHandle>(*awaited->completion));
+    const auto owner = *awaited->owner;
+    const auto completion = *awaited->completion;
+    const auto operation = awaited->id;
+
+    auto stale = session->apply(core::RuntimeInputMessage{core::CompleteAudioInput{
+        core::AudioOperationId::from_number(operation.number() + 1), owner, completion}});
+    CHECK(stale.disposition == RuntimeInputDisposition::Failed);
+    REQUIRE_FALSE(stale.diagnostics.empty());
+    CHECK(stale.diagnostics.front().code == "runtime.stale_audio_completion");
+    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{2}});
+
+    auto completed = session->apply(
+        core::RuntimeInputMessage{core::CompleteAudioInput{operation, owner, completion}});
+    REQUIRE(completed.diagnostics.empty());
+    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{50}});
+    const core::AudioOperation* second = nullptr;
+    for (const auto& output : completed.outputs) {
+        if (const auto* value = std::get_if<core::AudioOperation>(&output)) {
+            second = value;
+            break;
+        }
+    }
+    REQUIRE(second != nullptr);
+    CHECK(second->action == core::compiled::AudioAction::FadeOut);
+    REQUIRE(second->owner);
+    REQUIRE(second->completion);
+    const auto second_operation = second->id;
+    const auto second_owner = *second->owner;
+    const auto second_completion = *second->completion;
+    auto stopped = session->apply(core::RuntimeInputMessage{
+        core::CompleteAudioInput{second_operation, second_owner, second_completion}});
+    REQUIRE(stopped.diagnostics.empty());
+    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{77}});
 }
 
 } // namespace noveltea::script::test

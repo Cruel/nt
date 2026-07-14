@@ -435,6 +435,7 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
 nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
 {
     nlohmann::json out = {{"mode", view.mode},
+                          {"gameplayPaused", view.gameplay_paused},
                           {"canContinue", view.can_continue},
                           {"selectedInteractables", nlohmann::json::array()},
                           {"inventory", nlohmann::json::array()},

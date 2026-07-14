@@ -164,6 +164,7 @@ nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState
         {"running", preview_running},
         {"shellMode", view.mode},
         {"runtimeMode", view.mode},
+        {"gameplayPaused", view.gameplay_paused},
         {"waiting", std::move(waiting)},
         {"availableInputs",
          {{"continue", view.can_continue},

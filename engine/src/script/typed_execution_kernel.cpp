@@ -213,6 +213,9 @@ TypedExecutionKernel::cancel_script(const core::FlowFrameId& owner,
 core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruction_budget,
                                                              std::string_view runtime_locale)
 {
+    if (m_state.gameplay_paused())
+        return core::FlowBudgetYieldOutcome{0};
+
     auto fault = [this](core::Diagnostics diagnostics) -> core::FlowRunOutcome {
         const auto copy = diagnostics;
         (void)m_flow.fault(std::move(diagnostics));
@@ -249,6 +252,8 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
 
     std::size_t executed = 0;
     while (executed < instruction_budget) {
+        if (m_state.gameplay_paused())
+            return core::FlowBudgetYieldOutcome{executed};
         if (m_state.blocker())
             return core::FlowBlockedOutcome{*m_state.blocker()};
         if (!std::holds_alternative<core::FlowMode>(m_state.mode()))
@@ -662,7 +667,7 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
                     core::Result<void, core::Diagnostics> changed =
                         core::Result<void, core::Diagnostics>::success();
                     if (value.action == core::compiled::LayoutAction::Hide)
-                        m_state.clear_layout(value.slot);
+                        changed = m_state.clear_layout(value.slot);
                     else if (value.layout)
                         changed = m_state.set_layout(m_project, value.slot, *value.layout);
                     else

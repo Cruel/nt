@@ -36,6 +36,10 @@ with the focused document.
 Zustand remains the authoritative editor-side state. The engine owns runtime
 state needed for rendering and hit testing.
 
+Runtime debug snapshots include `gameplayPaused` from the typed runtime view. It represents semantic
+gameplay pause only; it is not iframe visibility, editor preview suspension, audio-device pause, or a
+modal-layout heuristic. The field is validated as a boolean at the shared preview-protocol boundary.
+
 ## Workbench Preview Lifetime
 
 The Play editor is registered as a persistent workbench editor with a

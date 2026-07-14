@@ -40,15 +40,24 @@ namespace noveltea {
 
 std::optional<std::string> RuntimeUiAssetResolver::resolve(const core::AssetId& asset) const
 {
-    if (!m_runtime)
+    if (!m_project)
         return std::nullopt;
-    const auto* resource = m_runtime->package().project().find_asset(asset);
+    const auto* resource = m_project->find_asset(asset);
     if (!resource)
         return std::nullopt;
     return "project:/" + resource->path;
 }
 
-Engine::Engine() : m_audio(make_miniaudio_backend()), m_runtime_preview(*this) {}
+void RuntimeUiAssetResolver::bind(const script::CompiledRuntime* runtime) noexcept
+{
+    m_project = runtime ? &runtime->package().project() : nullptr;
+}
+
+Engine::Engine()
+    : m_audio(make_miniaudio_backend()),
+      m_runtime_audio_adapter(m_audio, m_runtime_ui_asset_resolver), m_runtime_preview(*this)
+{
+}
 Engine::~Engine() { shutdown(); }
 
 namespace {
@@ -820,7 +829,7 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
 #endif
 }
 
-bool Engine::load_compiled_project(const std::string& logical_path)
+bool Engine::load_compiled_project(const std::string& logical_path, bool load_title_screen)
 {
     m_tweens.reset();
     auto blob = m_assets.read_binary(logical_path);
@@ -879,6 +888,7 @@ bool Engine::load_compiled_project(const std::string& logical_path)
         return false;
     }
 
+    m_runtime_audio_adapter.reset();
     m_compiled_runtime = std::move(*loaded.value_if());
     m_runtime_ui_asset_resolver.bind(m_compiled_runtime.get());
     const auto& project = m_compiled_runtime->package().project();
@@ -918,17 +928,20 @@ bool Engine::load_compiled_project(const std::string& logical_path)
     m_typed_runtime_diagnostics = m_compiled_runtime->startup_result().diagnostics;
     (void)m_runtime_ui.dispatch_typed_runtime_input(
         core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    if (!m_runtime_ui.load_title_document()) {
-        std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
-        m_runtime_ui_asset_resolver.bind(nullptr);
-        m_compiled_runtime.reset();
-        return false;
+    if (load_title_screen) {
+        if (!m_runtime_ui.load_title_document()) {
+            std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
+            m_runtime_audio_adapter.reset();
+            m_runtime_ui_asset_resolver.clear();
+            m_compiled_runtime.reset();
+            return false;
+        }
+        const auto& identity = project.identity();
+        const auto& title_screen = project.settings().title_screen;
+        m_runtime_ui.bind_title_document(title_screen.show_project_title ? identity.name
+                                                                         : std::string{},
+                                         title_screen.subtitle, title_screen.start_label);
     }
-    const auto& identity = project.identity();
-    const auto& title_screen = project.settings().title_screen;
-    m_runtime_ui.bind_title_document(title_screen.show_project_title ? identity.name
-                                                                     : std::string{},
-                                     title_screen.subtitle, title_screen.start_label);
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
     m_compiled_project_path = logical_path;
     return true;
@@ -962,6 +975,8 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             debug_ui_initialized = false;
         }
         if (runtime_ui_initialized) {
+            m_runtime_ui.bind_typed_audio_sink(nullptr);
+            m_runtime_audio_adapter.reset();
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
         }
@@ -1038,7 +1053,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
 
     {
-        auto script_init = m_scripts.initialize({&m_assets, &m_audio});
+        auto script_init = m_scripts.initialize({&m_assets});
         if (!script_init) {
             std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
                          script_init.error().message.c_str());
@@ -1077,6 +1092,8 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             runtime_ui_initialized = true;
         }
     }
+    if (runtime_ui_initialized)
+        m_runtime_ui.bind_typed_audio_sink(&m_runtime_audio_adapter);
 
     if (m_debug_ui_enabled) {
         SDL_Log("[engine] initializing debug UI...");
@@ -1091,10 +1108,22 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     }
 
     m_save_slots = run_config.save_slot_store ? run_config.save_slot_store : &m_typed_saves;
-    if (!run_config.compiled_project.empty() &&
-        !load_compiled_project(run_config.compiled_project)) {
+    const bool using_automatic_demo_project = run_config.compiled_project.empty() && load_demo;
+    const std::string compiled_project =
+        !run_config.compiled_project.empty()
+            ? run_config.compiled_project
+            : (load_demo ? "project:/projects/runtime_phase9_package.ntpkg" : std::string{});
+    if (!compiled_project.empty() &&
+        !load_compiled_project(compiled_project, !using_automatic_demo_project)) {
         rollback();
         return false;
+    }
+    if (using_automatic_demo_project) {
+        // The automatically loaded fixture exists only to provide a real typed runtime session to
+        // the standalone RmlUi demo. Keep the sandbox demo's built-in renderer materials; an
+        // explicitly requested compiled project still replaces the material registry normally.
+        m_shader_materials = make_demo_shader_materials();
+        m_renderer.set_shader_material_project(&m_shader_materials);
     }
 
     for (const std::string& path : run_config.audio_sfx_paths) {
@@ -1440,6 +1469,10 @@ void Engine::update(float dt)
         return;
     m_elapsed_seconds += dt;
     m_audio.update(dt);
+    if (m_compiled_runtime) {
+        for (const auto& completion : m_runtime_audio_adapter.take_completions())
+            (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{completion});
+    }
     m_tweens.advance(dt);
     if (m_compiled_runtime) {
         (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
@@ -1504,6 +1537,8 @@ void Engine::shutdown()
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();
     }
+    m_runtime_ui.bind_typed_audio_sink(nullptr);
+    m_runtime_audio_adapter.reset();
     m_runtime_ui.shutdown();
     m_tweens.reset();
     m_assets.bind_audio_loader(nullptr);

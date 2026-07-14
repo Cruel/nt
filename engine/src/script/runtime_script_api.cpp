@@ -129,6 +129,91 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::request_notification(std
 {
     NOVELTEA_WITH_TARGET(m_state->target->script_request_notification(std::move(message)));
 }
+core::Result<void, core::Diagnostics> RuntimeScriptApi::seed_random(std::uint64_t seed)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_seed_random(seed));
+}
+core::Result<std::int64_t, core::Diagnostics> RuntimeScriptApi::random_integer(std::int64_t minimum,
+                                                                               std::int64_t maximum)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_random_integer(minimum, maximum));
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode,
+                              bool visible, std::optional<core::MapLocationId> focused_location)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_present_map(std::move(map), mode, visible,
+                                                             std::move(focused_location)));
+}
+core::Result<void, core::Diagnostics> RuntimeScriptApi::hide_map()
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_hide_map());
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::select_map_location(core::MapLocationId location)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_select_map_location(std::move(location)));
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::activate_map_connection(core::MapConnectionId connection)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_activate_map_connection(std::move(connection)));
+}
+core::Result<core::MapPresentationState, core::Diagnostics> RuntimeScriptApi::map_state() const
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_map_state());
+}
+core::Result<std::optional<core::LayoutId>, core::Diagnostics>
+RuntimeScriptApi::layout(core::compiled::LayoutSlot slot) const
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_layout(slot));
+}
+core::Result<void, core::Diagnostics> RuntimeScriptApi::set_layout(core::compiled::LayoutSlot slot,
+                                                                   core::LayoutId layout)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_set_layout(slot, std::move(layout)));
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_layout(core::compiled::LayoutSlot slot)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_clear_layout(slot));
+}
+core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_paused(bool paused)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_set_gameplay_paused(paused));
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::request_audio(core::compiled::AudioAction action,
+                                core::compiled::AudioChannel channel,
+                                std::optional<core::AssetId> asset, std::chrono::milliseconds fade,
+                                bool loop, double volume, bool await_completion)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_request_audio(
+        action, channel, std::move(asset), fade, loop, volume, await_completion));
+}
+core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
+RuntimeScriptApi::audio_channel(core::compiled::AudioChannel channel) const
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_audio_channel(channel));
+}
+core::Result<void, core::Diagnostics> RuntimeScriptApi::append_text_log(core::TextLogEntry entry)
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_append_text_log(std::move(entry)));
+}
+core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_text_log()
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_clear_text_log());
+}
+
+core::Result<double, core::Diagnostics> RuntimeScriptApi::random_unit()
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_random_unit());
+}
+
+core::Result<bool, core::Diagnostics> RuntimeScriptApi::gameplay_paused() const
+{
+    NOVELTEA_WITH_TARGET(m_state->target->script_gameplay_paused());
+}
 
 #undef NOVELTEA_WITH_TARGET
 

@@ -37,7 +37,22 @@ describe('SourceEditor language completion metadata', () => {
 
   it('includes enabled Lua runtime globals and omits disabled libraries and loaders', () => {
     const labels = luaRuntimeCompletions.map((completion) => completion.label);
-    expect(labels).toEqual(expect.arrayContaining(['noveltea', 'audio', 'print', 'string', 'table', 'math', 'utf8']));
+    expect(labels).toEqual(expect.arrayContaining([
+      'noveltea',
+      'noveltea.random.integer',
+      'noveltea.map.activate',
+      'noveltea.layouts.set',
+      'noveltea.text_log.append',
+      'Game.pause',
+      'audio.play_and_wait',
+      'math.randomseed',
+      'print',
+      'string',
+      'table',
+      'math',
+      'utf8',
+    ]));
+    expect(labels).not.toEqual(expect.arrayContaining(['audio.play_sfx', 'audio.play_track']));
     expect(labels).not.toEqual(expect.arrayContaining(['os', 'io', 'debug', 'package', 'require', 'dofile', 'loadfile']));
   });
 

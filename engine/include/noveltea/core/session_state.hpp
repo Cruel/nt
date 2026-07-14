@@ -68,6 +68,14 @@ public:
         return m_execution_fault;
     }
     [[nodiscard]] std::chrono::milliseconds play_time() const noexcept { return m_play_time; }
+    [[nodiscard]] std::uint64_t random_state() const noexcept { return m_random_state; }
+    void seed_random(std::uint64_t seed) noexcept { m_random_state = seed; }
+    [[nodiscard]] std::uint64_t next_random_u64() noexcept;
+    [[nodiscard]] double next_random_unit() noexcept;
+    [[nodiscard]] Result<std::int64_t, Diagnostics> next_random_integer(std::int64_t minimum,
+                                                                        std::int64_t maximum);
+    [[nodiscard]] bool gameplay_paused() const noexcept { return m_gameplay_paused; }
+    void set_gameplay_paused(bool paused) noexcept { m_gameplay_paused = paused; }
     [[nodiscard]] Result<void, Diagnostics> advance_time(std::chrono::milliseconds elapsed);
     [[nodiscard]] Result<LogicalTimerId, Diagnostics>
     start_logical_timer(std::chrono::milliseconds initial_duration,
@@ -138,6 +146,7 @@ public:
     [[nodiscard]] const std::vector<TextLogEntry>& text_log() const noexcept { return m_text_log; }
     [[nodiscard]] Result<void, Diagnostics> append_text_log(const CompiledProject& project,
                                                             TextLogEntry entry);
+    void clear_text_log() noexcept { m_text_log.clear(); }
 
     [[nodiscard]] const std::optional<compiled::BackgroundPresentation>& background() const noexcept
     {
@@ -146,9 +155,11 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     set_background(const CompiledProject& project, compiled::BackgroundPresentation background);
     [[nodiscard]] const std::vector<LayoutSlotState>& layouts() const noexcept { return m_layouts; }
+    [[nodiscard]] Result<std::optional<LayoutId>, Diagnostics>
+    layout(compiled::LayoutSlot slot) const;
     [[nodiscard]] Result<void, Diagnostics> set_layout(const CompiledProject& project,
                                                        compiled::LayoutSlot slot, LayoutId layout);
-    void clear_layout(compiled::LayoutSlot slot) noexcept;
+    [[nodiscard]] Result<void, Diagnostics> clear_layout(compiled::LayoutSlot slot);
     [[nodiscard]] const std::vector<RoomOverlayState>& overlays() const noexcept
     {
         return m_overlays;
@@ -227,12 +238,14 @@ private:
     std::vector<AudioChannelState> m_audio_channels;
     std::optional<MapPresentationState> m_map_presentation;
     std::chrono::milliseconds m_play_time{0};
+    std::uint64_t m_random_state = 0x4e6f76656c546561ULL;
     std::vector<LogicalTimer> m_logical_timers;
     std::vector<LogicalTimerCompletion> m_pending_timer_completions;
     std::uint64_t m_next_logical_timer_id = 1;
     std::uint64_t m_next_frame_id;
     std::uint64_t m_next_blocker_handle = 1;
     bool m_flow_running = false;
+    bool m_gameplay_paused = false;
 };
 
 } // namespace noveltea::core

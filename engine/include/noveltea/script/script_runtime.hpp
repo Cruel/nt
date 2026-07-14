@@ -8,9 +8,6 @@
 #include <string>
 #include <string_view>
 
-namespace noveltea {
-class AudioSystem;
-} // namespace noveltea
 namespace noveltea::assets {
 class AssetManager;
 }
@@ -28,7 +25,6 @@ class RuntimeScriptApi;
 
 struct ScriptRuntimeConfig {
     const assets::AssetManager* assets = nullptr;
-    AudioSystem* audio = nullptr;
 };
 
 class ScriptRuntime {
@@ -60,8 +56,6 @@ public:
 
     void collect_garbage();
 
-    void bind_audio(AudioSystem* audio);
-    void clear_audio_binding();
     void bind_typed_host(core::ScriptHostServices* host);
     void clear_typed_host();
     void bind_runtime_script_api(RuntimeScriptApi* api);

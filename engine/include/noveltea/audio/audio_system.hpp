@@ -45,6 +45,7 @@ public:
                                                     const std::string& alias,
                                                     AudioTrackDesc desc = {});
     void stop_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
+    [[nodiscard]] bool track_active(const AudioTrackId& track_id) const noexcept;
 
     void update(float dt);
 

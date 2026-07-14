@@ -14,7 +14,7 @@
 namespace noveltea::core {
 
 struct SaveStateMetadata {
-    static constexpr std::uint32_t current_format_version = 1;
+    static constexpr std::uint32_t current_format_version = 2;
 
     std::uint32_t format_version = current_format_version;
     ProjectId project;
@@ -113,6 +113,7 @@ using SavedFlowBlocker = std::variant<SavedInputBlocker, SavedDurationBlocker>;
 struct SaveState {
     SaveStateMetadata metadata;
     std::chrono::milliseconds play_time{0};
+    std::uint64_t random_state = 0;
     std::vector<SavedVariable> variables;
     std::vector<SavedPropertyOverride> property_overrides;
     std::vector<InteractableState> interactables;

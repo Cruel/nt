@@ -40,6 +40,7 @@ struct HostRequestTag;
 using PresentationOperationId = SessionOperationId<PresentationOperationTag>;
 using AudioOperationId = SessionOperationId<AudioOperationTag>;
 using HostRequestId = SessionOperationId<HostRequestTag>;
+using AudioCompletionHandle = std::variant<AudioFlowBlockerHandle, ScriptInvocationHandle>;
 
 struct StartRuntimeInput {
     auto operator<=>(const StartRuntimeInput&) const = default;
@@ -130,13 +131,13 @@ struct CancelPresentationInput {
 struct CompleteAudioInput {
     AudioOperationId operation;
     FlowFrameId owner;
-    AudioFlowBlockerHandle completion;
+    AudioCompletionHandle completion;
     auto operator<=>(const CompleteAudioInput&) const = default;
 };
 struct CancelAudioInput {
     AudioOperationId operation;
     FlowFrameId owner;
-    AudioFlowBlockerHandle completion;
+    AudioCompletionHandle completion;
     auto operator<=>(const CancelAudioInput&) const = default;
 };
 struct AcknowledgeHostRequestInput {
@@ -191,7 +192,7 @@ struct AudioOperation {
     bool loop = false;
     double volume = 1.0;
     std::optional<FlowFrameId> owner;
-    std::optional<AudioFlowBlockerHandle> completion;
+    std::optional<AudioCompletionHandle> completion;
     bool operator==(const AudioOperation&) const = default;
 };
 

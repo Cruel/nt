@@ -156,6 +156,7 @@ export interface RuntimeDebugSnapshot {
   running: boolean;
   shellMode?: string;
   runtimeMode?: string;
+  gameplayPaused?: boolean;
   entrypoint?: RuntimeDebugEntityRef;
   currentEntity?: RuntimeDebugEntityRef;
   currentRoomId?: string;
@@ -465,6 +466,7 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
     typeof value.running === 'boolean' &&
     (value.shellMode === undefined || typeof value.shellMode === 'string') &&
     (value.runtimeMode === undefined || typeof value.runtimeMode === 'string') &&
+    (value.gameplayPaused === undefined || typeof value.gameplayPaused === 'boolean') &&
     (value.entrypoint === undefined || isRuntimeDebugEntityRef(value.entrypoint)) &&
     (value.currentEntity === undefined || isRuntimeDebugEntityRef(value.currentEntity)) &&
     (value.currentRoomId === undefined || typeof value.currentRoomId === 'string') &&

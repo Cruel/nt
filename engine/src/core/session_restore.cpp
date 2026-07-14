@@ -68,6 +68,8 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
         state->m_dialogue_choice_history.emplace_back(history.key, history.count);
     state->m_text_log = save.text_log;
     state->m_play_time = save.play_time;
+    state->m_random_state = save.random_state;
+    state->m_gameplay_paused = false;
 
     std::uint64_t max_timer_id = 0;
     for (const auto& timer : save.logical_timers)

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <type_traits>
 
 namespace noveltea::script {
@@ -25,6 +26,22 @@ core::Diagnostics as_diagnostics(TypedExecutionError error)
 template<class T> const T* active_blocker(const TypedExecutionKernel& kernel)
 {
     return kernel.state().blocker() ? std::get_if<T>(&*kernel.state().blocker()) : nullptr;
+}
+
+bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            return std::is_same_v<T, core::StartRuntimeInput> ||
+                   std::is_same_v<T, core::AdvanceTimeInput> ||
+                   std::is_same_v<T, core::ContinueInput> ||
+                   std::is_same_v<T, core::SelectSceneChoiceInput> ||
+                   std::is_same_v<T, core::SelectDialogueChoiceInput> ||
+                   std::is_same_v<T, core::NavigateRoomInput> ||
+                   std::is_same_v<T, core::InvokeInteractionInput>;
+        },
+        input);
 }
 
 void attach_runtime_context(core::Diagnostics& diagnostics, const TypedExecutionKernel& kernel)
@@ -157,6 +174,201 @@ TypedRuntimeSession::script_request_notification(std::string message)
     return m_kernel->host().request_notification(std::move(message));
 }
 
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_seed_random(std::uint64_t seed)
+{
+    m_kernel->state().seed_random(seed);
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<std::int64_t, core::Diagnostics>
+TypedRuntimeSession::script_random_integer(std::int64_t minimum, std::int64_t maximum)
+{
+    return m_kernel->state().next_random_integer(minimum, maximum);
+}
+
+core::Result<double, core::Diagnostics> TypedRuntimeSession::script_random_unit()
+{
+    return core::Result<double, core::Diagnostics>::success(m_kernel->state().next_random_unit());
+}
+
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_present_map(
+    core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
+    std::optional<core::MapLocationId> focused_location)
+{
+    return m_kernel->present_map(map, mode, visible, std::move(focused_location));
+}
+
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_hide_map()
+{
+    return m_kernel->hide_map();
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_select_map_location(core::MapLocationId location)
+{
+    auto selected = m_kernel->select_map_location(location, m_runtime_locale);
+    return selected ? core::Result<void, core::Diagnostics>::success()
+                    : core::Result<void, core::Diagnostics>::failure(
+                          as_diagnostics(std::move(selected).error()));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_activate_map_connection(core::MapConnectionId connection)
+{
+    auto view = m_kernel->map_view(m_runtime_locale);
+    auto* map = view.value_if();
+    if (map == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            as_diagnostics(std::move(view).error()));
+    const auto selected = std::find_if(map->connections.begin(), map->connections.end(),
+                                       [&connection](const core::MapConnectionView& candidate) {
+                                           return candidate.connection == connection;
+                                       });
+    if (!map->visible || !map->current_room || selected == map->connections.end() ||
+        !selected->selectable) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+            diagnostic("runtime.map_connection_unavailable",
+                       "Selected Map connection is not an enabled exit from the active Room")});
+    }
+    return m_kernel->host().request_navigation(selected->exit);
+}
+
+core::Result<core::MapPresentationState, core::Diagnostics>
+TypedRuntimeSession::script_map_state() const
+{
+    if (!m_kernel->state().map_presentation())
+        return core::Result<core::MapPresentationState, core::Diagnostics>::failure(
+            core::Diagnostics{
+                diagnostic("runtime.map_not_presented", "No typed Map presentation is active")});
+    return core::Result<core::MapPresentationState, core::Diagnostics>::success(
+        *m_kernel->state().map_presentation());
+}
+
+core::Result<std::optional<core::LayoutId>, core::Diagnostics>
+TypedRuntimeSession::script_layout(core::compiled::LayoutSlot slot) const
+{
+    return m_kernel->state().layout(slot);
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_set_layout(core::compiled::LayoutSlot slot, core::LayoutId layout)
+{
+    return m_kernel->state().set_layout(m_project, slot, std::move(layout));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_clear_layout(core::compiled::LayoutSlot slot)
+{
+    return m_kernel->state().clear_layout(slot);
+}
+
+core::Result<bool, core::Diagnostics> TypedRuntimeSession::script_gameplay_paused() const
+{
+    return core::Result<bool, core::Diagnostics>::success(m_kernel->state().gameplay_paused());
+}
+
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_set_gameplay_paused(bool paused)
+{
+    m_kernel->state().set_gameplay_paused(paused);
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_audio(
+    core::compiled::AudioAction action, core::compiled::AudioChannel channel,
+    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
+    bool await_completion)
+{
+    if (action > core::compiled::AudioAction::FadeOut ||
+        channel > core::compiled::AudioChannel::Ambient || fade.count() < 0 ||
+        !std::isfinite(volume) || volume < 0.0 || volume > 1.0) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
+            "runtime.invalid_audio_request", "Typed audio request contains an invalid value")});
+    }
+    const bool playing = action == core::compiled::AudioAction::Play ||
+                         action == core::compiled::AudioAction::FadeIn;
+    if ((playing && !asset) || (!playing && asset)) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+            diagnostic("runtime.invalid_audio_request",
+                       playing ? "Typed audio playback requires an Asset"
+                               : "Typed audio stop requests must not include an Asset")});
+    }
+    if (playing) {
+        const auto* definition = m_project.find_asset(*asset);
+        if (definition == nullptr || definition->kind != core::compiled::AssetKind::Audio) {
+            return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+                diagnostic("runtime.invalid_audio_asset",
+                           "Typed audio playback requires an existing audio Asset ID")});
+        }
+        if (m_pending_audio) {
+            return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
+                "runtime.audio_operation_pending",
+                "A blocking audio operation must finish before starting replacement playback")});
+        }
+    }
+
+    const core::ScriptFlowBlocker* script_blocker = nullptr;
+    if (await_completion) {
+        script_blocker = active_blocker<core::ScriptFlowBlocker>(*m_kernel);
+        if (script_blocker == nullptr || m_pending_audio) {
+            return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
+                "runtime.audio_wait_unavailable",
+                "Awaited typed audio requires one active Lua invocation and no pending audio")});
+        }
+    }
+
+    auto changed = m_kernel->state().set_audio_channel(
+        m_project,
+        core::AudioChannelState{channel, playing ? asset : std::nullopt, volume, loop, playing});
+    if (!changed)
+        return changed;
+
+    core::AudioOperation operation{
+        .id = core::AudioOperationId::from_number(m_next_audio_id++),
+        .action = action,
+        .channel = channel,
+        .asset = std::move(asset),
+        .fade = fade,
+        .loop = loop,
+        .volume = volume,
+        .owner =
+            script_blocker ? std::optional<core::FlowFrameId>{script_blocker->owner} : std::nullopt,
+        .completion = script_blocker
+                          ? std::optional<core::AudioCompletionHandle>{core::AudioCompletionHandle{
+                                script_blocker->handle}}
+                          : std::nullopt};
+    if (script_blocker)
+        m_pending_audio = operation;
+    m_script_audio.push_back(std::move(operation));
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
+TypedRuntimeSession::script_audio_channel(core::compiled::AudioChannel channel) const
+{
+    if (channel > core::compiled::AudioChannel::Ambient)
+        return core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>::failure(
+            core::Diagnostics{
+                diagnostic("runtime.invalid_audio_channel", "Typed audio channel is invalid")});
+    const auto& channels = m_kernel->state().audio_channels();
+    const auto found = std::find_if(
+        channels.begin(), channels.end(),
+        [channel](const core::AudioChannelState& value) { return value.channel == channel; });
+    return core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>::success(
+        found == channels.end() ? std::nullopt : std::optional<core::AudioChannelState>{*found});
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_append_text_log(core::TextLogEntry entry)
+{
+    return m_kernel->state().append_text_log(m_project, std::move(entry));
+}
+
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_clear_text_log()
+{
+    m_kernel->state().clear_text_log();
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>
 TypedRuntimeSession::create(const core::CompiledProject& project, ScriptRuntime& runtime,
                             core::TypedSaveSlotStore& saves, std::string runtime_locale)
@@ -204,8 +416,11 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
         const auto& channels = m_kernel->state().audio_channels();
         if (!channels.empty()) {
             const auto& channel = channels.back();
-            const bool already_pending = m_pending_audio && m_pending_audio->completion &&
-                                         *m_pending_audio->completion == blocker->handle;
+            const auto* pending_handle =
+                m_pending_audio && m_pending_audio->completion
+                    ? std::get_if<core::AudioFlowBlockerHandle>(&*m_pending_audio->completion)
+                    : nullptr;
+            const bool already_pending = pending_handle && *pending_handle == blocker->handle;
             if (!already_pending) {
                 core::AudioOperation operation{
                     .id = core::AudioOperationId::from_number(m_next_audio_id++),
@@ -222,9 +437,17 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
             }
         }
     }
+    drain_script_audio(outputs);
     drain_host_requests(outputs, diagnostics);
     drain_script_inputs(outputs, diagnostics);
     return diagnostics;
+}
+
+void TypedRuntimeSession::drain_script_audio(std::vector<core::RuntimeOutputMessage>& outputs)
+{
+    outputs.insert(outputs.end(), std::make_move_iterator(m_script_audio.begin()),
+                   std::make_move_iterator(m_script_audio.end()));
+    m_script_audio.clear();
 }
 
 void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
@@ -396,20 +619,40 @@ core::Diagnostics TypedRuntimeSession::complete_presentation(
     return {};
 }
 
-core::Diagnostics
-TypedRuntimeSession::complete_audio(core::AudioOperationId operation,
-                                    const core::FlowFrameId& owner,
-                                    const core::AudioFlowBlockerHandle& completion, bool cancel)
+core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId operation,
+                                                      const core::FlowFrameId& owner,
+                                                      const core::AudioCompletionHandle& completion,
+                                                      bool cancel)
 {
     if (!m_pending_audio || m_pending_audio->id != operation || !m_pending_audio->completion ||
+        !m_pending_audio->owner || *m_pending_audio->owner != owner ||
         *m_pending_audio->completion != completion)
         return {diagnostic("runtime.stale_audio_completion",
                            "Audio completion does not match the pending operation")};
-    auto result = cancel ? m_kernel->cancel(owner, core::AnyFlowBlockerHandle{completion})
-                         : m_kernel->complete(owner, core::AnyFlowBlockerHandle{completion});
-    if (!result)
-        return std::move(result).error();
     m_pending_audio.reset();
+    core::Diagnostics diagnostics;
+    std::visit(
+        [&](const auto& handle) {
+            using T = std::decay_t<decltype(handle)>;
+            if constexpr (std::is_same_v<T, core::AudioFlowBlockerHandle>) {
+                auto result = cancel
+                                  ? m_kernel->cancel(owner, core::AnyFlowBlockerHandle{handle})
+                                  : m_kernel->complete(owner, core::AnyFlowBlockerHandle{handle});
+                if (!result)
+                    diagnostics = std::move(result).error();
+            } else if (cancel) {
+                auto result = m_kernel->cancel_script(owner, handle);
+                if (!result)
+                    diagnostics = as_diagnostics(TypedExecutionError{result.error()});
+            } else {
+                auto result = m_kernel->resume_script(owner, handle);
+                if (!result)
+                    diagnostics = as_diagnostics(TypedExecutionError{result.error()});
+            }
+        },
+        completion);
+    if (!diagnostics.empty())
+        return diagnostics;
     return {};
 }
 
@@ -434,165 +677,175 @@ void TypedRuntimeSession::append_view(TypedRuntimeSessionResult& result)
 TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMessage& input)
 {
     TypedRuntimeSessionResult result;
-    std::visit(
-        [&](const auto& value) {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, core::StartRuntimeInput>) {
-                m_running = true;
-                result.diagnostics = run_kernel(result.outputs);
-            } else if constexpr (std::is_same_v<T, core::StopRuntimeInput>) {
-                m_running = false;
-            } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
-                auto reset = TypedExecutionKernel::create(m_project, m_runtime);
-                if (reset) {
-                    m_script_api.clear_target();
-                    m_kernel = std::move(*reset.value_if());
-                    m_script_api.replace_target(this);
+    if (m_kernel->state().gameplay_paused() && is_gameplay_advancement(input)) {
+        result.disposition = RuntimeInputDisposition::Unhandled;
+    } else
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::StartRuntimeInput>) {
+                    m_running = true;
+                    result.diagnostics = run_kernel(result.outputs);
+                } else if constexpr (std::is_same_v<T, core::StopRuntimeInput>) {
+                    m_running = false;
+                } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
+                    auto reset = TypedExecutionKernel::create(m_project, m_runtime);
+                    if (reset) {
+                        m_script_api.clear_target();
+                        m_kernel = std::move(*reset.value_if());
+                        m_script_api.replace_target(this);
+                        m_selection.clear();
+                        m_pending_host_requests.clear();
+                        m_pending_presentation.reset();
+                        m_pending_audio.reset();
+                        m_script_audio.clear();
+                    } else
+                        result.diagnostics = std::move(reset).error();
+                } else if constexpr (std::is_same_v<T, core::AdvanceTimeInput>) {
+                    const auto elapsed =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(value.elapsed);
+                    auto advanced = m_kernel->state().advance_time(elapsed);
+                    if (!advanced)
+                        result.diagnostics = std::move(advanced).error();
+                    else if (const auto* blocker =
+                                 active_blocker<core::DurationFlowBlocker>(*m_kernel)) {
+                        auto completed =
+                            m_kernel->advance(blocker->owner, blocker->handle, elapsed);
+                        if (!completed)
+                            result.diagnostics = std::move(completed).error();
+                        else if (*completed.value_if())
+                            result.diagnostics = run_kernel(result.outputs);
+                    } else
+                        result.diagnostics = run_kernel(result.outputs);
+                } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
+                    const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
+                    if (!blocker)
+                        result.disposition = RuntimeInputDisposition::Unhandled;
+                    else {
+                        auto completed = m_kernel->complete(
+                            blocker->owner, core::AnyFlowBlockerHandle{blocker->handle});
+                        if (!completed)
+                            result.diagnostics = std::move(completed).error();
+                        else
+                            result.diagnostics = run_kernel(result.outputs);
+                    }
+                } else if constexpr (std::is_same_v<T, core::SelectSceneChoiceInput> ||
+                                     std::is_same_v<T, core::SelectDialogueChoiceInput>) {
+                    const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
+                    if (!blocker)
+                        result.disposition = RuntimeInputDisposition::Unhandled;
+                    else if constexpr (std::is_same_v<T, core::SelectSceneChoiceInput>) {
+                        auto chosen = m_kernel->choose_scene_option(blocker->owner, blocker->handle,
+                                                                    value.option);
+                        if (!chosen)
+                            result.diagnostics = std::move(chosen).error();
+                        else
+                            result.diagnostics = run_kernel(result.outputs);
+                    } else {
+                        auto chosen = m_kernel->choose_dialogue_option(blocker->owner,
+                                                                       blocker->handle, value.edge);
+                        if (!chosen)
+                            result.diagnostics = std::move(chosen).error();
+                        else
+                            result.diagnostics = run_kernel(result.outputs);
+                    }
+                } else if constexpr (std::is_same_v<T, core::NavigateRoomInput>) {
+                    auto changed = m_kernel->navigate(value.exit);
+                    if (!changed)
+                        result.diagnostics = std::move(changed).error();
+                    else
+                        result.diagnostics = run_kernel(result.outputs);
+                } else if constexpr (std::is_same_v<T, core::SelectInteractablesInput>) {
+                    m_selection = value.interactables;
+                } else if constexpr (std::is_same_v<T, core::ClearInteractableSelectionInput>) {
                     m_selection.clear();
-                    m_pending_host_requests.clear();
-                    m_pending_presentation.reset();
-                    m_pending_audio.reset();
-                } else
-                    result.diagnostics = std::move(reset).error();
-            } else if constexpr (std::is_same_v<T, core::AdvanceTimeInput>) {
-                const auto elapsed =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(value.elapsed);
-                auto advanced = m_kernel->state().advance_time(elapsed);
-                if (!advanced)
-                    result.diagnostics = std::move(advanced).error();
-                else if (const auto* blocker =
-                             active_blocker<core::DurationFlowBlocker>(*m_kernel)) {
-                    auto completed = m_kernel->advance(blocker->owner, blocker->handle, elapsed);
-                    if (!completed)
-                        result.diagnostics = std::move(completed).error();
-                    else if (*completed.value_if())
-                        result.diagnostics = run_kernel(result.outputs);
-                } else
-                    result.diagnostics = run_kernel(result.outputs);
-            } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
-                const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
-                if (!blocker)
-                    result.disposition = RuntimeInputDisposition::Unhandled;
-                else {
-                    auto completed = m_kernel->complete(
-                        blocker->owner, core::AnyFlowBlockerHandle{blocker->handle});
-                    if (!completed)
-                        result.diagnostics = std::move(completed).error();
+                } else if constexpr (std::is_same_v<T, core::InvokeInteractionInput>) {
+                    auto operands = value.operands.empty() ? m_selection : value.operands;
+                    auto invoked = m_kernel->interact(value.verb, std::move(operands));
+                    if (!invoked)
+                        result.diagnostics = as_diagnostics(std::move(invoked).error());
                     else
                         result.diagnostics = run_kernel(result.outputs);
-                }
-            } else if constexpr (std::is_same_v<T, core::SelectSceneChoiceInput> ||
-                                 std::is_same_v<T, core::SelectDialogueChoiceInput>) {
-                const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
-                if (!blocker)
-                    result.disposition = RuntimeInputDisposition::Unhandled;
-                else if constexpr (std::is_same_v<T, core::SelectSceneChoiceInput>) {
-                    auto chosen = m_kernel->choose_scene_option(blocker->owner, blocker->handle,
-                                                                value.option);
-                    if (!chosen)
-                        result.diagnostics = std::move(chosen).error();
+                } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
+                    auto changed = m_kernel->host().set_variable(value.variable, value.value);
+                    if (!changed)
+                        result.diagnostics = std::move(changed).error();
+                } else if constexpr (std::is_same_v<T, core::SetPropertyDebugInput>) {
+                    auto changed =
+                        m_kernel->host().set_property(value.owner, value.property, value.value);
+                    if (!changed)
+                        result.diagnostics = std::move(changed).error();
+                } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
+                    auto saved = m_kernel->save_slot(m_saves, value.slot);
+                    if (saved)
+                        result.outputs.emplace_back(core::SaveOutcome{
+                            value.slot, core::SaveOutcomeStatus::Saved, value.slot.is_autosave()});
                     else
-                        result.diagnostics = run_kernel(result.outputs);
-                } else {
-                    auto chosen = m_kernel->choose_dialogue_option(blocker->owner, blocker->handle,
-                                                                   value.edge);
-                    if (!chosen)
-                        result.diagnostics = std::move(chosen).error();
+                        result.diagnostics = std::move(saved).error();
+                } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
+                    auto loaded =
+                        TypedExecutionKernel::load_slot(m_project, m_runtime, m_saves, value.slot);
+                    if (loaded) {
+                        m_script_api.clear_target();
+                        m_kernel = std::move(*loaded.value_if());
+                        m_script_api.replace_target(this);
+                        m_pending_audio.reset();
+                        m_script_audio.clear();
+                        result.outputs.emplace_back(core::SaveOutcome{
+                            value.slot, core::SaveOutcomeStatus::Loaded, value.slot.is_autosave()});
+                    } else
+                        result.diagnostics = std::move(loaded).error();
+                } else if constexpr (std::is_same_v<T, core::BeginPlaybackInput>) {
+                    m_playback = true;
+                    m_playback_step = 0;
+                } else if constexpr (std::is_same_v<T, core::EndPlaybackInput>) {
+                    m_playback = false;
+                } else if constexpr (std::is_same_v<T, core::ClearPlaybackInput> ||
+                                     std::is_same_v<T, core::ReplayPlaybackInput>) {
+                    m_playback_step = 0;
+                } else if constexpr (std::is_same_v<T, core::UndoPlaybackStepInput>) {
+                    if (m_playback_step == 0)
+                        result.disposition = RuntimeInputDisposition::Unhandled;
                     else
+                        --m_playback_step;
+                } else if constexpr (std::is_same_v<T, core::CompletePresentationInput> ||
+                                     std::is_same_v<T, core::CancelPresentationInput>) {
+                    result.diagnostics =
+                        complete_presentation(value.operation, value.owner, value.completion,
+                                              std::is_same_v<T, core::CancelPresentationInput>);
+                    if (result.diagnostics.empty() &&
+                        std::is_same_v<T, core::CompletePresentationInput>)
                         result.diagnostics = run_kernel(result.outputs);
-                }
-            } else if constexpr (std::is_same_v<T, core::NavigateRoomInput>) {
-                auto changed = m_kernel->navigate(value.exit);
-                if (!changed)
-                    result.diagnostics = std::move(changed).error();
-                else
-                    result.diagnostics = run_kernel(result.outputs);
-            } else if constexpr (std::is_same_v<T, core::SelectInteractablesInput>) {
-                m_selection = value.interactables;
-            } else if constexpr (std::is_same_v<T, core::ClearInteractableSelectionInput>) {
-                m_selection.clear();
-            } else if constexpr (std::is_same_v<T, core::InvokeInteractionInput>) {
-                auto operands = value.operands.empty() ? m_selection : value.operands;
-                auto invoked = m_kernel->interact(value.verb, std::move(operands));
-                if (!invoked)
-                    result.diagnostics = as_diagnostics(std::move(invoked).error());
-                else
-                    result.diagnostics = run_kernel(result.outputs);
-            } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
-                auto changed = m_kernel->host().set_variable(value.variable, value.value);
-                if (!changed)
-                    result.diagnostics = std::move(changed).error();
-            } else if constexpr (std::is_same_v<T, core::SetPropertyDebugInput>) {
-                auto changed =
-                    m_kernel->host().set_property(value.owner, value.property, value.value);
-                if (!changed)
-                    result.diagnostics = std::move(changed).error();
-            } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
-                auto saved = m_kernel->save_slot(m_saves, value.slot);
-                if (saved)
-                    result.outputs.emplace_back(core::SaveOutcome{
-                        value.slot, core::SaveOutcomeStatus::Saved, value.slot.is_autosave()});
-                else
-                    result.diagnostics = std::move(saved).error();
-            } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
-                auto loaded =
-                    TypedExecutionKernel::load_slot(m_project, m_runtime, m_saves, value.slot);
-                if (loaded) {
-                    m_script_api.clear_target();
-                    m_kernel = std::move(*loaded.value_if());
-                    m_script_api.replace_target(this);
-                    result.outputs.emplace_back(core::SaveOutcome{
-                        value.slot, core::SaveOutcomeStatus::Loaded, value.slot.is_autosave()});
+                } else if constexpr (std::is_same_v<T, core::CompleteAudioInput> ||
+                                     std::is_same_v<T, core::CancelAudioInput>) {
+                    result.diagnostics =
+                        complete_audio(value.operation, value.owner, value.completion,
+                                       std::is_same_v<T, core::CancelAudioInput>);
+                    if (result.diagnostics.empty() && std::is_same_v<T, core::CompleteAudioInput>)
+                        result.diagnostics = run_kernel(result.outputs);
+                } else if constexpr (std::is_same_v<T, core::AcknowledgeHostRequestInput>) {
+                    result.diagnostics = acknowledge(value.request);
+                    if (result.diagnostics.empty())
+                        result.diagnostics = run_kernel(result.outputs);
+                } else if constexpr (std::is_same_v<T, core::FailHostRequestInput>) {
+                    const auto exists = std::any_of(
+                        m_pending_host_requests.begin(), m_pending_host_requests.end(),
+                        [&](const PendingHostRequest& pending) {
+                            return std::visit(
+                                [&](const auto& item) { return item.id == value.request; },
+                                pending.output);
+                        });
+                    result.diagnostics.push_back(diagnostic(
+                        exists ? "runtime.host_request_failed" : "runtime.stale_host_request",
+                        exists ? value.message : "Host request is stale or unknown"));
                 } else
-                    result.diagnostics = std::move(loaded).error();
-            } else if constexpr (std::is_same_v<T, core::BeginPlaybackInput>) {
-                m_playback = true;
-                m_playback_step = 0;
-            } else if constexpr (std::is_same_v<T, core::EndPlaybackInput>) {
-                m_playback = false;
-            } else if constexpr (std::is_same_v<T, core::ClearPlaybackInput> ||
-                                 std::is_same_v<T, core::ReplayPlaybackInput>) {
-                m_playback_step = 0;
-            } else if constexpr (std::is_same_v<T, core::UndoPlaybackStepInput>) {
-                if (m_playback_step == 0)
-                    result.disposition = RuntimeInputDisposition::Unhandled;
-                else
-                    --m_playback_step;
-            } else if constexpr (std::is_same_v<T, core::CompletePresentationInput> ||
-                                 std::is_same_v<T, core::CancelPresentationInput>) {
-                result.diagnostics =
-                    complete_presentation(value.operation, value.owner, value.completion,
-                                          std::is_same_v<T, core::CancelPresentationInput>);
-                if (result.diagnostics.empty() &&
-                    std::is_same_v<T, core::CompletePresentationInput>)
-                    result.diagnostics = run_kernel(result.outputs);
-            } else if constexpr (std::is_same_v<T, core::CompleteAudioInput> ||
-                                 std::is_same_v<T, core::CancelAudioInput>) {
-                result.diagnostics = complete_audio(value.operation, value.owner, value.completion,
-                                                    std::is_same_v<T, core::CancelAudioInput>);
-                if (result.diagnostics.empty() && std::is_same_v<T, core::CompleteAudioInput>)
-                    result.diagnostics = run_kernel(result.outputs);
-            } else if constexpr (std::is_same_v<T, core::AcknowledgeHostRequestInput>) {
-                result.diagnostics = acknowledge(value.request);
-                if (result.diagnostics.empty())
-                    result.diagnostics = run_kernel(result.outputs);
-            } else if constexpr (std::is_same_v<T, core::FailHostRequestInput>) {
-                const auto exists =
-                    std::any_of(m_pending_host_requests.begin(), m_pending_host_requests.end(),
-                                [&](const PendingHostRequest& pending) {
-                                    return std::visit(
-                                        [&](const auto& item) { return item.id == value.request; },
-                                        pending.output);
-                                });
-                result.diagnostics.push_back(diagnostic(
-                    exists ? "runtime.host_request_failed" : "runtime.stale_host_request",
-                    exists ? value.message : "Host request is stale or unknown"));
-            } else
-                static_assert(always_false<T>, "Unhandled RuntimeInputMessage alternative");
-        },
-        input);
+                    static_assert(always_false<T>, "Unhandled RuntimeInputMessage alternative");
+            },
+            input);
 
     drain_script_inputs(result.outputs, result.diagnostics);
+    drain_script_audio(result.outputs);
+    drain_host_requests(result.outputs, result.diagnostics);
     attach_runtime_context(result.diagnostics, *m_kernel);
     if (!result.diagnostics.empty())
         result.disposition = RuntimeInputDisposition::Failed;

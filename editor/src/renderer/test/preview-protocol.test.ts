@@ -146,6 +146,8 @@ describe('preview protocol validation', () => {
     };
 
     expect(isRuntimeDebugSnapshot(snapshot)).toBe(true);
+    expect(isRuntimeDebugSnapshot({ ...snapshot, gameplayPaused: true })).toBe(true);
+    expect(isRuntimeDebugSnapshot({ ...snapshot, gameplayPaused: 'yes' })).toBe(false);
     expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-debug-snapshot', requestId: 'runtime-debug', snapshot })).toBe(true);
     expect(isRuntimeDebugSnapshot({ ...snapshot, waiting: { kind: 'blocked', canContinue: false } })).toBe(false);
     expect(isRuntimeDebugSnapshot({ ...snapshot, saveSnapshot: [] })).toBe(false);

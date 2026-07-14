@@ -1,6 +1,7 @@
 #include "noveltea/core/session_state.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <type_traits>
@@ -377,6 +378,50 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
     }
     return Result<SessionState, Diagnostics>::success(SessionState(
         FlowMode{}, std::move(*initial_stack), std::move(variables), std::move(interactables), 2));
+}
+
+std::uint64_t SessionState::next_random_u64() noexcept
+{
+    // SplitMix64 is fully specified in terms of unsigned 64-bit arithmetic and therefore produces
+    // the same stream on every supported target.
+    m_random_state += 0x9e3779b97f4a7c15ULL;
+    std::uint64_t value = m_random_state;
+    value = (value ^ (value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+    value = (value ^ (value >> 27U)) * 0x94d049bb133111ebULL;
+    return value ^ (value >> 31U);
+}
+
+double SessionState::next_random_unit() noexcept
+{
+    constexpr double denominator = 9007199254740992.0; // 2^53
+    return static_cast<double>(next_random_u64() >> 11U) / denominator;
+}
+
+Result<std::int64_t, Diagnostics> SessionState::next_random_integer(std::int64_t minimum,
+                                                                    std::int64_t maximum)
+{
+    if (minimum > maximum)
+        return Result<std::int64_t, Diagnostics>::failure(feature_error(
+            "runtime.invalid_random_range", "Random integer minimum cannot exceed maximum"));
+
+    constexpr std::uint64_t sign_bit = std::uint64_t{1} << 63U;
+    const auto ordered = [](std::int64_t value) {
+        return std::bit_cast<std::uint64_t>(value) ^ sign_bit;
+    };
+    const std::uint64_t lower = ordered(minimum);
+    const std::uint64_t upper = ordered(maximum);
+    const std::uint64_t span = upper - lower + 1U;
+    if (span == 0U)
+        return Result<std::int64_t, Diagnostics>::success(
+            std::bit_cast<std::int64_t>(next_random_u64()));
+
+    const std::uint64_t threshold = (std::uint64_t{0} - span) % span;
+    std::uint64_t draw = 0;
+    do {
+        draw = next_random_u64();
+    } while (draw < threshold);
+    const std::uint64_t result_bits = (lower + draw % span) ^ sign_bit;
+    return Result<std::int64_t, Diagnostics>::success(std::bit_cast<std::int64_t>(result_bits));
 }
 
 Result<void, Diagnostics> SessionState::advance_time(std::chrono::milliseconds elapsed)
@@ -759,6 +804,18 @@ Result<void, Diagnostics> SessionState::append_text_log(const CompiledProject& p
     return Result<void, Diagnostics>::success();
 }
 
+Result<std::optional<LayoutId>, Diagnostics> SessionState::layout(compiled::LayoutSlot slot) const
+{
+    if (slot > compiled::LayoutSlot::Custom)
+        return Result<std::optional<LayoutId>, Diagnostics>::failure(
+            feature_error("runtime.invalid_layout_slot", "Layout slot is invalid"));
+    const auto found =
+        std::find_if(m_layouts.begin(), m_layouts.end(),
+                     [slot](const LayoutSlotState& state) { return state.slot == slot; });
+    return Result<std::optional<LayoutId>, Diagnostics>::success(
+        found == m_layouts.end() ? std::nullopt : std::optional<LayoutId>{found->layout});
+}
+
 Result<void, Diagnostics> SessionState::set_background(const CompiledProject& project,
                                                        compiled::BackgroundPresentation background)
 {
@@ -785,13 +842,17 @@ Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& projec
     return Result<void, Diagnostics>::success();
 }
 
-void SessionState::clear_layout(compiled::LayoutSlot slot) noexcept
+Result<void, Diagnostics> SessionState::clear_layout(compiled::LayoutSlot slot)
 {
+    if (slot > compiled::LayoutSlot::Custom)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.invalid_layout_slot", "Layout slot is invalid"));
     const auto found =
         std::find_if(m_layouts.begin(), m_layouts.end(),
                      [slot](const LayoutSlotState& state) { return state.slot == slot; });
     if (found != m_layouts.end())
         m_layouts.erase(found);
+    return Result<void, Diagnostics>::success();
 }
 
 Result<void, Diagnostics> SessionState::set_overlay(const CompiledProject& project, RoomId room,

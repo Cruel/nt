@@ -2,7 +2,6 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_source.hpp"
-#include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/flow_executor.hpp"
 #include "noveltea/core/script_host_services.hpp"
@@ -51,62 +50,6 @@ struct RuntimeFixture {
     script::ScriptRuntime runtime;
 
     RuntimeFixture() { assets.mount("project", memory); }
-};
-
-struct FakeAudioEvent {
-    AudioClipHandle clip;
-    AudioPlaybackDesc desc;
-};
-
-class FakeAudioBackend final : public AudioBackend {
-public:
-    AudioBackendInfo backend_info() const override { return {"fake", initialized}; }
-    bool initialize(const assets::AssetManager&) override
-    {
-        initialized = true;
-        return true;
-    }
-    void shutdown() override { initialized = false; }
-
-    assets::AssetResult<assets::AudioAsset>
-    load_audio(const assets::AudioAssetRequest& request) override
-    {
-        last_request = request;
-        return {assets::AudioAsset{.clip = AudioClipHandle{next_clip++},
-                                   .path = request.path,
-                                   .mode = request.mode,
-                                   .kind = request.kind},
-                {}};
-    }
-
-    AudioVoiceHandle play(AudioClipHandle clip, const AudioPlaybackDesc& desc) override
-    {
-        played.push_back(FakeAudioEvent{clip, desc});
-        return AudioVoiceHandle{next_voice++};
-    }
-    void stop(AudioVoiceHandle voice) override { stopped.push_back(voice); }
-    void set_volume(AudioVoiceHandle, float) override {}
-    void set_bus_volume(AudioBus bus, float volume) override
-    {
-        last_bus = bus;
-        last_bus_volume = volume;
-    }
-    void pause() override { ++pause_count; }
-    void resume() override { ++resume_count; }
-    bool voice_active(AudioVoiceHandle voice) const override { return static_cast<bool>(voice); }
-    AudioBackendStats stats() const override { return {}; }
-    void collect_finished_voices() override {}
-
-    bool initialized = false;
-    uint32_t next_clip = 1;
-    uint32_t next_voice = 1;
-    std::optional<assets::AudioAssetRequest> last_request;
-    std::vector<FakeAudioEvent> played;
-    std::vector<AudioVoiceHandle> stopped;
-    AudioBus last_bus = AudioBus::Master;
-    float last_bus_volume = 1.0f;
-    uint32_t pause_count = 0;
-    uint32_t resume_count = 0;
 };
 
 } // namespace
@@ -606,59 +549,13 @@ TEST_CASE(
     CHECK(still_usable.value() == "still-ok");
 }
 
-TEST_CASE("ScriptRuntime exposes audio playback bindings")
+TEST_CASE("ScriptRuntime does not expose backend-captured audio bindings")
 {
     RuntimeFixture fixture;
-    auto backend = std::make_unique<FakeAudioBackend>();
-    auto* backend_ptr = backend.get();
-    AudioSystem audio(std::move(backend));
-    assets::ResourceAliasRegistry aliases;
-    aliases.register_audio("ui.notification",
-                           assets::AudioAssetRequest{.path = "project:/audio/notification.mp3",
-                                                     .mode = AudioLoadMode::Decode,
-                                                     .kind = AudioClipKind::Sfx});
-    fixture.assets.configure_resource_aliases(std::move(aliases));
-    REQUIRE(audio.initialize(fixture.assets));
-    fixture.assets.bind_audio_loader(&audio);
-    REQUIRE(fixture.runtime.initialize({&fixture.assets, &audio}));
-
-    REQUIRE(fixture.runtime.execute(R"(
-        sfx_ok = audio.play_sfx_alias("ui.notification", {
-            volume = 0.75,
-            pitch = 1.35,
-            max_simultaneous = 2,
-        })
-        audio.set_bus_volume("music", 0.25)
-        audio.pause()
-        paused_after_pause = audio.paused()
-        audio.resume()
-        paused_after_resume = audio.paused()
-    )",
-                                    "audio_bindings"));
-
-    auto ok = fixture.runtime.evaluate_bool("sfx_ok", "sfx_ok");
-    REQUIRE(ok);
-    CHECK(ok.value());
-    REQUIRE(backend_ptr->last_request);
-    CHECK(backend_ptr->last_request->path == "project:/audio/notification.mp3");
-    CHECK(backend_ptr->last_request->kind == AudioClipKind::Sfx);
-    REQUIRE(backend_ptr->played.size() == 1);
-    CHECK(backend_ptr->played[0].desc.bus == AudioBus::Sfx);
-    CHECK(backend_ptr->played[0].desc.volume == 0.75f);
-    CHECK(backend_ptr->played[0].desc.pitch == 1.35f);
-    CHECK_FALSE(backend_ptr->played[0].desc.loop);
-    CHECK(backend_ptr->last_bus == AudioBus::Music);
-    CHECK(backend_ptr->last_bus_volume == 0.25f);
-    CHECK(backend_ptr->pause_count == 1);
-    CHECK(backend_ptr->resume_count == 1);
-    auto paused_after_pause =
-        fixture.runtime.evaluate_bool("paused_after_pause", "paused_after_pause");
-    REQUIRE(paused_after_pause);
-    CHECK(paused_after_pause.value());
-    auto paused_after_resume =
-        fixture.runtime.evaluate_bool("paused_after_resume", "paused_after_resume");
-    REQUIRE(paused_after_resume);
-    CHECK_FALSE(paused_after_resume.value());
+    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    auto absent = fixture.runtime.evaluate_bool("audio == nil", "audio_backend_boundary");
+    REQUIRE(absent);
+    CHECK(absent.value());
 }
 
 TEST_CASE("ScriptRuntime executes scripts through AssetManager logical paths")

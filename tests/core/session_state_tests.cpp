@@ -406,7 +406,7 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
         compiled_project,
         AudioChannelState{compiled::AudioChannel::Voice, std::nullopt, 1.0, false, true}));
 
-    state.clear_layout(compiled::LayoutSlot::Custom);
+    REQUIRE(state.clear_layout(compiled::LayoutSlot::Custom));
     state.clear_presented_text();
     state.clear_choice();
     CHECK(state.layouts().empty());
@@ -415,6 +415,33 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
     REQUIRE(state.remove_actor(compiled_project, actor_key));
     CHECK(state.actors().empty());
     CHECK_FALSE(state.remove_actor(compiled_project, actor_key));
+}
+
+TEST_CASE("session random state is deterministic and invalid ranges are failure-atomic")
+{
+    const auto compiled_project = load_fixture("minimal.json");
+    auto left_result = SessionState::create(compiled_project);
+    auto right_result = SessionState::create(compiled_project);
+    REQUIRE(left_result);
+    REQUIRE(right_result);
+    auto left = std::move(left_result).value();
+    auto right = std::move(right_result).value();
+
+    left.seed_random(123456789);
+    right.seed_random(123456789);
+    const auto first = left.next_random_u64();
+    CHECK(first == 2466975172287755897ULL);
+    CHECK(first == right.next_random_u64());
+    CHECK(left.next_random_unit() == right.next_random_unit());
+    REQUIRE(left.next_random_integer(-10, 10));
+    REQUIRE(right.next_random_integer(-10, 10));
+    CHECK(left.next_random_integer(-10, 10).value() == right.next_random_integer(-10, 10).value());
+
+    const auto before = left.random_state();
+    auto invalid = left.next_random_integer(5, 4);
+    REQUIRE_FALSE(invalid);
+    CHECK(invalid.error().front().code == "runtime.invalid_random_range");
+    CHECK(left.random_state() == before);
 }
 
 TEST_CASE("session state owns Dialogue history show-once choices and typed text log")

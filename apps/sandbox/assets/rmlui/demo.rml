@@ -10,10 +10,10 @@
         <p>RmlUi is rendering through bgfx with Lua scripting.</p>
         <button id="demo_btn" onmousedown="noveltea_demo.on_click(event, element, document)">Lua ready</button>
         <div id="audio_controls">
-            <h2>Audio SFX demo</h2>
-            <label for="pitch_slider">Pitch: <span id="pitch_value">1.00x</span></label>
-            <input id="pitch_slider" class="range" type="range" min="0.50" max="2.00" step="0.05" value="1.00" oninput="noveltea_demo.on_pitch_change(event, element, document)" onchange="noveltea_demo.on_pitch_change(event, element, document)"/>
-            <button id="play_sfx_btn" onmousedown="noveltea_demo.play_notification(event, element, document)">Play notification</button>
+            <h2>Typed audio demo</h2>
+            <label for="volume_slider">Volume: <span id="volume_value">100%</span></label>
+            <input id="volume_slider" class="range" type="range" min="0.00" max="1.00" step="0.05" value="1.00" oninput="noveltea_demo.on_volume_change(event, element, document)" onchange="noveltea_demo.on_volume_change(event, element, document)"/>
+            <button id="play_sfx_btn" onmousedown="noveltea_demo.play_notification(event, element, document)">Play compiled audio asset</button>
         </div>
         <div id="status_box">External Lua loaded</div>
     </div>

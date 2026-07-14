@@ -484,6 +484,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
     game.set_function("autosave", [host](sol::this_state state) {
         return mutation(sol::state_view(state), host->autosave());
     });
+    bind_runtime_capabilities(state, host);
 }
 
 void clear_typed_script_host(lua_State* state)
@@ -507,6 +508,7 @@ void clear_typed_script_host(lua_State* state)
     game["save"] = sol::lua_nil;
     game["load"] = sol::lua_nil;
     game["autosave"] = sol::lua_nil;
+    clear_runtime_capabilities(state);
 }
 
 } // namespace noveltea::script

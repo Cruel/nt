@@ -211,10 +211,15 @@ AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id, const std
         }
     }
 
-    auto asset = m_assets->load_audio(assets::AudioAssetRequest{
-        .path = path,
-        .mode = AudioLoadMode::Auto,
-        .kind = desc.bus == AudioBus::Ambience ? AudioClipKind::Ambience : AudioClipKind::Music});
+    AudioClipKind kind = AudioClipKind::Music;
+    if (desc.bus == AudioBus::Sfx)
+        kind = AudioClipKind::Sfx;
+    else if (desc.bus == AudioBus::Ambience)
+        kind = AudioClipKind::Ambience;
+    else if (desc.bus == AudioBus::Voice)
+        kind = AudioClipKind::Voice;
+    auto asset = m_assets->load_audio(
+        assets::AudioAssetRequest{.path = path, .mode = AudioLoadMode::Auto, .kind = kind});
     if (!asset) {
         std::fprintf(stderr, "[audio] failed to load track '%s': %s\n", path.c_str(),
                      asset.error.c_str());
@@ -271,6 +276,18 @@ void AudioSystem::stop_track(const AudioTrackId& track_id, float fade_seconds)
     for (auto& voice : it->second) {
         fade_voice(voice, 0.0f, fade_seconds, true);
     }
+}
+
+bool AudioSystem::track_active(const AudioTrackId& track_id) const noexcept
+{
+    if (!m_backend || !m_initialized)
+        return false;
+    const auto found = m_tracks.find(track_id.empty() ? AudioTrackId{"bgm"} : track_id);
+    if (found == m_tracks.end())
+        return false;
+    return std::any_of(
+        found->second.begin(), found->second.end(),
+        [this](const ManagedVoice& voice) { return m_backend->voice_active(voice.voice); });
 }
 
 void AudioSystem::update(float dt)

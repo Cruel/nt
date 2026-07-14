@@ -82,6 +82,7 @@ catch_discover_tests(noveltea_tween_tests)
 
 add_executable(noveltea_script_tests
     script/compiled_runtime_tests.cpp
+    script/runtime_audio_adapter_tests.cpp
     script/script_runtime_tests.cpp
     script/typed_dialogue_execution_tests.cpp
     script/typed_interaction_execution_tests.cpp

@@ -19,6 +19,9 @@ namespace noveltea {
 namespace assets {
 class AssetManager;
 }
+namespace core {
+class CompiledProject;
+}
 namespace script {
 class CompiledRuntime;
 class ScriptRuntime;
@@ -48,11 +51,13 @@ public:
 
 class RuntimeUiAssetResolver {
 public:
-    void bind(const script::CompiledRuntime* runtime) noexcept { m_runtime = runtime; }
+    void bind(const script::CompiledRuntime* runtime) noexcept;
+    void bind(const core::CompiledProject& project) noexcept { m_project = &project; }
+    void clear() noexcept { m_project = nullptr; }
     [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const;
 
 private:
-    const script::CompiledRuntime* m_runtime = nullptr;
+    const core::CompiledProject* m_project = nullptr;
 };
 
 enum class RuntimeUiPlaybackClickStatus {

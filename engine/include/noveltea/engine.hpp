@@ -4,6 +4,7 @@
 #include "preview_bridge.hpp"
 #include "renderer.hpp"
 #include "runtime_preview_controller.hpp"
+#include "noveltea/runtime_audio_adapter.hpp"
 #include "noveltea/audio/audio_system.hpp"
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
@@ -102,7 +103,7 @@ private:
     void render();
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
-    bool load_compiled_project(const std::string& logical_path);
+    bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true);
     assets::AssetManager m_assets;
     AudioSystem m_audio;
     Platform m_platform;
@@ -119,6 +120,7 @@ private:
     core::Diagnostics m_typed_runtime_diagnostics;
     ShaderMaterialProject m_shader_materials;
     RuntimeUiAssetResolver m_runtime_ui_asset_resolver;
+    RuntimeAudioAdapter m_runtime_audio_adapter;
     RuntimeUI m_runtime_ui;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;

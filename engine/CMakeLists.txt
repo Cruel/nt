@@ -119,6 +119,7 @@ add_library(engine STATIC
     src/engine.cpp
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
+    src/runtime_audio_adapter.cpp
     src/runtime_layout_manager.cpp
     src/runtime_preview_controller.cpp
     src/runtime_transition_manager.cpp
@@ -278,8 +279,8 @@ endif()
 # --- Lua scripting (mandatory) ---
 
 target_sources(engine PRIVATE
-    src/script/lua/bind_audio.cpp
     src/script/lua/bind_noveltea.cpp
+    src/script/lua/bind_runtime_capabilities.cpp
     src/script/lua/bind_typed_script_host.cpp
     src/script/compiled_runtime.cpp
     src/script/compiled_runtime_loader.cpp
@@ -301,8 +302,8 @@ target_compile_definitions(engine PRIVATE
 )
 
 set(NOVELTEA_SOL2_SOURCES
-    src/script/lua/bind_audio.cpp
     src/script/lua/bind_noveltea.cpp
+    src/script/lua/bind_runtime_capabilities.cpp
     src/script/lua/bind_typed_script_host.cpp
     src/script/lua/script_runtime.cpp
 )

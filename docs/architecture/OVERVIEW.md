@@ -15,6 +15,10 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   deterministic diagnostic/publication rules.
 - `docs/architecture/JSON_BOUNDARY_POLICY.md` defines the permanent JSON serialization boundary,
   mandatory repository checker, approved codec/adapter paths, and exception process.
+- `docs/architecture/PHASE_12_CAPABILITY_DISPOSITION.md` is the Phase 12 capability-level evidence
+  map. It records complete, deferred, rejected, duplicate, and tooling dispositions, including the
+  completed Phase 12B closure evidence. It is the durable behavioral disposition record for final
+  Phase 12C cleanup and migration closure.
 - `docs/OVERVIEW.md` maps the full documentation hierarchy.
 - `docs/build/OVERVIEW.md` describes build/toolchain documentation.
 - `docs/migration/OVERVIEW.md` describes migration status and legacy-reference policy.

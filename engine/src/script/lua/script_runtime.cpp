@@ -197,6 +197,88 @@ struct ScriptRuntime::Impl {
         {
             return host.request_notification(std::move(message));
         }
+        core::Result<void, core::Diagnostics> script_seed_random(std::uint64_t) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<std::int64_t, core::Diagnostics> script_random_integer(std::int64_t,
+                                                                            std::int64_t) override
+        {
+            return unavailable<std::int64_t>();
+        }
+        core::Result<double, core::Diagnostics> script_random_unit() override
+        {
+            return unavailable<double>();
+        }
+        core::Result<void, core::Diagnostics>
+        script_present_map(core::MapId, std::optional<core::compiled::InitialMapMode>, bool,
+                           std::optional<core::MapLocationId>) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<void, core::Diagnostics> script_hide_map() override
+        {
+            return unavailable<void>();
+        }
+        core::Result<void, core::Diagnostics>
+        script_select_map_location(core::MapLocationId) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<void, core::Diagnostics>
+        script_activate_map_connection(core::MapConnectionId) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<core::MapPresentationState, core::Diagnostics>
+        script_map_state() const override
+        {
+            return unavailable<core::MapPresentationState>();
+        }
+        core::Result<std::optional<core::LayoutId>, core::Diagnostics>
+        script_layout(core::compiled::LayoutSlot) const override
+        {
+            return unavailable<std::optional<core::LayoutId>>();
+        }
+        core::Result<void, core::Diagnostics> script_set_layout(core::compiled::LayoutSlot,
+                                                                core::LayoutId) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<void, core::Diagnostics>
+        script_clear_layout(core::compiled::LayoutSlot) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<bool, core::Diagnostics> script_gameplay_paused() const override
+        {
+            return unavailable<bool>();
+        }
+        core::Result<void, core::Diagnostics> script_set_gameplay_paused(bool) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<void, core::Diagnostics> script_request_audio(core::compiled::AudioAction,
+                                                                   core::compiled::AudioChannel,
+                                                                   std::optional<core::AssetId>,
+                                                                   std::chrono::milliseconds, bool,
+                                                                   double, bool) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
+        script_audio_channel(core::compiled::AudioChannel) const override
+        {
+            return unavailable<std::optional<core::AudioChannelState>>();
+        }
+        core::Result<void, core::Diagnostics> script_append_text_log(core::TextLogEntry) override
+        {
+            return unavailable<void>();
+        }
+        core::Result<void, core::Diagnostics> script_clear_text_log() override
+        {
+            return unavailable<void>();
+        }
         const core::TypedRuntimeUIViewState& script_view() const noexcept override { return view; }
         void queue_script_input(core::RuntimeInputMessage input) override
         {
@@ -205,6 +287,14 @@ struct ScriptRuntime::Impl {
         core::ScriptHostServices& host;
         core::TypedRuntimeUIViewState view;
         std::vector<core::RuntimeInputMessage> queued;
+
+    private:
+        template<class T> static core::Result<T, core::Diagnostics> unavailable()
+        {
+            return core::Result<T, core::Diagnostics>::failure(core::Diagnostics{core::Diagnostic{
+                .code = "runtime.script_api_session_required",
+                .message = "This typed Lua capability requires a live TypedRuntimeSession"}});
+        }
     };
 
     struct InvocationRecord {
@@ -257,12 +347,13 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     m_impl->lua["require"] = sol::lua_nil;
     m_impl->lua["dofile"] = sol::lua_nil;
     m_impl->lua["loadfile"] = sol::lua_nil;
+    sol::table math = m_impl->lua["math"];
+    math["random"] = sol::lua_nil;
+    math["randomseed"] = sol::lua_nil;
     m_impl->lua.set_function("__noveltea_traceback", traceback_handler);
     m_impl->traceback = m_impl->lua["__noveltea_traceback"];
     sol::protected_function::set_default_handler(m_impl->traceback);
     bind_noveltea(m_impl->lua.lua_state());
-    if (config.audio)
-        ::noveltea::script::bind_audio(m_impl->lua.lua_state(), config.audio);
     install_host_print(m_impl->lua.lua_state());
     m_impl->initialized = true;
     return Result::success();
@@ -548,18 +639,6 @@ void ScriptRuntime::collect_garbage()
 {
     if (is_initialized())
         m_impl->lua.collect_garbage();
-}
-
-void ScriptRuntime::bind_audio(AudioSystem* audio)
-{
-    if (is_initialized())
-        ::noveltea::script::bind_audio(m_impl->lua.lua_state(), audio);
-}
-
-void ScriptRuntime::clear_audio_binding()
-{
-    if (is_initialized())
-        noveltea::script::clear_audio_binding(m_impl->lua.lua_state());
 }
 
 void ScriptRuntime::bind_typed_host(core::ScriptHostServices* host)

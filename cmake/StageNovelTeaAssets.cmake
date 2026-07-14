@@ -31,6 +31,17 @@ if(EXISTS "${_compiled_package_source}/game")
     file(COPY_FILE
         "${CMAKE_CURRENT_LIST_DIR}/../editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
         "${_compiled_package_tmp}/game")
+    file(READ "${_compiled_package_tmp}/game" _compiled_demo_game)
+    string(REPLACE
+        "\"assets\":[]"
+        "\"assets\":[{\"aliases\":[],\"id\":\"demo-notification\",\"kind\":\"audio\",\"path\":\"audio/notification.mp3\"}]"
+        _compiled_demo_game
+        "${_compiled_demo_game}")
+    file(WRITE "${_compiled_package_tmp}/game" "${_compiled_demo_game}")
+    file(MAKE_DIRECTORY "${_compiled_package_tmp}/audio")
+    file(COPY_FILE
+        "${NOVELTEA_PROJECT_ASSET_SOURCE}/audio/notification.mp3"
+        "${_compiled_package_tmp}/audio/notification.mp3")
     file(REMOVE "${_compiled_package_tmp}/shader-materials.json")
 
     file(GLOB_RECURSE _compiled_package_files RELATIVE "${_compiled_package_tmp}" "${_compiled_package_tmp}/*")

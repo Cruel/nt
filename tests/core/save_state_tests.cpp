@@ -82,6 +82,36 @@ TEST_CASE("typed session time and logical timers advance deterministically")
     CHECK(state.play_time() == 250ms);
 }
 
+TEST_CASE("save state preserves deterministic random position and excludes gameplay pause")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    state.seed_random(424242);
+    REQUIRE(state.next_random_integer(1, 100));
+    REQUIRE(state.next_random_integer(1, 100));
+    state.set_gameplay_paused(true);
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    CHECK(snapshot.value().random_state == state.random_state());
+
+    const auto expected_next = state.next_random_integer(-1000, 1000);
+    REQUIRE(expected_next);
+    auto restored = FlowExecutor::restore_session(project, snapshot.value());
+    REQUIRE(restored);
+    CHECK_FALSE(restored.value().gameplay_paused());
+    auto restored_next = restored.value().next_random_integer(-1000, 1000);
+    REQUIRE(restored_next);
+    CHECK(restored_next.value() == expected_next.value());
+
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    CHECK(encoded.value()["randomState"] == snapshot.value().random_state);
+    auto missing_random = encoded.value();
+    missing_random.erase("randomState");
+    CHECK_FALSE(decode_save_state_wire(missing_random, "missing-random-state.json"));
+}
+
 TEST_CASE("native SaveState projects only persisted typed session families")
 {
     STATIC_REQUIRE(std::variant_size_v<SavedFlowFrame> == 4);
@@ -116,6 +146,7 @@ TEST_CASE("native SaveState projects only persisted typed session families")
     CHECK(save.metadata.project == project.identity().id);
     CHECK(save.metadata.project_version == project.identity().version);
     CHECK(save.play_time == 10ms);
+    CHECK(save.random_state == state.random_state());
     CHECK(save.variables.size() == project.variables().size());
     REQUIRE(save.property_overrides.size() == 1);
     CHECK(save.property_overrides.front().owner == PropertyOwnerRef{id<RoomId>("start")});

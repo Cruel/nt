@@ -13,7 +13,8 @@ not persisted gameplay mode.
 ## State
 
 `SessionState` stores typed variable values, typed property overrides, room visits, interactable
-locations, history, inventory selection, and other declared mutable state. Reads resolve through:
+locations, history, inventory selection, deterministic random state, session-only gameplay pause,
+and other declared mutable state. Reads resolve through:
 
 1. a typed session override;
 2. the validated compiled definition/property declaration and inheritance graph;
@@ -52,6 +53,10 @@ must acknowledge the exact owner/blocker handle before the wait is consumed.
 validates project identity/version, strong IDs, runtime values, flow state, blockers, feature state,
 and safe-point rules.
 
+Save format V2 persists the deterministic random-generator position so the next draw after restore
+is exactly the next draw from the saved session. Semantic gameplay pause is deliberately excluded:
+a successful restore resumes the saved gameplay mode rather than inheriting a pre-load pause flag.
+
 `TypedSaveSlotStore` persists encoded save bytes without owning a JSON DOM. The memory
 implementation supports preview/tests; the filesystem implementation supports players and keeps
 slots below its configured root.
@@ -79,3 +84,8 @@ same runtime state machine as live actions.
 `RuntimeUI` consumes typed view publications and dispatches typed inputs. Layout, transition, tween,
 audio, ActiveText, and direct-render code remain presentation backends only. They cannot inspect
 compiled gameplay JSON or own Flow/session/save state.
+
+Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only compiled audio Asset
+IDs, translates the typed channel/action/options to `AudioSystem`, reports backend failures through
+the runtime diagnostic seam, and returns exact completion inputs for awaited operations. Neither
+`SessionState` nor Lua owns audio backend handles.

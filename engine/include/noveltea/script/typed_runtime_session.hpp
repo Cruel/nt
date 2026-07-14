@@ -73,6 +73,39 @@ public:
     script_request_tail_replacement(core::FlowTarget target) override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     script_request_notification(std::string message) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_seed_random(std::uint64_t seed) override;
+    [[nodiscard]] core::Result<std::int64_t, core::Diagnostics>
+    script_random_integer(std::int64_t minimum, std::int64_t maximum) override;
+    [[nodiscard]] core::Result<double, core::Diagnostics> script_random_unit() override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode,
+                       bool visible, std::optional<core::MapLocationId> focused_location) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics> script_hide_map() override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_select_map_location(core::MapLocationId location) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_activate_map_connection(core::MapConnectionId connection) override;
+    [[nodiscard]] core::Result<core::MapPresentationState, core::Diagnostics>
+    script_map_state() const override;
+    [[nodiscard]] core::Result<std::optional<core::LayoutId>, core::Diagnostics>
+    script_layout(core::compiled::LayoutSlot slot) const override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_set_layout(core::compiled::LayoutSlot slot, core::LayoutId layout) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_clear_layout(core::compiled::LayoutSlot slot) override;
+    [[nodiscard]] core::Result<bool, core::Diagnostics> script_gameplay_paused() const override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_set_gameplay_paused(bool paused) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
+                         std::optional<core::AssetId> asset, std::chrono::milliseconds fade,
+                         bool loop, double volume, bool await_completion) override;
+    [[nodiscard]] core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
+    script_audio_channel(core::compiled::AudioChannel channel) const override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    script_append_text_log(core::TextLogEntry entry) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics> script_clear_text_log() override;
     [[nodiscard]] const core::TypedRuntimeUIViewState& script_view() const noexcept override
     {
         return m_script_view;
@@ -99,8 +132,9 @@ private:
                           const core::PresentationFlowBlockerHandle& completion, bool cancel);
     [[nodiscard]] core::Diagnostics complete_audio(core::AudioOperationId operation,
                                                    const core::FlowFrameId& owner,
-                                                   const core::AudioFlowBlockerHandle& completion,
+                                                   const core::AudioCompletionHandle& completion,
                                                    bool cancel);
+    void drain_script_audio(std::vector<core::RuntimeOutputMessage>& outputs);
     void append_view(TypedRuntimeSessionResult& result);
     void drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
                              core::Diagnostics& diagnostics);
@@ -122,6 +156,7 @@ private:
     std::vector<PendingHostRequest> m_pending_host_requests;
     std::optional<core::TransitionPresentationOperation> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
+    std::vector<core::AudioOperation> m_script_audio;
     std::uint64_t m_next_host_request_id = 1;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;

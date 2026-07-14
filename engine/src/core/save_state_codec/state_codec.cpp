@@ -76,6 +76,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
           {{"project", save.metadata.project.text()},
            {"projectVersion", save.metadata.project_version}}},
          {"playTimeMs", save.play_time.count()},
+         {"randomState", save.random_state},
          {"variables", std::move(variables)},
          {"propertyOverrides", std::move(overrides)},
          {"interactables", std::move(interactables)},
@@ -95,14 +96,15 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
 {
     Decoder d(std::move(source_path));
     d.object(document, "",
-             {"schema", "version", "metadata", "playTimeMs", "variables", "propertyOverrides",
-              "interactables", "roomVisits", "dialogueLineHistory", "dialogueChoiceHistory",
-              "textLog", "logicalTimers", "pendingTimerCompletions", "mode", "flowStack",
-              "blocker"});
+             {"schema", "version", "metadata", "playTimeMs", "randomState", "variables",
+              "propertyOverrides", "interactables", "roomVisits", "dialogueLineHistory",
+              "dialogueChoiceHistory", "textLog", "logicalTimers", "pendingTimerCompletions",
+              "mode", "flowStack", "blocker"});
     const auto* schema = d.member(document, "schema", "");
     const auto* version = d.member(document, "version", "");
     const auto* metadata = d.member(document, "metadata", "");
     const auto* play_time = d.member(document, "playTimeMs", "");
+    const auto* random_state = d.member(document, "randomState", "");
     const auto* variables = d.member(document, "variables", "");
     const auto* overrides = d.member(document, "propertyOverrides", "");
     const auto* interactables = d.member(document, "interactables", "");
@@ -134,6 +136,9 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     }
     auto milliseconds =
         play_time ? d.unsigned_integer<std::uint64_t>(*play_time, "/playTimeMs") : std::nullopt;
+    auto saved_random_state = random_state
+                                  ? d.unsigned_integer<std::uint64_t>(*random_state, "/randomState")
+                                  : std::nullopt;
     if (milliseconds &&
         *milliseconds > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
         d.error(k_value, "Play time is outside the supported range.", "/playTimeMs");
@@ -312,14 +317,14 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             return decode_frame(d, value, pointer);
         });
     auto saved_blocker = blocker ? decode_blocker(d, *blocker, "/blocker") : std::nullopt;
-    if (d.failed() || !saved_metadata || !milliseconds || !saved_variables || !saved_overrides ||
-        !saved_interactables || !saved_room_visits || !saved_line_history ||
+    if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state || !saved_variables ||
+        !saved_overrides || !saved_interactables || !saved_room_visits || !saved_line_history ||
         !saved_choice_history || !saved_log || !saved_timers || !saved_completions || !saved_mode ||
         !saved_frames || !saved_blocker)
         return Result<SaveState, Diagnostics>::failure(d.take());
     return Result<SaveState, Diagnostics>::success(
         SaveState{std::move(*saved_metadata), std::chrono::milliseconds(*milliseconds),
-                  std::move(*saved_variables), std::move(*saved_overrides),
+                  *saved_random_state, std::move(*saved_variables), std::move(*saved_overrides),
                   std::move(*saved_interactables), std::move(*saved_room_visits),
                   std::move(*saved_line_history), std::move(*saved_choice_history),
                   std::move(*saved_log), std::move(*saved_timers), std::move(*saved_completions),
