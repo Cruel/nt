@@ -419,9 +419,11 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     core::FlowExecutor executor(project, state);
     core::ScriptHostServices host(project, state);
     script::ScriptInvoker invoker(fixture.runtime, executor, host);
+    fixture.runtime.bind_typed_host(&host);
 
-    REQUIRE(fixture.runtime.execute(R"(
-        assert(Game == nil and Save == nil and Script == nil)
+    auto executed = fixture.runtime.execute(R"(
+        assert(type(Game) == "table" and Save == nil and Script == nil)
+        assert(type(Game.continue) == "function" and type(Game.save) == "function")
         assert(prop == nil and set_prop == nil and thisEntity == nil)
 
         local scene, scene_error = noveltea.project.scene("opening")
@@ -496,7 +498,11 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         ok, error_message = noveltea.notify("Found the key")
         assert(ok and error_message == nil)
     )",
-                                    "typed-host"));
+                                            "typed-host");
+    const std::string execution_error =
+        executed ? std::string{} : executed.error().message + " | " + executed.error().traceback;
+    INFO(execution_error);
+    REQUIRE(executed);
 
     REQUIRE(host.variable(core::VariableId::create("count").value()).value() ==
             core::RuntimeValue{std::int64_t{7}});
@@ -537,6 +543,7 @@ TEST_CASE("typed Lua host services distinguish Room transient and navigation req
 
     core::ScriptHostServices host(project, state);
     script::ScriptInvoker invoker(fixture.runtime, executor, host);
+    fixture.runtime.bind_typed_host(&host);
     REQUIRE(fixture.runtime.execute(R"(
         local ok, error_message = noveltea.flow.start_transient_scene("opening")
         assert(ok and error_message == nil)

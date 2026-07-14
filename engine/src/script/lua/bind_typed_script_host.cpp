@@ -1,6 +1,6 @@
 #include "script/lua/script_runtime_internal.hpp"
 
-#include <noveltea/core/script_host_services.hpp>
+#include <noveltea/script/runtime_script_api.hpp>
 
 #include <lua.hpp>
 #include <sol/sol.hpp>
@@ -146,7 +146,7 @@ MutationResult id_mutation(sol::state_view lua, std::string value, Operation ope
 }
 
 void bind_definition_reader(sol::table project, const char* name, core::ProjectDefinitionKind kind,
-                            core::ScriptHostServices* host)
+                            RuntimeScriptApi* host)
 {
     project.set_function(name, [host, kind](std::string id, sol::this_state state) -> ObjectResult {
         sol::state_view lua(state);
@@ -159,7 +159,7 @@ void bind_definition_reader(sol::table project, const char* name, core::ProjectD
 
 } // namespace
 
-void bind_typed_script_host(lua_State* state, core::ScriptHostServices* host)
+void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
 {
     sol::state_view lua(state);
     sol::table noveltea = lua["noveltea"].get_or_create<sol::table>();
@@ -409,6 +409,81 @@ void bind_typed_script_host(lua_State* state, core::ScriptHostServices* host)
         sol::state_view view(state);
         return mutation(view, host->request_notification(std::move(message)));
     });
+
+    sol::table game = lua["Game"].get_or_create<sol::table>();
+    game.set_function("continue", [host](sol::this_state state) {
+        return mutation(sol::state_view(state), host->continue_game());
+    });
+    game.set_function("choose", [host](std::int64_t index, sol::this_state state) {
+        sol::state_view view(state);
+        if (index < 0)
+            return mutation(
+                view,
+                core::Result<void, core::Diagnostics>::failure(core::Diagnostics{core::Diagnostic{
+                    .code = "runtime.script_index_out_of_range",
+                    .message = "Game.choose uses zero-based non-negative indices"}}));
+        return mutation(view, host->choose(static_cast<std::size_t>(index)));
+    });
+    game.set_function("navigate", [host](std::int64_t index, sol::this_state state) {
+        sol::state_view view(state);
+        if (index < 0)
+            return mutation(
+                view,
+                core::Result<void, core::Diagnostics>::failure(core::Diagnostics{core::Diagnostic{
+                    .code = "runtime.script_index_out_of_range",
+                    .message = "Game.navigate uses zero-based non-negative indices"}}));
+        return mutation(view, host->navigate(static_cast<std::size_t>(index)));
+    });
+    game.set_function("select_object", [host](std::string id, sol::this_state state) {
+        sol::state_view view(state);
+        auto parsed = parse_id<core::InteractableId>(std::move(id));
+        auto* value = parsed.value_if();
+        return value
+                   ? mutation(view, host->select_interactable(std::move(*value)))
+                   : mutation(view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
+    });
+    game.set_function("clear_selection", [host](sol::this_state state) {
+        return mutation(sol::state_view(state), host->clear_selection());
+    });
+    game.set_function(
+        "run_action",
+        [host](std::string verb_id, sol::optional<sol::table> ids,
+               sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto verb = parse_id<core::VerbId>(std::move(verb_id));
+            auto* verb_ref = verb.value_if();
+            if (!verb_ref)
+                return mutation(view, core::Result<void, core::Diagnostics>::failure(verb.error()));
+            std::vector<core::InteractableId> operands;
+            if (ids) {
+                for (const auto& [_, object] : *ids) {
+                    if (object.get_type() != sol::type::string)
+                        return mutation(
+                            view,
+                            core::Result<void, core::Diagnostics>::failure(
+                                core::Diagnostics{core::Diagnostic{
+                                    .code = "runtime.invalid_interaction_operand",
+                                    .message =
+                                        "Game.run_action operands must be interactable IDs"}}));
+                    auto parsed = parse_id<core::InteractableId>(object.as<std::string>());
+                    auto* operand = parsed.value_if();
+                    if (!operand)
+                        return mutation(
+                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
+                    operands.push_back(std::move(*operand));
+                }
+            }
+            return mutation(view, host->run_interaction(std::move(*verb_ref), std::move(operands)));
+        });
+    game.set_function("save", [host](std::uint32_t slot, sol::this_state state) {
+        return mutation(sol::state_view(state), host->save(core::TypedSaveSlotId::manual(slot)));
+    });
+    game.set_function("load", [host](std::uint32_t slot, sol::this_state state) {
+        return mutation(sol::state_view(state), host->load(core::TypedSaveSlotId::manual(slot)));
+    });
+    game.set_function("autosave", [host](sol::this_state state) {
+        return mutation(sol::state_view(state), host->autosave());
+    });
 }
 
 void clear_typed_script_host(lua_State* state)
@@ -422,6 +497,16 @@ void clear_typed_script_host(lua_State* state)
     noveltea["navigation"] = sol::lua_nil;
     noveltea["flow"] = sol::lua_nil;
     noveltea["notify"] = sol::lua_nil;
+    sol::table game = lua["Game"].get_or_create<sol::table>();
+    game["continue"] = sol::lua_nil;
+    game["choose"] = sol::lua_nil;
+    game["navigate"] = sol::lua_nil;
+    game["select_object"] = sol::lua_nil;
+    game["clear_selection"] = sol::lua_nil;
+    game["run_action"] = sol::lua_nil;
+    game["save"] = sol::lua_nil;
+    game["load"] = sol::lua_nil;
+    game["autosave"] = sol::lua_nil;
 }
 
 } // namespace noveltea::script

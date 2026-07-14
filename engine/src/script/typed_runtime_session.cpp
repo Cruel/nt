@@ -1,6 +1,7 @@
 #include "noveltea/script/typed_runtime_session.hpp"
 
 #include "noveltea/core/runtime_diagnostic_context.hpp"
+#include "noveltea/script/script_runtime.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -46,6 +47,112 @@ TypedRuntimeSession::TypedRuntimeSession(const core::CompiledProject& project,
     : m_project(project), m_runtime(runtime), m_saves(saves), m_kernel(std::move(kernel)),
       m_runtime_locale(std::move(runtime_locale))
 {
+    m_script_api.replace_target(this);
+    m_runtime.bind_runtime_script_api(&m_script_api);
+}
+
+TypedRuntimeSession::~TypedRuntimeSession()
+{
+    m_script_api.clear_target();
+    m_runtime.clear_typed_host();
+}
+
+void TypedRuntimeSession::queue_script_input(core::RuntimeInputMessage input)
+{
+    m_script_inputs.push_back(std::move(input));
+}
+
+core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
+TypedRuntimeSession::script_definition(core::ProjectDefinitionKind kind, std::string id) const
+{
+    return m_kernel->host().definition(kind, std::move(id));
+}
+
+core::Result<core::RuntimeValue, core::Diagnostics>
+TypedRuntimeSession::script_variable(const core::VariableId& id) const
+{
+    return m_kernel->host().variable(id);
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_set_variable(const core::VariableId& id, core::RuntimeValue value)
+{
+    return m_kernel->host().set_variable(id, std::move(value));
+}
+
+core::Result<core::PropertyLookupResult, core::Diagnostics>
+TypedRuntimeSession::script_property(const core::PropertyOwnerRef& owner,
+                                     const core::PropertyId& property) const
+{
+    return m_kernel->host().property(owner, property);
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_set_property(core::PropertyOwnerRef owner, core::PropertyId property,
+                                         core::RuntimeValue value)
+{
+    return m_kernel->host().set_property(std::move(owner), std::move(property), std::move(value));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_unset_property(const core::PropertyOwnerRef& owner,
+                                           const core::PropertyId& property)
+{
+    return m_kernel->host().unset_property(owner, property);
+}
+
+core::Result<core::compiled::InteractableLocation, core::Diagnostics>
+TypedRuntimeSession::script_interactable_location(const core::InteractableId& interactable) const
+{
+    return m_kernel->host().interactable_location(interactable);
+}
+
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_interactable_location(
+    core::InteractableId interactable, core::compiled::InteractableLocation target)
+{
+    return m_kernel->host().request_interactable_location(std::move(interactable),
+                                                          std::move(target));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_request_navigation(core::compiled::RoomExitRef exit)
+{
+    return m_kernel->host().request_navigation(std::move(exit));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_request_transient(core::SceneId scene)
+{
+    return m_kernel->host().request_transient(std::move(scene));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_request_transient(core::DialogueId dialogue)
+{
+    return m_kernel->host().request_transient(std::move(dialogue));
+}
+
+core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_child(core::SceneId scene)
+{
+    return m_kernel->host().request_child(std::move(scene));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_request_child(core::DialogueId dialogue)
+{
+    return m_kernel->host().request_child(std::move(dialogue));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_request_tail_replacement(core::FlowTarget target)
+{
+    return m_kernel->host().request_tail_replacement(std::move(target));
+}
+
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::script_request_notification(std::string message)
+{
+    return m_kernel->host().request_notification(std::move(message));
 }
 
 core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>
@@ -114,7 +221,41 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
         }
     }
     drain_host_requests(outputs, diagnostics);
+    drain_script_inputs(outputs, diagnostics);
     return diagnostics;
+}
+
+void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
+                                              core::Diagnostics& diagnostics)
+{
+    if (m_draining_script_inputs || m_script_inputs.empty())
+        return;
+    m_draining_script_inputs = true;
+    constexpr std::size_t kScriptInputBudget = 1024;
+    std::size_t processed = 0;
+    while (!m_script_inputs.empty() && processed < kScriptInputBudget) {
+        auto pending = std::move(m_script_inputs);
+        m_script_inputs.clear();
+        for (std::size_t index = 0; index < pending.size(); ++index) {
+            if (processed >= kScriptInputBudget) {
+                m_script_inputs.insert(m_script_inputs.begin(),
+                                       std::make_move_iterator(pending.begin() + index),
+                                       std::make_move_iterator(pending.end()));
+                break;
+            }
+            ++processed;
+            auto applied = apply(pending[index]);
+            outputs.insert(outputs.end(), std::make_move_iterator(applied.outputs.begin()),
+                           std::make_move_iterator(applied.outputs.end()));
+            core::append_diagnostics(diagnostics, std::move(applied.diagnostics));
+        }
+    }
+    if (!m_script_inputs.empty()) {
+        diagnostics.push_back(
+            diagnostic("runtime.script_input_budget_exhausted",
+                       "Script-issued runtime commands exceeded the per-drain operation budget"));
+    }
+    m_draining_script_inputs = false;
 }
 
 void TypedRuntimeSession::drain_host_requests(std::vector<core::RuntimeOutputMessage>& outputs,
@@ -284,6 +425,7 @@ void TypedRuntimeSession::append_view(TypedRuntimeSessionResult& result)
                             (result.view.dialogue && result.view.dialogue->choice);
     result.view.can_continue =
         active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice;
+    m_script_view = result.view;
     result.outputs.emplace_back(core::RuntimeViewPublication{result.view});
 }
 
@@ -301,7 +443,9 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
             } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
                 auto reset = TypedExecutionKernel::create(m_project, m_runtime);
                 if (reset) {
+                    m_script_api.clear_target();
                     m_kernel = std::move(*reset.value_if());
+                    m_script_api.replace_target(this);
                     m_selection.clear();
                     m_pending_host_requests.clear();
                     m_pending_presentation.reset();
@@ -392,7 +536,9 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                 auto loaded =
                     TypedExecutionKernel::load_slot(m_project, m_runtime, m_saves, value.slot);
                 if (loaded) {
+                    m_script_api.clear_target();
                     m_kernel = std::move(*loaded.value_if());
+                    m_script_api.replace_target(this);
                     result.outputs.emplace_back(core::SaveOutcome{
                         value.slot, core::SaveOutcomeStatus::Loaded, value.slot.is_autosave()});
                 } else
@@ -444,6 +590,7 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
         },
         input);
 
+    drain_script_inputs(result.outputs, result.diagnostics);
     attach_runtime_context(result.diagnostics, *m_kernel);
     if (!result.diagnostics.empty())
         result.disposition = RuntimeInputDisposition::Failed;

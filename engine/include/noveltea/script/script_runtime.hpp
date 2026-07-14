@@ -27,6 +27,7 @@ namespace detail {
 struct ScriptRuntimeAccess;
 }
 class ScriptInvoker;
+class RuntimeScriptApi;
 
 struct ScriptRuntimeConfig {
     const assets::AssetManager* assets = nullptr;
@@ -66,6 +67,8 @@ public:
     void clear_game_bindings();
     void bind_typed_host(core::ScriptHostServices* host);
     void clear_typed_host();
+    void bind_runtime_script_api(RuntimeScriptApi* api);
+    [[nodiscard]] bool has_runtime_script_api() const noexcept;
 
 private:
     friend class ScriptInvoker;

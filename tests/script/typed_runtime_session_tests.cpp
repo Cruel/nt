@@ -194,4 +194,129 @@ TEST_CASE("typed runtime session retains failed host requests for explicit retry
     CHECK(duplicate.diagnostics.front().code == "runtime.stale_host_request");
 }
 
+TEST_CASE("runtime script API survives reset and load without kernel-owned Lua closures")
+{
+    Fixture fixture;
+    const auto count = make_id<core::VariableIdTag>("count");
+
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = noveltea.variables.set('count', 12); assert(ok and err == nil)",
+        "script-api-before-reset"));
+    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
+          core::RuntimeValue{std::int64_t{12}});
+
+    const auto slot = core::TypedSaveSlotId::manual(7);
+    REQUIRE(
+        fixture.runtime.execute("local ok = Game.save(7); assert(ok)", "script-api-queued-save"));
+    CHECK_FALSE(fixture.saves.has_slot(slot).value());
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK(fixture.saves.has_slot(slot).value());
+    CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
+
+    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
+                .diagnostics.empty());
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = noveltea.variables.set('count', 21); assert(ok and err == nil)",
+        "script-api-after-reset"));
+    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
+          core::RuntimeValue{std::int64_t{21}});
+
+    REQUIRE(
+        fixture.runtime.execute("local ok = Game.load(7); assert(ok)", "script-api-queued-load"));
+    (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
+          core::RuntimeValue{std::int64_t{12}});
+}
+
+TEST_CASE("runtime script API remains attached after a failed typed load")
+{
+    Fixture fixture;
+    const auto bad_slot = core::TypedSaveSlotId::manual(9);
+    REQUIRE(fixture.saves.write_slot(bad_slot, "not a valid typed save"));
+
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.load(9); assert(ok and err == nil)",
+                                    "script-api-failed-load-request"));
+    auto failed = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE_FALSE(failed.diagnostics.empty());
+
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = noveltea.variables.set('count', 33); assert(ok and err == nil)",
+        "script-api-after-failed-load"));
+    const auto count = make_id<core::VariableIdTag>("count");
+    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
+          core::RuntimeValue{std::int64_t{33}});
+}
+
+TEST_CASE("runtime script API lowers indexed navigation to the current stable exit ID")
+{
+    Fixture fixture;
+    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.view.room);
+    REQUIRE(started.view.room->room.text() == "start");
+    REQUIRE(started.view.room->exits.size() == 1);
+    CHECK(started.view.room->exits.front().exit.text() == "north-exit");
+
+    auto invalid =
+        fixture.runtime.execute("local ok, err = Game.navigate(-1); assert(not ok and err ~= nil)\n"
+                                "ok, err = Game.navigate(1); assert(not ok and err ~= nil)",
+                                "script-api-navigation-range");
+    REQUIRE(invalid);
+
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.navigate(0); assert(ok and err == nil)",
+                                    "script-api-navigation"));
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(drained.diagnostics.empty());
+    REQUIRE(drained.view.room);
+    CHECK(drained.view.room->room.text() == "hall");
+}
+
+TEST_CASE(
+    "runtime script API drains commands queued by Lua reached during the same outer operation")
+{
+    Fixture fixture;
+    const auto slot = core::TypedSaveSlotId::manual(8);
+    REQUIRE(fixture.runtime.execute("function before_leave_start()\n"
+                                    "  local ok, err = Game.save(8)\n"
+                                    "  assert(ok and err == nil)\n"
+                                    "end",
+                                    "script-api-nested-command-fixture"));
+
+    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    CHECK_FALSE(fixture.saves.has_slot(slot).value());
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.navigate(0); assert(ok and err == nil)",
+                                    "script-api-nested-command-navigation"));
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(drained.diagnostics.empty());
+    CHECK(fixture.saves.has_slot(slot).value());
+    CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
+}
+
+TEST_CASE("runtime script API routes autosave and rejects malformed interaction operands")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.run_action('use', { 'key', 5 })\n"
+                                    "assert(not ok and err ~= nil)\n"
+                                    "ok, err = Game.autosave()\n"
+                                    "assert(ok and err == nil)",
+                                    "script-api-validation"));
+
+    CHECK_FALSE(fixture.saves.has_slot(core::TypedSaveSlotId::autosave()).value());
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(drained.diagnostics.empty());
+    CHECK(fixture.saves.has_slot(core::TypedSaveSlotId::autosave()).value());
+    CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
+}
+
+TEST_CASE("runtime script API teardown removes public closures instead of leaving stale targets")
+{
+    Fixture fixture;
+    fixture.session.reset();
+    auto cleared = fixture.runtime.evaluate_bool(
+        "noveltea.variables == nil and Game.save == nil and Game.load == nil",
+        "script-api-after-teardown");
+    REQUIRE(cleared);
+    CHECK(cleared.value());
+}
+
 } // namespace noveltea::script::test

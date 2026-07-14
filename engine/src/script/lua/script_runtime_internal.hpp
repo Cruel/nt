@@ -15,6 +15,7 @@ class ScriptHostServices;
 namespace noveltea::script {
 
 class ScriptRuntime;
+class RuntimeScriptApi;
 
 namespace detail {
 struct ScriptRuntimeAccess {
@@ -39,7 +40,7 @@ void bind_runtime_command_dispatcher(lua_State* state,
                                      noveltea::RuntimeCommandDispatcher* dispatcher);
 void clear_game_bindings(lua_State* state);
 void release_game_binding_state(lua_State* state);
-void bind_typed_script_host(lua_State* state, noveltea::core::ScriptHostServices* host);
+void bind_typed_script_host(lua_State* state, RuntimeScriptApi* api);
 void clear_typed_script_host(lua_State* state);
 
 } // namespace noveltea::script

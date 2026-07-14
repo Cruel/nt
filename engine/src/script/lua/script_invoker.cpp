@@ -22,24 +22,29 @@ ScriptInvoker::ScriptInvoker(ScriptRuntime& runtime, core::FlowExecutor& executo
                              core::ScriptHostServices& host) noexcept
     : m_runtime(runtime), m_executor(executor), m_host(host)
 {
-    m_runtime.bind_typed_host(&m_host);
 }
 
-ScriptInvoker::~ScriptInvoker() { m_runtime.clear_typed_host(); }
+ScriptInvoker::~ScriptInvoker() = default;
 
 core::Result<void, ScriptError> ScriptInvoker::run_startup(const core::compiled::StartupHook& hook)
 {
+    if (!m_runtime.has_runtime_script_api())
+        m_runtime.bind_typed_host(&m_host);
     return m_runtime.execute(hook.source, "startup-hook");
 }
 
 core::Result<bool, ScriptError> ScriptInvoker::evaluate(const core::LuaPredicate& predicate)
 {
+    if (!m_runtime.has_runtime_script_api())
+        m_runtime.bind_typed_host(&m_host);
     return m_runtime.evaluate_bool(predicate.source, "lua-condition");
 }
 
 core::Result<std::string, ScriptError>
 ScriptInvoker::resolve(const core::LuaTextExpression& expression)
 {
+    if (!m_runtime.has_runtime_script_api())
+        m_runtime.bind_typed_host(&m_host);
     return m_runtime.evaluate_string(expression.source, "lua-text-expression");
 }
 
@@ -53,6 +58,8 @@ core::Result<ScriptInvocationOutcome, ScriptError>
 ScriptInvoker::invoke(std::string_view source, std::string_view chunk_name)
 {
     using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
+    if (!m_runtime.has_runtime_script_api())
+        m_runtime.bind_typed_host(&m_host);
     auto allocated = m_executor.block_top(core::FlowBlockerKind::Script);
     const auto* blocker = allocated.value_if();
     if (blocker == nullptr)
@@ -85,6 +92,8 @@ ScriptInvoker::resume(const core::FlowFrameId& owner,
                       const core::ScriptInvocationHandle& invocation)
 {
     using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
+    if (!m_runtime.has_runtime_script_api())
+        m_runtime.bind_typed_host(&m_host);
     auto valid = m_executor.validate_blocker(owner, invocation);
     if (!valid)
         return Result::failure(blocker_error(valid.error(), "resume"));

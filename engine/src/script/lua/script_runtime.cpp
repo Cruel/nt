@@ -1,4 +1,5 @@
 #include "noveltea/script/script_runtime.hpp"
+#include "noveltea/script/runtime_script_api.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_invoker.hpp"
@@ -117,6 +118,95 @@ ScriptError lua_failure(lua_State* main, lua_State* thread, ScriptErrorCode code
 } // namespace
 
 struct ScriptRuntime::Impl {
+    struct DirectTypedTarget final : RuntimeScriptApiTarget {
+        explicit DirectTypedTarget(core::ScriptHostServices& host) : host(host) {}
+        core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
+        script_definition(core::ProjectDefinitionKind kind, std::string id) const override
+        {
+            return host.definition(kind, std::move(id));
+        }
+        core::Result<core::RuntimeValue, core::Diagnostics>
+        script_variable(const core::VariableId& id) const override
+        {
+            return host.variable(id);
+        }
+        core::Result<void, core::Diagnostics> script_set_variable(const core::VariableId& id,
+                                                                  core::RuntimeValue value) override
+        {
+            return host.set_variable(id, std::move(value));
+        }
+        core::Result<core::PropertyLookupResult, core::Diagnostics>
+        script_property(const core::PropertyOwnerRef& owner,
+                        const core::PropertyId& property) const override
+        {
+            return host.property(owner, property);
+        }
+        core::Result<void, core::Diagnostics> script_set_property(core::PropertyOwnerRef owner,
+                                                                  core::PropertyId property,
+                                                                  core::RuntimeValue value) override
+        {
+            return host.set_property(std::move(owner), std::move(property), std::move(value));
+        }
+        core::Result<void, core::Diagnostics>
+        script_unset_property(const core::PropertyOwnerRef& owner,
+                              const core::PropertyId& property) override
+        {
+            return host.unset_property(owner, property);
+        }
+        core::Result<core::compiled::InteractableLocation, core::Diagnostics>
+        script_interactable_location(const core::InteractableId& interactable) const override
+        {
+            return host.interactable_location(interactable);
+        }
+        core::Result<void, core::Diagnostics>
+        script_request_interactable_location(core::InteractableId interactable,
+                                             core::compiled::InteractableLocation target) override
+        {
+            return host.request_interactable_location(std::move(interactable), std::move(target));
+        }
+        core::Result<void, core::Diagnostics>
+        script_request_navigation(core::compiled::RoomExitRef exit) override
+        {
+            return host.request_navigation(std::move(exit));
+        }
+        core::Result<void, core::Diagnostics> script_request_transient(core::SceneId scene) override
+        {
+            return host.request_transient(std::move(scene));
+        }
+        core::Result<void, core::Diagnostics>
+        script_request_transient(core::DialogueId dialogue) override
+        {
+            return host.request_transient(std::move(dialogue));
+        }
+        core::Result<void, core::Diagnostics> script_request_child(core::SceneId scene) override
+        {
+            return host.request_child(std::move(scene));
+        }
+        core::Result<void, core::Diagnostics>
+        script_request_child(core::DialogueId dialogue) override
+        {
+            return host.request_child(std::move(dialogue));
+        }
+        core::Result<void, core::Diagnostics>
+        script_request_tail_replacement(core::FlowTarget target) override
+        {
+            return host.request_tail_replacement(std::move(target));
+        }
+        core::Result<void, core::Diagnostics>
+        script_request_notification(std::string message) override
+        {
+            return host.request_notification(std::move(message));
+        }
+        const core::TypedRuntimeUIViewState& script_view() const noexcept override { return view; }
+        void queue_script_input(core::RuntimeInputMessage input) override
+        {
+            queued.push_back(std::move(input));
+        }
+        core::ScriptHostServices& host;
+        core::TypedRuntimeUIViewState view;
+        std::vector<core::RuntimeInputMessage> queued;
+    };
+
     struct InvocationRecord {
         std::uint64_t owner;
         int thread_reference;
@@ -128,6 +218,9 @@ struct ScriptRuntime::Impl {
     bool initialized = false;
     sol::protected_function traceback;
     std::unordered_map<std::uint64_t, InvocationRecord> invocations;
+    std::unique_ptr<DirectTypedTarget> direct_typed_target;
+    std::unique_ptr<RuntimeScriptApi> direct_typed_api;
+    bool runtime_script_api_bound = false;
 
     lua_State* thread(int reference)
     {
@@ -462,14 +555,45 @@ void ScriptRuntime::bind_typed_host(core::ScriptHostServices* host)
 {
     if (!is_initialized())
         return;
-    noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
-    noveltea::script::bind_typed_script_host(m_impl->lua.lua_state(), host);
+    clear_typed_host();
+    if (!host)
+        return;
+    m_impl->direct_typed_target = std::make_unique<Impl::DirectTypedTarget>(*host);
+    m_impl->direct_typed_api = std::make_unique<RuntimeScriptApi>();
+    m_impl->direct_typed_api->replace_target(m_impl->direct_typed_target.get());
+    noveltea::script::bind_typed_script_host(m_impl->lua.lua_state(),
+                                             m_impl->direct_typed_api.get());
+    m_impl->runtime_script_api_bound = true;
 }
 
 void ScriptRuntime::clear_typed_host()
 {
-    if (is_initialized())
+    if (is_initialized()) {
         noveltea::script::clear_typed_script_host(m_impl->lua.lua_state());
+        if (m_impl->direct_typed_api)
+            m_impl->direct_typed_api->clear_target();
+        m_impl->direct_typed_api.reset();
+        m_impl->direct_typed_target.reset();
+        m_impl->runtime_script_api_bound = false;
+    }
+}
+
+void ScriptRuntime::bind_runtime_script_api(RuntimeScriptApi* api)
+{
+    if (!is_initialized())
+        return;
+    if (m_impl->direct_typed_api)
+        m_impl->direct_typed_api->clear_target();
+    m_impl->direct_typed_api.reset();
+    m_impl->direct_typed_target.reset();
+    noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
+    noveltea::script::bind_typed_script_host(m_impl->lua.lua_state(), api);
+    m_impl->runtime_script_api_bound = api != nullptr;
+}
+
+bool ScriptRuntime::has_runtime_script_api() const noexcept
+{
+    return is_initialized() && m_impl->runtime_script_api_bound;
 }
 
 lua_State* detail::ScriptRuntimeAccess::state(ScriptRuntime& runtime)
