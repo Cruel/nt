@@ -14,6 +14,7 @@ add_library(noveltea_core STATIC
     src/core/dialogue_controller.cpp
     src/core/diagnostic.cpp
     src/core/editor_api.cpp
+    src/core/editor_runtime_protocol.cpp
     src/core/entity_ref.cpp
     src/core/flow_executor.cpp
     src/core/flow_executor_blockers.cpp
