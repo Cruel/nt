@@ -62,8 +62,11 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     )
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
-target_link_libraries(noveltea_core PUBLIC nlohmann_json::nlohmann_json)
-target_compile_definitions(noveltea_core PUBLIC JSON_NOEXCEPTION=1)
+# JSON is a boundary implementation dependency.  Keep it out of the public
+# interface of the general domain target: consumers that deliberately use a
+# codec declaration must declare their own direct dependency.
+target_link_libraries(noveltea_core PRIVATE nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea_core PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 
 find_package(miniz CONFIG QUIET)
 if(NOT TARGET miniz::miniz)
@@ -155,7 +158,13 @@ target_include_directories(engine
         src
 )
 
-target_link_libraries(engine PUBLIC noveltea_core)
+target_link_libraries(engine
+    PUBLIC
+        noveltea_core
+    PRIVATE
+        nlohmann_json::nlohmann_json
+)
+target_compile_definitions(engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 include(NovelTeaAudio)
 noveltea_provide_miniaudio(MINIAUDIO_INCLUDE_DIRS)
 target_include_directories(engine PRIVATE ${MINIAUDIO_INCLUDE_DIRS})

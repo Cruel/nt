@@ -1,5 +1,8 @@
 include(Catch)
 
+# Tests that construct JSON wire fixtures are explicit boundary consumers.
+find_package(nlohmann_json CONFIG REQUIRED)
+
 # --- Core tests (always built) ---
 
 add_executable(noveltea_core_tests
@@ -23,7 +26,12 @@ add_executable(noveltea_core_tests
 )
 target_include_directories(noveltea_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_core_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea_core_tests PRIVATE noveltea_core Catch2::Catch2WithMain)
+target_link_libraries(noveltea_core_tests PRIVATE
+    noveltea_core
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+target_compile_definitions(noveltea_core_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)
 catch_discover_tests(noveltea_core_tests)
 
@@ -89,7 +97,14 @@ target_compile_definitions(noveltea_script_tests PRIVATE
     SOL_NO_RTTI=1
     SOL_ALL_SAFETIES_ON=1
 )
-target_link_libraries(noveltea_script_tests PRIVATE engine Lua::Lua sol2::sol2 Catch2::Catch2WithMain)
+target_link_libraries(noveltea_script_tests PRIVATE
+    engine
+    Lua::Lua
+    sol2::sol2
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+target_compile_definitions(noveltea_script_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 catch_discover_tests(noveltea_script_tests)
 
 # --- Render tests (bgfx is mandatory) ---
@@ -104,7 +119,13 @@ add_executable(noveltea_render_tests
 )
 target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea_render_tests PRIVATE engine miniz::miniz Catch2::Catch2WithMain)
+target_link_libraries(noveltea_render_tests PRIVATE
+    engine
+    miniz::miniz
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+target_compile_definitions(noveltea_render_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 catch_discover_tests(noveltea_render_tests)
 
 add_test(
@@ -278,7 +299,12 @@ if(NOVELTEA_BUILD_FUZZERS)
         add_executable("${_noveltea_fuzz_target}" fuzz/parser_fuzz.cpp)
         target_compile_definitions("${_noveltea_fuzz_target}" PRIVATE
             NOVELTEA_FUZZ_KIND=${_noveltea_fuzz_kind})
-        target_link_libraries("${_noveltea_fuzz_target}" PRIVATE noveltea_core)
+        target_link_libraries("${_noveltea_fuzz_target}" PRIVATE
+            noveltea_core
+            nlohmann_json::nlohmann_json
+        )
+        target_compile_definitions("${_noveltea_fuzz_target}" PRIVATE
+            ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
         noveltea_configure_fuzz_target("${_noveltea_fuzz_target}")
         if(NOT NOVELTEA_USE_LIBFUZZER)
             add_test(NAME "${_noveltea_fuzz_target}_smoke" COMMAND "${_noveltea_fuzz_target}")
@@ -291,7 +317,12 @@ if(NOVELTEA_BUILD_FUZZERS)
         fuzz/compiled_project_decoder_fuzz.cpp)
     target_compile_definitions(noveltea_fuzz_compiled_project_decoder PRIVATE
         NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-    target_link_libraries(noveltea_fuzz_compiled_project_decoder PRIVATE noveltea_core)
+    target_link_libraries(noveltea_fuzz_compiled_project_decoder PRIVATE
+        noveltea_core
+        nlohmann_json::nlohmann_json
+    )
+    target_compile_definitions(noveltea_fuzz_compiled_project_decoder PRIVATE
+        ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
     noveltea_configure_fuzz_target(noveltea_fuzz_compiled_project_decoder)
     if(NOT NOVELTEA_USE_LIBFUZZER)
         add_test(

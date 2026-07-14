@@ -97,6 +97,8 @@ endif()
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ${NOVELTEA_DEVTOOLS_DEFAULT})
 option(NOVELTEA_ENABLE_RENDER_PERF "Compile renderer performance counters and optional perf logging" ON)
 option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
+set(NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS "JSON_NOEXCEPTION=1" CACHE STRING
+    "Semicolon-separated compile definitions for direct nlohmann-json consumers")
 set(NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY "https://github.com/Cruel/rmlui-bgfx.git" CACHE STRING "rmlui-bgfx Git repository used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
 set(NOVELTEA_RMLUI_BGFX_GIT_TAG "master" CACHE STRING "rmlui-bgfx Git ref used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
 set(NOVELTEA_LOCAL_RMLUI_BGFX_DIR "${CMAKE_SOURCE_DIR}/rmlui-bgfx" CACHE PATH "Local rmlui-bgfx checkout used when NOVELTEA_USE_LOCAL_RMLUI_BGFX is enabled")
@@ -105,7 +107,6 @@ set(NOVELTEA_LOCAL_RMLUI_BGFX_DIR "${CMAKE_SOURCE_DIR}/rmlui-bgfx" CACHE PATH "L
 # while header-only dependencies and the complete RmlUi family are compiled.
 add_compile_definitions(
     ITLIB_FLAT_MAP_NO_THROW
-    JSON_NOEXCEPTION=1
     SOL_NO_EXCEPTIONS=1
     SOL_NO_RTTI=1
     RMLUI_CUSTOM_RTTI

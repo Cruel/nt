@@ -1,5 +1,7 @@
 add_executable(noveltea-benchmark main.cpp)
 target_compile_definitions(noveltea-benchmark PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea-benchmark PRIVATE engine)
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(noveltea-benchmark PRIVATE engine nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea-benchmark PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 noveltea_apply_runtime_compiler_policy(noveltea-benchmark)
 noveltea_apply_policy_warnings(noveltea-benchmark)

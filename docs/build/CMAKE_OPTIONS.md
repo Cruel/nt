@@ -41,6 +41,7 @@ above dependencies. It depends only on `nlohmann_json` and `miniz`.
 | `NOVELTEA_LOCAL_RMLUI_BGFX_DIR` | `${CMAKE_SOURCE_DIR}/rmlui-bgfx` | Local checkout path used when `NOVELTEA_USE_LOCAL_RMLUI_BGFX=ON`. |
 | `NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY` | `https://github.com/Cruel/rmlui-bgfx.git` | FetchContent repository for `rmlui-bgfx`. |
 | `NOVELTEA_RMLUI_BGFX_GIT_TAG` | `master` | FetchContent ref for `rmlui-bgfx`; pin to a commit or release once the integration is stable. |
+| `NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS` | `JSON_NOEXCEPTION=1` | Semicolon-separated definitions applied only to direct nlohmann-json consumers. Keep the default unless the JSON boundary implementation and its failure-path coverage are updated together. |
 
 For local tandem development with a checkout beside `nt`, use the dedicated preset or enable the explicit local dependency mode:
 
