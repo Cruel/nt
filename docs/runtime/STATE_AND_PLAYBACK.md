@@ -13,6 +13,20 @@ define a second runtime-diagnostic hierarchy. The existing generic runtime I/O a
 transitional legacy-path infrastructure until the ordered Phase 9 adapters and Phase 10 atomic
 consumer cutover remove them.
 
+`script::TypedRuntimeSession` is the replacement runtime's additive execution façade. It dispatches
+the closed typed input vocabulary directly to `TypedExecutionKernel`, `SessionState`,
+`ScriptHostServices`, and the strict typed save codec/store. Its result contains handled, unhandled,
+or failed disposition; the current typed runtime view; ordered typed outputs; and
+`core::Diagnostics`.
+
+Host operations use session-local typed request IDs. A failed host operation stays pending for an
+explicit retry, while successful acknowledgement consumes it. Autosave safe points remain queued
+until persistence succeeds. Blocking presentation and audio operations require the exact operation
+ID, owning flow frame, and typed blocker handle for completion or cancellation. Each input publishes
+operation-owned outputs first, then runtime/playback observations, the current view, and diagnostics.
+The façade does not call RmlUi, rendering, audio, editor, Web, JNI, or legacy controller adapters;
+those boundaries remain owned by later Phase 9 slices and the Phase 10 consumer cutover.
+
 # Runtime State and Playback
 
 ## Target contract

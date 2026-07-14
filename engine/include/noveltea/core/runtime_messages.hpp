@@ -5,6 +5,7 @@
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/flow.hpp"
 #include "noveltea/core/runtime_value.hpp"
+#include "noveltea/core/session_state.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 
 #include <chrono>
@@ -35,8 +36,10 @@ private:
 
 struct PresentationOperationTag;
 struct AudioOperationTag;
+struct HostRequestTag;
 using PresentationOperationId = SessionOperationId<PresentationOperationTag>;
 using AudioOperationId = SessionOperationId<AudioOperationTag>;
+using HostRequestId = SessionOperationId<HostRequestTag>;
 
 struct StartRuntimeInput {
     auto operator<=>(const StartRuntimeInput&) const = default;
@@ -112,6 +115,39 @@ struct UndoPlaybackStepInput {
 struct ReplayPlaybackInput {
     auto operator<=>(const ReplayPlaybackInput&) const = default;
 };
+struct CompletePresentationInput {
+    PresentationOperationId operation;
+    FlowFrameId owner;
+    PresentationFlowBlockerHandle completion;
+    auto operator<=>(const CompletePresentationInput&) const = default;
+};
+struct CancelPresentationInput {
+    PresentationOperationId operation;
+    FlowFrameId owner;
+    PresentationFlowBlockerHandle completion;
+    auto operator<=>(const CancelPresentationInput&) const = default;
+};
+struct CompleteAudioInput {
+    AudioOperationId operation;
+    FlowFrameId owner;
+    AudioFlowBlockerHandle completion;
+    auto operator<=>(const CompleteAudioInput&) const = default;
+};
+struct CancelAudioInput {
+    AudioOperationId operation;
+    FlowFrameId owner;
+    AudioFlowBlockerHandle completion;
+    auto operator<=>(const CancelAudioInput&) const = default;
+};
+struct AcknowledgeHostRequestInput {
+    HostRequestId request;
+    auto operator<=>(const AcknowledgeHostRequestInput&) const = default;
+};
+struct FailHostRequestInput {
+    HostRequestId request;
+    std::string message;
+    bool operator==(const FailHostRequestInput&) const = default;
+};
 
 using RuntimeInputMessage =
     std::variant<StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput,
@@ -119,7 +155,9 @@ using RuntimeInputMessage =
                  NavigateRoomInput, SelectInteractablesInput, ClearInteractableSelectionInput,
                  InvokeInteractionInput, SetVariableDebugInput, SetPropertyDebugInput,
                  SaveRuntimeInput, LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput,
-                 ClearPlaybackInput, UndoPlaybackStepInput, ReplayPlaybackInput>;
+                 ClearPlaybackInput, UndoPlaybackStepInput, ReplayPlaybackInput,
+                 CompletePresentationInput, CancelPresentationInput, CompleteAudioInput,
+                 CancelAudioInput, AcknowledgeHostRequestInput, FailHostRequestInput>;
 
 struct RuntimeViewPublication {
     TypedRuntimeUIViewState view;
@@ -155,6 +193,58 @@ struct AudioOperation {
     bool operator==(const AudioOperation&) const = default;
 };
 
+struct MoveInteractableHostRequest {
+    HostRequestId id;
+    InteractableId interactable;
+    compiled::InteractableLocation target;
+    bool operator==(const MoveInteractableHostRequest&) const = default;
+};
+struct NavigationHostRequest {
+    HostRequestId id;
+    compiled::RoomExitRef exit;
+    RoomId target;
+    [[nodiscard]] bool operator==(const NavigationHostRequest& other) const
+    {
+        return id == other.id && exit.room == other.exit.room &&
+               exit.exit_id == other.exit.exit_id && target == other.target;
+    }
+};
+struct StartSceneHostRequest {
+    HostRequestId id;
+    SceneId scene;
+    bool operator==(const StartSceneHostRequest&) const = default;
+};
+struct StartDialogueHostRequest {
+    HostRequestId id;
+    DialogueId dialogue;
+    bool operator==(const StartDialogueHostRequest&) const = default;
+};
+struct CallChildSceneHostRequest {
+    HostRequestId id;
+    SceneId scene;
+    bool operator==(const CallChildSceneHostRequest&) const = default;
+};
+struct CallChildDialogueHostRequest {
+    HostRequestId id;
+    DialogueId dialogue;
+    std::optional<DialogueBlockId> start_block;
+    bool operator==(const CallChildDialogueHostRequest&) const = default;
+};
+struct TailReplaceFlowHostRequest {
+    HostRequestId id;
+    FlowTarget target;
+    bool operator==(const TailReplaceFlowHostRequest&) const = default;
+};
+struct NotificationHostRequest {
+    HostRequestId id;
+    std::string message;
+    bool operator==(const NotificationHostRequest&) const = default;
+};
+using TypedHostRequest =
+    std::variant<MoveInteractableHostRequest, NavigationHostRequest, StartSceneHostRequest,
+                 StartDialogueHostRequest, CallChildSceneHostRequest, CallChildDialogueHostRequest,
+                 TailReplaceFlowHostRequest, NotificationHostRequest>;
+
 struct NotificationOutput {
     std::string message;
     bool operator==(const NotificationOutput&) const = default;
@@ -187,10 +277,17 @@ struct DebuggerObservation {
     std::optional<FlowFrameId> active_frame;
     bool operator==(const DebuggerObservation&) const = default;
 };
-using RuntimeObservation = std::variant<PlaybackObservation, DebuggerObservation>;
+struct RuntimeStateObservation {
+    RuntimeMode mode;
+    std::optional<FlowFrameId> active_frame;
+    std::optional<FlowBlockerKind> blocker;
+    bool operator==(const RuntimeStateObservation&) const = default;
+};
+using RuntimeObservation =
+    std::variant<PlaybackObservation, DebuggerObservation, RuntimeStateObservation>;
 
 using RuntimeOutputMessage =
-    std::variant<RuntimeViewPublication, PresentationOperation, AudioOperation,
+    std::variant<RuntimeViewPublication, PresentationOperation, AudioOperation, TypedHostRequest,
                  UserCommunicationOutput, SaveOutcome, RuntimeObservation, Diagnostic>;
 
 enum class RuntimeMessageCategory : std::uint8_t {
@@ -205,6 +302,7 @@ enum class RuntimeOutputKind : std::uint8_t {
     ViewPublication,
     PresentationOperation,
     AudioOperation,
+    HostRequest,
     UserCommunication,
     SaveOutcome,
     Observation,

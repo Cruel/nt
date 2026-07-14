@@ -13,6 +13,7 @@ RuntimeMessageCategory category(const RuntimeOutputMessage& message) noexcept
                 return RuntimeMessageCategory::StatePublication;
             else if constexpr (std::is_same_v<T, PresentationOperation> ||
                                std::is_same_v<T, AudioOperation> ||
+                               std::is_same_v<T, TypedHostRequest> ||
                                std::is_same_v<T, UserCommunicationOutput> ||
                                std::is_same_v<T, SaveOutcome>)
                 return RuntimeMessageCategory::HostOperation;
@@ -35,6 +36,8 @@ RuntimeOutputKind output_kind(const RuntimeOutputMessage& message) noexcept
                 return RuntimeOutputKind::PresentationOperation;
             else if constexpr (std::is_same_v<T, AudioOperation>)
                 return RuntimeOutputKind::AudioOperation;
+            else if constexpr (std::is_same_v<T, TypedHostRequest>)
+                return RuntimeOutputKind::HostRequest;
             else if constexpr (std::is_same_v<T, UserCommunicationOutput>)
                 return RuntimeOutputKind::UserCommunication;
             else if constexpr (std::is_same_v<T, SaveOutcome>)
