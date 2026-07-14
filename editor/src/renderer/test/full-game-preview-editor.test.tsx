@@ -208,7 +208,7 @@ describe('FullGamePreviewEditor', () => {
     const initialRuntimeStopCount = requests(view.editorPort, 'runtime-stop').length;
     const initialRuntimeResetCount = requests(view.editorPort, 'runtime-reset').length;
     const initialStopCount = requests(view.editorPort, 'stop').length;
-    const initialLoadCount = requests(view.editorPort, 'runtime-load-project').length;
+    const initialLoadCount = requests(view.editorPort, 'runtime-load-compiled-project').length;
 
     view.rerender(
       <div data-workbench-editor-pane="tab:full-game-preview" data-hidden="true" aria-hidden="true">
@@ -226,7 +226,7 @@ describe('FullGamePreviewEditor', () => {
     expect(requests(view.editorPort, 'runtime-stop')).toHaveLength(initialRuntimeStopCount);
     expect(requests(view.editorPort, 'runtime-reset')).toHaveLength(initialRuntimeResetCount);
     expect(requests(view.editorPort, 'stop')).toHaveLength(initialStopCount);
-    expect(requests(view.editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount);
+    expect(requests(view.editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount);
   });
 
   it('reactivates visible Play and requests a runtime debug snapshot refresh', async () => {
@@ -261,14 +261,14 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
-    const request = latestRequest(editorPort, 'runtime-load-project') as { project?: unknown } | undefined;
-    expect(request?.project).toMatchObject({
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    const request = latestRequest(editorPort, 'runtime-load-compiled-project') as { compiledProject?: unknown } | undefined;
+    expect(request?.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
       definitions: { rooms: [expect.objectContaining({ id: 'foyer' })] },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
     });
-    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
   });
 
@@ -277,9 +277,9 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
-    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
-    const initialLoadCount = requests(editorPort, 'runtime-load-project').length;
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    const initialLoadCount = requests(editorPort, 'runtime-load-compiled-project').length;
 
     const edited = cloneProject(project);
     edited.project = { ...edited.project, name: 'Changed Project' };
@@ -289,7 +289,7 @@ describe('FullGamePreviewEditor', () => {
 
     expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
     expect(screen.getAllByText('The running game is using an older runtime snapshot.').length).toBeGreaterThan(0);
-    expect(requests(editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount);
+    expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount);
   });
 
   it('does not mark stale for authoring edits that do not change the runtime export', async () => {
@@ -297,9 +297,9 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
-    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
-    const initialLoadCount = requests(editorPort, 'runtime-load-project').length;
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    const initialLoadCount = requests(editorPort, 'runtime-load-compiled-project').length;
 
     const edited = cloneProject(project);
     edited.editor = { ...edited.editor, explorer: { ...edited.editor.explorer, searchQuery: 'editor-only' } };
@@ -307,7 +307,7 @@ describe('FullGamePreviewEditor', () => {
       useProjectStore.getState().loadUnsavedProjectDocument(edited);
     });
 
-    await waitFor(() => expect(requests(editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount));
+    await waitFor(() => expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount));
     expect(screen.queryByText('Project changed since this Play session was loaded.')).not.toBeInTheDocument();
   });
 
@@ -317,9 +317,9 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
-    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
-    const initialLoadCount = requests(editorPort, 'runtime-load-project').length;
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    const initialLoadCount = requests(editorPort, 'runtime-load-compiled-project').length;
 
     const edited = cloneProject(project);
     edited.project = { ...edited.project, name: 'Changed Project' };
@@ -329,8 +329,8 @@ describe('FullGamePreviewEditor', () => {
     expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
 
     await user.click(screen.getByText('Restart with Latest Project'));
-    await waitFor(() => expect(requests(editorPort, 'runtime-load-project')).toHaveLength(initialLoadCount + 1));
-    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+    await waitFor(() => expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount + 1));
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
 
     await waitFor(() => expect(screen.queryByText('Project changed since this Play session was loaded.')).not.toBeInTheDocument());
     expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined();
@@ -342,8 +342,8 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-project')).toBeDefined());
-    await resolveLatest(editorPort, previewPort, 'runtime-load-project');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
 
     const edited = cloneProject(project);
     edited.project = { ...edited.project, name: 'Changed Project' };
@@ -356,7 +356,7 @@ describe('FullGamePreviewEditor', () => {
     await user.click(screen.getByText('Start Recording'));
 
     expect(await screen.findByText(/Recording is using an older runtime snapshot/)).toBeInTheDocument();
-    expect(requests(editorPort, 'runtime-load-project')).toHaveLength(1);
+    expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(1);
   });
 
   it('keeps only the supported runtime transport controls in the toolbar', async () => {

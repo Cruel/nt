@@ -21,7 +21,6 @@ private:
 
     const assets::AssetManager& m_assets;
     mutable bool m_logged_theme_missing = false;
-    mutable bool m_logged_old_compat = false;
 };
 
 } // namespace noveltea::ui::rmlui

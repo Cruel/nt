@@ -1,4 +1,5 @@
 add_executable(noveltea-benchmark main.cpp)
+target_compile_definitions(noveltea-benchmark PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea-benchmark PRIVATE engine)
 noveltea_apply_runtime_compiler_policy(noveltea-benchmark)
 noveltea_apply_policy_warnings(noveltea-benchmark)

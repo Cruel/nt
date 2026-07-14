@@ -44,16 +44,6 @@ std::string RuntimeUiTemplateResolver::resolve_path(const std::string& name) con
         return system_path;
     }
 
-    const std::string old_compat_path = "project:/rmlui/" + name;
-    if (m_assets.exists(old_compat_path)) {
-        if (!m_logged_old_compat) {
-            std::printf("[runtime_ui] using legacy compat path %s for %s\n",
-                        old_compat_path.c_str(), name.c_str());
-            m_logged_old_compat = true;
-        }
-        return old_compat_path;
-    }
-
     std::fprintf(stderr, "[runtime_ui] runtime document '%s' not found at any fallback location\n",
                  name.c_str());
     return {};

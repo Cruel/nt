@@ -389,7 +389,7 @@ export interface ProjectPlatformExportRequest {
 export type PlatformExportProgressStage =
   | 'validating'
   | 'compiling-shaders'
-  | 'building-runtime-project'
+  | 'compiling-project'
   | 'resolving-template'
   | 'writing-package'
   | 'generating-metadata'

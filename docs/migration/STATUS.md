@@ -1,297 +1,77 @@
 # Migration Status
 
-Last updated: 2026-07-09.
+## Current State
 
-This file is durable project memory for the next implementation session. Keep it short and current.
-Move historical analysis to `docs/archive/` and detailed implementation plans to the relevant
-`docs/*/*_PLAN.md` file.
+The new NovelTea runtime is fully cut over to the typed runtime model for the repository target.
+AuthoringProject V2 compiles deterministically to `noveltea.compiled.project` V1; native
+`CompiledProject`, `CompiledRuntime`, `TypedRuntimeSession`, `SessionState`, typed saves,
+typed messages, and `RuntimeScriptApi` are the only shipped gameplay path.
 
-## Current Baseline
+Phase 10C of the typed runtime/JSON-boundary plan is complete:
 
-- The runtime stack is SDL3 for platform/input/windowing, bgfx for rendering, RmlUi for runtime UI,
-  Dear ImGui for developer UI, and Lua for runtime scripting.
-- `RuntimeSessionHost` owns backend-neutral gameplay state, runtime inputs/outputs, structured
-  diagnostics, save/load/autosave hooks, runtime view state, and controller command capture.
-- `RuntimeShell` owns high-level app mode (`Boot`, `Title`, `Game`, `Paused`, `Error`), keeps project
-  load on the title side of the shell, gates frame updates, and starts gameplay only through the
-  explicit shell start path.
-- `RuntimeCommandDispatcher` is the shared semantic command path for UI/Lua/preview/playback-facing
-  commands. It currently handles `game.start`, `game.pause`, `game.resume`, `menu.close`, gameplay
-  input commands, Load/Settings/Save/TextLog/Return-to-title/Quit placeholder diagnostics, trace
-  diagnostics, and unknown-command diagnostics.
-- `RuntimeLayoutManager` V0 is shell-owned and wraps RuntimeUI document load/show/hide/unload for
-  mounted Layout metadata. Initial layers are Title, GameHud, MenuOverlay, Modal, and Debug. The
-  built-in title Layout mounts as Title, `runtime_game` mounts as GameHud, and additional gameplay
-  Layouts can be stacked in GameHud with explicit `z_index` metadata or default top insertion.
-  `game.start` removes the Title layer while keeping gameplay available below future overlays.
-- Lua can request stacked gameplay Layouts with `Game.add_layer(layout_id, z_index?)`, which routes
-  through the dispatcher as `layout.add-layer`. Until runtime Layout manifests are implemented, V0
-  resolves non-path IDs to project layout RML files under `project:/layouts/`.
-- RmlUi Layout activation uses ordinary Lua `onclick` handlers and dispatcher-backed `Game.*`
-  helpers. Existing built-in gameplay attributes (`nt-option`, `nt-nav`, `nt-continue`,
-  `nt-object`, `nt-action`, `nt-clear-selection`) are preserved only as temporary compatibility for
-  the current gameplay document/custom component output.
-- Layout-aware runtime UI playback V0 is implemented in the engine layer. `RuntimeUiPlaybackSession`
-  can mount the shell title Layout, replay `ui-click` steps by stable selector, dispatch real RmlUi
-  click events into Layout Lua/`Game.*`, drain host/script/UI work, and report click, Lua command,
-  runtime command, and runtime output traces.
-- Phase I UI-click test integration is implemented. Authoring tests can now define `ui-click` steps
-  with stable document/target/selector fields, serialize them to native UI playback specs, run them
-  through the editor helper/Electron/TestsEditor path, and inspect clickability diagnostics plus
-  UI/Lua/runtime traces in the test playback report.
-- Built-in title Layout startup is implemented. Loading a runtime project mounts
-  `system:/ui/title/default-title.rml` through the shell layout manager, binds the project title and
-  Start label fallback, and defers loading `runtime_game` until `game.start`.
-- Built-in pause menu overlay is implemented at `system:/ui/menu/pause-menu.rml`. `game.pause`
-  mounts it as a modal MenuOverlay, adds the shell pause token, and gates gameplay `Tick` without
-  unloading gameplay state. `game.resume`, `menu.close`, Resume, and Escape while paused remove the
-  overlay and return to Game mode.
-- Runtime UI has C++-backed RmlUi components for ActiveText, MapView, and TextLog. ActiveText is
-  rendered by the engine text/bgfx path after RmlUi layout provides bounds and input routing.
-- Runtime project/package export, playback specs, editor preview/tooling, typed assets, audio, shader
-  materials, and save-backed Lua mutation APIs exist as foundations. Treat legacy NovelTea import
-  support as optional migration tooling, not a compatibility contract.
-- The Electron/TanStack editor has a workbench shell, command/undo foundation, authoring schema
-  skeleton, project explorer/entity operations, preview manager foundation, and assets editor v1.
-- ComfyUI server/default workflow preferences are editor-wide persisted preferences. Project Settings
-  only handles project-local workflow installation and diagnostics, and should not write ComfyUI
-  connection data into authoring project `settings`.
-- Editor preview Phase 9 visibility/activity throttling is implemented. Preview hosts send typed
-  `set-preview-activity` presentation messages; pooled idle hosts become inactive, and hidden Play
-  hosts reduce presentation work and apply the existing engine FPS pacing hook without using
-  semantic runtime stop/reset/load commands.
+- provisional runtime-project TypeScript/native schemas and exporters are deleted;
+- legacy project/document/model/entity/import/package APIs are deleted;
+- the superseded controller/session/shell/generic-message graph is deleted;
+- JSON-backed saves and controller snapshots are deleted;
+- dispatcher-backed Lua compatibility bindings and the old script executor are deleted;
+- editor native legacy import/edit/load commands are deleted;
+- preview, playback, package/platform export, sandbox, player, Web, and Android source paths converge
+  on the compiled artifact;
+- the JSON allowlist and parser fuzz targets contain only current boundaries.
 
-## Active Gaps
+## Runtime and Editor Direction
 
-- Next runtime work should follow
-  the runtime overview and state/playback docs:
-  default/title Layout startup, menu overlays, pause UI, transitions, Layout-aware preview/playback,
-  and command bridges from Lua/editor/test surfaces.
-- Preview recording remains incomplete. Runtime UI playback now provides the replay foundation and
-  TestsEditor can run authored `ui-click` steps, but live preview still does not record
-  user-visible `ui-click` steps.
-- Runtime Layout export/manifest support is still incomplete. The editor now authors named system
-  Layout roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`,
-  `settings-menu`, `modal`, and `debug-overlay`) with built-in fallbacks. Runtime export and
-  consumption of project-authored system Layouts are still deferred.
-- The transitional runtime can route legacy-shaped Script entrypoints and `Game.run_script` through
-  `RuntimeCommandDispatcher`; this is migration scaffolding scheduled for removal. The typed target
-  permits only Room, Scene, or Dialogue entrypoints, with startup Lua and explicit script invocation
-  kept separate. `Game.start_room`/`Game.go_to_room` currently route through the same host/controller.
-- Runtime Dialogue export/start/progression is implemented for the current safe subset: authoring
-  Dialogue records export to runtime-compatible dialogue arrays, Dialogue entrypoints load, and
-  `Game.start_dialogue` routes through the dispatcher into `RuntimeSessionHost`/`RuntimeController`.
-  Continue and choice selection work through Lua-first generated controls while preserving temporary
-  compatibility attributes.
-- Runtime Scene V0 export/start/progression is implemented through the temporary cutscene-shaped
-  controller path. Authoring Scene records currently export to runtime `cutscene` records, Scene
-  entrypoints currently load as `EntityType::Cutscene`, and `Game.start_scene` routes through the dispatcher
-  into `RuntimeSessionHost`/`RuntimeController`. The supported subset is text-like scene steps,
-  continue/page-break waits, dispatcher-backed dialogue/layout hooks, and simple next targets;
-  unsupported step types emit export diagnostics.
-- Save/load/settings/text-log screens, return-to-title, quit flow, platform-specific save
-  persistence, and user-facing autosave feedback remain incomplete.
-- Lua-evaluated map visibility is deferred because `noveltea_core` must stay Lua-free; implement this
-  through an engine-layer evaluation/result contract.
-- ActiveText/MapView presentation hardening remains: richer font-family fallback, higher-quality glow,
-  project-authored room/object materials, bgfx/custom-geometry map rendering, and optional map
-  transitions.
-- Editable/source package workflows, broader Web runtime smoke coverage, and Android emulator smoke
-  coverage remain incomplete.
-- Pin `NOVELTEA_RMLUI_BGFX_GIT_TAG` once the external renderer API stabilizes.
+Continue work on runtime/presentation capability, RmlUi components, ActiveText/map/text-log
+presentation, preview/debugger/recorder UX, packaging/export, real project fixtures, and component
+documentation. New behavior must enter through typed definitions/programs/state/messages and stable
+IDs.
 
-## Verification
+Do not restore old NovelTea formats or APIs. `refs/NovelTea/` remains read-only behavioral reference
+only.
 
-Use the smallest relevant subset for the touched area:
+## Presentation Follow-up
+
+Functional low-level presentation remains:
+
+- `RuntimeUI`/RmlUi binding;
+- ActiveText/layout/direct rendering;
+- audio backends consuming typed operations;
+- `TweenService`;
+- bgfx/RmlUi rendering adapters.
+
+`RuntimeLayoutManager` and `RuntimeTransitionManager` remain tested transitional scaffolding.
+Their orchestration replacement belongs to
+`docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`. None of
+the retained presentation code owns gameplay flow, session state, or saves.
+
+## Verification Baseline
+
+For typed runtime or package changes, run:
 
 ```sh
 cmake --preset linux-debug
-cmake --build --preset linux-debug
+cmake --build --preset linux-debug --parallel "$(nproc)"
 ctest --test-dir build/linux-debug --output-on-failure
+cmake --build --preset linux-debug --target format-check cxx-policy --parallel "$(nproc)"
+
 cmake --preset web-debug
-cmake --build --preset web-debug
-```
+cmake --build --preset web-debug --parallel "$(nproc)"
+cmake --build --preset web-debug --target cxx-policy --parallel "$(nproc)"
 
-For runtime loop, input, UI, or rendering changes:
-
-```sh
-./build/linux-debug/apps/sandbox/noveltea-sandbox
-```
-
-For Android/platform/CMake/shader/asset packaging/JNI/Gradle changes:
-
-```sh
-cd android
-./gradlew :app:assembleDebug
-```
-
-For local `rmlui-bgfx` integration work:
-
-```sh
-cmake --preset linux-debug-local-rmlui-bgfx
-cmake --build --preset linux-debug-local-rmlui-bgfx
-ctest --test-dir build/linux-debug --output-on-failure
-```
-
-`format-check` currently reports unrelated formatting debt in `engine/src/render/bgfx/` and
-`tests/core/`. Keep touched C/C++ files clang-format clean even if the global target is not clean.
-
-Latest runtime layout/title slice verification:
-
-```sh
-cmake --build --preset linux-debug --target noveltea_runtime_shell_tests
-cmake --build --preset linux-debug --target noveltea_script_tests
-ctest --test-dir build/linux-debug -R "RuntimeShell|Game bindings: dispatcher|built-in title" --output-on-failure
-ctest --test-dir build/linux-debug -R "layout layer" --output-on-failure
-```
-
-`format-check` was rerun after formatting touched files and now fails only on the pre-existing
-unrelated files listed above.
-
-Latest pause menu slice verification:
-
-```sh
-cmake --build --preset linux-debug
-./build/linux-debug/tests/noveltea_runtime_shell_tests
-ctest --test-dir build/linux-debug --output-on-failure -R "RuntimeShell|Game bindings"
-cmake --preset web-debug
-cmake --build --preset web-debug
-```
-
-Latest Phase 10 UI playback foundation verification:
-
-```sh
-cmake --build --preset linux-debug --target noveltea_runtime_shell_tests
-./build/linux-debug/tests/noveltea_runtime_shell_tests "RuntimeUI playback click*","RuntimeUiPlaybackSession*"
-ctest --test-dir build/linux-debug --output-on-failure -R "runtime_shell|ui"
-cmake --build --preset linux-debug --target format-check
-```
-
-The focused playback build/tests and filtered runtime/UI CTest pass. `format-check` still fails only
-on pre-existing unrelated formatting debt in `engine/src/render/bgfx/bgfx_typed_asset_loader.cpp`,
-`tests/core/editor_api_tests.cpp`, and `tests/core/project_document_tests.cpp`; touched files were
-formatted with clang-format.
-
-Latest Phase 8 script-entrypoint slice verification:
-
-```sh
-./node_modules/.bin/vitest run src/renderer/test/authoring-runtime-export.test.ts
-clang-format --dry-run --Werror <touched C++ files>
-git diff --check
-```
-
-The focused native targets `noveltea_runtime_shell_tests` and `noveltea_script_tests` could not
-build in `build/linux-debug` because CMake re-ran FetchContent for `rmlui_bgfx` and failed while
-rebasing the generated dependency checkout under `build/linux-debug/_deps/rmlui_bgfx-src`.
-
-Latest Phase 8 dialogue runtime/export slice verification:
-
-```sh
-cmake --preset linux-debug-local-rmlui-bgfx
-cmake --build --preset linux-debug-local-rmlui-bgfx --target noveltea_runtime_shell_tests noveltea_script_tests
-./build/linux-debug/tests/noveltea_runtime_shell_tests
-./build/linux-debug/tests/noveltea_script_tests
-./node_modules/.bin/vitest run src/renderer/test/authoring-runtime-export.test.ts
-clang-format --dry-run --Werror <touched C++ files>
-git diff --check
-```
-
-Latest Phase 8 scene runtime V0 slice verification:
-
-```sh
-cmake --build --preset linux-debug-local-rmlui-bgfx --target noveltea_runtime_shell_tests noveltea_script_tests
-./build/linux-debug/tests/noveltea_runtime_shell_tests
-./build/linux-debug/tests/noveltea_script_tests "Game bindings: dispatcher-backed gameplay helpers build valid payloads"
-ctest --test-dir build/linux-debug -R "RuntimeShell start_game supports a scene entrypoint|RuntimeCommandDispatcher starts and progresses scenes" --output-on-failure
-./node_modules/.bin/vitest run src/renderer/test/authoring-runtime-export.test.ts
-clang-format --dry-run --Werror <touched C++ files>
-git diff --check
-```
-
-Latest editor preview Phase 9 verification:
-
-```sh
-pnpm vitest run src/renderer/test/preview-protocol.test.ts
-pnpm vitest run src/renderer/test/engine-preview.test.tsx
-pnpm vitest run src/renderer/test/full-game-preview-editor.test.tsx
-pnpm vitest run src/renderer/test/preview-host-pool.test.tsx src/renderer/test/workbench-group.test.tsx src/renderer/test/workbench-tabs.test.tsx
-pnpm typecheck
-```
-
-Latest editor ComfyUI settings relocation verification:
-
-```sh
-pnpm vitest run src/renderer/test/comfyui-store.test.ts src/renderer/test/settings-page.test.tsx src/renderer/test/project-settings-editor.test.tsx src/renderer/test/project-settings-operations.test.ts src/renderer/test/authoring-project-settings.test.ts src/renderer/test/image-generation-editor.test.tsx
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm vitest run src/renderer/test/engine-preview.test.tsx
-```
-
-The focused tests and `pnpm typecheck` pass. `pnpm lint` currently fails on pre-existing unrelated
-dirty workbench code: `editor/src/renderer/workbench/WorkbenchTabs.tsx` has an unused `openTab`.
-`pnpm test` had one order-sensitive failure in `src/renderer/test/engine-preview.test.tsx`; rerunning
-that file in isolation passed.
-
-Latest editor diagnostic row-level navigation verification:
-
-```sh
-pnpm test -- diagnostic-navigation.test.ts
-pnpm typecheck
-pnpm lint
-pnpm test
-```
-
-Row-level project diagnostic navigation now resolves and reveals character pose/expression rows,
-room hotspots, scene steps, dialogue blocks/segments/edges, and test steps/assertions. Stateful
-editors select the targeted row before the shared workbench anchor reveal runs. Exact source
-line/column navigation remains deferred until diagnostics carry reliable source-position metadata.
-`pnpm lint`, `pnpm typecheck`, and focused/full Vitest coverage pass except for the known
-order-sensitive `src/renderer/test/engine-preview.test.tsx` timeout-status assertion when run inside
-the full suite; rerunning that file in isolation passes.
-
-Latest editor ComfyUI workflow import Phase 6 verification:
-
-```sh
-pnpm exec vitest run src/renderer/test/comfyui-workflow-import-service.test.ts src/renderer/test/project-settings-editor.test.tsx src/renderer/test/comfyui-service.test.ts
-pnpm test
-pnpm lint
-pnpm typecheck
-```
-
-Project Settings now lists valid and invalid installed ComfyUI workflow entries, exposes repair
-entry points for entries with loadable workflow JSON, and saves repair changes through a
-manifest-only IPC/service path. Binding diagnostics distinguish stale node-id rebases from
-unresolved or ambiguous selector matches. Focused tests, full Vitest coverage, lint, and typecheck
-pass.
-
-Latest editor ComfyUI workflow import Phase 7 verification:
-
-```sh
-pnpm vitest run src/renderer/test/image-generation-editor.test.tsx src/renderer/test/comfyui-generation-service.test.ts
+cd editor
 pnpm lint
 pnpm typecheck
 pnpm test
 ```
 
-The Image Generation editor now shows and submits only controls declared in the selected workflow
-contract and bound in the manifest. Bound `negativePrompt` and `cfg` inputs are supported for both
-generate and edit workflows, defaults reset when workflows change, and hidden stale values are not
-queued. The main ComfyUI service mutates bound optional inputs before prompt submission and ignores
-unbound optional request fields. Focused tests, full Vitest coverage, lint, and typecheck pass.
+Run the Android debug build when the SDK is available and package/platform behavior changes.
 
-Latest editor ComfyUI workflow import Phase 8 verification:
+## Next Work
 
-```sh
-pnpm exec vitest run src/renderer/test/comfyui-workflows.test.ts src/renderer/test/comfyui-workflow-import-analysis.test.ts src/renderer/test/comfyui-workflow-import-service.test.ts src/renderer/test/project-settings-editor.test.tsx src/renderer/test/i18n-resource-parity.test.ts
-pnpm lint
-pnpm typecheck
-pnpm test
-```
+Use the relevant area overview and active plan rather than class-parity migration:
 
-Project Settings and the new ComfyUI workflow import guide now document API workflow export,
-`noveltea.*` node markers, explicit output selection, bundled starter installation, and repair.
-Bundled Flux 2 Klein starter manifests are schema v2 with selector metadata and output bindings
-while retaining `outputNodeIds`; their NovelTea-controlled workflow node titles now use
-`noveltea.*` markers. Stable workflow-management UI copy moved into the `workspace` i18n namespace.
-Focused tests, full Vitest coverage, lint, and typecheck pass.
+1. presentation-coordinator/runtime-layout implementation;
+2. remaining runtime UI component and direct-render capability;
+3. preview/debugger/recorder and export polish;
+4. representative real-project fixtures and component documentation;
+5. later JSON boundary isolation work owned by Phase 11 of the typed runtime plan.

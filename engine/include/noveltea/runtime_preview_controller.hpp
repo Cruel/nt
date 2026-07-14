@@ -1,7 +1,5 @@
 #pragma once
 
-#include "noveltea/core/runtime_io.hpp"
-
 #include <string>
 #include <vector>
 
@@ -19,7 +17,6 @@ public:
     bool stop();
     bool step(double delta_seconds);
 
-    bool apply_input(core::RuntimeInput input);
     bool continue_dialogue();
     bool select_dialogue_option(int option_index);
     bool navigate(int direction);

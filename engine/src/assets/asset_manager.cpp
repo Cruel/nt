@@ -31,15 +31,6 @@ template<class T> AssetResult<T> fail(std::string message)
     return {std::nullopt, std::move(message)};
 }
 
-AssetBytes bytes_from(std::span<const std::byte> bytes)
-{
-    AssetBytes out;
-    out.reserve(bytes.size());
-    std::transform(bytes.begin(), bytes.end(), std::back_inserter(out),
-                   [](std::byte value) { return static_cast<std::uint8_t>(value); });
-    return out;
-}
-
 class MemoryReader final : public AssetReader {
 public:
     explicit MemoryReader(AssetBytes bytes) : m_bytes(std::move(bytes)) {}
@@ -514,36 +505,6 @@ void AssetManager::mount_directory(std::string namespace_name, std::filesystem::
 {
     mount(std::move(namespace_name),
           std::make_shared<DirectoryAssetSource>(std::move(root), writable));
-}
-
-void AssetManager::mount_legacy_package(std::string namespace_name,
-                                        const ::noveltea::core::legacy::ProjectPackage& package)
-{
-    auto source = std::make_shared<MemoryAssetSource>();
-    source->add("project:/game", AssetBytes(package.game_json.begin(), package.game_json.end()),
-                "legacy package game");
-    if (!package.image.empty()) {
-        source->add(
-            "project:/image",
-            bytes_from(std::span<const std::byte>(package.image.data(), package.image.size())),
-            "legacy package cover image");
-    }
-    for (const auto& [name, bytes] : package.fonts) {
-        source->add("project:/fonts/" + name,
-                    bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
-                    "legacy package font:" + name);
-    }
-    for (const auto& [name, bytes] : package.textures) {
-        source->add("project:/textures/" + name,
-                    bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
-                    "legacy package texture:" + name);
-    }
-    for (const auto& [name, bytes] : package.assets) {
-        source->add("project:/" + name,
-                    bytes_from(std::span<const std::byte>(bytes.data(), bytes.size())),
-                    "legacy package asset:" + name);
-    }
-    mount(std::move(namespace_name), std::move(source));
 }
 
 std::string AssetManager::namespace_for(const AssetPath& path) const

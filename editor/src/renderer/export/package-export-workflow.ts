@@ -8,7 +8,7 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { authoringValidationSucceeded, validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { buildAuthoringRuntimeExport, hasAuthoringShadersOrMaterials } from '../../shared/project-schema/authoring-runtime-export';
+import { buildCompiledRuntimeExport, hasAuthoringShadersOrMaterials } from '../../shared/project-schema/compiled-runtime-export';
 import { type PackageExportWorkflowResult, usePackageExportStore } from './package-export-store';
 
 export interface RunPackageExportWorkflowOptions {
@@ -103,10 +103,10 @@ export async function runPackageExportWorkflow(options: RunPackageExportWorkflow
     return result;
   }
 
-  exportStore.setStage('building-runtime-project');
+  exportStore.setStage('compiling-project');
   workspace.setStatusMessage('Building runtime package data');
-  let built = buildAuthoringRuntimeExport(options.project, { projectRoot: options.projectRoot, profile: options.profile });
-  if (!built.ok || !built.runtimeProject) {
+  let built = buildCompiledRuntimeExport(options.project, { projectRoot: options.projectRoot, profile: options.profile });
+  if (!built.ok || !built.compiledProject) {
     const result = failureResult('failed', options, built.diagnostics, {
       validationDiagnostics,
       fileEntries: built.fileEntries,
@@ -164,7 +164,7 @@ export async function runPackageExportWorkflow(options: RunPackageExportWorkflow
       }
       const latestProject = useProjectStore.getState().document;
       if (latestProject) {
-        built = buildAuthoringRuntimeExport(latestProject as AuthoringProject, { projectRoot: options.projectRoot, profile: options.profile });
+        built = buildCompiledRuntimeExport(latestProject as AuthoringProject, { projectRoot: options.projectRoot, profile: options.profile });
       }
     }
   }
@@ -172,7 +172,7 @@ export async function runPackageExportWorkflow(options: RunPackageExportWorkflow
   exportStore.setStage('writing-package');
   workspace.setStatusMessage('Writing runtime package');
   const packageOptions = packageOptionsWithShaderRoot(built.packageOptions, options.projectRoot);
-  const response = normalizePackageResponse(await window.noveltea.exportPackage(built.runtimeProject, options.outputPath, packageOptions));
+  const response = normalizePackageResponse(await window.noveltea.exportPackage(built.compiledProject, options.outputPath, packageOptions));
   const diagnostics = [...built.diagnostics, ...(response.diagnostics ?? [])];
   const success = response.ok && response.success && !hasErrors(diagnostics);
   const result: PackageExportWorkflowResult = {

@@ -48,8 +48,6 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.CREATE_PROJECT, request),
   openProject: (projectPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.OPEN_PROJECT, projectPath),
-  importLegacyGame: (source: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LEGACY_GAME, source),
   validateProject: (project: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, project),
   listPlaybackTests: (project: unknown) =>
@@ -139,10 +137,6 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.on(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, listener);
   },
-  setEntityRecord: (project: unknown, collection: string, entityId: string, record: unknown) =>
-    ipcRenderer.invoke(IPC_CHANNELS.SET_ENTITY_RECORD, project, collection, entityId, record),
-  eraseEntityRecord: (project: unknown, collection: string, entityId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.ERASE_ENTITY_RECORD, project, collection, entityId),
 };
 
 contextBridge.exposeInMainWorld('noveltea', api);

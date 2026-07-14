@@ -255,7 +255,7 @@ editor/src/renderer/editors/assets/AssetEditor.tsx
 editor/src/renderer/editors/assets/AssetPreview.tsx
 editor/src/renderer/editors/assets/asset-editor-utils.ts
 editor/src/renderer/commands/builtin-commands.ts
-editor/src/shared/project-schema/authoring-runtime-export.ts
+editor/src/shared/project-schema/compiled-runtime-export.ts
 ```
 
 Primary engine files:

@@ -1,13 +1,13 @@
 import { create } from 'zustand';
 import type { PackageExportResponse, ShaderCompileDiagnostic, ShaderCompileOutput, ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
-import type { ExportFileEntry, ExportManifestPreview } from '../../shared/project-schema/authoring-runtime-export';
+import type { ExportFileEntry, ExportManifestPreview } from '../../shared/project-schema/compiled-runtime-export';
 import type { PlatformExportProfile, PlatformStageResult } from '../../shared/project-schema/platform-export-contracts';
 
 export type ExportWorkflowStage =
   | 'idle'
   | 'validating'
-  | 'building-runtime-project'
+  | 'compiling-project'
   | 'compiling-shaders'
   | 'resolving-template'
   | 'generating-metadata'

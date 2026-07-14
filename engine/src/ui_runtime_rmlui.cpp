@@ -57,42 +57,6 @@ constexpr const char* kRuntimeTitleDocumentAsset = "system:/ui/title/default-tit
 constexpr const char* kRuntimePauseMenuDocumentAsset = "system:/ui/menu/pause-menu.rml";
 constexpr float kActiveTextRevealGlyphsPerSecond = 32.0f;
 
-void validate_visual_asset(const assets::AssetManager& assets, core::RuntimeUIViewState& state,
-                           const std::string& path, std::unordered_set<std::string>& logged)
-{
-    if (path.empty() || assets.exists(path)) {
-        return;
-    }
-    core::RuntimeUIAssetDiagnostic diagnostic;
-    diagnostic.asset_path = path;
-    diagnostic.message = "missing visual asset: " + path;
-    state.asset_diagnostics.push_back(diagnostic);
-    if (logged.insert(path).second) {
-        std::fprintf(stderr, "[runtime_ui] %s\n", diagnostic.message.c_str());
-    }
-}
-
-core::RuntimeUIViewState validated_visual_state(const assets::AssetManager& assets,
-                                                core::RuntimeUIViewState state,
-                                                std::unordered_set<std::string>& logged)
-{
-    state.asset_diagnostics.clear();
-    if (state.cover_image.empty() && assets.exists("project:/image")) {
-        state.cover_image = "project:/image";
-    }
-    if (state.background_image.empty() && !state.cover_image.empty()) {
-        state.background_image = state.cover_image;
-    }
-
-    validate_visual_asset(assets, state, state.cover_image, logged);
-    validate_visual_asset(assets, state, state.background_image, logged);
-    validate_visual_asset(assets, state, state.room_image, logged);
-    for (const auto& object : state.objects) {
-        validate_visual_asset(assets, state, object.image, logged);
-    }
-    return state;
-}
-
 Rml::Element* find_first_tag(Rml::ElementDocument& doc, const char* tag)
 {
     Rml::ElementList elements;
@@ -289,27 +253,6 @@ float active_text_reveal_duration_seconds(const core::RichTextDocument& document
            kActiveTextRevealGlyphsPerSecond;
 }
 
-std::string active_text_body_key(const core::RuntimeUIViewState& state)
-{
-    if (state.body.empty()) {
-        return {};
-    }
-    return state.mode + ":" + state.body;
-}
-
-ActiveTextPlaybackInput active_text_playback_input(const core::RuntimeUIViewState& state,
-                                                   std::size_t page_index, float delta_seconds)
-{
-    const auto page = active_text_document_page(state.active_text, page_index);
-    return ActiveTextPlaybackInput{
-        .body_key = active_text_body_key(state) + ":page:" + std::to_string(page_index),
-        .glyph_count = text::utf8_grapheme_count(page.plain_text),
-        .delta_seconds = delta_seconds,
-        .awaiting_continue = state.awaiting_continue,
-        .page_break =
-            state.page_break || page_index + 1u < active_text_page_count(state.active_text)};
-}
-
 core::RichTextDocument typed_active_text_document(const core::TypedRuntimeUIViewState& state)
 {
     return ui::rmlui::make_active_text_snapshot(state).rich_text;
@@ -346,7 +289,6 @@ struct RuntimeUI::State {
     void show_game_document();
     bool dispatch_typed_input(const core::RuntimeInputMessage& input, std::size_t depth = 0);
     void install_typed_lua_api();
-    void show_title_diagnostic(const std::vector<core::RuntimeDiagnostic>& diagnostics);
     struct RuntimeInputListener final : Rml::EventListener {
         explicit RuntimeInputListener(State& owner_state) : owner(owner_state) {}
         void ProcessEvent(Rml::Event& event) override;
@@ -372,8 +314,6 @@ struct RuntimeUI::State {
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
-    core::RuntimeSessionHost* runtime_host = nullptr;
-    RuntimeCommandDispatcher* runtime_command_dispatcher = nullptr;
     script::TypedRuntimeSession* typed_runtime_session = nullptr;
     TypedRuntimePresentationSink* typed_presentation_sink = nullptr;
     TypedRuntimeAudioSink* typed_audio_sink = nullptr;
@@ -384,9 +324,6 @@ struct RuntimeUI::State {
     TweenService* tweens = nullptr;
     std::uintptr_t next_listener_id = 1;
     std::string runtime_document_path;
-    std::string active_text_body;
-    core::RichTextDocument active_text_display_document;
-    std::unordered_set<std::string> logged_missing_visual_assets;
     ActiveTextPlaybackState active_text_playback;
     ActiveTextPlaybackConfig active_text_playback_config{};
     std::uint64_t active_text_page_instance_id = 0;
@@ -396,7 +333,6 @@ struct RuntimeUI::State {
     float active_text_tween_reveal = 1.0f;
     float active_text_tween_alpha = 1.0f;
     bool rml_initialized = false;
-    core::RuntimeUIViewAdapter runtime_view;
     std::unique_ptr<text::TextEngine> active_text_engine;
     std::unique_ptr<text::TextFontAssetLoader> active_text_font_loader;
     FontHandle active_text_font;
@@ -775,47 +711,14 @@ void RuntimeUI::State::install_typed_lua_api()
     game["ui"] = ui;
 }
 
-void RuntimeUI::State::show_title_diagnostic(
-    const std::vector<core::RuntimeDiagnostic>& diagnostics)
-{
-    auto title = documents.find(kRuntimeTitleDocumentId);
-    if (title == documents.end())
-        return;
-    auto* element = title->second->GetElementById("nt-title-diagnostic");
-    if (!element)
-        return;
-    for (auto it = diagnostics.rbegin(); it != diagnostics.rend(); ++it) {
-        if (it->severity == core::RuntimeDiagnosticSeverity::Warning ||
-            it->severity == core::RuntimeDiagnosticSeverity::Error) {
-            element->SetInnerRML(ui::rmlui::escape_rml(it->message));
-            return;
-        }
-    }
-}
-
 void RuntimeUI::State::refresh_runtime_document()
 {
     auto doc_it = documents.find(kRuntimeGameDocumentId);
     auto* doc = doc_it == documents.end() ? nullptr : doc_it->second;
     if (!doc || !document_binder)
         return;
-    if (typed_runtime_view) {
+    if (typed_runtime_view)
         document_binder->bind(*doc, *typed_runtime_view, typed_notification);
-        return;
-    }
-    const auto& source_state = runtime_host ? runtime_host->view_state() : runtime_view.state();
-    if (!source_state.active_text.plain_text.empty()) {
-        active_text_display_document = source_state.active_text;
-    }
-    active_text_body = source_state.body;
-    active_text_reveal_progress = active_text_playback.reveal_progress;
-
-    auto state = source_state;
-    if (assets) {
-        state = validated_visual_state(*assets, std::move(state), logged_missing_visual_assets);
-    }
-    state.active_text_reveal_progress = active_text_reveal_progress;
-    document_binder->bind(*doc, state);
 }
 
 void RuntimeUI::State::refresh_active_text_layout()
@@ -833,17 +736,9 @@ void RuntimeUI::State::refresh_active_text_layout()
         return;
     }
 
-    core::RichTextDocument typed_document;
-    const core::RuntimeUIViewState* legacy_state = nullptr;
-    if (typed_runtime_view) {
-        typed_document = typed_active_text_document(*typed_runtime_view);
-    } else {
-        legacy_state = runtime_host ? &runtime_host->view_state() : &runtime_view.state();
-    }
-    const auto& active_document = typed_runtime_view ? typed_document
-                                                     : (legacy_state->active_text.plain_text.empty()
-                                                            ? active_text_display_document
-                                                            : legacy_state->active_text);
+    const auto active_document = typed_runtime_view
+                                     ? typed_active_text_document(*typed_runtime_view)
+                                     : core::RichTextDocument{};
     active_text_local_page_count = active_text_page_count(active_document);
     active_text_page_index = std::min(active_text_page_index, active_text_local_page_count - 1u);
 
@@ -867,10 +762,9 @@ void RuntimeUI::State::refresh_active_text_layout()
     } else {
         active_text_layout = build_active_text_layout(active_document, options);
     }
-    active_text_layout.page_break =
-        (!typed_runtime_view && legacy_state->page_break) || active_text_layout.page_break;
+    active_text_layout.page_break = active_text_layout.page_break;
     active_text_layout.awaiting_continue =
-        (typed_runtime_view ? typed_runtime_view->can_continue : legacy_state->awaiting_continue) ||
+        (typed_runtime_view && typed_runtime_view->can_continue) ||
         active_text_layout.awaiting_continue;
     active_text_local_page_count = active_text_layout.page_count;
     active_text_page_index = active_text_layout.page_index;
@@ -950,99 +844,6 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
             (void)owner.dispatch_typed_input(core::RuntimeInputMessage{core::ContinueInput{}});
         }
         return;
-    }
-
-    if (!owner.runtime_host || !owner.runtime_command_dispatcher)
-        return;
-
-    auto submit = [this](RuntimeCommand command) {
-        const std::string command_name = command.name;
-        auto result = owner.runtime_command_dispatcher->dispatch(std::move(command));
-        if (result.handled && command_name == "game.start") {
-            owner.show_game_document();
-        }
-        owner.show_title_diagnostic(result.diagnostics);
-        owner.runtime_view.apply(owner.runtime_host->last_commands());
-        if (!result.outputs.empty() || result.handled || !result.diagnostics.empty()) {
-            owner.refresh_runtime_document();
-        }
-    };
-
-    auto make_command = [](std::string name, nlohmann::json payload = nlohmann::json::object()) {
-        RuntimeCommand command;
-        command.source = RuntimeCommandSource::RmlUiEvent;
-        command.domain = domain_from_command_name(name);
-        command.name = std::move(name);
-        command.payload = std::move(payload);
-        return command;
-    };
-
-    auto attribute_command = [&]() -> std::optional<RuntimeCommand> {
-        if (target->HasAttribute("nt-option")) {
-            const int index = target->GetAttribute<int>("nt-option", -1);
-            if (index >= 0) {
-                return make_command("runtime.dialogue-option", {{"index", index}});
-            }
-        }
-        if (target->HasAttribute("nt-nav")) {
-            const int direction = target->GetAttribute<int>("nt-nav", -1);
-            if (direction >= 0) {
-                return make_command("runtime.navigate", {{"direction", direction}});
-            }
-        }
-        if (target->HasAttribute("nt-continue")) {
-            return make_command("runtime.continue");
-        }
-        if (target->HasAttribute("nt-object")) {
-            const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
-            if (!object_id.empty()) {
-                return make_command("runtime.select-object", {{"object_id", object_id}});
-            }
-        }
-        if (target->HasAttribute("nt-action")) {
-            const auto verb_id = target->GetAttribute<Rml::String>("nt-action", "");
-            if (!verb_id.empty()) {
-                return make_command("runtime.run-action", {{"verb_id", verb_id}});
-            }
-        }
-        if (target->HasAttribute("nt-clear-selection")) {
-            return make_command("runtime.clear-selection");
-        }
-        return std::nullopt;
-    };
-
-    if (auto command = attribute_command()) {
-        submit(std::move(*command));
-    } else if (find_ancestor_tag(target, "nt-active-text")) {
-        const float x = static_cast<float>(event.GetParameter<int>("mouse_x", 0));
-        const float y = static_cast<float>(event.GetParameter<int>("mouse_y", 0));
-        if (const auto object_id = owner.active_text_layout.object_at({x, y})) {
-            submit(make_command("runtime.select-object", {{"object_id", *object_id}}));
-        } else if (owner.active_text_playback.can_skip_reveal) {
-            owner.active_text_playback = skip_active_text_reveal(owner.active_text_playback);
-            owner.active_text_tween_reveal = 1.0f;
-            if (owner.tweens) {
-                owner.tweens->kill_channel("active-text-reveal");
-            }
-            owner.active_text_reveal_progress = owner.active_text_playback.reveal_progress;
-            owner.refresh_runtime_document();
-            owner.refresh_active_text_layout();
-        } else if (owner.active_text_playback.can_continue) {
-            if (owner.active_text_page_index + 1u < owner.active_text_local_page_count) {
-                ++owner.active_text_page_index;
-                owner.active_text_playback = {};
-                owner.active_text_reveal_progress = 0.0f;
-                owner.active_text_tween_reveal = 0.0f;
-                owner.active_text_tween_alpha = 0.0f;
-                owner.active_text_time_seconds = 0.0;
-                owner.refresh_runtime_document();
-                owner.refresh_active_text_layout();
-            } else {
-                submit(make_command("runtime.continue"));
-            }
-        } else {
-            submit(make_command("runtime.continue"));
-        }
     }
 }
 
@@ -1361,16 +1162,10 @@ void RuntimeUI::begin_frame(float delta_time)
         if (auto* render = m_state->bgfx_render_interface) {
             render->begin_frame();
         }
-        const core::RuntimeUIViewState* legacy_state =
-            m_state->typed_runtime_view
-                ? nullptr
-                : (m_state->runtime_host ? &m_state->runtime_host->view_state()
-                                         : &m_state->runtime_view.state());
         const auto typed_document = m_state->typed_runtime_view
                                         ? typed_active_text_document(*m_state->typed_runtime_view)
                                         : core::RichTextDocument{};
-        const auto& active_document =
-            m_state->typed_runtime_view ? typed_document : legacy_state->active_text;
+        const auto& active_document = typed_document;
         const auto previous_instance = m_state->active_text_playback.instance_id;
         const auto previous_phase = m_state->active_text_playback.phase;
         const float playback_delta = m_state->tweens ? 0.0f : delta_time;
@@ -1378,8 +1173,7 @@ void RuntimeUI::begin_frame(float delta_time)
             m_state->typed_runtime_view
                 ? active_text_playback_input(*m_state->typed_runtime_view,
                                              m_state->active_text_page_index, playback_delta)
-                : active_text_playback_input(*legacy_state, m_state->active_text_page_index,
-                                             playback_delta);
+                : ActiveTextPlaybackInput{};
         m_state->active_text_playback = update_active_text_playback(
             m_state->active_text_playback, playback_input, m_state->active_text_playback_config);
         if (m_state->tweens) {
@@ -1674,9 +1468,6 @@ bool RuntimeUI::reload_documents_and_styles()
     if (had_runtime_doc) {
         m_state->load_runtime_document();
         show_document(kRuntimeGameDocumentId);
-        if (m_state->runtime_host) {
-            bind_runtime_host(m_state->runtime_host);
-        }
     }
     if (had_title_doc) {
         ok = load_title_document() && ok;
@@ -1695,24 +1486,6 @@ void RuntimeUI::set_density(float density)
     }
 }
 
-void RuntimeUI::apply_controller_commands(const std::vector<core::ControllerCommand>& commands)
-{
-    if (!m_state)
-        return;
-    m_state->runtime_view.apply(commands);
-    m_state->refresh_runtime_document();
-}
-
-const core::RuntimeUIViewState& RuntimeUI::runtime_view_state() const
-{
-    if (m_state && m_state->runtime_host)
-        return m_state->runtime_host->view_state();
-    if (m_state)
-        return m_state->runtime_view.state();
-    static const core::RuntimeUIViewState empty;
-    return empty;
-}
-
 ActiveTextLayout RuntimeUI::active_text_render_snapshot() const
 {
     if (!m_state || !m_state->active_text_direct_enabled) {
@@ -1724,22 +1497,6 @@ ActiveTextLayout RuntimeUI::active_text_render_snapshot() const
 bool RuntimeUI::active_text_direct_render_enabled() const
 {
     return m_state && m_state->active_text_direct_enabled;
-}
-
-void RuntimeUI::bind_runtime_host(core::RuntimeSessionHost* host)
-{
-    if (!m_state)
-        return;
-    m_state->runtime_host = host;
-    if (!host)
-        return;
-}
-
-void RuntimeUI::bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher)
-{
-    if (m_state) {
-        m_state->runtime_command_dispatcher = dispatcher;
-    }
 }
 
 void RuntimeUI::bind_typed_runtime_session(script::TypedRuntimeSession* session)
@@ -1908,52 +1665,6 @@ RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackCl
         result.status = RuntimeUiPlaybackClickStatus::TargetNotInteractive;
         result.message = "target has no onclick or bound click listener: " + request.selector;
         return result;
-    }
-
-    if (has_runtime_activation_attribute(*target) && m_state->runtime_command_dispatcher) {
-        auto make_command = [](std::string name,
-                               nlohmann::json payload = nlohmann::json::object()) {
-            RuntimeCommand command;
-            command.source = RuntimeCommandSource::RmlUiEvent;
-            command.domain = domain_from_command_name(name);
-            command.name = std::move(name);
-            command.payload = std::move(payload);
-            return command;
-        };
-        std::optional<RuntimeCommand> command;
-        if (target->HasAttribute("nt-option")) {
-            const int index = target->GetAttribute<int>("nt-option", -1);
-            if (index >= 0)
-                command = make_command("runtime.dialogue-option", {{"index", index}});
-        } else if (target->HasAttribute("nt-nav")) {
-            const int direction = target->GetAttribute<int>("nt-nav", -1);
-            if (direction >= 0)
-                command = make_command("runtime.navigate", {{"direction", direction}});
-        } else if (target->HasAttribute("nt-continue")) {
-            command = make_command("runtime.continue");
-        } else if (target->HasAttribute("nt-object")) {
-            const auto object_id = target->GetAttribute<Rml::String>("nt-object", "");
-            if (!object_id.empty())
-                command = make_command("runtime.select-object", {{"object_id", object_id}});
-        } else if (target->HasAttribute("nt-action")) {
-            const auto verb_id = target->GetAttribute<Rml::String>("nt-action", "");
-            if (!verb_id.empty())
-                command = make_command("runtime.run-action", {{"verb_id", verb_id}});
-        } else if (target->HasAttribute("nt-clear-selection")) {
-            command = make_command("runtime.clear-selection");
-        }
-        if (command) {
-            auto dispatch = m_state->runtime_command_dispatcher->dispatch(std::move(*command));
-            m_state->show_title_diagnostic(dispatch.diagnostics);
-            m_state->runtime_view.apply(m_state->runtime_host
-                                            ? m_state->runtime_host->last_commands()
-                                            : std::vector<core::ControllerCommand>{});
-            m_state->refresh_runtime_document();
-            result.dispatched = dispatch.handled;
-            result.message =
-                dispatch.handled ? "dispatched ui-click" : "ui-click command was not handled";
-            return result;
-        }
     }
 
     const int x = static_cast<int>(std::lround(result.x));

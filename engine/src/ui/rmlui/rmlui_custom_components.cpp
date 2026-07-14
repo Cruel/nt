@@ -244,13 +244,6 @@ std::string rich_text_rml(const core::RichTextDocument& document, float reveal_p
     return out.str();
 }
 
-ActiveTextComponentSnapshot make_active_text_snapshot(const core::RuntimeUIViewState& state)
-{
-    return {state.title,       state.body,
-            state.active_text, state.awaiting_continue,
-            state.page_break,  state.active_text_reveal_progress};
-}
-
 ActiveTextComponentSnapshot make_active_text_snapshot(const core::TypedRuntimeUIViewState& state)
 {
     ActiveTextComponentSnapshot snapshot;
@@ -270,40 +263,9 @@ ActiveTextComponentSnapshot make_active_text_snapshot(const core::TypedRuntimeUI
     return snapshot;
 }
 
-MapViewComponentSnapshot make_map_view_snapshot(const core::RuntimeUIViewState& state)
-{
-    return {state.map_view};
-}
-
 TypedMapViewComponentSnapshot make_map_view_snapshot(const core::TypedRuntimeUIViewState& state)
 {
     return {state.map};
-}
-
-TextLogComponentSnapshot make_text_log_snapshot(const core::RuntimeUIViewState& state)
-{
-    std::ostringstream out;
-    for (const auto& entry : state.text_log) {
-        out << "<div class=\"nt-text-log__entry\" data-sequence=\"" << entry.sequence << "\"";
-        if (!entry.category.empty())
-            out << " data-category=\"" << escape_rml(entry.category) << "\"";
-        if (!entry.source_name.empty())
-            out << " data-source-name=\"" << escape_rml(entry.source_name) << "\"";
-        if (entry.source.has_value()) {
-            out << " data-source-type=\"" << core::to_integer(entry.source->type) << "\"";
-            out << " data-source-id=\"" << escape_rml(entry.source->id) << "\"";
-        }
-        out << ">";
-        if (!entry.speaker.empty()) {
-            out << "<span class=\"nt-text-log__speaker\">" << escape_rml(entry.speaker)
-                << "</span>";
-        }
-        const auto rich = rich_text_rml(entry.rich_text, 1.0f);
-        const auto body = rich.empty() ? paragraph_rml(entry.plain_text) : rich;
-        out << "<div class=\"nt-text-log__body\">" << (body.empty() ? "&nbsp;" : body)
-            << "</div></div>";
-    }
-    return {out.str()};
 }
 
 TextLogComponentSnapshot make_text_log_snapshot(const core::TypedRuntimeUIViewState& state)
@@ -322,92 +284,6 @@ TextLogComponentSnapshot make_text_log_snapshot(const core::TypedRuntimeUIViewSt
             << (rich.empty() ? paragraph_rml(entry.text) : rich) << "</div></div>";
     }
     return {out.str()};
-}
-
-std::string map_view_rml(const MapViewComponentSnapshot& snapshot)
-{
-    const auto& map = snapshot.map;
-    if (!map.available) {
-        return "<p class=\"nt-map-view__placeholder\">Map unavailable</p>";
-    }
-
-    std::ostringstream out;
-    out << "<div class=\"nt-map-view__root";
-    if (!map.enabled)
-        out << " nt-map-view__root--disabled";
-    out << "\" data-map-id=\"" << escape_rml(map.map_id) << "\"";
-    out << " data-current-room-id=\"" << escape_rml(map.current_room_id) << "\"";
-    out << " data-enabled=\"" << (map.enabled ? "true" : "false") << "\"";
-    out << " data-min-x=\"" << map.min_x << "\" data-min-y=\"" << map.min_y << "\"";
-    out << " data-max-x=\"" << map.max_x << "\" data-max-y=\"" << map.max_y << "\"";
-    if (!map.default_room_script.empty())
-        out << " data-default-room-script=\"" << escape_rml(map.default_room_script) << "\"";
-    if (!map.default_path_script.empty())
-        out << " data-default-path-script=\"" << escape_rml(map.default_path_script) << "\"";
-    out << ">";
-
-    out << "<div class=\"nt-map-view__connections\">";
-    for (std::size_t i = 0; i < map.connections.size(); ++i) {
-        const auto& connection = map.connections[i];
-        out << "<div class=\"nt-map-view__connection nt-map-view__connection--style-"
-            << connection.style;
-        if (!connection.visible)
-            out << " nt-map-view__connection--hidden";
-        out << "\" data-index=\"" << i << "\"";
-        out << " data-room-start=\"" << connection.room_start << "\"";
-        out << " data-room-end=\"" << connection.room_end << "\"";
-        out << " data-start-x=\"" << connection.port_start_x << "\"";
-        out << " data-start-y=\"" << connection.port_start_y << "\"";
-        out << " data-end-x=\"" << connection.port_end_x << "\"";
-        out << " data-end-y=\"" << connection.port_end_y << "\"";
-        out << " data-visible=\"" << (connection.visible ? "true" : "false") << "\"";
-        if (!connection.visibility_script.empty()) {
-            out << " data-visibility-script=\"" << escape_rml(connection.visibility_script) << "\"";
-        }
-        out << "></div>";
-    }
-    out << "</div>";
-
-    out << "<div class=\"nt-map-view__rooms\">";
-    for (std::size_t i = 0; i < map.rooms.size(); ++i) {
-        const auto& room = map.rooms[i];
-        out << "<button class=\"nt-map-view__room nt-map-view__room--style-" << room.style;
-        if (room.current)
-            out << " nt-map-view__room--current";
-        if (!room.visible)
-            out << " nt-map-view__room--hidden";
-        if (!room.enabled)
-            out << " nt-map-view__room--disabled";
-        out << "\" data-index=\"" << i << "\"";
-        out << " data-left=\"" << room.left << "\" data-top=\"" << room.top << "\"";
-        out << " data-width=\"" << room.width << "\" data-height=\"" << room.height << "\"";
-        out << " data-style=\"" << room.style << "\"";
-        out << " data-visible=\"" << (room.visible ? "true" : "false") << "\"";
-        out << " data-current=\"" << (room.current ? "true" : "false") << "\"";
-        if (!room.room_ids.empty()) {
-            out << " data-room-ids=\"";
-            for (std::size_t id_index = 0; id_index < room.room_ids.size(); ++id_index) {
-                if (id_index > 0)
-                    out << ",";
-                out << escape_rml(room.room_ids[id_index]);
-            }
-            out << "\"";
-        }
-        if (!room.visibility_script.empty()) {
-            out << " data-visibility-script=\"" << escape_rml(room.visibility_script) << "\"";
-        }
-        if (room.enabled && room.navigation_index >= 0) {
-            out << " nt-nav=\"" << room.navigation_index << "\"";
-        } else {
-            out << " disabled";
-        }
-        out << ">"
-            << escape_rml(room.name.empty() && !room.room_ids.empty() ? room.room_ids.front()
-                                                                      : room.name)
-            << "</button>";
-    }
-    out << "</div></div>";
-    return out.str();
 }
 
 std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
@@ -477,11 +353,6 @@ void NtActiveTextElement::set_snapshot(const ActiveTextComponentSnapshot& snapsh
 }
 
 NtMapViewElement::NtMapViewElement(const Rml::String& tag) : Rml::Element(tag) {}
-
-void NtMapViewElement::set_snapshot(const MapViewComponentSnapshot& snapshot)
-{
-    SetInnerRML(map_view_rml(snapshot));
-}
 
 void NtMapViewElement::set_snapshot(const TypedMapViewComponentSnapshot& snapshot)
 {

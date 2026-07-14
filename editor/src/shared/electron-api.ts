@@ -35,7 +35,6 @@ export interface NovelTeaElectronApi {
   reloadEnginePreview(): Promise<EnginePreviewSession>;
   createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
-  importLegacyGame(source: string): Promise<ProjectLoadResponse>;
   validateProject(project: unknown): Promise<ValidationResponse>;
   listPlaybackTests(project: unknown): Promise<TestListResponse>;
   runPlaybackTest(project: unknown, testId: string): Promise<PlaybackReportResponse>;
@@ -84,17 +83,6 @@ export interface NovelTeaElectronApi {
   editComfyUiImage(config: ComfyUiConfig, request: ComfyUiEditImageRequest): Promise<ComfyUiImageJobResponse>;
   cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse>;
   onComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void;
-  setEntityRecord(
-    project: unknown,
-    collection: string,
-    entityId: string,
-    record: unknown,
-  ): Promise<EntityEditResponse>;
-  eraseEntityRecord(
-    project: unknown,
-    collection: string,
-    entityId: string,
-  ): Promise<EntityEditResponse>;
 }
 import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
@@ -105,14 +93,12 @@ import type { EditorShortcutCommand } from './editor-shortcuts';
 import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from './project-asset-audit';
 import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {
-  EntityEditResponse,
   CreateProjectRequest,
   OpenProjectResponse,
   PackageExportOptions,
   PackageExportResponse,
   PackagePreviewResponse,
   PlaybackReportResponse,
-  ProjectLoadResponse,
   SaveProjectResponse,
   ShaderCompileOptions,
   ShaderCompileResponse,

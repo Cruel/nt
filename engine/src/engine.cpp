@@ -4,8 +4,6 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/core/json_access.hpp"
-#include "noveltea/core/legacy/project_package_reader.hpp"
-#include "noveltea/core/project_ids.hpp"
 #include "noveltea/math/geometry.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/preview_bridge.hpp"
@@ -699,57 +697,6 @@ std::filesystem::path default_cache_asset_root()
 #endif
 }
 
-AudioBus audio_bus_from_string(const std::string& value)
-{
-    if (value == "master")
-        return AudioBus::Master;
-    if (value == "music")
-        return AudioBus::Music;
-    if (value == "ambience" || value == "ambient")
-        return AudioBus::Ambience;
-    if (value == "voice")
-        return AudioBus::Voice;
-    return AudioBus::Sfx;
-}
-
-AudioTrackReplaceMode audio_replace_mode_from_string(const std::string& value)
-{
-    return value == "layer" ? AudioTrackReplaceMode::Layer : AudioTrackReplaceMode::Replace;
-}
-
-AudioSfxDesc audio_sfx_desc_from_json(const nlohmann::json& options)
-{
-    AudioSfxDesc desc;
-    if (options.is_object()) {
-        desc.volume = core::json_access::value_or(options, "volume", desc.volume);
-        desc.pitch = core::json_access::value_or(options, "pitch", desc.pitch);
-        desc.max_simultaneous =
-            core::json_access::value_or(options, "max_simultaneous", desc.max_simultaneous);
-    }
-    return desc;
-}
-
-AudioTrackDesc audio_track_desc_from_json(const AudioTrackId& track_id,
-                                          const nlohmann::json& options)
-{
-    AudioTrackDesc desc;
-    desc.track_id = track_id;
-    if (options.is_object()) {
-        desc.bus = audio_bus_from_string(
-            core::json_access::value_or(options, "bus", std::string("music")));
-        desc.volume = core::json_access::value_or(options, "volume", desc.volume);
-        desc.pitch = core::json_access::value_or(options, "pitch", desc.pitch);
-        desc.loop = core::json_access::value_or(options, "loop", desc.loop);
-        desc.fade_in_seconds =
-            core::json_access::value_or(options, "fade_in", desc.fade_in_seconds);
-        desc.fade_out_seconds =
-            core::json_access::value_or(options, "fade_out", desc.fade_out_seconds);
-        desc.replace_mode = audio_replace_mode_from_string(
-            core::json_access::value_or(options, "replace_mode", std::string("replace")));
-    }
-    return desc;
-}
-
 void mount_default_source(assets::AssetManager& assets, const char* ns,
                           const std::filesystem::path& override_root,
                           const std::filesystem::path& default_root, bool writable)
@@ -830,12 +777,12 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
 #endif
 }
 
-bool Engine::load_runtime_project(const std::string& logical_path)
+bool Engine::load_compiled_project(const std::string& logical_path)
 {
     m_tweens.reset();
     auto blob = m_assets.read_binary(logical_path);
     if (!blob) {
-        std::fprintf(stderr, "[engine] failed to read runtime project %s: %s\n",
+        std::fprintf(stderr, "[engine] failed to read compiled project %s: %s\n",
                      logical_path.c_str(), blob.error.c_str());
         return false;
     }
@@ -857,7 +804,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
             shader_materials = std::move(parsed);
         }
         loaded = script::CompiledRuntime::load_preview(
-            std::move(gameplay), std::move(shader_materials), m_scripts, m_typed_saves, "en");
+            std::move(gameplay), std::move(shader_materials), m_scripts, *m_save_slots, "en");
     } else {
         std::string package_error;
         auto package = extract_compiled_package(
@@ -876,7 +823,7 @@ bool Engine::load_runtime_project(const std::string& logical_path)
                                                  std::move(package->shader_materials),
                                              .files = std::move(package->files),
                                              .runtime_locale = "en"},
-            m_scripts, m_typed_saves);
+            m_scripts, *m_save_slots);
     }
 
     if (!loaded) {
@@ -919,17 +866,13 @@ bool Engine::load_runtime_project(const std::string& logical_path)
         }
     }
     m_assets.configure_fonts(std::move(fonts));
-    m_runtime_ui.bind_runtime_host(nullptr);
-    m_runtime_ui.bind_runtime_command_dispatcher(nullptr);
-    m_runtime_shell.bind_runtime_ui(nullptr);
-    m_scripts.clear_game_bindings();
     m_runtime_ui.bind_typed_runtime_session(&m_compiled_runtime->session());
     m_typed_runtime_outputs = m_compiled_runtime->startup_result().outputs;
     m_typed_runtime_diagnostics = m_compiled_runtime->startup_result().diagnostics;
     (void)m_runtime_ui.dispatch_typed_runtime_input(
         core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    SDL_Log("[engine] loaded runtime project: %s", logical_path.c_str());
-    m_runtime_project_path = logical_path;
+    SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
+    m_compiled_project_path = logical_path;
     return true;
 }
 
@@ -1089,10 +1032,9 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         }
     }
 
-    if (run_config.save_slot_store) {
-        m_runtime_shell.host().set_save_slot_store(run_config.save_slot_store);
-    }
-    if (!run_config.runtime_project.empty() && !load_runtime_project(run_config.runtime_project)) {
+    m_save_slots = run_config.save_slot_store ? run_config.save_slot_store : &m_typed_saves;
+    if (!run_config.compiled_project.empty() &&
+        !load_compiled_project(run_config.compiled_project)) {
         rollback();
         return false;
     }
@@ -1334,29 +1276,6 @@ void Engine::handle_events()
             if (ui_consumed)
                 break;
             if (event.key.key == SDLK_ESCAPE) {
-                if (m_runtime_shell.mode() == RuntimeShellMode::Paused) {
-                    RuntimeCommand command;
-                    command.source = RuntimeCommandSource::Platform;
-                    command.domain = RuntimeCommandDomain::Shell;
-                    command.name = "menu.close";
-                    auto result = m_runtime_shell.dispatch_command(std::move(command));
-                    core::RuntimeInputResult input_result = std::move(result.input_result);
-                    process_runtime_result(input_result);
-                    break;
-                }
-                if (m_runtime_shell.layouts().close_top_escape_layout()) {
-                    break;
-                }
-                if (m_runtime_shell.mode() == RuntimeShellMode::Game) {
-                    RuntimeCommand command;
-                    command.source = RuntimeCommandSource::Platform;
-                    command.domain = RuntimeCommandDomain::Shell;
-                    command.name = "game.pause";
-                    auto result = m_runtime_shell.dispatch_command(std::move(command));
-                    core::RuntimeInputResult input_result = std::move(result.input_result);
-                    process_runtime_result(input_result);
-                    break;
-                }
                 m_platform.request_quit();
             }
             std::printf("[input] key_down: scancode=%d\n", event.key.scancode);
@@ -1377,9 +1296,7 @@ void Engine::handle_events()
                 "[input] mouse_down: button=%d logical=(%.2f,%.2f) surface=%dx%d scale=%.3fx%.3f\n",
                 event.button.button, event.button.x, event.button.y, m_platform.logical_width(),
                 m_platform.logical_height(), m_platform.scale_x(), m_platform.scale_y());
-            if (!m_runtime_shell.layouts().blocks_game_input()) {
-                handle_mouse_down(m_pointer_position.x, m_pointer_position.y, event.button.button);
-            }
+            handle_mouse_down(m_pointer_position.x, m_pointer_position.y, event.button.button);
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -1428,43 +1345,6 @@ void Engine::handle_events()
     }
 }
 
-void Engine::process_audio_outputs(const std::vector<core::RuntimeOutput>& outputs)
-{
-    for (const auto& output : outputs) {
-        if (output.type != core::RuntimeOutputType::AudioCommand || !output.payload.is_object()) {
-            continue;
-        }
-        const auto& payload = output.payload;
-        const std::string op = core::json_access::value_or(payload, "op", std::string{});
-        if (op == "play_sfx_alias") {
-            const std::string alias = core::json_access::value_or(payload, "alias", std::string{});
-            if (!alias.empty()) {
-                const auto* options = core::json_access::member(payload, "options");
-                (void)m_audio.play_sfx_alias(
-                    alias, audio_sfx_desc_from_json(options ? *options : nlohmann::json::object()));
-            }
-        } else if (op == "play_track_alias") {
-            const AudioTrackId track_id =
-                core::json_access::value_or(payload, "track_id", std::string("bgm"));
-            const std::string alias = core::json_access::value_or(payload, "alias", std::string{});
-            if (!alias.empty()) {
-                const auto* options = core::json_access::member(payload, "options");
-                (void)m_audio.play_track_alias(
-                    track_id, alias,
-                    audio_track_desc_from_json(track_id,
-                                               options ? *options : nlohmann::json::object()));
-            }
-        } else if (op == "stop_track") {
-            const AudioTrackId track_id =
-                core::json_access::value_or(payload, "track_id", std::string("bgm"));
-            m_audio.stop_track(track_id, core::json_access::value_or(payload, "fade", 0.0f));
-        } else {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[audio] unknown runtime audio command: %s",
-                        op.c_str());
-        }
-    }
-}
-
 void Engine::handle_mouse_down(float x, float y, uint8_t button)
 {
     if (button != SDL_BUTTON_LEFT || m_platform.logical_width() <= 0 ||
@@ -1507,37 +1387,6 @@ void Engine::update(float dt)
         (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
             core::AdvanceTimeInput{std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::duration<float>(std::max(0.0f, dt)))}});
-    } else if (m_runtime_shell.loaded()) {
-        auto result = m_runtime_shell.update(dt);
-        process_runtime_result(result);
-    }
-}
-
-void Engine::process_runtime_result(core::RuntimeInputResult& result)
-{
-    if (!result.handled) {
-        return;
-    }
-
-    auto& runtime_host = m_runtime_shell.host();
-    if (m_runtime_shell.mode() == RuntimeShellMode::Game) {
-        (void)m_runtime_shell.layouts().unmount_layer(RuntimeLayoutLayer::Title);
-        if (!m_runtime_shell.layouts().find_document("runtime_game")) {
-            (void)m_runtime_shell.mount_gameplay_layout();
-        }
-    }
-    m_runtime_ui.apply_controller_commands(runtime_host.last_commands());
-    bool has_script_request = false;
-    for (const auto& output : result.outputs) {
-        if (output.type == core::RuntimeOutputType::ScriptRequest) {
-            has_script_request = true;
-            break;
-        }
-    }
-    m_script_executor.process(result);
-    process_audio_outputs(result.outputs);
-    if (has_script_request) {
-        m_runtime_ui.apply_controller_commands(runtime_host.last_commands());
     }
 }
 
@@ -1573,8 +1422,7 @@ void Engine::render()
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
-    const float transition_opacity =
-        m_compiled_runtime ? 0.0f : m_runtime_shell.transitions().black_opacity();
+    const float transition_opacity = 0.0f;
     if (transition_opacity > 0.0f) {
         m_renderer.draw_fullscreen_color(Color{0.0f, 0.0f, 0.0f, transition_opacity});
     }
@@ -1602,7 +1450,6 @@ void Engine::shutdown()
     m_tweens.reset();
     m_assets.bind_audio_loader(nullptr);
     m_audio.shutdown();
-    m_script_executor.shutdown();
     m_scripts.shutdown();
     m_renderer.shutdown();
     m_platform.shutdown();

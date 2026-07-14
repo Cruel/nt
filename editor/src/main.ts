@@ -12,15 +12,12 @@ import { auditProjectAssets, importUntrackedProjectAssets, purgeProjectTrash, re
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
 import {
   compileShaders,
-  eraseEntityRecord,
   exportPackage,
-  importLegacyGame,
   listPlaybackTests,
   openProject,
   runPlaybackSpec,
   runPlaybackTest,
   runUiPlaybackSpec,
-  setEntityRecord,
   validateProject,
 } from './main/services/editor-tool-service';
 import { createProject, saveProject, saveProjectAs } from './main/services/project-file-service';
@@ -480,12 +477,6 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.IMPORT_LEGACY_GAME,
-    (_event: Electron.IpcMainInvokeEvent, source: string) =>
-      importLegacyGame(source),
-  );
-
-  ipcMain.handle(
     IPC_CHANNELS.VALIDATE_PROJECT,
     (_event: Electron.IpcMainInvokeEvent, project: unknown) =>
       validateProject(project),
@@ -675,27 +666,6 @@ app.whenReady().then(() => {
     IPC_CHANNELS.COMFYUI_CANCEL_JOB,
     (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
       cancelComfyUiJob(config),
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.SET_ENTITY_RECORD,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      project: unknown,
-      collection: string,
-      entityId: string,
-      record: unknown,
-    ) => setEntityRecord(project, collection, entityId, record),
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.ERASE_ENTITY_RECORD,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      project: unknown,
-      collection: string,
-      entityId: string,
-    ) => eraseEntityRecord(project, collection, entityId),
   );
 
   createWindow();

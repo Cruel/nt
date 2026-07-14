@@ -520,13 +520,6 @@ bool PackageExportResult::has_errors() const noexcept
     });
 }
 
-PackageExportResult ProjectPackageWriter::write_to_file(const ProjectDocument& project,
-                                                        const std::filesystem::path& path,
-                                                        const PackageExportOptions& options)
-{
-    return write_to_file(project.root(), path, options);
-}
-
 PackageExportResult ProjectPackageWriter::write_to_file(const nlohmann::json& project,
                                                         const std::filesystem::path& path,
                                                         const PackageExportOptions& options)
@@ -565,13 +558,6 @@ PackageExportResult ProjectPackageWriter::write_to_file(const nlohmann::json& pr
     result.byte_count = bytes.size();
     result.success = !result.has_errors();
     return result;
-}
-
-PackageExportResult ProjectPackageWriter::write_to_memory(const ProjectDocument& project,
-                                                          const PackageExportOptions& options,
-                                                          std::vector<std::byte>& bytes)
-{
-    return write_to_memory(project.root(), options, bytes);
 }
 
 PackageExportResult ProjectPackageWriter::write_to_memory(const nlohmann::json& project,

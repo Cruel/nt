@@ -2,6 +2,10 @@
 
 Date: 2026-06-26
 
+Status: superseded as a repository-state snapshot. The typed runtime cutover and deletion described
+by the current architecture/runtime docs completed after this note. Use `STATUS.md` for current work;
+the inventory below is retained only as the planning context that existed on the date above.
+
 ## Purpose
 
 This document records the recommended migration direction after the external `rmlui-bgfx` renderer became stable enough to use as NovelTea's real RmlUi/bgfx backend. It is intended as a reviewable planning document, not an implementation patch.

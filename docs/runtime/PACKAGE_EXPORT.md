@@ -1,96 +1,54 @@
 # Runtime Package Export
 
-Phase 13 defines the v1 runtime package as a ZIP-based `.ntpkg` file. The public API is
-`noveltea::core::ProjectPackageWriter`; ZIP/miniz details stay private to the implementation.
+## Final Package Contract
 
-## Layout
+Runtime exports are ZIP-based `.ntpkg` files with safe relative paths. The authoritative documents
+are separate:
 
-Runtime packages use the existing runtime-compatible entry layout:
+- `gameplay.json`: canonical `noveltea.compiled.project` version 1.
+- `manifest.json`: package identity, kind, display/platform launch data, inventory, sizes, and
+  optional checksums.
+- `shader-materials.json`: optional shader/material manifest.
+- referenced assets and required compiled shader binaries.
 
-- `game`: normalized runtime game schema, derived from the editor project schema and stripped of authoring-only data.
-- `image`: optional package cover image.
-- `assets/*`: canonical typed-compiler asset paths retained by `noveltea.compiled.project`.
-- `fonts/*` and `textures/*`: existing project font and texture package paths retained while functional consumers remain transitional.
-- `audio/`, `data/`, `music/`, `resources/`, `scripts/`, `sounds/`, `text/`, and `texts/`: safe auxiliary project resources.
-- `shaders/bgfx/<variant>/*.bin`: compiled bgfx shader variants for supported targets.
-- `shader-materials.json`: runtime shader/material metadata, including shader interface records, material records, generated binary references, and binding metadata needed to run material-backed content.
-- `manifest.json`: additive NovelTea metadata.
+Gameplay JSON never embeds package inventory or shader/material manifests.
 
-Runtime game packages include `shader-materials.json` only when material metadata is provided during export. Runtime exports strip shader stage `source`, `source_text`, editor preview data, and compile-cache fields from this metadata. Editable/dev packages may keep authoring fields later, but runtime game packages should only ship runtime-safe metadata plus compiled shader binaries. Materials are runtime schema records, not standalone material files.
+## Production
 
-Entry paths must be relative, slash-separated, non-empty, and must not contain `.`, `..`,
-backslashes, duplicate separators, absolute roots, or namespace-style colons.
+The editor calls `buildCompiledRuntimeExport`, which wraps the single
+`publishCompiledArtifact` compiler publication service. That assembly adds file entries,
+shader/material metadata, required shader binaries, and package options without rebuilding gameplay
+properties.
 
-## Manifest
+Preview, playback, package export, and platform export consume the exact canonical gameplay bytes
+from publication. Any compiler error blocks publication and export.
 
-`manifest.json` uses format `noveltea.runtime-package` with `format_version` 1. It records package
-kind, creator, project name/version, included shader variants, package entries, and stable
-per-entry CRC32 checksums when checksum generation is enabled. If shader/material metadata is
-included, `shader_materials.entry` points at `shader-materials.json` and records the schema and
-whether source fields were stripped. Player capabilities remain in the separate `player.json`
-bootstrap contract and are not duplicated here.
+The native `ProjectPackageWriter` accepts the compiled gameplay JSON plus package options. It has no
+`ProjectDocument` overload and no old-format writer.
 
-The additive Phase 5E native boundary strictly decodes this manifest and the separate
-`noveltea.shader-materials.v1` document. Package assembly takes an archive-reader-produced inventory,
-checks paths, sizes, and declared checksums, requires `game`, gameplay assets, shader metadata, and
-compiled binaries, and verifies project identity, shader bindings/variants, and gameplay Material
-closure before publishing a JSON-free `LoadedCompiledPackage`. Asset, Layout, Script, and Material
-lookups use prepared checked registries. The manifest's authoring material inheritance has already
-been validated and flattened by `buildShaderMaterialProject`; runtime material records remain complete
-standalone definitions. Current functional runtime loading still uses the legacy-compatible package
-fallback until the atomic Phase 10 cutover.
+## Loading and Validation
 
-## Editor Hook
+The engine package loader rejects:
 
-Editor-facing tooling should call `core::editor::ProjectTooling::export_project_package()` or the
-`noveltea-editor-tool export-package` command. Export options can pass `shaderMaterialMetadata`,
-`requiredShaderBinaryPaths`, `shaderAssetRoot`, `shaderVariants`, `assetRoots`, and explicit
-`fileEntries`. Required shader paths are validated against the package payload so missing material
-variants fail during export instead of silently falling back at runtime. The result includes
-success, diagnostics, byte count, manifest JSON, and checksum summary without exposing
-archive-library types.
+- unsafe, duplicate, missing, or unmanifested archive entries;
+- unsupported manifest/gameplay schema or version;
+- mismatched project identity;
+- checksum or declared-size mismatches;
+- malformed shader/material metadata or absent required shader binaries;
+- invalid compiled references/resources;
+- Lua that fails certification.
 
-The runtime `game` document and package manifest both include the normalized project display
-profile (`aspect_ratio`, `orientation`, and `bar_color`). Runtime loading treats the game document
-as authoritative and falls back to 16:9 landscape with black bars for older or invalid projects.
-The manifest also carries platform launch inputs derived from that same normalized profile:
-desktop initial dimensions and arguments, the Web orientation query, and the Android Gradle
-property and manifest orientation. Platform exporters should consume these generated values rather
-than independently reinterpret project settings.
+No legacy package reader or fallback exists. A package is assembled into
+`LoadedCompiledPackage` only after all validation succeeds.
 
-`fileEntries` are the preferred editor-authoring path for referenced assets because they avoid
-copying broad project asset directories into runtime packages. Each entry provides an absolute
-source file and a runtime package path, for example:
+## Player Export
 
-```json
-{
-  "source": "/project/assets/images/foyer.png",
-  "packagePath": "textures/foyer.png"
-}
-```
+Platform staging writes a versioned `player.json`, the runtime package, template files, and
+platform-specific launch metadata. The player verifies config format, package API, checksum, and
+capabilities before calling the shared compiled-project loader.
 
-The package writer applies the same safe-path and allowed-prefix checks to explicit file entries as
-it does to collected asset roots.
-# Player Bootstrap Boundary
+## Verification
 
-Platform export keeps `.ntpkg` as an independent game payload. The version 1 `player.json` contract
-contains the relative package path, lowercase SHA-256, runtime-package API, normalized display
-metadata, application/save identity, locale, and normalized capabilities. Later player work must
-resolve it relative to the platform artifact rather than the process working directory and must
-validate its format version, checksum, and package API before mounting `project:/`.
-
-Player template descriptors advertise an inclusive supported package-API range. The dedicated
-`noveltea-player` implements version 1 of this boundary: it discovers `player.json` relative to the
-executable (or platform resource base), rejects unsafe package paths and unsupported capabilities
-or API versions, verifies the package SHA-256 and `manifest.json`, and only then mounts the game.
-The sandbox command-line startup remains unchanged.
-
-Android packages the config and payload below `assets/noveltea/bootstrap/`. The player reads those
-bytes through SDL packaged-asset IO, applies the same config, API, checksum, and manifest validator,
-then atomically materializes `player.json` and `game.ntpkg` below a checksum-keyed directory in the
-application preference root. Valid existing materializations are reused; incomplete or corrupt
-copies are rebuilt. Old package versions are removed only after the replacement verifies, while
-the identity-scoped save/config/cache/log directories remain independent of package checksums.
-
-Player saves use `FilesystemSaveSlotStore` below an identity-scoped platform preference directory.
-Writes use a temporary file and replacement, so installed files and `game.ntpkg` remain read-only.
+Relevant coverage includes deterministic compiler publication, gameplay-byte equivalence across
+consumers, shader/package inventory tests, malformed package/schema tests, player bootstrap tests,
+and Linux/Web/Android builds.

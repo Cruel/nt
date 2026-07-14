@@ -12,8 +12,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include <noveltea/core/project_document.hpp>
-
 namespace noveltea::core {
 
 enum class PackageExportKind {
@@ -73,16 +71,10 @@ struct PackageExportResult {
 
 class ProjectPackageWriter {
 public:
-    [[nodiscard]] static PackageExportResult write_to_file(const ProjectDocument& project,
-                                                           const std::filesystem::path& path,
-                                                           const PackageExportOptions& options);
     [[nodiscard]] static PackageExportResult write_to_file(const nlohmann::json& project,
                                                            const std::filesystem::path& path,
                                                            const PackageExportOptions& options);
 
-    [[nodiscard]] static PackageExportResult write_to_memory(const ProjectDocument& project,
-                                                             const PackageExportOptions& options,
-                                                             std::vector<std::byte>& bytes);
     [[nodiscard]] static PackageExportResult write_to_memory(const nlohmann::json& project,
                                                              const PackageExportOptions& options,
                                                              std::vector<std::byte>& bytes);

@@ -73,7 +73,7 @@ editor/src/shared/project-schema/authoring-scenes.ts
 editor/src/shared/project-schema/scene-project.ts
 editor/src/renderer/project/scene-operations.ts
 editor/src/renderer/editors/scenes/SceneEditor.tsx
-editor/src/shared/project-schema/authoring-runtime-export.ts
+editor/src/shared/project-schema/compiled-runtime-export.ts
 editor/src/renderer/test/authoring-scenes.test.ts
 editor/src/renderer/test/scene-operations.test.ts
 editor/src/renderer/test/scene-editor.test.tsx

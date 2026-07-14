@@ -3,35 +3,19 @@ include(Catch)
 # --- Core tests (always built) ---
 
 add_executable(noveltea_core_tests
-    core/compatibility_completion_tests.cpp
     core/compiled_package_tests.cpp
     core/compiled_project_model_tests.cpp
     core/compiled_project_wire_tests.cpp
-    core/cutscene_controller_tests.cpp
-    core/dialogue_controller_tests.cpp
-    core/editor_api_tests.cpp
     core/editor_runtime_protocol_tests.cpp
-    core/entity_ref_tests.cpp
     core/flow_executor_tests.cpp
-    core/game_session_tests.cpp
     core/json_access_tests.cpp
-    core/legacy_entity_schema_tests.cpp
-    core/project_document_tests.cpp
-    core/project_model_tests.cpp
     core/player_bootstrap_tests.cpp
-    core/project_validator_tests.cpp
     core/result_tests.cpp
     core/rich_text_tests.cpp
     core/runtime_value_tests.cpp
     core/runtime_domain_types_tests.cpp
     core/runtime_messages_tests.cpp
-    core/runtime_controller_tests.cpp
-    core/runtime_events_tests.cpp
-    core/runtime_project_codec_tests.cpp
     core/runtime_user_settings_tests.cpp
-    core/runtime_session_host_tests.cpp
-    core/runtime_ui_view_tests.cpp
-    core/save_document_tests.cpp
     core/save_state_tests.cpp
     core/typed_save_slot_store_tests.cpp
     core/session_state_tests.cpp
@@ -45,18 +29,10 @@ catch_discover_tests(noveltea_core_tests)
 
 add_test(
     NAME noveltea_editor_tool_malformed_json
-    COMMAND /bin/sh -c "printf '{' | '$<TARGET_FILE:noveltea-editor-tool>' load-project || true"
+    COMMAND /bin/sh -c "printf '{' | '$<TARGET_FILE:noveltea-editor-tool>' run-test || true"
 )
 set_tests_properties(noveltea_editor_tool_malformed_json PROPERTIES
     PASS_REGULAR_EXPRESSION "Malformed request JSON"
-)
-
-add_test(
-    NAME noveltea_editor_tool_load_project
-    COMMAND /bin/sh -c "printf '%s' '{\"source\":\"{\\\"objects\\\":{},\\\"verbs\\\":{},\\\"actions\\\":{},\\\"rooms\\\":{},\\\"maps\\\":{},\\\"dialogues\\\":{},\\\"cutscenes\\\":{},\\\"scripts\\\":{},\\\"entrypoint\\\":[3,\\\"missing\\\"]}\"}' | '$<TARGET_FILE:noveltea-editor-tool>' load-project"
-)
-set_tests_properties(noveltea_editor_tool_load_project PROPERTIES
-    PASS_REGULAR_EXPRESSION "\"ok\""
 )
 
 # --- Text tests (text stack is mandatory) ---
@@ -94,15 +70,6 @@ add_executable(noveltea_tween_tests
 target_link_libraries(noveltea_tween_tests PRIVATE engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_tween_tests)
 
-# --- Runtime shell tests (engine orchestration, non-rendering) ---
-
-add_executable(noveltea_runtime_shell_tests
-    runtime/runtime_shell_tests.cpp
-)
-target_link_libraries(noveltea_runtime_shell_tests PRIVATE engine Catch2::Catch2WithMain)
-target_compile_definitions(noveltea_runtime_shell_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-catch_discover_tests(noveltea_runtime_shell_tests)
-
 # --- Script tests (Lua is mandatory) ---
 
 add_executable(noveltea_script_tests
@@ -114,8 +81,6 @@ add_executable(noveltea_script_tests
     script/typed_execution_kernel_tests.cpp
     script/typed_room_execution_tests.cpp
     script/typed_runtime_session_tests.cpp
-    script/game_bindings_tests.cpp
-    script/runtime_script_executor_tests.cpp
 )
 target_include_directories(noveltea_script_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_script_tests PRIVATE
@@ -138,7 +103,8 @@ add_executable(noveltea_render_tests
     render/shader_variant_tests.cpp
 )
 target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
-target_link_libraries(noveltea_render_tests PRIVATE engine Catch2::Catch2WithMain)
+target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(noveltea_render_tests PRIVATE engine miniz::miniz Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_render_tests)
 
 add_test(
@@ -279,7 +245,6 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_text_tests
         noveltea_asset_tests
         noveltea_tween_tests
-        noveltea_runtime_shell_tests
         noveltea_script_tests
         noveltea_render_tests
         noveltea_ui_tests
@@ -303,15 +268,9 @@ if(EMSCRIPTEN)
 endif()
 
 if(NOVELTEA_BUILD_FUZZERS)
-    foreach(_noveltea_fuzz_kind IN ITEMS 1 2 3 4 5)
+    foreach(_noveltea_fuzz_kind IN ITEMS 1 2)
         if(_noveltea_fuzz_kind EQUAL 1)
-            set(_noveltea_fuzz_name json)
-        elseif(_noveltea_fuzz_kind EQUAL 2)
             set(_noveltea_fuzz_name rich_text)
-        elseif(_noveltea_fuzz_kind EQUAL 3)
-            set(_noveltea_fuzz_name package)
-        elseif(_noveltea_fuzz_kind EQUAL 4)
-            set(_noveltea_fuzz_name runtime_project)
         else()
             set(_noveltea_fuzz_name runtime_user_settings)
         endif()
@@ -320,9 +279,6 @@ if(NOVELTEA_BUILD_FUZZERS)
         target_compile_definitions("${_noveltea_fuzz_target}" PRIVATE
             NOVELTEA_FUZZ_KIND=${_noveltea_fuzz_kind})
         target_link_libraries("${_noveltea_fuzz_target}" PRIVATE noveltea_core)
-        if(_noveltea_fuzz_kind EQUAL 3)
-            target_link_libraries("${_noveltea_fuzz_target}" PRIVATE miniz::miniz)
-        endif()
         noveltea_configure_fuzz_target("${_noveltea_fuzz_target}")
         if(NOT NOVELTEA_USE_LIBFUZZER)
             add_test(NAME "${_noveltea_fuzz_target}_smoke" COMMAND "${_noveltea_fuzz_target}")
@@ -361,7 +317,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_sandbox_runtime_compiled_package_smoke
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_smoke PROPERTIES
         LABELS "runtime;assets"
@@ -369,7 +325,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_sandbox_runtime_compiled_package_repeat_smoke
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --runtime-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_repeat_smoke PROPERTIES
         LABELS "runtime;assets"

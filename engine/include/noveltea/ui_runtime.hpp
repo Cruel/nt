@@ -8,10 +8,7 @@
 #include <vector>
 
 #include "noveltea/active_text_layout.hpp"
-#include "noveltea/core/runtime_session_host.hpp"
 #include "noveltea/core/runtime_messages.hpp"
-#include "noveltea/core/runtime_ui_view.hpp"
-#include "noveltea/runtime_command.hpp"
 #include "noveltea/surface.hpp"
 
 union SDL_Event;
@@ -121,12 +118,8 @@ public:
     void* element(const std::string& document_id, const std::string& element_id) const;
     bool reload_documents_and_styles();
     void set_density(float density);
-    void apply_controller_commands(const std::vector<core::ControllerCommand>& commands);
-    const core::RuntimeUIViewState& runtime_view_state() const;
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
-    void bind_runtime_host(core::RuntimeSessionHost* host);
-    void bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher);
     void bind_typed_runtime_session(script::TypedRuntimeSession* session);
     void bind_typed_presentation_sink(TypedRuntimePresentationSink* sink);
     void bind_typed_audio_sink(TypedRuntimeAudioSink* sink);

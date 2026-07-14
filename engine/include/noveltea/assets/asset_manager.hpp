@@ -3,7 +3,6 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/assets/resource_aliases.hpp"
 #include "noveltea/assets/typed_assets.hpp"
-#include "noveltea/core/legacy/project_package_reader.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -20,8 +19,6 @@ public:
     void clear_namespace(std::string_view namespace_name);
     void mount_directory(std::string namespace_name, std::filesystem::path root,
                          bool writable = false);
-    void mount_legacy_package(std::string namespace_name,
-                              const ::noveltea::core::legacy::ProjectPackage& package);
 
     [[nodiscard]] AssetResult<AssetReaderPtr> open(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetBlob> read_binary(std::string_view logical_path) const;

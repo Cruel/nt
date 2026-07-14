@@ -65,7 +65,7 @@ editor/src/shared/project-schema/authoring-rooms.ts
 editor/src/shared/project-schema/room-project.ts
 editor/src/renderer/project/room-operations.ts
 editor/src/renderer/editors/rooms/RoomEditor.tsx
-editor/src/shared/project-schema/authoring-runtime-export.ts
+editor/src/shared/project-schema/compiled-runtime-export.ts
 engine/include/noveltea/core/project_model.hpp
 engine/include/noveltea/core/runtime_controller.hpp
 ```
@@ -177,7 +177,7 @@ editor/src/shared/project-schema/authoring-rooms.ts
 editor/src/shared/project-schema/room-project.ts
 editor/src/renderer/editors/rooms/RoomEditor.tsx
 editor/src/renderer/project/room-operations.ts
-editor/src/shared/project-schema/authoring-runtime-export.ts
+editor/src/shared/project-schema/compiled-runtime-export.ts
 engine/include/noveltea/core/project_model.hpp
 engine/include/noveltea/core/runtime_controller.hpp
 engine/include/noveltea/core/game_session.hpp

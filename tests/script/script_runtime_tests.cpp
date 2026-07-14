@@ -5,7 +5,6 @@
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/flow_executor.hpp"
-#include "noveltea/core/runtime_session_host.hpp"
 #include "noveltea/core/script_host_services.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/script/script_invoker.hpp"
@@ -595,9 +594,9 @@ TEST_CASE(
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
-    fixture.runtime.bind_game_session(nullptr);
-
-    auto failed = fixture.runtime.execute("toast({})", "callback_argument_error");
+    sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
+    lua.set_function("expects_string", [](std::string) {});
+    auto failed = fixture.runtime.execute("expects_string({})", "callback_argument_error");
     REQUIRE_FALSE(failed);
     CHECK(failed.error().message.find("string") != std::string::npos);
     CHECK(failed.error().traceback.find("stack traceback") != std::string::npos);
@@ -660,48 +659,6 @@ TEST_CASE("ScriptRuntime exposes audio playback bindings")
         fixture.runtime.evaluate_bool("paused_after_resume", "paused_after_resume");
     REQUIRE(paused_after_resume);
     CHECK_FALSE(paused_after_resume.value());
-}
-
-TEST_CASE("ScriptRuntime queues runtime audio commands")
-{
-    RuntimeFixture fixture;
-    auto backend = std::make_unique<FakeAudioBackend>();
-    AudioSystem audio(std::move(backend));
-    REQUIRE(audio.initialize(fixture.assets));
-    core::RuntimeSessionHost host;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets, &audio}));
-    fixture.runtime.bind_runtime_host(&host);
-
-    REQUIRE(fixture.runtime.execute(R"(
-        queued_sfx = audio.queue_sfx_alias("ui.notification", { volume = 0.4, pitch = 1.2 })
-        queued_track = audio.queue_track_alias("bgm", "music.cello_loop", { fade_in = 0.5 })
-        queued_stop = audio.queue_stop_track("bgm", { fade = 0.25 })
-    )",
-                                    "audio_queue"));
-
-    auto sfx = fixture.runtime.evaluate_bool("queued_sfx", "queued_sfx");
-    auto track = fixture.runtime.evaluate_bool("queued_track", "queued_track");
-    auto stop = fixture.runtime.evaluate_bool("queued_stop", "queued_stop");
-    REQUIRE(sfx);
-    REQUIRE(track);
-    REQUIRE(stop);
-    CHECK(sfx.value());
-    CHECK(track.value());
-    CHECK(stop.value());
-
-    auto flushed = host.flush_pending_outputs();
-    REQUIRE(flushed.outputs.size() == 3);
-    CHECK(flushed.outputs[0].type == core::RuntimeOutputType::AudioCommand);
-    CHECK(flushed.outputs[0].payload.value("op", "") == "play_sfx_alias");
-    CHECK(flushed.outputs[0].payload.value("alias", "") == "ui.notification");
-    const double queued_pitch = flushed.outputs[0].payload["options"].value("pitch", 0.0);
-    CHECK(queued_pitch > 1.19);
-    CHECK(queued_pitch < 1.21);
-    CHECK(flushed.outputs[1].payload.value("op", "") == "play_track_alias");
-    CHECK(flushed.outputs[1].payload.value("track_id", "") == "bgm");
-    CHECK(flushed.outputs[1].payload.value("alias", "") == "music.cello_loop");
-    CHECK(flushed.outputs[2].payload.value("op", "") == "stop_track");
-    CHECK(flushed.outputs[2].payload.value("fade", 0.0) == 0.25);
 }
 
 TEST_CASE("ScriptRuntime executes scripts through AssetManager logical paths")

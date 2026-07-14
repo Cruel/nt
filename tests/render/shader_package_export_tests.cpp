@@ -2,11 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <noveltea/core/entity_ref.hpp>
-#include <noveltea/core/legacy/project_package_reader.hpp>
 #include <noveltea/core/package_export.hpp>
-#include <noveltea/core/project_document.hpp>
-#include <noveltea/core/project_ids.hpp>
 #include <noveltea/render/material.hpp>
 #include <noveltea/render/shader_manifest.hpp>
 
@@ -18,6 +14,13 @@
 #include <span>
 #include <string>
 #include <vector>
+
+#define MINIZ_NO_ZLIB_APIS
+#if __has_include(<miniz/miniz.h>)
+#include <miniz/miniz.h>
+#else
+#include <miniz.h>
+#endif
 
 using namespace noveltea;
 using namespace noveltea::core;
@@ -102,13 +105,34 @@ void write_required_shader_bins(const std::filesystem::path& root,
     }
 }
 
-ProjectDocument make_project()
+nlohmann::json make_project()
 {
-    auto project = ProjectDocument::new_project();
-    project.root()[project_ids::project_name] = "Material Package";
-    project.root()[project_ids::project_version] = "1.0";
-    project.root()[project_ids::entrypoint_entity] = EntityRef{EntityType::Room, "start"}.to_json();
+    std::ifstream fixture(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                          "editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json");
+    REQUIRE(fixture.good());
+    auto project = nlohmann::json::parse(fixture, nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
     return project;
+}
+
+std::map<std::string, std::vector<std::byte>> read_package_entries(std::span<const std::byte> bytes)
+{
+    mz_zip_archive archive{};
+    REQUIRE(mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0));
+    std::map<std::string, std::vector<std::byte>> entries;
+    const auto count = mz_zip_reader_get_num_files(&archive);
+    for (mz_uint index = 0; index < count; ++index) {
+        mz_zip_archive_file_stat stat{};
+        REQUIRE(mz_zip_reader_file_stat(&archive, index, &stat));
+        size_t size = 0;
+        void* data = mz_zip_reader_extract_to_heap(&archive, index, &size, 0);
+        REQUIRE(data != nullptr);
+        const auto* first = static_cast<const std::byte*>(data);
+        entries.emplace(stat.m_filename, std::vector<std::byte>(first, first + size));
+        mz_free(data);
+    }
+    REQUIRE(mz_zip_reader_end(&archive));
+    return entries;
 }
 
 } // namespace
@@ -141,16 +165,13 @@ TEST_CASE("ProjectPackageWriter exports runtime shader material metadata and req
     CHECK(exported.manifest["shader_materials"]["entry"] == "shader-materials.json");
     CHECK(exported.manifest["shader_materials"]["sources_stripped"] == true);
 
-    std::vector<legacy::PackageError> errors;
-    const auto package = legacy::ProjectPackageReader::read(
-        std::span<const std::byte>(bytes.data(), bytes.size()), errors);
-    REQUIRE(package.has_value());
-    REQUIRE(package->assets.contains("shader-materials.json"));
+    const auto entries = read_package_entries(bytes);
+    REQUIRE(entries.contains("shader-materials.json"));
     for (const std::string& path : required) {
-        CHECK(package->assets.contains(path));
+        CHECK(entries.contains(path));
     }
 
-    const auto& metadata_bytes = package->assets.at("shader-materials.json");
+    const auto& metadata_bytes = entries.at("shader-materials.json");
     const std::string metadata_text(reinterpret_cast<const char*>(metadata_bytes.data()),
                                     metadata_bytes.size());
     const auto runtime_metadata = nlohmann::json::parse(metadata_text);

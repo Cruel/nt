@@ -9,7 +9,7 @@ import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
-import { buildAuthoringRuntimeExport, hasAuthoringShadersOrMaterials } from '../../shared/project-schema/authoring-runtime-export';
+import { buildCompiledRuntimeExport, hasAuthoringShadersOrMaterials } from '../../shared/project-schema/compiled-runtime-export';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { parseShaderData } from '../../shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
@@ -115,10 +115,10 @@ export async function exportProjectToPlatform(
       record.data = shader;
     }
   }
-  progress('building-runtime-project', 'Building the runtime project');
+  progress('compiling-project', 'Compiling the project artifact');
   checkPlatformExportCancelled(operationId);
-  const built = buildAuthoringRuntimeExport(exportProject, { projectRoot, profile: targetRuntimeProfile });
-  if (!built.ok || !built.runtimeProject) {
+  const built = buildCompiledRuntimeExport(exportProject, { projectRoot, profile: targetRuntimeProfile });
+  if (!built.ok || !built.compiledProject) {
     return failure(operationId, built.diagnostics.map((item) => diagnostic(item.category ?? 'runtime-conversion-failed', item.path, item.message)));
   }
 
@@ -166,7 +166,7 @@ export async function exportProjectToPlatform(
   try {
     progress('writing-package', 'Writing game.ntpkg');
     checkPlatformExportCancelled(operationId);
-    const packaged = await exportPackage(built.runtimeProject, packagePath, {
+    const packaged = await exportPackage(built.compiledProject, packagePath, {
       ...built.packageOptions,
       shaderAssetRoot: (built.packageOptions.shaderVariants?.length ?? 0) > 0
         ? path.join(projectRoot, '.noveltea', 'build')

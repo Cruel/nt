@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
-import { buildAuthoringRuntimeExport } from '../../shared/project-schema/authoring-runtime-export';
+import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
 import { serializeCompiledProjectWireV1 } from '../../shared/project-schema/compiled-project';
 import { minimalGoldenProject } from './fixtures/compiled-project-golden-projects';
 
@@ -23,18 +23,18 @@ describe('compiled artifact publication', () => {
   it('publishes byte-equivalent gameplay for preview, playback, package, and CLI inputs', () => {
     const project = minimalGoldenProject();
     const published = publishCompiledArtifact(project);
-    const exported = buildAuthoringRuntimeExport(project, {
+    const exported = buildCompiledRuntimeExport(project, {
       projectRoot: '/project',
       profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
     });
     expect(published.ok).toBe(true);
     expect(exported.ok).toBe(true);
-    if (!published.ok || !exported.runtimeProject) return;
+    if (!published.ok || !exported.compiledProject) return;
 
-    const previewBytes = serializeCompiledProjectWireV1(exported.runtimeProject);
-    const playbackBytes = serializeCompiledProjectWireV1(exported.runtimeProject);
-    const packageBytes = serializeCompiledProjectWireV1(exported.runtimeProject);
-    const cliBytes = serializeCompiledProjectWireV1(exported.runtimeProject);
+    const previewBytes = serializeCompiledProjectWireV1(exported.compiledProject);
+    const playbackBytes = serializeCompiledProjectWireV1(exported.compiledProject);
+    const packageBytes = serializeCompiledProjectWireV1(exported.compiledProject);
+    const cliBytes = serializeCompiledProjectWireV1(exported.compiledProject);
     expect(previewBytes).toBe(published.project.gameplayJson);
     expect(playbackBytes).toBe(previewBytes);
     expect(packageBytes).toBe(previewBytes);

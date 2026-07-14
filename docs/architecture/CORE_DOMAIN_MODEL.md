@@ -4,9 +4,8 @@
 
 This document is the current architecture contract for the typed NovelTea domain model. It fixes the
 ownership and boundary decisions that later implementation phases must follow. The current
-`ProjectDocument`/`ProjectModel`, `RuntimeProject`, numeric `EntityType`, generic JSON properties, and
-controller hierarchy are migration scaffolding, not alternate contracts. No legacy project, save,
-entity, or package compatibility is required.
+The provisional project/controller/save graph has been deleted. No legacy project, save, entity, or
+package compatibility is part of this contract.
 
 ## Ownership and lifetime
 
@@ -16,11 +15,11 @@ parses an authoring project.
 
 The compiler emits strict, deterministic `noveltea.compiled.project` V1 gameplay JSON. The C++ package
 boundary validates and links that untrusted document into an immutable native `CompiledProject`.
-`RuntimeSessionHost` is the sole owner of the loaded `CompiledProject`, stored by value for the loaded
-session's lifetime. Runtime services and execution frames use lifetime-bounded const references or
-typed IDs; they do not share ownership or retain pointers into definition vectors.
+`CompiledRuntime` owns the loaded `CompiledProject` by value inside `LoadedCompiledPackage` for
+the loaded session's lifetime. Runtime services and execution frames use lifetime-bounded const
+references or typed IDs; they do not share ownership or retain pointers into definition vectors.
 
-`RuntimeSessionHost` also owns one `FlowExecutor` and mutable `SessionState`. `SessionState` owns the
+`TypedRuntimeSession` owns one `FlowExecutor` and mutable `SessionState`. `SessionState` owns the
 authoritative flow stack, blocker, and mutable frame positions; `FlowExecutor` is the sole mutation
 service and retains no duplicate controller stack or hidden continuation state. Renderer, RmlUi, Lua,
 platform, audio, debugger, and editor adapters do not own gameplay state. They receive typed commands
@@ -89,9 +88,7 @@ ancestor traversal without raw pointers. Construction publishes a value only aft
 and inheritance indexes are coherent and all Phase 5A structural invariants have been checked,
 including finite/ranged geometry and presentation values, declaration defaults, enum ranges, and
 collection-shape constraints. Compiled Scene timing values use whole nonnegative milliseconds so the
-wire contract maps losslessly to the shared `DurationWait` vocabulary. The transitional
-`RuntimeProject` remains a separate, operational scaffold and has not been adapted to or rerouted
-through this model.
+wire contract maps losslessly to the shared `DurationWait` vocabulary.
 
 ## IDs and references
 
@@ -201,7 +198,7 @@ runtime material as a flattened complete definition, which the native decoder th
 its shader interface. Platform capabilities remain in the separate player bootstrap contract rather
 than being duplicated in the package manifest.
 
-The provisional `noveltea.runtime.project` schema is explicitly rejected by the gameplay decoder
-while its separate transitional consumer remains operational until Phase 10. The runtime is built on
+Unsupported schemas, including the removed provisional schema, are rejected by the gameplay decoder
+with structured diagnostics and no fallback. The runtime is built on
 the completed no-exceptions/no-compiler-RTTI policy; user-authored input must never reach assertion,
 termination, throwing access, or unchecked lookup paths.

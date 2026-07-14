@@ -9,11 +9,9 @@
 #include "ui_runtime.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/render/material.hpp"
-#include "noveltea/core/runtime_session_host.hpp"
-#include "noveltea/runtime_shell.hpp"
+#include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/script/runtime_script_executor.hpp"
 #include "noveltea/script/compiled_runtime.hpp"
 
 #include <cstdint>
@@ -40,7 +38,7 @@ struct EngineRunConfig {
     std::filesystem::path project_asset_root;
     std::filesystem::path cache_asset_root;
     std::string runtime_ui_document;
-    std::string runtime_project;
+    std::string compiled_project;
     std::string screenshot_path;
     bool enable_debug_ui = true;
     bool preview_widget = false;
@@ -50,7 +48,7 @@ struct EngineRunConfig {
     bool show_fps_counter = false;
     std::vector<std::string> audio_sfx_paths;
     std::vector<std::string> audio_track_specs;
-    core::SaveSlotStore* save_slot_store = nullptr;
+    core::TypedSaveSlotStore* save_slot_store = nullptr;
 };
 
 class Engine {
@@ -104,9 +102,7 @@ private:
     void render();
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
-    bool load_runtime_project(const std::string& logical_path);
-    void process_runtime_result(core::RuntimeInputResult& result);
-    void process_audio_outputs(const std::vector<core::RuntimeOutput>& outputs);
+    bool load_compiled_project(const std::string& logical_path);
 
     assets::AssetManager m_assets;
     AudioSystem m_audio;
@@ -117,14 +113,13 @@ private:
     Renderer m_renderer;
     TweenService m_tweens;
     script::ScriptRuntime m_scripts;
-    script::RuntimeScriptExecutor m_script_executor;
     core::TypedMemorySaveSlotStore m_typed_saves;
+    core::TypedSaveSlotStore* m_save_slots = &m_typed_saves;
     std::unique_ptr<script::CompiledRuntime> m_compiled_runtime;
     std::vector<core::RuntimeOutputMessage> m_typed_runtime_outputs;
     core::Diagnostics m_typed_runtime_diagnostics;
     ShaderMaterialProject m_shader_materials;
     RuntimeUI m_runtime_ui;
-    RuntimeShell m_runtime_shell;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;
@@ -147,7 +142,7 @@ private:
     bool m_show_fps_counter = false;
     uint32_t m_fps_sample_frames = 0;
     uint64_t m_fps_sample_start_counter = 0;
-    std::string m_runtime_project_path;
+    std::string m_compiled_project_path;
 };
 
 } // namespace noveltea

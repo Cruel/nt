@@ -122,7 +122,7 @@ editor/src/shared/project-schema/dialogue-project.ts
 editor/src/renderer/project/dialogue-operations.ts
 editor/src/renderer/editors/dialogues/DialogueEditor.tsx
 editor/src/renderer/editors/dialogues/DialogueGraph.tsx
-editor/src/shared/project-schema/authoring-runtime-export.ts
+editor/src/shared/project-schema/compiled-runtime-export.ts
 engine/include/noveltea/core/compiled_project.hpp
 engine/include/noveltea/core/feature_state.hpp
 engine/include/noveltea/core/feature_view.hpp

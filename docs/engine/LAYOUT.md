@@ -235,7 +235,7 @@ The revision includes the layout data, source asset content hashes/paths, and ma
 Native runtime UI support is implemented through RmlUi integration. Relevant runtime pieces include:
 
 - `RuntimeUI` for RmlUi lifecycle and document loading;
-- `RuntimeUIViewState` and `RuntimeUIViewAdapter` for runtime UI state exposed to documents;
+- `TypedRuntimeUIViewState` for runtime UI state exposed to documents;
 - bgfx RmlUi render interface;
 - SDL3 input and system interfaces;
 - file interface for asset-backed loading;
@@ -247,16 +247,15 @@ The current authoring layout schema is ahead of some runtime mounting/export beh
 
 ## Export / Package Status
 
-Layouts are authoring records, but `buildAuthoringRuntimeExport()` does not yet convert layouts into a complete runtime UI manifest. Assets referenced by layouts may be included if they are otherwise collected or if the export profile includes all project assets.
-
-Shader/material metadata can be exported independently and may support layout materials as that integration stabilizes.
+The compiler emits typed Layout resources and references; package assembly collects their source
+assets and separate shader/material metadata. Layout data is part of the compiled resource contract,
+not a provisional runtime-project manifest.
 
 ## Scripting Status
 
 Layouts can carry Lua source as inline text or an asset reference. Runtime interaction should use
-ordinary RmlUi events such as `onclick` and Lua handlers that call dispatcher-backed `Game.*`
-methods, for example `onclick="Game.start()"` or a namespaced handler that calls
-`Game.navigate(direction)`.
+ordinary RmlUi events such as `onclick` and Lua handlers that call the typed `Game.ui.*` surface
+backed by `RuntimeScriptApi`.
 
 Lua is the only runtime scripting target. Layout script execution is controlled by `script.enabled`, and namespace metadata is available for future runtime binding discipline.
 

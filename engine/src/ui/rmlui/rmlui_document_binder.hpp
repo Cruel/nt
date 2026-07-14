@@ -4,7 +4,6 @@
 #include <string_view>
 #include <unordered_set>
 
-#include <noveltea/core/runtime_ui_view.hpp>
 #include <noveltea/core/feature_view.hpp>
 
 #include <RmlUi/Core/ElementDocument.h>
@@ -15,7 +14,6 @@ class RuntimeUiDocumentBinder {
 public:
     RuntimeUiDocumentBinder();
 
-    void bind(Rml::ElementDocument& doc, const core::RuntimeUIViewState& state);
     void bind(Rml::ElementDocument& doc, const core::TypedRuntimeUIViewState& state,
               std::string_view notification = {});
 

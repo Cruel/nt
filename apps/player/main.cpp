@@ -2,7 +2,7 @@
 #include <SDL3/SDL_main.h>
 
 #include <noveltea/core/player_bootstrap.hpp>
-#include <noveltea/core/save_document.hpp>
+#include <noveltea/core/typed_save_slot_store.hpp>
 #include <noveltea/engine.hpp>
 
 #include <cstdio>
@@ -170,7 +170,7 @@ int main(int argc, char** argv)
     log << "NovelTea player starting " << bootstrap.config.display_name << " "
         << bootstrap.config.version_name << '\n';
 
-    noveltea::core::FilesystemSaveSlotStore saves(roots / "saves");
+    noveltea::core::TypedFilesystemSaveSlotStore saves(roots / "saves");
     noveltea::PlatformConfig platform;
     platform.title = bootstrap.config.display_name.c_str();
     const bool portrait = bootstrap.config.display.orientation == "portrait";
@@ -183,7 +183,7 @@ int main(int argc, char** argv)
     run.project_asset_root = path.parent_path();
     run.system_asset_root = packaged_system_asset_root(path);
     run.cache_asset_root = roots / "cache";
-    run.runtime_project = "project:/" + bootstrap.config.package_path.generic_string();
+    run.compiled_project = "project:/" + bootstrap.config.package_path.generic_string();
     run.save_slot_store = &saves;
 #if !defined(NDEBUG)
     if (const char* frames = std::getenv("NOVELTEA_PLAYER_SMOKE_FRAMES"))

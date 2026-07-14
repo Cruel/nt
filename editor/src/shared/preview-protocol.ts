@@ -67,7 +67,6 @@ export interface PreviewDisplayProfile {
 export interface RuntimeDebugEntityRef {
   type: string;
   id: string;
-  legacyType?: number;
   collection?: string;
   label?: string;
 }
@@ -217,9 +216,9 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-reset'; requestId: string }
   | {
       version: 1;
-      type: 'runtime-load-project';
+      type: 'runtime-load-compiled-project';
       requestId: string;
-      project: unknown;
+      compiledProject: unknown;
       shaderMaterialMetadata?: unknown;
       assets?: Array<{ sourcePath: string; runtimePath: string }>;
     }
@@ -367,7 +366,6 @@ function isRuntimeDebugEntityRef(value: unknown): value is RuntimeDebugEntityRef
   return (
     typeof value.type === 'string' &&
     typeof value.id === 'string' &&
-    (value.legacyType === undefined || (typeof value.legacyType === 'number' && Number.isInteger(value.legacyType))) &&
     (value.collection === undefined || typeof value.collection === 'string') &&
     (value.label === undefined || typeof value.label === 'string')
   );
@@ -584,8 +582,8 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-request-debug-snapshot':
     case 'request-preview-state':
       return true;
-    case 'runtime-load-project':
-      return 'project' in value && (
+    case 'runtime-load-compiled-project':
+      return 'compiledProject' in value && (
         value.shaderMaterialMetadata === undefined || isRecord(value.shaderMaterialMetadata)
       ) && (
         value.assets === undefined

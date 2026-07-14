@@ -2,7 +2,6 @@
 #include "script/lua/sol_access.hpp"
 
 #include "noveltea/audio/audio_system.hpp"
-#include "noveltea/core/runtime_session_host.hpp"
 
 #include <SDL3/SDL_log.h>
 #include <lua.hpp>
@@ -15,7 +14,6 @@ namespace noveltea::script {
 namespace {
 
 constexpr const char kAudioKey[] = "__noveltea_audio_system";
-constexpr const char kAudioHostKey[] = "__noveltea_audio_runtime_host";
 
 AudioBus parse_bus(const std::string& name)
 {
@@ -66,42 +64,12 @@ AudioSystem* audio_from(sol::state_view lua)
     return detail::registry_pointer<AudioSystem>(lua, kAudioKey);
 }
 
-core::RuntimeSessionHost* host_from(sol::state_view lua)
-{
-    return detail::registry_pointer<core::RuntimeSessionHost>(lua, kAudioHostKey);
-}
-
-bool enqueue_audio_command(sol::state_view lua, nlohmann::json payload)
-{
-    core::RuntimeSessionHost* host = host_from(lua);
-    if (!host) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "[lua] audio command ignored; runtime host is unavailable");
-        return false;
-    }
-    host->enqueue_audio_command(std::move(payload));
-    return true;
-}
-
 AudioSfxDesc sfx_desc(const sol::optional<sol::table>& options)
 {
     return AudioSfxDesc{.volume = option_float(options, "volume", 1.0f),
                         .pitch = option_float(options, "pitch", 1.0f),
                         .max_simultaneous = static_cast<uint32_t>(
                             std::max(0.0f, option_float(options, "max_simultaneous", 0.0f)))};
-}
-
-nlohmann::json sfx_options_json(const sol::optional<sol::table>& options)
-{
-    nlohmann::json json = nlohmann::json::object();
-    json["volume"] = option_float(options, "volume", 1.0f);
-    json["pitch"] = option_float(options, "pitch", 1.0f);
-    const uint32_t max_simultaneous =
-        static_cast<uint32_t>(std::max(0.0f, option_float(options, "max_simultaneous", 0.0f)));
-    if (max_simultaneous > 0) {
-        json["max_simultaneous"] = max_simultaneous;
-    }
-    return json;
 }
 
 AudioTrackDesc track_desc(const std::string& track_id, const sol::optional<sol::table>& options)
@@ -114,19 +82,6 @@ AudioTrackDesc track_desc(const std::string& track_id, const sol::optional<sol::
                           .fade_in_seconds = option_float(options, "fade_in", 0.0f),
                           .fade_out_seconds = option_float(options, "fade_out", 0.0f),
                           .replace_mode = option_replace_mode(options)};
-}
-
-nlohmann::json track_options_json(const sol::optional<sol::table>& options)
-{
-    nlohmann::json json = nlohmann::json::object();
-    json["bus"] = option_string(options, "bus", "music");
-    json["volume"] = option_float(options, "volume", 1.0f);
-    json["pitch"] = option_float(options, "pitch", 1.0f);
-    json["loop"] = option_bool(options, "loop", true);
-    json["fade_in"] = option_float(options, "fade_in", 0.0f);
-    json["fade_out"] = option_float(options, "fade_out", 0.0f);
-    json["replace_mode"] = option_string(options, "replace_mode", "replace");
-    return json;
 }
 
 } // namespace
@@ -185,34 +140,6 @@ void bind_audio(lua_State* state, AudioSystem* audio)
             return static_cast<bool>(
                 audio_system->play_track_alias(track_id, alias, track_desc(track_id, options)));
         });
-    table.set_function(
-        "queue_sfx_alias",
-        [](std::string alias, sol::optional<sol::table> options, sol::this_state L) -> bool {
-            nlohmann::json payload = nlohmann::json::object();
-            payload["op"] = "play_sfx_alias";
-            payload["alias"] = std::move(alias);
-            payload["options"] = sfx_options_json(options);
-            return enqueue_audio_command(sol::state_view(L), std::move(payload));
-        });
-    table.set_function("queue_track_alias",
-                       [](std::string track_id, std::string alias,
-                          sol::optional<sol::table> options, sol::this_state L) -> bool {
-                           nlohmann::json payload = nlohmann::json::object();
-                           payload["op"] = "play_track_alias";
-                           payload["track_id"] = std::move(track_id);
-                           payload["alias"] = std::move(alias);
-                           payload["options"] = track_options_json(options);
-                           return enqueue_audio_command(sol::state_view(L), std::move(payload));
-                       });
-    table.set_function(
-        "queue_stop_track",
-        [](std::string track_id, sol::optional<sol::table> options, sol::this_state L) -> bool {
-            nlohmann::json payload = nlohmann::json::object();
-            payload["op"] = "stop_track";
-            payload["track_id"] = std::move(track_id);
-            payload["fade"] = option_float(options, "fade", 0.0f);
-            return enqueue_audio_command(sol::state_view(L), std::move(payload));
-        });
     table.set_function("stop_track", [](std::string track_id, sol::optional<sol::table> options,
                                         sol::this_state L) {
         AudioSystem* audio_system = audio_from(sol::state_view(L));
@@ -250,17 +177,10 @@ void bind_audio(lua_State* state, AudioSystem* audio)
     lua["audio"] = table;
 }
 
-void bind_audio_runtime_host(lua_State* state, core::RuntimeSessionHost* host)
-{
-    sol::state_view lua(state);
-    lua.registry().set(kAudioHostKey, host);
-}
-
 void clear_audio_binding(lua_State* state)
 {
     sol::state_view lua(state);
     lua.registry().set(kAudioKey, nullptr);
-    lua.registry().set(kAudioHostKey, nullptr);
     lua["audio"] = sol::lua_nil;
 }
 

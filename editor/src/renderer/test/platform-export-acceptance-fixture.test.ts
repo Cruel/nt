@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
-import { buildAuthoringRuntimeExport } from '../../shared/project-schema/authoring-runtime-export';
+import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { createPlatformExportAcceptanceFixture, platformExportFixtureExpectations } from '../../shared/project-schema/platform-export-acceptance-fixture';
 
@@ -16,10 +16,10 @@ describe('platform export acceptance fixture', () => {
   });
   it('publishes the complete compiled resource and execution contract', () => {
     const project = createPlatformExportAcceptanceFixture();
-    const result = buildAuthoringRuntimeExport(project, { projectRoot: '/fixture', profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false } });
-    expect(result.runtimeProject).toHaveProperty('resources.layouts');
-    expect(result.runtimeProject).toHaveProperty('definitions.scenes');
-    expect(result.runtimeProject).toHaveProperty('definitions.rooms');
+    const result = buildCompiledRuntimeExport(project, { projectRoot: '/fixture', profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false } });
+    expect(result.compiledProject).toHaveProperty('resources.layouts');
+    expect(result.compiledProject).toHaveProperty('definitions.scenes');
+    expect(result.compiledProject).toHaveProperty('definitions.rooms');
     expect(platformExportFixtureExpectations.blocked.length).toBeGreaterThan(0);
   });
 });

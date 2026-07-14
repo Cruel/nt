@@ -3,7 +3,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
-import { buildAuthoringRuntimeExport } from '../../shared/project-schema/authoring-runtime-export';
+import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
 import { defaultRoomData, roomAssetRef, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
@@ -28,13 +28,13 @@ function roomProject() {
   return project;
 }
 
-describe('authoring runtime export builder', () => {
-  it('builds a runtime-shaped package input from a simple room project', () => {
+describe('compiled runtime export builder', () => {
+  it('assembles a compiled package input from a simple room project', () => {
     const profile = { ...defaultExportProfile(), compileShadersBeforeExport: false };
-    const result = buildAuthoringRuntimeExport(roomProject(), { projectRoot: '/project', profile });
+    const result = buildCompiledRuntimeExport(roomProject(), { projectRoot: '/project', profile });
 
     expect(result.ok).toBe(true);
-    expect(result.runtimeProject).toMatchObject({
+    expect(result.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project', schemaVersion: 1,
       project: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
@@ -43,15 +43,15 @@ describe('authoring runtime export builder', () => {
         expect.objectContaining({ id: 'kitchen', displayName: 'Kitchen' }),
       ]) },
     });
-    expect(result.runtimeProject).toMatchObject({ resources: { assets: [expect.objectContaining({ id: 'foyer', path: 'assets/images/foyer.png' })] } });
-    expect(result.runtimeProject).not.toHaveProperty('editor');
-    expect(result.runtimeProject).not.toHaveProperty('tests');
+    expect(result.compiledProject).toMatchObject({ resources: { assets: [expect.objectContaining({ id: 'foyer', path: 'assets/images/foyer.png' })] } });
+    expect(result.compiledProject).not.toHaveProperty('editor');
+    expect(result.compiledProject).not.toHaveProperty('tests');
     expect(result.fileEntries).toEqual([
       expect.objectContaining({ source: '/project/assets/images/foyer.png', packagePath: 'assets/images/foyer.png', assetId: 'foyer' }),
     ]);
     expect(result.packageOptions.fileEntries).toEqual([{ source: '/project/assets/images/foyer.png', packagePath: 'assets/images/foyer.png' }]);
     expect(result.packageOptions.shaderVariants).toEqual([]);
-    expect(result.runtimeProject).toMatchObject({ settings: { display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' } } });
+    expect(result.compiledProject).toMatchObject({ settings: { display: { aspectRatio: { width: 16, height: 9 }, orientation: 'landscape', barColor: '#000000' } } });
     expect(result.packageOptions.display).toEqual({ aspect_ratio: { width: 16, height: 9 }, orientation: 'landscape', bar_color: '#000000' });
     expect(result.packageOptions.platform).toEqual({
       orientation: 'landscape',
@@ -70,7 +70,7 @@ describe('authoring runtime export builder', () => {
       barColor: '#102030',
     };
 
-    const result = buildAuthoringRuntimeExport(project, {
+    const result = buildCompiledRuntimeExport(project, {
       projectRoot: '/project',
       profile: defaultExportProfile(project),
     });
@@ -108,17 +108,17 @@ describe('authoring runtime export builder', () => {
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
     project.entrypoint = { kind: 'dialogue', id: 'intro' };
 
-    const result = buildAuthoringRuntimeExport(project, {
+    const result = buildCompiledRuntimeExport(project, {
       projectRoot: '/project',
       profile: defaultExportProfile(project),
     });
 
     expect(result.ok).toBe(true);
-    expect(result.runtimeProject).toMatchObject({
+    expect(result.compiledProject).toMatchObject({
       entrypoint: { kind: 'dialogue', dialogue: { kind: 'dialogue', id: 'intro' } },
       definitions: { dialogues: [expect.objectContaining({ id: 'intro' })] },
     });
-    expect(result.runtimeProject).toMatchObject({ definitions: { dialogues: [{ program: { blocks: expect.any(Array) } }] } });
+    expect(result.compiledProject).toMatchObject({ definitions: { dialogues: [{ program: { blocks: expect.any(Array) } }] } });
   });
 
   it('preserves supported typed dialogue features without lossy warnings', () => {
@@ -132,7 +132,7 @@ describe('authoring runtime export builder', () => {
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
     project.entrypoint = { kind: 'dialogue', id: 'intro' };
 
-    const result = buildAuthoringRuntimeExport(project, {
+    const result = buildCompiledRuntimeExport(project, {
       projectRoot: '/project',
       profile: defaultExportProfile(project),
     });
@@ -153,13 +153,13 @@ describe('authoring runtime export builder', () => {
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     project.entrypoint = { kind: 'scene', id: 'opening' };
 
-    const result = buildAuthoringRuntimeExport(project, {
+    const result = buildCompiledRuntimeExport(project, {
       projectRoot: '/project',
       profile: defaultExportProfile(project),
     });
 
     expect(result.ok).toBe(true);
-    expect(result.runtimeProject).toMatchObject({
+    expect(result.compiledProject).toMatchObject({
       entrypoint: { kind: 'scene', scene: { kind: 'scene', id: 'opening' } },
       definitions: { scenes: [{ id: 'opening', program: { instructions: expect.any(Array) } }] },
     });
@@ -178,7 +178,7 @@ describe('authoring runtime export builder', () => {
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     project.entrypoint = { kind: 'scene', id: 'opening' };
 
-    const result = buildAuthoringRuntimeExport(project, {
+    const result = buildCompiledRuntimeExport(project, {
       projectRoot: '/project',
       profile: defaultExportProfile(project),
     });

@@ -24,7 +24,7 @@ private:
         std::filesystem::path project_asset_root;
         std::filesystem::path cache_asset_root;
         std::string runtime_ui_document;
-        std::string runtime_project;
+        std::string compiled_project;
         ScreenOrientation launch_orientation = ScreenOrientation::Landscape;
         int window_width = 0;
         int window_height = 0;

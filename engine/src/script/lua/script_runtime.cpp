@@ -273,7 +273,6 @@ void ScriptRuntime::shutdown()
     if (m_impl) {
         m_impl->initialized = false;
         m_impl->invocations.clear();
-        release_game_binding_state(m_impl->lua.lua_state());
         m_impl.reset();
     }
 }
@@ -551,26 +550,6 @@ void ScriptRuntime::collect_garbage()
         m_impl->lua.collect_garbage();
 }
 
-void ScriptRuntime::bind_game_session(core::GameSession* session)
-{
-    if (is_initialized())
-        noveltea::script::bind_game_session(m_impl->lua.lua_state(), session);
-}
-
-void ScriptRuntime::bind_runtime_host(core::RuntimeSessionHost* host)
-{
-    if (!is_initialized())
-        return;
-    noveltea::script::bind_runtime_host(m_impl->lua.lua_state(), host);
-    ::noveltea::script::bind_audio_runtime_host(m_impl->lua.lua_state(), host);
-}
-
-void ScriptRuntime::bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher)
-{
-    if (is_initialized())
-        noveltea::script::bind_runtime_command_dispatcher(m_impl->lua.lua_state(), dispatcher);
-}
-
 void ScriptRuntime::bind_audio(AudioSystem* audio)
 {
     if (is_initialized())
@@ -581,12 +560,6 @@ void ScriptRuntime::clear_audio_binding()
 {
     if (is_initialized())
         noveltea::script::clear_audio_binding(m_impl->lua.lua_state());
-}
-
-void ScriptRuntime::clear_game_bindings()
-{
-    if (is_initialized())
-        noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
 }
 
 void ScriptRuntime::bind_typed_host(core::ScriptHostServices* host)
@@ -624,7 +597,6 @@ void ScriptRuntime::bind_runtime_script_api(RuntimeScriptApi* api)
         m_impl->direct_typed_api->clear_target();
     m_impl->direct_typed_api.reset();
     m_impl->direct_typed_target.reset();
-    noveltea::script::clear_game_bindings(m_impl->lua.lua_state());
     noveltea::script::bind_typed_script_host(m_impl->lua.lua_state(), api);
     m_impl->runtime_script_api_bound = api != nullptr;
 }

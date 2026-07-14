@@ -241,7 +241,7 @@ Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 Preview display configuration is replayable state. Editor previews send the effective project or
 custom display profile on every connection and whenever that profile changes, plus
 responsive/reference scaling metadata. This keeps Follow Project previews synchronized even when a
-running Play session intentionally retains an older runtime-project snapshot. `null` remains a
+running Play session intentionally retains an older compiled-project snapshot. `null` remains a
 protocol-level operation for clearing the override, but normal editor preview ownership always
 sends a complete effective profile. The editor owns iframe fitting and reference downscaling; the
 widget reports its actual surface and applies only the engine display-profile override.
@@ -249,10 +249,11 @@ The `set-demo-position` and `reset-demo` commands remain compatibility commands
 for the current sandbox preview. New editor UI should prefer runtime-named
 commands.
 
-`runtime-load-project` may include preview-only asset mappings with a project-relative
+`runtime-load-compiled-project` carries the canonical `noveltea.compiled.project` value and may
+include preview-only asset mappings with a project-relative
 source path and the runtime package path. `web/widget.html` fetches those files from
 the loopback server and stages them into the Emscripten `project:/` mount before
-loading the runtime document. This keeps the live Play tab's asset layout identical
+loading the compiled project. This keeps the live Play tab's asset layout identical
 to exported packages, where referenced images are stored under paths such as
 `textures/<asset>.<ext>`.
 

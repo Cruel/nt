@@ -1,7 +1,7 @@
 import type { ToolDiagnostic } from '../editor-tooling';
 import { isAuthoringProject, type AuthoringProject } from './authoring-project';
 import { selectedExportProfile } from './authoring-export';
-import { buildAuthoringRuntimeExport } from './authoring-runtime-export';
+import { buildCompiledRuntimeExport } from './compiled-runtime-export';
 import {
   parseTestData,
   type TestData,
@@ -59,12 +59,12 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   return null;
 }
 
-function runtimeProjectForAuthoring(project: AuthoringProject): { project?: unknown; diagnostics: ToolDiagnostic[]; ok: boolean } {
-  const exported = buildAuthoringRuntimeExport(project, {
+function compiledProjectForAuthoring(project: AuthoringProject): { project?: unknown; diagnostics: ToolDiagnostic[]; ok: boolean } {
+  const exported = buildCompiledRuntimeExport(project, {
     projectRoot: null,
     profile: selectedExportProfile(project),
   });
-  return { project: exported.runtimeProject, diagnostics: exported.diagnostics, ok: exported.ok };
+  return { project: exported.compiledProject, diagnostics: exported.diagnostics, ok: exported.ok };
 }
 
 export function buildRuntimePlaybackSpecFromTestData(testId: string, data: TestData): RuntimePlaybackSpecBuildResult {
@@ -104,12 +104,12 @@ export function buildRuntimePlaybackSpecFromAuthoringTest(project: AuthoringProj
     return { ok: false, diagnostics: [diagnostic('error', `/tests/${testId}/data`, 'Test data is invalid.')] };
   }
   const built = buildRuntimePlaybackSpecFromTestData(testId, data);
-  const runtimeProject = runtimeProjectForAuthoring(project);
+  const compiledProject = compiledProjectForAuthoring(project);
   return {
     ...built,
-    ok: built.ok && runtimeProject.ok,
-    project: runtimeProject.project,
-    diagnostics: [...built.diagnostics, ...runtimeProject.diagnostics],
+    ok: built.ok && compiledProject.ok,
+    project: compiledProject.project,
+    diagnostics: [...built.diagnostics, ...compiledProject.diagnostics],
   };
 }
 
@@ -148,17 +148,17 @@ export function getAuthoringTestRunReadiness(project: unknown, testId: string): 
       diagnostics: playback.diagnostics,
     };
   }
-  const runtimeProject = runtimeProjectForAuthoring(project);
-  if (!runtimeProject.ok) {
+  const compiledProject = compiledProjectForAuthoring(project);
+  if (!compiledProject.ok) {
     return {
       runnable: false,
       reason: 'not-runnable-authoring-conversion-missing',
-      diagnostics: runtimeProject.diagnostics,
+      diagnostics: compiledProject.diagnostics,
     };
   }
   return {
     runnable: true,
     reason: 'runnable',
-    diagnostics: runtimeProject.diagnostics.filter((item) => item.severity !== 'error'),
+    diagnostics: compiledProject.diagnostics.filter((item) => item.severity !== 'error'),
   };
 }

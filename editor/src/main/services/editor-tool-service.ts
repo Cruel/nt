@@ -4,6 +4,9 @@ import path from 'node:path';
 import { app } from 'electron';
 import { validateProjectComfyUiWorkflows } from './comfyui-service';
 import type { PackageExportOptions, ShaderCompileOptions } from '../../shared/editor-tooling';
+import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseTestData } from '../../shared/project-schema/authoring-tests';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -137,7 +140,6 @@ async function openAuthoringProjectFromSource(source: string, projectFilePath: s
     return {
       ok: true,
       success: true,
-      importedLegacy: false,
       diagnostics,
       project: parsed,
       projectPath: path.dirname(projectFilePath),
@@ -152,26 +154,71 @@ export async function openProject(projectPath: string) {
   const source = readFileSync(projectFilePath, 'utf8');
   const authoringProject = await openAuthoringProjectFromSource(source, projectFilePath);
   if (authoringProject) return authoringProject;
-  const response = (await invokeEditorTool('load-project', { source })) as Record<string, unknown>;
-  const workflowDiagnostics = await validateProjectComfyUiWorkflows(projectFilePath);
   return {
-    ...response,
-    diagnostics: [...(Array.isArray(response.diagnostics) ? response.diagnostics : []), ...workflowDiagnostics],
+    ok: true,
+    success: false,
+    diagnostics: [{
+      severity: 'error',
+      category: 'authoring.unsupported_schema',
+      path: '/schema',
+      message: 'Project must use noveltea.authoring.project version 2.',
+    }],
     projectPath: path.dirname(projectFilePath),
     projectFilePath,
   };
 }
 
-export function importLegacyGame(source: string) {
-  return invokeEditorTool('import-legacy-game', { source });
-}
-
 export function validateProject(project: unknown) {
-  return invokeEditorTool('validate', { project });
+  if (!isAuthoringProject(project)) {
+    return Promise.resolve({
+      ok: true,
+      success: false,
+      diagnostics: [{
+        severity: 'error',
+        category: 'authoring.unsupported_schema',
+        path: '/schema',
+        message: 'Project must use noveltea.authoring.project version 2.',
+      }],
+    });
+  }
+  const compiled = compileAuthoringProject(project);
+  const diagnostics = compiled.diagnostics.map((item) => ({
+    severity: item.severity,
+    category: item.code,
+    path: item.jsonPointer,
+    message: item.message,
+  }));
+  return Promise.resolve({ ok: true, success: compiled.ok, diagnostics });
 }
 
 export function listPlaybackTests(project: unknown) {
-  return invokeEditorTool('list-tests', { project });
+  if (!isAuthoringProject(project)) {
+    return Promise.resolve({
+      ok: true,
+      tests: [],
+      diagnostics: [{
+        severity: 'error',
+        category: 'authoring.unsupported_schema',
+        path: '/schema',
+        message: 'Project must use noveltea.authoring.project version 2.',
+      }],
+    });
+  }
+  const diagnostics: Array<{ severity: 'error'; category: string; path: string; message: string }> = [];
+  const tests = Object.entries(project.tests).flatMap(([id, record]) => {
+    const data = parseTestData(record.data);
+    if (!data) {
+      diagnostics.push({
+        severity: 'error',
+        category: 'authoring.invalid_test',
+        path: `/tests/${id}/data`,
+        message: `Test '${id}' is invalid.`,
+      });
+      return [];
+    }
+    return [{ id, steps: data.steps.length }];
+  });
+  return Promise.resolve({ ok: true, tests, diagnostics });
 }
 
 export function runPlaybackTest(project: unknown, testId: string) {
@@ -192,17 +239,4 @@ export function exportPackage(project: unknown, outputPath: string, options?: Pa
 
 export function compileShaders(shaderProject: unknown, options?: ShaderCompileOptions) {
   return invokeEditorTool('compile-shaders', { shaderProject, options: options ?? {} });
-}
-
-export function setEntityRecord(
-  project: unknown,
-  collection: string,
-  entityId: string,
-  record: unknown,
-) {
-  return invokeEditorTool('set-entity', { project, collection, entityId, record });
-}
-
-export function eraseEntityRecord(project: unknown, collection: string, entityId: string) {
-  return invokeEditorTool('erase-entity', { project, collection, entityId });
 }

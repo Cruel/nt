@@ -1,4 +1,3 @@
-#include <noveltea/core/editor_api.hpp>
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/package_export.hpp>
 #include <noveltea/assets/asset_manager.hpp>
@@ -7,9 +6,7 @@
 #include <noveltea/script/compiled_runtime.hpp>
 #include <noveltea/script/script_runtime.hpp>
 #include <noveltea/core/json_access.hpp>
-#include <noveltea/core/project_ids.hpp>
 #include <noveltea/render/shader_compiler.hpp>
-#include <noveltea/runtime_ui_playback.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -39,19 +36,6 @@ std::optional<std::string> read_file(const std::filesystem::path& path)
     return read_all(file);
 }
 
-const char* severity_to_string(DiagnosticSeverity severity)
-{
-    switch (severity) {
-    case DiagnosticSeverity::Info:
-        return "info";
-    case DiagnosticSeverity::Warning:
-        return "warning";
-    case DiagnosticSeverity::Error:
-        return "error";
-    }
-    return "error";
-}
-
 const char* export_severity_to_string(PackageExportSeverity severity)
 {
     switch (severity) {
@@ -63,21 +47,6 @@ const char* export_severity_to_string(PackageExportSeverity severity)
         return "error";
     }
     return "error";
-}
-
-nlohmann::json diagnostic_to_json(const ToolDiagnostic& diagnostic)
-{
-    return {{"severity", severity_to_string(diagnostic.severity)},
-            {"path", diagnostic.path},
-            {"message", diagnostic.message}};
-}
-
-nlohmann::json diagnostics_to_json(const std::vector<ToolDiagnostic>& diagnostics)
-{
-    auto result = nlohmann::json::array();
-    for (const auto& diagnostic : diagnostics)
-        result.push_back(diagnostic_to_json(diagnostic));
-    return result;
 }
 
 nlohmann::json export_diagnostics_to_json(const std::vector<PackageExportDiagnostic>& diagnostics)
@@ -307,47 +276,6 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
                                typed_spec->id, steps, final_view, passed)}});
 }
 
-std::optional<ProjectDocument> project_from_request(const nlohmann::json& request,
-                                                    nlohmann::json& error_response)
-{
-    std::string source;
-    if (request.contains("project")) {
-        if (request["project"].is_string()) {
-            source = json_access::get_or<std::string>(request["project"], {});
-        } else {
-            source = request["project"].dump();
-        }
-    } else if (request.contains("projectPath") && request["projectPath"].is_string()) {
-        auto content =
-            read_file(json_access::get_or<std::string>(request["projectPath"], {}));
-        if (!content) {
-            error_response = fail("Could not read projectPath.");
-            return std::nullopt;
-        }
-        source = std::move(*content);
-    } else {
-        error_response = fail("Request requires project or projectPath.");
-        return std::nullopt;
-    }
-
-    auto loaded = ProjectTooling::load_project_json(source);
-    if (!loaded.project) {
-        error_response = fail("Project load failed.", diagnostics_to_json(loaded.diagnostics));
-        return std::nullopt;
-    }
-    return std::move(*loaded.project);
-}
-
-nlohmann::json project_payload(ProjectLoadResult& loaded)
-{
-    nlohmann::json response = ok({{"success", loaded.success()},
-                                  {"importedLegacy", loaded.imported_legacy},
-                                  {"diagnostics", diagnostics_to_json(loaded.diagnostics)}});
-    if (loaded.project)
-        response["project"] = loaded.project->root();
-    return response;
-}
-
 noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::json& json,
                                                                 nlohmann::json& diagnostics)
 {
@@ -470,41 +398,6 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
 
 nlohmann::json run_command(std::string_view command, const nlohmann::json& request)
 {
-    if (command == "load-project") {
-        const auto source = json_access::value_or(request, "source", std::string{});
-        auto loaded = ProjectTooling::load_project_json(source);
-        return project_payload(loaded);
-    }
-
-    if (command == "import-legacy-game") {
-        const auto source = json_access::value_or(request, "source", std::string{});
-        auto loaded = ProjectTooling::import_legacy_game_json(source);
-        return project_payload(loaded);
-    }
-
-    if (command == "validate") {
-        nlohmann::json error_response;
-        auto project = project_from_request(request, error_response);
-        if (!project)
-            return error_response;
-        auto diagnostics = ProjectTooling::validate_project(*project);
-        return ok(
-            {{"success", diagnostics.empty()}, {"diagnostics", diagnostics_to_json(diagnostics)}});
-    }
-
-    if (command == "list-tests") {
-        nlohmann::json error_response;
-        auto project = project_from_request(request, error_response);
-        if (!project)
-            return error_response;
-        std::vector<ToolDiagnostic> diagnostics;
-        auto specs = RuntimePlaybackSession::specs_from_project(*project, diagnostics);
-        auto tests = nlohmann::json::array();
-        for (const auto& spec : specs)
-            tests.push_back({{"id", spec.id}, {"steps", spec.steps.size()}});
-        return ok({{"tests", std::move(tests)}, {"diagnostics", diagnostics_to_json(diagnostics)}});
-    }
-
     if (command == "run-test") {
         return run_compiled_playback(request);
     }
@@ -554,34 +447,6 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
                    {"manifest", result.manifest},
                    {"byteCount", result.byte_count},
                    {"checksums", result.checksums}});
-    }
-
-    if (command == "set-entity") {
-        nlohmann::json error_response;
-        auto project = project_from_request(request, error_response);
-        if (!project)
-            return error_response;
-        auto result =
-            ProjectTooling::set_entity_record(
-                *project, json_access::value_or(request, "collection", std::string{}),
-                json_access::value_or(request, "entityId", std::string{}),
-                json_access::value_or(request, "record", nlohmann::json::array()));
-        return ok({{"success", result.success()},
-                   {"diagnostics", diagnostics_to_json(result.diagnostics)},
-                   {"project", project->root()}});
-    }
-
-    if (command == "erase-entity") {
-        nlohmann::json error_response;
-        auto project = project_from_request(request, error_response);
-        if (!project)
-            return error_response;
-        auto result = ProjectTooling::erase_entity_record(
-            *project, json_access::value_or(request, "collection", std::string{}),
-            json_access::value_or(request, "entityId", std::string{}));
-        return ok({{"success", result.success()},
-                   {"diagnostics", diagnostics_to_json(result.diagnostics)},
-                   {"project", project->root()}});
     }
 
     return fail("Unknown command.");

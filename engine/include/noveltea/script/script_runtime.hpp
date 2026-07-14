@@ -10,14 +10,11 @@
 
 namespace noveltea {
 class AudioSystem;
-class RuntimeCommandDispatcher;
 } // namespace noveltea
 namespace noveltea::assets {
 class AssetManager;
 }
 namespace noveltea::core {
-class GameSession;
-class RuntimeSessionHost;
 class ScriptHostServices;
 } // namespace noveltea::core
 
@@ -63,12 +60,8 @@ public:
 
     void collect_garbage();
 
-    void bind_game_session(core::GameSession* session);
-    void bind_runtime_host(core::RuntimeSessionHost* host);
-    void bind_runtime_command_dispatcher(RuntimeCommandDispatcher* dispatcher);
     void bind_audio(AudioSystem* audio);
     void clear_audio_binding();
-    void clear_game_bindings();
     void bind_typed_host(core::ScriptHostServices* host);
     void clear_typed_host();
     void bind_runtime_script_api(RuntimeScriptApi* api);

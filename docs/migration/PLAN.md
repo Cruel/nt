@@ -1,8 +1,9 @@
 # NovelTea Runtime, UI, Rendering, and Editor Migration Plan
 
-This is the active migration plan for `Cruel/nt` after completion of the backend-neutral core-domain migration.
-
-The previous core migration established old-compatible project/save/package data boundaries, typed project models, runtime session/controller foundations, rich-text semantics, legacy package reading, and editor-preview APIs. This plan covers the remaining migration work needed to turn that foundation into a complete NovelTea runtime/editor stack.
+This document retains the broad runtime/UI/rendering/editor phase history. The typed runtime cutover
+is complete: the active gameplay stack is `CompiledProject` -> `CompiledRuntime` ->
+`TypedRuntimeSession`, with typed state/messages/saves and `RuntimeScriptApi`. Current status and next
+work are maintained in `STATUS.md`; the canonical typed-runtime plan owns later JSON-boundary work.
 
 ## Status Legend
 
@@ -40,11 +41,13 @@ Runtime/editor/test playback must use deterministic runtime inputs and outputs, 
 
 The final runtime should have these layers:
 
-1. `noveltea_core`: project/save/package data, typed project model, runtime session state, deterministic controller/state machine, rich-text semantics, editor/test-preview facades, and backend-neutral diagnostics.
+1. `noveltea_core`: compiled-project/package codecs, immutable typed definitions/programs,
+   `SessionState`, `FlowExecutor`, typed messages/saves, rich-text semantics, and diagnostics.
 
 2. Lua runtime adapter: script execution, bindings, hook execution, error reporting, and runtime mutation APIs. Lua types stay outside backend-neutral core.
 
-3. Runtime presentation state: backend-neutral view/presentation data derived from `RuntimeController` and `RuntimeSessionHost`, suitable for both RmlUi runtime UI and editor preview.
+3. Runtime presentation state: backend-neutral `TypedRuntimeUIViewState` and typed operations
+   published by `TypedRuntimeSession`, suitable for RmlUi and editor preview.
 
 4. RmlUi runtime UI: baseline runtime documents/styles plus custom C++ elements for complex widgets.
 

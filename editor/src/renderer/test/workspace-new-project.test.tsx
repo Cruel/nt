@@ -94,7 +94,6 @@ beforeEach(() => {
   vi.mocked(window.noveltea.openProject).mockResolvedValue({
     ok: true,
     success: true,
-    importedLegacy: false,
     projectPath: '/home/test/Documents/NovelTea/my-story',
     projectFilePath: '/home/test/Documents/NovelTea/my-story/project.json',
     project: createAuthoringProject({ id: 'my-story', name: 'My Story' }),

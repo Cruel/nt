@@ -37,19 +37,6 @@ TEST_CASE("RuntimeUiTemplateResolver falls back to system when project missing")
     CHECK(resolver.resolve_runtime_document() == "system:/ui/runtime/runtime_game.rml");
 }
 
-TEST_CASE("RuntimeUiTemplateResolver falls back to legacy compat path")
-{
-    auto legacy_source = std::make_shared<MemoryAssetSource>();
-    legacy_source->add("rmlui/runtime_game.rml", {'l', 'e', 'g'});
-
-    AssetManager manager;
-    manager.mount("project", legacy_source);
-    manager.mount("system", std::make_shared<MemoryAssetSource>());
-
-    RuntimeUiTemplateResolver resolver(manager);
-    CHECK(resolver.resolve_runtime_document() == "project:/rmlui/runtime_game.rml");
-}
-
 TEST_CASE("RuntimeUiTemplateResolver returns empty when nothing found")
 {
     AssetManager manager;

@@ -51,9 +51,9 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-bad-active', active: 1 })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'set-preview-activity', requestId: 'activity-bad-visible', active: true, visible: 'yes' })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-start', requestId: 'runtime-start' })).toBe(true);
-    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project', project: { engine: 1 } })).toBe(true);
-    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project-assets', project: { engine: 1 }, assets: [{ sourcePath: 'assets/images/foyer.png', runtimePath: 'textures/foyer.png' }] })).toBe(true);
-    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-project', requestId: 'runtime-load-project-bad' })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-compiled-project', requestId: 'runtime-load-compiled-project', compiledProject: { engine: 1 } })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-compiled-project', requestId: 'runtime-load-compiled-project-assets', compiledProject: { engine: 1 }, assets: [{ sourcePath: 'assets/images/foyer.png', runtimePath: 'textures/foyer.png' }] })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-load-compiled-project', requestId: 'runtime-load-compiled-project-bad' })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-stop', requestId: 'runtime-stop' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step-delta', deltaSeconds: 0.016 })).toBe(true);
@@ -124,8 +124,8 @@ describe('preview protocol validation', () => {
       running: true,
       shellMode: 'game',
       runtimeMode: 'dialogue',
-      entrypoint: { type: 'room', id: 'foyer', legacyType: 3, collection: 'rooms', label: 'Foyer' },
-      currentEntity: { type: 'dialogue', id: 'intro', legacyType: 5, collection: 'dialogues', label: 'Intro' },
+      entrypoint: { type: 'room', id: 'foyer', collection: 'rooms', label: 'Foyer' },
+      currentEntity: { type: 'dialogue', id: 'intro', collection: 'dialogues', label: 'Intro' },
       currentRoomId: 'foyer',
       currentDialogueId: 'intro',
       waiting: { kind: 'choice', canContinue: false, reason: 'dialogue choices are available' },
@@ -138,7 +138,7 @@ describe('preview protocol validation', () => {
         clickableTargets: [],
       },
       variables: [{ id: 'route', label: 'Route', type: 'string', value: 'main', dirty: true, overridden: true }],
-      inventory: [{ id: 'lamp', label: 'Lamp', selected: true, enabled: true, location: { type: 'custom_script', id: 'player', legacyType: 0, collection: 'scripts' } }],
+      inventory: [{ id: 'lamp', label: 'Lamp', selected: true, enabled: true, location: { type: 'custom_script', id: 'player', collection: 'scripts' } }],
       selectedObjects: ['lamp'],
       diagnostics: [{ severity: 'warning', category: 'runtime', message: 'Example diagnostic' }],
       saveSnapshot: { properties: { route: 'main' } },

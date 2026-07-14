@@ -7,13 +7,14 @@ export interface ToolDiagnostic {
   category?: string;
 }
 
-export interface ProjectLoadResponse {
+export interface OpenProjectResponse {
   ok: boolean;
   success: boolean;
-  importedLegacy: boolean;
   project?: unknown;
   diagnostics: ToolDiagnostic[];
   error?: string;
+  projectPath: string;
+  projectFilePath: string;
 }
 
 export interface ValidationResponse {
@@ -125,14 +126,6 @@ export interface ShaderCompileResponse {
   error?: string;
 }
 
-export interface EntityEditResponse {
-  ok: boolean;
-  success: boolean;
-  project?: unknown;
-  diagnostics: ToolDiagnostic[];
-  error?: string;
-}
-
 export interface SaveProjectResponse {
   ok: boolean;
   success: boolean;
@@ -146,20 +139,3 @@ export interface CreateProjectRequest {
   projectName: string;
   projectDirectory: string;
 }
-
-export interface OpenProjectResponse extends ProjectLoadResponse {
-  projectPath: string;
-  projectFilePath: string;
-}
-
-export type EntityCollection =
-  | 'interactable'
-  | 'verb'
-  | 'interaction'
-  | 'room'
-  | 'map'
-  | 'dialogue'
-  | 'cutscene'
-  | 'script'
-  | 'asset'
-  | 'tests';

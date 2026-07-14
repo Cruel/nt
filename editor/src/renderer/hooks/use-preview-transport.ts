@@ -141,11 +141,11 @@ export function usePreviewTransport({
     setPosition: (position: PreviewPosition) => send({ type: 'set-demo-position', position }),
     reset: () => send({ type: 'reset-demo' }),
     runtimeReset: () => send({ type: 'runtime-reset' }),
-    loadRuntimeProject: (
-      project: unknown,
+    loadCompiledProject: (
+      compiledProject: unknown,
       assets?: Array<{ sourcePath: string; runtimePath: string }>,
       shaderMaterialMetadata?: unknown,
-    ) => send({ type: 'runtime-load-project', project, assets, shaderMaterialMetadata }),
+    ) => send({ type: 'runtime-load-compiled-project', compiledProject, assets, shaderMaterialMetadata }),
     startRuntime: () => send({ type: 'runtime-start' }),
     stopRuntime: () => send({ type: 'runtime-stop' }),
     stepRuntime: (deltaSeconds?: number) => send(deltaSeconds === undefined ? { type: 'runtime-step' } : { type: 'runtime-step', deltaSeconds }),

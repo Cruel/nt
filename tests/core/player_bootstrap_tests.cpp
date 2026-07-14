@@ -2,8 +2,6 @@
 
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/package_export.hpp>
-#include <noveltea/core/project_document.hpp>
-#include <noveltea/core/save_document.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -25,7 +23,11 @@ std::filesystem::path temporary_directory()
 
 std::vector<std::byte> package_fixture(std::string version)
 {
-    auto project = ProjectDocument::new_project();
+    std::ifstream fixture(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                          "editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json");
+    REQUIRE(fixture.good());
+    const auto project = nlohmann::json::parse(fixture, nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
     PackageExportOptions options;
     options.project_name = "Bootstrap Fixture";
     options.project_version = std::move(version);
@@ -233,36 +235,4 @@ TEST_CASE("packaged player materialization is atomic idempotent and update safe"
     CHECK(std::filesystem::is_regular_file(active_root / "player.json"));
     CHECK(std::filesystem::is_regular_file(active_root / "game.ntpkg"));
     std::filesystem::remove_all(root);
-}
-
-TEST_CASE("filesystem save slots round trip and stay below their root")
-{
-    const auto root = temporary_directory() / "saves";
-    FilesystemSaveSlotStore store(root);
-    const auto save = SaveDocument::new_save();
-    REQUIRE(store.write_slot({3}, save).success);
-    CHECK(store.has_slot({3}));
-    const auto loaded = store.read_slot({3});
-    REQUIRE(loaded.success);
-    REQUIRE(loaded.save);
-    CHECK(loaded.save->dump() == save.dump());
-    CHECK(std::filesystem::exists(root / "slot-3.ntsav"));
-    store.delete_slot({3});
-    CHECK_FALSE(store.has_slot({3}));
-    std::filesystem::remove_all(root.parent_path());
-}
-
-TEST_CASE("filesystem save slots report an unusable save root")
-{
-    const auto parent = temporary_directory();
-    const auto root = parent / "blocked";
-    write_file(root, "not a directory");
-    FilesystemSaveSlotStore store(root);
-
-    const auto result = store.write_slot({1}, SaveDocument::new_save());
-    CHECK_FALSE(result.success);
-    REQUIRE_FALSE(result.errors.empty());
-    CHECK(result.errors.front().message.find("failed to create save directory") !=
-          std::string::npos);
-    std::filesystem::remove_all(parent);
 }

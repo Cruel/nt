@@ -137,12 +137,12 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.runtime_ui_document = argv[++i];
-        } else if (std::strcmp(arg, "--runtime-project") == 0) {
+        } else if (std::strcmp(arg, "--compiled-project") == 0) {
             if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --runtime-project requires an asset path\n");
+                std::fprintf(stderr, "[app] --compiled-project requires an asset path\n");
                 return false;
             }
-            options.runtime_project = argv[++i];
+            options.compiled_project = argv[++i];
         } else if (std::strcmp(arg, "--display-orientation") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr,
@@ -253,7 +253,7 @@ bool App::initialize(int argc, char* argv[])
     run_config.project_asset_root = options.project_asset_root;
     run_config.cache_asset_root = options.cache_asset_root;
     run_config.runtime_ui_document = options.runtime_ui_document;
-    run_config.runtime_project = options.runtime_project;
+    run_config.compiled_project = options.compiled_project;
     const bool resize_readback_fixture =
         !options.resize_sequence.empty() && options.readback_after_resize_frames > 0;
     if (resize_readback_fixture && options.frame_limit == 0) {

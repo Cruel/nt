@@ -15,7 +15,7 @@ import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { defaultPackageOutputFileName, exportShaderVariantValues, selectedExportProfile, type ExportProfileData, type ExportShaderVariant } from '../../shared/project-schema/authoring-export';
-import { buildAuthoringRuntimeExport, hasAuthoringShadersOrMaterials } from '../../shared/project-schema/authoring-runtime-export';
+import { buildCompiledRuntimeExport, hasAuthoringShadersOrMaterials } from '../../shared/project-schema/compiled-runtime-export';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
 import {
@@ -179,7 +179,7 @@ export function PackageExportDialog({ open, onOpenChange, project, projectRoot, 
   const activeRuntimeProfile = runtimeProfile ?? (project ? selectedExportProfile(project) : null);
   const activePlatformProfile = platformSettings?.profiles.find((item) => item.id === platformSettings.selectedProfileId) ?? platformSettings?.profiles[0] ?? null;
   const validationDiagnostics = useMemo(() => project ? validateAuthoringProject(project) : [], [project]);
-  const preview = useMemo(() => project && activeRuntimeProfile ? buildAuthoringRuntimeExport(project, { projectRoot, profile: activeRuntimeProfile }) : null, [project, projectRoot, activeRuntimeProfile]);
+  const preview = useMemo(() => project && activeRuntimeProfile ? buildCompiledRuntimeExport(project, { projectRoot, profile: activeRuntimeProfile }) : null, [project, projectRoot, activeRuntimeProfile]);
 
   useEffect(() => {
     if (!activePlatformProfile || !platformOutput) return;

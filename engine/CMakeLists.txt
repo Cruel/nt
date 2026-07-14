@@ -10,43 +10,25 @@ add_library(noveltea_core STATIC
     src/core/compiled_project_codec/project_fields.cpp
     src/core/compiled_project_codec/scene_decoder.cpp
     src/core/compiled_project_codec/shared_values.cpp
-    src/core/cutscene_controller.cpp
-    src/core/dialogue_controller.cpp
     src/core/diagnostic.cpp
-    src/core/editor_api.cpp
     src/core/editor_runtime_protocol.cpp
-    src/core/entity_ref.cpp
     src/core/flow_executor.cpp
     src/core/flow_executor_blockers.cpp
     src/core/flow_executor_dialogue.cpp
     src/core/flow_executor_interaction.cpp
     src/core/flow_executor_room.cpp
     src/core/flow_executor_scene.cpp
-    src/core/entity_type.cpp
-    src/core/game_session.cpp
-    src/core/legacy/entity_schema.cpp
-    src/core/legacy/project_package_reader.cpp
-    src/core/legacy/project_importer.cpp
     src/core/package_export.cpp
     src/core/player_bootstrap.cpp
-    src/core/project_document.cpp
-    src/core/project_model.cpp
-    src/core/project_validator.cpp
     src/core/rich_text.cpp
-    src/core/runtime_controller.cpp
-    src/core/runtime_events.cpp
-    src/core/runtime_project_codec.cpp
     src/core/runtime_messages.cpp
     src/core/runtime_user_settings.cpp
     src/core/runtime_user_settings_codec.cpp
-    src/core/runtime_session_host.cpp
-    src/core/runtime_ui_view.cpp
     src/core/script_host_services.cpp
     src/core/session_state.cpp
     src/core/session_restore.cpp
     src/core/shared_evaluator.cpp
     src/core/property_resolver.cpp
-    src/core/save_document.cpp
     src/core/save_state.cpp
     src/core/save_state_codec.cpp
     src/core/save_state_codec/shared_values.cpp
@@ -131,14 +113,9 @@ add_library(engine STATIC
     src/engine.cpp
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
-    src/runtime_command.cpp
-    src/runtime_debug_mutation.cpp
-    src/runtime_debug_snapshot.cpp
     src/runtime_layout_manager.cpp
     src/runtime_preview_controller.cpp
-    src/runtime_shell.cpp
     src/runtime_transition_manager.cpp
-    src/runtime_ui_playback.cpp
     src/surface.cpp
     src/text/text_asset_loader.cpp
     src/text/text_breaks.cpp
@@ -290,10 +267,8 @@ endif()
 
 target_sources(engine PRIVATE
     src/script/lua/bind_audio.cpp
-    src/script/lua/bind_game_session.cpp
     src/script/lua/bind_noveltea.cpp
     src/script/lua/bind_typed_script_host.cpp
-    src/script/lua/runtime_script_executor.cpp
     src/script/compiled_runtime.cpp
     src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
@@ -314,7 +289,6 @@ target_compile_definitions(engine PRIVATE
 
 set(NOVELTEA_SOL2_SOURCES
     src/script/lua/bind_audio.cpp
-    src/script/lua/bind_game_session.cpp
     src/script/lua/bind_noveltea.cpp
     src/script/lua/bind_typed_script_host.cpp
     src/script/lua/script_runtime.cpp

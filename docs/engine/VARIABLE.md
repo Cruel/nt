@@ -10,7 +10,9 @@ This document covers the new authoring variable model. Legacy property-list beha
 
 Variables are implemented as a typed authoring collection in the editor. The Variables editor supports creating variables, editing type/default/enum metadata, and applying command-backed replacements. Validation checks data shape, enum values, and default-value compatibility.
 
-Runtime variable/session semantics are not fully documented as a complete gameplay state system yet. Current native runtime state exists in `GameSession` and `SaveDocument`, while Lua bindings and runtime controller work continue to evolve.
+Runtime variables compile to typed declarations, initialize `SessionState`, participate in typed
+conditions/effects, persist through `SaveState`, and are exposed through `RuntimeScriptApi` and the
+preview/debug protocol.
 
 ## Collection
 
@@ -154,19 +156,19 @@ There is no dedicated live engine preview for a variable record. Variables are e
 
 ## Runtime Status
 
-Runtime state currently exists through `GameSession`, `RuntimeStateSnapshot`, `SaveDocument`, and runtime controller/session-host types. The complete mapping from authoring variable records to runtime session state is still a work in progress.
-
-Variable defaults should eventually initialize runtime state when a project/session starts, and save data should preserve runtime values. Until that mapping is explicitly implemented and tested, authoring variables should be treated as structured editor data and future runtime intent.
+Compiled variable declarations initialize typed `SessionState`; runtime overrides use `RuntimeValue`
+and are preserved by typed `SaveState`. Conditions, effects, debug mutations, Lua, playback, and the
+state inspector resolve variables through the typed session APIs.
 
 ## Export / Package Status
 
-Variables are part of the authoring project schema but are not currently converted into a dedicated runtime variable table by `buildAuthoringRuntimeExport()`. Export currently focuses on rooms, entrypoint handling, asset file entries, and shader/material metadata.
-
-Scene/dialogue/test systems may refer to variables in their own data, but a complete variable runtime export path still needs to be defined.
+The authoring compiler emits every declared variable into `noveltea.compiled.project` with its type,
+default, and constraints. Preview, playback, and package export share those exact canonical bytes.
 
 ## Scripting Status
 
-Lua is the runtime scripting target. Variables should eventually be exposed to Lua through the runtime session/game state API, not through ad-hoc string globals. Current variable records provide enough metadata for that binding, but the exact script API is not yet fully specified in this doc.
+Lua is the runtime scripting target. Variables are exposed through the typed `RuntimeScriptApi`, not
+through ad-hoc globals or project/save JSON.
 
 Raw Lua hook fields may mention variable names manually. Those mentions are not currently statically tracked as `VariableRef` values.
 
