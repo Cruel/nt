@@ -43,6 +43,8 @@ jobs:
         run: |
           cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/cxx-policy-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckCxxRuntimePolicy.cmake"
           cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyCxxRuntimePolicyChecker.cmake"
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/json-boundary-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckJsonBoundaryPolicy.cmake"
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyJsonBoundaryPolicyChecker.cmake"
       - name: Verify compiler feature policy header
         run: |
           if c++ -std=c++20 -Iengine/include -x c++ -c engine/include/noveltea/core/compiler_policy.hpp -o /tmp/policy.o; then
@@ -613,6 +615,8 @@ jobs:
         run: |
           cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/cxx-policy-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckCxxRuntimePolicy.cmake"
           cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyCxxRuntimePolicyChecker.cmake"
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/json-boundary-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckJsonBoundaryPolicy.cmake"
+          cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyJsonBoundaryPolicyChecker.cmake"
           build_dir=$(find android/app/.cxx/Debug -path '*/x86_64/compile_commands.json' -printf '%T@ %h\n' | sort -nr | head -1 | cut -d' ' -f2-)
           test -n "$build_dir"
           cmake -DBUILD_DIR="$build_dir" -DPLATFORM_NAME=Android -P cmake/VerifyDependencyCompilerPolicy.cmake

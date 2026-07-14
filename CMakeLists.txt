@@ -36,8 +36,19 @@ add_custom_target(cxx-dependency-policy
     COMMENT "Verifying C++ dependency compiler flags and runtime link inputs"
     VERBATIM)
 
+add_custom_target(json-boundary-policy
+    COMMAND "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DALLOWLIST=${CMAKE_SOURCE_DIR}/cmake/json-boundary-allowlist.txt
+        -P ${CMAKE_SOURCE_DIR}/cmake/CheckJsonBoundaryPolicy.cmake
+    COMMAND "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/VerifyJsonBoundaryPolicyChecker.cmake
+    COMMENT "Checking JSON boundary ownership and dependency isolation"
+    VERBATIM)
+
 add_custom_target(cxx-policy
-    DEPENDS cxx-runtime-policy cxx-dependency-policy
+    DEPENDS cxx-runtime-policy cxx-dependency-policy json-boundary-policy
     COMMENT "Verifying the complete NovelTea C++ runtime policy")
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)

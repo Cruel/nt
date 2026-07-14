@@ -1,11 +1,6 @@
-# Phase 0 JSON-boundary inventory. Format:
-# path|symbol|classification|owner|rationale|removal-phase
-# Permanent entries remain explicit boundary adapters after Phase 11. Temporary entries must be
-# removed by their listed phase and must not receive new runtime features.
-engine/include/noveltea/core/json_access.hpp|noveltea::core::json_access::*|codec|core|Audited nonthrowing JSON codec helpers|permanent-boundary
-engine/src/core/compiled_project_wire.hpp|noveltea::core::compiled::wire::*|codec|core|Internal strict nonthrowing noveltea.compiled.project boundary DTO decoder|permanent-boundary
-engine/include/noveltea/core/runtime_user_settings_codec.hpp|encode_runtime_user_settings;decode_runtime_user_settings|codec|core|Strict versioned runtime-user-settings boundary around a JSON-free native value|permanent-boundary
-engine/include/noveltea/core/rich_text.hpp|to_json;rich_text_from_json|external-protocol|core|Preview/debug/UI serialization adapter|permanent-boundary
-engine/include/noveltea/core/package_export.hpp|PackageExportOptions;PackageExportResult|package-boundary|core|Versioned package and shader/material metadata|permanent-boundary
-engine/include/noveltea/core/editor_runtime_protocol.hpp|decode_editor_runtime_input;decode_editor_playback;encode_editor_playback_report;encode_editor_debug_snapshot|external-protocol|editor-runtime-adapter|Strict named Phase 9 editor input playback report and debug snapshot protocols around typed values|permanent-boundary
-engine/include/noveltea/render/material.hpp|parse_shader_material_project_json_value|codec|render|Dedicated shader/material metadata decoder|permanent-boundary
+# JSON boundary policy exceptions. Format:
+# path|exact matched construct|owning subsystem or target|boundary category|rationale|removal condition
+#
+# The current tree needs no exceptions: all JSON-visible shipped headers are in the explicit,
+# structurally approved codec and adapter paths in CheckJsonBoundaryPolicy.cmake. Add an entry only
+# when a legitimate external boundary cannot live in one of those paths.

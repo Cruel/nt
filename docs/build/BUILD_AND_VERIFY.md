@@ -31,8 +31,11 @@ pnpm run web:smoke:profile
 ```
 
 `cxx-policy` is mandatory for any change touching C++, CMake, dependency wiring, runtime templates, or
-platform build graphs. It combines the first-party source scanner, negative policy fixtures, compiler
-feature assertions, dependency compile-command inspection, and the Linux runtime-link audit.
+platform build graphs. It combines the first-party source scanner, JSON-boundary scanner and negative
+fixtures, compiler feature assertions, dependency compile-command inspection, and the Linux runtime-link
+audit. Run `cmake --build --preset linux-debug --target json-boundary-policy` to diagnose JSON boundary
+failures alone; see [JSON Boundary Policy](../architecture/JSON_BOUNDARY_POLICY.md) for approved
+boundaries and the machine-validated exception format.
 
 Shipped C++ targets always compile without C++ exceptions and compiler RTTI. There is no supported
 exception-enabled or RTTI-enabled build mode. Desktop target dependencies use NovelTea policy triplets;
