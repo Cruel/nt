@@ -1,0 +1,221 @@
+#pragma once
+
+#include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/feature_view.hpp"
+#include "noveltea/core/flow.hpp"
+#include "noveltea/core/runtime_value.hpp"
+#include "noveltea/core/typed_save_slot_store.hpp"
+
+#include <chrono>
+#include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <variant>
+#include <vector>
+
+namespace noveltea::core {
+
+template<class Tag> class SessionOperationId {
+public:
+    SessionOperationId() = delete;
+    [[nodiscard]] static constexpr SessionOperationId from_number(std::uint64_t value) noexcept
+    {
+        return SessionOperationId(value);
+    }
+    [[nodiscard]] constexpr std::uint64_t number() const noexcept { return m_value; }
+    auto operator<=>(const SessionOperationId&) const = default;
+
+private:
+    explicit constexpr SessionOperationId(std::uint64_t value) noexcept : m_value(value) {}
+    std::uint64_t m_value;
+};
+
+struct PresentationOperationTag;
+struct AudioOperationTag;
+using PresentationOperationId = SessionOperationId<PresentationOperationTag>;
+using AudioOperationId = SessionOperationId<AudioOperationTag>;
+
+struct StartRuntimeInput {
+    auto operator<=>(const StartRuntimeInput&) const = default;
+};
+struct StopRuntimeInput {
+    auto operator<=>(const StopRuntimeInput&) const = default;
+};
+struct ResetRuntimeInput {
+    auto operator<=>(const ResetRuntimeInput&) const = default;
+};
+struct AdvanceTimeInput {
+    std::chrono::microseconds elapsed{0};
+    auto operator<=>(const AdvanceTimeInput&) const = default;
+};
+struct ContinueInput {
+    auto operator<=>(const ContinueInput&) const = default;
+};
+struct SelectSceneChoiceInput {
+    SceneChoiceOptionId option;
+    auto operator<=>(const SelectSceneChoiceInput&) const = default;
+};
+struct SelectDialogueChoiceInput {
+    DialogueEdgeId edge;
+    auto operator<=>(const SelectDialogueChoiceInput&) const = default;
+};
+struct NavigateRoomInput {
+    RoomExitId exit;
+    auto operator<=>(const NavigateRoomInput&) const = default;
+};
+struct SelectInteractablesInput {
+    std::vector<InteractableId> interactables;
+    bool operator==(const SelectInteractablesInput&) const = default;
+};
+struct ClearInteractableSelectionInput {
+    auto operator<=>(const ClearInteractableSelectionInput&) const = default;
+};
+struct InvokeInteractionInput {
+    VerbId verb;
+    std::vector<InteractableId> operands;
+    bool operator==(const InvokeInteractionInput&) const = default;
+};
+struct SetVariableDebugInput {
+    VariableId variable;
+    RuntimeValue value;
+    bool operator==(const SetVariableDebugInput&) const = default;
+};
+struct SetPropertyDebugInput {
+    PropertyOwnerRef owner;
+    PropertyId property;
+    RuntimeValue value;
+    bool operator==(const SetPropertyDebugInput&) const = default;
+};
+struct SaveRuntimeInput {
+    TypedSaveSlotId slot;
+    auto operator<=>(const SaveRuntimeInput&) const = default;
+};
+struct LoadRuntimeInput {
+    TypedSaveSlotId slot;
+    auto operator<=>(const LoadRuntimeInput&) const = default;
+};
+struct BeginPlaybackInput {
+    auto operator<=>(const BeginPlaybackInput&) const = default;
+};
+struct EndPlaybackInput {
+    auto operator<=>(const EndPlaybackInput&) const = default;
+};
+struct ClearPlaybackInput {
+    auto operator<=>(const ClearPlaybackInput&) const = default;
+};
+struct UndoPlaybackStepInput {
+    auto operator<=>(const UndoPlaybackStepInput&) const = default;
+};
+struct ReplayPlaybackInput {
+    auto operator<=>(const ReplayPlaybackInput&) const = default;
+};
+
+using RuntimeInputMessage =
+    std::variant<StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput,
+                 ContinueInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
+                 NavigateRoomInput, SelectInteractablesInput, ClearInteractableSelectionInput,
+                 InvokeInteractionInput, SetVariableDebugInput, SetPropertyDebugInput,
+                 SaveRuntimeInput, LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput,
+                 ClearPlaybackInput, UndoPlaybackStepInput, ReplayPlaybackInput>;
+
+struct RuntimeViewPublication {
+    TypedRuntimeUIViewState view;
+};
+
+struct TransitionPresentationOperation {
+    PresentationOperationId id;
+    compiled::TransitionKind kind;
+    std::chrono::milliseconds duration{0};
+    std::optional<std::string> color;
+    std::optional<PresentationFlowBlockerHandle> completion;
+    bool operator==(const TransitionPresentationOperation&) const = default;
+};
+struct LayoutPresentationOperation {
+    PresentationOperationId id;
+    compiled::LayoutAction action;
+    compiled::LayoutSlot slot;
+    std::optional<LayoutId> layout;
+    bool operator==(const LayoutPresentationOperation&) const = default;
+};
+using PresentationOperation =
+    std::variant<TransitionPresentationOperation, LayoutPresentationOperation>;
+
+struct AudioOperation {
+    AudioOperationId id;
+    compiled::AudioAction action;
+    compiled::AudioChannel channel;
+    std::optional<AssetId> asset;
+    std::chrono::milliseconds fade{0};
+    bool loop = false;
+    double volume = 1.0;
+    std::optional<AudioFlowBlockerHandle> completion;
+    bool operator==(const AudioOperation&) const = default;
+};
+
+struct NotificationOutput {
+    std::string message;
+    bool operator==(const NotificationOutput&) const = default;
+};
+struct TextLogOutput {
+    std::string text;
+    bool operator==(const TextLogOutput&) const = default;
+};
+using UserCommunicationOutput = std::variant<NotificationOutput, TextLogOutput>;
+
+enum class SaveOutcomeStatus : std::uint8_t {
+    Saved,
+    Loaded,
+    Deleted,
+    Failed
+};
+struct SaveOutcome {
+    TypedSaveSlotId slot;
+    SaveOutcomeStatus status = SaveOutcomeStatus::Saved;
+    bool autosave = false;
+    auto operator<=>(const SaveOutcome&) const = default;
+};
+
+struct PlaybackObservation {
+    std::size_t step_index = 0;
+    bool handled = false;
+    auto operator<=>(const PlaybackObservation&) const = default;
+};
+struct DebuggerObservation {
+    std::optional<FlowFrameId> active_frame;
+    bool operator==(const DebuggerObservation&) const = default;
+};
+using RuntimeObservation = std::variant<PlaybackObservation, DebuggerObservation>;
+
+using RuntimeOutputMessage =
+    std::variant<RuntimeViewPublication, PresentationOperation, AudioOperation,
+                 UserCommunicationOutput, SaveOutcome, RuntimeObservation, Diagnostic>;
+
+enum class RuntimeMessageCategory : std::uint8_t {
+    Input,
+    StatePublication,
+    HostOperation,
+    Observation,
+    Diagnostic
+};
+
+enum class RuntimeOutputKind : std::uint8_t {
+    ViewPublication,
+    PresentationOperation,
+    AudioOperation,
+    UserCommunication,
+    SaveOutcome,
+    Observation,
+    Diagnostic
+};
+
+[[nodiscard]] constexpr RuntimeMessageCategory category(const RuntimeInputMessage&) noexcept
+{
+    return RuntimeMessageCategory::Input;
+}
+[[nodiscard]] RuntimeMessageCategory category(const RuntimeOutputMessage& message) noexcept;
+[[nodiscard]] RuntimeOutputKind output_kind(const RuntimeOutputMessage& message) noexcept;
+
+} // namespace noveltea::core

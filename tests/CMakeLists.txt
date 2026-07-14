@@ -23,6 +23,7 @@ add_executable(noveltea_core_tests
     core/rich_text_tests.cpp
     core/runtime_value_tests.cpp
     core/runtime_domain_types_tests.cpp
+    core/runtime_messages_tests.cpp
     core/runtime_controller_tests.cpp
     core/runtime_events_tests.cpp
     core/runtime_project_codec_tests.cpp

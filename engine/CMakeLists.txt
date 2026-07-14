@@ -12,6 +12,7 @@ add_library(noveltea_core STATIC
     src/core/compiled_project_codec/shared_values.cpp
     src/core/cutscene_controller.cpp
     src/core/dialogue_controller.cpp
+    src/core/diagnostic.cpp
     src/core/editor_api.cpp
     src/core/entity_ref.cpp
     src/core/flow_executor.cpp
@@ -34,6 +35,7 @@ add_library(noveltea_core STATIC
     src/core/runtime_controller.cpp
     src/core/runtime_events.cpp
     src/core/runtime_project_codec.cpp
+    src/core/runtime_messages.cpp
     src/core/runtime_user_settings.cpp
     src/core/runtime_user_settings_codec.cpp
     src/core/runtime_session_host.cpp

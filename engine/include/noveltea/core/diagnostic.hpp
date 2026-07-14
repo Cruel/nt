@@ -1,10 +1,12 @@
 #pragma once
 #include <cstdint>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 namespace noveltea::core {
+struct RuntimeDiagnosticContext;
 enum class ErrorSeverity : std::uint8_t {
     Info,
     Warning,
@@ -18,6 +20,8 @@ struct Diagnostic {
     std::string source_path{};
     std::string json_pointer{};
     std::vector<Diagnostic> causes{};
+    std::shared_ptr<const RuntimeDiagnosticContext> runtime_context{};
+    [[nodiscard]] bool operator==(const Diagnostic& other) const;
     [[nodiscard]] bool is_fatal() const noexcept { return severity == ErrorSeverity::Fatal; }
     [[nodiscard]] Diagnostic with_context(std::string path, std::string pointer = {}) const
     {

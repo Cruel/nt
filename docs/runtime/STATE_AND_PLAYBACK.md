@@ -1,3 +1,18 @@
+# Typed replacement-runtime messages
+
+The additive replacement runtime uses `core::RuntimeInputMessage` and `core::RuntimeOutputMessage` as
+its backend-neutral internal vocabulary. Inputs are dedicated variant alternatives rather than a
+discriminator with optional payload fields. Outputs have exactly one category: state publication,
+host operation, observation, or diagnostic. Desired view publication is idempotent and remains
+separate from transient presentation and audio operations, which carry session-local typed operation
+identity and exact flow-completion handles when execution is blocked on host completion.
+
+Runtime failures use `core::Diagnostic` and may attach one typed execution context for Scene,
+Dialogue, Room, Interaction, flow-frame, script, or playback position. The replacement path does not
+define a second runtime-diagnostic hierarchy. The existing generic runtime I/O and event types remain
+transitional legacy-path infrastructure until the ordered Phase 9 adapters and Phase 10 atomic
+consumer cutover remove them.
+
 # Runtime State and Playback
 
 ## Target contract
