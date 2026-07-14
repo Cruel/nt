@@ -93,8 +93,8 @@ TEST_CASE(
     auto changed = fixture.session->apply(
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{7}}});
     CHECK(changed.disposition == RuntimeInputDisposition::Handled);
-    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
-          core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(fixture.session->script_variable(count));
+    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{7}});
 
     const auto slot = core::TypedSaveSlotId::manual(4);
     auto saved = fixture.session->apply(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
@@ -103,8 +103,8 @@ TEST_CASE(
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{9}}});
     auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
     CHECK(has_output_kind(loaded, core::RuntimeOutputKind::SaveOutcome));
-    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
-          core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(fixture.session->script_variable(count));
+    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{7}});
 }
 
 TEST_CASE("typed runtime session starts a representative Room session")
@@ -202,8 +202,8 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
     REQUIRE(fixture.runtime.execute(
         "local ok, err = noveltea.variables.set('count', 12); assert(ok and err == nil)",
         "script-api-before-reset"));
-    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
-          core::RuntimeValue{std::int64_t{12}});
+    REQUIRE(fixture.session->script_variable(count));
+    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{12}});
 
     const auto slot = core::TypedSaveSlotId::manual(7);
     REQUIRE(
@@ -218,14 +218,14 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
     REQUIRE(fixture.runtime.execute(
         "local ok, err = noveltea.variables.set('count', 21); assert(ok and err == nil)",
         "script-api-after-reset"));
-    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
-          core::RuntimeValue{std::int64_t{21}});
+    REQUIRE(fixture.session->script_variable(count));
+    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{21}});
 
     REQUIRE(
         fixture.runtime.execute("local ok = Game.load(7); assert(ok)", "script-api-queued-load"));
     (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
-          core::RuntimeValue{std::int64_t{12}});
+    REQUIRE(fixture.session->script_variable(count));
+    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{12}});
 }
 
 TEST_CASE("runtime script API remains attached after a failed typed load")
@@ -243,8 +243,8 @@ TEST_CASE("runtime script API remains attached after a failed typed load")
         "local ok, err = noveltea.variables.set('count', 33); assert(ok and err == nil)",
         "script-api-after-failed-load"));
     const auto count = make_id<core::VariableIdTag>("count");
-    CHECK(fixture.session->kernel().state().variable(fixture.project, count).value() ==
-          core::RuntimeValue{std::int64_t{33}});
+    REQUIRE(fixture.session->script_variable(count));
+    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{33}});
 }
 
 TEST_CASE("runtime script API lowers indexed navigation to the current stable exit ID")

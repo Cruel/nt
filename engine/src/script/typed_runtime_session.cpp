@@ -1,5 +1,7 @@
 #include "noveltea/script/typed_runtime_session.hpp"
 
+#include "noveltea/script/typed_execution_kernel.hpp"
+
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 #include "noveltea/script/script_runtime.hpp"
 

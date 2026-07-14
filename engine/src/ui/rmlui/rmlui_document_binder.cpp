@@ -62,6 +62,7 @@ RuntimeUiDocumentBinder::RuntimeUiDocumentBinder() = default;
 
 void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
                                    const core::TypedRuntimeUIViewState& state,
+                                   const RuntimeUiAssetResolver* asset_resolver,
                                    std::string_view output_notification)
 {
     if (auto* mode = find_element(doc, "rt_mode", m_logged_missing))
@@ -77,6 +78,21 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
         title_slot->SetInnerRML(escape_rml(title));
     if (auto* note = find_element(doc, "rt_notification", m_logged_missing))
         note->SetInnerRML(escape_rml(notification));
+
+    if (auto* background = find_element(doc, "rt_background_image", m_logged_missing)) {
+        std::string markup;
+        const core::compiled::BackgroundPresentation* presentation = nullptr;
+        if (state.room)
+            presentation = &state.room->background;
+        else if (state.scene && state.scene->background)
+            presentation = &*state.scene->background;
+
+        if (presentation && presentation->asset && asset_resolver) {
+            if (auto path = asset_resolver->resolve(*presentation->asset))
+                markup = "<img class=\"background\" src=\"" + escape_rml(*path) + "\" />";
+        }
+        background->SetInnerRML(markup);
+    }
 
     if (auto* active_text =
             rmlui_dynamic_cast<NtActiveTextElement*>(find_component(doc, "nt-active-text"))) {

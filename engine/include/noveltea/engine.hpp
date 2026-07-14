@@ -103,7 +103,6 @@ private:
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path);
-
     assets::AssetManager m_assets;
     AudioSystem m_audio;
     Platform m_platform;
@@ -119,6 +118,7 @@ private:
     std::vector<core::RuntimeOutputMessage> m_typed_runtime_outputs;
     core::Diagnostics m_typed_runtime_diagnostics;
     ShaderMaterialProject m_shader_materials;
+    RuntimeUiAssetResolver m_runtime_ui_asset_resolver;
     RuntimeUI m_runtime_ui;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;

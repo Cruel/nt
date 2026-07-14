@@ -2,7 +2,6 @@
 
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/script/runtime_script_api.hpp"
-#include "noveltea/script/typed_execution_kernel.hpp"
 
 #include <memory>
 #include <optional>
@@ -10,6 +9,9 @@
 #include <vector>
 
 namespace noveltea::script {
+
+class ScriptRuntime;
+class TypedExecutionKernel;
 
 enum class RuntimeInputDisposition : std::uint8_t {
     Handled,
@@ -32,7 +34,6 @@ public:
     ~TypedRuntimeSession() override;
 
     [[nodiscard]] TypedRuntimeSessionResult apply(const core::RuntimeInputMessage& input);
-    [[nodiscard]] const TypedExecutionKernel& kernel() const noexcept { return *m_kernel; }
     [[nodiscard]] std::size_t pending_host_request_count() const noexcept
     {
         return m_pending_host_requests.size();

@@ -20,6 +20,7 @@ namespace assets {
 class AssetManager;
 }
 namespace script {
+class CompiledRuntime;
 class ScriptRuntime;
 class TypedRuntimeSession;
 } // namespace script
@@ -43,6 +44,15 @@ public:
     virtual ~TypedRuntimeAudioSink() = default;
     [[nodiscard]] virtual core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
     apply(const core::AudioOperation& operation) = 0;
+};
+
+class RuntimeUiAssetResolver {
+public:
+    void bind(const script::CompiledRuntime* runtime) noexcept { m_runtime = runtime; }
+    [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const;
+
+private:
+    const script::CompiledRuntime* m_runtime = nullptr;
 };
 
 enum class RuntimeUiPlaybackClickStatus {
@@ -121,6 +131,7 @@ public:
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
     void bind_typed_runtime_session(script::TypedRuntimeSession* session);
+    void bind_asset_resolver(const RuntimeUiAssetResolver* resolver);
     void bind_typed_presentation_sink(TypedRuntimePresentationSink* sink);
     void bind_typed_audio_sink(TypedRuntimeAudioSink* sink);
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);

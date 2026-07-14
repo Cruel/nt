@@ -36,6 +36,16 @@
 
 namespace noveltea {
 
+std::optional<std::string> RuntimeUiAssetResolver::resolve(const core::AssetId& asset) const
+{
+    if (!m_runtime)
+        return std::nullopt;
+    const auto* resource = m_runtime->package().project().find_asset(asset);
+    if (!resource)
+        return std::nullopt;
+    return "project:/" + resource->path;
+}
+
 Engine::Engine() : m_audio(make_miniaudio_backend()), m_runtime_preview(*this) {}
 Engine::~Engine() { shutdown(); }
 
@@ -868,6 +878,7 @@ bool Engine::load_compiled_project(const std::string& logical_path)
     }
 
     m_compiled_runtime = std::move(*loaded.value_if());
+    m_runtime_ui_asset_resolver.bind(m_compiled_runtime.get());
     const auto& project = m_compiled_runtime->package().project();
     m_shader_materials =
         m_compiled_runtime->package().shader_materials().value_or(ShaderMaterialProject{});
@@ -900,12 +911,14 @@ bool Engine::load_compiled_project(const std::string& logical_path)
     }
     m_assets.configure_fonts(std::move(fonts));
     m_runtime_ui.bind_typed_runtime_session(&m_compiled_runtime->session());
+    m_runtime_ui.bind_asset_resolver(&m_runtime_ui_asset_resolver);
     m_typed_runtime_outputs = m_compiled_runtime->startup_result().outputs;
     m_typed_runtime_diagnostics = m_compiled_runtime->startup_result().diagnostics;
     (void)m_runtime_ui.dispatch_typed_runtime_input(
         core::RuntimeInputMessage{core::StopRuntimeInput{}});
     if (!m_runtime_ui.load_title_document()) {
         std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
+        m_runtime_ui_asset_resolver.bind(nullptr);
         m_compiled_runtime.reset();
         return false;
     }

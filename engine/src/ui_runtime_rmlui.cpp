@@ -308,6 +308,7 @@ struct RuntimeUI::State {
     ui::rmlui::BgfxRenderInterface* bgfx_render_interface = nullptr;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiDocumentBinder* document_binder = nullptr;
+    const RuntimeUiAssetResolver* asset_resolver = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
     const assets::AssetManager* assets = nullptr;
     std::unordered_map<std::string, Rml::ElementDocument*> documents;
@@ -726,7 +727,7 @@ void RuntimeUI::State::refresh_runtime_document()
     if (!doc || !document_binder)
         return;
     if (typed_runtime_view)
-        document_binder->bind(*doc, *typed_runtime_view, typed_notification);
+        document_binder->bind(*doc, *typed_runtime_view, asset_resolver, typed_notification);
 }
 
 void RuntimeUI::State::refresh_active_text_layout()
@@ -1523,6 +1524,14 @@ void RuntimeUI::bind_typed_runtime_session(script::TypedRuntimeSession* session)
         if (game_object.valid() && game_object.get_type() == sol::type::table)
             game_object.as<sol::table>()["ui"] = sol::lua_nil;
     }
+    m_state->refresh_runtime_document();
+}
+
+void RuntimeUI::bind_asset_resolver(const RuntimeUiAssetResolver* resolver)
+{
+    if (!m_state)
+        return;
+    m_state->asset_resolver = resolver;
     m_state->refresh_runtime_document();
 }
 
