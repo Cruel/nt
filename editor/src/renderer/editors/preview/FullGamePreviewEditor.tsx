@@ -1323,7 +1323,6 @@ export function FullGamePreviewEditor() {
       <ResizePanel id="full-game-preview-canvas" minSize="420px">
         <div className="h-full min-w-0">
         <EnginePreview
-          previewActivityRefreshOnVisible="runtime-debug"
           onPreviewMessage={handlePreviewMessage}
           renderControls={(context) => {
             controlsRef.current = context;

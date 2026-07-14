@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu, screen, protocol, session } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
@@ -37,6 +37,18 @@ if (started) {
   app.quit();
 }
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'noveltea-editor',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
 // WSL2 and some remote/Linux GPU stacks blocklist WebGL in Electron even when
 // the browser can render the same page. The engine preview is a local dev-only
 // iframe, so allow Chromium to use SwiftShader or an unblocked GL path.
@@ -48,12 +60,77 @@ const enginePreviewServer = new EnginePreviewServer();
 
 const DEV_SERVER_URL = MAIN_WINDOW_VITE_DEV_SERVER_URL;
 const isDev = !!DEV_SERVER_URL;
+const EDITOR_SCHEME = 'noveltea-editor';
 const ZOOM_STEP = 0.1;
 const MIN_ZOOM_FACTOR = 0.5;
 const MAX_ZOOM_FACTOR = 2;
 let currentNativeWindowFrame = process.platform === 'linux';
 let currentFramelessWindow = !currentNativeWindowFrame;
 let appWindowExitConfirmed = false;
+
+const EDITOR_MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+};
+
+function registerPackagedEditorProtocol() {
+  const rendererRoot = path.resolve(
+    __dirname,
+    `../renderer/${MAIN_WINDOW_VITE_NAME}`,
+  );
+  protocol.handle(EDITOR_SCHEME, async (request) => {
+    const url = new URL(request.url);
+    const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
+    const filePath = path.resolve(rendererRoot, relative);
+    if (filePath !== rendererRoot && !filePath.startsWith(`${rendererRoot}${path.sep}`)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    try {
+      const body = await fs.promises.readFile(filePath);
+      return new Response(body, {
+        headers: {
+          'Content-Type': EDITOR_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+          'Cross-Origin-Opener-Policy': 'same-origin',
+          'Cross-Origin-Embedder-Policy': 'require-corp',
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+}
+
+function installLocalDocumentIsolationHeaders() {
+  // Electron Forge's development server does not consistently expose Vite's
+  // configured COOP/COEP headers to Chromium. Limit the fallback to local
+  // top-level and iframe documents used by the editor and engine preview.
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: ['http://127.0.0.1:*/*', 'http://localhost:*/*'] },
+    (details, callback) => {
+      if (details.resourceType !== 'mainFrame' && details.resourceType !== 'subFrame') {
+        callback({ responseHeaders: details.responseHeaders });
+        return;
+      }
+
+      const responseHeaders = { ...(details.responseHeaders ?? {}) };
+      responseHeaders['Cross-Origin-Opener-Policy'] = ['same-origin'];
+      responseHeaders['Cross-Origin-Embedder-Policy'] = ['require-corp'];
+      callback({ responseHeaders });
+    },
+  );
+}
 
 interface EditorWindowSettings {
   nativeWindowFrame?: boolean;
@@ -274,13 +351,13 @@ function createWindow() {
   if (isDev) {
     mainWindow.loadURL(DEV_SERVER_URL!);
   } else {
-    mainWindow.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-    );
+    mainWindow.loadURL(`${EDITOR_SCHEME}://app/index.html`);
   }
 }
 
 app.whenReady().then(() => {
+  if (isDev) installLocalDocumentIsolationHeaders();
+  if (!isDev) registerPackagedEditorProtocol();
   configureTemplateRegistryRoot(process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ?? path.join(app.getPath('userData'), 'player-templates', 'v1'));
   if (process.argv.includes('--install-player-template')) {
     void (async () => {

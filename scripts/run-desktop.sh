@@ -21,6 +21,7 @@ if [ "$RELEASE" = "1" ]; then
   CMAKE_CONFIGURE_ARGS+=(
     -DVCPKG_MANIFEST_FEATURES=shader-tools
     -DNOVELTEA_COMPILE_SHADERS=ON
+    -DBUILD_TESTING=OFF
   )
 else
   PRESET="linux-debug"

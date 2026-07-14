@@ -60,6 +60,8 @@ async function inspectCase(item) {
 async function startServer(cases, requests) {
   const ordered = [...cases].sort((a, b) => b.basePath.length - a.basePath.length);
   const server = http.createServer(async (request, response) => {
+    response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
     const item = ordered.find((candidate) => pathname.startsWith(candidate.basePath));
     if (!item) { response.writeHead(404).end('not found'); return; }

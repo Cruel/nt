@@ -45,6 +45,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
+# This helper serves the standalone sandbox. Keep a cache previously configured
+# for the editor preview widget from selecting its different Web shell.
+CMAKE_CONFIGURE_ARGS+=(
+  -DNOVELTEA_WEB_SHELL_FILE="$PROJECT_ROOT/web/shell.html"
+)
+
 if [ -d "$PROJECT_ROOT/rmlui-bgfx" ]; then
   echo "[run] using local rmlui-bgfx checkout at $PROJECT_ROOT/rmlui-bgfx"
   CMAKE_CONFIGURE_ARGS+=(
@@ -66,4 +72,26 @@ else
   echo "[run] URL: http://localhost:$PORT/?demo=none&noImgui=1&rmlui-document=project:/rmlui/readback_gallery.rml"
 fi
 cd "$BUILD_DIR/apps/sandbox/"
-python3 -m http.server "$PORT"
+python3 - "$PORT" <<'PY'
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+import sys
+
+
+class CrossOriginIsolatedHandler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+
+port = int(sys.argv[1])
+server = ThreadingHTTPServer(("", port), CrossOriginIsolatedHandler)
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    server.server_close()
+PY

@@ -5,6 +5,12 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 
 export default defineConfig({
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+  },
   plugins: [
     TanStackRouterVite({
       routesDirectory: path.resolve(__dirname, 'src/renderer/routes'),

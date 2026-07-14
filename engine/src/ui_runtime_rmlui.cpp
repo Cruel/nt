@@ -560,6 +560,14 @@ void RuntimeUI::State::install_typed_lua_api()
                invalid("runtime_ui.view_unavailable", "Typed runtime view is unavailable");
     };
 
+    game.set_function("start", [this]() {
+        const bool started =
+            dispatch_typed_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+        if (started)
+            show_game_document();
+        return started;
+    });
+
     ui.set_function("continue", [this, require_view, invalid]() {
         if (!require_view())
             return false;

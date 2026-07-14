@@ -34,6 +34,7 @@ export class PreviewBuildMissingError extends Error {
 export class EnginePreviewServer {
   private server: Server | null = null;
   private session: EnginePreviewSession | null = null;
+  private startPromise: Promise<EnginePreviewSession> | null = null;
   private previewRoot: string | null = null;
   private editorAssetsRoot: string | null = null;
   private projectRoot: string | null = null;
@@ -44,15 +45,30 @@ export class EnginePreviewServer {
 
   async getSession(): Promise<EnginePreviewSession> {
     if (this.session) return this.session;
-    return this.start();
+    return this.startPromise ?? this.start();
   }
 
   async reload(): Promise<EnginePreviewSession> {
-    await this.stop();
-    return this.start();
+    if (!this.server || !this.session) {
+      return this.getSession();
+    }
+    this.session = createSession(this.server);
+    return this.session;
   }
 
   async start(): Promise<EnginePreviewSession> {
+    if (this.session) return this.session;
+    if (this.startPromise) return this.startPromise;
+
+    this.startPromise = this.startServer();
+    try {
+      return await this.startPromise;
+    } finally {
+      this.startPromise = null;
+    }
+  }
+
+  private async startServer(): Promise<EnginePreviewSession> {
     if (this.session) return this.session;
 
     this.previewRoot = resolvePreviewRoot();
@@ -63,6 +79,9 @@ export class EnginePreviewServer {
     }
 
     this.server = createServer((request, response) => {
+      response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+      response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+      response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       if (!request.url || !this.previewRoot) {
         response.writeHead(404).end('Not found');
         return;
@@ -105,17 +124,7 @@ export class EnginePreviewServer {
       this.server?.listen(0, '127.0.0.1', () => resolve());
     });
 
-    const address = this.server.address();
-    if (!address || typeof address === 'string') {
-      throw new Error('Engine preview server did not expose a TCP port.');
-    }
-    const origin = `http://127.0.0.1:${address.port}`;
-    const sessionToken = randomBytes(24).toString('base64url');
-    this.session = {
-      origin,
-      sessionToken,
-      url: `${origin}/?sessionToken=${encodeURIComponent(sessionToken)}`,
-    };
+    this.session = createSession(this.server);
     return this.session;
   }
 
@@ -123,10 +132,25 @@ export class EnginePreviewServer {
     const server = this.server;
     this.server = null;
     this.session = null;
+    this.startPromise = null;
     this.editorAssetsRoot = null;
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+}
+
+function createSession(server: Server): EnginePreviewSession {
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Engine preview server did not expose a TCP port.');
+  }
+  const origin = `http://127.0.0.1:${address.port}`;
+  const sessionToken = randomBytes(24).toString('base64url');
+  return {
+    origin,
+    sessionToken,
+    url: `${origin}/?sessionToken=${encodeURIComponent(sessionToken)}`,
+  };
 }
 
 function serveFileFromRoot(root: string, relativePath: string, response: ServerResponse) {

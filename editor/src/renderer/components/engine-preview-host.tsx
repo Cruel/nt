@@ -87,6 +87,7 @@ export function EnginePreviewHost({
           ref={iframeRef}
           title="NovelTea engine preview"
           src={iframeSrc}
+          allow="cross-origin-isolated"
           sandbox="allow-scripts allow-same-origin"
           className={iframeClassName}
           style={displayProfile && bounds.width > 0 && bounds.height > 0 ? (() => {

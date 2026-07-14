@@ -97,6 +97,8 @@ async function requireBuiltApp(appDir) {
 
 async function startServer(appDir) {
   const server = http.createServer(async (req, res) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     try {
       const reqUrl = new URL(req.url || '/', 'http://localhost');
       let rel = decodeURIComponent(reqUrl.pathname).replace(/^\/+/, '');

@@ -30,6 +30,8 @@ const char* ma_error_name(ma_result result)
         return "generic error";
     case MA_INVALID_ARGS:
         return "invalid arguments";
+    case MA_INVALID_OPERATION:
+        return "invalid operation";
     case MA_INVALID_FILE:
         return "invalid file";
     case MA_DOES_NOT_EXIST:

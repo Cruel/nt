@@ -873,13 +873,14 @@ export function WorkspacePage() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           <Group
+            key={showBottomPanel ? 'workspace-with-bottom-panel' : 'workspace-main-only'}
             orientation="vertical"
             className="h-full w-full"
             onLayoutChanged={(layout) => {
               if (showBottomPanel && typeof layout['workspace-bottom-panel'] === 'number') setBottomPanelSizePercent(layout['workspace-bottom-panel']);
             }}
           >
-            <Panel id="workspace-main-panel" defaultSize={showBottomPanel ? 100 - bottomPanelSizePercent : 100} minSize="240px">
+            <Panel id="workspace-main-panel" defaultSize={`${showBottomPanel ? 100 - bottomPanelSizePercent : 100}%`} minSize="240px">
               <Workbench />
             </Panel>
             {showBottomPanel
@@ -888,7 +889,7 @@ export function WorkspacePage() {
                     key="bottom-panel-resize"
                     orientation="vertical"
                   />,
-                  <Panel id="workspace-bottom-panel" key="bottom-panel" defaultSize={bottomPanelSizePercent} minSize="180px" maxSize="70%">
+                  <Panel id="workspace-bottom-panel" key="bottom-panel" defaultSize={`${bottomPanelSizePercent}%`} minSize="180px" maxSize="70%">
                     <BottomPanel />
                   </Panel>,
                 ]

@@ -114,6 +114,9 @@ add_compile_definitions(
 # --- SDL3: provide the SDL3::SDL3 target for all platforms ---
 
 if(EMSCRIPTEN)
+    add_compile_options(-pthread)
+    add_link_options(-pthread "SHELL:-sPTHREAD_POOL_SIZE=1")
+
     # Emscripten provides SDL3 via -sUSE_SDL=3; create a dummy interface target.
     add_library(SDL3::SDL3 INTERFACE IMPORTED)
     target_compile_options(SDL3::SDL3 INTERFACE -sUSE_SDL=3)

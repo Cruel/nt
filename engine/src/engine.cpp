@@ -54,6 +54,37 @@ constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
 constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
 
+const char* preview_severity(core::ErrorSeverity severity)
+{
+    switch (severity) {
+    case core::ErrorSeverity::Info:
+        return "info";
+    case core::ErrorSeverity::Warning:
+        return "warning";
+    case core::ErrorSeverity::Error:
+    case core::ErrorSeverity::Fatal:
+        return "error";
+    }
+    return "error";
+}
+
+void emit_preview_diagnostic(const core::Diagnostic& diagnostic)
+{
+    std::string message = diagnostic.code.empty() ? diagnostic.message
+                                                  : diagnostic.code + ": " + diagnostic.message;
+    std::string path = diagnostic.source_path;
+    if (!diagnostic.json_pointer.empty()) {
+        if (!path.empty())
+            path += diagnostic.json_pointer;
+        else
+            path = diagnostic.json_pointer;
+    }
+    preview_bridge::emit_diagnostic(preview_severity(diagnostic.severity), "runtime",
+                                    path.c_str(), message.c_str());
+    for (const auto& cause : diagnostic.causes)
+        emit_preview_diagnostic(cause);
+}
+
 struct ExtractedCompiledPackage {
     nlohmann::json gameplay;
     nlohmann::json manifest;
@@ -827,10 +858,12 @@ bool Engine::load_compiled_project(const std::string& logical_path)
     }
 
     if (!loaded) {
-        for (const auto& diagnostic : loaded.error())
+        for (const auto& diagnostic : loaded.error()) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",
                          diagnostic.code.c_str(), diagnostic.source_path.c_str(),
                          diagnostic.message.c_str());
+            emit_preview_diagnostic(diagnostic);
+        }
         return false;
     }
 
@@ -871,6 +904,16 @@ bool Engine::load_compiled_project(const std::string& logical_path)
     m_typed_runtime_diagnostics = m_compiled_runtime->startup_result().diagnostics;
     (void)m_runtime_ui.dispatch_typed_runtime_input(
         core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    if (!m_runtime_ui.load_title_document()) {
+        std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
+        m_compiled_runtime.reset();
+        return false;
+    }
+    const auto& identity = project.identity();
+    const auto& title_screen = project.settings().title_screen;
+    m_runtime_ui.bind_title_document(
+        title_screen.show_project_title ? identity.name : std::string{}, title_screen.subtitle,
+        title_screen.start_label);
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
     m_compiled_project_path = logical_path;
     return true;

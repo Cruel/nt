@@ -48,6 +48,12 @@ function(noveltea_apply_policy_warnings target)
             target_compile_options("${target}" PRIVATE
                 -Wno-gnu-zero-variadic-macro-arguments)
         endif()
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+           CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo|MinSizeRel")
+            # GCC's aggressive release optimizer reports false positives for
+            # values read from validated std::optional branches.
+            target_compile_options("${target}" PRIVATE -Wno-maybe-uninitialized)
+        endif()
         if(EMSCRIPTEN)
             # Emscripten emits this toolchain-owned diagnostic whenever its SDL3
             # port is enabled. This is not a first-party source warning.

@@ -321,6 +321,7 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_smoke PROPERTIES
         LABELS "runtime;assets"
+        PASS_REGULAR_EXPRESSION "\\[runtime_ui\\] loaded title document"
     )
     add_test(
         NAME noveltea_sandbox_runtime_compiled_package_repeat_smoke
@@ -329,5 +330,6 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_repeat_smoke PROPERTIES
         LABELS "runtime;assets"
+        PASS_REGULAR_EXPRESSION "\\[runtime_ui\\] loaded title document"
     )
 endif()

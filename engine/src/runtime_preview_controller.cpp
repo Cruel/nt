@@ -46,6 +46,157 @@ std::optional<core::RuntimeValue> runtime_value_from_json(const nlohmann::json& 
     return std::nullopt;
 }
 
+nlohmann::json preview_entity_ref(std::string type, std::string id,
+                                  std::string collection = {})
+{
+    nlohmann::json result = {{"type", std::move(type)}, {"id", std::move(id)}};
+    if (!collection.empty())
+        result["collection"] = std::move(collection);
+    return result;
+}
+
+std::string preview_diagnostic_severity(core::ErrorSeverity severity)
+{
+    switch (severity) {
+    case core::ErrorSeverity::Info:
+        return "info";
+    case core::ErrorSeverity::Warning:
+        return "warning";
+    case core::ErrorSeverity::Error:
+    case core::ErrorSeverity::Fatal:
+        return "error";
+    }
+    return "error";
+}
+
+nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState& view,
+                                             const core::Diagnostics& diagnostics,
+                                             bool preview_running)
+{
+    nlohmann::json dialogue_options = nlohmann::json::array();
+    if (view.dialogue && view.dialogue->choice) {
+        for (std::size_t index = 0; index < view.dialogue->choice->options.size(); ++index) {
+            const auto& option = view.dialogue->choice->options[index];
+            dialogue_options.push_back({{"index", static_cast<int>(index)},
+                                        {"label", option.label},
+                                        {"enabled", option.enabled}});
+        }
+    } else if (view.scene && view.scene->choice) {
+        for (std::size_t index = 0; index < view.scene->choice->options.size(); ++index) {
+            const auto& option = view.scene->choice->options[index];
+            dialogue_options.push_back({{"index", static_cast<int>(index)},
+                                        {"label", option.label},
+                                        {"enabled", option.enabled}});
+        }
+    }
+
+    nlohmann::json navigation = nlohmann::json::array();
+    if (view.room) {
+        for (const auto& exit : view.room->exits) {
+            navigation.push_back({{"index", static_cast<int>(exit.direction)},
+                                  {"label", exit.label},
+                                  {"enabled", exit.enabled}});
+        }
+    }
+
+    nlohmann::json actions = nlohmann::json::array();
+    const auto& controls = view.room ? view.room->controls : view.inventory.controls;
+    for (const auto& control : controls) {
+        actions.push_back({{"verbId", control.verb.text()},
+                           {"label", control.label},
+                           {"objectCount", static_cast<int>(control.arity)},
+                           {"selectedCount", static_cast<int>(view.selected_interactables.size())},
+                           {"enabled", control.enabled}});
+    }
+
+    nlohmann::json selected_objects = nlohmann::json::array();
+    for (const auto& id : view.selected_interactables)
+        selected_objects.push_back(id.text());
+
+    nlohmann::json inventory = nlohmann::json::array();
+    for (const auto& item : view.inventory.items) {
+        inventory.push_back({{"id", item.interactable.text()},
+                             {"label", item.display_name},
+                             {"selected", std::find(view.selected_interactables.begin(),
+                                                     view.selected_interactables.end(),
+                                                     item.interactable) !=
+                                              view.selected_interactables.end()},
+                             {"enabled", item.enabled}});
+    }
+
+    nlohmann::json diagnostic_list = nlohmann::json::array();
+    for (const auto& diagnostic : diagnostics) {
+        nlohmann::json encoded = {{"severity", preview_diagnostic_severity(diagnostic.severity)},
+                                  {"message", diagnostic.message},
+                                  {"category", diagnostic.code}};
+        if (!diagnostic.source_path.empty())
+            encoded["path"] = diagnostic.source_path;
+        diagnostic_list.push_back(std::move(encoded));
+    }
+
+    std::string waiting_kind = "none";
+    std::string waiting_reason;
+    if (!dialogue_options.empty()) {
+        waiting_kind = "choice";
+        waiting_reason = "runtime choices are available";
+    } else if (!navigation.empty()) {
+        waiting_kind = "navigation";
+        waiting_reason = "room navigation is available";
+    } else if (!actions.empty()) {
+        waiting_kind = "action";
+        waiting_reason = "runtime actions are available";
+    } else if (view.can_continue) {
+        waiting_kind = "continue";
+        waiting_reason = "runtime is waiting for continue";
+    } else if (view.mode == "title") {
+        waiting_kind = "title";
+        waiting_reason = "title UI is active";
+    } else if (view.mode == "ended") {
+        waiting_kind = "paused";
+        waiting_reason = "runtime has ended";
+    }
+
+    nlohmann::json waiting = {{"kind", waiting_kind}, {"canContinue", view.can_continue}};
+    if (!waiting_reason.empty())
+        waiting["reason"] = std::move(waiting_reason);
+
+    nlohmann::json snapshot = {
+        {"loaded", true},
+        {"running", preview_running},
+        {"shellMode", view.mode},
+        {"runtimeMode", view.mode},
+        {"waiting", std::move(waiting)},
+        {"availableInputs",
+         {{"continue", view.can_continue},
+          {"dialogueOptions", std::move(dialogue_options)},
+          {"navigation", std::move(navigation)},
+          {"actions", std::move(actions)},
+          {"selectedObjects", selected_objects},
+          {"clickableTargets", nlohmann::json::array()}}},
+        {"variables", nlohmann::json::array()},
+        {"inventory", std::move(inventory)},
+        {"selectedObjects", std::move(selected_objects)},
+        {"diagnostics", std::move(diagnostic_list)},
+        {"saveSnapshot", nlohmann::json::object()},
+        {"controllerState", nlohmann::json::object()},
+    };
+
+    if (view.room) {
+        snapshot["currentRoomId"] = view.room->room.text();
+        snapshot["currentEntity"] =
+            preview_entity_ref("room", view.room->room.text(), "rooms");
+    } else if (view.dialogue) {
+        snapshot["currentDialogueId"] = view.dialogue->dialogue.text();
+        snapshot["currentEntity"] =
+            preview_entity_ref("dialogue", view.dialogue->dialogue.text(), "dialogues");
+    } else if (view.scene) {
+        snapshot["currentEntity"] =
+            preview_entity_ref("scene", view.scene->scene.text(), "scenes");
+    }
+
+    return snapshot;
+}
+
 } // namespace
 
 RuntimePreviewController::RuntimePreviewController(Engine& engine) noexcept : m_engine(engine) {}
@@ -264,7 +415,9 @@ std::string RuntimePreviewController::fast_forward_to_input()
     }
     return nlohmann::json{{"reason", reason},
                           {"stepsApplied", applied},
-                          {"snapshot", nlohmann::json::parse(debug_snapshot(), nullptr, false)}}
+                          {"ticksApplied", applied},
+                          {"finalSnapshot",
+                           nlohmann::json::parse(debug_snapshot(), nullptr, false)}}
         .dump();
 }
 
@@ -273,9 +426,10 @@ std::string RuntimePreviewController::debug_snapshot() const
     const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
     if (!view)
         return {};
-    return core::editor::encode_editor_debug_snapshot_text(
-        *view, m_engine.m_typed_runtime_outputs, m_engine.m_runtime_ui.typed_runtime_diagnostics(),
-        m_engine.m_preview_running);
+    return encode_preview_debug_snapshot(*view,
+                                         m_engine.m_runtime_ui.typed_runtime_diagnostics(),
+                                         m_engine.m_preview_running)
+        .dump();
 }
 
 } // namespace noveltea
