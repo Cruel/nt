@@ -2,10 +2,9 @@
 
 ## Purpose and scope
 
-This is the Phase 0 baseline for the typed-runtime migration plan. It records the existing
-scaffold and JSON-bearing public seams so later phases can replace them deliberately without
-expanding them. It is an inventory, not an approval to add new legacy compatibility or generic
-JSON state.
+This inventory began as the Phase 0 baseline and is maintained through the migration. It records the
+existing scaffold, JSON-bearing public seams, and the Phase 9 classification of every surviving
+generic runtime message path. It is not approval to add legacy compatibility or generic JSON state.
 
 `TYPED_RUNTIME_MODEL_AND_JSON_BOUNDARIES_IMPLEMENTATION_PLAN.md` is the canonical replacement
 schedule. All new runtime behavior must target its typed model; the listed legacy types only remain
@@ -30,7 +29,7 @@ phase.
 | `ProjectDocument`, `ProjectModel`, `EntityRef`, `EntityType`, and `core/legacy/*` | Positional legacy project import, document storage, numeric entity addressing, and validation | Do not add records, fields, compatibility cases, or new callers for runtime features | 10 |
 | `CutsceneController`, `CutsceneModel`, and raw cutscene segments | Legacy scene execution and JSON snapshots | New work uses the canonical `Scene` terminology and awaits the typed Scene program | 7/10 |
 | `GameSession` generic properties, `EntityMetadata::properties`, and `ProjectModel::merged_properties` | Generic JSON property mutation/inheritance | Do not add properties or implement features through these bags | 2, 8, 10 |
-| Controller, event, input/output, and UI adapter JSON payloads | Internal generic message and snapshot transport | Do not add payload variants; Phase 9 replaces them with closed typed commands/events/outputs | 9 |
+| Controller, event, input/output, and UI adapter JSON payloads | Shipped pre-cutover legacy message and snapshot transport | Do not add payload variants or typed-runtime callers; Phase 9 replacement is complete and Phase 10 deletes this path atomically | 10 |
 | `SaveDocument` and controller checkpoint JSON | Legacy saved mutable state | Do not add save fields or save compatibility; Phase 8 introduces typed `SaveState` | 8/10 |
 | Legacy package reader/writer and `ProjectTooling::import_legacy_game_json` | Transitional import/package workflow | No new legacy formats or compatibility behavior | 10 |
 
@@ -51,17 +50,18 @@ encoder, or external protocol adapter and must remain outside domain models afte
 | `core/entity_ref.hpp::{to_json, from_json}` | Temporary migration codec | Numeric legacy entity references | 10 |
 | `core/save_document.hpp::SaveDocument` | Temporary migration debt | JSON-backed legacy save root | 10 |
 | `core/runtime_user_settings_codec.hpp` | Permanent codec | Strict `noveltea.runtime.user-settings` V1 boundary around a JSON-free native value | 11 retains |
-| `core/game_session.hpp` generic property/log/notification APIs | Temporary migration debt | JSON session state and generic property mutation | 8/9 |
-| `core/{cutscene,dialogue,runtime}_controller.hpp` state/snapshot APIs and `ControllerCommand::data` | Temporary migration debt | JSON controller state and commands | 6, 8, 9 |
-| `core/runtime_events.hpp::RuntimeEvent::data` | Temporary migration debt | Internal event payload | 9 |
-| `core/runtime_io.hpp::{RuntimeInput, RuntimeOutput}` | Temporary migration debt | Internal input/output payloads | 9 |
-| `core/runtime_session_host.hpp::enqueue_audio_command` | Temporary migration debt | Internal audio output payload | 9 |
-| `core/runtime_ui_view.hpp` JSON adapter helpers | Temporary migration debt | Internal UI command/log adaptation | 9 |
+| `core/game_session.hpp` generic property/log/notification APIs | Temporary migration debt | Shipped legacy session state only; typed state and communications use `SessionState` and Phase 9 messages | 10 |
+| `core/{cutscene,dialogue,runtime}_controller.hpp` state/snapshot APIs and `ControllerCommand::data` | Temporary migration debt | Shipped legacy controller execution/snapshots only; no replacement-runtime consumer | 10 |
+| `core/runtime_events.hpp::RuntimeEvent::data` | Temporary migration debt | Shipped `GameSession`/`RuntimeController` event transport only | 10 |
+| `core/runtime_io.hpp::{RuntimeInput, RuntimeOutput, RuntimeDiagnostic}` | Temporary migration debt | Shipped legacy host/shell/tooling only; typed runtime uses `RuntimeInputMessage`, `RuntimeOutputMessage`, and `core::Diagnostic` | 10 |
+| `core/runtime_session_host.hpp::enqueue_audio_command` | Temporary migration debt | Shipped legacy audio output only; typed runtime uses `AudioOperation` | 10 |
+| `core/runtime_ui_view.hpp` JSON adapter helpers | Temporary migration debt | Shipped legacy UI command/log adaptation only | 10 |
 | `core/rich_text.hpp` JSON conversion helpers | External protocol adapter | Preview/debug/UI serialization boundary; keep domain rich-text values JSON-free | 11 retains adapter |
 | `core/package_export.hpp` JSON metadata and manifest fields | Permanent package boundary | Versioned shader/material and package manifest documents | 11 retains adapter |
-| `core/editor_api.hpp` JSON project editing, playback specs, snapshots, and reports | Temporary tooling/migration adapter | Editor tooling still drives the legacy model | 3, 4, 7, 9, 10 |
-| `runtime_command.hpp::RuntimeCommand::payload` | Temporary external protocol debt | Shell/preview command transport leaks generic payloads | 9 |
-| `runtime_ui_playback.hpp` JSON playback specs/results | Temporary external protocol debt | UI playback protocol mirrors legacy runtime state | 7, 8, 9 |
+| `core/editor_api.hpp` JSON project editing, playback specs, snapshots, and reports | Temporary tooling/migration adapter | Shipped editor tooling still drives the legacy runtime until atomic cutover | 10 |
+| `core/editor_runtime_protocol.hpp` | Permanent named external protocol | Strict Phase 9 decoder/encoder boundary around typed editor inputs, playback, reports, and debug snapshots | 11 retains adapter |
+| `runtime_command.hpp::RuntimeCommand::payload` | Temporary external protocol debt | Shipped shell/preview command transport only; typed platform/editor adapters lower directly to `RuntimeInputMessage` | 10 |
+| `runtime_ui_playback.hpp` JSON playback specs/results | Temporary external protocol debt | Shipped legacy UI playback only; typed playback uses the named editor runtime protocol | 10 |
 | `runtime_debug_snapshot.hpp` debug JSON helpers | Permanent debugger adapter | Serialized only for debugger/preview clients | 11 retains adapter |
 | `render/material.hpp::parse_shader_material_project_json_value` | Permanent package-metadata codec | Dedicated versioned shader/material metadata boundary | 11 retains adapter |
 
@@ -88,6 +88,55 @@ Package and material boundary coverage is in `tests/core/project_document_tests.
 
 No Phase 0 test changes are required: it adds inventory and guardrails only. Later phases must update
 the listed consumer tests when they replace the corresponding seam.
+
+## Phase 9 typed-message audit
+
+The Phase 9 audit classifies all production uses requested by the implementation plan. Searches cover
+`engine/`, `apps/`, and public headers; tests are consumers only where noted below.
+
+| Audited family | Classification after Phase 9 | Exact owner and removal condition |
+| --- | --- | --- |
+| `ControllerCommand::data`, controller `save_state`/`restore_state`, and debug controller snapshots | Transitional legacy-path debt | `RuntimeController`, legacy debugger/editor snapshots, and legacy playback. Delete in Phase 10 after the shipped runtime and debug snapshot producer consume `CompiledProject`, typed views, and typed save state. |
+| `RuntimeInput::payload`, `RuntimeOutput::payload`, and `RuntimeDiagnostic` | Transitional legacy-path debt | `RuntimeSessionHost`, `RuntimeShell`, legacy editor API/playback, engine audio draining, and legacy script execution. Delete in Phase 10 after those consumers route through `TypedRuntimeSession` and `core::Diagnostic`. |
+| `RuntimeEvent::data`, generic notification/log metadata, and audio-command JSON | Transitional legacy-path debt | `GameSession`, `RuntimeController`, `RuntimeUIViewAdapter`, and legacy engine audio handling. Delete in Phase 10 after the shipped path uses typed user-communication and audio operations. |
+| Legacy editor playback payloads and reports | Transitional legacy-path debt | `core::editor_api` and `runtime_ui_playback`. Delete in Phase 10 when production preview/playback routing adopts `editor_runtime_protocol`. |
+| `GameBinding`, `build_game_table`, `bind_game_session`, `bind_runtime_host`, `bind_runtime_command_dispatcher`, matching `ScriptRuntime` methods, and `RuntimeScriptExecutor` | Transitional legacy-path debt | Legacy `ScriptRuntime`, engine/runtime-shell initialization, and legacy playback/tests. Delete together in Phase 10 after all shipped authored Lua uses session-owned `RuntimeScriptApi`. |
+| `editor_runtime_protocol` JSON documents | Permanent named protocol adapter | Strict versioned editor input/playback decoders and typed report/debug encoders. JSON is not retained by runtime state. |
+| Existing `noveltea_runtime_*` preview/Web C ABI | Transitional external boundary debt | The existing exports still target the shipped legacy preview host. Their arguments are external scalars/strings, but production lowering into `RuntimeInputMessage` is part of the Phase 10 atomic consumer cutover; there is no separate committed `platform_runtime_protocol` module. |
+| `runtime_messages`, `TypedRuntimeSession`, typed `RuntimeUI`, and `RuntimeScriptApi` | Removed/replaced typed path | These are the replacement owners. They do not construct or inspect legacy generic messages or JSON payload objects. |
+
+No audited generic family is shared with the replacement runtime. The remaining legacy graph is
+intentionally kept intact until Phase 10 because independently deleting one message type would break
+the currently shipped project-loading/runtime path and would violate the atomic-cutover requirement.
+
+Closed Phase 9 variants use compile-time exhaustive visitors. `TypedRuntimeSession` and typed
+`RuntimeUI` already end visitors in dependent `static_assert` branches. Phase 9E adds the same rule to
+runtime output category/kind classification and to the nested editor protocol communication,
+observation, and debug-snapshot encoders; adding an alternative without handling it now fails the
+build.
+
+### Phase 9E verification record
+
+The completed audit was verified against the current checkout with the following coverage:
+
+- Linux Debug built successfully and the complete CTest suite passed: 538/538 tests.
+- The focused typed runtime, editor protocol, preview/debugger/playback, typed UI, and diagnostic
+  selection passed: 31/31 tests.
+- Linux ASan/UBSan built successfully; the focused Phase 9 runtime/script/protocol selection passed
+  23/23 tests, and all six configured parser fuzz-smoke tests passed.
+- The Web build completed successfully. Web C++ policy and formatting targets passed.
+- Linux first-party runtime policy, checker self-tests, and dependency compiler/link policy passed
+  against the complete Linux Debug build (`190` first-party and `5` dependency compile commands).
+- Editor ESLint and TypeScript checks passed. The complete Vitest suite passed: 723 tests, with five
+  intentionally skipped platform integration tests. Two unrelated asynchronous UI tests were made
+  deterministic by waiting for their MessageChannel/menu/API boundaries rather than relying on
+  scheduling order; no product behavior changed.
+- `git diff --check` was run for both staged and unstaged changes.
+
+Linux executes the native adapter and sanitizer tests. Web receives compile and policy coverage in
+this environment. The Android player has no NovelTea JNI gameplay/runtime command surface to execute;
+no placeholder JNI adapter was introduced. Android, Windows, and macOS builds were not executed as
+part of this local Phase 9E verification and retain their CI/platform-build ownership.
 
 ## Phase 0 guardrails
 

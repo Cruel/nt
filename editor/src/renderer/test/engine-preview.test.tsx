@@ -247,9 +247,13 @@ describe('EnginePreview', () => {
         origin: 'http://127.0.0.1:5000',
         data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
       }));
-      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
     });
+    await waitFor(() => expect(ports.length).toBeGreaterThanOrEqual(2));
     const editorPort = ports.at(-2)!;
+    const previewPort = ports.at(-1)!;
+    await act(async () => {
+      previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
     await waitFor(() => expect(latestRequest(editorPort, 'set-preview-display-profile')).toBeDefined());
     const displayProfileCount = editorPort.sent.filter((message) => (
       (message as { type?: string }).type === 'set-preview-display-profile'

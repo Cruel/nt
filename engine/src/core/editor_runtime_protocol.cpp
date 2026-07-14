@@ -13,6 +13,8 @@
 namespace noveltea::core::editor {
 namespace {
 
+template<typename> inline constexpr bool always_false = false;
+
 Diagnostic error(std::string code, std::string message, std::string path = {})
 {
     return Diagnostic{
@@ -523,8 +525,11 @@ nlohmann::json encode_output(const RuntimeOutputMessage& output)
                         using M = std::decay_t<decltype(message)>;
                         if constexpr (std::is_same_v<M, NotificationOutput>)
                             return {{"type", "notification"}, {"message", message.message}};
-                        else
+                        else if constexpr (std::is_same_v<M, TextLogOutput>)
                             return {{"type", "text-log"}, {"text", message.text}};
+                        else
+                            static_assert(always_false<M>,
+                                          "Unhandled UserCommunicationOutput alternative");
                     },
                     value);
             } else if constexpr (std::is_same_v<T, SaveOutcome>) {
@@ -561,16 +566,19 @@ nlohmann::json encode_output(const RuntimeOutputMessage& output)
                         else if constexpr (std::is_same_v<O, DebuggerObservation>)
                             return {{"type", "debugger-observation"},
                                     {"hasActiveFrame", observation.active_frame.has_value()}};
-                        else
+                        else if constexpr (std::is_same_v<O, RuntimeStateObservation>)
                             return {{"type", "runtime-state-observation"},
                                     {"hasActiveFrame", observation.active_frame.has_value()},
                                     {"blocked", observation.blocker.has_value()}};
+                        else
+                            static_assert(always_false<O>,
+                                          "Unhandled RuntimeObservation alternative");
                     },
                     value);
             } else if constexpr (std::is_same_v<T, Diagnostic>)
                 return {{"type", "diagnostic"}, {"diagnostic", encode_diagnostic(value)}};
             else
-                static_assert(std::is_same_v<T, void>, "Unhandled runtime output type");
+                static_assert(always_false<T>, "Unhandled RuntimeOutputMessage alternative");
         },
         output);
 }
@@ -724,11 +732,13 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
                         result["observations"].push_back(
                             {{"type", "debugger"},
                              {"hasActiveFrame", value.active_frame.has_value()}});
-                    else
+                    else if constexpr (std::is_same_v<T, RuntimeStateObservation>)
                         result["observations"].push_back(
                             {{"type", "runtime-state"},
                              {"hasActiveFrame", value.active_frame.has_value()},
                              {"blocked", value.blocker.has_value()}});
+                    else
+                        static_assert(always_false<T>, "Unhandled RuntimeObservation alternative");
                 },
                 *observation);
         }

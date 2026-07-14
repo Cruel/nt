@@ -12,18 +12,19 @@ engine/include/noveltea/core/legacy/project_importer.hpp|ProjectImporter::import
 engine/include/noveltea/core/entity_ref.hpp|EntityRef::to_json;EntityRef::from_json|temporary-migration-codec|core|Legacy numeric entity references|10
 engine/include/noveltea/core/save_document.hpp|SaveDocument|temporary-migration-debt|core|JSON-backed legacy save root|10
 engine/include/noveltea/core/runtime_user_settings_codec.hpp|encode_runtime_user_settings;decode_runtime_user_settings|codec|core|Strict versioned runtime-user-settings boundary around a JSON-free native value|permanent-boundary
-engine/include/noveltea/core/game_session.hpp|GameSession::property;set_property;entity_property;append_log;notify|temporary-migration-debt|core|Generic JSON session property and message state|8-9
-engine/include/noveltea/core/cutscene_controller.hpp|CutsceneController::save_state;restore_state|temporary-migration-debt|core|Legacy cutscene checkpoint state|7-8
-engine/include/noveltea/core/dialogue_controller.hpp|DialogueController::save_state;restore_state|temporary-migration-debt|core|Legacy dialogue checkpoint state|7-8
-engine/include/noveltea/core/runtime_controller.hpp|ControllerCommand::data;RuntimeController::save_state;restore_state|temporary-migration-debt|core|Legacy command and controller state|6-9
-engine/include/noveltea/core/runtime_events.hpp|RuntimeEvent::data|temporary-migration-debt|core|Generic internal event payload|9
-engine/include/noveltea/core/runtime_io.hpp|RuntimeInput::payload;RuntimeOutput::payload|temporary-migration-debt|core|Generic internal input/output payload|9
-engine/include/noveltea/core/runtime_session_host.hpp|RuntimeSessionHost::enqueue_audio_command|temporary-migration-debt|core|Generic internal audio command payload|9
-engine/include/noveltea/core/runtime_ui_view.hpp|RuntimeUIViewAdapter JSON helpers|temporary-migration-debt|core|Legacy UI command and saved-log adaptation|9
+engine/include/noveltea/core/game_session.hpp|GameSession::property;set_property;entity_property;append_log;notify|temporary-migration-debt|legacy-runtime|Generic JSON session property and message state used only by the shipped pre-cutover runtime|10
+engine/include/noveltea/core/cutscene_controller.hpp|CutsceneController::save_state;restore_state|temporary-migration-debt|legacy-runtime|Legacy cutscene checkpoint state used only by controller snapshots|10
+engine/include/noveltea/core/dialogue_controller.hpp|DialogueController::save_state;restore_state|temporary-migration-debt|legacy-runtime|Legacy dialogue checkpoint state used only by controller snapshots|10
+engine/include/noveltea/core/runtime_controller.hpp|ControllerCommand::data;RuntimeController::save_state;restore_state|temporary-migration-debt|legacy-runtime|Legacy command transport and controller snapshots retained for the shipped pre-cutover runtime|10
+engine/include/noveltea/core/runtime_events.hpp|RuntimeEvent::data|temporary-migration-debt|legacy-runtime|Generic event payload used only by GameSession and RuntimeController legacy execution|10
+engine/include/noveltea/core/runtime_io.hpp|RuntimeInput::payload;RuntimeOutput::payload;RuntimeDiagnostic|temporary-migration-debt|legacy-runtime|Generic input output and parallel diagnostic records used only by the shipped pre-cutover host shell and tooling|10
+engine/include/noveltea/core/runtime_session_host.hpp|RuntimeSessionHost::enqueue_audio_command|temporary-migration-debt|legacy-runtime|Generic audio output payload used only by the shipped pre-cutover host|10
+engine/include/noveltea/core/runtime_ui_view.hpp|RuntimeUIViewAdapter JSON helpers|temporary-migration-debt|legacy-runtime|Legacy ControllerCommand and saved-log adaptation used only by the pre-cutover UI path|10
 engine/include/noveltea/core/rich_text.hpp|to_json;rich_text_from_json|external-protocol|core|Preview/debug/UI serialization adapter|permanent-boundary
 engine/include/noveltea/core/package_export.hpp|PackageExportOptions;PackageExportResult|package-boundary|core|Versioned package and shader/material metadata|permanent-boundary
-engine/include/noveltea/core/editor_api.hpp|ProjectTooling;RuntimePlaybackSession;RuntimePreviewSession|temporary-tooling-adapter|editor|Legacy project editing, playback, and preview bridge|3-10
-engine/include/noveltea/runtime_command.hpp|RuntimeCommand::payload|temporary-external-protocol-debt|runtime|Generic shell/preview command payload|9
-engine/include/noveltea/runtime_ui_playback.hpp|RuntimeUiPlaybackSpec;RuntimeUiPlaybackReport|temporary-external-protocol-debt|runtime|Legacy UI playback protocol|7-9
+engine/include/noveltea/core/editor_api.hpp|ProjectTooling;RuntimePlaybackSession;RuntimePreviewSession|temporary-tooling-adapter|legacy-editor-runtime|Legacy project editing playback and preview bridge retained until atomic consumer cutover|10
+engine/include/noveltea/core/editor_runtime_protocol.hpp|decode_editor_runtime_input;decode_editor_playback;encode_editor_playback_report;encode_editor_debug_snapshot|external-protocol|editor-runtime-adapter|Strict named Phase 9 editor input playback report and debug snapshot protocols around typed values|permanent-boundary
+engine/include/noveltea/runtime_command.hpp|RuntimeCommand::payload|temporary-external-protocol-debt|legacy-runtime-shell|Generic shell and preview command payload retained only by shipped pre-cutover consumers|10
+engine/include/noveltea/runtime_ui_playback.hpp|RuntimeUiPlaybackSpec;RuntimeUiPlaybackReport|temporary-external-protocol-debt|legacy-runtime-playback|Legacy UI playback protocol retained only by shipped pre-cutover playback|10
 engine/include/noveltea/runtime_debug_snapshot.hpp|runtime_debug_*|debugger|runtime|Debugger JSON serializer|permanent-boundary
 engine/include/noveltea/render/material.hpp|parse_shader_material_project_json_value|codec|render|Dedicated shader/material metadata decoder|permanent-boundary

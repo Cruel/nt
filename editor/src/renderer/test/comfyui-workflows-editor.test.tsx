@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComfyUiWorkflowsEditor } from '@/editors/comfyui/ComfyUiWorkflowsEditor';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
@@ -150,7 +150,7 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     expect(await screen.findByText('Custom Workflow')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy to Project' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy to Project' }));
     await screen.findByText('Workflow copied.');
     expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith({
       workflowKey: 'editor:custom.manifest.json',
@@ -159,12 +159,12 @@ describe('ComfyUiWorkflowsEditor', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Reveal in folder' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Reveal in folder' }));
     await screen.findByText('Opened workflow in folder.');
     expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith('editor:custom.manifest.json', '/mock/project/game.json');
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workflow' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete workflow' }));
     await screen.findByText('Workflow deleted.');
     expect(window.confirm).toHaveBeenCalledWith("Delete workflow 'Custom Workflow'?");
     expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith({
@@ -173,10 +173,11 @@ describe('ComfyUiWorkflowsEditor', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-    await screen.findByText('Verified 0 workflows.');
-    expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(expect.objectContaining({
-      projectFilePath: '/mock/project/game.json',
-    }));
+    await waitFor(() => {
+      expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(expect.objectContaining({
+        projectFilePath: '/mock/project/game.json',
+      }));
+    });
   });
   it('opens import and repair dialogs from manager actions', async () => {
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(response([

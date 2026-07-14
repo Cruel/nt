@@ -4,6 +4,12 @@
 
 namespace noveltea::core {
 
+namespace {
+
+template<typename> inline constexpr bool always_false = false;
+
+} // namespace
+
 RuntimeMessageCategory category(const RuntimeOutputMessage& message) noexcept
 {
     return std::visit(
@@ -19,8 +25,10 @@ RuntimeMessageCategory category(const RuntimeOutputMessage& message) noexcept
                 return RuntimeMessageCategory::HostOperation;
             else if constexpr (std::is_same_v<T, RuntimeObservation>)
                 return RuntimeMessageCategory::Observation;
-            else
+            else if constexpr (std::is_same_v<T, Diagnostic>)
                 return RuntimeMessageCategory::Diagnostic;
+            else
+                static_assert(always_false<T>, "Unhandled RuntimeOutputMessage alternative");
         },
         message);
 }
@@ -44,8 +52,10 @@ RuntimeOutputKind output_kind(const RuntimeOutputMessage& message) noexcept
                 return RuntimeOutputKind::SaveOutcome;
             else if constexpr (std::is_same_v<T, RuntimeObservation>)
                 return RuntimeOutputKind::Observation;
-            else
+            else if constexpr (std::is_same_v<T, Diagnostic>)
                 return RuntimeOutputKind::Diagnostic;
+            else
+                static_assert(always_false<T>, "Unhandled RuntimeOutputMessage alternative");
         },
         message);
 }
