@@ -89,6 +89,7 @@ add_executable(noveltea_script_tests
     script/typed_interaction_execution_tests.cpp
     script/typed_map_execution_tests.cpp
     script/typed_execution_kernel_tests.cpp
+    script/runtime_checkpoint_service_tests.cpp
     script/typed_room_execution_tests.cpp
     script/typed_runtime_session_tests.cpp
 )

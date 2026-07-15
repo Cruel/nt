@@ -293,6 +293,7 @@ target_sources(engine PRIVATE
     src/script/typed_execution_room.cpp
     src/script/runtime_script_api.cpp
     src/script/typed_runtime_session.cpp
+    src/script/runtime_checkpoint_service.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)
 target_compile_definitions(engine PRIVATE

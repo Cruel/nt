@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/script/runtime_checkpoint_service.hpp"
 #include "noveltea/script/runtime_script_api.hpp"
 
 #include <memory>
@@ -143,6 +144,7 @@ private:
     const core::CompiledProject& m_project;
     ScriptRuntime& m_runtime;
     core::TypedSaveSlotStore& m_saves;
+    RuntimeCheckpointService m_checkpoint_service;
     std::unique_ptr<TypedExecutionKernel> m_kernel;
     RuntimeScriptApi m_script_api;
     core::TypedRuntimeUIViewState m_script_view;

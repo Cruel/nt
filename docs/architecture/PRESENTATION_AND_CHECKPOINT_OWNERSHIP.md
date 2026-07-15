@@ -148,8 +148,8 @@ These are verified implementation facts, not target-policy exceptions:
 
 | Current behavior | Concrete evidence | Risk / ambiguity | Required resolution |
 | --- | --- | --- | --- |
-| Presentation and audio blockers are omitted from `SaveState` | `make_save_state()` serializes only `InputFlowBlocker` and `DurationFlowBlocker`; its final comment explicitly assigns presentation/audio to post-operation restore. `save_state_tests` asserts both omissions. | A live causal operation can be saved as if already finished. | Phase 2 blocks replacement through typed current-status coverage; Phase 4 replaces transitional status; Phase 7 completes audio/presentation classification. |
-| Restore fabricates logical post-operation state | `session_restore.cpp` restores no presentation/audio blocker while retaining the already-advanced frame cursor. | Chained voice, cue, transition, or Lua ordering can diverge after load. | Phase 2 removes the policy and writes an older retained checkpoint during causal work. |
+| Current save format omits presentation and audio blockers | `SaveState` intentionally represents only input/duration blockers, while `make_save_state()` now rejects active presentation/audio/script blockers with typed diagnostics. | The V2 format cannot represent causal progress. | Phase 2A prevents a new candidate from fabricating completion; Phase 2B adds settled transitional barrier status and Phase 7 adds final presentation/audio persistence. |
+| Restore has no representation for presentation/audio blockers | `session_restore.cpp` restores only serializable blockers; no new V2 save can be projected while a causal presentation/audio blocker is active. | Older historical slot bytes may still encode a post-operation cursor. | Phase 2D load/reset cleanup replaces historical assumptions; new retained candidates are protected by Phase 2A projection rejection. |
 | Presentation fields are cleared or definition-derived | Restore clears actors, background, Layouts, overlays, presented text, choices, transitions, audio channels, and Map; only Room background and overlay defaults are reconstructed for Room/Room-transition state. | Script-selected or Scene-owned target presentation is lost; deriving Room defaults cannot reproduce history-selected intent. | Phase 7 persists every reconstructible record identified below. |
 | One RmlUi context owns every document | `RuntimeUI` creates/removes only context `main`; all loaded documents use it. | Clock, input, and composition domains cannot be isolated. | Phase 5. |
 | RmlUi owns raw elapsed time | `SdlSystemInterface::GetElapsedTime()` reads SDL performance counters; material time reads the global system interface. | Gameplay UI cannot freeze without catch-up while unscaled menus continue. | Phase 3 engine clocks, Phase 5 RmlUi router. |
@@ -780,10 +780,8 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
   boolean policies. It has no consumer or test suite. Converting only its ID would require changing
   its zero-as-failure return contract and would partially implement the Phase 3 mount migration, so
   Phase 1D retains it as explicit transitional debt and tests the typed replacement contract instead.
-- Existing save behavior remains intentionally unchanged in this slice: current presentation/audio
-  blocker omission is still unsafe implementation debt assigned to Phase 2. The Phase 1 contracts
-  make the replacement policy exact without serializing Lua, tween, audio-voice, RmlUi, or GPU
-  internals; they do not fabricate completion themselves.
+- At the Phase 1D boundary, presentation/audio blocker omission remained unsafe implementation debt
+  assigned to Phase 2. Phase 2A has since replaced that projection behavior as recorded above.
 - Verification on 2026-07-15 passed: 15 focused contract/runtime/save/audio/script tests, the full
   Linux build, all 325 Linux CTest tests, `format-check`, `cxx-policy`,
   `json-boundary-policy`, and the full Web build. No Phase 2-through-8 service, coordinator,
@@ -792,12 +790,29 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
   representation or one explicit later-phase implementation assignment. No unresolved Phase 1
   decision or contradictory implemented location remains.
 
+## Phase 2A implementation evidence
+
+- `engine/include/noveltea/script/runtime_checkpoint_service.hpp` and
+  `engine/src/script/runtime_checkpoint_service.cpp` implement the runtime-owned checkpoint service.
+  `TypedRuntimeSession` owns it for the session lifetime while it retains only project/store
+  references; candidate calls borrow a const `SessionState` projection.
+- The service owns `CheckpointGenerationState`, revisioned readiness, the optional immutable
+  `LatestSaveCheckpoint`, deferred-autosave placeholder, and time-only deadline. Its candidate
+  pipeline performs conservative reconstructibility validation, `make_save_state()`, save validation,
+  encoding, exact-candidate metadata creation, then atomic retained-value publication.
+- `tests/script/runtime_checkpoint_service_tests.cpp` verifies candidate metadata, retained-value
+  atomicity on projection and encoding failure, omitted-state rejection, and causal-blocker
+  rejection. Core save tests now verify that presentation/audio blockers are rejected rather than
+  omitted.
+- This is only the Phase 2A foundation. It does not yet wire settled transactions, presentation
+  status, live initial capture, save commands, autosaves, load/reset, or Phase 7 presentation fields.
+
 ## Affected test targets and later-phase obligations
 
 | Test target / suite | Current relevant coverage | Missing coverage later slices must add |
 | --- | --- | --- |
 | `noveltea_core_tests` | state families, Flow/blocker ownership, save projection/codec/restore, slot bytes, runtime messages, external protocol, and Phase 1 canonical-definition/dependency/vocabulary/domain invariants | Phase 2 checkpoint readiness/generations/atomic retained bytes; Phase 7 reconstructible save records |
-| `noveltea_script_tests` | Lua suspension/API, feature execution, direct save/autosave/load, typed session queues, audio adapter overlap/completion | same-transaction barrier registration, retained manual/deferred autosave semantics, coordinator acknowledgements, final audio split and reconstruction |
+| `noveltea_script_tests` | Lua suspension/API, feature execution, direct save/autosave/load, typed session queues, audio adapter overlap/completion, and Phase 2A checkpoint candidate/readiness/atomic projection-failure retention | same-transaction barrier registration, retained manual/deferred autosave semantics, coordinator acknowledgements, final audio split and reconstruction |
 | `noveltea_tween_tests` | float advance/pause/kill/callback behavior | typed coordinator ownership and cancellation boundaries after Phase 5/6; current target-pointer/callback primitive is not contract evidence |
 | `noveltea_ui_tests` | ActiveText parsing/playback/layout, RmlUi binders/components/assets | mounted-policy tests, pause/unscaled clocks, multi-context input/render order, ActiveText barrier lifetime and recreation |
 | `noveltea_render_tests` and readback executables | shader/material adapters and current RmlUi/ActiveText/composition pixels | snapshot-driven world rendering, typed plane/view allocation, transitions, reset/device-loss reconciliation |

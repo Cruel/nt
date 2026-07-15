@@ -131,9 +131,19 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             save.blocker = SavedInputBlocker{*owner};
         } else if (const auto* duration = std::get_if<DurationFlowBlocker>(&*session.m_blocker)) {
             save.blocker = SavedDurationBlocker{*owner, duration->remaining};
+        } else if (std::holds_alternative<PresentationFlowBlocker>(*session.m_blocker)) {
+            add_preflight_error(diagnostics, "save.presentation_blocker_active",
+                                "An active presentation operation is not serializable");
+        } else if (std::holds_alternative<AudioFlowBlocker>(*session.m_blocker)) {
+            add_preflight_error(diagnostics, "save.audio_blocker_active",
+                                "An active audio operation is not serializable");
+        } else if (std::holds_alternative<ScriptFlowBlocker>(*session.m_blocker)) {
+            add_preflight_error(diagnostics, "save.opaque_script_suspension",
+                                "Opaque Lua coroutine suspension is not serializable");
         }
-        // Presentation and audio blockers are reconstructed at their logical post-operation state.
     }
+    if (!diagnostics.empty())
+        return Result<SaveState, Diagnostics>::failure(std::move(diagnostics));
     return Result<SaveState, Diagnostics>::success(std::move(save));
 }
 

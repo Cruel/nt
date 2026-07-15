@@ -247,24 +247,24 @@ TEST_CASE("save preflight permits logical blockers and rejects unsafe session st
         CHECK(std::get<SavedDurationBlocker>(*saved_duration.value().blocker).remaining == 375ms);
     }
 
-    SECTION("presentation waits reconstruct post-operation and are not serialized")
+    SECTION("presentation waits are rejected rather than reconstructed as post-operation state")
     {
         auto state = make_state(project);
         FlowExecutor flow(project, state);
         REQUIRE(flow.block_top(FlowBlockerKind::Presentation));
         auto snapshot = make_save_state(project, state);
-        REQUIRE(snapshot);
-        CHECK_FALSE(snapshot.value().blocker);
+        REQUIRE_FALSE(snapshot);
+        CHECK(snapshot.error().front().code == "save.presentation_blocker_active");
     }
 
-    SECTION("audio waits reconstruct post-operation and are not serialized")
+    SECTION("audio waits are rejected rather than reconstructed as post-operation state")
     {
         auto state = make_state(project);
         FlowExecutor flow(project, state);
         REQUIRE(flow.block_top(FlowBlockerKind::Audio));
         auto snapshot = make_save_state(project, state);
-        REQUIRE(snapshot);
-        CHECK_FALSE(snapshot.value().blocker);
+        REQUIRE_FALSE(snapshot);
+        CHECK(snapshot.error().front().code == "save.audio_blocker_active");
     }
 
     SECTION("opaque script suspension is rejected")

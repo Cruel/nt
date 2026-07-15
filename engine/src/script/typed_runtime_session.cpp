@@ -63,8 +63,8 @@ TypedRuntimeSession::TypedRuntimeSession(const core::CompiledProject& project,
                                          ScriptRuntime& runtime, core::TypedSaveSlotStore& saves,
                                          std::unique_ptr<TypedExecutionKernel> kernel,
                                          std::string runtime_locale) noexcept
-    : m_project(project), m_runtime(runtime), m_saves(saves), m_kernel(std::move(kernel)),
-      m_runtime_locale(std::move(runtime_locale))
+    : m_project(project), m_runtime(runtime), m_saves(saves), m_checkpoint_service(project, saves),
+      m_kernel(std::move(kernel)), m_runtime_locale(std::move(runtime_locale))
 {
     m_script_api.replace_target(this);
     m_runtime.bind_runtime_script_api(&m_script_api);
