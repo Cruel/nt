@@ -288,6 +288,11 @@ struct RuntimeUI::State {
     void add_runtime_input_listener(Rml::ElementDocument& doc);
     void show_game_document();
     bool dispatch_typed_input(const core::RuntimeInputMessage& input, std::size_t depth = 0);
+    bool dispatch_layout_typed_input(const core::RuntimeInputMessage& input)
+    {
+        return (!layout_gameplay_admission || layout_gameplay_admission()) &&
+               dispatch_typed_input(input);
+    }
     void install_typed_lua_api();
     struct RuntimeInputListener final : Rml::EventListener {
         explicit RuntimeInputListener(State& owner_state) : owner(owner_state) {}
@@ -316,6 +321,8 @@ struct RuntimeUI::State {
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
     script::TypedRuntimeSession* typed_runtime_session = nullptr;
+    std::function<bool()> layout_gameplay_admission;
+    std::function<void()> game_started_handler;
     TypedRuntimePresentationSink* typed_presentation_sink = nullptr;
     TypedRuntimeAudioSink* typed_audio_sink = nullptr;
     std::optional<core::TypedRuntimeUIViewState> typed_runtime_view;
@@ -629,8 +636,12 @@ void RuntimeUI::State::install_typed_lua_api()
     game.set_function("start", [this]() {
         const bool started =
             dispatch_typed_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-        if (started)
-            show_game_document();
+        if (started) {
+            if (game_started_handler)
+                game_started_handler();
+            else
+                show_game_document();
+        }
         return started;
     });
 
@@ -639,7 +650,7 @@ void RuntimeUI::State::install_typed_lua_api()
             return false;
         if (!typed_runtime_view->can_continue)
             return invalid("runtime_ui.continue_unavailable", "Continue is not currently enabled");
-        return dispatch_typed_input(core::RuntimeInputMessage{core::ContinueInput{}});
+        return dispatch_layout_typed_input(core::RuntimeInputMessage{core::ContinueInput{}});
     });
     ui.set_function("choose_scene", [this, require_view, invalid](std::string text) {
         if (!require_view())
@@ -660,7 +671,7 @@ void RuntimeUI::State::install_typed_lua_api()
         if (!enabled)
             return invalid("runtime_ui.invalid_scene_choice",
                            "Scene choice is stale, unknown, or disabled");
-        return dispatch_typed_input(
+        return dispatch_layout_typed_input(
             core::RuntimeInputMessage{core::SelectSceneChoiceInput{*id.value_if()}});
     });
     ui.set_function("choose_dialogue", [this, require_view, invalid](std::string text) {
@@ -682,7 +693,7 @@ void RuntimeUI::State::install_typed_lua_api()
         if (!enabled)
             return invalid("runtime_ui.invalid_dialogue_choice",
                            "Dialogue choice is stale, unknown, or disabled");
-        return dispatch_typed_input(
+        return dispatch_layout_typed_input(
             core::RuntimeInputMessage{core::SelectDialogueChoiceInput{*id.value_if()}});
     });
     ui.set_function("navigate_room", [this, require_view, invalid](std::string text) {
@@ -701,7 +712,7 @@ void RuntimeUI::State::install_typed_lua_api()
         if (!enabled)
             return invalid("runtime_ui.invalid_room_exit",
                            "Room exit is stale, unknown, or disabled");
-        return dispatch_typed_input(
+        return dispatch_layout_typed_input(
             core::RuntimeInputMessage{core::NavigateRoomInput{*id.value_if()}});
     });
     ui.set_function("navigate_map_connection", [this, require_view, invalid](std::string text) {
@@ -724,7 +735,7 @@ void RuntimeUI::State::install_typed_lua_api()
         if (!found)
             return invalid("runtime_ui.invalid_map_connection",
                            "Map connection is stale, unknown, or disabled");
-        return dispatch_typed_input(
+        return dispatch_layout_typed_input(
             core::RuntimeInputMessage{core::NavigateRoomInput{found->exit.exit_id}});
     });
     ui.set_function("toggle_interactable", [this, require_view, invalid](std::string text) {
@@ -756,11 +767,11 @@ void RuntimeUI::State::install_typed_lua_api()
             selection.push_back(*id.value_if());
         else
             selection.erase(selected);
-        return dispatch_typed_input(
+        return dispatch_layout_typed_input(
             core::RuntimeInputMessage{core::SelectInteractablesInput{std::move(selection)}});
     });
     ui.set_function("clear_selection", [this]() {
-        return dispatch_typed_input(
+        return dispatch_layout_typed_input(
             core::RuntimeInputMessage{core::ClearInteractableSelectionInput{}});
     });
     ui.set_function("invoke_interaction", [this, require_view, invalid](std::string text) {
@@ -779,7 +790,7 @@ void RuntimeUI::State::install_typed_lua_api()
         if (found == controls->end() || !found->enabled)
             return invalid("runtime_ui.invalid_interaction",
                            "Interaction verb is stale, unknown, or disabled");
-        return dispatch_typed_input(
+        return dispatch_layout_typed_input(
             core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
     });
     game["ui"] = ui;
@@ -891,7 +902,7 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
                     .message = "ActiveText interactable is stale, unknown, hidden, or disabled"});
                 return;
             }
-            (void)owner.dispatch_typed_input(core::RuntimeInputMessage{
+            (void)owner.dispatch_layout_typed_input(core::RuntimeInputMessage{
                 core::SelectInteractablesInput{{*interactable.value_if()}}});
         } else if (owner.active_text_playback.can_skip_reveal) {
             owner.active_text_playback = skip_active_text_reveal(owner.active_text_playback);
@@ -912,10 +923,12 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
                 owner.refresh_runtime_document();
                 owner.refresh_active_text_layout();
             } else {
-                (void)owner.dispatch_typed_input(core::RuntimeInputMessage{core::ContinueInput{}});
+                (void)owner.dispatch_layout_typed_input(
+                    core::RuntimeInputMessage{core::ContinueInput{}});
             }
         } else if (owner.typed_runtime_view && owner.typed_runtime_view->can_continue) {
-            (void)owner.dispatch_typed_input(core::RuntimeInputMessage{core::ContinueInput{}});
+            (void)owner.dispatch_layout_typed_input(
+                core::RuntimeInputMessage{core::ContinueInput{}});
         }
         return;
     }
@@ -1647,6 +1660,18 @@ void RuntimeUI::bind_typed_audio_sink(TypedRuntimeAudioSink* sink)
 {
     if (m_state)
         m_state->typed_audio_sink = sink;
+}
+
+void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)
+{
+    if (m_state)
+        m_state->layout_gameplay_admission = std::move(admission);
+}
+
+void RuntimeUI::bind_game_started_handler(std::function<void()> handler)
+{
+    if (m_state)
+        m_state->game_started_handler = std::move(handler);
 }
 
 bool RuntimeUI::dispatch_typed_runtime_input(const core::RuntimeInputMessage& input)

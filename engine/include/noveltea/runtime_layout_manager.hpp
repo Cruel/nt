@@ -60,6 +60,22 @@ struct RuntimeLayoutMountRequest {
     RuntimeLayoutBuiltinDocument builtin_document = RuntimeLayoutBuiltinDocument::None;
 };
 
+enum class GameplayInputDisposition : std::uint8_t {
+    Eligible,
+    BlockedByLayout,
+};
+
+struct RuntimeLayoutInputPolicyEvaluation {
+    GameplayInputDisposition gameplay = GameplayInputDisposition::Eligible;
+    std::optional<core::MountedLayoutInstanceId> governing_instance;
+    core::LayoutInputMode governing_mode = core::LayoutInputMode::None;
+};
+
+struct RuntimeLayoutDismissal {
+    core::MountedLayoutInstanceId instance;
+    core::MountedLayoutOwner owner;
+};
+
 class RuntimeLayoutManager {
 public:
     explicit RuntimeLayoutManager(
@@ -94,6 +110,9 @@ public:
     }
     [[nodiscard]] const RuntimeMountedLayout* find(core::MountedLayoutInstanceId instance_id) const;
     [[nodiscard]] const RuntimeMountedLayout* find_document(const std::string& document_id) const;
+    [[nodiscard]] RuntimeLayoutInputPolicyEvaluation evaluate_input_policy() const noexcept;
+    [[nodiscard]] std::optional<RuntimeLayoutDismissal> escape_dismissal_target() const noexcept;
+    [[nodiscard]] bool dismiss_escape_target(const RuntimeLayoutDismissal& dismissal);
 
 private:
     class RuntimeUiDocumentHost;

@@ -162,3 +162,83 @@ TEST_CASE("mounted Layout reset retires identities")
     REQUIRE(exhausted.error().size() == 1);
     CHECK(exhausted.error()[0].code == "layout.instance_exhausted");
 }
+
+TEST_CASE("visible mounted Layout input policy is deterministic")
+{
+    FakeDocumentHost host;
+    noveltea::RuntimeLayoutManager manager;
+    manager.bind_document_host(&host);
+
+    auto none = custom_request("none", 100);
+    none.policy.input = noveltea::core::LayoutInputMode::None;
+    auto normal = custom_request("normal", 1);
+    auto blocking = custom_request("blocking", -10);
+    blocking.policy.input = noveltea::core::LayoutInputMode::BlockGameplay;
+    auto modal = custom_request("modal", -100);
+    modal.policy.input = noveltea::core::LayoutInputMode::Modal;
+    modal.policy.visibility = noveltea::core::LayoutVisibility::Hidden;
+    const auto none_id = manager.mount(std::move(none));
+    const auto normal_id = manager.mount(std::move(normal));
+    const auto blocking_id = manager.mount(std::move(blocking));
+    const auto modal_id = manager.mount(std::move(modal));
+    REQUIRE(none_id);
+    REQUIRE(normal_id);
+    REQUIRE(blocking_id);
+    REQUIRE(modal_id);
+
+    auto evaluation = manager.evaluate_input_policy();
+    CHECK(evaluation.gameplay == noveltea::GameplayInputDisposition::BlockedByLayout);
+    CHECK(evaluation.governing_instance == blocking_id.value());
+    CHECK(evaluation.governing_mode == noveltea::core::LayoutInputMode::BlockGameplay);
+
+    auto top_blocking = custom_request("top-blocking", 20);
+    top_blocking.policy.input = noveltea::core::LayoutInputMode::BlockGameplay;
+    const auto top_blocking_id = manager.mount(std::move(top_blocking));
+    REQUIRE(top_blocking_id);
+    evaluation = manager.evaluate_input_policy();
+    CHECK(evaluation.governing_instance == top_blocking_id.value());
+
+    REQUIRE(manager.show(modal_id.value()));
+    evaluation = manager.evaluate_input_policy();
+    CHECK(evaluation.governing_instance == modal_id.value());
+    CHECK(evaluation.governing_mode == noveltea::core::LayoutInputMode::Modal);
+
+    REQUIRE(manager.hide(modal_id.value()));
+    REQUIRE(manager.hide(blocking_id.value()));
+    REQUIRE(manager.hide(top_blocking_id.value()));
+    evaluation = manager.evaluate_input_policy();
+    CHECK(evaluation.gameplay == noveltea::GameplayInputDisposition::Eligible);
+    CHECK(evaluation.governing_instance == normal_id.value());
+}
+
+TEST_CASE("Escape dismissal respects topmost ordering and modal shielding")
+{
+    FakeDocumentHost host;
+    noveltea::RuntimeLayoutManager manager;
+    manager.bind_document_host(&host);
+
+    auto lower = custom_request("lower", 0);
+    lower.owner = noveltea::core::MountedLayoutOwner::Gameplay;
+    lower.policy.escape_dismissal = noveltea::core::EscapeDismissalPolicy::Dismiss;
+    auto upper = custom_request("upper", 1);
+    upper.owner = noveltea::core::MountedLayoutOwner::Shell;
+    upper.policy.escape_dismissal = noveltea::core::EscapeDismissalPolicy::Dismiss;
+    const auto lower_id = manager.mount(std::move(lower));
+    const auto upper_id = manager.mount(std::move(upper));
+    REQUIRE(lower_id);
+    REQUIRE(upper_id);
+
+    const auto target = manager.escape_dismissal_target();
+    REQUIRE(target);
+    CHECK(target->instance == upper_id.value());
+    CHECK(target->owner == noveltea::core::MountedLayoutOwner::Shell);
+    REQUIRE(manager.dismiss_escape_target(*target));
+    CHECK(manager.find(upper_id.value()) == nullptr);
+
+    auto shield = custom_request("shield", 50);
+    shield.policy.input = noveltea::core::LayoutInputMode::Modal;
+    shield.policy.escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore;
+    REQUIRE(manager.mount(std::move(shield)));
+    CHECK_FALSE(manager.escape_dismissal_target());
+    CHECK(manager.find(lower_id.value()) != nullptr);
+}

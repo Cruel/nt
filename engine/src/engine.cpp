@@ -890,6 +890,8 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
 
     m_runtime_ui.bind_typed_runtime_session(nullptr);
     m_runtime_layouts.reset();
+    m_title_layout_instance.reset();
+    m_game_hud_layout_instance.reset();
     m_runtime_audio_adapter.reset(core::PresentationCancellationReason::ProjectReload);
     m_compiled_runtime = std::move(*loaded.value_if());
     m_runtime_ui_asset_resolver.bind(m_compiled_runtime.get());
@@ -939,15 +941,25 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     }
     (void)m_runtime_ui.dispatch_typed_runtime_input(
         core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    const auto game_hud = m_runtime_layouts.mount_builtin_game_hud(!load_title_screen);
+    if (!game_hud) {
+        std::fprintf(stderr, "[engine] failed to mount runtime game Layout\n");
+        return false;
+    }
+    m_game_hud_layout_instance = *game_hud.value_if();
     if (load_title_screen) {
-        if (!m_runtime_ui.load_title_document()) {
+        const auto title = m_runtime_layouts.mount_builtin_title();
+        if (!title) {
             std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
+            m_runtime_layouts.reset();
+            m_game_hud_layout_instance.reset();
             m_runtime_ui.bind_typed_runtime_session(nullptr);
             m_runtime_audio_adapter.reset();
             m_runtime_ui_asset_resolver.clear();
             m_compiled_runtime.reset();
             return false;
         }
+        m_title_layout_instance = *title.value_if();
         const auto& identity = project.identity();
         const auto& title_screen = project.settings().title_screen;
         m_runtime_ui.bind_title_document(title_screen.show_project_title ? identity.name
@@ -1085,6 +1097,16 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else {
         m_runtime_layouts.bind_runtime_ui(&m_runtime_ui);
+        m_runtime_ui.bind_layout_gameplay_admission([this]() {
+            return m_runtime_layouts.evaluate_input_policy().gameplay ==
+                   GameplayInputDisposition::Eligible;
+        });
+        m_runtime_ui.bind_game_started_handler([this]() {
+            if (m_title_layout_instance)
+                (void)m_runtime_layouts.hide(*m_title_layout_instance);
+            if (m_game_hud_layout_instance)
+                (void)m_runtime_layouts.show(*m_game_hud_layout_instance);
+        });
         m_runtime_ui.set_rmlui_base_direct_compatibility(run_config.rmlui_base_direct_compat);
         if (m_render_perf_logging) {
             m_runtime_ui.enable_render_perf_logging(true);
@@ -1357,6 +1379,9 @@ void Engine::handle_events()
             m_debug_ui.process_event(event, m_platform.surface());
         }
         const bool ui_consumed = m_runtime_ui.process_event(event, m_presentation);
+        const auto layout_input = m_runtime_layouts.evaluate_input_policy();
+        const bool gameplay_blocked =
+            layout_input.gameplay == GameplayInputDisposition::BlockedByLayout;
 
         switch (event.type) {
         case SDL_EVENT_QUIT:
@@ -1378,11 +1403,18 @@ void Engine::handle_events()
             break;
 
         case SDL_EVENT_KEY_DOWN:
-            if (ui_consumed)
-                break;
             if (event.key.key == SDLK_ESCAPE) {
+                if (const auto dismissal = m_runtime_layouts.escape_dismissal_target()) {
+                    (void)m_runtime_layouts.dismiss_escape_target(*dismissal);
+                    break;
+                }
+                if (ui_consumed || gameplay_blocked)
+                    break;
                 m_platform.request_quit();
+                break;
             }
+            if (ui_consumed || gameplay_blocked)
+                break;
             std::printf("[input] key_down: scancode=%d\n", event.key.scancode);
             break;
 
@@ -1395,7 +1427,7 @@ void Engine::handle_events()
                 m_pointer_valid = false;
                 break;
             }
-            if (ui_consumed)
+            if (ui_consumed || gameplay_blocked)
                 break;
             std::printf(
                 "[input] mouse_down: button=%d logical=(%.2f,%.2f) surface=%dx%d scale=%.3fx%.3f\n",
@@ -1412,7 +1444,7 @@ void Engine::handle_events()
             } else {
                 m_pointer_valid = false;
             }
-            if (ui_consumed)
+            if (ui_consumed || gameplay_blocked)
                 break;
             break;
         case SDL_EVENT_MOUSE_MOTION:
@@ -1423,7 +1455,7 @@ void Engine::handle_events()
             } else {
                 m_pointer_valid = false;
             }
-            if (ui_consumed)
+            if (ui_consumed || gameplay_blocked)
                 break;
             break;
         case SDL_EVENT_MOUSE_WHEEL:
@@ -1433,7 +1465,7 @@ void Engine::handle_events()
         case SDL_EVENT_FINGER_UP:
         case SDL_EVENT_FINGER_MOTION:
         case SDL_EVENT_FINGER_CANCELED:
-            if (ui_consumed)
+            if (ui_consumed || gameplay_blocked)
                 break;
             break;
 

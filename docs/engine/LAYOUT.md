@@ -245,6 +245,13 @@ Native runtime UI support is implemented through RmlUi integration. Relevant run
 
 The current authoring layout schema is ahead of some runtime mounting/export behavior. Layout docs should distinguish editor preview behavior from finalized runtime package behavior.
 
+At runtime, each mounted Layout has a strong instance ID, owner, and complete policy independent of
+the reusable `LayoutResource`. Visible input policies are evaluated with `Modal` stronger than
+`BlockGameplay`, then `Normal`; `None` does not participate. Equal modes use presentation plane,
+signed local order, and instance identity. Escape dismisses the topmost eligible mount by owner and
+does not pass through a higher non-dismissible modal. RmlUi remains a single shared context until the
+planned lifecycle-domain split.
+
 ## Export / Package Status
 
 The compiler emits typed Layout resources and references; package assembly collects their source

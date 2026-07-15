@@ -98,6 +98,8 @@ bool ordered_before(const RuntimeMountedLayout& lhs, const RuntimeMountedLayout&
     return lhs.mounted.instance < rhs.mounted.instance;
 }
 
+int input_strength(core::LayoutInputMode mode) { return static_cast<int>(mode); }
+
 } // namespace
 
 class RuntimeLayoutManager::RuntimeUiDocumentHost final : public RuntimeLayoutDocumentHost {
@@ -338,6 +340,49 @@ const RuntimeMountedLayout* RuntimeLayoutManager::find(core::MountedLayoutInstan
     const auto it = std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
                                  [id](const auto& value) { return value.mounted.instance == id; });
     return it == m_mounted_layouts.end() ? nullptr : &*it;
+}
+
+RuntimeLayoutInputPolicyEvaluation RuntimeLayoutManager::evaluate_input_policy() const noexcept
+{
+    const RuntimeMountedLayout* governing = nullptr;
+    for (const auto& layout : m_mounted_layouts) {
+        const auto& policy = layout.mounted.policy;
+        if (policy.visibility != core::LayoutVisibility::Visible ||
+            policy.input == core::LayoutInputMode::None)
+            continue;
+        if (!governing ||
+            input_strength(policy.input) > input_strength(governing->mounted.policy.input) ||
+            (policy.input == governing->mounted.policy.input && ordered_before(*governing, layout)))
+            governing = &layout;
+    }
+    if (!governing)
+        return {};
+    const auto mode = governing->mounted.policy.input;
+    return {.gameplay = mode == core::LayoutInputMode::Normal
+                            ? GameplayInputDisposition::Eligible
+                            : GameplayInputDisposition::BlockedByLayout,
+            .governing_instance = governing->mounted.instance,
+            .governing_mode = mode};
+}
+
+std::optional<RuntimeLayoutDismissal> RuntimeLayoutManager::escape_dismissal_target() const noexcept
+{
+    for (auto it = m_mounted_layouts.rbegin(); it != m_mounted_layouts.rend(); ++it) {
+        const auto& mounted = it->mounted;
+        if (mounted.policy.visibility != core::LayoutVisibility::Visible)
+            continue;
+        if (mounted.policy.escape_dismissal == core::EscapeDismissalPolicy::Dismiss)
+            return RuntimeLayoutDismissal{.instance = mounted.instance, .owner = mounted.owner};
+        if (mounted.policy.input == core::LayoutInputMode::Modal)
+            return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+bool RuntimeLayoutManager::dismiss_escape_target(const RuntimeLayoutDismissal& dismissal)
+{
+    const auto* layout = find(dismissal.instance);
+    return layout && layout->mounted.owner == dismissal.owner && unmount(dismissal.instance);
 }
 
 const RuntimeMountedLayout* RuntimeLayoutManager::find_document(const std::string& id) const

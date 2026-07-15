@@ -127,6 +127,8 @@ private:
     RuntimeAudioAdapter m_runtime_audio_adapter;
     RuntimeUI m_runtime_ui;
     RuntimeLayoutManager m_runtime_layouts;
+    std::optional<core::MountedLayoutInstanceId> m_title_layout_instance;
+    std::optional<core::MountedLayoutInstanceId> m_game_hud_layout_instance;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;

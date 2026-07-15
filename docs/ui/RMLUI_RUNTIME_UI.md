@@ -45,13 +45,22 @@ state.
 Layout events use Lua and the single `RuntimeScriptApi` gateway. Do not expose arbitrary project or
 save JSON, dispatcher/controller pointers, or a second gameplay binding table.
 
+`RuntimeLayoutManager::evaluate_input_policy()` selects the strongest visible mounted input policy,
+using plane, local order, and instance identity to break equal-policy ties. SDL events are delivered
+once to the shared RmlUi context, then gameplay fallthrough is admitted only for `Normal` (or when no
+Layout participates) and only when RmlUi did not consume the event. Layout-originated `Game.ui.*`
+gameplay commands use the same admission result; trusted lifecycle and acknowledgement paths do not.
+Escape unmounts the topmost dismissible instance through its recorded owner, while a higher
+non-dismissible modal shields lower Layouts.
+
 ## Presentation Debt
 
 `RuntimeLayoutManager` now owns typed mounted-instance policy and deterministic plane/local ordering,
 while its document host still realizes all documents in the transitional single RmlUi context.
 The engine derives effective gameplay pause from visible mounted policy alongside explicit session
-pause and platform suspension. Phase 3D adds deterministic input/Escape routing; Phase 5 adds
-lifecycle-domain contexts.
+pause and platform suspension. Input routing is deterministic, but Phase 3 still dispatches host
+events globally to one RmlUi context. Phase 5 adds exact lifecycle-domain contexts and per-context
+delivery.
 `RuntimeTransitionManager`, `TweenService`, ActiveText, audio, RmlUi, and bgfx adapters otherwise
 remain transitional presentation scaffolding/backends whose coordination belongs to the
 presentation-coordinator plan.

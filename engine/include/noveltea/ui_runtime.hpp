@@ -141,6 +141,8 @@ public:
     void bind_asset_resolver(const RuntimeUiAssetResolver* resolver);
     void bind_typed_presentation_sink(TypedRuntimePresentationSink* sink);
     void bind_typed_audio_sink(TypedRuntimeAudioSink* sink);
+    void bind_layout_gameplay_admission(std::function<bool()> admission);
+    void bind_game_started_handler(std::function<void()> handler);
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] const core::TypedRuntimeUIViewState* typed_runtime_view_state() const noexcept;
     [[nodiscard]] const core::Diagnostics& typed_runtime_diagnostics() const noexcept;

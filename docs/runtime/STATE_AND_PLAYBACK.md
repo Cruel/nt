@@ -47,6 +47,12 @@ outcomes, playback observations, and diagnostics. Payloads are typed C++ values,
 External editor/Web boundaries decode or encode named protocol DTOs around these variants. They do
 not become runtime state.
 
+Physical host input and gameplay commands emitted by Layout Lua are admitted through the mounted
+Layout input-policy evaluation before gameplay handling. Modal and `BlockGameplay` mounts block
+gameplay commands; `Normal` permits gameplay only when the shared RmlUi context does not consume the
+host event. System lifecycle, save/load, and operation acknowledgements retain their separate trusted
+typed paths. This is semantic admission only: exact document/context delivery remains Phase 5 work.
+
 ## Flow and Waiting
 
 `FlowExecutor` and specialized Room/Scene/Dialogue/Interaction handlers execute compiled programs.
