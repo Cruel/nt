@@ -1,10 +1,13 @@
 #pragma once
 
 #include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/checkpoint_contracts.hpp"
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/flow.hpp"
+#include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/runtime_value.hpp"
+#include "noveltea/core/session_operation_id.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 
@@ -18,29 +21,6 @@
 #include <vector>
 
 namespace noveltea::core {
-
-template<class Tag> class SessionOperationId {
-public:
-    SessionOperationId() = delete;
-    [[nodiscard]] static constexpr SessionOperationId from_number(std::uint64_t value) noexcept
-    {
-        return SessionOperationId(value);
-    }
-    [[nodiscard]] constexpr std::uint64_t number() const noexcept { return m_value; }
-    auto operator<=>(const SessionOperationId&) const = default;
-
-private:
-    explicit constexpr SessionOperationId(std::uint64_t value) noexcept : m_value(value) {}
-    std::uint64_t m_value;
-};
-
-struct PresentationOperationTag;
-struct AudioOperationTag;
-struct HostRequestTag;
-using PresentationOperationId = SessionOperationId<PresentationOperationTag>;
-using AudioOperationId = SessionOperationId<AudioOperationTag>;
-using HostRequestId = SessionOperationId<HostRequestTag>;
-using AudioCompletionHandle = std::variant<AudioFlowBlockerHandle, ScriptInvocationHandle>;
 
 struct StartRuntimeInput {
     auto operator<=>(const StartRuntimeInput&) const = default;

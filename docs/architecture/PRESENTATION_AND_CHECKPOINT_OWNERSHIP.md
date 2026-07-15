@@ -1,8 +1,8 @@
 # Presentation and Checkpoint Ownership
 
 Date: 2026-07-14
-Status: Phase 1A inventory and Phase 1B final ownership/contract specification complete; shared
-contract implementation remains assigned to Phase 1C.
+Status: Phase 1A inventory, Phase 1B final ownership/contract specification, and Phase 1C shared
+contract implementation complete; integration and Phase 1 closure remain assigned to Phase 1D.
 
 ## Purpose and authority
 
@@ -313,6 +313,15 @@ Phases 4, 6, and 7 respectively.
 `runtime_messages.hpp` includes these headers and does not redeclare their types. The headers may
 include typed core domain headers but never SDL, bgfx, RmlUi, miniaudio/audio-backend, callback, Lua,
 JSON, editor, or platform types.
+
+Phase 1C implementation evidence (2026-07-14): the three headers above now exist at their canonical
+paths, and `runtime_messages.hpp` includes them instead of redeclaring session operation identities.
+`tests/core/presentation_checkpoint_contracts_tests.cpp`, included in `noveltea_core_tests`, verifies
+the strong domain types, exact closed variant sizes and exhaustive handling, independent Layout
+policy dimensions, distinct checkpoint/save domains, and backend-neutral retained value shape. The
+focused contract/runtime-message tests, Linux build and full CTest suite, C++/dependency/JSON policy
+targets, and Web build all passed. This slice added no service or backend behavior assigned to later
+phases.
 
 ### Strong numeric identity rules
 
@@ -779,5 +788,6 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
   single raw-clock RmlUi context, callback transitions, ActiveText tween ownership, audio-state
   conflation, multi-track channels, shell/gameplay Layout split, and missing checkpoint
   metadata/thumbnail ownership are tied to concrete implementation types and files.
-- No production code or public contract changed in Phase 1A. Phase 1B has since frozen final
-  ownership and field-level contracts; their production implementation remains the Phase 1C gate.
+- No production code or public contract changed in Phase 1A. Phase 1B froze final ownership and
+  field-level contracts, and Phase 1C implemented those contracts in the three canonical headers
+  with focused tests. Behavioral integration remains assigned to Phase 1D and later phases.
