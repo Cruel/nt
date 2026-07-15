@@ -756,33 +756,4 @@ core::Result<core::SaveState, core::Diagnostics> TypedExecutionKernel::snapshot_
                                       m_host.in_flight_external_request_count()});
 }
 
-core::Result<core::SaveStateMetadata, core::Diagnostics>
-TypedExecutionKernel::save_slot(core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot) const
-{
-    auto save = snapshot_save();
-    const auto* value = save.value_if();
-    if (value == nullptr)
-        return core::Result<core::SaveStateMetadata, core::Diagnostics>::failure(save.error());
-    auto bytes = core::encode_save_state_text(m_project, *value);
-    const auto* text = bytes.value_if();
-    if (text == nullptr)
-        return core::Result<core::SaveStateMetadata, core::Diagnostics>::failure(bytes.error());
-    auto written = store.write_slot(slot, *text);
-    if (!written)
-        return core::Result<core::SaveStateMetadata, core::Diagnostics>::failure(written.error());
-    return core::Result<core::SaveStateMetadata, core::Diagnostics>::success(value->metadata);
-}
-
-core::Result<bool, core::Diagnostics>
-TypedExecutionKernel::consume_autosave(core::TypedSaveSlotStore& store)
-{
-    if (m_host.autosave_safe_point_count() == 0)
-        return core::Result<bool, core::Diagnostics>::success(false);
-    auto saved = save_slot(store, core::TypedSaveSlotId::autosave());
-    if (!saved)
-        return core::Result<bool, core::Diagnostics>::failure(saved.error());
-    (void)m_host.consume_autosave_safe_points();
-    return core::Result<bool, core::Diagnostics>::success(true);
-}
-
 } // namespace noveltea::script

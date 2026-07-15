@@ -1,9 +1,10 @@
 # Presentation and Checkpoint Ownership
 
 Date: 2026-07-15
-Status: Phase 1A through Phase 1D complete. The ownership inventory, frozen specification,
-canonical shared contracts, public-seam integration, and boundary verification close Phase 1;
-behavioral checkpoint and presentation work remains assigned to Phases 2 through 8.
+Status: Phase 1A through Phase 1D and Phase 2A through Phase 2C complete. The ownership inventory,
+frozen specification, canonical shared contracts, and runtime-owned retained-checkpoint save cutover
+are implemented; load/reset closure remains in Phase 2D and presentation work remains assigned to
+Phases 3 through 8.
 
 ## Purpose and authority
 

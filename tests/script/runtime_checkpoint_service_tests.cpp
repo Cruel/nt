@@ -43,6 +43,48 @@ template<class Id> Id id(std::string value)
     return std::move(parsed).value();
 }
 
+class RecordingSaveStore final : public core::TypedSaveSlotStore {
+public:
+    bool fail_writes = false;
+    std::vector<std::string> attempted_bytes;
+    std::unordered_map<core::TypedSaveSlotId, std::string, core::TypedSaveSlotIdHash> slots;
+
+    core::Result<bool, core::Diagnostics> has_slot(core::TypedSaveSlotId slot) const override
+    {
+        return core::Result<bool, core::Diagnostics>::success(slots.contains(slot));
+    }
+    core::Result<std::string, core::Diagnostics>
+    read_slot(core::TypedSaveSlotId slot) const override
+    {
+        const auto found = slots.find(slot);
+        if (found == slots.end())
+            return core::Result<std::string, core::Diagnostics>::failure(
+                core::Diagnostics{core::Diagnostic{"test.missing", "missing"}});
+        return core::Result<std::string, core::Diagnostics>::success(found->second);
+    }
+    core::Result<void, core::Diagnostics> write_slot(core::TypedSaveSlotId slot,
+                                                     std::string_view bytes) override
+    {
+        attempted_bytes.emplace_back(bytes);
+        if (fail_writes)
+            return core::Result<void, core::Diagnostics>::failure(
+                core::Diagnostics{core::Diagnostic{"test.write_failed", "write failed"}});
+        slots[slot] = std::string(bytes);
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    core::Result<void, core::Diagnostics> delete_slot(core::TypedSaveSlotId slot) override
+    {
+        slots.erase(slot);
+        return core::Result<void, core::Diagnostics>::success();
+    }
+};
+
+RuntimeCheckpointFacts ready_facts()
+{
+    return RuntimeCheckpointFacts{
+        .presentation_status = {core::CheckpointStatusRevision::from_number(1), {}}};
+}
+
 } // namespace
 
 TEST_CASE(
@@ -203,6 +245,154 @@ TEST_CASE("checkpoint settlement reports suspended Lua with deterministic revisi
           core::CheckpointReadinessReason::SuspendedScriptInvocationActive);
     REQUIRE(service.settle(state, facts, {}));
     CHECK(service.readiness().revision == revision);
+}
+
+TEST_CASE("manual checkpoint saves refresh, retain, and reject invalid requests")
+{
+    const auto project = load_fixture("scene-program.json");
+    auto state = make_state(project);
+    RecordingSaveStore saves;
+    RuntimeCheckpointService service(project, saves);
+    REQUIRE(service.publish_candidate(state));
+
+    const auto manual = core::TypedSaveSlotId::manual(2);
+    REQUIRE(service.request(core::ManualSaveRequest{manual}));
+    REQUIRE(service.settle(state, ready_facts(), {}));
+    auto outcomes = service.take_completed_save_outcomes();
+    REQUIRE(outcomes.size() == 1);
+    const auto* retained = std::get_if<core::CheckpointWriteSucceeded>(&outcomes.front());
+    REQUIRE(retained);
+    CHECK(retained->source == core::CheckpointWriteSource::RetainedCheckpoint);
+
+    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{8}));
+    (void)service.request(core::ManualSaveRequest{manual});
+    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+    outcomes = service.take_completed_save_outcomes();
+    REQUIRE(outcomes.size() == 1);
+    const auto* captured = std::get_if<core::CheckpointWriteSucceeded>(&outcomes.front());
+    REQUIRE(captured);
+    CHECK(captured->source == core::CheckpointWriteSource::CapturedCurrentState);
+
+    const auto invalid =
+        service.request(core::ManualSaveRequest{core::TypedSaveSlotId::autosave()});
+    REQUIRE_FALSE(invalid);
+    CHECK(std::get<core::CheckpointSaveFailed>(invalid.error()).stage ==
+          core::CheckpointSaveFailureStage::InvalidRequest);
+}
+
+TEST_CASE("multiple manual checkpoint requests in one settlement all write the same revision")
+{
+    const auto project = load_fixture("scene-program.json");
+    auto state = make_state(project);
+    RecordingSaveStore saves;
+    RuntimeCheckpointService service(project, saves);
+    REQUIRE(service.publish_candidate(state));
+    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{6}));
+
+    const auto first = core::TypedSaveSlotId::manual(5);
+    const auto second = core::TypedSaveSlotId::manual(6);
+    REQUIRE(service.request(core::ManualSaveRequest{first}));
+    REQUIRE(service.request(core::ManualSaveRequest{second}));
+    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+
+    const auto outcomes = service.take_completed_save_outcomes();
+    REQUIRE(outcomes.size() == 2);
+    const auto* first_written = std::get_if<core::CheckpointWriteSucceeded>(&outcomes[0]);
+    const auto* second_written = std::get_if<core::CheckpointWriteSucceeded>(&outcomes[1]);
+    REQUIRE(first_written);
+    REQUIRE(second_written);
+    CHECK(first_written->checkpoint == second_written->checkpoint);
+    CHECK(first_written->source == core::CheckpointWriteSource::CapturedCurrentState);
+    CHECK(second_written->source == core::CheckpointWriteSource::CapturedCurrentState);
+    CHECK(saves.slots[first] == saves.slots[second]);
+}
+
+TEST_CASE("manual checkpoint save uses retained state while ineligible and reports capture failure")
+{
+    const auto project = load_fixture("scene-program.json");
+    auto state = make_state(project);
+    RecordingSaveStore saves;
+    RuntimeCheckpointService service(project, saves);
+    REQUIRE(service.publish_candidate(state));
+    const auto retained_bytes = service.latest_checkpoint()->encoded_save;
+    const auto manual = core::TypedSaveSlotId::manual(3);
+
+    REQUIRE(state.present_text(project, core::PresentedTextState{std::nullopt, "busy"}));
+    (void)service.request(core::ManualSaveRequest{manual});
+    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+    auto outcomes = service.take_completed_save_outcomes();
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(outcomes.front()));
+    CHECK(saves.slots[manual] == retained_bytes);
+
+    state.clear_presented_text();
+    REQUIRE(state.set_variable(project, id<core::VariableId>("player-name"),
+                               core::RuntimeValue{std::string{"\xff"}}));
+    (void)service.request(core::ManualSaveRequest{manual});
+    REQUIRE_FALSE(service.settle(state, ready_facts(), {.structural = true}));
+    outcomes = service.take_completed_save_outcomes();
+    REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(outcomes.front()));
+    CHECK(std::get<core::CheckpointSaveFailed>(outcomes.front()).stage ==
+          core::CheckpointSaveFailureStage::Capture);
+}
+
+TEST_CASE("deferred autosave targets the next publication and retries identical retained bytes")
+{
+    const auto project = load_fixture("scene-program.json");
+    auto state = make_state(project);
+    RecordingSaveStore saves;
+    RuntimeCheckpointService service(project, saves);
+    REQUIRE(service.publish_candidate(state));
+    (void)service.request(core::DeferredAutosaveRequest{});
+    REQUIRE(service.settle(state, ready_facts(), {}));
+    CHECK(saves.attempted_bytes.empty());
+
+    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{4}));
+    saves.fail_writes = true;
+    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+    REQUIRE(saves.attempted_bytes.size() == 1);
+    const auto exact_target = saves.attempted_bytes.front();
+
+    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{5}));
+    saves.fail_writes = false;
+    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+    REQUIRE(saves.attempted_bytes.size() == 2);
+    CHECK(saves.attempted_bytes.back() == exact_target);
+    CHECK_FALSE(service.pending_deferred_autosave());
+}
+
+TEST_CASE("immediate retained write never captures and reports missing retained state")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    RecordingSaveStore saves;
+    RuntimeCheckpointService service(project, saves);
+    const auto slot = core::TypedSaveSlotId::autosave();
+    auto missing = service.request(core::ImmediateRetainedCheckpointWriteRequest{slot});
+    REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(missing));
+    CHECK(std::get<core::CheckpointSaveFailed>(missing).stage ==
+          core::CheckpointSaveFailureStage::NoRetainedCheckpoint);
+    REQUIRE(service.publish_candidate(state));
+    const auto revision = service.latest_checkpoint()->revision;
+    auto written = service.request(core::ImmediateRetainedCheckpointWriteRequest{slot});
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(written));
+    CHECK(std::get<core::CheckpointWriteSucceeded>(written).checkpoint == revision);
+}
+
+TEST_CASE("ineligible manual save without retained state reports missing checkpoint")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    RecordingSaveStore saves;
+    RuntimeCheckpointService service(project, saves);
+    REQUIRE(state.present_text(project, core::PresentedTextState{std::nullopt, "busy"}));
+    const auto slot = core::TypedSaveSlotId::manual(9);
+    REQUIRE(service.request(core::ManualSaveRequest{slot}));
+    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+    auto outcomes = service.take_completed_save_outcomes();
+    REQUIRE(outcomes.size() == 1);
+    REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(outcomes.front()));
+    CHECK(std::get<core::CheckpointSaveFailed>(outcomes.front()).stage ==
+          core::CheckpointSaveFailureStage::NoRetainedCheckpoint);
 }
 
 } // namespace noveltea::script::test

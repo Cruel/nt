@@ -114,15 +114,20 @@ TEST_CASE(
     CHECK(has_output_kind(started, core::RuntimeOutputKind::ViewPublication));
 
     const auto count = make_id<core::VariableIdTag>("count");
-    auto changed = fixture.session->apply(
+    auto changed = dispatch_settled(
+        *fixture.session,
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{7}}});
     CHECK(changed.disposition == RuntimeInputDisposition::Handled);
     REQUIRE(fixture.session->script_variable(count));
     CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{7}});
 
     const auto slot = core::TypedSaveSlotId::manual(4);
-    auto saved = fixture.session->apply(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
-    CHECK(has_output_kind(saved, core::RuntimeOutputKind::SaveOutcome));
+    auto saved =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
+    REQUIRE(saved.diagnostics.empty());
+    auto save_outcomes = fixture.session->take_checkpoint_save_outcomes();
+    REQUIRE(save_outcomes.size() == 1);
+    CHECK(std::holds_alternative<core::CheckpointWriteSucceeded>(save_outcomes.front()));
     (void)fixture.session->apply(
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{9}}});
     auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
@@ -217,6 +222,8 @@ TEST_CASE("frame-driven ActiveText barrier changes settle checkpoint readiness")
 TEST_CASE("pending host requests publish typed checkpoint readiness barriers")
 {
     Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
+                .diagnostics.empty());
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     const auto use = make_id<core::VerbIdTag>("use");
@@ -377,9 +384,10 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
     REQUIRE(
         fixture.runtime.execute("local ok = Game.save(7); assert(ok)", "script-api-queued-save"));
     CHECK_FALSE(fixture.saves.has_slot(slot).value());
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto drained =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(fixture.saves.has_slot(slot).value());
-    CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
+    CHECK_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
 
     REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
                 .diagnostics.empty());
@@ -391,7 +399,7 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
 
     REQUIRE(
         fixture.runtime.execute("local ok = Game.load(7); assert(ok)", "script-api-queued-load"));
-    (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(fixture.session->script_variable(count));
     CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{12}});
 }
@@ -442,6 +450,8 @@ TEST_CASE(
     "runtime script API drains commands queued by Lua reached during the same outer operation")
 {
     Fixture fixture;
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
+                .diagnostics.empty());
     const auto slot = core::TypedSaveSlotId::manual(8);
     REQUIRE(fixture.runtime.execute("function before_leave_start()\n"
                                     "  local ok, err = Game.save(8)\n"
@@ -454,15 +464,18 @@ TEST_CASE(
     CHECK_FALSE(fixture.saves.has_slot(slot).value());
     REQUIRE(fixture.runtime.execute("local ok, err = Game.navigate(0); assert(ok and err == nil)",
                                     "script-api-nested-command-navigation"));
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto drained =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
     CHECK(fixture.saves.has_slot(slot).value());
-    CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
+    CHECK_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
 }
 
 TEST_CASE("runtime script API routes autosave and rejects malformed interaction operands")
 {
     Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
+                .diagnostics.empty());
     REQUIRE(fixture.runtime.execute("local ok, err = Game.run_action('use', { 'key', 5 })\n"
                                     "assert(not ok and err ~= nil)\n"
                                     "ok, err = Game.autosave()\n"
@@ -470,7 +483,8 @@ TEST_CASE("runtime script API routes autosave and rejects malformed interaction 
                                     "script-api-validation"));
 
     CHECK_FALSE(fixture.saves.has_slot(core::TypedSaveSlotId::autosave()).value());
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto drained =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
     CHECK(fixture.saves.has_slot(core::TypedSaveSlotId::autosave()).value());
     CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
@@ -495,7 +509,7 @@ TEST_CASE("runtime Lua random state is deterministic across save load and invali
         "random_first = assert(noveltea.random.integer(-20, 20))\n"
         "ok, err = Game.save(12); assert(ok and err == nil)",
         "typed-random-save"));
-    (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
 
     REQUIRE(fixture.runtime.execute(
         "random_expected = assert(noveltea.random.integer(-20, 20))\n"
@@ -612,7 +626,8 @@ TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
                                     "paused_value = assert(Game.paused())\n"
                                     "ok, err = Game.save(13); assert(ok and err == nil)",
                                     "typed-pause"));
-    auto paused = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto paused =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(paused.diagnostics.empty());
     CHECK(paused.view.gameplay_paused);
     auto paused_value = fixture.runtime.evaluate_bool("paused_value", "typed-pause-value");
@@ -685,7 +700,8 @@ TEST_CASE("runtime Lua text log validates metadata and survives save restore")
         "assert(not ok and err ~= nil)\n"
         "ok, err = Game.save(14); assert(ok and err == nil)",
         "typed-text-log"));
-    auto saved = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto saved =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(saved.diagnostics.empty());
     REQUIRE(saved.view.text_log.entries.size() == 1);
     CHECK(saved.view.text_log.entries.front().text == "[b]Saved[/b]");

@@ -185,8 +185,25 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
     const auto reconstructibility = validate_reconstructibility(session);
     add_issue(issues, core::CheckpointReadinessReason::ReconstructibleStateInvalid,
               reconstructibility);
-    if (!issues.empty())
-        return publish_readiness(std::move(issues));
+    if (!issues.empty()) {
+        auto published = publish_readiness(std::move(issues));
+        if (published && !m_pending_manual_saves.empty()) {
+            for (const auto slot : m_pending_manual_saves) {
+                if (m_latest_checkpoint)
+                    m_completed_save_outcomes.push_back(
+                        write_checkpoint(slot, *m_latest_checkpoint,
+                                         core::CheckpointWriteSource::RetainedCheckpoint));
+                else
+                    m_completed_save_outcomes.emplace_back(core::CheckpointSaveFailed{
+                        slot, core::CheckpointSaveFailureStage::NoRetainedCheckpoint,
+                        checkpoint_error("checkpoint.no_retained_checkpoint",
+                                         "No retained checkpoint is available to write.")});
+            }
+            m_pending_manual_saves.clear();
+        }
+        fulfill_deferred_autosave();
+        return published;
+    }
 
     auto ready = publish_readiness({});
     if (!ready)
@@ -194,11 +211,109 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
     const bool structural_newer =
         m_generations.structural_generation != m_generations.captured_structural_generation;
     const bool time_newer = m_generations.time_generation != m_generations.captured_time_generation;
-    if (!m_latest_checkpoint || structural_newer ||
-        (time_newer && time_only_refresh_due(m_elapsed_runtime)))
-        return publish_candidate(session,
-                                 core::SaveSnapshotContext{facts.in_flight_external_requests});
+    const bool refresh_requested = !m_latest_checkpoint || structural_newer ||
+                                   (time_newer && (!m_pending_manual_saves.empty() ||
+                                                   time_only_refresh_due(m_elapsed_runtime)));
+    const auto revision_before =
+        m_latest_checkpoint ? std::optional{m_latest_checkpoint->revision} : std::nullopt;
+    core::Result<void, core::Diagnostics> captured =
+        core::Result<void, core::Diagnostics>::success();
+    if (refresh_requested)
+        captured = publish_candidate(session,
+                                     core::SaveSnapshotContext{facts.in_flight_external_requests});
+    if (!m_pending_manual_saves.empty()) {
+        for (const auto slot : m_pending_manual_saves) {
+            if (!captured) {
+                m_completed_save_outcomes.emplace_back(core::CheckpointSaveFailed{
+                    slot, core::CheckpointSaveFailureStage::Capture, captured.error()});
+            } else if (!m_latest_checkpoint) {
+                m_completed_save_outcomes.emplace_back(core::CheckpointSaveFailed{
+                    slot, core::CheckpointSaveFailureStage::NoRetainedCheckpoint,
+                    checkpoint_error("checkpoint.no_retained_checkpoint",
+                                     "No retained checkpoint is available to write.")});
+            } else {
+                m_completed_save_outcomes.push_back(write_checkpoint(
+                    slot, *m_latest_checkpoint,
+                    (!revision_before || m_latest_checkpoint->revision != *revision_before)
+                        ? core::CheckpointWriteSource::CapturedCurrentState
+                        : core::CheckpointWriteSource::RetainedCheckpoint));
+            }
+        }
+        m_pending_manual_saves.clear();
+    }
+    fulfill_deferred_autosave();
+    if (!captured)
+        return captured;
     return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::CheckpointSaveOutcome>
+RuntimeCheckpointService::request(const core::ManualSaveRequest& request) noexcept
+{
+    if (request.slot.is_autosave())
+        return core::Result<void, core::CheckpointSaveOutcome>::failure(
+            core::CheckpointSaveOutcome{core::CheckpointSaveFailed{
+                request.slot, core::CheckpointSaveFailureStage::InvalidRequest,
+                checkpoint_error("checkpoint.manual_autosave_slot",
+                                 "Manual save requests cannot target the autosave slot.")}});
+    m_pending_manual_saves.push_back(request.slot);
+    return core::Result<void, core::CheckpointSaveOutcome>::success();
+}
+
+core::CheckpointSaveOutcome
+RuntimeCheckpointService::request(const core::DeferredAutosaveRequest& request) noexcept
+{
+    m_pending_deferred_autosave = request;
+    return core::DeferredAutosaveQueued{};
+}
+
+core::CheckpointSaveOutcome
+RuntimeCheckpointService::request(const core::ImmediateRetainedCheckpointWriteRequest& request)
+{
+    core::CheckpointSaveOutcome outcome = [&]() -> core::CheckpointSaveOutcome {
+        if (!m_latest_checkpoint)
+            return core::CheckpointSaveFailed{
+                request.slot, core::CheckpointSaveFailureStage::NoRetainedCheckpoint,
+                checkpoint_error("checkpoint.no_retained_checkpoint",
+                                 "No retained checkpoint is available to write.")};
+        return write_checkpoint(request.slot, *m_latest_checkpoint,
+                                core::CheckpointWriteSource::RetainedCheckpoint);
+    }();
+    m_completed_save_outcomes.push_back(outcome);
+    return outcome;
+}
+
+std::vector<core::CheckpointSaveOutcome> RuntimeCheckpointService::take_completed_save_outcomes()
+{
+    auto outcomes = std::move(m_completed_save_outcomes);
+    m_completed_save_outcomes.clear();
+    return outcomes;
+}
+
+core::CheckpointSaveOutcome
+RuntimeCheckpointService::write_checkpoint(core::TypedSaveSlotId slot,
+                                           const core::LatestSaveCheckpoint& checkpoint,
+                                           core::CheckpointWriteSource source)
+{
+    auto written = m_saves.write_slot(slot, checkpoint.encoded_save);
+    if (!written)
+        return core::CheckpointSaveFailed{slot, core::CheckpointSaveFailureStage::SlotWrite,
+                                          std::move(written).error()};
+    return core::CheckpointWriteSucceeded{slot, checkpoint.revision, source};
+}
+
+void RuntimeCheckpointService::fulfill_deferred_autosave()
+{
+    if (!m_deferred_autosave_target)
+        return;
+    auto outcome = write_checkpoint(core::TypedSaveSlotId::autosave(), *m_deferred_autosave_target,
+                                    core::CheckpointWriteSource::RetainedCheckpoint);
+    const bool succeeded = std::holds_alternative<core::CheckpointWriteSucceeded>(outcome);
+    m_completed_save_outcomes.push_back(std::move(outcome));
+    if (succeeded) {
+        m_pending_deferred_autosave.reset();
+        m_deferred_autosave_target.reset();
+    }
 }
 
 core::Diagnostics
@@ -300,6 +415,8 @@ RuntimeCheckpointService::publish_candidate(const core::SessionState& session,
                 core::LatestSaveCheckpoint candidate{*revision_value, std::move(*encoded_value),
                                                      metadata};
                 m_latest_checkpoint = std::move(candidate);
+                if (m_pending_deferred_autosave && !m_deferred_autosave_target)
+                    m_deferred_autosave_target = *m_latest_checkpoint;
                 m_generations.captured_structural_generation = m_generations.structural_generation;
                 m_generations.captured_time_generation = m_generations.time_generation;
                 m_next_time_only_refresh = m_elapsed_runtime + std::chrono::seconds(1);

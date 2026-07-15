@@ -684,12 +684,10 @@ void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMes
 void TypedRuntimeSession::drain_host_requests(std::vector<core::RuntimeOutputMessage>& outputs,
                                               core::Diagnostics& diagnostics)
 {
-    auto autosaved = m_kernel->consume_autosave(m_saves);
-    if (!autosaved)
-        core::append_diagnostics(diagnostics, std::move(autosaved).error());
-    else if (*autosaved.value_if())
-        outputs.emplace_back(core::SaveOutcome{core::TypedSaveSlotId::autosave(),
-                                               core::SaveOutcomeStatus::Saved, true});
+    if (m_kernel->host().autosave_safe_point_count() != 0) {
+        (void)m_kernel->host().consume_autosave_safe_points();
+        (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});
+    }
 
     for (auto& request : m_kernel->host().take_external_requests()) {
         const auto id = core::HostRequestId::from_number(m_next_host_request_id++);
@@ -983,12 +981,25 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
-                    auto saved = m_kernel->save_slot(m_saves, value.slot);
-                    if (saved)
-                        result.outputs.emplace_back(core::SaveOutcome{
-                            value.slot, core::SaveOutcomeStatus::Saved, value.slot.is_autosave()});
-                    else
-                        result.diagnostics = std::move(saved).error();
+                    if (value.slot.is_autosave()) {
+                        auto requested = m_checkpoint_service.request(
+                            core::ImmediateRetainedCheckpointWriteRequest{value.slot});
+                        if (const auto* failed =
+                                std::get_if<core::CheckpointSaveFailed>(&requested))
+                            result.diagnostics = failed->diagnostics;
+                        else
+                            result.outputs.emplace_back(core::SaveOutcome{
+                                value.slot, core::SaveOutcomeStatus::Saved, true});
+                    } else {
+                        auto requested =
+                            m_checkpoint_service.request(core::ManualSaveRequest{value.slot});
+                        if (!requested) {
+                            const auto& outcome = requested.error();
+                            if (const auto* failed =
+                                    std::get_if<core::CheckpointSaveFailed>(&outcome))
+                                result.diagnostics = failed->diagnostics;
+                        }
+                    }
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
                     auto loaded =
                         TypedExecutionKernel::load_slot(m_project, m_runtime, m_saves, value.slot);

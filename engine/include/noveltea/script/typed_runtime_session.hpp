@@ -45,6 +45,10 @@ public:
     {
         return m_checkpoint_service;
     }
+    [[nodiscard]] std::vector<core::CheckpointSaveOutcome> take_checkpoint_save_outcomes()
+    {
+        return m_checkpoint_service.take_completed_save_outcomes();
+    }
     [[nodiscard]] const core::PresentationCheckpointStatus&
     presentation_checkpoint_status() const noexcept
     {

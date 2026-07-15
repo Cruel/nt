@@ -45,10 +45,6 @@ public:
     [[nodiscard]] core::ScriptHostServices& host() noexcept { return m_host; }
     [[nodiscard]] const core::ScriptHostServices& host() const noexcept { return m_host; }
     [[nodiscard]] core::Result<core::SaveState, core::Diagnostics> snapshot_save() const;
-    [[nodiscard]] core::Result<core::SaveStateMetadata, core::Diagnostics>
-    save_slot(core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot) const;
-    [[nodiscard]] core::Result<bool, core::Diagnostics>
-    consume_autosave(core::TypedSaveSlotStore& store);
 
     [[nodiscard]] core::Result<bool, TypedExecutionError>
     evaluate(const core::Condition& condition);

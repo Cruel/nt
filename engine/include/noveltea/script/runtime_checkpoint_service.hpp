@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <variant>
 #include <vector>
 
 namespace noveltea::core {
@@ -73,6 +74,13 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     settle(const core::SessionState& session, const RuntimeCheckpointFacts& facts,
            RuntimeTransactionMutations mutations);
+    [[nodiscard]] core::Result<void, core::CheckpointSaveOutcome>
+    request(const core::ManualSaveRequest& request) noexcept;
+    [[nodiscard]] core::CheckpointSaveOutcome
+    request(const core::DeferredAutosaveRequest& request) noexcept;
+    [[nodiscard]] core::CheckpointSaveOutcome
+    request(const core::ImmediateRetainedCheckpointWriteRequest& request);
+    [[nodiscard]] std::vector<core::CheckpointSaveOutcome> take_completed_save_outcomes();
 
 private:
     [[nodiscard]] core::Diagnostics
@@ -81,6 +89,10 @@ private:
     publish_readiness(std::vector<core::CheckpointReadinessIssue> issues);
     [[nodiscard]] core::Result<core::SaveCheckpointRevision, core::Diagnostics>
     allocate_checkpoint_revision();
+    [[nodiscard]] core::CheckpointSaveOutcome
+    write_checkpoint(core::TypedSaveSlotId slot, const core::LatestSaveCheckpoint& checkpoint,
+                     core::CheckpointWriteSource source);
+    void fulfill_deferred_autosave();
 
     const core::CompiledProject& m_project;
     [[maybe_unused]] core::TypedSaveSlotStore& m_saves;
@@ -88,6 +100,9 @@ private:
     core::CheckpointReadinessStatus m_readiness;
     std::optional<core::LatestSaveCheckpoint> m_latest_checkpoint;
     std::optional<core::DeferredAutosaveRequest> m_pending_deferred_autosave;
+    std::vector<core::TypedSaveSlotId> m_pending_manual_saves;
+    std::optional<core::LatestSaveCheckpoint> m_deferred_autosave_target;
+    std::vector<core::CheckpointSaveOutcome> m_completed_save_outcomes;
     std::uint64_t m_next_checkpoint_revision = 1;
     std::uint64_t m_next_readiness_revision = 2;
     std::chrono::milliseconds m_next_time_only_refresh{0};
