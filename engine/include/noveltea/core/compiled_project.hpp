@@ -25,6 +25,7 @@ template<class Id> struct PropertyBearingDefinition {
 struct Vector2 {
     double x;
     double y;
+    bool operator==(const Vector2&) const = default;
 };
 struct NormalizedRect {
     double x;

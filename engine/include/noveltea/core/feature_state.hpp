@@ -21,6 +21,7 @@ struct ActorLogicalPlacement {
     compiled::ActorPosition position = compiled::ActorPosition::Center;
     compiled::Vector2 offset{0.0, 0.0};
     double scale = 1.0;
+    bool operator==(const ActorLogicalPlacement&) const = default;
 };
 
 struct ActorState {
@@ -91,18 +92,21 @@ struct PresentedTextState {
     std::optional<CharacterId> speaker;
     std::string text;
     TextMarkup markup = TextMarkup::Plain;
+    bool operator==(const PresentedTextState&) const = default;
 };
 
 struct SceneChoiceOptionState {
     SceneChoiceOptionId option;
     std::string label;
     bool enabled = true;
+    bool operator==(const SceneChoiceOptionState&) const = default;
 };
 struct SceneChoiceState {
     SceneId scene;
     SceneStepId step;
     std::optional<std::string> prompt;
     std::vector<SceneChoiceOptionState> options;
+    bool operator==(const SceneChoiceState&) const = default;
 };
 
 struct DialogueChoiceOptionState {
@@ -110,11 +114,13 @@ struct DialogueChoiceOptionState {
     std::string label;
     bool enabled = true;
     TextMarkup markup = TextMarkup::Plain;
+    bool operator==(const DialogueChoiceOptionState&) const = default;
 };
 struct DialogueChoiceState {
     DialogueId dialogue;
     DialogueBlockId block;
     std::vector<DialogueChoiceOptionState> options;
+    bool operator==(const DialogueChoiceState&) const = default;
 };
 
 using ActiveChoiceState = std::variant<SceneChoiceState, DialogueChoiceState>;
