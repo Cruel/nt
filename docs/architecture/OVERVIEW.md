@@ -17,6 +17,10 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   mandatory repository checker, approved codec/adapter paths, and exception process.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
+- `docs/architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md` is the durable current ownership,
+  consumer, test, and persistence inventory for the presentation-coordinator and safe-checkpoint
+  implementation plan. It also freezes the Phase 1B final contracts; later phases maintain it with
+  implementation evidence.
 - `docs/OVERVIEW.md` maps the full documentation hierarchy.
 - `docs/build/OVERVIEW.md` describes build/toolchain documentation.
 - `docs/migration/OVERVIEW.md` describes migration status and legacy-reference policy.
