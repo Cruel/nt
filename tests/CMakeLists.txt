@@ -19,6 +19,7 @@ add_executable(noveltea_core_tests
     core/runtime_value_tests.cpp
     core/runtime_domain_types_tests.cpp
     core/runtime_messages_tests.cpp
+    core/runtime_clock_tests.cpp
     core/runtime_user_settings_tests.cpp
     core/save_state_tests.cpp
     core/typed_save_slot_store_tests.cpp

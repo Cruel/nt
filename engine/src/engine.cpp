@@ -961,6 +961,9 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
 bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
 {
     SDL_Log("[engine] initializing...");
+    m_runtime_clock.reset();
+    m_frame_clock = {};
+    m_host_suspended = false;
     m_frame_limit = run_config.frame_limit;
     m_fps_cap = sanitize_fps_cap(run_config.fps_cap);
     m_next_frame_counter = 0;
@@ -1361,12 +1364,14 @@ void Engine::handle_events()
         case SDL_EVENT_WINDOW_MINIMIZED:
         case SDL_EVENT_WINDOW_FOCUS_LOST:
         case SDL_EVENT_DID_ENTER_BACKGROUND:
+            m_host_suspended = true;
             m_audio.pause();
             break;
 
         case SDL_EVENT_WINDOW_RESTORED:
         case SDL_EVENT_WINDOW_FOCUS_GAINED:
         case SDL_EVENT_DID_ENTER_FOREGROUND:
+            m_host_suspended = false;
             m_audio.resume();
             break;
 
@@ -1474,23 +1479,43 @@ void Engine::handle_mouse_down(float x, float y, uint8_t button)
         preview_bridge::NormalizedPosition{clamp01(x / width), clamp01(y / height)});
 }
 
-void Engine::update(float dt)
+void Engine::update(double host_delta_seconds)
 {
+    bool gameplay_paused = !m_preview_running;
+    if (const auto* view = m_runtime_ui.typed_runtime_view_state())
+        gameplay_paused = gameplay_paused || view->gameplay_paused;
+    const auto advanced =
+        m_runtime_clock.advance(host_delta_seconds, gameplay_paused, m_host_suspended);
+    if (!advanced) {
+        std::fprintf(stderr, "[engine] runtime clock failed: %s\n",
+                     advanced.error().message.c_str());
+        m_frame_clock = m_runtime_clock.current();
+        m_frame_clock.sanitized_host_delta = std::chrono::microseconds{0};
+        m_frame_clock.unscaled_presentation_delta = std::chrono::microseconds{0};
+        m_frame_clock.gameplay_delta = std::chrono::microseconds{0};
+        m_frame_clock.host_delta_clamped = false;
+        return;
+    }
+    m_frame_clock = *advanced.value_if();
+    const auto& clocks = m_frame_clock;
+    const auto seconds = [](std::chrono::microseconds duration) {
+        return std::chrono::duration<double>(duration).count();
+    };
+    // Audio remains unscaled until Phase 7 defines its typed pause policy.
+    m_audio.update(static_cast<float>(seconds(clocks.unscaled_presentation_delta)));
     if (!m_preview_running)
         return;
-    m_elapsed_seconds += dt;
-    m_audio.update(dt);
     if (m_compiled_runtime) {
         for (const auto& completion : m_runtime_audio_adapter.take_completions())
             (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{completion});
         for (const auto& termination : m_runtime_audio_adapter.take_terminations())
             (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{termination});
     }
-    m_tweens.advance(dt);
+    // The shared tween service currently realizes gameplay UI, including ActiveText.
+    m_tweens.advance(seconds(clocks.gameplay_delta));
     if (m_compiled_runtime) {
-        (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
-            core::AdvanceTimeInput{std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::duration<float>(std::max(0.0f, dt)))}});
+        (void)m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::AdvanceTimeInput{clocks.gameplay_delta}});
     }
 }
 
@@ -1499,9 +1524,15 @@ void Engine::render()
     if (m_debug_ui_enabled) {
         m_debug_ui.begin_frame(m_presentation.host_surface);
     }
-    m_runtime_ui.begin_frame(m_platform.delta_time());
+    const auto& clocks = m_frame_clock;
+    const float gameplay_delta_seconds =
+        std::chrono::duration<float>(clocks.gameplay_delta).count();
+    const float unscaled_time_seconds =
+        std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
+    // RuntimeUI remains one gameplay-domain context until Phase 5 splits lifecycle domains.
+    m_runtime_ui.begin_frame(gameplay_delta_seconds);
     ShaderStandardInputs shader_inputs;
-    shader_inputs.time_seconds = m_elapsed_seconds;
+    shader_inputs.time_seconds = unscaled_time_seconds;
     shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.logical_width()),
                                       static_cast<float>(m_renderer.logical_height())};
     shader_inputs.dpi_scale = std::max(m_renderer.scale_x(), m_renderer.scale_y());
@@ -1514,10 +1545,10 @@ void Engine::render()
         m_renderer.draw_preview_triangle(m_demo_position);
     }
     if (demo_enabled(m_demo_mode, DemoMode::Render2D)) {
-        m_renderer.draw_demo_2d(m_elapsed_seconds);
+        m_renderer.draw_demo_2d(unscaled_time_seconds);
     }
     if (demo_enabled(m_demo_mode, DemoMode::Text)) {
-        m_renderer.draw_demo_text(m_elapsed_seconds);
+        m_renderer.draw_demo_text(unscaled_time_seconds);
     }
 
     ++m_frame_count;
@@ -1557,6 +1588,9 @@ void Engine::shutdown()
     m_runtime_ui_asset_resolver.clear();
     m_runtime_ui.shutdown();
     m_tweens.reset();
+    m_runtime_clock.reset();
+    m_frame_clock = {};
+    m_host_suspended = false;
     m_assets.bind_audio_loader(nullptr);
     m_audio.shutdown();
     m_scripts.shutdown();

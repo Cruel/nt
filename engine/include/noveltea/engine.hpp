@@ -11,6 +11,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
+#include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/compiled_runtime.hpp"
@@ -99,7 +100,7 @@ private:
     void finish_frame_timing_sample();
     uint32_t effective_frame_pace_cap() const;
     void handle_mouse_down(float x, float y, uint8_t button);
-    void update(float dt);
+    void update(double host_delta_seconds);
     void render();
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
@@ -114,6 +115,8 @@ private:
     TweenService m_tweens;
     script::ScriptRuntime m_scripts;
     core::TypedMemorySaveSlotStore m_typed_saves;
+    core::RuntimeClock m_runtime_clock;
+    core::RuntimeClockUpdate m_frame_clock{};
     core::TypedSaveSlotStore* m_save_slots = &m_typed_saves;
     std::unique_ptr<script::CompiledRuntime> m_compiled_runtime;
     std::vector<core::RuntimeOutputMessage> m_typed_runtime_outputs;
@@ -132,7 +135,6 @@ private:
     uint64_t m_next_frame_counter = 0;
     std::string m_screenshot_path;
     DemoMode m_demo_mode = DemoMode::None;
-    float m_elapsed_seconds = 0.0f;
     Vec2 m_pointer_position{};
     bool m_pointer_valid = false;
     preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
@@ -142,6 +144,7 @@ private:
     bool m_audio_enabled = true;
     bool m_preview_widget = false;
     bool m_show_fps_counter = false;
+    bool m_host_suspended = false;
     uint32_t m_fps_sample_frames = 0;
     uint64_t m_fps_sample_start_counter = 0;
     std::string m_compiled_project_path;
