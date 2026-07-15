@@ -100,6 +100,40 @@ custom-overlay
 
 The target describes intended use. It does not by itself mount the layout into the runtime until the relevant runtime/editor adapter uses it.
 
+### Layout kind, target, slot, and runtime plane are different
+
+Four Layout-related concepts serve different purposes and must not be used interchangeably:
+
+- `layoutKind` (`document` or `fragment`) describes source/document structure.
+- `target` describes the reusable Layout resource's intended presentation role.
+- a Scene `LayoutSlot` (`hud`, `dialogue-box`, `overlay`, or `custom`) is a logical one-per-slot key in
+  runtime desired state.
+- `PresentationPlane` belongs to a mounted Layout instance and determines cross-backend composition
+  order and transition capture.
+
+The current compiled-Layout target mapping is:
+
+| Authored target | Current runtime plane |
+| --- | --- |
+| `default-ui` | `GameUi` |
+| `dialogue-ui` | `GameUi` |
+| `scene-overlay` | `WorldOverlay` |
+| `room-overlay` | `WorldOverlay` |
+| `custom-overlay` | `WorldOverlay` |
+| `menu-ui` | `MenuOverlay` |
+
+The mounted-instance policy is authoritative at runtime. Phase 8 may permit an authorized custom mount
+to choose a plane explicitly without changing the reusable Layout resource. Consequently, neither a
+Layout's document/fragment kind nor a Scene slot name determines whether it appears above or below
+other presentation.
+
+Phase 6 scene-presentation transitions use the resolved mounted plane as their inclusion rule.
+`WorldOverlay` Layouts transition together with `WorldBackground` and `WorldContent`, even though the
+overlay is rendered by RmlUi rather than engine quads. `GameUi`, `MenuOverlay`, `Modal`, and `Debug`
+Layouts remain outside that capture and reconcile independently. This allows a Scene to introduce or
+swap a scene/room/custom overlay as part of an explicit grouped presentation transition without also
+transitioning dialogue UI, HUD, or system menus.
+
 ### Sources
 
 A source has:

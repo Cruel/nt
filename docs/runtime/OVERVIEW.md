@@ -6,6 +6,9 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 
 ## Current Documents
 
+- `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` defines the target runtime-session,
+  transaction, command/request, semantic capability, Lua-adapter, checkpoint-integration, and
+  coherent-publication architecture that runtime implementation work must follow.
 - `docs/runtime/STATE_AND_PLAYBACK.md` describes runtime input/output contracts, save policy, diagnostics, recorded playback, and remaining work.
 - `docs/runtime/LUA_RUNTIME.md` describes Lua runtime direction and command API.
 - `docs/runtime/PACKAGE_EXPORT.md` describes runtime package layout, manifest, and editor hook.

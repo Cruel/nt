@@ -28,10 +28,27 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   explicit errors, no C++ exceptions, no compiler RTTI, dependency-specific custom RTTI where needed,
   and enforced rejection of hidden throwing APIs. It is an implementation record, not the primary
   contributor policy.
-- `docs/architecture/plans/TYPED_RUNTIME_MODEL_AND_JSON_BOUNDARIES_IMPLEMENTATION_PLAN.md` is the active
-  canonical plan for replacing legacy-shaped JSON runtime state with AuthoringProject V2, the
-  deterministic compiled-project boundary, the native `CompiledProject`, typed flow/session/save
-  models, typed runtime messages, and enforced JSON isolation.
+- `docs/architecture/plans/RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md` defines the
+  post-typed-runtime consolidation needed before continuing unfinished world presentation work. It
+  preserves completed checkpoint/Layout/coordinator foundations while ordering the future runtime
+  capability, Room/world-presentation, scoped-presentation, revised rendering, and host-boundary
+  specifications and implementation plans.
+- `docs/architecture/WORLD_AND_ROOM_PRESENTATION_SPEC.md` defines the target generic Room-placement,
+  Character world-state, Room-local cast, Interactable/Character Interaction-subject, restricted
+  Room-composition, deterministic Room-resolution, recomposition, atomic navigation, and save/restore
+  contracts required before final world rendering is implemented.
+- `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` is the normative target contract for
+  runtime-session ownership, state organization, Flow responsibility, settled transactions,
+  deferred internal commands, external host requests, semantic capability profiles, Lua adaptation,
+  presentation/checkpoint integration, and coherent runtime publication.
+- `docs/architecture/plans/RUNTIME_EXECUTION_AND_CAPABILITY_IMPLEMENTATION_PLAN.md` orders the
+  migration from the current broad script-owned runtime facade and mixed host brokerage to the final
+  runtime session, deferred command queue, semantic capability profiles, direct presentation port,
+  coherent publication, lifecycle, and namespace ownership.
+- `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
+  host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
+  Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,
+  bounded CMake targets, dependency enforcement, and public-surface cleanup.
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` records the dependency audit baseline and the
   authoritative admission requirements for C++ runtime dependencies.
 

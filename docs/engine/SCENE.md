@@ -22,6 +22,46 @@ Dialogue frame and resumes at the next Scene step after Return. A final Scene/Di
 tail-replaces; Room enters Room mode; Return pops; End clears execution and enters Ended mode. Return
 is invalid for a direct project entrypoint.
 
+## Presentation actions and transition terminology
+
+A Scene is an ordered program of engine actions. It is not itself a visual transition, and the word
+`Transition` does not mean transferring execution from one `SceneDefinition` to another. Scene-to-
+Scene execution transfer is controlled by branches, child calls, and the Scene's terminal
+`FlowTarget`.
+
+Current presentation-changing Scene actions include:
+
+- `SetBackground`, which selects a new background and currently carries a local `none`, `fade`, or
+  `cut` visual policy;
+- `ActorCue`, which changes one actor slot and currently carries a local `none`, `fade`, or `slide`
+  visual policy;
+- `SetLayout`, which shows, hides, or swaps one logical Layout slot; the referenced Layout and its
+  mounted policy determine the runtime presentation plane;
+- the standalone `Transition` action, whose current schema contains `fade`, `cut`, or `dissolve`, a
+  duration, optional color, and wait policy.
+
+The standalone `Transition` action is not yet a complete production contract. It identifies an effect
+but does not identify the presentation mutations that form its target, contain child actions, or state
+whether it applies to earlier or later steps. In particular, `Dissolve` is undefined without an exact
+source and target composition. Phase 6 of the presentation implementation plan must resolve this by
+either replacing it with an explicit transition group/container or removing the general standalone
+action from V1. Runtime code must not invent implicit "consume the preceding actions" behavior.
+
+The intended grouped authoring need, if retained, is conceptually:
+
+```text
+TransitionGroup(dissolve, 500 ms, wait) {
+    SetBackground(courtyard)
+    ActorCue(alice, show at left)
+    SetLayout(rain-overlay)
+}
+```
+
+That would mean one atomic transition from the previous scene presentation to the explicit grouped
+target. It would still be an action inside the current Scene program, not a transition between Scene
+entities. A future drag-and-drop or node editor may render the same typed program as a group or
+transition edge without changing runtime semantics.
+
 ## Authoring, compiled, and state disposition
 
 - **Authoring V2:** collection-specific Scene record, optional `extends`, typed property assignments,

@@ -7,6 +7,13 @@ Use this entrypoint before changing bgfx renderer behavior, text shaping/layout/
 ## Current Documents
 
 - `docs/rendering/RENDERING_STACK.md` describes runtime rendering layers, engine 2D rendering, shader/material policy, runtime UI usage, and verification.
+- `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines the normative backend-neutral
+  desired-presentation, scoped ownership, immutable snapshot, Room/Scene transition, finite-operation,
+  Layout, audio-intent, checkpoint, and reconstruction contracts that govern the unfinished
+  presentation implementation phases.
+- `docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md` preserves
+  completed checkpoint/clock/Layout/coordinator/RmlUi work and orders the remaining world/Room,
+  scoped-presentation, renderer, transition, audio, checkpoint, menu, and consumer-cutover work.
 - `docs/rendering/TEXT_IMPLEMENTATION.md` describes the current text pipeline, dependencies, atlas strategy, font styling, and deferred work.
 - `docs/rendering/plans/SHADER_MATERIAL_PLAN.md` describes shader/material schema, runtime architecture, editor/import compilation, package/export integration, and current phase status.
 - `docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md` describes font-family resolution and styled-span shaping work.
