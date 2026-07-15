@@ -99,7 +99,7 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
         }
         const bool report_termination =
             !operation.completion &&
-            (operation.channel == core::compiled::AudioChannel::Voice ||
+            (!operation.loop || operation.channel == core::compiled::AudioChannel::Voice ||
              operation.channel == core::compiled::AudioChannel::SoundEffect);
         m_active.push_back(ActiveTrack{operation.channel, track,
                                        report_termination

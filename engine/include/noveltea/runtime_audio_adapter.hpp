@@ -7,7 +7,7 @@
 
 namespace noveltea {
 
-class RuntimeAudioAdapter final : public TypedRuntimeAudioSink {
+class RuntimeAudioAdapter final {
 public:
     RuntimeAudioAdapter(AudioSystem& audio, const RuntimeUiAssetResolver& assets) noexcept
         : m_audio(audio), m_assets(assets)
@@ -15,11 +15,11 @@ public:
     }
 
     [[nodiscard]] core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
-    apply(const core::AudioOperation& operation) override;
+    apply(const core::AudioOperation& operation);
     [[nodiscard]] std::vector<core::CompleteAudioInput> take_completions();
     [[nodiscard]] std::vector<core::AcknowledgeAudioTerminationInput> take_terminations();
     void reset(core::PresentationCancellationReason reason =
-                   core::PresentationCancellationReason::OwnerEnded) noexcept override;
+                   core::PresentationCancellationReason::OwnerEnded) noexcept;
 
 private:
     struct ActiveTrack {

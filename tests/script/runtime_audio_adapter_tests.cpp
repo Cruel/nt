@@ -6,6 +6,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
+#include "noveltea/runtime_presentation_bridge.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -199,6 +200,145 @@ TEST_CASE("runtime audio play operations overlap by default and channel stop end
                                            .volume = 1.0});
     REQUIRE(stopped);
     CHECK(backend_ptr->active_voice_count() == 0);
+}
+
+TEST_CASE("runtime presentation bridge owns live audio barrier until backend termination")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiAssetResolver resolver;
+    resolver.bind(project);
+    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(91),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .channel = core::compiled::AudioChannel::SoundEffect,
+                                         .asset = core::AssetId::create("audio-voice").value(),
+                                         .loop = false,
+                                         .volume = 1.0};
+    auto accepted = bridge.accept(operation);
+    REQUIRE(accepted.diagnostics.empty());
+    REQUIRE(accepted.inputs.empty());
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+    REQUIRE(bridge.flush().diagnostics.empty());
+
+    backend_ptr->finish_all();
+    auto completed = bridge.poll_audio();
+    REQUIRE(completed.diagnostics.empty());
+    REQUIRE(completed.inputs.size() == 1);
+    CHECK(std::holds_alternative<core::AcknowledgeAudioTerminationInput>(completed.inputs.front()));
+    CHECK(bridge.checkpoint_status().active_barriers.empty());
+}
+
+TEST_CASE("runtime presentation bridge owns ActiveText barrier without hidden backend dispatch")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    AudioSystem audio(std::make_unique<FakeAudioBackend>());
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiAssetResolver resolver;
+    resolver.bind(project);
+    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimePresentationBridge bridge(adapter);
+    std::uint64_t next_operation = 1;
+    bridge.bind_presentation_id_allocator(
+        [&]() { return core::PresentationOperationId::from_number(next_operation++); });
+
+    REQUIRE(bridge.set_active_text_causal(true).empty());
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+    REQUIRE(bridge.set_active_text_causal(true).empty());
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+    REQUIRE(bridge.set_active_text_causal(false).empty());
+    CHECK(bridge.checkpoint_status().active_barriers.empty());
+}
+
+TEST_CASE("runtime presentation bridge tracks nonlooping music until backend termination")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiAssetResolver resolver;
+    resolver.bind(project);
+    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(92),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .channel = core::compiled::AudioChannel::Music,
+                                         .asset = core::AssetId::create("audio-voice").value(),
+                                         .loop = false,
+                                         .volume = 1.0};
+    REQUIRE(bridge.accept(operation).diagnostics.empty());
+    REQUIRE(bridge.flush().diagnostics.empty());
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+
+    backend_ptr->finish_all();
+    auto completed = bridge.poll_audio();
+    REQUIRE(completed.diagnostics.empty());
+    REQUIRE(completed.inputs.size() == 1);
+    CHECK(std::holds_alternative<core::AcknowledgeAudioTerminationInput>(completed.inputs.front()));
+    CHECK(bridge.checkpoint_status().active_barriers.empty());
+}
+
+TEST_CASE("runtime presentation bridge retains exact script audio completion target")
+{
+    const auto project = load_project();
+    auto state = core::SessionState::create(project);
+    REQUIRE(state);
+    const auto owner = core::flow_frame_id(state.value().flow_stack().back());
+    auto invocation = core::ScriptInvocationHandle::create(93);
+    REQUIRE(invocation);
+
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiAssetResolver resolver;
+    resolver.bind(project);
+    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioCompletionHandle completion = invocation.value();
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(93),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .channel = core::compiled::AudioChannel::Voice,
+                                         .asset = core::AssetId::create("audio-voice").value(),
+                                         .loop = false,
+                                         .volume = 1.0,
+                                         .owner = owner,
+                                         .completion = completion};
+    REQUIRE(bridge.accept(operation).diagnostics.empty());
+    REQUIRE(bridge.flush().diagnostics.empty());
+
+    backend_ptr->finish_all();
+    auto completed = bridge.poll_audio();
+    REQUIRE(completed.diagnostics.empty());
+    REQUIRE(completed.inputs.size() == 1);
+    const auto* input = std::get_if<core::CompleteAudioInput>(&completed.inputs.front());
+    REQUIRE(input != nullptr);
+    CHECK(*input == core::CompleteAudioInput{operation.id, owner, completion});
+    CHECK(bridge.checkpoint_status().active_barriers.empty());
 }
 
 TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem update")

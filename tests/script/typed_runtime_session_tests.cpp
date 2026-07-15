@@ -63,8 +63,6 @@ TypedRuntimeSessionResult dispatch_settled(TypedRuntimeSession& session,
 {
     session.begin_dispatch_transaction();
     auto result = session.apply(input);
-    for (const auto& output : result.outputs)
-        core::append_diagnostics(result.diagnostics, session.accept_runtime_output(output));
     core::append_diagnostics(result.diagnostics, session.settle_dispatch_transaction());
     if (!result.diagnostics.empty())
         result.disposition = RuntimeInputDisposition::Failed;
@@ -174,7 +172,6 @@ TEST_CASE("runtime reset clears checkpoint and transient lifecycle without fabri
     REQUIRE(resets.size() == 1);
     CHECK(resets.front() == core::PresentationCancellationReason::RuntimeReset);
     CHECK_FALSE(fixture.session->checkpoint_service().latest_checkpoint());
-    CHECK(fixture.session->presentation_checkpoint_status().active_barriers.empty());
 }
 
 TEST_CASE("typed runtime session starts a representative Room session")
@@ -218,45 +215,25 @@ TEST_CASE("typed runtime session captures only at settled dirty transaction boun
     CHECK(fixture.session->checkpoint_service().generations().captured_time_generation == 2);
 }
 
-TEST_CASE("presentation barriers register before sinks and clear only after committed termination")
+TEST_CASE("runtime checkpoint settlement consumes coordinator-owned presentation status")
 {
     Fixture fixture("minimal.json");
-    fixture.session->begin_dispatch_transaction();
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     const auto operation = core::PresentationOperationId::from_number(44);
-    const core::RuntimeOutputMessage output =
-        core::PresentationOperation{core::TransitionPresentationOperation{
-            .id = operation, .kind = core::compiled::TransitionKind::Fade}};
-    core::append_diagnostics(started.diagnostics, fixture.session->accept_runtime_output(output));
-    REQUIRE_FALSE(fixture.session->presentation_checkpoint_status().active_barriers.empty());
+    core::PresentationCheckpointStatus status{
+        core::CheckpointStatusRevision::from_number(2),
+        {{core::CheckpointBarrierId::from_number(1),
+          core::PresentationCheckpointBarrierSource{operation},
+          core::CheckpointBarrierKind::PresentationCausalOperation}}};
+    fixture.session->bind_presentation_checkpoint_status([&]() -> const auto& { return status; });
 
-    core::append_diagnostics(started.diagnostics,
-                             fixture.session->commit_transient_operation(operation));
-    core::append_diagnostics(started.diagnostics, fixture.session->settle_dispatch_transaction());
-    CHECK(fixture.session->presentation_checkpoint_status().active_barriers.empty());
-    CHECK(fixture.session->checkpoint_service().readiness().can_capture());
-}
-
-TEST_CASE("frame-driven ActiveText barrier changes settle checkpoint readiness")
-{
-    Fixture fixture("minimal.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
-
-    fixture.session->begin_dispatch_transaction();
-    REQUIRE(fixture.session->update_active_text_checkpoint_status(true).empty());
-    REQUIRE(fixture.session->settle_dispatch_transaction().empty());
     CHECK_FALSE(fixture.session->checkpoint_service().readiness().can_capture());
-    CHECK(std::any_of(
-        fixture.session->checkpoint_service().readiness().issues.begin(),
-        fixture.session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
-            return issue.reason == core::CheckpointReadinessReason::PresentationBarrierActive;
-        }));
 
-    fixture.session->begin_dispatch_transaction();
-    REQUIRE(fixture.session->update_active_text_checkpoint_status(false).empty());
-    REQUIRE(fixture.session->settle_dispatch_transaction().empty());
+    status.active_barriers.clear();
+    status.revision = core::CheckpointStatusRevision::from_number(3);
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
+                .diagnostics.empty());
     CHECK(fixture.session->checkpoint_service().readiness().can_capture());
 }
 

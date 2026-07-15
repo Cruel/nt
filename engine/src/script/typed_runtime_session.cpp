@@ -95,89 +95,9 @@ void TypedRuntimeSession::record_time_mutation(std::chrono::milliseconds elapsed
         m_transaction_mutations.elapsed += elapsed;
 }
 
-core::Diagnostics TypedRuntimeSession::register_causal_operation(core::PresentationOperationRef op)
+const core::SessionState& TypedRuntimeSession::presentation_state() const noexcept
 {
-    const auto found = std::find_if(
-        m_presentation_checkpoint_status.active_barriers.begin(),
-        m_presentation_checkpoint_status.active_barriers.end(), [&](const auto& barrier) {
-            const auto* source =
-                std::get_if<core::PresentationCheckpointBarrierSource>(&barrier.source);
-            return source != nullptr && source->operation == op;
-        });
-    if (found != m_presentation_checkpoint_status.active_barriers.end())
-        return {};
-    if (m_next_checkpoint_barrier_id == std::numeric_limits<std::uint64_t>::max() ||
-        m_next_checkpoint_status_revision == std::numeric_limits<std::uint64_t>::max())
-        return {diagnostic("checkpoint.presentation_status_exhausted",
-                           "Presentation checkpoint status identity is exhausted")};
-    m_presentation_checkpoint_status.active_barriers.push_back(core::CheckpointBarrier{
-        core::CheckpointBarrierId::from_number(m_next_checkpoint_barrier_id++),
-        core::PresentationCheckpointBarrierSource{op},
-        core::CheckpointBarrierKind::PresentationCausalOperation});
-    m_presentation_checkpoint_status.revision =
-        core::CheckpointStatusRevision::from_number(m_next_checkpoint_status_revision++);
-    return {};
-}
-
-core::Diagnostics TypedRuntimeSession::remove_causal_operation(core::PresentationOperationRef op)
-{
-    const auto old_size = m_presentation_checkpoint_status.active_barriers.size();
-    std::erase_if(m_presentation_checkpoint_status.active_barriers, [&](const auto& barrier) {
-        const auto* source =
-            std::get_if<core::PresentationCheckpointBarrierSource>(&barrier.source);
-        return source != nullptr && source->operation == op;
-    });
-    if (old_size == m_presentation_checkpoint_status.active_barriers.size())
-        return {};
-    if (m_next_checkpoint_status_revision == std::numeric_limits<std::uint64_t>::max())
-        return {diagnostic("checkpoint.presentation_status_exhausted",
-                           "Presentation checkpoint status identity is exhausted")};
-    m_presentation_checkpoint_status.revision =
-        core::CheckpointStatusRevision::from_number(m_next_checkpoint_status_revision++);
-    return {};
-}
-
-core::Diagnostics
-TypedRuntimeSession::accept_runtime_output(const core::RuntimeOutputMessage& output)
-{
-    if (const auto* presentation = std::get_if<core::PresentationOperation>(&output)) {
-        if (const auto* transition =
-                std::get_if<core::TransitionPresentationOperation>(presentation);
-            transition != nullptr)
-            return register_causal_operation(transition->id);
-    } else if (const auto* audio = std::get_if<core::AudioOperation>(&output)) {
-        const bool causal = audio->completion.has_value() ||
-                            audio->channel == core::compiled::AudioChannel::Voice ||
-                            audio->channel == core::compiled::AudioChannel::SoundEffect;
-        if (causal)
-            return register_causal_operation(audio->id);
-    }
-    return {};
-}
-
-core::Diagnostics
-TypedRuntimeSession::commit_transient_operation(const core::PresentationOperationRef& operation)
-{
-    return remove_causal_operation(operation);
-}
-
-core::Diagnostics TypedRuntimeSession::update_active_text_checkpoint_status(bool active)
-{
-    if (active) {
-        if (m_active_text_checkpoint_operation)
-            return {};
-        if (m_next_presentation_id == std::numeric_limits<std::uint64_t>::max())
-            return {diagnostic("checkpoint.presentation_operation_exhausted",
-                               "ActiveText presentation operation identity is exhausted")};
-        m_active_text_checkpoint_operation =
-            core::PresentationOperationId::from_number(m_next_presentation_id++);
-        return register_causal_operation(*m_active_text_checkpoint_operation);
-    }
-    if (!m_active_text_checkpoint_operation)
-        return {};
-    const auto operation = *m_active_text_checkpoint_operation;
-    m_active_text_checkpoint_operation.reset();
-    return remove_causal_operation(operation);
+    return m_kernel->state();
 }
 
 core::Diagnostics TypedRuntimeSession::settle_dispatch_transaction()
@@ -200,7 +120,11 @@ core::Diagnostics TypedRuntimeSession::settle_dispatch_transaction()
         .immediate_script_invocation_active = false,
         .flow_blocker = m_kernel->state().blocker(),
         .pending_host_requests = {},
-        .presentation_status = m_presentation_checkpoint_status,
+        .presentation_status =
+            m_presentation_status_provider
+                ? m_presentation_status_provider()
+                : core::PresentationCheckpointStatus{core::CheckpointStatusRevision::from_number(1),
+                                                     {}},
         .in_flight_external_requests = m_kernel->host().in_flight_external_request_count(),
     };
     facts.pending_host_requests.reserve(m_pending_host_requests.size());
@@ -821,7 +745,7 @@ core::Diagnostics TypedRuntimeSession::complete_presentation(
         return std::move(result).error();
     m_pending_presentation.reset();
     record_structural_mutation();
-    return remove_causal_operation(core::PresentationOperationRef{operation});
+    return {};
 }
 
 core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId operation,
@@ -859,7 +783,7 @@ core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId ope
     if (!diagnostics.empty())
         return diagnostics;
     record_structural_mutation();
-    return remove_causal_operation(core::PresentationOperationRef{operation});
+    return {};
 }
 
 void TypedRuntimeSession::append_view(TypedRuntimeSessionResult& result)
@@ -926,8 +850,6 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         m_pending_presentation.reset();
                         m_pending_audio.reset();
                         m_script_audio.clear();
-                        m_active_text_checkpoint_operation.reset();
-                        m_presentation_checkpoint_status.active_barriers.clear();
                         m_checkpoint_service.reset();
                         m_skip_next_checkpoint_settlement = true;
                     } else
@@ -1061,8 +983,6 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         m_pending_presentation.reset();
                         m_pending_audio.reset();
                         m_script_audio.clear();
-                        m_active_text_checkpoint_operation.reset();
-                        m_presentation_checkpoint_status.active_barriers.clear();
                         m_checkpoint_service.commit_loaded_checkpoint(
                             std::move(*checkpoint.value_if()));
                         result.outputs.emplace_back(core::SaveOutcome{
@@ -1098,7 +1018,7 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                     if (result.diagnostics.empty() && std::is_same_v<T, core::CompleteAudioInput>)
                         result.diagnostics = run_kernel(result.outputs);
                 } else if constexpr (std::is_same_v<T, core::AcknowledgeAudioTerminationInput>) {
-                    result.diagnostics = remove_causal_operation(value.operation);
+                    result.diagnostics.clear();
                 } else if constexpr (std::is_same_v<T, core::AcknowledgeHostRequestInput>) {
                     result.diagnostics = acknowledge(value.request);
                     if (result.diagnostics.empty())

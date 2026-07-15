@@ -115,3 +115,11 @@ Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only c
 IDs, translates the typed channel/action/options to `AudioSystem`, reports backend failures through
 the runtime diagnostic seam, and returns exact completion inputs for awaited operations. Neither
 `SessionState` nor Lua owns audio backend handles.
+## Presentation coordination
+
+Live presentation and audio outputs are accepted by the engine-owned `RuntimePresentationBridge`
+and `core::PresentationCoordinator` before backend delivery. The coordinator owns total operation
+ordering, lifecycle, and presentation checkpoint barriers. `TypedRuntimeSession` retains operation
+ID allocation and exact Flow/script completion validation, and consumes the coordinator's immutable
+status only when the outer dispatch transaction settles. Reset and load terminate old operations
+without synthesizing successful completion, then reconcile a fresh projected snapshot.

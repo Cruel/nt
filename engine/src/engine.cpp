@@ -55,7 +55,8 @@ void RuntimeUiAssetResolver::bind(const script::CompiledRuntime* runtime) noexce
 
 Engine::Engine()
     : m_audio(make_miniaudio_backend()),
-      m_runtime_audio_adapter(m_audio, m_runtime_ui_asset_resolver), m_runtime_preview(*this)
+      m_runtime_audio_adapter(m_audio, m_runtime_ui_asset_resolver),
+      m_runtime_presentation(m_runtime_audio_adapter), m_runtime_preview(*this)
 {
 }
 Engine::~Engine() { shutdown(); }
@@ -892,7 +893,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_runtime_layouts.reset();
     m_title_layout_instance.reset();
     m_game_hud_layout_instance.reset();
-    m_runtime_audio_adapter.reset(core::PresentationCancellationReason::ProjectReload);
+    m_runtime_presentation.terminate(core::PresentationCancellationReason::ProjectReload);
     m_compiled_runtime = std::move(*loaded.value_if());
     m_runtime_ui_asset_resolver.bind(m_compiled_runtime.get());
     const auto& project = m_compiled_runtime->package().project();
@@ -928,13 +929,23 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_assets.configure_fonts(std::move(fonts));
     m_runtime_ui.bind_typed_runtime_session(&m_compiled_runtime->session());
     m_runtime_ui.bind_asset_resolver(&m_runtime_ui_asset_resolver);
+    m_runtime_ui.bind_presentation_operation_handler(&m_runtime_presentation);
+    m_runtime_presentation.bind_runtime(&project, [this]() -> const core::SessionState& {
+        return m_compiled_runtime->session().presentation_state();
+    });
+    m_runtime_presentation.bind_presentation_id_allocator(
+        [this]() { return m_compiled_runtime->session().allocate_presentation_operation_id(); });
+    m_compiled_runtime->session().bind_presentation_checkpoint_status(
+        [this]() -> const core::PresentationCheckpointStatus& {
+            return m_runtime_presentation.checkpoint_status();
+        });
     m_typed_runtime_outputs.clear();
     m_typed_runtime_diagnostics.clear();
     if (!m_runtime_ui.dispatch_typed_runtime_input(
             core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
         std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
         m_runtime_ui.bind_typed_runtime_session(nullptr);
-        m_runtime_audio_adapter.reset();
+        m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
         m_runtime_ui_asset_resolver.clear();
         m_compiled_runtime.reset();
         return false;
@@ -954,7 +965,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             m_runtime_layouts.reset();
             m_game_hud_layout_instance.reset();
             m_runtime_ui.bind_typed_runtime_session(nullptr);
-            m_runtime_audio_adapter.reset();
+            m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
             m_runtime_ui_asset_resolver.clear();
             m_compiled_runtime.reset();
             return false;
@@ -1002,8 +1013,8 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             debug_ui_initialized = false;
         }
         if (runtime_ui_initialized) {
-            m_runtime_ui.bind_typed_audio_sink(nullptr);
-            m_runtime_audio_adapter.reset();
+            m_runtime_ui.bind_presentation_operation_handler(nullptr);
+            m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
         }
@@ -1131,7 +1142,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
         }
     }
     if (runtime_ui_initialized)
-        m_runtime_ui.bind_typed_audio_sink(&m_runtime_audio_adapter);
+        m_runtime_ui.bind_presentation_operation_handler(&m_runtime_presentation);
 
     if (m_debug_ui_enabled) {
         SDL_Log("[engine] initializing debug UI...");
@@ -1547,10 +1558,10 @@ void Engine::update(double host_delta_seconds)
     if (!m_preview_running)
         return;
     if (m_compiled_runtime) {
-        for (const auto& completion : m_runtime_audio_adapter.take_completions())
-            (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{completion});
-        for (const auto& termination : m_runtime_audio_adapter.take_terminations())
-            (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{termination});
+        auto presentation = m_runtime_presentation.poll_audio();
+        core::append_diagnostics(m_typed_runtime_diagnostics, std::move(presentation.diagnostics));
+        for (const auto& next : presentation.inputs)
+            (void)m_runtime_ui.dispatch_typed_runtime_input(next);
     }
     // The shared tween service currently realizes gameplay UI, including ActiveText.
     m_tweens.advance(seconds(clocks.gameplay_delta));
@@ -1625,8 +1636,8 @@ void Engine::shutdown()
     m_runtime_ui.bind_typed_runtime_session(nullptr);
     m_runtime_layouts.reset();
     m_runtime_layouts.bind_runtime_ui(nullptr);
-    m_runtime_ui.bind_typed_audio_sink(nullptr);
-    m_runtime_audio_adapter.reset(core::PresentationCancellationReason::OwnerEnded);
+    m_runtime_ui.bind_presentation_operation_handler(nullptr);
+    m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_compiled_runtime.reset();
     m_runtime_ui_asset_resolver.clear();
     m_runtime_ui.shutdown();

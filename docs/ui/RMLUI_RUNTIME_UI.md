@@ -64,3 +64,10 @@ delivery.
 `RuntimeTransitionManager`, `TweenService`, ActiveText, audio, RmlUi, and bgfx adapters otherwise
 remain transitional presentation scaffolding/backends whose coordination belongs to the
 presentation-coordinator plan.
+## Phase 4 presentation boundary
+
+`RuntimeUI` is no longer the presentation/audio operation broker. It remains the RmlUi view consumer
+and typed input source, forwarding emitted operation batches to the engine-owned
+`RuntimePresentationBridge`. Lifecycle, total ordering, checkpoint barriers, backend retry, and
+terminal decisions belong to the coordinator. RmlUi still uses the transitional shared context;
+per-policy context and clock isolation remain Phase 5 work.

@@ -5,6 +5,7 @@
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/typed_runtime_session.hpp"
 #include "noveltea/core/runtime_diagnostic_context.hpp"
+#include "noveltea/runtime_presentation_bridge.hpp"
 #include "noveltea/text/text.hpp"
 #include "noveltea/text/text_asset_loader.hpp"
 #include "noveltea/tween_service.hpp"
@@ -287,7 +288,8 @@ struct RuntimeUI::State {
     void load_runtime_document();
     void add_runtime_input_listener(Rml::ElementDocument& doc);
     void show_game_document();
-    bool dispatch_typed_input(const core::RuntimeInputMessage& input, std::size_t depth = 0);
+    bool dispatch_typed_input(const core::RuntimeInputMessage& input, std::size_t depth = 0,
+                              bool dispatch_backends = true);
     bool dispatch_layout_typed_input(const core::RuntimeInputMessage& input)
     {
         return (!layout_gameplay_admission || layout_gameplay_admission()) &&
@@ -323,8 +325,7 @@ struct RuntimeUI::State {
     script::TypedRuntimeSession* typed_runtime_session = nullptr;
     std::function<bool()> layout_gameplay_admission;
     std::function<void()> game_started_handler;
-    TypedRuntimePresentationSink* typed_presentation_sink = nullptr;
-    TypedRuntimeAudioSink* typed_audio_sink = nullptr;
+    RuntimePresentationOperationHandler* presentation_handler = nullptr;
     std::optional<core::TypedRuntimeUIViewState> typed_runtime_view;
     core::Diagnostics typed_diagnostics;
     lua_State* lua_state = nullptr;
@@ -395,7 +396,7 @@ void RuntimeUI::State::show_game_document()
 }
 
 bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& input,
-                                            std::size_t depth)
+                                            std::size_t depth, bool dispatch_backends)
 {
     if (!typed_runtime_session) {
         typed_diagnostics.push_back(core::Diagnostic{
@@ -417,141 +418,28 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
     auto result = typed_runtime_session->apply(input);
     core::append_diagnostics(typed_diagnostics, result.diagnostics);
     bool ok = result.disposition != script::RuntimeInputDisposition::Failed;
+    std::vector<core::RuntimeInputMessage> deferred_inputs;
     for (const auto& output : result.outputs) {
-        auto accepted = typed_runtime_session->accept_runtime_output(output);
-        if (!accepted.empty()) {
-            core::append_diagnostics(typed_diagnostics, std::move(accepted));
-            ok = false;
-        }
         std::visit(
             [&](const auto& value) {
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, core::RuntimeViewPublication>) {
                     typed_runtime_view = value.view;
-                } else if constexpr (std::is_same_v<T, core::PresentationOperation>) {
-                    auto fail = [&](core::Diagnostic diagnostic) {
-                        const auto operation_number = std::visit(
-                            [](const auto& operation) { return operation.id.number(); }, value);
-                        diagnostic.runtime_context =
-                            std::make_shared<const core::RuntimeDiagnosticContext>(
-                                core::RuntimeDiagnosticContext{core::HostOperationRuntimeContext{
-                                    core::RuntimeHostOperationKind::Presentation,
-                                    operation_number}});
-                        typed_diagnostics.push_back(std::move(diagnostic));
+                } else if constexpr (std::is_same_v<T, core::PresentationOperation> ||
+                                     std::is_same_v<T, core::AudioOperation>) {
+                    if (!presentation_handler) {
+                        typed_diagnostics.push_back(
+                            {.code = "runtime_ui.presentation_handler_unavailable",
+                             .message = "No presentation coordinator bridge is bound"});
                         ok = false;
-                    };
-                    if (!typed_presentation_sink) {
-                        fail(core::Diagnostic{.code = "runtime_ui.presentation_sink_unavailable",
-                                              .message = "No typed presentation sink is bound"});
-                        if (const auto* transition =
-                                std::get_if<core::TransitionPresentationOperation>(&value);
-                            transition && transition->owner && transition->completion) {
-                            (void)dispatch_typed_input(
-                                core::RuntimeInputMessage{core::CancelPresentationInput{
-                                    transition->id, *transition->owner, *transition->completion}},
-                                depth + 1);
-                        } else {
-                            core::append_diagnostics(
-                                typed_diagnostics,
-                                typed_runtime_session->commit_transient_operation(std::visit(
-                                    [](const auto& operation) -> core::PresentationOperationRef {
-                                        return operation.id;
-                                    },
-                                    value)));
-                        }
                     } else {
-                        auto applied = typed_presentation_sink->apply(value);
-                        if (!applied) {
-                            fail(applied.error());
-                            if (const auto* transition =
-                                    std::get_if<core::TransitionPresentationOperation>(&value);
-                                transition && transition->owner && transition->completion) {
-                                (void)dispatch_typed_input(
-                                    core::RuntimeInputMessage{core::CancelPresentationInput{
-                                        transition->id, *transition->owner,
-                                        *transition->completion}},
-                                    depth + 1);
-                            } else {
-                                core::append_diagnostics(
-                                    typed_diagnostics,
-                                    typed_runtime_session->commit_transient_operation(std::visit(
-                                        [](const auto& operation)
-                                            -> core::PresentationOperationRef {
-                                            return operation.id;
-                                        },
-                                        value)));
-                            }
-                        } else if (*applied.value_if() ==
-                                   TypedRuntimeOperationDisposition::Completed) {
-                            if (const auto* transition =
-                                    std::get_if<core::TransitionPresentationOperation>(&value);
-                                transition && transition->owner && transition->completion) {
-                                ok = dispatch_typed_input(
-                                         core::RuntimeInputMessage{core::CompletePresentationInput{
-                                             transition->id, *transition->owner,
-                                             *transition->completion}},
-                                         depth + 1) &&
-                                     ok;
-                            } else {
-                                core::append_diagnostics(
-                                    typed_diagnostics,
-                                    typed_runtime_session->commit_transient_operation(std::visit(
-                                        [](const auto& operation)
-                                            -> core::PresentationOperationRef {
-                                            return operation.id;
-                                        },
-                                        value)));
-                            }
-                        }
-                    }
-                } else if constexpr (std::is_same_v<T, core::AudioOperation>) {
-                    auto fail = [&](core::Diagnostic diagnostic) {
-                        diagnostic.runtime_context =
-                            std::make_shared<const core::RuntimeDiagnosticContext>(
-                                core::RuntimeDiagnosticContext{core::HostOperationRuntimeContext{
-                                    core::RuntimeHostOperationKind::Audio, value.id.number()}});
-                        typed_diagnostics.push_back(std::move(diagnostic));
-                        ok = false;
-                    };
-                    if (!typed_audio_sink) {
-                        fail(core::Diagnostic{.code = "runtime_ui.audio_sink_unavailable",
-                                              .message = "No typed audio sink is bound"});
-                        if (value.owner && value.completion)
-                            (void)dispatch_typed_input(
-                                core::RuntimeInputMessage{core::CancelAudioInput{
-                                    value.id, *value.owner, *value.completion}},
-                                depth + 1);
-                        else
-                            core::append_diagnostics(
-                                typed_diagnostics,
-                                typed_runtime_session->commit_transient_operation(value.id));
-                    } else {
-                        auto applied = typed_audio_sink->apply(value);
-                        if (!applied) {
-                            fail(applied.error());
-                            if (value.owner && value.completion)
-                                (void)dispatch_typed_input(
-                                    core::RuntimeInputMessage{core::CancelAudioInput{
-                                        value.id, *value.owner, *value.completion}},
-                                    depth + 1);
-                            else
-                                core::append_diagnostics(
-                                    typed_diagnostics,
-                                    typed_runtime_session->commit_transient_operation(value.id));
-                        } else if (*applied.value_if() ==
-                                       TypedRuntimeOperationDisposition::Completed &&
-                                   value.owner && value.completion) {
-                            ok = dispatch_typed_input(
-                                     core::RuntimeInputMessage{core::CompleteAudioInput{
-                                         value.id, *value.owner, *value.completion}},
-                                     depth + 1) &&
-                                 ok;
-                        } else if (*applied.value_if() ==
-                                   TypedRuntimeOperationDisposition::Completed) {
-                            core::append_diagnostics(
-                                typed_diagnostics,
-                                typed_runtime_session->commit_transient_operation(value.id));
-                        }
+                        auto dispatched = presentation_handler->accept(value);
+                        if (!dispatched.diagnostics.empty())
+                            ok = false;
+                        core::append_diagnostics(typed_diagnostics,
+                                                 std::move(dispatched.diagnostics));
+                        for (const auto& next : dispatched.inputs)
+                            deferred_inputs.push_back(next);
                     }
                 } else if constexpr (std::is_same_v<T, core::TypedHostRequest>) {
                     const auto request_id = std::visit(
@@ -562,11 +450,7 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                             return request.id;
                         },
                         value);
-                    ok = dispatch_typed_input(
-                             core::RuntimeInputMessage{
-                                 core::AcknowledgeHostRequestInput{request_id}},
-                             depth + 1) &&
-                         ok;
+                    deferred_inputs.emplace_back(core::AcknowledgeHostRequestInput{request_id});
                 } else if constexpr (std::is_same_v<T, core::UserCommunicationOutput>) {
                     std::visit(
                         [&](const auto& communication) {
@@ -586,17 +470,42 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
             },
             output);
     }
-    refresh_runtime_document();
-    refresh_active_text_layout();
-    const bool active_text_causal =
-        typed_runtime_view && !typed_active_text_document(*typed_runtime_view).plain_text.empty() &&
-        active_text_playback.phase != ActiveTextPlaybackPhase::AwaitingContinue &&
-        active_text_playback.phase != ActiveTextPlaybackPhase::Complete;
-    auto active_text_status =
-        typed_runtime_session->update_active_text_checkpoint_status(active_text_causal);
-    if (!active_text_status.empty()) {
-        core::append_diagnostics(typed_diagnostics, std::move(active_text_status));
-        ok = false;
+    for (const auto& next : deferred_inputs)
+        ok = dispatch_typed_input(next, depth + 1, false) && ok;
+
+    if (dispatch_backends) {
+        refresh_runtime_document();
+        refresh_active_text_layout();
+        bool presentation_ready = true;
+        const bool active_text_causal =
+            typed_runtime_view &&
+            !typed_active_text_document(*typed_runtime_view).plain_text.empty() &&
+            active_text_playback.phase != ActiveTextPlaybackPhase::AwaitingContinue &&
+            active_text_playback.phase != ActiveTextPlaybackPhase::Complete;
+        auto active_text_status =
+            presentation_handler ? presentation_handler->set_active_text_causal(active_text_causal)
+                                 : core::Diagnostics{};
+        if (!active_text_status.empty()) {
+            core::append_diagnostics(typed_diagnostics, std::move(active_text_status));
+            presentation_ready = false;
+            ok = false;
+        }
+        if (presentation_handler) {
+            auto reconciled = presentation_handler->reconcile();
+            if (!reconciled.empty()) {
+                core::append_diagnostics(typed_diagnostics, std::move(reconciled));
+                presentation_ready = false;
+                ok = false;
+            }
+        }
+        if (presentation_handler && presentation_ready) {
+            auto dispatched = presentation_handler->flush();
+            if (!dispatched.diagnostics.empty())
+                ok = false;
+            core::append_diagnostics(typed_diagnostics, std::move(dispatched.diagnostics));
+            for (const auto& next : dispatched.inputs)
+                ok = dispatch_typed_input(next, depth + 1, true) && ok;
+        }
     }
     if (outermost) {
         auto settled = typed_runtime_session->settle_dispatch_transaction();
@@ -1275,7 +1184,9 @@ void RuntimeUI::begin_frame(float delta_time)
                 m_state->typed_runtime_session->begin_dispatch_transaction();
                 core::append_diagnostics(
                     m_state->typed_diagnostics,
-                    m_state->typed_runtime_session->update_active_text_checkpoint_status(causal));
+                    m_state->presentation_handler
+                        ? m_state->presentation_handler->set_active_text_causal(causal)
+                        : core::Diagnostics{});
                 core::append_diagnostics(
                     m_state->typed_diagnostics,
                     m_state->typed_runtime_session->settle_dispatch_transaction());
@@ -1341,11 +1252,9 @@ void RuntimeUI::shutdown()
     if (!m_initialized)
         return;
     if (m_state) {
-        if (m_state->typed_presentation_sink)
-            m_state->typed_presentation_sink->reset(
+        if (m_state->presentation_handler)
+            m_state->presentation_handler->terminate(
                 core::PresentationCancellationReason::OwnerEnded);
-        if (m_state->typed_audio_sink)
-            m_state->typed_audio_sink->reset(core::PresentationCancellationReason::OwnerEnded);
         if (m_state->typed_runtime_session)
             m_state->typed_runtime_session->bind_transient_reset_handler({});
         m_state->typed_runtime_session = nullptr;
@@ -1622,10 +1531,8 @@ void RuntimeUI::bind_typed_runtime_session(script::TypedRuntimeSession* session)
     if (session) {
         session->bind_transient_reset_handler(
             [state = m_state](core::PresentationCancellationReason reason) {
-                if (state->typed_presentation_sink)
-                    state->typed_presentation_sink->reset(reason);
-                if (state->typed_audio_sink)
-                    state->typed_audio_sink->reset(reason);
+                if (state->presentation_handler)
+                    state->presentation_handler->terminate(reason);
             });
     }
     m_state->typed_runtime_view.reset();
@@ -1650,16 +1557,10 @@ void RuntimeUI::bind_asset_resolver(const RuntimeUiAssetResolver* resolver)
     m_state->refresh_runtime_document();
 }
 
-void RuntimeUI::bind_typed_presentation_sink(TypedRuntimePresentationSink* sink)
+void RuntimeUI::bind_presentation_operation_handler(RuntimePresentationOperationHandler* handler)
 {
     if (m_state)
-        m_state->typed_presentation_sink = sink;
-}
-
-void RuntimeUI::bind_typed_audio_sink(TypedRuntimeAudioSink* sink)
-{
-    if (m_state)
-        m_state->typed_audio_sink = sink;
+        m_state->presentation_handler = handler;
 }
 
 void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)

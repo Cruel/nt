@@ -154,8 +154,6 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
         auto& session = loaded.value()->session();
         session.begin_dispatch_transaction();
         auto started = session.apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-        for (const auto& output : started.outputs)
-            core::append_diagnostics(started.diagnostics, session.accept_runtime_output(output));
         core::append_diagnostics(started.diagnostics, session.settle_dispatch_transaction());
         CHECK(started.disposition != script::RuntimeInputDisposition::Failed);
         CHECK(loaded.value()->package().project().identity().name.size() > 0);

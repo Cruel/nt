@@ -5,6 +5,7 @@
 #include "renderer.hpp"
 #include "runtime_preview_controller.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
+#include "noveltea/runtime_presentation_bridge.hpp"
 #include "noveltea/audio/audio_system.hpp"
 #include "ui_debug.hpp"
 #include "ui_runtime.hpp"
@@ -125,6 +126,7 @@ private:
     ShaderMaterialProject m_shader_materials;
     RuntimeUiAssetResolver m_runtime_ui_asset_resolver;
     RuntimeAudioAdapter m_runtime_audio_adapter;
+    RuntimePresentationBridge m_runtime_presentation;
     RuntimeUI m_runtime_ui;
     RuntimeLayoutManager m_runtime_layouts;
     std::optional<core::MountedLayoutInstanceId> m_title_layout_instance;

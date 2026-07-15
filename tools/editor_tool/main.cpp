@@ -258,16 +258,10 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     auto& session = runtime.value_if()->get()->session();
     session.begin_dispatch_transaction();
     auto startup = session.apply(RuntimeInputMessage{StartRuntimeInput{}});
-    for (const auto& output : startup.outputs)
-        noveltea::core::append_diagnostics(startup.diagnostics,
-                                           session.accept_runtime_output(output));
     noveltea::core::append_diagnostics(startup.diagnostics, session.settle_dispatch_transaction());
     for (const auto& step : typed_spec->steps) {
         session.begin_dispatch_transaction();
         auto result = session.apply(step.input);
-        for (const auto& output : result.outputs)
-            noveltea::core::append_diagnostics(result.diagnostics,
-                                               session.accept_runtime_output(output));
         noveltea::core::append_diagnostics(result.diagnostics,
                                            session.settle_dispatch_transaction());
         editor::TypedPlaybackStepReport report;
@@ -284,9 +278,6 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!steps.empty()) {
         session.begin_dispatch_transaction();
         auto observed = session.apply(RuntimeInputMessage{AdvanceTimeInput{}});
-        for (const auto& output : observed.outputs)
-            noveltea::core::append_diagnostics(observed.diagnostics,
-                                               session.accept_runtime_output(output));
         noveltea::core::append_diagnostics(observed.diagnostics,
                                            session.settle_dispatch_transaction());
         final_view = std::move(observed.view);

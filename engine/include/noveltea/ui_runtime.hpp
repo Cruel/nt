@@ -29,26 +29,11 @@ class TypedRuntimeSession;
 } // namespace script
 struct ShaderMaterialProject;
 class TweenService;
+class RuntimePresentationOperationHandler;
 
 enum class TypedRuntimeOperationDisposition : std::uint8_t {
     Completed,
     Pending
-};
-
-class TypedRuntimePresentationSink {
-public:
-    virtual ~TypedRuntimePresentationSink() = default;
-    [[nodiscard]] virtual core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
-    apply(const core::PresentationOperation& operation) = 0;
-    virtual void reset(core::PresentationCancellationReason reason) noexcept = 0;
-};
-
-class TypedRuntimeAudioSink {
-public:
-    virtual ~TypedRuntimeAudioSink() = default;
-    [[nodiscard]] virtual core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
-    apply(const core::AudioOperation& operation) = 0;
-    virtual void reset(core::PresentationCancellationReason reason) noexcept = 0;
 };
 
 class RuntimeUiAssetResolver {
@@ -139,8 +124,7 @@ public:
     bool active_text_direct_render_enabled() const;
     void bind_typed_runtime_session(script::TypedRuntimeSession* session);
     void bind_asset_resolver(const RuntimeUiAssetResolver* resolver);
-    void bind_typed_presentation_sink(TypedRuntimePresentationSink* sink);
-    void bind_typed_audio_sink(TypedRuntimeAudioSink* sink);
+    void bind_presentation_operation_handler(RuntimePresentationOperationHandler* handler);
     void bind_layout_gameplay_admission(std::function<bool()> admission);
     void bind_game_started_handler(std::function<void()> handler);
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);

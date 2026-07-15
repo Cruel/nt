@@ -102,6 +102,7 @@ struct AudioFlowCompletion {
     auto operator<=>(const AudioFlowCompletion&) const = default;
 };
 struct ScriptAudioCompletion {
+    FlowFrameId owner;
     ScriptInvocationHandle invocation;
     auto operator<=>(const ScriptAudioCompletion&) const = default;
 };

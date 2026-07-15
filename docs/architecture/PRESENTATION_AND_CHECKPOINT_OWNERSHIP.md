@@ -100,7 +100,7 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 | Concern / capability | Current authoritative owner | Implementation files and public types | Current consumers | Current tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
 | --- | --- | --- | --- | --- | --- | --- |
 | Presentation operation IDs and current payloads | Runtime allocates the canonical IDs; current payloads remain in `core/runtime_messages.hpp` | `core/session_operation_id.hpp`: `SessionOperationId`, `PresentationOperationId`; `core/runtime_messages.hpp`: transitional `TransitionPresentationOperation`, `LayoutPresentationOperation` | `TypedRuntimeSession`, `RuntimeUI` sink dispatch | `presentation_checkpoint_contracts_tests`, `runtime_messages_tests`, typed session tests; Layout operation has no production sink behavior | Canonical shared presentation contracts | `reduce`; Phase 1C/1D canonicalized and verified identities without changing payload behavior; Phase 4 owns lifecycle and replaces transitional payload dispatch |
-| Current presentation dispatch/ack broker | `RuntimeUI::State::dispatch_typed_input()` recursively consumes runtime outputs and calls sinks | `ui_runtime.hpp`, `ui_runtime_rmlui.cpp`: `TypedRuntimePresentationSink`, `TypedRuntimeOperationDisposition` | live engine UI; no presentation sink is bound by `Engine` | typed session tests use direct messages; no focused `RuntimeUI` operation-dispatch test | `PresentationCoordinator` | `replace`; Phase 4 |
+| Presentation dispatch and acknowledgement broker | Engine-owned `RuntimePresentationBridge` composes `PresentationCoordinator`, snapshot publication, the minimal presentation port, and `RuntimeAudioAdapter`; `RuntimeUI` only forwards complete typed output batches and returns coordinator terminal inputs through the runtime seam | `core/presentation_coordinator.*`, `runtime_presentation_bridge.*`, `ui_runtime.*` | live engine runtime UI and audio path | coordinator lifecycle/fake-backend tests, bridge/audio termination and exact-correlation tests, typed-session checkpoint-provider tests, full Linux/Web builds and policy checks | `PresentationCoordinator` through the engine-owned bridge | `retain`; Phase 4 complete, Phases 5–7 replace only low-level realization and extend reconstructible payloads |
 | Layout resource content | `CompiledProject::LayoutResource`; it has source, target intent, dependencies, and script metadata but no mount policy | `core/compiled_project.hpp`, package/compiler/editor Layout schema | RmlUi template resolver, preview/export/resource validation | compiled-model/wire tests, editor authoring Layout tests | Immutable `CompiledProject` definitions | `retain`; Phase 3 introduces separate mounted-instance policy |
 | Gameplay-owned Layout slots | `SessionState::m_layouts` keyed by coarse compiled `LayoutSlot` | `feature_state.hpp`, `session_state.*`, Scene executor and `RuntimeScriptApi` Layout helpers | Scene views; no live `Engine` path mounts these slots into `RuntimeUI` | session and typed-session Lua tests cover state mutation only; no restore/mount integration test | Runtime/session state with reconstructible mounted intent | `reduce`; Phase 3 adopts typed mount policy, Phase 7 persists reconstructible state, Phase 8 completes consumer cutover |
 | Shell/menu documents | Direct `RuntimeUI` document map; built-in title is live, pause document asset/API exists but no engine menu stack invokes it | `ui_runtime_rmlui.cpp`, system title/pause RML; `Engine::load_compiled_project()` | title screen and authored preview documents | `title_layout_asset_tests` only checks title Lua calls; no pause/settings/load/save stack test | Shell/menu state using mounted Layout instances | `replace`; Phase 8 |
@@ -462,6 +462,7 @@ struct AudioFlowCompletion {
     auto operator<=>(const AudioFlowCompletion&) const = default;
 };
 struct ScriptAudioCompletion {
+    FlowFrameId owner;
     ScriptInvocationHandle invocation;
     auto operator<=>(const ScriptAudioCompletion&) const = default;
 };
@@ -582,6 +583,21 @@ Membership in `active_barriers` is the sole barrier-status representation: prese
 absent means resolved. There is deliberately no second boolean or free-form status field. `revision` starts at one
 and increments exactly once for each atomic accepted/terminal barrier-set change; disposable and
 reconstructible realization does not change it.
+
+Phase 4B implements this headless ownership in
+`engine/include/noveltea/core/presentation_coordinator.hpp` and
+`engine/src/core/presentation_coordinator.cpp`. `PresentationCoordinator` owns accepted operation
+metadata, total sequencing, lifecycle, barrier membership, snapshot reconciliation, and retry-safe
+delivery through separate snapshot and operation backend ports. The live runtime continues to use
+the transitional broker until Phase 4C; this slice does not perform the engine/runtime cutover.
+
+Phase 4C completes the live cutover through
+`engine/include/noveltea/runtime_presentation_bridge.hpp` and
+`engine/src/runtime_presentation_bridge.cpp`. `Engine` owns this bridge and its coordinator;
+`RuntimeUI` forwards typed operation batches to it but does not own lifecycle or barriers.
+`TypedRuntimeSession` now provides only operation identity and exact completion-handle validation and
+reads the coordinator's immutable checkpoint status during settlement. Reset/load/reload terminate
+the old coordinator session before backend reset and fresh snapshot reconciliation.
 
 The runtime combines that view with its own barriers into:
 

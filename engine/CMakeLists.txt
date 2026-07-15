@@ -21,6 +21,7 @@ add_library(noveltea_core STATIC
     src/core/flow_executor_scene.cpp
     src/core/gameplay_pause.cpp
     src/core/package_export.cpp
+    src/core/presentation_coordinator.cpp
     src/core/player_bootstrap.cpp
     src/core/rich_text.cpp
     src/core/rich_text_codec.cpp
@@ -125,6 +126,7 @@ add_library(engine STATIC
     src/runtime_audio_adapter.cpp
     src/runtime_layout_manager.cpp
     src/runtime_preview_controller.cpp
+    src/runtime_presentation_bridge.cpp
     src/runtime_transition_manager.cpp
     src/surface.cpp
     src/text/text_asset_loader.cpp
