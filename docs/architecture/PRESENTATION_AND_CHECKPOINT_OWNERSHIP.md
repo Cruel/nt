@@ -1,8 +1,9 @@
 # Presentation and Checkpoint Ownership
 
-Date: 2026-07-14
-Status: Phase 1A inventory, Phase 1B final ownership/contract specification, and Phase 1C shared
-contract implementation complete; integration and Phase 1 closure remain assigned to Phase 1D.
+Date: 2026-07-15
+Status: Phase 1A through Phase 1D complete. The ownership inventory, frozen specification,
+canonical shared contracts, public-seam integration, and boundary verification close Phase 1;
+behavioral checkpoint and presentation work remains assigned to Phases 2 through 8.
 
 ## Purpose and authority
 
@@ -98,12 +99,12 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 
 | Concern / capability | Current authoritative owner | Implementation files and public types | Current consumers | Current tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
 | --- | --- | --- | --- | --- | --- | --- |
-| Presentation operation IDs and current payloads | `core/runtime_messages.hpp` | `SessionOperationId`, `PresentationOperationId`, `TransitionPresentationOperation`, `LayoutPresentationOperation` | `TypedRuntimeSession`, `RuntimeUI` sink dispatch | `runtime_messages_tests`, typed session tests; Layout operation has no production sink behavior | Canonical shared presentation contracts | `replace`; Phase 1C implements the Phase 1B-frozen definitions and Phase 4 owns lifecycle |
+| Presentation operation IDs and current payloads | Runtime allocates the canonical IDs; current payloads remain in `core/runtime_messages.hpp` | `core/session_operation_id.hpp`: `SessionOperationId`, `PresentationOperationId`; `core/runtime_messages.hpp`: transitional `TransitionPresentationOperation`, `LayoutPresentationOperation` | `TypedRuntimeSession`, `RuntimeUI` sink dispatch | `presentation_checkpoint_contracts_tests`, `runtime_messages_tests`, typed session tests; Layout operation has no production sink behavior | Canonical shared presentation contracts | `reduce`; Phase 1C/1D canonicalized and verified identities without changing payload behavior; Phase 4 owns lifecycle and replaces transitional payload dispatch |
 | Current presentation dispatch/ack broker | `RuntimeUI::State::dispatch_typed_input()` recursively consumes runtime outputs and calls sinks | `ui_runtime.hpp`, `ui_runtime_rmlui.cpp`: `TypedRuntimePresentationSink`, `TypedRuntimeOperationDisposition` | live engine UI; no presentation sink is bound by `Engine` | typed session tests use direct messages; no focused `RuntimeUI` operation-dispatch test | `PresentationCoordinator` | `replace`; Phase 4 |
 | Layout resource content | `CompiledProject::LayoutResource`; it has source, target intent, dependencies, and script metadata but no mount policy | `core/compiled_project.hpp`, package/compiler/editor Layout schema | RmlUi template resolver, preview/export/resource validation | compiled-model/wire tests, editor authoring Layout tests | Immutable `CompiledProject` definitions | `retain`; Phase 3 introduces separate mounted-instance policy |
 | Gameplay-owned Layout slots | `SessionState::m_layouts` keyed by coarse compiled `LayoutSlot` | `feature_state.hpp`, `session_state.*`, Scene executor and `RuntimeScriptApi` Layout helpers | Scene views; no live `Engine` path mounts these slots into `RuntimeUI` | session and typed-session Lua tests cover state mutation only; no restore/mount integration test | Runtime/session state with reconstructible mounted intent | `reduce`; Phase 3 adopts typed mount policy, Phase 7 persists reconstructible state, Phase 8 completes consumer cutover |
 | Shell/menu documents | Direct `RuntimeUI` document map; built-in title is live, pause document asset/API exists but no engine menu stack invokes it | `ui_runtime_rmlui.cpp`, system title/pause RML; `Engine::load_compiled_project()` | title screen and authored preview documents | `title_layout_asset_tests` only checks title Lua calls; no pause/settings/load/save stack test | Shell/menu state using mounted Layout instances | `replace`; Phase 8 |
-| Mounted Layout scaffolding | Isolated `RuntimeLayoutManager` with numeric ID, coarse layer/z, and independent booleans | `runtime_layout_manager.hpp/.cpp` | none in production or tests | explicit missing coverage: no manager test target or live consumer | RmlUi/Layout presentation with Phase 1 typed mount policy; shell state for menus | `replace`; Phase 3 |
+| Mounted Layout scaffolding | Isolated `RuntimeLayoutManager` with transitional `RuntimeLayoutInstanceId`, coarse layer/z, and independent booleans | `runtime_layout_manager.hpp/.cpp`; this numeric scaffolding ID is not the canonical `core::MountedLayoutInstanceId` and is not consumed by shared contracts | none in production or tests | explicit missing coverage: no manager test target or live consumer; Phase 1D source audit verifies the canonical name has one definition | RmlUi/Layout presentation with Phase 1 typed mount policy; shell state for menus | `replace`; Phase 3 migrates the complete manager API and failure semantics together rather than partially adopting the strong ID in Phase 1D |
 | RmlUi lifecycle and documents | One `RuntimeUI::State` owns one global `Rml::Context` named `main` and all documents | `ui_runtime.hpp`, `ui_runtime_rmlui.cpp`, `ui/rmlui/*` | engine runtime UI and editor authored previews | binder/component/file/template tests and GPU readbacks; no multi-context lifecycle/input-order test | RmlUi/Layout presentation context registry | `replace`; Phase 5 |
 | RmlUi time | Global `SdlSystemInterface::GetElapsedTime()` returns raw SDL performance-counter time since initialization; material shader time reads that same interface | `rmlui_system_interface_sdl3.*`, `rmlui_bgfx_noveltea_adapter.cpp` | every RmlUi document/context | explicit missing coverage for pause/freeze/resume and unscaled/gameplay clock separation | Engine clock service plus RmlUi clock router | `replace`; Phase 3 creates clocks, Phase 5 cuts RmlUi over |
 | RmlUi input and ordering | One context receives SDL input; `RuntimeUI` reports whether it consumed the event; document order is manipulated by repeated Show/Hide calls | `rmlui_input_sdl3.*`, `ui_runtime_rmlui.cpp`; unused manager has layer sort | `Engine::handle_events()` routes debug UI, then RmlUi, then gameplay/demo handling | input adapter/binder tests exist; no cross-context plane/modal routing test | Typed mounted-Layout input router and RmlUi contexts | `replace`; Phase 3 defines routing, Phase 5 integrates contexts |
@@ -764,11 +765,38 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
 - No production header or behavior was changed in Phase 1B. Shared declarations remain Phase 1C;
   projector, transition/effect, and audio feature payloads remain Phases 4, 6, and 7.
 
+## Phase 1D integration and closure evidence
+
+- The implemented canonical locations are
+  `engine/include/noveltea/core/session_operation_id.hpp`,
+  `engine/include/noveltea/core/presentation_contracts.hpp`, and
+  `engine/include/noveltea/core/checkpoint_contracts.hpp`. `runtime_messages.hpp` includes the
+  canonical operation-ID header and contains no duplicate ID or completion-handle declaration.
+- `tests/core/presentation_checkpoint_contracts_tests.cpp` now audits all public NovelTea headers
+  for sole canonical operation and mounted-instance declarations, rejects backend/JSON/callback/
+  exception/RTTI tokens in the three shared headers, enumerates every frozen enum value, exhaustively
+  visits every closed variant, and verifies strong-ID and ownership-record domain separation.
+- The isolated `RuntimeLayoutManager` still uses its differently named numeric scaffolding ID and
+  boolean policies. It has no consumer or test suite. Converting only its ID would require changing
+  its zero-as-failure return contract and would partially implement the Phase 3 mount migration, so
+  Phase 1D retains it as explicit transitional debt and tests the typed replacement contract instead.
+- Existing save behavior remains intentionally unchanged in this slice: current presentation/audio
+  blocker omission is still unsafe implementation debt assigned to Phase 2. The Phase 1 contracts
+  make the replacement policy exact without serializing Lua, tween, audio-voice, RmlUi, or GPU
+  internals; they do not fabricate completion themselves.
+- Verification on 2026-07-15 passed: 15 focused contract/runtime/save/audio/script tests, the full
+  Linux build, all 325 Linux CTest tests, `format-check`, `cxx-policy`,
+  `json-boundary-policy`, and the full Web build. No Phase 2-through-8 service, coordinator,
+  projector, clock, backend dispatch, save-codec behavior, or menu behavior was added.
+- Every ownership, persistence, and activity-classification row above has one exact Phase 1 contract
+  representation or one explicit later-phase implementation assignment. No unresolved Phase 1
+  decision or contradictory implemented location remains.
+
 ## Affected test targets and later-phase obligations
 
 | Test target / suite | Current relevant coverage | Missing coverage later slices must add |
 | --- | --- | --- |
-| `noveltea_core_tests` | state families, Flow/blocker ownership, save projection/codec/restore, slot bytes, runtime messages, external protocol | Phase 1 shared contract invariants; Phase 2 checkpoint readiness/generations/atomic retained bytes; Phase 7 reconstructible save records |
+| `noveltea_core_tests` | state families, Flow/blocker ownership, save projection/codec/restore, slot bytes, runtime messages, external protocol, and Phase 1 canonical-definition/dependency/vocabulary/domain invariants | Phase 2 checkpoint readiness/generations/atomic retained bytes; Phase 7 reconstructible save records |
 | `noveltea_script_tests` | Lua suspension/API, feature execution, direct save/autosave/load, typed session queues, audio adapter overlap/completion | same-transaction barrier registration, retained manual/deferred autosave semantics, coordinator acknowledgements, final audio split and reconstruction |
 | `noveltea_tween_tests` | float advance/pause/kill/callback behavior | typed coordinator ownership and cancellation boundaries after Phase 5/6; current target-pointer/callback primitive is not contract evidence |
 | `noveltea_ui_tests` | ActiveText parsing/playback/layout, RmlUi binders/components/assets | mounted-policy tests, pause/unscaled clocks, multi-context input/render order, ActiveText barrier lifetime and recreation |
@@ -788,6 +816,6 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
   single raw-clock RmlUi context, callback transitions, ActiveText tween ownership, audio-state
   conflation, multi-track channels, shell/gameplay Layout split, and missing checkpoint
   metadata/thumbnail ownership are tied to concrete implementation types and files.
-- No production code or public contract changed in Phase 1A. Phase 1B froze final ownership and
-  field-level contracts, and Phase 1C implemented those contracts in the three canonical headers
-  with focused tests. Behavioral integration remains assigned to Phase 1D and later phases.
+- No production code or public contract changed in Phase 1A. Phase 1B froze final ownership,
+  Phase 1C implemented the three canonical headers, and Phase 1D verified their public integration
+  and boundaries. Behavioral work remains assigned to Phases 2 through 8.

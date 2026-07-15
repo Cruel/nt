@@ -3,6 +3,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <string>
 #include <type_traits>
 
 using namespace noveltea::core;
@@ -16,6 +20,31 @@ template<class... Fs> Overload(Fs...) -> Overload<Fs...>;
 template<class Id>
 constexpr bool is_strong_session_id =
     !std::is_default_constructible_v<Id> && std::is_trivially_copyable_v<Id>;
+
+std::string read_source_file(const std::filesystem::path& path)
+{
+    std::ifstream input(path);
+    REQUIRE(input.good());
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::size_t occurrence_count(const std::string& source, const std::string& needle)
+{
+    std::size_t count = 0;
+    std::size_t position = 0;
+    while ((position = source.find(needle, position)) != std::string::npos) {
+        ++count;
+        position += needle.size();
+    }
+    return count;
+}
+
+template<class Enum, std::size_t Size> void check_closed_enum(const std::array<Enum, Size>& values)
+{
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        CHECK(static_cast<std::size_t>(values[index]) == index);
+    }
+}
 } // namespace
 
 TEST_CASE("presentation and checkpoint identities are strong domain types")
@@ -63,9 +92,60 @@ TEST_CASE("closed presentation contract vocabularies have their frozen alternati
         CheckpointReadinessReason::SaveProjectionFailed,
         CheckpointReadinessReason::SaveValidationFailed,
         CheckpointReadinessReason::SaveEncodingFailed};
-    STATIC_REQUIRE(checkpoint_classes.size() == 3);
-    STATIC_REQUIRE(planes.size() == 8);
-    STATIC_REQUIRE(readiness_reasons.size() == 11);
+    constexpr std::array layout_clocks{LayoutClockDomain::Gameplay,
+                                       LayoutClockDomain::UnscaledPresentation};
+    constexpr std::array layout_inputs{LayoutInputMode::None, LayoutInputMode::Normal,
+                                       LayoutInputMode::BlockGameplay, LayoutInputMode::Modal};
+    constexpr std::array pause_policies{GameplayPausePolicy::Continue,
+                                        GameplayPausePolicy::PauseWhileVisible};
+    constexpr std::array visibility{LayoutVisibility::Hidden, LayoutVisibility::Visible};
+    constexpr std::array dismissal{EscapeDismissalPolicy::Ignore, EscapeDismissalPolicy::Dismiss};
+    constexpr std::array mount_owners{MountedLayoutOwner::Gameplay, MountedLayoutOwner::Shell};
+    constexpr std::array operation_owners{PresentationOperationOwner::GameplayRuntime,
+                                          PresentationOperationOwner::Shell};
+    constexpr std::array cancellation_reasons{PresentationCancellationReason::ExplicitRequest,
+                                              PresentationCancellationReason::OwnerEnded,
+                                              PresentationCancellationReason::FastForward,
+                                              PresentationCancellationReason::RuntimeReset,
+                                              PresentationCancellationReason::ProjectReload,
+                                              PresentationCancellationReason::CheckpointLoad};
+    constexpr std::array failure_domains{PresentationFailureDomain::WorldPresentation,
+                                         PresentationFailureDomain::LayoutPresentation,
+                                         PresentationFailureDomain::AudioPresentation};
+    constexpr std::array queue_kinds{RuntimeQueueKind::Input, RuntimeQueueKind::Output,
+                                     RuntimeQueueKind::ScriptInput, RuntimeQueueKind::HostRequest,
+                                     RuntimeQueueKind::PresentationAcknowledgement};
+    constexpr std::array barrier_kinds{CheckpointBarrierKind::RuntimeTransaction,
+                                       CheckpointBarrierKind::UnsettledQueue,
+                                       CheckpointBarrierKind::UnserializableFlow,
+                                       CheckpointBarrierKind::ImmediateScriptInvocation,
+                                       CheckpointBarrierKind::SuspendedScriptInvocation,
+                                       CheckpointBarrierKind::PendingHostRequest,
+                                       CheckpointBarrierKind::PresentationCausalOperation,
+                                       CheckpointBarrierKind::InvalidReconstructibleState};
+    constexpr std::array write_sources{CheckpointWriteSource::CapturedCurrentState,
+                                       CheckpointWriteSource::RetainedCheckpoint};
+    constexpr std::array failure_stages{CheckpointSaveFailureStage::InvalidRequest,
+                                        CheckpointSaveFailureStage::NoRetainedCheckpoint,
+                                        CheckpointSaveFailureStage::Capture,
+                                        CheckpointSaveFailureStage::SlotWrite};
+
+    check_closed_enum(checkpoint_classes);
+    check_closed_enum(planes);
+    check_closed_enum(readiness_reasons);
+    check_closed_enum(layout_clocks);
+    check_closed_enum(layout_inputs);
+    check_closed_enum(pause_policies);
+    check_closed_enum(visibility);
+    check_closed_enum(dismissal);
+    check_closed_enum(mount_owners);
+    check_closed_enum(operation_owners);
+    check_closed_enum(cancellation_reasons);
+    check_closed_enum(failure_domains);
+    check_closed_enum(queue_kinds);
+    check_closed_enum(barrier_kinds);
+    check_closed_enum(write_sources);
+    check_closed_enum(failure_stages);
 
     PresentationOperationRef operation = PresentationOperationId::from_number(1);
     CHECK(std::visit(Overload{[](PresentationOperationId) { return 0; },
@@ -136,6 +216,13 @@ TEST_CASE("mounted Layout policy dimensions represent independent lifecycle choi
     CHECK(pausing.gameplay_pause != non_pausing.gameplay_pause);
     STATIC_REQUIRE(!std::is_same_v<LayoutClockDomain, GameplayPausePolicy>);
     STATIC_REQUIRE(!std::is_same_v<LayoutInputMode, EscapeDismissalPolicy>);
+    STATIC_REQUIRE(!std::is_constructible_v<MountedLayoutInstanceId, PresentationOperationId>);
+    STATIC_REQUIRE(!std::is_constructible_v<MountedLayoutInstance, PresentationOperationId,
+                                            LayoutId, MountedLayoutOwner, MountedLayoutPolicy>);
+    STATIC_REQUIRE(
+        !std::is_constructible_v<PresentationOperationMetadata, MountedLayoutInstanceId,
+                                 PresentationOperationSequence, PresentationOperationOwner,
+                                 CheckpointClass, PresentationCompletionTarget>);
 }
 
 TEST_CASE("checkpoint values are backend-neutral owned values")
@@ -149,4 +236,47 @@ TEST_CASE("checkpoint values are backend-neutral owned values")
     const CheckpointReadinessStatus ready{.revision = CheckpointReadinessRevision::from_number(1),
                                           .issues = {}};
     CHECK(ready.can_capture());
+}
+
+TEST_CASE("shared contract headers enforce canonical definitions and dependency boundaries")
+{
+    const auto source_root = std::filesystem::path{NOVELTEA_SOURCE_DIR};
+    const auto include_root = source_root / "engine/include";
+    const std::array canonical_headers{include_root / "noveltea/core/session_operation_id.hpp",
+                                       include_root / "noveltea/core/presentation_contracts.hpp",
+                                       include_root / "noveltea/core/checkpoint_contracts.hpp"};
+
+    std::string contracts;
+    for (const auto& header : canonical_headers) {
+        contracts += read_source_file(header);
+    }
+
+    const std::array forbidden_tokens{
+        "nlohmann",  "json.hpp",     "RmlUi",        "Rml::",         "bgfx",
+        "Renderer",  "AudioBackend", "miniaudio",    "std::function", "std::exception",
+        "type_info", "typeid(",      "dynamic_cast", "std::any",      "unordered_map"};
+    for (const auto& token : forbidden_tokens) {
+        CAPTURE(token);
+        CHECK(contracts.find(token) == std::string::npos);
+    }
+
+    std::string public_headers;
+    for (const auto& entry :
+         std::filesystem::recursive_directory_iterator(include_root / "noveltea")) {
+        if (entry.is_regular_file() && entry.path().extension() == ".hpp") {
+            public_headers += read_source_file(entry.path());
+        }
+    }
+    CHECK(occurrence_count(public_headers, "using PresentationOperationId =") == 1);
+    CHECK(occurrence_count(public_headers, "using AudioOperationId =") == 1);
+    CHECK(occurrence_count(public_headers, "using HostRequestId =") == 1);
+    CHECK(occurrence_count(public_headers, "using MountedLayoutInstanceId =") == 1);
+    CHECK(occurrence_count(public_headers, "struct PresentationOperationTag;") == 1);
+    CHECK(occurrence_count(public_headers, "struct MountedLayoutInstanceTag;") == 1);
+
+    const auto runtime_messages =
+        read_source_file(include_root / "noveltea/core/runtime_messages.hpp");
+    CHECK(runtime_messages.find("noveltea/core/session_operation_id.hpp") != std::string::npos);
+    CHECK(runtime_messages.find("using PresentationOperationId =") == std::string::npos);
+    CHECK(runtime_messages.find("using AudioCompletionHandle =") == std::string::npos);
 }
