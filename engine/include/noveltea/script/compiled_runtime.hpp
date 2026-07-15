@@ -22,17 +22,12 @@ public:
     [[nodiscard]] const core::LoadedCompiledPackage& package() const noexcept { return m_package; }
     [[nodiscard]] TypedRuntimeSession& session() noexcept { return *m_session; }
     [[nodiscard]] const TypedRuntimeSession& session() const noexcept { return *m_session; }
-    [[nodiscard]] const TypedRuntimeSessionResult& startup_result() const noexcept
-    {
-        return m_startup_result;
-    }
 
 private:
     explicit CompiledRuntime(core::LoadedCompiledPackage package) noexcept;
 
     core::LoadedCompiledPackage m_package;
     std::unique_ptr<TypedRuntimeSession> m_session;
-    TypedRuntimeSessionResult m_startup_result;
 };
 
 [[nodiscard]] core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& project,

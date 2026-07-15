@@ -97,7 +97,14 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
             return Result::failure(audio_error("runtime_audio.play_failed",
                                                "Audio backend could not start typed playback"));
         }
-        m_active.push_back(ActiveTrack{operation.channel, track});
+        const bool report_termination =
+            !operation.completion &&
+            (operation.channel == core::compiled::AudioChannel::Voice ||
+             operation.channel == core::compiled::AudioChannel::SoundEffect);
+        m_active.push_back(ActiveTrack{operation.channel, track,
+                                       report_termination
+                                           ? std::optional<core::AudioOperationId>{operation.id}
+                                           : std::nullopt});
 
         if (!operation.owner || !operation.completion || !m_audio.track_active(track))
             return Result::success(TypedRuntimeOperationDisposition::Completed);
@@ -142,7 +149,11 @@ std::vector<core::CompleteAudioInput> RuntimeAudioAdapter::take_completions()
 {
     std::vector<core::CompleteAudioInput> completed;
     std::erase_if(m_active, [this](const ActiveTrack& active) {
-        return !m_audio.track_active(active.track);
+        if (m_audio.track_active(active.track))
+            return false;
+        if (active.termination)
+            m_terminated.push_back(core::AcknowledgeAudioTerminationInput{*active.termination});
+        return true;
     });
     for (auto pending = m_pending.begin(); pending != m_pending.end();) {
         const bool any_active =
@@ -158,9 +169,17 @@ std::vector<core::CompleteAudioInput> RuntimeAudioAdapter::take_completions()
     return completed;
 }
 
+std::vector<core::AcknowledgeAudioTerminationInput> RuntimeAudioAdapter::take_terminations()
+{
+    auto terminated = std::move(m_terminated);
+    m_terminated.clear();
+    return terminated;
+}
+
 void RuntimeAudioAdapter::reset()
 {
     m_pending.clear();
+    m_terminated.clear();
     for (const auto& active : m_active)
         m_audio.stop_track(active.track);
     m_active.clear();

@@ -27,6 +27,26 @@ void add_issue(std::vector<core::CheckpointReadinessIssue>& issues,
         issues.push_back(core::CheckpointReadinessIssue{reason, std::nullopt, diagnostic});
 }
 
+core::Diagnostic readiness_diagnostic(std::string code, std::string message)
+{
+    return core::Diagnostic{.code = std::move(code), .message = std::move(message)};
+}
+
+core::CheckpointBarrier make_barrier(std::uint64_t id, core::CheckpointBarrierSource source,
+                                     core::CheckpointBarrierKind kind)
+{
+    return core::CheckpointBarrier{core::CheckpointBarrierId::from_number(id), std::move(source),
+                                   kind};
+}
+
+void add_barrier_issue(std::vector<core::CheckpointReadinessIssue>& issues,
+                       core::CheckpointReadinessReason reason, core::CheckpointBarrier barrier,
+                       std::string code, std::string message)
+{
+    issues.push_back(core::CheckpointReadinessIssue{
+        reason, std::move(barrier), readiness_diagnostic(std::move(code), std::move(message))});
+}
+
 bool is_exact_room_default(const core::CompiledProject& project, const core::SessionState& session)
 {
     const auto* mode = std::get_if<core::RoomMode>(&session.mode());
@@ -84,6 +104,103 @@ bool RuntimeCheckpointService::time_only_refresh_due(std::chrono::milliseconds n
     return now >= m_next_time_only_refresh;
 }
 
+core::Result<void, core::Diagnostics>
+RuntimeCheckpointService::settle(const core::SessionState& session,
+                                 const RuntimeCheckpointFacts& facts,
+                                 RuntimeTransactionMutations mutations)
+{
+    if (mutations.elapsed.count() < 0)
+        mutations.elapsed = std::chrono::milliseconds{0};
+    if (mutations.elapsed.count() >
+        std::numeric_limits<std::int64_t>::max() - m_elapsed_runtime.count())
+        return core::Result<void, core::Diagnostics>::failure(checkpoint_error(
+            "checkpoint.elapsed_time_exhausted", "Checkpoint elapsed runtime is exhausted."));
+    m_elapsed_runtime += mutations.elapsed;
+    if (mutations.structural) {
+        auto recorded = record_structural_mutation();
+        if (!recorded)
+            return recorded;
+    }
+    if (mutations.time) {
+        auto recorded = record_time_mutation();
+        if (!recorded)
+            return recorded;
+    }
+
+    std::vector<core::CheckpointReadinessIssue> issues;
+    const auto add_queue = [&](bool settled, core::RuntimeQueueKind queue, std::uint64_t id) {
+        if (!settled)
+            add_barrier_issue(issues, core::CheckpointReadinessReason::RuntimeQueueUnsettled,
+                              make_barrier(id, core::RuntimeQueueBarrierSource{queue},
+                                           core::CheckpointBarrierKind::UnsettledQueue),
+                              "checkpoint.runtime_queue_unsettled",
+                              "A runtime transaction queue is unsettled.");
+    };
+    add_queue(facts.input_queue_settled, core::RuntimeQueueKind::Input, 1);
+    add_queue(facts.output_queue_settled, core::RuntimeQueueKind::Output, 2);
+    add_queue(facts.script_input_queue_settled, core::RuntimeQueueKind::ScriptInput, 3);
+    add_queue(facts.presentation_acknowledgements_settled,
+              core::RuntimeQueueKind::PresentationAcknowledgement, 4);
+    if (facts.immediate_script_invocation_active)
+        add_barrier_issue(issues, core::CheckpointReadinessReason::ImmediateScriptInvocationActive,
+                          make_barrier(1, core::RuntimeTransactionBarrierSource{},
+                                       core::CheckpointBarrierKind::ImmediateScriptInvocation),
+                          "checkpoint.immediate_script_invocation",
+                          "A Lua invocation is still executing.");
+    if (facts.flow_blocker) {
+        const auto kind = core::flow_blocker_kind(*facts.flow_blocker);
+        if (kind == core::FlowBlockerKind::Presentation || kind == core::FlowBlockerKind::Audio ||
+            kind == core::FlowBlockerKind::Script) {
+            const auto owner = core::flow_blocker_owner(*facts.flow_blocker);
+            add_barrier_issue(
+                issues, core::CheckpointReadinessReason::FlowStateNotSerializable,
+                make_barrier(owner.number(), core::FlowCheckpointBarrierSource{owner, kind},
+                             core::CheckpointBarrierKind::UnserializableFlow),
+                "checkpoint.flow_not_serializable", "The active Flow blocker is not serializable.");
+            if (kind == core::FlowBlockerKind::Script) {
+                const auto invocation =
+                    std::get<core::ScriptFlowBlocker>(*facts.flow_blocker).handle;
+                add_barrier_issue(
+                    issues, core::CheckpointReadinessReason::SuspendedScriptInvocationActive,
+                    make_barrier(invocation.number(),
+                                 core::ScriptCheckpointBarrierSource{invocation},
+                                 core::CheckpointBarrierKind::SuspendedScriptInvocation),
+                    "checkpoint.suspended_script_invocation",
+                    "A suspended Lua invocation cannot be checkpointed.");
+            }
+        }
+    }
+    for (const auto request : facts.pending_host_requests)
+        add_barrier_issue(
+            issues, core::CheckpointReadinessReason::HostRequestPending,
+            make_barrier(request.number(), core::HostRequestCheckpointBarrierSource{request},
+                         core::CheckpointBarrierKind::PendingHostRequest),
+            "checkpoint.host_request_pending", "A host request is awaiting acknowledgement.");
+    for (const auto& barrier : facts.presentation_status.active_barriers)
+        issues.push_back(core::CheckpointReadinessIssue{
+            core::CheckpointReadinessReason::PresentationBarrierActive, barrier,
+            readiness_diagnostic("checkpoint.presentation_barrier_active",
+                                 "A causal presentation operation is active.")});
+
+    const auto reconstructibility = validate_reconstructibility(session);
+    add_issue(issues, core::CheckpointReadinessReason::ReconstructibleStateInvalid,
+              reconstructibility);
+    if (!issues.empty())
+        return publish_readiness(std::move(issues));
+
+    auto ready = publish_readiness({});
+    if (!ready)
+        return ready;
+    const bool structural_newer =
+        m_generations.structural_generation != m_generations.captured_structural_generation;
+    const bool time_newer = m_generations.time_generation != m_generations.captured_time_generation;
+    if (!m_latest_checkpoint || structural_newer ||
+        (time_newer && time_only_refresh_due(m_elapsed_runtime)))
+        return publish_candidate(session,
+                                 core::SaveSnapshotContext{facts.in_flight_external_requests});
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 core::Diagnostics
 RuntimeCheckpointService::validate_reconstructibility(const core::SessionState& session) const
 {
@@ -104,7 +221,14 @@ core::Result<void, core::Diagnostics>
 RuntimeCheckpointService::publish_readiness(std::vector<core::CheckpointReadinessIssue> issues)
 {
     std::stable_sort(issues.begin(), issues.end(), [](const auto& left, const auto& right) {
-        return left.reason < right.reason;
+        if (left.reason != right.reason)
+            return left.reason < right.reason;
+        if (left.barrier && right.barrier) {
+            if (left.barrier->source.index() != right.barrier->source.index())
+                return left.barrier->source.index() < right.barrier->source.index();
+            return left.barrier->id.number() < right.barrier->id.number();
+        }
+        return left.barrier.has_value() && !right.barrier.has_value();
     });
     if (issues == m_readiness.issues)
         return core::Result<void, core::Diagnostics>::success();
@@ -178,7 +302,7 @@ RuntimeCheckpointService::publish_candidate(const core::SessionState& session,
                 m_latest_checkpoint = std::move(candidate);
                 m_generations.captured_structural_generation = m_generations.structural_generation;
                 m_generations.captured_time_generation = m_generations.time_generation;
-                m_next_time_only_refresh = projected->play_time + std::chrono::seconds(1);
+                m_next_time_only_refresh = m_elapsed_runtime + std::chrono::seconds(1);
                 return core::Result<void, core::Diagnostics>::success();
             }
         }

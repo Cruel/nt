@@ -924,8 +924,16 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_assets.configure_fonts(std::move(fonts));
     m_runtime_ui.bind_typed_runtime_session(&m_compiled_runtime->session());
     m_runtime_ui.bind_asset_resolver(&m_runtime_ui_asset_resolver);
-    m_typed_runtime_outputs = m_compiled_runtime->startup_result().outputs;
-    m_typed_runtime_diagnostics = m_compiled_runtime->startup_result().diagnostics;
+    m_typed_runtime_outputs.clear();
+    m_typed_runtime_diagnostics.clear();
+    if (!m_runtime_ui.dispatch_typed_runtime_input(
+            core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
+        std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
+        m_runtime_audio_adapter.reset();
+        m_runtime_ui_asset_resolver.clear();
+        m_compiled_runtime.reset();
+        return false;
+    }
     (void)m_runtime_ui.dispatch_typed_runtime_input(
         core::RuntimeInputMessage{core::StopRuntimeInput{}});
     if (load_title_screen) {
@@ -1472,6 +1480,8 @@ void Engine::update(float dt)
     if (m_compiled_runtime) {
         for (const auto& completion : m_runtime_audio_adapter.take_completions())
             (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{completion});
+        for (const auto& termination : m_runtime_audio_adapter.take_terminations())
+            (void)m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{termination});
     }
     m_tweens.advance(dt);
     if (m_compiled_runtime) {

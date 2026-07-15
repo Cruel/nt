@@ -150,19 +150,19 @@ nlohmann::json compiled_diagnostics_to_json(const Diagnostics& diagnostics)
     return result;
 }
 
-Result<void, Diagnostics> certify_compiled_export(
-    const nlohmann::json& project, const PackageExportOptions& options)
+Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
+                                                  const PackageExportOptions& options)
 {
     auto source = std::make_shared<noveltea::assets::MemoryAssetSource>();
     Diagnostics diagnostics;
     for (const auto& entry : options.file_entries) {
         auto content = read_file(entry.source);
         if (!content) {
-            diagnostics.push_back({.code = "export.asset_read_failed",
-                                   .message = "Could not read export asset '" +
-                                              entry.source.string() + "'.",
-                                   .severity = ErrorSeverity::Error,
-                                   .source_path = entry.package_path});
+            diagnostics.push_back(
+                {.code = "export.asset_read_failed",
+                 .message = "Could not read export asset '" + entry.source.string() + "'.",
+                 .severity = ErrorSeverity::Error,
+                 .source_path = entry.package_path});
             continue;
         }
         source->add("project:/" + entry.package_path,
@@ -201,8 +201,8 @@ std::optional<nlohmann::json> compiled_project_from_request(const nlohmann::json
     }
     nlohmann::json project = *project_it;
     if (project.is_string())
-        project = nlohmann::json::parse(json_access::get_or<std::string>(project, {}), nullptr,
-                                        false);
+        project =
+            nlohmann::json::parse(json_access::get_or<std::string>(project, {}), nullptr, false);
     if (project.is_discarded()) {
         error_response = fail("Compiled project JSON is malformed.");
         return std::nullopt;
@@ -240,11 +240,10 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!initialized)
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
-    auto runtime = noveltea::script::load_compiled_runtime_preview(
-        *project, std::nullopt, scripts, saves, "en");
+    auto runtime = noveltea::script::load_compiled_runtime_preview(*project, std::nullopt, scripts,
+                                                                   saves, "en");
     if (!runtime)
-        return fail("Compiled runtime load failed.",
-                    compiled_diagnostics_to_json(runtime.error()));
+        return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
 
     auto decoded_spec = editor::decode_editor_playback(*spec_it);
     if (!decoded_spec)
@@ -256,12 +255,24 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     const auto* typed_spec = decoded_spec.value_if();
     if (!typed_spec)
         return fail("Playback spec parse failed.");
+    auto& session = runtime.value_if()->get()->session();
+    session.begin_dispatch_transaction();
+    auto startup = session.apply(RuntimeInputMessage{StartRuntimeInput{}});
+    for (const auto& output : startup.outputs)
+        noveltea::core::append_diagnostics(startup.diagnostics,
+                                           session.accept_runtime_output(output));
+    noveltea::core::append_diagnostics(startup.diagnostics, session.settle_dispatch_transaction());
     for (const auto& step : typed_spec->steps) {
-        auto result = runtime.value_if()->get()->session().apply(step.input);
+        session.begin_dispatch_transaction();
+        auto result = session.apply(step.input);
+        for (const auto& output : result.outputs)
+            noveltea::core::append_diagnostics(result.diagnostics,
+                                               session.accept_runtime_output(output));
+        noveltea::core::append_diagnostics(result.diagnostics,
+                                           session.settle_dispatch_transaction());
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
-        report.handled =
-            result.disposition == noveltea::script::RuntimeInputDisposition::Handled;
+        report.handled = result.disposition == noveltea::script::RuntimeInputDisposition::Handled;
         report.outputs = std::move(result.outputs);
         report.diagnostics = std::move(result.diagnostics);
         if (result.disposition == noveltea::script::RuntimeInputDisposition::Failed ||
@@ -269,13 +280,19 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
             passed = false;
         steps.push_back(std::move(report));
     }
-    const auto final_view = steps.empty()
-                                ? runtime.value_if()->get()->startup_result().view
-                                : runtime.value_if()->get()->session().apply(
-                                      RuntimeInputMessage{AdvanceTimeInput{}})
-                                      .view;
-    return ok({{"report", editor::encode_editor_playback_report(
-                               typed_spec->id, steps, final_view, passed)}});
+    auto final_view = startup.view;
+    if (!steps.empty()) {
+        session.begin_dispatch_transaction();
+        auto observed = session.apply(RuntimeInputMessage{AdvanceTimeInput{}});
+        for (const auto& output : observed.outputs)
+            noveltea::core::append_diagnostics(observed.diagnostics,
+                                               session.accept_runtime_output(output));
+        noveltea::core::append_diagnostics(observed.diagnostics,
+                                           session.settle_dispatch_transaction());
+        final_view = std::move(observed.view);
+    }
+    return ok({{"report",
+                editor::encode_editor_playback_report(typed_spec->id, steps, final_view, passed)}});
 }
 
 noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::json& json,
@@ -343,8 +360,7 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     options.kind = kind == "editable" ? PackageExportKind::Editable : PackageExportKind::Runtime;
     options.project_name = json_access::value_or(json, "projectName", std::string{});
     options.project_version = json_access::value_or(json, "projectVersion", std::string{});
-    options.created_by =
-        json_access::value_or(json, "createdBy", std::string("noveltea-editor"));
+    options.created_by = json_access::value_or(json, "createdBy", std::string("noveltea-editor"));
     options.include_checksums = json_access::value_or(json, "includeChecksums", true);
     options.strip_shader_sources = json_access::value_or(json, "stripShaderSources", true);
     if (auto display = json.find("display"); display != json.end() && display->is_object()) {
@@ -353,8 +369,7 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     if (auto platform = json.find("platform"); platform != json.end() && platform->is_object()) {
         options.platform = *platform;
     }
-    options.shader_asset_root =
-        json_access::value_or(json, "shaderAssetRoot", std::string{});
+    options.shader_asset_root = json_access::value_or(json, "shaderAssetRoot", std::string{});
     if (auto metadata = json.find("shaderMaterialMetadata"); metadata != json.end()) {
         options.shader_material_metadata = *metadata;
     }
@@ -379,8 +394,7 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
                 continue;
             PackageExportAssetRoot asset_root;
             asset_root.root = json_access::value_or(root, "root", std::string{});
-            asset_root.package_prefix =
-                json_access::value_or(root, "packagePrefix", std::string{});
+            asset_root.package_prefix = json_access::value_or(root, "packagePrefix", std::string{});
             options.asset_roots.push_back(std::move(asset_root));
         }
     }
@@ -390,8 +404,7 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
                 continue;
             PackageExportFileEntry file_entry;
             file_entry.source = json_access::value_or(entry, "source", std::string{});
-            file_entry.package_path =
-                json_access::value_or(entry, "packagePath", std::string{});
+            file_entry.package_path = json_access::value_or(entry, "packagePath", std::string{});
             options.file_entries.push_back(std::move(file_entry));
         }
     }
@@ -436,9 +449,8 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         const auto output = json_access::value_or(request, "outputPath", std::string{});
         if (output.empty())
             return fail("Request requires outputPath.");
-        const auto options =
-            export_options_from_json(
-                json_access::value_or(request, "options", nlohmann::json::object()));
+        const auto options = export_options_from_json(
+            json_access::value_or(request, "options", nlohmann::json::object()));
         auto certified = certify_compiled_export(*project, options);
         if (!certified)
             return fail("Compiled project export readiness failed.",

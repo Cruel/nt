@@ -151,8 +151,13 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
         }
         CAPTURE(failure);
         REQUIRE(loaded.has_value());
-        CHECK(loaded.value()->startup_result().disposition !=
-              script::RuntimeInputDisposition::Failed);
+        auto& session = loaded.value()->session();
+        session.begin_dispatch_transaction();
+        auto started = session.apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+        for (const auto& output : started.outputs)
+            core::append_diagnostics(started.diagnostics, session.accept_runtime_output(output));
+        core::append_diagnostics(started.diagnostics, session.settle_dispatch_transaction());
+        CHECK(started.disposition != script::RuntimeInputDisposition::Failed);
         CHECK(loaded.value()->package().project().identity().name.size() > 0);
         CHECK(runtime.scripts.has_runtime_script_api());
     }

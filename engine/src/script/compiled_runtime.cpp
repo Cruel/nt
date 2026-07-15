@@ -317,11 +317,6 @@ CompiledRuntime::create(core::LoadedCompiledPackage package, ScriptRuntime& scri
         return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
             std::move(session).error());
     runtime->m_session = std::move(*session.value_if());
-    runtime->m_startup_result =
-        runtime->m_session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    if (runtime->m_startup_result.disposition == RuntimeInputDisposition::Failed)
-        return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
-            std::move(runtime->m_startup_result.diagnostics));
     return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::success(
         std::move(runtime));
 }

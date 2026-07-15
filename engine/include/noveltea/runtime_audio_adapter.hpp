@@ -17,12 +17,14 @@ public:
     [[nodiscard]] core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
     apply(const core::AudioOperation& operation) override;
     [[nodiscard]] std::vector<core::CompleteAudioInput> take_completions();
+    [[nodiscard]] std::vector<core::AcknowledgeAudioTerminationInput> take_terminations();
     void reset();
 
 private:
     struct ActiveTrack {
         core::compiled::AudioChannel channel;
         AudioTrackId track;
+        std::optional<core::AudioOperationId> termination;
     };
 
     struct PendingCompletion {
@@ -34,6 +36,7 @@ private:
     const RuntimeUiAssetResolver& m_assets;
     std::vector<ActiveTrack> m_active;
     std::vector<PendingCompletion> m_pending;
+    std::vector<core::AcknowledgeAudioTerminationInput> m_terminated;
 };
 
 } // namespace noveltea

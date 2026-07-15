@@ -181,4 +181,28 @@ TEST_CASE("checkpoint service preserves retained state when candidate validation
     CHECK(service.readiness().issues.front().diagnostic.code == "save_codec.invalid_text_log");
 }
 
+TEST_CASE("checkpoint settlement reports suspended Lua with deterministic revisions")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::FlowExecutor flow(project, state);
+    REQUIRE(flow.block_top(core::FlowBlockerKind::Script));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves);
+    const RuntimeCheckpointFacts facts{
+        .flow_blocker = state.blocker(),
+        .presentation_status = {core::CheckpointStatusRevision::from_number(1), {}},
+    };
+
+    REQUIRE(service.settle(state, facts, {}));
+    const auto revision = service.readiness().revision;
+    REQUIRE(service.readiness().issues.size() == 2);
+    CHECK(service.readiness().issues[0].reason ==
+          core::CheckpointReadinessReason::FlowStateNotSerializable);
+    CHECK(service.readiness().issues[1].reason ==
+          core::CheckpointReadinessReason::SuspendedScriptInvocationActive);
+    REQUIRE(service.settle(state, facts, {}));
+    CHECK(service.readiness().revision == revision);
+}
+
 } // namespace noveltea::script::test

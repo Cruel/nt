@@ -807,14 +807,31 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
 - This is only the Phase 2A foundation. It does not yet wire settled transactions, presentation
   status, live initial capture, save commands, autosaves, load/reset, or Phase 7 presentation fields.
 
+## Phase 2B implementation evidence
+
+- `RuntimeUI` is the single live outer dispatch broker. Nested completions and acknowledgements share
+  its transaction, causal status is registered before sink/backend work, and checkpoint settlement
+  occurs once after recursive output handling and ActiveText status publication.
+- `TypedRuntimeSession` owns the transitional presentation-status provider and transaction mutation
+  recorder. It supplies complete settled facts to `RuntimeCheckpointService`; the service alone
+  orders typed readiness issues and decides whether to replace the retained candidate.
+- Structural mutations advance one generation per committed transaction. Deterministic elapsed
+  runtime input advances time generation once per transaction, with a one-second time-only capture
+  deadline; structural dirtiness bypasses that deadline and idle transactions do not re-encode.
+- Awaited presentation/audio, transient voice/SFX, ActiveText reveal/fade, Lua suspension, pending
+  host requests, and non-reconstructible current presentation/audio state now prevent replacement
+  without mutating the older retained checkpoint. Startup uses the same broker after sinks bind.
+- Phase 2C retained-checkpoint save/autosave cutover, Phase 2D load/reset lifecycle, and final
+  coordinator/reconstructible presentation work remain intentionally unchanged.
+
 ## Affected test targets and later-phase obligations
 
 | Test target / suite | Current relevant coverage | Missing coverage later slices must add |
 | --- | --- | --- |
 | `noveltea_core_tests` | state families, Flow/blocker ownership, save projection/codec/restore, slot bytes, runtime messages, external protocol, and Phase 1 canonical-definition/dependency/vocabulary/domain invariants | Phase 2 checkpoint readiness/generations/atomic retained bytes; Phase 7 reconstructible save records |
-| `noveltea_script_tests` | Lua suspension/API, feature execution, direct save/autosave/load, typed session queues, audio adapter overlap/completion, and Phase 2A checkpoint candidate/readiness/atomic projection-failure retention | same-transaction barrier registration, retained manual/deferred autosave semantics, coordinator acknowledgements, final audio split and reconstruction |
+| `noveltea_script_tests` | Lua suspension/API, feature execution, direct save/autosave/load, typed session queues, audio adapter overlap/completion, checkpoint candidate atomicity, settled generations/coalescing, readiness barriers, and transitional operation lifetime | retained manual/deferred autosave semantics, final coordinator acknowledgements, audio split and reconstruction |
 | `noveltea_tween_tests` | float advance/pause/kill/callback behavior | typed coordinator ownership and cancellation boundaries after Phase 5/6; current target-pointer/callback primitive is not contract evidence |
-| `noveltea_ui_tests` | ActiveText parsing/playback/layout, RmlUi binders/components/assets | mounted-policy tests, pause/unscaled clocks, multi-context input/render order, ActiveText barrier lifetime and recreation |
+| `noveltea_ui_tests` | ActiveText parsing/playback/layout, RmlUi binders/components/assets, outer dispatch settlement, and transitional ActiveText barrier publication | mounted-policy tests, pause/unscaled clocks, multi-context input/render order, final coordinator-owned ActiveText recreation |
 | `noveltea_render_tests` and readback executables | shader/material adapters and current RmlUi/ActiveText/composition pixels | snapshot-driven world rendering, typed plane/view allocation, transitions, reset/device-loss reconciliation |
 | Sandbox CTest smoke | compiled package boots repeatedly and title document loads | menu stack, save/load checkpoint behavior, runtime snapshot reconciliation, Linux/Web composition scenarios |
 | Editor Vitest suite | protocol validation, preview freshness/lifetime, playback, generic debug snapshot, entity thumbnail cache | typed checkpoint readiness/metadata/replay distance, save thumbnails, menu/save workflow, common preview/player semantics |

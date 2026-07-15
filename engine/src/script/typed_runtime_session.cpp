@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <cmath>
 #include <type_traits>
 
@@ -76,6 +77,136 @@ TypedRuntimeSession::~TypedRuntimeSession()
     m_runtime.clear_typed_host();
 }
 
+void TypedRuntimeSession::begin_dispatch_transaction() noexcept { ++m_dispatch_transaction_depth; }
+
+void TypedRuntimeSession::record_structural_mutation() noexcept
+{
+    m_transaction_mutations.structural = true;
+}
+
+void TypedRuntimeSession::record_time_mutation(std::chrono::milliseconds elapsed) noexcept
+{
+    if (elapsed.count() <= 0)
+        return;
+    m_transaction_mutations.time = true;
+    if (elapsed.count() <=
+        std::numeric_limits<std::int64_t>::max() - m_transaction_mutations.elapsed.count())
+        m_transaction_mutations.elapsed += elapsed;
+}
+
+core::Diagnostics TypedRuntimeSession::register_causal_operation(core::PresentationOperationRef op)
+{
+    const auto found = std::find_if(
+        m_presentation_checkpoint_status.active_barriers.begin(),
+        m_presentation_checkpoint_status.active_barriers.end(), [&](const auto& barrier) {
+            const auto* source =
+                std::get_if<core::PresentationCheckpointBarrierSource>(&barrier.source);
+            return source != nullptr && source->operation == op;
+        });
+    if (found != m_presentation_checkpoint_status.active_barriers.end())
+        return {};
+    if (m_next_checkpoint_barrier_id == std::numeric_limits<std::uint64_t>::max() ||
+        m_next_checkpoint_status_revision == std::numeric_limits<std::uint64_t>::max())
+        return {diagnostic("checkpoint.presentation_status_exhausted",
+                           "Presentation checkpoint status identity is exhausted")};
+    m_presentation_checkpoint_status.active_barriers.push_back(core::CheckpointBarrier{
+        core::CheckpointBarrierId::from_number(m_next_checkpoint_barrier_id++),
+        core::PresentationCheckpointBarrierSource{op},
+        core::CheckpointBarrierKind::PresentationCausalOperation});
+    m_presentation_checkpoint_status.revision =
+        core::CheckpointStatusRevision::from_number(m_next_checkpoint_status_revision++);
+    return {};
+}
+
+core::Diagnostics TypedRuntimeSession::remove_causal_operation(core::PresentationOperationRef op)
+{
+    const auto old_size = m_presentation_checkpoint_status.active_barriers.size();
+    std::erase_if(m_presentation_checkpoint_status.active_barriers, [&](const auto& barrier) {
+        const auto* source =
+            std::get_if<core::PresentationCheckpointBarrierSource>(&barrier.source);
+        return source != nullptr && source->operation == op;
+    });
+    if (old_size == m_presentation_checkpoint_status.active_barriers.size())
+        return {};
+    if (m_next_checkpoint_status_revision == std::numeric_limits<std::uint64_t>::max())
+        return {diagnostic("checkpoint.presentation_status_exhausted",
+                           "Presentation checkpoint status identity is exhausted")};
+    m_presentation_checkpoint_status.revision =
+        core::CheckpointStatusRevision::from_number(m_next_checkpoint_status_revision++);
+    return {};
+}
+
+core::Diagnostics
+TypedRuntimeSession::accept_runtime_output(const core::RuntimeOutputMessage& output)
+{
+    if (const auto* presentation = std::get_if<core::PresentationOperation>(&output)) {
+        if (const auto* transition =
+                std::get_if<core::TransitionPresentationOperation>(presentation);
+            transition != nullptr)
+            return register_causal_operation(transition->id);
+    } else if (const auto* audio = std::get_if<core::AudioOperation>(&output)) {
+        const bool causal = audio->completion.has_value() ||
+                            audio->channel == core::compiled::AudioChannel::Voice ||
+                            audio->channel == core::compiled::AudioChannel::SoundEffect;
+        if (causal)
+            return register_causal_operation(audio->id);
+    }
+    return {};
+}
+
+core::Diagnostics
+TypedRuntimeSession::commit_transient_operation(const core::PresentationOperationRef& operation)
+{
+    return remove_causal_operation(operation);
+}
+
+core::Diagnostics TypedRuntimeSession::update_active_text_checkpoint_status(bool active)
+{
+    if (active) {
+        if (m_active_text_checkpoint_operation)
+            return {};
+        if (m_next_presentation_id == std::numeric_limits<std::uint64_t>::max())
+            return {diagnostic("checkpoint.presentation_operation_exhausted",
+                               "ActiveText presentation operation identity is exhausted")};
+        m_active_text_checkpoint_operation =
+            core::PresentationOperationId::from_number(m_next_presentation_id++);
+        return register_causal_operation(*m_active_text_checkpoint_operation);
+    }
+    if (!m_active_text_checkpoint_operation)
+        return {};
+    const auto operation = *m_active_text_checkpoint_operation;
+    m_active_text_checkpoint_operation.reset();
+    return remove_causal_operation(operation);
+}
+
+core::Diagnostics TypedRuntimeSession::settle_dispatch_transaction()
+{
+    if (m_dispatch_transaction_depth == 0)
+        return {diagnostic("checkpoint.transaction_not_active",
+                           "Runtime dispatch transaction is not active")};
+    if (--m_dispatch_transaction_depth != 0)
+        return {};
+    RuntimeCheckpointFacts facts{
+        .input_queue_settled = true,
+        .output_queue_settled = true,
+        .script_input_queue_settled = m_script_inputs.empty(),
+        .presentation_acknowledgements_settled = true,
+        .immediate_script_invocation_active = false,
+        .flow_blocker = m_kernel->state().blocker(),
+        .pending_host_requests = {},
+        .presentation_status = m_presentation_checkpoint_status,
+        .in_flight_external_requests = m_kernel->host().in_flight_external_request_count(),
+    };
+    facts.pending_host_requests.reserve(m_pending_host_requests.size());
+    for (const auto& pending : m_pending_host_requests)
+        facts.pending_host_requests.push_back(
+            std::visit([](const auto& request) { return request.id; }, pending.output));
+    const auto mutations = m_transaction_mutations;
+    m_transaction_mutations = {};
+    auto settled = m_checkpoint_service.settle(m_kernel->state(), facts, mutations);
+    return settled ? core::Diagnostics{} : std::move(settled).error();
+}
+
 void TypedRuntimeSession::queue_script_input(core::RuntimeInputMessage input)
 {
     m_script_inputs.push_back(std::move(input));
@@ -96,7 +227,16 @@ TypedRuntimeSession::script_variable(const core::VariableId& id) const
 core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_set_variable(const core::VariableId& id, core::RuntimeValue value)
 {
-    return m_kernel->host().set_variable(id, std::move(value));
+    const auto before = m_kernel->host().variable(id);
+    auto changed = m_kernel->host().set_variable(id, std::move(value));
+    if (changed) {
+        const auto after = m_kernel->host().variable(id);
+        const auto* before_value = before.value_if();
+        const auto* after_value = after.value_if();
+        if (before_value == nullptr || after_value == nullptr || *after_value != *before_value)
+            record_structural_mutation();
+    }
+    return changed;
 }
 
 core::Result<core::PropertyLookupResult, core::Diagnostics>
@@ -110,14 +250,25 @@ core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_set_property(core::PropertyOwnerRef owner, core::PropertyId property,
                                          core::RuntimeValue value)
 {
-    return m_kernel->host().set_property(std::move(owner), std::move(property), std::move(value));
+    const auto* before = m_kernel->state().property_override(owner, property);
+    const auto before_value = before ? std::optional<core::RuntimeValue>{*before} : std::nullopt;
+    auto changed = m_kernel->host().set_property(owner, property, std::move(value));
+    const auto* after = m_kernel->state().property_override(owner, property);
+    if (changed &&
+        before_value != (after ? std::optional<core::RuntimeValue>{*after} : std::nullopt))
+        record_structural_mutation();
+    return changed;
 }
 
 core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_unset_property(const core::PropertyOwnerRef& owner,
                                            const core::PropertyId& property)
 {
-    return m_kernel->host().unset_property(owner, property);
+    const bool existed = m_kernel->state().property_override(owner, property) != nullptr;
+    auto changed = m_kernel->host().unset_property(owner, property);
+    if (changed && existed)
+        record_structural_mutation();
+    return changed;
 }
 
 core::Result<core::compiled::InteractableLocation, core::Diagnostics>
@@ -176,37 +327,63 @@ TypedRuntimeSession::script_request_notification(std::string message)
 
 core::Result<void, core::Diagnostics> TypedRuntimeSession::script_seed_random(std::uint64_t seed)
 {
+    const auto before = m_kernel->state().random_state();
     m_kernel->state().seed_random(seed);
+    if (before != seed)
+        record_structural_mutation();
     return core::Result<void, core::Diagnostics>::success();
 }
 
 core::Result<std::int64_t, core::Diagnostics>
 TypedRuntimeSession::script_random_integer(std::int64_t minimum, std::int64_t maximum)
 {
-    return m_kernel->state().next_random_integer(minimum, maximum);
+    auto result = m_kernel->state().next_random_integer(minimum, maximum);
+    if (result)
+        record_structural_mutation();
+    return result;
 }
 
 core::Result<double, core::Diagnostics> TypedRuntimeSession::script_random_unit()
 {
-    return core::Result<double, core::Diagnostics>::success(m_kernel->state().next_random_unit());
+    const auto value = m_kernel->state().next_random_unit();
+    record_structural_mutation();
+    return core::Result<double, core::Diagnostics>::success(value);
 }
 
 core::Result<void, core::Diagnostics> TypedRuntimeSession::script_present_map(
     core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
     std::optional<core::MapLocationId> focused_location)
 {
-    return m_kernel->present_map(map, mode, visible, std::move(focused_location));
+    const auto before = m_kernel->state().map_presentation();
+    auto changed = m_kernel->present_map(map, mode, visible, std::move(focused_location));
+    const auto& after = m_kernel->state().map_presentation();
+    const auto equal = [](const auto& left, const auto& right) {
+        return left.map == right.map && left.mode == right.mode && left.visible == right.visible &&
+               left.focused_location == right.focused_location;
+    };
+    if (changed && (!before || !after || !equal(*before, *after)))
+        record_structural_mutation();
+    return changed;
 }
 
 core::Result<void, core::Diagnostics> TypedRuntimeSession::script_hide_map()
 {
-    return m_kernel->hide_map();
+    const auto before = m_kernel->state().map_presentation();
+    auto changed = m_kernel->hide_map();
+    const auto& after = m_kernel->state().map_presentation();
+    if (changed && before && after && before->visible != after->visible)
+        record_structural_mutation();
+    return changed;
 }
 
 core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_select_map_location(core::MapLocationId location)
 {
+    const auto before = m_kernel->state().map_presentation();
     auto selected = m_kernel->select_map_location(location, m_runtime_locale);
+    const auto& after = m_kernel->state().map_presentation();
+    if (selected && before && after && before->focused_location != after->focused_location)
+        record_structural_mutation();
     return selected ? core::Result<void, core::Diagnostics>::success()
                     : core::Result<void, core::Diagnostics>::failure(
                           as_diagnostics(std::move(selected).error()));
@@ -253,13 +430,22 @@ TypedRuntimeSession::script_layout(core::compiled::LayoutSlot slot) const
 core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_set_layout(core::compiled::LayoutSlot slot, core::LayoutId layout)
 {
-    return m_kernel->state().set_layout(m_project, slot, std::move(layout));
+    const auto before = m_kernel->state().layout(slot);
+    auto changed = m_kernel->state().set_layout(m_project, slot, std::move(layout));
+    const auto after = m_kernel->state().layout(slot);
+    if (changed && before && after && *before.value_if() != *after.value_if())
+        record_structural_mutation();
+    return changed;
 }
 
 core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_clear_layout(core::compiled::LayoutSlot slot)
 {
-    return m_kernel->state().clear_layout(slot);
+    const auto before = m_kernel->state().layout(slot);
+    auto changed = m_kernel->state().clear_layout(slot);
+    if (changed && before && before.value_if()->has_value())
+        record_structural_mutation();
+    return changed;
 }
 
 core::Result<bool, core::Diagnostics> TypedRuntimeSession::script_gameplay_paused() const
@@ -321,6 +507,7 @@ core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_audio(
         core::AudioChannelState{channel, playing ? asset : std::nullopt, volume, loop, playing});
     if (!changed)
         return changed;
+    record_structural_mutation();
 
     core::AudioOperation operation{
         .id = core::AudioOperationId::from_number(m_next_audio_id++),
@@ -360,12 +547,18 @@ TypedRuntimeSession::script_audio_channel(core::compiled::AudioChannel channel) 
 core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_append_text_log(core::TextLogEntry entry)
 {
-    return m_kernel->state().append_text_log(m_project, std::move(entry));
+    auto changed = m_kernel->state().append_text_log(m_project, std::move(entry));
+    if (changed)
+        record_structural_mutation();
+    return changed;
 }
 
 core::Result<void, core::Diagnostics> TypedRuntimeSession::script_clear_text_log()
 {
+    const bool changed = !m_kernel->state().text_log().empty();
     m_kernel->state().clear_text_log();
+    if (changed)
+        record_structural_mutation();
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -390,6 +583,9 @@ core::Diagnostic TypedRuntimeSession::diagnostic(std::string code, std::string m
 core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutputMessage>& outputs)
 {
     core::Diagnostics diagnostics;
+    const bool execution_can_advance =
+        std::holds_alternative<core::FlowMode>(m_kernel->state().mode()) &&
+        !m_kernel->state().blocker() && !m_kernel->state().gameplay_paused();
     const auto outcome = m_kernel->run_until_blocked(4096, m_runtime_locale);
     if (const auto* fault = std::get_if<core::FlowFaultOutcome>(&outcome))
         diagnostics = fault->diagnostics;
@@ -440,6 +636,8 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
     drain_script_audio(outputs);
     drain_host_requests(outputs, diagnostics);
     drain_script_inputs(outputs, diagnostics);
+    if (diagnostics.empty() && execution_can_advance)
+        record_structural_mutation();
     return diagnostics;
 }
 
@@ -600,6 +798,8 @@ core::Diagnostics TypedRuntimeSession::acknowledge(core::HostRequestId id)
         it->source);
     if (diagnostics.empty())
         m_pending_host_requests.erase(it);
+    if (diagnostics.empty())
+        record_structural_mutation();
     return diagnostics;
 }
 
@@ -616,7 +816,8 @@ core::Diagnostics TypedRuntimeSession::complete_presentation(
     if (!result)
         return std::move(result).error();
     m_pending_presentation.reset();
-    return {};
+    record_structural_mutation();
+    return remove_causal_operation(core::PresentationOperationRef{operation});
 }
 
 core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId operation,
@@ -653,7 +854,8 @@ core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId ope
         completion);
     if (!diagnostics.empty())
         return diagnostics;
-    return {};
+    record_structural_mutation();
+    return remove_causal_operation(core::PresentationOperationRef{operation});
 }
 
 void TypedRuntimeSession::append_view(TypedRuntimeSessionResult& result)
@@ -707,16 +909,22 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                     auto advanced = m_kernel->state().advance_time(elapsed);
                     if (!advanced)
                         result.diagnostics = std::move(advanced).error();
-                    else if (const auto* blocker =
-                                 active_blocker<core::DurationFlowBlocker>(*m_kernel)) {
-                        auto completed =
-                            m_kernel->advance(blocker->owner, blocker->handle, elapsed);
-                        if (!completed)
-                            result.diagnostics = std::move(completed).error();
-                        else if (*completed.value_if())
+                    else {
+                        if (elapsed.count() > 0)
+                            record_time_mutation(elapsed);
+                        if (const auto* blocker =
+                                active_blocker<core::DurationFlowBlocker>(*m_kernel)) {
+                            auto completed =
+                                m_kernel->advance(blocker->owner, blocker->handle, elapsed);
+                            if (!completed)
+                                result.diagnostics = std::move(completed).error();
+                            else if (*completed.value_if()) {
+                                record_structural_mutation();
+                                result.diagnostics = run_kernel(result.outputs);
+                            }
+                        } else
                             result.diagnostics = run_kernel(result.outputs);
-                    } else
-                        result.diagnostics = run_kernel(result.outputs);
+                    }
                 } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
                     const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
                     if (!blocker)
@@ -767,12 +975,11 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                     else
                         result.diagnostics = run_kernel(result.outputs);
                 } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
-                    auto changed = m_kernel->host().set_variable(value.variable, value.value);
+                    auto changed = script_set_variable(value.variable, value.value);
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
                 } else if constexpr (std::is_same_v<T, core::SetPropertyDebugInput>) {
-                    auto changed =
-                        m_kernel->host().set_property(value.owner, value.property, value.value);
+                    auto changed = script_set_property(value.owner, value.property, value.value);
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
@@ -823,6 +1030,8 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                                        std::is_same_v<T, core::CancelAudioInput>);
                     if (result.diagnostics.empty() && std::is_same_v<T, core::CompleteAudioInput>)
                         result.diagnostics = run_kernel(result.outputs);
+                } else if constexpr (std::is_same_v<T, core::AcknowledgeAudioTerminationInput>) {
+                    result.diagnostics = remove_causal_operation(value.operation);
                 } else if constexpr (std::is_same_v<T, core::AcknowledgeHostRequestInput>) {
                     result.diagnostics = acknowledge(value.request);
                     if (result.diagnostics.empty())

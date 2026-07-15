@@ -61,6 +61,19 @@ a successful restore resumes the saved gameplay mode rather than inheriting a pr
 implementation supports preview/tests; the filesystem implementation supports players and keeps
 slots below its configured root.
 
+`TypedRuntimeSession` owns the runtime checkpoint service. Live inputs execute inside one
+nesting-aware transaction broker shared by startup and later dispatch. After recursive outputs,
+sink calls, and immediate acknowledgements settle, the service receives typed queue, Flow, Lua,
+host-request, presentation-barrier, and mutation facts. It publishes deterministic readiness and an
+immutable retained candidate only at an eligible boundary. Structural changes capture immediately;
+time-only changes coalesce on one second of deterministic elapsed runtime input, while unchanged
+idle transactions do not re-encode.
+
+The current presentation boundary publishes a transitional causal status before backend work.
+Awaited presentation/audio, voice and gameplay SFX until semantic termination, and ActiveText
+reveal/fade block checkpoint replacement. Current unsplit music/ambient and other non-derivable
+presentation state remain conservatively ineligible until the later reconstruction phase.
+
 Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Unsupported or unsafe
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no
 longer exist.

@@ -17,7 +17,7 @@ template<class Id> Id id(const char* value)
 
 TEST_CASE("typed runtime message vocabulary is closed and JSON-free")
 {
-    STATIC_REQUIRE(std::variant_size_v<RuntimeInputMessage> == 26);
+    STATIC_REQUIRE(std::variant_size_v<RuntimeInputMessage> == 27);
     STATIC_REQUIRE(std::variant_size_v<RuntimeOutputMessage> == 8);
     STATIC_REQUIRE(!std::is_constructible_v<RuntimeInputMessage, std::string>);
 

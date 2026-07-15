@@ -35,6 +35,21 @@ public:
     ~TypedRuntimeSession() override;
 
     [[nodiscard]] TypedRuntimeSessionResult apply(const core::RuntimeInputMessage& input);
+    void begin_dispatch_transaction() noexcept;
+    [[nodiscard]] core::Diagnostics settle_dispatch_transaction();
+    [[nodiscard]] core::Diagnostics accept_runtime_output(const core::RuntimeOutputMessage& output);
+    [[nodiscard]] core::Diagnostics
+    commit_transient_operation(const core::PresentationOperationRef& operation);
+    [[nodiscard]] core::Diagnostics update_active_text_checkpoint_status(bool active);
+    [[nodiscard]] const RuntimeCheckpointService& checkpoint_service() const noexcept
+    {
+        return m_checkpoint_service;
+    }
+    [[nodiscard]] const core::PresentationCheckpointStatus&
+    presentation_checkpoint_status() const noexcept
+    {
+        return m_presentation_checkpoint_status;
+    }
     [[nodiscard]] std::size_t pending_host_request_count() const noexcept
     {
         return m_pending_host_requests.size();
@@ -140,11 +155,21 @@ private:
     void drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
                              core::Diagnostics& diagnostics);
     [[nodiscard]] core::Diagnostic diagnostic(std::string code, std::string message) const;
+    void record_structural_mutation() noexcept;
+    void record_time_mutation(std::chrono::milliseconds elapsed) noexcept;
+    [[nodiscard]] core::Diagnostics register_causal_operation(core::PresentationOperationRef op);
+    [[nodiscard]] core::Diagnostics remove_causal_operation(core::PresentationOperationRef op);
 
     const core::CompiledProject& m_project;
     ScriptRuntime& m_runtime;
     core::TypedSaveSlotStore& m_saves;
     RuntimeCheckpointService m_checkpoint_service;
+    core::PresentationCheckpointStatus m_presentation_checkpoint_status{
+        core::CheckpointStatusRevision::from_number(1), {}};
+    RuntimeTransactionMutations m_transaction_mutations;
+    std::uint64_t m_next_checkpoint_barrier_id = 1;
+    std::uint64_t m_next_checkpoint_status_revision = 2;
+    std::size_t m_dispatch_transaction_depth = 0;
     std::unique_ptr<TypedExecutionKernel> m_kernel;
     RuntimeScriptApi m_script_api;
     core::TypedRuntimeUIViewState m_script_view;
@@ -158,6 +183,7 @@ private:
     std::vector<PendingHostRequest> m_pending_host_requests;
     std::optional<core::TransitionPresentationOperation> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
+    std::optional<core::PresentationOperationId> m_active_text_checkpoint_operation;
     std::vector<core::AudioOperation> m_script_audio;
     std::uint64_t m_next_host_request_id = 1;
     std::uint64_t m_next_presentation_id = 1;

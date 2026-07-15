@@ -17,6 +17,24 @@ class TypedSaveSlotStore;
 
 namespace noveltea::script {
 
+struct RuntimeCheckpointFacts {
+    bool input_queue_settled = true;
+    bool output_queue_settled = true;
+    bool script_input_queue_settled = true;
+    bool presentation_acknowledgements_settled = true;
+    bool immediate_script_invocation_active = false;
+    std::optional<core::FlowBlocker> flow_blocker;
+    std::vector<core::HostRequestId> pending_host_requests;
+    core::PresentationCheckpointStatus presentation_status;
+    std::size_t in_flight_external_requests = 0;
+};
+
+struct RuntimeTransactionMutations {
+    bool structural = false;
+    bool time = false;
+    std::chrono::milliseconds elapsed{0};
+};
+
 // Owns checkpoint readiness, candidate publication, and retained checkpoint values for one
 // runtime session. Runtime transaction wiring and save-command dispatch deliberately arrive in
 // later Phase 2 slices.
@@ -52,6 +70,9 @@ public:
     // this service never takes ownership of mutable runtime state or presentation backends.
     [[nodiscard]] core::Result<void, core::Diagnostics>
     publish_candidate(const core::SessionState& session, core::SaveSnapshotContext context = {});
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    settle(const core::SessionState& session, const RuntimeCheckpointFacts& facts,
+           RuntimeTransactionMutations mutations);
 
 private:
     [[nodiscard]] core::Diagnostics
@@ -70,6 +91,7 @@ private:
     std::uint64_t m_next_checkpoint_revision = 1;
     std::uint64_t m_next_readiness_revision = 2;
     std::chrono::milliseconds m_next_time_only_refresh{0};
+    std::chrono::milliseconds m_elapsed_runtime{0};
 };
 
 } // namespace noveltea::script

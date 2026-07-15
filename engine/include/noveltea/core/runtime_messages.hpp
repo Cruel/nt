@@ -120,6 +120,10 @@ struct CancelAudioInput {
     AudioCompletionHandle completion;
     auto operator<=>(const CancelAudioInput&) const = default;
 };
+struct AcknowledgeAudioTerminationInput {
+    AudioOperationId operation;
+    auto operator<=>(const AcknowledgeAudioTerminationInput&) const = default;
+};
 struct AcknowledgeHostRequestInput {
     HostRequestId request;
     auto operator<=>(const AcknowledgeHostRequestInput&) const = default;
@@ -130,15 +134,14 @@ struct FailHostRequestInput {
     bool operator==(const FailHostRequestInput&) const = default;
 };
 
-using RuntimeInputMessage =
-    std::variant<StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput,
-                 ContinueInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
-                 NavigateRoomInput, SelectInteractablesInput, ClearInteractableSelectionInput,
-                 InvokeInteractionInput, SetVariableDebugInput, SetPropertyDebugInput,
-                 SaveRuntimeInput, LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput,
-                 ClearPlaybackInput, UndoPlaybackStepInput, ReplayPlaybackInput,
-                 CompletePresentationInput, CancelPresentationInput, CompleteAudioInput,
-                 CancelAudioInput, AcknowledgeHostRequestInput, FailHostRequestInput>;
+using RuntimeInputMessage = std::variant<
+    StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput, ContinueInput,
+    SelectSceneChoiceInput, SelectDialogueChoiceInput, NavigateRoomInput, SelectInteractablesInput,
+    ClearInteractableSelectionInput, InvokeInteractionInput, SetVariableDebugInput,
+    SetPropertyDebugInput, SaveRuntimeInput, LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput,
+    ClearPlaybackInput, UndoPlaybackStepInput, ReplayPlaybackInput, CompletePresentationInput,
+    CancelPresentationInput, CompleteAudioInput, CancelAudioInput, AcknowledgeAudioTerminationInput,
+    AcknowledgeHostRequestInput, FailHostRequestInput>;
 
 struct RuntimeViewPublication {
     TypedRuntimeUIViewState view;

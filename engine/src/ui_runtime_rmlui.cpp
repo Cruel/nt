@@ -403,10 +403,19 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
         return false;
     }
 
+    const bool outermost = depth == 0;
+    if (outermost)
+        typed_runtime_session->begin_dispatch_transaction();
+
     auto result = typed_runtime_session->apply(input);
     core::append_diagnostics(typed_diagnostics, result.diagnostics);
     bool ok = result.disposition != script::RuntimeInputDisposition::Failed;
     for (const auto& output : result.outputs) {
+        auto accepted = typed_runtime_session->accept_runtime_output(output);
+        if (!accepted.empty()) {
+            core::append_diagnostics(typed_diagnostics, std::move(accepted));
+            ok = false;
+        }
         std::visit(
             [&](const auto& value) {
                 using T = std::decay_t<decltype(value)>;
@@ -434,6 +443,14 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                                 core::RuntimeInputMessage{core::CancelPresentationInput{
                                     transition->id, *transition->owner, *transition->completion}},
                                 depth + 1);
+                        } else {
+                            core::append_diagnostics(
+                                typed_diagnostics,
+                                typed_runtime_session->commit_transient_operation(std::visit(
+                                    [](const auto& operation) -> core::PresentationOperationRef {
+                                        return operation.id;
+                                    },
+                                    value)));
                         }
                     } else {
                         auto applied = typed_presentation_sink->apply(value);
@@ -447,6 +464,15 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                                         transition->id, *transition->owner,
                                         *transition->completion}},
                                     depth + 1);
+                            } else {
+                                core::append_diagnostics(
+                                    typed_diagnostics,
+                                    typed_runtime_session->commit_transient_operation(std::visit(
+                                        [](const auto& operation)
+                                            -> core::PresentationOperationRef {
+                                            return operation.id;
+                                        },
+                                        value)));
                             }
                         } else if (*applied.value_if() ==
                                    TypedRuntimeOperationDisposition::Completed) {
@@ -459,6 +485,15 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                                              *transition->completion}},
                                          depth + 1) &&
                                      ok;
+                            } else {
+                                core::append_diagnostics(
+                                    typed_diagnostics,
+                                    typed_runtime_session->commit_transient_operation(std::visit(
+                                        [](const auto& operation)
+                                            -> core::PresentationOperationRef {
+                                            return operation.id;
+                                        },
+                                        value)));
                             }
                         }
                     }
@@ -479,6 +514,10 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                                 core::RuntimeInputMessage{core::CancelAudioInput{
                                     value.id, *value.owner, *value.completion}},
                                 depth + 1);
+                        else
+                            core::append_diagnostics(
+                                typed_diagnostics,
+                                typed_runtime_session->commit_transient_operation(value.id));
                     } else {
                         auto applied = typed_audio_sink->apply(value);
                         if (!applied) {
@@ -488,6 +527,10 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                                     core::RuntimeInputMessage{core::CancelAudioInput{
                                         value.id, *value.owner, *value.completion}},
                                     depth + 1);
+                            else
+                                core::append_diagnostics(
+                                    typed_diagnostics,
+                                    typed_runtime_session->commit_transient_operation(value.id));
                         } else if (*applied.value_if() ==
                                        TypedRuntimeOperationDisposition::Completed &&
                                    value.owner && value.completion) {
@@ -496,6 +539,11 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                                          value.id, *value.owner, *value.completion}},
                                      depth + 1) &&
                                  ok;
+                        } else if (*applied.value_if() ==
+                                   TypedRuntimeOperationDisposition::Completed) {
+                            core::append_diagnostics(
+                                typed_diagnostics,
+                                typed_runtime_session->commit_transient_operation(value.id));
                         }
                     }
                 } else if constexpr (std::is_same_v<T, core::TypedHostRequest>) {
@@ -533,6 +581,23 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
     }
     refresh_runtime_document();
     refresh_active_text_layout();
+    const bool active_text_causal =
+        typed_runtime_view && !typed_active_text_document(*typed_runtime_view).plain_text.empty() &&
+        active_text_playback.phase != ActiveTextPlaybackPhase::AwaitingContinue &&
+        active_text_playback.phase != ActiveTextPlaybackPhase::Complete;
+    auto active_text_status =
+        typed_runtime_session->update_active_text_checkpoint_status(active_text_causal);
+    if (!active_text_status.empty()) {
+        core::append_diagnostics(typed_diagnostics, std::move(active_text_status));
+        ok = false;
+    }
+    if (outermost) {
+        auto settled = typed_runtime_session->settle_dispatch_transaction();
+        if (!settled.empty()) {
+            core::append_diagnostics(typed_diagnostics, std::move(settled));
+            ok = false;
+        }
+    }
     return ok;
 }
 
@@ -1185,6 +1250,24 @@ void RuntimeUI::begin_frame(float delta_time)
                 : ActiveTextPlaybackInput{};
         m_state->active_text_playback = update_active_text_playback(
             m_state->active_text_playback, playback_input, m_state->active_text_playback_config);
+        if (m_state->typed_runtime_session) {
+            const bool was_causal = !active_document.plain_text.empty() &&
+                                    previous_phase != ActiveTextPlaybackPhase::AwaitingContinue &&
+                                    previous_phase != ActiveTextPlaybackPhase::Complete;
+            const bool causal =
+                !active_document.plain_text.empty() &&
+                m_state->active_text_playback.phase != ActiveTextPlaybackPhase::AwaitingContinue &&
+                m_state->active_text_playback.phase != ActiveTextPlaybackPhase::Complete;
+            if (causal != was_causal) {
+                m_state->typed_runtime_session->begin_dispatch_transaction();
+                core::append_diagnostics(
+                    m_state->typed_diagnostics,
+                    m_state->typed_runtime_session->update_active_text_checkpoint_status(causal));
+                core::append_diagnostics(
+                    m_state->typed_diagnostics,
+                    m_state->typed_runtime_session->settle_dispatch_transaction());
+            }
+        }
         if (m_state->tweens) {
             if (m_state->active_text_playback.instance_id != previous_instance) {
                 m_state->active_text_tween_reveal = 0.0f;

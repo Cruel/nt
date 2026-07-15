@@ -8,6 +8,7 @@
 
 #include <fstream>
 #include <algorithm>
+#include <chrono>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -57,6 +58,19 @@ bool has_output_kind(const TypedRuntimeSessionResult& result, core::RuntimeOutpu
                        [&](const auto& output) { return core::output_kind(output) == kind; });
 }
 
+TypedRuntimeSessionResult dispatch_settled(TypedRuntimeSession& session,
+                                           core::RuntimeInputMessage input)
+{
+    session.begin_dispatch_transaction();
+    auto result = session.apply(input);
+    for (const auto& output : result.outputs)
+        core::append_diagnostics(result.diagnostics, session.accept_runtime_output(output));
+    core::append_diagnostics(result.diagnostics, session.settle_dispatch_transaction());
+    if (!result.diagnostics.empty())
+        result.disposition = RuntimeInputDisposition::Failed;
+    return result;
+}
+
 struct Fixture {
     core::CompiledProject project;
     std::shared_ptr<assets::MemoryAssetSource> source =
@@ -92,7 +106,7 @@ struct Fixture {
 TEST_CASE(
     "typed runtime session dispatches lifecycle debug mutation and save load without legacy IO")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 26);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 27);
     STATIC_REQUIRE(std::variant_size_v<core::RuntimeOutputMessage> == 8);
     Fixture fixture;
     auto started = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
@@ -124,6 +138,150 @@ TEST_CASE("typed runtime session starts a representative Room session")
     CHECK(started.disposition == RuntimeInputDisposition::Handled);
     REQUIRE(started.view.room);
     CHECK(started.view.room->room.text() == "start");
+}
+
+TEST_CASE("typed runtime session captures only at settled dirty transaction boundaries")
+{
+    Fixture fixture("minimal.json");
+    CHECK_FALSE(fixture.session->checkpoint_service().latest_checkpoint());
+
+    auto started =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.disposition == RuntimeInputDisposition::Handled);
+    REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
+    const auto initial = *fixture.session->checkpoint_service().latest_checkpoint();
+    CHECK(initial.revision.number() == 1);
+
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
+                .diagnostics.empty());
+    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision == initial.revision);
+    const auto idle_readiness = fixture.session->checkpoint_service().readiness().revision;
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
+                .diagnostics.empty());
+    CHECK(fixture.session->checkpoint_service().readiness().revision == idle_readiness);
+
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::AdvanceTimeInput{
+                                                   std::chrono::milliseconds{500}}})
+                .diagnostics.empty());
+    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision == initial.revision);
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::AdvanceTimeInput{
+                                                   std::chrono::milliseconds{500}}})
+                .diagnostics.empty());
+    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() == 2);
+    CHECK(fixture.session->checkpoint_service().generations().time_generation == 2);
+    CHECK(fixture.session->checkpoint_service().generations().captured_time_generation == 2);
+}
+
+TEST_CASE("presentation barriers register before sinks and clear only after committed termination")
+{
+    Fixture fixture("minimal.json");
+    fixture.session->begin_dispatch_transaction();
+    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    const auto operation = core::PresentationOperationId::from_number(44);
+    const core::RuntimeOutputMessage output =
+        core::PresentationOperation{core::TransitionPresentationOperation{
+            .id = operation, .kind = core::compiled::TransitionKind::Fade}};
+    core::append_diagnostics(started.diagnostics, fixture.session->accept_runtime_output(output));
+    REQUIRE_FALSE(fixture.session->presentation_checkpoint_status().active_barriers.empty());
+
+    core::append_diagnostics(started.diagnostics,
+                             fixture.session->commit_transient_operation(operation));
+    core::append_diagnostics(started.diagnostics, fixture.session->settle_dispatch_transaction());
+    CHECK(fixture.session->presentation_checkpoint_status().active_barriers.empty());
+    CHECK(fixture.session->checkpoint_service().readiness().can_capture());
+}
+
+TEST_CASE("frame-driven ActiveText barrier changes settle checkpoint readiness")
+{
+    Fixture fixture("minimal.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
+
+    fixture.session->begin_dispatch_transaction();
+    REQUIRE(fixture.session->update_active_text_checkpoint_status(true).empty());
+    REQUIRE(fixture.session->settle_dispatch_transaction().empty());
+    CHECK_FALSE(fixture.session->checkpoint_service().readiness().can_capture());
+    CHECK(std::any_of(
+        fixture.session->checkpoint_service().readiness().issues.begin(),
+        fixture.session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
+            return issue.reason == core::CheckpointReadinessReason::PresentationBarrierActive;
+        }));
+
+    fixture.session->begin_dispatch_transaction();
+    REQUIRE(fixture.session->update_active_text_checkpoint_status(false).empty());
+    REQUIRE(fixture.session->settle_dispatch_transaction().empty());
+    CHECK(fixture.session->checkpoint_service().readiness().can_capture());
+}
+
+TEST_CASE("pending host requests publish typed checkpoint readiness barriers")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto use = make_id<core::VerbIdTag>("use");
+    const auto key = make_id<core::InteractableIdTag>("key");
+    auto invoked = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::InvokeInteractionInput{use, {key}}});
+    REQUIRE(invoked.disposition == RuntimeInputDisposition::Handled);
+    REQUIRE_FALSE(fixture.session->checkpoint_service().readiness().can_capture());
+    const auto& issues = fixture.session->checkpoint_service().readiness().issues;
+    CHECK(std::any_of(issues.begin(), issues.end(), [](const auto& issue) {
+        return issue.reason == core::CheckpointReadinessReason::HostRequestPending;
+    }));
+}
+
+TEST_CASE("recursive host acknowledgement settles inside one outer transaction")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    fixture.session->begin_dispatch_transaction();
+    auto invoked = fixture.session->apply(core::RuntimeInputMessage{core::InvokeInteractionInput{
+        make_id<core::VerbIdTag>("use"), {make_id<core::InteractableIdTag>("key")}}});
+    std::optional<core::HostRequestId> request;
+    for (const auto& output : invoked.outputs) {
+        if (const auto* host = std::get_if<core::TypedHostRequest>(&output)) {
+            request = std::visit([](const auto& value) { return value.id; }, *host);
+            break;
+        }
+    }
+    REQUIRE(request);
+    auto acknowledged = fixture.session->apply(
+        core::RuntimeInputMessage{core::AcknowledgeHostRequestInput{*request}});
+    REQUIRE(acknowledged.diagnostics.empty());
+    REQUIRE(fixture.session->settle_dispatch_transaction().empty());
+    CHECK(std::none_of(
+        fixture.session->checkpoint_service().readiness().issues.begin(),
+        fixture.session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
+            return issue.reason == core::CheckpointReadinessReason::HostRequestPending;
+        }));
+}
+
+TEST_CASE("successful structural mutations capture once and true no-ops stay clean")
+{
+    Fixture fixture("comprehensive.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
+    const auto count = make_id<core::VariableIdTag>("count");
+    const auto before = fixture.session->checkpoint_service().generations();
+
+    REQUIRE(dispatch_settled(
+                *fixture.session,
+                core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{7}}})
+                .diagnostics.empty());
+    const auto changed = fixture.session->checkpoint_service().generations();
+    CHECK(changed.structural_generation == before.structural_generation + 1);
+    CHECK(changed.captured_structural_generation == changed.structural_generation);
+    const auto checkpoint = fixture.session->checkpoint_service().latest_checkpoint()->revision;
+
+    REQUIRE(dispatch_settled(
+                *fixture.session,
+                core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{7}}})
+                .diagnostics.empty());
+    CHECK(fixture.session->checkpoint_service().generations() == changed);
+    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision == checkpoint);
 }
 
 TEST_CASE("typed runtime session reports unhandled and stale operations deterministically")
