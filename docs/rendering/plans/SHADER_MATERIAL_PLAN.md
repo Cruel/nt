@@ -631,7 +631,8 @@ Acceptance:
 
 - `docs/rendering/RENDERING_STACK.md`: rendering ownership and shader/material pipeline summary.
 - `docs/runtime/PACKAGE_EXPORT.md`: runtime package contents and source stripping policy.
-- `docs/migration/STATUS.md` and `docs/migration/PLAN.md`: durable migration state.
+- `docs/migration/STATUS.md` and `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md`: final
+  migration state and capability dispositions.
 
 ## Prompt For The Next Implementation Session
 

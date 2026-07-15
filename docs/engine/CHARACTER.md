@@ -34,10 +34,9 @@ editor/src/renderer/project/character-operations.ts
 
 The V2 editor schema keeps immutable Character identity, dialogue presentation, poses, expressions,
 and defaults in the authoring record. Preview selection belongs to editor tab state, not authored
-runtime content. Phase 5 provides the native immutable `CharacterDefinition`. Phase 7A provides the
-session-owned `ActorState` and validates every `{ SceneId, ActorSlotId }` value against the compiled
-ActorCue, Character, pose, and expression before publication. Phase 7B remains responsible for
-executing ActorCue instructions and producing Scene views.
+runtime content. `CompiledProject` provides the immutable `CharacterDefinition`; `SessionState` owns
+`ActorState` and validates every `{ SceneId, ActorSlotId }` against the compiled ActorCue, Character,
+pose, and expression before publication. Scene execution produces the typed Scene view.
 
 ### Pre-3D authoring shape (historical migration reference)
 
@@ -96,11 +95,9 @@ pose and expression lists, sprite/material references, transform data, preview b
 validation diagnostics. Deleting a pose or expression repairs defaults/preview selections and clears
 expression restrictions that referred to a deleted pose.
 
-Edits currently use `character.replaceData`, which validates a complete replacement value before
-patching `/characters/{characterId}/data`. Generic record commands still handle create, rename,
-duplicate, delete, metadata, parent, and inheritance operations. Those generic parent semantics are
-transitional; the retained user-facing behavior is command-backed editing, undo/redo, reference
-rewriting, and validation before publication.
+Edits use `character.replaceData`, which validates a complete replacement value before patching
+`/characters/{characterId}/data`. Creation, rename, duplicate, delete, metadata, and inheritance
+operations preserve typed references, undo/redo, and validation before publication.
 
 ### Current preview, export, and runtime status
 
@@ -110,8 +107,7 @@ diagnostics. Its revision includes referenced asset hashes/paths and material da
 changes invalidate preview output.
 
 Characters are emitted in the compiled definition table and decoded into the native immutable model.
-The additive typed runtime now owns validated live actor state, but the shipped controller path has
-not cut over and Scene/Dialogue execution does not yet drive that state. Persistence remains Phase 8.
+The final typed runtime owns validated live actor state, Scene/Dialogue presentation, and persistence.
 
 ### Current files and retained gaps
 
@@ -123,9 +119,7 @@ editor/src/renderer/project/character-operations.ts
 editor/src/renderer/commands/builtin-commands.ts
 ```
 
-Retained implementation gaps include Scene actor-slot execution, Dialogue speaker integration,
-runtime pose/expression mutation through Scene instructions, view adaptation, and persistence. Voice
-profiles, Live2D, layered outfits, and lip sync remain intentionally outside V1.
+Voice profiles, Live2D, layered outfits, and lip sync remain intentionally outside V1.
 
 ## Non-goals
 

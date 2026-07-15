@@ -6,13 +6,13 @@ Use this entrypoint before planning migration work, checking old NovelTea parity
 
 ## Current Documents
 
-- `docs/migration/PLAN.md` is the current migration plan and phase index.
-- `docs/migration/STATUS.md` records completed foundation, active gaps, verification, and next planning task.
+- `docs/migration/STATUS.md` records final typed-runtime closure, verification, and remaining
+  independently owned work.
+- `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable final capability map for the
+  typed-runtime migration.
 - `docs/migration/audits/CORE_ENGINE_UNMIGRATED_AUDIT.md` maps useful legacy capabilities to their
   typed target subsystem and explicitly rejects obsolete APIs and storage shapes. It is a capability
   decision table, not a class-parity backlog.
-- `docs/migration/COMPATIBILITY.md` records historical import/export notes only. It is not a requirement to preserve old project formats.
-- `docs/migration/NEXT_STEPS_AFTER_RMLUI_BGFX.md` records a migration sequence after RmlUi/bgfx stabilization.
 - `docs/archive/OVERVIEW.md` explains how to treat historical reports.
 
 ## Reference Sources

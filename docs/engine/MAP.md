@@ -32,6 +32,6 @@ normal typed Room navigation operation, so can-leave, exit condition, can-enter,
 room-switch commit, visits, and fault recovery cannot be bypassed.
 
 `RuntimeUiDocumentBinder` and `nt-map-view` accept the typed Map record directly and emit strong-ID
-`nt-map-location` and `nt-map-connection` targets. Phase 9 owns external typed input adapters and
-Phase 10 owns the live shipped-consumer cutover. Legacy numeric map topology and visibility scripts
-are not retained in the typed model.
+`nt-map-location` and `nt-map-connection` targets. External inputs lower through the same typed
+session API as Lua and player interactions. Legacy numeric map topology and visibility scripts are
+not retained in the typed model.

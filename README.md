@@ -77,8 +77,13 @@ Helper scripts are available for common smoke runs:
 
 ## Current Project State
 
-The backend-neutral core migration is substantially complete. Current foundation includes legacy `game` JSON import, read-only legacy package import, save/settings/profile document handling, typed project/domain models, runtime sessions/controllers, rich-text semantics, editor preview/tooling APIs, and reduced compatibility fixtures.
+The typed-runtime migration is complete. AuthoringProject V2 compiles to the canonical
+`noveltea.compiled.project` artifact; `CompiledRuntime`, `TypedRuntimeSession`, `SessionState`, typed
+saves/messages, and `RuntimeScriptApi` are the only shipped gameplay path. Legacy project/package
+import, controller/session models, JSON-backed saves, and compatibility fixtures are not supported.
 
-Active work remains in runtime state/playback, Lua execution wiring, RmlUi runtime components, ActiveText/map/text-log rendering, editor preview and test playback, save/autosave/object placement behavior, packaging/export, and real project fixture coverage.
+Current work is independently scoped presentation coordination, font resolution, platform export,
+runtime UI polish, and real-project authoring workflows.
 
-See [docs/migration/STATUS.md](docs/migration/STATUS.md) for the current status board and [docs/migration/COMPATIBILITY.md](docs/migration/COMPATIBILITY.md) for the compatibility contract.
+See [docs/migration/STATUS.md](docs/migration/STATUS.md) and the
+[final capability map](docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md).

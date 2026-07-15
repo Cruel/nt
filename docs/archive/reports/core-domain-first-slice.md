@@ -35,7 +35,7 @@ Date: 2026-06-18
 ## Current nt architecture inspected
 
 - `AGENTS.md`
-- `docs/migration/PLAN.md`
+- `docs/migration/STATUS.md`
 - `docs/migration/STATUS.md`
 - root `CMakeLists.txt`
 - `engine/CMakeLists.txt`

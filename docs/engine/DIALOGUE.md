@@ -100,19 +100,6 @@ disabled choice does not consume the active position. Current line and choice pr
 published as a typed `DialogueView`; line/choice history and typed text-log entries have one
 session-owned source of truth.
 
-## Transitional runtime adapter
-
-The package exporter still targets the pre-Phase-5 runtime project envelope. It lowers Sequence,
-Choice, and Redirect structure into that temporary node representation and emits warnings for typed
-conditions, effects, Lua expressions/instructions, show-once, and autosave behavior the transitional
-runtime cannot execute. This is a one-way adapter, not a second authoring model.
-
-The typed compiler, native model, and `FlowExecutor` integration are complete. The shipped
-controller-backed runtime UI, preview, playback, debugger, package, and persistence consumers still
-use the transitional path until the Phase 10 atomic cutover. `DialogueController` is retained only as
-explicit deletion debt for that cutover; it is not a compatibility requirement or a second
-authoritative Dialogue model.
-
 ## Implementation files
 
 ```text
@@ -122,7 +109,6 @@ editor/src/shared/project-schema/dialogue-project.ts
 editor/src/renderer/project/dialogue-operations.ts
 editor/src/renderer/editors/dialogues/DialogueEditor.tsx
 editor/src/renderer/editors/dialogues/DialogueGraph.tsx
-editor/src/shared/project-schema/compiled-runtime-export.ts
 engine/include/noveltea/core/compiled_project.hpp
 engine/include/noveltea/core/feature_state.hpp
 engine/include/noveltea/core/feature_view.hpp

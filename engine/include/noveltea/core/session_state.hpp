@@ -53,7 +53,7 @@ struct EndedMode {};
 using RuntimeMode = std::variant<RoomMode, FlowMode, EndedMode>;
 
 // Typed kernel state remains intentionally separate from feature state and persistence, which are
-// added by their owning phases rather than mirrored from the transitional GameSession.
+// added by their owning phases rather than mirrored from another runtime model.
 class SessionState {
 public:
     SessionState() = delete;

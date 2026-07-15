@@ -75,5 +75,5 @@ and nested stable IDs. `pnpm goldens:compiled-project` regenerates the documents
 API; the test suite rejects byte drift and explicitly verifies the closed decoder vocabulary.
 
 Tests also prove editor metadata and representative authoring collection insertion order cannot affect
-bytes. Preview, playback, package export, and CLI remain on their explicitly transitional
-runtime-project adapter until the atomic Phase 10 cutover.
+bytes. Preview, playback, package export, and CLI consume the published canonical artifact; no
+runtime-project adapter remains.

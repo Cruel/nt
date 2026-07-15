@@ -1,77 +1,44 @@
 # Migration Status
 
-## Current State
+## Typed-runtime migration: complete
 
-The new NovelTea runtime is fully cut over to the typed runtime model for the repository target.
-AuthoringProject V2 compiles deterministically to `noveltea.compiled.project` V1; native
-`CompiledProject`, `CompiledRuntime`, `TypedRuntimeSession`, `SessionState`, typed saves,
-typed messages, and `RuntimeScriptApi` are the only shipped gameplay path.
+NovelTea has one shipped gameplay path:
 
-Phase 10C of the typed runtime/JSON-boundary plan is complete:
-
-- provisional runtime-project TypeScript/native schemas and exporters are deleted;
-- legacy project/document/model/entity/import/package APIs are deleted;
-- the superseded controller/session/shell/generic-message graph is deleted;
-- JSON-backed saves and controller snapshots are deleted;
-- dispatcher-backed Lua compatibility bindings and the old script executor are deleted;
-- editor native legacy import/edit/load commands are deleted;
-- preview, playback, package/platform export, sandbox, player, Web, and Android source paths converge
-  on the compiled artifact;
-- the JSON allowlist and parser fuzz targets contain only current boundaries.
-
-## Runtime and Editor Direction
-
-Continue work on runtime/presentation capability, RmlUi components, ActiveText/map/text-log
-presentation, preview/debugger/recorder UX, packaging/export, real project fixtures, and component
-documentation. New behavior must enter through typed definitions/programs/state/messages and stable
-IDs.
-
-Do not restore old NovelTea formats or APIs. `refs/NovelTea/` remains read-only behavioral reference
-only.
-
-## Presentation Follow-up
-
-Functional low-level presentation remains:
-
-- `RuntimeUI`/RmlUi binding;
-- ActiveText/layout/direct rendering;
-- audio backends consuming typed operations;
-- `TweenService`;
-- bgfx/RmlUi rendering adapters.
-
-`RuntimeLayoutManager` and `RuntimeTransitionManager` remain tested transitional scaffolding.
-Their orchestration replacement belongs to
-`docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`. None of
-the retained presentation code owns gameplay flow, session state, or saves.
-
-## Verification Baseline
-
-For typed runtime or package changes, run:
-
-```sh
-cmake --preset linux-debug
-cmake --build --preset linux-debug --parallel "$(nproc)"
-ctest --test-dir build/linux-debug --output-on-failure
-cmake --build --preset linux-debug --target format-check cxx-policy --parallel "$(nproc)"
-
-cmake --preset web-debug
-cmake --build --preset web-debug --parallel "$(nproc)"
-cmake --build --preset web-debug --target cxx-policy --parallel "$(nproc)"
-
-cd editor
-pnpm lint
-pnpm typecheck
-pnpm test
+```text
+AuthoringProject V2 -> compileAuthoringProject -> noveltea.compiled.project V1
+  -> CompiledProject -> CompiledRuntime -> TypedRuntimeSession
 ```
 
-Run the Android debug build when the SDK is available and package/platform behavior changes.
+`SessionState`, `SaveState`, the closed runtime message vocabulary, and `RuntimeScriptApi` are the
+only gameplay state, persistence, communication, and Lua mutation surfaces. Preview, playback,
+package/platform export, sandbox, player, Web, and Android consume the same canonical compiled
+artifact.
 
-## Next Work
+The final capability dispositions and behavioral evidence live in
+[`docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md`](../architecture/RUNTIME_CAPABILITY_DISPOSITION.md).
 
-Use the relevant area overview and active plan rather than class-parity migration:
+## Deliberately absent
 
-1. presentation-coordinator/runtime-layout implementation;
-2. remaining runtime UI component and direct-render capability;
-3. preview/debugger/recorder and export polish;
-4. representative real-project fixtures and component documentation;
-5. later JSON boundary isolation work owned by Phase 11 of the typed runtime plan.
+There is no shipped old-project importer, legacy package reader, dual authoring/runtime schema,
+`ProjectDocument`/`ProjectModel`/controller path, JSON-backed save or message state, generic entity
+property bag, JavaScript/Duktape runtime, or compatibility Lua binding. Unsupported schemas and
+versions fail through strict diagnostics.
+
+## Independently deferred work
+
+- Presentation coordination and runtime-layout orchestration:
+  `docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`.
+- Font-family resolution and multilingual text assets:
+  `docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`.
+- Platform identity, signing, and export certification:
+  `docs/editor/plans/PLATFORM_EXPORT_AND_APP_IDENTITY_IMPLEMENTATION_PLAN.md`.
+
+These plans consume typed runtime views or compiled-package contracts and do not reopen the completed
+runtime-model migration.
+
+## Verification baseline
+
+For engine/runtime changes, run Linux and Web builds, `cxx-policy`, `json-boundary-policy`, Linux
+tests, and formatting. Run editor lint/typecheck/tests for editor changes, and Android when the SDK
+is available for shared CMake/runtime/package changes. See `docs/build/BUILD_AND_VERIFY.md` for the
+commands.

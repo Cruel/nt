@@ -22,8 +22,8 @@ code point recursively, normalizes negative zero to zero, rejects non-finite val
 validation, and never reorders arrays. Package manifests and shader/material metadata remain separate
 versioned documents.
 
-This is a TypeScript-only contract in Phase 4A. It does not add C++ decoding or change preview,
-playback, package, or CLI consumers; those remain on the transitional path until the later atomic
+This is a TypeScript-owned contract. The native decoder consumes it defensively, and preview,
+playback, package, and CLI consumers receive its canonical publication; no alternate runtime wire
 cutover slice.
 
 Phase 4C uses a separate `CompiledProjectSharedDraft` implementation type while specialized programs
@@ -56,8 +56,8 @@ Dialogue blocks/segments/edges, Interaction rules/instructions/contexts/operands
 programs, and Room hooks decode losslessly with owner-scoped nested IDs. A separate linker validates
 all gameplay references, declarations, inheritance, nested targets, resource closure, and topology,
 then publishes one immutable indexed `CompiledProject` only after every check passes. Source JSON is
-never retained. Material references remain unresolved typed IDs until the separate Phase 5E manifest
-path; existing runtime consumers are not rerouted before Phase 10.
+never retained. Material references remain typed IDs until the separately versioned material manifest
+is validated and assembled with the compiled package.
 
 `noveltea_fuzz_compiled_project_decoder` is the dedicated Phase 5F decoder fuzz target. Its
 non-libFuzzer smoke run feeds malformed JSON and all seven canonical documents through the same

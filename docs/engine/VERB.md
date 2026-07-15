@@ -33,11 +33,10 @@ generic JSON escape hatch.
 
 ## Current authoring implementation
 
-Phase 3E implements the strict V2 Verb schema and editor creation/detail path. A Verb records arity,
+The editor implements the strict V2 Verb schema and creation/detail path. A Verb records arity,
 ordered role labels, action text, quick-action state, availability, and a closed default Interaction
 Program whose instructions carry stable nested IDs. Validation rejects role-count/arity mismatches,
-duplicate instruction IDs, and invalid program references. Phase 4E lowers each Verb's own
+duplicate instruction IDs, and invalid program references. The compiler lowers each Verb's own
 availability condition and default program while retaining the `extends` edge; this preserves the
-root-to-child availability and child-to-root fallback order without flattening structural data. The
-runtime export adapter still emits only its documented shallow transitional representation; Verb
-fallback execution remains Phase 6--7 work.
+root-to-child availability and child-to-root fallback order without flattening structural data.
+`TypedExecutionKernel` performs the documented fallback; no runtime export adapter exists.

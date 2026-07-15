@@ -59,13 +59,6 @@ Scene edits publish through `scene.replaceData`. The command validates the compl
 payload before replacing `/scenes/{sceneId}/data`, preserving deterministic command history and
 undo/redo semantics.
 
-## Transitional runtime adapter
-
-The package exporter still targets the pre-Phase-5 runtime project envelope. It carries stable Scene
-step IDs through that adapter and warns for typed instructions the transitional runtime cannot yet
-execute. This is a one-way export compatibility boundary, not a second Scene authoring model. The
-final typed `SceneProgram` compiler and executor replace it in later phases.
-
 ## Implementation files
 
 ```text
@@ -73,7 +66,6 @@ editor/src/shared/project-schema/authoring-scenes.ts
 editor/src/shared/project-schema/scene-project.ts
 editor/src/renderer/project/scene-operations.ts
 editor/src/renderer/editors/scenes/SceneEditor.tsx
-editor/src/shared/project-schema/compiled-runtime-export.ts
 editor/src/renderer/test/authoring-scenes.test.ts
 editor/src/renderer/test/scene-operations.test.ts
 editor/src/renderer/test/scene-editor.test.tsx

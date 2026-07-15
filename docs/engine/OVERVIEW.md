@@ -29,8 +29,8 @@ Read the specific component doc before changing its schema, commands, editor UI,
 
 ## Migration Context
 
-- `docs/migration/PLAN.md` and `docs/migration/STATUS.md` provide migration context for broader runtime/editor work.
-- `docs/migration/COMPATIBILITY.md` records historical import/export notes only. It is not a requirement to preserve old project formats.
+- `docs/migration/STATUS.md` and `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` record
+  final migration dispositions and independently deferred work.
 
 ## Code Areas
 

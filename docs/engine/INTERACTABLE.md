@@ -21,14 +21,11 @@ V1 models unique interactables only. Stackable/count-based inventory is explicit
 
 Interactions refer to typed Interactable IDs or explicit `AnyInteractable` wildcards. Lua can access declared properties through typed host APIs but cannot mutate arbitrary JSON.
 
-## Current implementation scaffold
+## Implementation
 
-The editor authoring schema uses the V2 `interactables` collection with immutable presentation plus
-an explicit initial location/enabled/visible declaration. The editor provides creation and detail
-editing, and validates a room-placement initial location against the matching Room placement. The
-additive typed runtime decodes native `InteractableDefinition` records and Phase 7A initializes one
-session-owned `InteractableState` per definition. Named mutations reject missing definitions and Room
-placements owned by another Interactable. The typed Lua location read uses this live state; movement
-requests are consumed by the additive Phase 7E Interaction visitor through the same session-owned
-mutation methods. The shipped legacy Object path remains intact
-until the Phase 10 consumer cutover, and no old Object compatibility was added to the typed model.
+The editor authoring schema uses the V2 `interactables` collection with immutable presentation and an
+explicit initial location/enabled/visible declaration. The editor supports creation and detail editing
+and validates a Room-placement initial location against its matching placement. `CompiledProject`
+decodes `InteractableDefinition` records, `SessionState` initializes one live state per definition,
+and typed mutations reject missing definitions and placements owned by another Interactable. Lua,
+player, Map, and Interaction operations all use these same typed location APIs.
