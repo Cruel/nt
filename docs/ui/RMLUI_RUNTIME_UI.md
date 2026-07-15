@@ -47,7 +47,9 @@ save JSON, dispatcher/controller pointers, or a second gameplay binding table.
 
 ## Presentation Debt
 
-`RuntimeLayoutManager` and `RuntimeTransitionManager` remain tested transitional orchestration
-scaffolding. `TweenService`, ActiveText, audio, RmlUi, and bgfx adapters remain low-level
-presentation backends. Their future coordination belongs to the presentation-coordinator plan and
-must preserve the typed runtime authority boundary.
+`RuntimeLayoutManager` now owns typed mounted-instance policy and deterministic plane/local ordering,
+while its document host still realizes all documents in the transitional single RmlUi context.
+Phase 3C/3D add derived pause and input routing; Phase 5 adds lifecycle-domain contexts.
+`RuntimeTransitionManager`, `TweenService`, ActiveText, audio, RmlUi, and bgfx adapters otherwise
+remain transitional presentation scaffolding/backends whose coordination belongs to the
+presentation-coordinator plan.
