@@ -27,6 +27,13 @@ Feature-specific state publishes `TypedRuntimeUIViewState` for Room, Scene, Dial
 Inventory, TextLog, and Map presentation. The UI receives a value view and stable IDs; it cannot
 mutate state except through runtime inputs.
 
+The view keeps authored `gameplay_paused` separate from `effective_gameplay_pause`. The latter is a
+typed, non-persistent derivation of the authoritative explicit session value, visible mounted Layout
+`PauseWhileVisible` requests, platform suspension, and engine/runtime suspension. The engine supplies
+that same derived fact to both the gameplay clock and typed runtime input admission. Lua pause/resume
+reads and mutates only the explicit session value; removing any one derived source cannot clear
+another source.
+
 ## Inputs and Outputs
 
 `TypedRuntimeSession::apply(RuntimeInputMessage)` is the single input seam. The closed variant

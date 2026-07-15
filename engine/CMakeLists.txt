@@ -19,6 +19,7 @@ add_library(noveltea_core STATIC
     src/core/flow_executor_interaction.cpp
     src/core/flow_executor_room.cpp
     src/core/flow_executor_scene.cpp
+    src/core/gameplay_pause.cpp
     src/core/package_export.cpp
     src/core/player_bootstrap.cpp
     src/core/rich_text.cpp

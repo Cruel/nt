@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/core/gameplay_pause.hpp"
+
 #include "noveltea/core/feature_state.hpp"
 #include "noveltea/core/flow.hpp"
 
@@ -135,7 +137,10 @@ struct MapView {
 
 struct TypedRuntimeUIViewState {
     std::string mode;
+    // Authored/session source reported by Game.paused() and persisted by the runtime policy.
     bool gameplay_paused = false;
+    // Derived shell/Layout/platform fact. This is presentation/runtime-loop state, not save state.
+    EffectiveGameplayPause effective_gameplay_pause;
     std::optional<SceneView> scene;
     std::optional<DialogueView> dialogue;
     std::optional<RoomView> room;

@@ -889,6 +889,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     }
 
     m_runtime_ui.bind_typed_runtime_session(nullptr);
+    m_runtime_layouts.reset();
     m_runtime_audio_adapter.reset(core::PresentationCancellationReason::ProjectReload);
     m_compiled_runtime = std::move(*loaded.value_if());
     m_runtime_ui_asset_resolver.bind(m_compiled_runtime.get());
@@ -1083,6 +1084,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
                                  &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
     } else {
+        m_runtime_layouts.bind_runtime_ui(&m_runtime_ui);
         m_runtime_ui.set_rmlui_base_direct_compatibility(run_config.rmlui_base_direct_compat);
         if (m_render_perf_logging) {
             m_runtime_ui.enable_render_perf_logging(true);
@@ -1481,11 +1483,18 @@ void Engine::handle_mouse_down(float x, float y, uint8_t button)
 
 void Engine::update(double host_delta_seconds)
 {
-    bool gameplay_paused = !m_preview_running;
-    if (const auto* view = m_runtime_ui.typed_runtime_view_state())
-        gameplay_paused = gameplay_paused || view->gameplay_paused;
+    std::vector<core::MountedLayoutInstance> mounted_layouts;
+    mounted_layouts.reserve(m_runtime_layouts.mounted_layouts().size());
+    for (const auto& mounted : m_runtime_layouts.mounted_layouts())
+        mounted_layouts.push_back(mounted.mounted);
+    const bool explicit_pause =
+        m_compiled_runtime && m_compiled_runtime->session().explicit_gameplay_paused();
+    auto effective_pause = core::derive_effective_gameplay_pause(
+        explicit_pause, mounted_layouts, m_host_suspended, !m_preview_running);
+    if (m_compiled_runtime)
+        m_compiled_runtime->session().set_effective_gameplay_pause(effective_pause);
     const auto advanced =
-        m_runtime_clock.advance(host_delta_seconds, gameplay_paused, m_host_suspended);
+        m_runtime_clock.advance(host_delta_seconds, effective_pause.paused, m_host_suspended);
     if (!advanced) {
         std::fprintf(stderr, "[engine] runtime clock failed: %s\n",
                      advanced.error().message.c_str());
@@ -1582,6 +1591,8 @@ void Engine::shutdown()
         m_debug_ui.shutdown();
     }
     m_runtime_ui.bind_typed_runtime_session(nullptr);
+    m_runtime_layouts.reset();
+    m_runtime_layouts.bind_runtime_ui(nullptr);
     m_runtime_ui.bind_typed_audio_sink(nullptr);
     m_runtime_audio_adapter.reset(core::PresentationCancellationReason::OwnerEnded);
     m_compiled_runtime.reset();

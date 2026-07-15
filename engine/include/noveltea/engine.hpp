@@ -12,6 +12,7 @@
 #include "noveltea/render/material.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/core/runtime_clock.hpp"
+#include "noveltea/runtime_layout_manager.hpp"
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/compiled_runtime.hpp"
@@ -125,6 +126,7 @@ private:
     RuntimeUiAssetResolver m_runtime_ui_asset_resolver;
     RuntimeAudioAdapter m_runtime_audio_adapter;
     RuntimeUI m_runtime_ui;
+    RuntimeLayoutManager m_runtime_layouts;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;

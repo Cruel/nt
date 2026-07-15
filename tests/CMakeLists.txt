@@ -12,6 +12,7 @@ add_executable(noveltea_core_tests
     core/presentation_checkpoint_contracts_tests.cpp
     core/editor_runtime_protocol_tests.cpp
     core/flow_executor_tests.cpp
+    core/gameplay_pause_tests.cpp
     core/json_access_tests.cpp
     core/player_bootstrap_tests.cpp
     core/result_tests.cpp

@@ -872,6 +872,17 @@ void TypedRuntimeSession::append_view(TypedRuntimeSessionResult& result)
     }
     result.view = std::move(*view.value_if());
     result.view.selected_interactables = m_selection;
+    result.view.effective_gameplay_pause = m_effective_gameplay_pause;
+    auto& pause_sources = result.view.effective_gameplay_pause.active_sources;
+    std::erase_if(pause_sources, [](const core::GameplayPauseSource& source) {
+        return source.kind == core::GameplayPauseSourceKind::ExplicitSession;
+    });
+    if (m_kernel->state().gameplay_paused()) {
+        pause_sources.insert(pause_sources.begin(),
+                             {.kind = core::GameplayPauseSourceKind::ExplicitSession,
+                              .layout_instance = std::nullopt});
+    }
+    result.view.effective_gameplay_pause.paused = !pause_sources.empty();
     const bool has_choice = (result.view.scene && result.view.scene->choice) ||
                             (result.view.dialogue && result.view.dialogue->choice);
     result.view.can_continue =
@@ -883,7 +894,14 @@ void TypedRuntimeSession::append_view(TypedRuntimeSessionResult& result)
 TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMessage& input)
 {
     TypedRuntimeSessionResult result;
-    if (m_kernel->state().gameplay_paused() && is_gameplay_advancement(input)) {
+    const bool externally_paused =
+        std::any_of(m_effective_gameplay_pause.active_sources.begin(),
+                    m_effective_gameplay_pause.active_sources.end(),
+                    [](const core::GameplayPauseSource& source) {
+                        return source.kind != core::GameplayPauseSourceKind::ExplicitSession;
+                    });
+    if ((m_kernel->state().gameplay_paused() || externally_paused) &&
+        is_gameplay_advancement(input)) {
         result.disposition = RuntimeInputDisposition::Unhandled;
     } else
         std::visit(
@@ -1123,6 +1141,16 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
     for (const auto& item : result.diagnostics)
         result.outputs.emplace_back(item);
     return result;
+}
+
+void TypedRuntimeSession::set_effective_gameplay_pause(core::EffectiveGameplayPause pause) noexcept
+{
+    m_effective_gameplay_pause = std::move(pause);
+}
+
+bool TypedRuntimeSession::explicit_gameplay_paused() const noexcept
+{
+    return m_kernel->state().gameplay_paused();
 }
 
 } // namespace noveltea::script

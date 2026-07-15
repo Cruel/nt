@@ -49,7 +49,9 @@ save JSON, dispatcher/controller pointers, or a second gameplay binding table.
 
 `RuntimeLayoutManager` now owns typed mounted-instance policy and deterministic plane/local ordering,
 while its document host still realizes all documents in the transitional single RmlUi context.
-Phase 3C/3D add derived pause and input routing; Phase 5 adds lifecycle-domain contexts.
+The engine derives effective gameplay pause from visible mounted policy alongside explicit session
+pause and platform suspension. Phase 3D adds deterministic input/Escape routing; Phase 5 adds
+lifecycle-domain contexts.
 `RuntimeTransitionManager`, `TweenService`, ActiveText, audio, RmlUi, and bgfx adapters otherwise
 remain transitional presentation scaffolding/backends whose coordination belongs to the
 presentation-coordinator plan.

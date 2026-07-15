@@ -204,6 +204,7 @@ TypedExecutionKernel::runtime_ui_view(std::string_view runtime_locale)
 {
     core::TypedRuntimeUIViewState view{.mode = runtime_mode_name(m_state),
                                        .gameplay_paused = m_state.gameplay_paused(),
+                                       .effective_gameplay_pause = {},
                                        .scene = std::nullopt,
                                        .dialogue = std::nullopt,
                                        .room = std::nullopt,

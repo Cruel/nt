@@ -729,6 +729,47 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
           core::RuntimeValue{std::int64_t{77}});
 }
 
+TEST_CASE("effective Layout pause gates gameplay without changing Lua pause state")
+{
+    Fixture fixture;
+    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    fixture.session->set_effective_gameplay_pause(
+        {.paused = true,
+         .active_sources = {{.kind = core::GameplayPauseSourceKind::MountedLayout,
+                             .layout_instance = core::MountedLayoutInstanceId::from_number(41)}}});
+
+    auto blocked = fixture.session->apply(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(blocked.disposition == RuntimeInputDisposition::Unhandled);
+    CHECK_FALSE(blocked.view.gameplay_paused);
+    CHECK(blocked.view.effective_gameplay_pause.paused);
+    REQUIRE(blocked.view.effective_gameplay_pause.active_sources.size() == 1);
+
+    REQUIRE(fixture.runtime.execute("assert(Game.paused() == false); "
+                                    "local ok, err = Game.resume(); assert(ok and err == nil)",
+                                    "typed-effective-pause"));
+    auto lifecycle = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(lifecycle.diagnostics.empty());
+    CHECK(lifecycle.view.effective_gameplay_pause.paused);
+
+    fixture.session->set_effective_gameplay_pause({});
+    auto admitted = fixture.session->apply(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    CHECK(admitted.disposition != RuntimeInputDisposition::Unhandled);
+}
+
+TEST_CASE("effective pause derives explicit state from the authoritative runtime session")
+{
+    Fixture fixture;
+    CHECK_FALSE(fixture.session->explicit_gameplay_paused());
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.pause(); assert(ok and err == nil)",
+                                    "typed-explicit-pause-source"));
+    CHECK(fixture.session->explicit_gameplay_paused());
+    REQUIRE(fixture.runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil)",
+                                    "typed-explicit-resume-source"));
+    CHECK_FALSE(fixture.session->explicit_gameplay_paused());
+}
+
 TEST_CASE("runtime Lua text log validates metadata and survives save restore")
 {
     Fixture fixture;

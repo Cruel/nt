@@ -136,6 +136,8 @@ public:
     {
         return m_script_view;
     }
+    [[nodiscard]] bool explicit_gameplay_paused() const noexcept;
+    void set_effective_gameplay_pause(core::EffectiveGameplayPause pause) noexcept;
     void queue_script_input(core::RuntimeInputMessage input) override;
 
 private:
@@ -189,6 +191,7 @@ private:
     std::string m_runtime_locale;
     bool m_running = false;
     bool m_playback = false;
+    core::EffectiveGameplayPause m_effective_gameplay_pause;
     std::size_t m_playback_step = 0;
     std::vector<core::InteractableId> m_selection;
     std::vector<PendingHostRequest> m_pending_host_requests;
