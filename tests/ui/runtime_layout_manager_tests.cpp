@@ -9,8 +9,13 @@ namespace {
 
 class FakeDocumentHost final : public noveltea::RuntimeLayoutDocumentHost {
 public:
-    bool load_builtin(noveltea::RuntimeLayoutBuiltinDocument) override { return load_succeeds; }
-    bool load_document(const std::string&, const std::string&, bool) override
+    bool load_builtin(noveltea::RuntimeLayoutBuiltinDocument,
+                      const noveltea::core::MountedLayoutPolicy&) override
+    {
+        return load_succeeds;
+    }
+    bool load_document(const std::string&, const std::string&, bool,
+                       const noveltea::core::MountedLayoutPolicy&) override
     {
         return load_succeeds;
     }

@@ -155,6 +155,8 @@ add_executable(noveltea_ui_tests
     ui/rmlui_document_binder_tests.cpp
     ui/rmlui_event_disposition_tests.cpp
     ui/rmlui_file_interface_tests.cpp
+    ui/rmlui_lifecycle_tests.cpp
+    ui/runtime_ui_lifecycle_integration_tests.cpp
     ui/runtime_layout_manager_tests.cpp
     ui/rmlui_template_resolver_tests.cpp
     ui/title_layout_asset_tests.cpp

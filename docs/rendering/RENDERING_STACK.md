@@ -11,13 +11,11 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 - `DebugUI` owns Dear ImGui developer/debug overlay only.
 - Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale/glow metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
-These bullets describe the current implementation baseline, not the final presentation lifecycle.
-The planned typed snapshot/operation coordinator, clock domains, mounted-Layout policies, RmlUi
-context partitioning, rendering planes, transitions, tweens, audio reconciliation, and system-menu
-stack are specified in
+The typed snapshot/coordinator, clock domains, mounted-Layout policies, and RmlUi lifecycle contexts
+are implemented. World transitions, reconstructible presentation, final audio reconciliation, and
+the system-menu stack remain specified in
 [`docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
-That work is intentionally sequenced after the typed-runtime migration; current adapters remain
-functional scaffolding until their owning replacement phase is complete.
+Later phases retain the current functional adapters until each replacement is complete.
 
 The engine presents game content through a centered 16:9 viewport inside the complete host surface.
 The renderer clears the host to the presentation-bar color, restricts game, text, ActiveText, and
@@ -49,6 +47,12 @@ Current view ownership:
 - `UIOverlay`: runtime UI and UI-adjacent presentation.
 - debug UI uses its own high-numbered bgfx views.
 
+RmlUi adapters reserve disjoint contiguous ranges for every `PresentationPlane`. GameUi owns the
+largest general UI/filter range; direct ActiveText uses its final reserved view below MenuOverlay and
+Modal. Contexts in a plane share that plane adapter and render by deterministic composition group,
+allowing different clock/input lifecycle runs to interleave while keeping each RmlUi pass range
+contiguous.
+
 ## Shader and Material Runtime Policy
 
 Runtime code loads compiled bgfx shader binaries from staged assets. It does not compile shader source. User-authored shader/material metadata is project/game schema data; exported packages include the compiled variants needed by the runtime. The Phase 5E package boundary strictly decodes the separate shader/material document, verifies every selected material program against declared shader role bindings and packaged binary variants, and closes typed gameplay Material references before publishing prepared registries. Authoring material inheritance is validated and flattened by the existing editor manifest builder; runtime package definitions do not retain inheritance edges.
@@ -63,7 +67,8 @@ For ActiveText, RmlUi hosts `nt-active-text` as a layout/input component only. A
 layout, `RuntimeUI` collects a direct render snapshot with the resolved content box and a
 FreeType/HarfBuzz-shaped glyph layout mapped back to rich-text metadata. `Engine::render()` submits
 that snapshot through `Renderer::draw_active_text()` after RmlUi has rendered the runtime UI. ActiveText
-does not generate RML glyph fallback markup. RuntimeUI owns an explicit ActiveText playback lifecycle:
+does not generate RML glyph fallback markup. RuntimeUI owns backend playback state while the
+coordinator owns typed reveal/fade identity and causal-barrier lifetime:
 new text instances reveal by glyph rate and fade in, empty text fades the last displayed document out,
 local rich-text page breaks and wait-for-click spans split playback into page segments, body clicks skip
 an in-progress reveal without continuing in the same click, and the bgfx text renderer draws a small

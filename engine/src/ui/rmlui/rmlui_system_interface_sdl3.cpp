@@ -14,9 +14,7 @@ SdlSystemInterface::SdlSystemInterface(SDL_Window* window)
       m_resize_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE)),
       m_cross_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR)),
       m_text_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT)),
-      m_unavailable_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED)),
-      m_start(SDL_GetPerformanceCounter()),
-      m_frequency(static_cast<double>(SDL_GetPerformanceFrequency()))
+      m_unavailable_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED))
 {
 }
 
@@ -33,7 +31,12 @@ SdlSystemInterface::~SdlSystemInterface()
 
 double SdlSystemInterface::GetElapsedTime()
 {
-    return static_cast<double>(SDL_GetPerformanceCounter() - m_start) / m_frequency;
+    return std::chrono::duration<double>(m_elapsed).count();
+}
+
+void SdlSystemInterface::set_elapsed_time(std::chrono::microseconds elapsed) noexcept
+{
+    m_elapsed = std::max(elapsed, std::chrono::microseconds{0});
 }
 
 void SdlSystemInterface::SetMouseCursor(const Rml::String& cursor_name)

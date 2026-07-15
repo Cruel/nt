@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "noveltea/active_text_layout.hpp"
+#include "noveltea/core/presentation_contracts.hpp"
+#include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/surface.hpp"
 
@@ -28,8 +30,8 @@ class ScriptRuntime;
 class TypedRuntimeSession;
 } // namespace script
 struct ShaderMaterialProject;
-class TweenService;
 class RuntimePresentationOperationHandler;
+enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
 
 enum class TypedRuntimeOperationDisposition : std::uint8_t {
     Completed,
@@ -95,7 +97,7 @@ public:
                     bool headless_render = false);
     bool process_event(const SDL_Event& event, const PresentationMetrics& presentation);
     void resize(const PresentationMetrics& presentation);
-    void begin_frame(float delta_time);
+    void begin_frame(const core::RuntimeClockUpdate& clocks);
     void end_frame();
     void shutdown();
     void set_rmlui_base_direct_compatibility(bool enabled);
@@ -116,6 +118,14 @@ public:
                              const std::string& start_label = "Start");
     bool load_runtime_document();
     bool load_pause_menu_document();
+    bool load_document_for_layout(const std::string& id, const std::string& path, bool show,
+                                  const core::MountedLayoutPolicy& policy);
+    bool load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
+                                 const core::MountedLayoutPolicy& policy);
+    bool apply_layout_order(const std::vector<std::string>& ordered_document_ids);
+    bool apply_layout_policy(const std::string& document_id,
+                             const core::MountedLayoutPolicy& policy,
+                             std::uint32_t composition_group = 0);
     void* document(const std::string& id) const;
     void* element(const std::string& document_id, const std::string& element_id) const;
     bool reload_documents_and_styles();
@@ -130,7 +140,6 @@ public:
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] const core::TypedRuntimeUIViewState* typed_runtime_view_state() const noexcept;
     [[nodiscard]] const core::Diagnostics& typed_runtime_diagnostics() const noexcept;
-    void bind_tween_service(TweenService* tweens);
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
                                       const std::string& event, std::function<void()> callback);
     bool remove_event_listener(std::uintptr_t listener_id);

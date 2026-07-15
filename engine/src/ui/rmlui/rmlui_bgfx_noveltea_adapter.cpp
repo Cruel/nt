@@ -463,8 +463,39 @@ rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range()
     return rmlui_bgfx::ViewRange{bgfx_backend::ViewRuntimeUIBegin, bgfx_backend::ViewRuntimeUIEnd};
 }
 
+rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane)
+{
+    switch (plane) {
+    case core::PresentationPlane::WorldBackground:
+        return {6, 9};
+    case core::PresentationPlane::WorldContent:
+        return {10, 15};
+    case core::PresentationPlane::WorldOverlay:
+        return {16, 31};
+    case core::PresentationPlane::GameUi:
+        return {bgfx_backend::ViewRuntimeUIBegin, 126};
+    case core::PresentationPlane::MenuOverlay:
+        return {128, 190};
+    case core::PresentationPlane::Modal:
+        return {191, bgfx_backend::ViewRuntimeUIEnd};
+    case core::PresentationPlane::Transition:
+        return {226, 237};
+    case core::PresentationPlane::Debug:
+        return {238, 249};
+    }
+    return {bgfx_backend::ViewRuntimeUIBegin, 126};
+}
+
 BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation,
                                          const assets::AssetManager& assets,
+                                         const ShaderMaterialProject* shader_materials)
+    : BgfxRenderInterface(presentation, assets, rmlui_bgfx_runtime_view_range(), shader_materials)
+{
+}
+
+BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation,
+                                         const assets::AssetManager& assets,
+                                         rmlui_bgfx::ViewRange views,
                                          const ShaderMaterialProject* shader_materials)
     : m_adapter(std::make_unique<Adapter>(assets, shader_materials))
 {
@@ -474,7 +505,7 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
                        presentation.host_framebuffer_viewport.y,
                        presentation.host_framebuffer_viewport.width,
                        presentation.host_framebuffer_viewport.height};
-    config.views = rmlui_bgfx_runtime_view_range();
+    config.views = views;
     config.shaders = m_adapter.get();
     config.textures = m_adapter.get();
     config.diagnostics = m_adapter.get();

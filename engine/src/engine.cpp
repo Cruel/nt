@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -75,6 +76,32 @@ constexpr uint32_t kMaxFpsCap = 1000;
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
 constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
+
+core::PresentationPlane layout_plane(core::compiled::LayoutTarget target)
+{
+    switch (target) {
+    case core::compiled::LayoutTarget::DefaultUi:
+    case core::compiled::LayoutTarget::DialogueUi:
+        return core::PresentationPlane::GameUi;
+    case core::compiled::LayoutTarget::MenuUi:
+        return core::PresentationPlane::MenuOverlay;
+    case core::compiled::LayoutTarget::SceneOverlay:
+    case core::compiled::LayoutTarget::RoomOverlay:
+    case core::compiled::LayoutTarget::CustomOverlay:
+        return core::PresentationPlane::WorldOverlay;
+    }
+    return core::PresentationPlane::GameUi;
+}
+
+std::string runtime_layout_document_id(std::string_view key, const core::LayoutId& layout)
+{
+    std::string result = "presentation_" + std::string(key) + "_" + layout.text();
+    for (char& ch : result) {
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_')
+            ch = '_';
+    }
+    return result;
+}
 
 const char* preview_severity(core::ErrorSeverity severity)
 {
@@ -891,6 +918,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
 
     m_runtime_ui.bind_typed_runtime_session(nullptr);
     m_runtime_layouts.reset();
+    m_presentation_layout_instances.clear();
     m_title_layout_instance.reset();
     m_game_hud_layout_instance.reset();
     m_runtime_presentation.terminate(core::PresentationCancellationReason::ProjectReload);
@@ -933,6 +961,10 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_runtime_presentation.bind_runtime(&project, [this]() -> const core::SessionState& {
         return m_compiled_runtime->session().presentation_state();
     });
+    m_runtime_presentation.bind_snapshot_backend(
+        [this](const core::RuntimePresentationSnapshot& snapshot) {
+            return reconcile_presentation_layouts(snapshot);
+        });
     m_runtime_presentation.bind_presentation_id_allocator(
         [this]() { return m_compiled_runtime->session().allocate_presentation_operation_id(); });
     m_compiled_runtime->session().bind_presentation_checkpoint_status(
@@ -980,6 +1012,146 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
     m_compiled_project_path = logical_path;
     return true;
+}
+
+core::Result<void, core::Diagnostics>
+Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot)
+{
+    if (!m_compiled_runtime)
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "presentation.layout_runtime_unavailable",
+              .message = "Presentation Layout reconciliation requires a compiled runtime"}});
+    const auto& project = m_compiled_runtime->package().project();
+
+    struct Desired {
+        std::string key;
+        core::LayoutId layout;
+        bool visible = true;
+        std::int32_t local_order = 0;
+    };
+    std::vector<Desired> desired;
+    for (const auto& slot : snapshot.layout_slots) {
+        desired.push_back({"slot-" + std::to_string(static_cast<unsigned>(slot.slot)), slot.layout,
+                           true, 100 + static_cast<std::int32_t>(slot.slot)});
+    }
+    for (const auto& overlay : snapshot.overlays) {
+        desired.push_back({"overlay-" + overlay.room.text() + "-" + overlay.overlay.text(),
+                           overlay.layout, overlay.visible, 200});
+    }
+    if (snapshot.map && snapshot.map->layout) {
+        desired.push_back(
+            {"map-" + snapshot.map->map.text(), *snapshot.map->layout, snapshot.map->visible, 300});
+    }
+    std::sort(desired.begin(), desired.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.key < rhs.key; });
+
+    const auto source_text = [&](const core::compiled::LayoutSource& source)
+        -> core::Result<std::string, core::Diagnostics> {
+        if (const auto* inline_source = std::get_if<core::compiled::InlineLayoutSource>(&source))
+            return core::Result<std::string, core::Diagnostics>::success(inline_source->text);
+        const auto& asset_id = std::get<core::compiled::AssetLayoutSource>(source).asset;
+        const auto* asset = project.find_asset(asset_id);
+        if (!asset)
+            return core::Result<std::string, core::Diagnostics>::failure(
+                {{.code = "presentation.layout_source_missing",
+                  .message = "Layout source asset is missing: " + asset_id.text()}});
+        auto text = m_assets.read_text("project:/" + asset->path);
+        if (!text)
+            return core::Result<std::string, core::Diagnostics>::failure(
+                {{.code = "presentation.layout_source_unreadable", .message = text.error}});
+        return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
+    };
+
+    std::unordered_map<std::string, bool> retained;
+    for (const auto& item : desired) {
+        retained[item.key] = true;
+        const auto* definition = project.find_layout(item.layout);
+        if (!definition)
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "presentation.layout_missing",
+                  .message = "Presentation Layout is missing: " + item.layout.text()}});
+
+        if (const auto existing = m_presentation_layout_instances.find(item.key);
+            existing != m_presentation_layout_instances.end() &&
+            existing->second.layout == item.layout) {
+            const bool visibility_ok = item.visible
+                                           ? m_runtime_layouts.show(existing->second.instance)
+                                           : m_runtime_layouts.hide(existing->second.instance);
+            if (!visibility_ok)
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "presentation.layout_visibility_failed",
+                      .message = "Failed to reconcile Layout visibility: " + item.key}});
+            existing->second.visible = item.visible;
+            continue;
+        }
+
+        auto rml = source_text(definition->rml);
+        auto rcss = source_text(definition->rcss);
+        auto lua = source_text(definition->lua);
+        if (!rml)
+            return core::Result<void, core::Diagnostics>::failure(std::move(rml).error());
+        if (!rcss)
+            return core::Result<void, core::Diagnostics>::failure(std::move(rcss).error());
+        if (!lua)
+            return core::Result<void, core::Diagnostics>::failure(std::move(lua).error());
+
+        std::string document;
+        const std::string additions =
+            "<style>" + *rcss.value_if() + "</style>" +
+            (definition->script_enabled ? "<script>" + *lua.value_if() + "</script>" : "");
+        if (definition->kind == core::compiled::LayoutKind::Fragment) {
+            const std::string root = definition->default_parent.value_or("nt-layout-fragment-root");
+            document = "<rml><head>" + additions + "</head><body><div id=\"" + root + "\">" +
+                       *rml.value_if() + "</div></body></rml>";
+        } else {
+            document = *rml.value_if();
+            const auto head_end = document.find("</head>");
+            if (head_end == std::string::npos)
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "presentation.layout_document_head_missing",
+                      .message =
+                          "Document Layout requires a head element: " + item.layout.text()}});
+            document.insert(head_end, additions);
+        }
+
+        const std::string document_id = runtime_layout_document_id(item.key, item.layout);
+        const std::string virtual_path = "project:/generated/layouts/" + document_id + ".rml";
+        m_runtime_ui.set_preview_virtual_file(virtual_path, std::move(document));
+        RuntimeLayoutMountRequest request;
+        request.layout_id = item.layout.text();
+        request.document_id = document_id;
+        request.asset_path = virtual_path;
+        request.owner = core::MountedLayoutOwner::Gameplay;
+        request.policy = {.plane = layout_plane(definition->target),
+                          .local_order = item.local_order,
+                          .clock = core::LayoutClockDomain::Gameplay,
+                          .input = core::LayoutInputMode::Normal,
+                          .gameplay_pause = core::GameplayPausePolicy::Continue,
+                          .visibility = item.visible ? core::LayoutVisibility::Visible
+                                                     : core::LayoutVisibility::Hidden,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        auto mounted = m_runtime_layouts.mount(std::move(request));
+        if (!mounted)
+            return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
+        if (const auto previous = m_presentation_layout_instances.find(item.key);
+            previous != m_presentation_layout_instances.end())
+            (void)m_runtime_layouts.unmount(previous->second.instance);
+        m_presentation_layout_instances.insert_or_assign(
+            item.key, RealizedPresentationLayout{*mounted.value_if(), item.layout, item.visible});
+    }
+
+    for (auto it = m_presentation_layout_instances.begin();
+         it != m_presentation_layout_instances.end();) {
+        if (!retained.contains(it->first)) {
+            (void)m_runtime_layouts.unmount(it->second.instance);
+            it = m_presentation_layout_instances.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return core::Result<void, core::Diagnostics>::success();
 }
 
 bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
@@ -1124,7 +1296,6 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             SDL_Log("[engine] renderer perf logging enabled");
         }
         if (!run_config.runtime_ui_document.empty()) {
-            m_runtime_ui.bind_tween_service(&m_tweens);
             runtime_ui_initialized = true;
             if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document,
                                            true)) {
@@ -1137,7 +1308,6 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
                 return false;
             }
         } else {
-            m_runtime_ui.bind_tween_service(&m_tweens);
             runtime_ui_initialized = true;
         }
     }
@@ -1563,8 +1733,6 @@ void Engine::update(double host_delta_seconds)
         for (const auto& next : presentation.inputs)
             (void)m_runtime_ui.dispatch_typed_runtime_input(next);
     }
-    // The shared tween service currently realizes gameplay UI, including ActiveText.
-    m_tweens.advance(seconds(clocks.gameplay_delta));
     if (m_compiled_runtime) {
         (void)m_runtime_ui.dispatch_typed_runtime_input(
             core::RuntimeInputMessage{core::AdvanceTimeInput{clocks.gameplay_delta}});
@@ -1577,12 +1745,9 @@ void Engine::render()
         m_debug_ui.begin_frame(m_presentation.host_surface);
     }
     const auto& clocks = m_frame_clock;
-    const float gameplay_delta_seconds =
-        std::chrono::duration<float>(clocks.gameplay_delta).count();
     const float unscaled_time_seconds =
         std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
-    // RuntimeUI remains one gameplay-domain context until Phase 5 splits lifecycle domains.
-    m_runtime_ui.begin_frame(gameplay_delta_seconds);
+    m_runtime_ui.begin_frame(clocks);
     ShaderStandardInputs shader_inputs;
     shader_inputs.time_seconds = unscaled_time_seconds;
     shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.logical_width()),

@@ -1,9 +1,12 @@
 #include "noveltea/runtime_layout_manager.hpp"
 
 #include "noveltea/ui_runtime.hpp"
+#include "ui/rmlui/rmlui_lifecycle.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
+#include <optional>
 #include <utility>
 
 namespace noveltea {
@@ -105,29 +108,34 @@ int input_strength(core::LayoutInputMode mode) { return static_cast<int>(mode); 
 class RuntimeLayoutManager::RuntimeUiDocumentHost final : public RuntimeLayoutDocumentHost {
 public:
     explicit RuntimeUiDocumentHost(RuntimeUI& ui) : m_ui(ui) {}
-    bool load_builtin(RuntimeLayoutBuiltinDocument document) override
+    bool load_builtin(RuntimeLayoutBuiltinDocument document,
+                      const core::MountedLayoutPolicy& policy) override
     {
-        switch (document) {
-        case RuntimeLayoutBuiltinDocument::Title:
-            return m_ui.load_title_document();
-        case RuntimeLayoutBuiltinDocument::GameHud:
-            return m_ui.load_runtime_document();
-        case RuntimeLayoutBuiltinDocument::PauseMenu:
-            return m_ui.load_pause_menu_document();
-        case RuntimeLayoutBuiltinDocument::None:
-            return false;
-        }
-        return false;
+        return m_ui.load_builtin_for_layout(document, policy);
     }
-    bool load_document(const std::string& id, const std::string& path, bool visible) override
+    bool load_document(const std::string& id, const std::string& path, bool visible,
+                       const core::MountedLayoutPolicy& policy) override
     {
-        return m_ui.load_document(id, path, visible);
+        return m_ui.load_document_for_layout(id, path, visible, policy);
     }
     bool apply_layout_state(const std::vector<RuntimeLayoutDocumentState>& ordered_state) override
     {
+        std::optional<ui::rmlui::LifecycleCompatibilityKey> previous;
+        std::uint32_t composition_group = 0;
         for (const auto& state : ordered_state) {
             if (!m_ui.document(state.document_id))
                 return false;
+            const auto compatibility = ui::rmlui::lifecycle_compatibility(state.policy);
+            if (!previous || compatibility.plane != previous->plane) {
+                composition_group = 0;
+            } else if (compatibility != *previous) {
+                if (composition_group == std::numeric_limits<std::uint32_t>::max())
+                    return false;
+                ++composition_group;
+            }
+            if (!m_ui.apply_layout_policy(state.document_id, state.policy, composition_group))
+                return false;
+            previous = compatibility;
         }
         for (const auto& state : ordered_state) {
             const bool applied = state.visibility == core::LayoutVisibility::Visible
@@ -136,7 +144,11 @@ public:
             if (!applied)
                 return false;
         }
-        return true;
+        std::vector<std::string> order;
+        order.reserve(ordered_state.size());
+        for (const auto& state : ordered_state)
+            order.push_back(state.document_id);
+        return m_ui.apply_layout_order(order);
     }
     bool unload_document(const std::string& id) override { return m_ui.unload_document(id); }
 
@@ -191,11 +203,11 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
         return MountResult::failure(
             failure("layout.instance_exhausted", "Mounted Layout instance identity is exhausted"));
 
-    const bool loaded =
-        request.builtin_document == RuntimeLayoutBuiltinDocument::None
-            ? (!request.asset_path.empty() &&
-               m_host->load_document(request.document_id, request.asset_path, false))
-            : m_host->load_builtin(request.builtin_document);
+    const bool loaded = request.builtin_document == RuntimeLayoutBuiltinDocument::None
+                            ? (!request.asset_path.empty() &&
+                               m_host->load_document(request.document_id, request.asset_path, false,
+                                                     request.policy))
+                            : m_host->load_builtin(request.builtin_document, request.policy);
     if (!loaded)
         return MountResult::failure(
             failure("layout.load_failed", "Layout document failed to load"));
@@ -406,7 +418,8 @@ bool RuntimeLayoutManager::apply_layout_state()
     std::vector<RuntimeLayoutDocumentState> state;
     state.reserve(m_mounted_layouts.size());
     for (const auto& mounted : m_mounted_layouts)
-        state.push_back({mounted.document_id, mounted.mounted.policy.visibility});
+        state.push_back(
+            {mounted.document_id, mounted.mounted.policy.visibility, mounted.mounted.policy});
     return m_host->apply_layout_state(state);
 }
 

@@ -178,19 +178,37 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::poll_audio()
     return result;
 }
 
-core::Diagnostics RuntimePresentationBridge::set_active_text_causal(bool active)
+core::Diagnostics
+RuntimePresentationBridge::set_active_text_phase(core::ActiveTextPresentationPhase phase)
 {
-    if (active == m_active_text_operation.has_value())
+    if (phase == m_active_text_phase)
         return {};
-    if (active) {
+    if (phase != core::ActiveTextPresentationPhase::Stable) {
         if (!m_allocate_presentation_id)
             return one({.code = "presentation.id_allocator_unavailable",
                         .message = "ActiveText requires the runtime presentation ID allocator"});
         const auto operation = m_allocate_presentation_id();
-        auto accepted = m_coordinator.accept(core::ActiveTextPresentationOperation{operation});
+        auto accepted = m_coordinator.accept(core::ActiveTextPresentationOperation{
+            operation, phase, core::LayoutClockDomain::Gameplay});
         if (!accepted)
             return std::move(accepted).error();
+        if (m_active_text_operation) {
+            auto replaced = m_coordinator.replace(*m_active_text_operation, operation);
+            if (!replaced) {
+                auto diagnostics = std::move(replaced).error();
+                auto cancelled = m_coordinator.cancel(
+                    operation, core::PresentationCancellationReason::ExplicitRequest);
+                if (!cancelled)
+                    core::append_diagnostics(diagnostics, std::move(cancelled).error());
+                return diagnostics;
+            }
+        }
         m_active_text_operation = operation;
+        m_active_text_phase = phase;
+        return {};
+    }
+    if (!m_active_text_operation) {
+        m_active_text_phase = phase;
         return {};
     }
     const auto lifecycle =
@@ -208,6 +226,7 @@ core::Diagnostics RuntimePresentationBridge::set_active_text_causal(bool active)
     if (!completed)
         return std::move(completed).error();
     m_active_text_operation.reset();
+    m_active_text_phase = phase;
     return {};
 }
 
@@ -234,8 +253,10 @@ core::Diagnostics RuntimePresentationBridge::reconcile()
 }
 
 core::Result<void, core::Diagnostics>
-RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot&)
+RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& snapshot)
 {
+    if (m_snapshot_backend)
+        return m_snapshot_backend(snapshot);
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -245,6 +266,7 @@ void RuntimePresentationBridge::terminate(core::PresentationCancellationReason r
     m_coordinator.reset_backends(reason);
     m_coordinator.clear_session();
     m_active_text_operation.reset();
+    m_active_text_phase = core::ActiveTextPresentationPhase::Stable;
     m_backend_facts.clear();
     m_publisher = {};
 }
@@ -258,6 +280,13 @@ void RuntimePresentationBridge::bind_presentation_id_allocator(
     std::function<core::PresentationOperationId()> allocator)
 {
     m_allocate_presentation_id = std::move(allocator);
+}
+
+void RuntimePresentationBridge::bind_snapshot_backend(
+    std::function<core::Result<void, core::Diagnostics>(const core::RuntimePresentationSnapshot&)>
+        backend)
+{
+    m_snapshot_backend = std::move(backend);
 }
 
 void RuntimePresentationBridge::bind_runtime(

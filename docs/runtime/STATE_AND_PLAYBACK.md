@@ -48,10 +48,12 @@ External editor/Web boundaries decode or encode named protocol DTOs around these
 not become runtime state.
 
 Physical host input and gameplay commands emitted by Layout Lua are admitted through the mounted
-Layout input-policy evaluation before gameplay handling. Modal and `BlockGameplay` mounts block
-gameplay commands; `Normal` permits gameplay only when the shared RmlUi context does not consume the
-host event. System lifecycle, save/load, and operation acknowledgements retain their separate trusted
-typed paths. This is semantic admission only: exact document/context delivery remains Phase 5 work.
+Layout input-policy evaluation before gameplay handling. RuntimeUI routes host events through typed
+lifecycle contexts from the top visible plane downward. A consumed event or `Modal` context stops
+lower presentation delivery. `BlockGameplay` still permits lower presentation contexts to handle an
+otherwise unconsumed event, but the mounted-policy result prevents subsequent gameplay fallthrough.
+`Normal` permits gameplay only when eligible UI does not consume the event. System lifecycle,
+save/load, and operation acknowledgements retain separate trusted typed paths.
 
 ## Flow and Waiting
 
@@ -123,3 +125,7 @@ ordering, lifecycle, and presentation checkpoint barriers. `TypedRuntimeSession`
 ID allocation and exact Flow/script completion validation, and consumes the coordinator's immutable
 status only when the outer dispatch transaction settles. Reset and load terminate old operations
 without synthesizing successful completion, then reconcile a fresh projected snapshot.
+
+RmlUi is a snapshot backend. Gameplay Layout slots, Room overlays, and Map Layouts reconcile into
+ephemeral mounted instances from compiled document/fragment resources. Phase 7 owns persistent save
+records for reconstructible mounts.

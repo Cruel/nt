@@ -46,28 +46,36 @@ Layout events use Lua and the single `RuntimeScriptApi` gateway. Do not expose a
 save JSON, dispatcher/controller pointers, or a second gameplay binding table.
 
 `RuntimeLayoutManager::evaluate_input_policy()` selects the strongest visible mounted input policy,
-using plane, local order, and instance identity to break equal-policy ties. SDL events are delivered
-once to the shared RmlUi context, then gameplay fallthrough is admitted only for `Normal` (or when no
-Layout participates) and only when RmlUi did not consume the event. Layout-originated `Game.ui.*`
-gameplay commands use the same admission result; trusted lifecycle and acknowledgement paths do not.
-Escape unmounts the topmost dismissible instance through its recorded owner, while a higher
-non-dismissible modal shields lower Layouts.
+using plane, local order, and instance identity to break equal-policy ties. RuntimeUI groups mounted
+documents by presentation plane, contiguous composition group, clock domain, and input mode. SDL
+events route from the top visible context downward. A consumed event or modal context stops lower
+presentation delivery; a block-gameplay context still permits lower presentation handling but blocks
+later gameplay fallthrough through the mounted-policy admission result. Layout-originated
+`Game.ui.*` gameplay commands use that same admission result; trusted lifecycle and acknowledgement
+paths do not. Escape unmounts the topmost dismissible instance through its recorded owner, while a
+higher non-dismissible modal shields lower Layouts.
 
-## Presentation Debt
+## Lifecycle Domains
 
-`RuntimeLayoutManager` now owns typed mounted-instance policy and deterministic plane/local ordering,
-while its document host still realizes all documents in the transitional single RmlUi context.
-The engine derives effective gameplay pause from visible mounted policy alongside explicit session
-pause and platform suspension. Input routing is deterministic, but Phase 3 still dispatches host
-events globally to one RmlUi context. Phase 5 adds exact lifecycle-domain contexts and per-context
-delivery.
-`RuntimeTransitionManager`, `TweenService`, ActiveText, audio, RmlUi, and bgfx adapters otherwise
-remain transitional presentation scaffolding/backends whose coordination belongs to the
-presentation-coordinator plan.
+`RuntimeLayoutManager` owns typed mounted-instance policy and deterministic plane/local ordering.
+RuntimeUI creates contexts only for compatible plane/clock/input runs. A new composition group is
+created when a different lifecycle policy is interleaved between otherwise compatible documents, so
+the final context order can still reproduce arbitrary mounted order without creating one context per
+document by default. RuntimeUI selects the engine's gameplay or unscaled absolute clock before every
+update, render, and routed input dispatch. Frozen gameplay documents retain their animation time while
+unscaled menus continue. Each presentation plane has a reserved bgfx view range; direct ActiveText
+sits above GameUi documents and below menu/modal planes.
+
+Compiled Layout documents and fragments from the presentation snapshot are materialized through
+`AssetManager` and reconciled idempotently. Policy replacement recreates realization in the target
+context while retaining NovelTea identity, visibility, callback listeners, and focus by element ID.
+Document/style reload recreates every built-in, custom, fragment, and memory-backed document in its
+recorded lifecycle context, restores ordering and visibility, rebinds listeners, and then rebinds the
+authoritative runtime view. RmlUi pointers remain borrowed backend state.
 ## Phase 4 presentation boundary
 
 `RuntimeUI` is no longer the presentation/audio operation broker. It remains the RmlUi view consumer
 and typed input source, forwarding emitted operation batches to the engine-owned
 `RuntimePresentationBridge`. Lifecycle, total ordering, checkpoint barriers, backend retry, and
-terminal decisions belong to the coordinator. RmlUi still uses the transitional shared context;
-per-policy context and clock isolation remain Phase 5 work.
+terminal decisions belong to the coordinator. ActiveText reveal and fade are coordinator-owned
+causal phases advanced from gameplay time; local hover/focus/CSS animation remains disposable.

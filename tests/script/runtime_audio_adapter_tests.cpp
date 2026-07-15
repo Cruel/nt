@@ -255,11 +255,13 @@ TEST_CASE("runtime presentation bridge owns ActiveText barrier without hidden ba
     bridge.bind_presentation_id_allocator(
         [&]() { return core::PresentationOperationId::from_number(next_operation++); });
 
-    REQUIRE(bridge.set_active_text_causal(true).empty());
+    REQUIRE(bridge.set_active_text_phase(core::ActiveTextPresentationPhase::Reveal).empty());
     REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
-    REQUIRE(bridge.set_active_text_causal(true).empty());
+    REQUIRE(bridge.set_active_text_phase(core::ActiveTextPresentationPhase::Reveal).empty());
     REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
-    REQUIRE(bridge.set_active_text_causal(false).empty());
+    REQUIRE(bridge.set_active_text_phase(core::ActiveTextPresentationPhase::Fade).empty());
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+    REQUIRE(bridge.set_active_text_phase(core::ActiveTextPresentationPhase::Stable).empty());
     CHECK(bridge.checkpoint_status().active_barriers.empty());
 }
 

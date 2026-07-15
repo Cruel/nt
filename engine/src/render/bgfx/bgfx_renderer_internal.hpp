@@ -18,7 +18,9 @@ enum ViewId : bgfx::ViewId {
     // copies, resolves, and final composition all require ordered bgfx views.
     ViewRuntimeUIBegin = 32,
     ViewRuntimeUIEnd = 223,
-    ViewActiveText = 224,
+    // The final GameUi-plane view is reserved for direct ActiveText so menu/modal planes remain
+    // above it while RmlUi retains a contiguous per-plane range.
+    ViewActiveText = 127,
     ViewGameTransition = 225,
     ViewDebugUI = 250,
 };

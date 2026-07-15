@@ -24,14 +24,17 @@ enum class RuntimeLayoutBuiltinDocument : std::uint8_t {
 struct RuntimeLayoutDocumentState {
     std::string document_id;
     core::LayoutVisibility visibility = core::LayoutVisibility::Hidden;
+    core::MountedLayoutPolicy policy;
 };
 
 class RuntimeLayoutDocumentHost {
 public:
     virtual ~RuntimeLayoutDocumentHost() = default;
-    [[nodiscard]] virtual bool load_builtin(RuntimeLayoutBuiltinDocument document) = 0;
+    [[nodiscard]] virtual bool load_builtin(RuntimeLayoutBuiltinDocument document,
+                                            const core::MountedLayoutPolicy& policy) = 0;
     [[nodiscard]] virtual bool load_document(const std::string& document_id,
-                                             const std::string& asset_path, bool visible) = 0;
+                                             const std::string& asset_path, bool visible,
+                                             const core::MountedLayoutPolicy& policy) = 0;
     [[nodiscard]] virtual bool
     apply_layout_state(const std::vector<RuntimeLayoutDocumentState>& ordered_state) = 0;
     [[nodiscard]] virtual bool unload_document(const std::string& document_id) = 0;

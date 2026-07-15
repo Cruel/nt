@@ -11,8 +11,16 @@
 
 namespace noveltea::core {
 
+enum class ActiveTextPresentationPhase : std::uint8_t {
+    Stable,
+    Reveal,
+    Fade,
+};
+
 struct ActiveTextPresentationOperation {
     PresentationOperationId id;
+    ActiveTextPresentationPhase phase = ActiveTextPresentationPhase::Reveal;
+    LayoutClockDomain clock = LayoutClockDomain::Gameplay;
     bool operator==(const ActiveTextPresentationOperation&) const = default;
 };
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/surface.hpp"
 #include <rmlui_bgfx/config.hpp>
 #include <rmlui_bgfx/render_interface.hpp>
@@ -17,10 +18,14 @@ namespace noveltea::ui::rmlui {
 
 [[nodiscard]] rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface);
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range();
+[[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane);
 
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
     BgfxRenderInterface(const PresentationMetrics& presentation, const assets::AssetManager& assets,
+                        const ShaderMaterialProject* shader_materials = nullptr);
+    BgfxRenderInterface(const PresentationMetrics& presentation, const assets::AssetManager& assets,
+                        rmlui_bgfx::ViewRange views,
                         const ShaderMaterialProject* shader_materials = nullptr);
     ~BgfxRenderInterface() override;
 

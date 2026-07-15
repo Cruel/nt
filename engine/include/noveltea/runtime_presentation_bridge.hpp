@@ -21,7 +21,8 @@ public:
     [[nodiscard]] virtual RuntimePresentationDispatchResult
     accept(const core::AudioOperation& operation) = 0;
     [[nodiscard]] virtual RuntimePresentationDispatchResult flush() = 0;
-    [[nodiscard]] virtual core::Diagnostics set_active_text_causal(bool active) = 0;
+    [[nodiscard]] virtual core::Diagnostics
+    set_active_text_phase(core::ActiveTextPresentationPhase phase) = 0;
     [[nodiscard]] virtual core::Diagnostics reconcile() = 0;
     virtual void terminate(core::PresentationCancellationReason reason) = 0;
 };
@@ -37,7 +38,8 @@ public:
     [[nodiscard]] RuntimePresentationDispatchResult
     accept(const core::AudioOperation& operation) override;
     [[nodiscard]] RuntimePresentationDispatchResult flush() override;
-    [[nodiscard]] core::Diagnostics set_active_text_causal(bool active) override;
+    [[nodiscard]] core::Diagnostics
+    set_active_text_phase(core::ActiveTextPresentationPhase phase) override;
     [[nodiscard]] core::Diagnostics reconcile() override;
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();
     [[nodiscard]] core::Diagnostics reconcile(const core::CompiledProject& project,
@@ -46,6 +48,9 @@ public:
     void bind_presentation_id_allocator(std::function<core::PresentationOperationId()> allocator);
     void bind_runtime(const core::CompiledProject* project,
                       std::function<const core::SessionState&()> state_provider);
+    void bind_snapshot_backend(std::function<core::Result<void, core::Diagnostics>(
+                                   const core::RuntimePresentationSnapshot&)>
+                                   backend);
 
     [[nodiscard]] const core::PresentationCheckpointStatus& checkpoint_status() const noexcept
     {
@@ -68,8 +73,12 @@ private:
     std::vector<core::BackendOperationAcknowledgement> m_backend_facts;
     std::function<core::PresentationOperationId()> m_allocate_presentation_id;
     std::optional<core::PresentationOperationId> m_active_text_operation;
+    core::ActiveTextPresentationPhase m_active_text_phase =
+        core::ActiveTextPresentationPhase::Stable;
     const core::CompiledProject* m_project = nullptr;
     std::function<const core::SessionState&()> m_state_provider;
+    std::function<core::Result<void, core::Diagnostics>(const core::RuntimePresentationSnapshot&)>
+        m_snapshot_backend;
 };
 
 } // namespace noveltea

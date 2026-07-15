@@ -2,6 +2,8 @@
 
 #include <RmlUi/Core/SystemInterface.h>
 
+#include <chrono>
+
 struct SDL_Cursor;
 struct SDL_Window;
 
@@ -13,6 +15,7 @@ public:
     ~SdlSystemInterface() override;
 
     double GetElapsedTime() override;
+    void set_elapsed_time(std::chrono::microseconds elapsed) noexcept;
     void SetMouseCursor(const Rml::String& cursor_name) override;
     void SetClipboardText(const Rml::String& text) override;
     void GetClipboardText(Rml::String& text) override;
@@ -29,8 +32,7 @@ private:
     SDL_Cursor* m_cross_cursor = nullptr;
     SDL_Cursor* m_text_cursor = nullptr;
     SDL_Cursor* m_unavailable_cursor = nullptr;
-    uint64_t m_start = 0;
-    double m_frequency = 1.0;
+    std::chrono::microseconds m_elapsed{0};
 };
 
 } // namespace noveltea::ui::rmlui

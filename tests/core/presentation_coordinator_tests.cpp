@@ -78,6 +78,36 @@ TEST_CASE("coordinator assigns one total order and registers causal barriers syn
     CHECK(coordinator.checkpoint_status().revision.number() == 3);
 }
 
+TEST_CASE("coordinator validates ActiveText causal phase and clock before acceptance")
+{
+    PresentationCoordinator coordinator;
+    const auto operation = PresentationOperationId::from_number(1);
+
+    auto stable = coordinator.accept(ActiveTextPresentationOperation{
+        operation, ActiveTextPresentationPhase::Stable, LayoutClockDomain::Gameplay});
+    REQUIRE_FALSE(stable);
+    CHECK(stable.error().front().code == "presentation.invalid_active_text_operation");
+
+    auto invalid_phase = coordinator.accept(ActiveTextPresentationOperation{
+        PresentationOperationId::from_number(2), static_cast<ActiveTextPresentationPhase>(255),
+        LayoutClockDomain::Gameplay});
+    REQUIRE_FALSE(invalid_phase);
+
+    auto invalid_clock = coordinator.accept(ActiveTextPresentationOperation{
+        PresentationOperationId::from_number(3), ActiveTextPresentationPhase::Reveal,
+        static_cast<LayoutClockDomain>(255)});
+    REQUIRE_FALSE(invalid_clock);
+    CHECK(coordinator.lifecycles().empty());
+    CHECK(coordinator.checkpoint_status().active_barriers.empty());
+
+    auto reveal = coordinator.accept(ActiveTextPresentationOperation{
+        PresentationOperationId::from_number(4), ActiveTextPresentationPhase::Reveal,
+        LayoutClockDomain::Gameplay});
+    REQUIRE(reveal);
+    CHECK(reveal.value().metadata.checkpoint_class == CheckpointClass::CausalBarrier);
+    CHECK(coordinator.checkpoint_status().active_barriers.size() == 1);
+}
+
 TEST_CASE("coordinator enforces lifecycle acknowledgement identity and terminal paths")
 {
     PresentationCoordinator coordinator;

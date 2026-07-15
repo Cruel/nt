@@ -243,14 +243,20 @@ Native runtime UI support is implemented through RmlUi integration. Relevant run
 - custom component support;
 - template resolver.
 
-The current authoring layout schema is ahead of some runtime mounting/export behavior. Layout docs should distinguish editor preview behavior from finalized runtime package behavior.
+The current authoring layout schema is ahead of final menu and persistence behavior. Runtime
+presentation materializes both document and fragment resources from inline or asset-backed RML,
+RCSS, and enabled Lua. Layout slots, Room overlays, and Map Layouts reconcile into mounted gameplay
+instances; Phase 7 adds persistence and Phase 8 completes system/custom menu workflows.
 
 At runtime, each mounted Layout has a strong instance ID, owner, and complete policy independent of
 the reusable `LayoutResource`. Visible input policies are evaluated with `Modal` stronger than
 `BlockGameplay`, then `Normal`; `None` does not participate. Equal modes use presentation plane,
 signed local order, and instance identity. Escape dismisses the topmost eligible mount by owner and
-does not pass through a higher non-dismissible modal. RmlUi remains a single shared context until the
-planned lifecycle-domain split.
+does not pass through a higher non-dismissible modal. RmlUi groups compatible mounts by presentation
+plane, contiguous composition group, gameplay/unscaled clock domain, and input mode. Contiguous
+groups preserve interleaved mounted ordering when the same lifecycle policy appears on both sides of
+a different policy. Policy replacement moves realization between contexts without changing mounted
+identity and preserves visibility, listeners, and focused element identity.
 
 ## Export / Package Status
 

@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace noveltea {
@@ -107,6 +108,8 @@ private:
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot);
     assets::AssetManager m_assets;
     AudioSystem m_audio;
     Platform m_platform;
@@ -131,6 +134,12 @@ private:
     RuntimeLayoutManager m_runtime_layouts;
     std::optional<core::MountedLayoutInstanceId> m_title_layout_instance;
     std::optional<core::MountedLayoutInstanceId> m_game_hud_layout_instance;
+    struct RealizedPresentationLayout {
+        core::MountedLayoutInstanceId instance;
+        core::LayoutId layout;
+        bool visible = true;
+    };
+    std::unordered_map<std::string, RealizedPresentationLayout> m_presentation_layout_instances;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;

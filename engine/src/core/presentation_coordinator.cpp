@@ -100,10 +100,13 @@ Result<PresentationOperationMetadata, Diagnostics> normalize(const AudioOperatio
 Result<PresentationOperationMetadata, Diagnostics>
 normalize(const ActiveTextPresentationOperation& operation)
 {
-    if (operation.id.number() == 0)
+    if (operation.id.number() == 0 || operation.phase == ActiveTextPresentationPhase::Stable ||
+        operation.phase > ActiveTextPresentationPhase::Fade ||
+        operation.clock > LayoutClockDomain::UnscaledPresentation)
         return Result<PresentationOperationMetadata, Diagnostics>::failure(
             {diagnostic("presentation.invalid_active_text_operation",
-                        "ActiveText presentation operation identity must be nonzero")});
+                        "ActiveText operation requires a nonzero identity, a causal phase, and a "
+                        "valid clock domain")});
     return Result<PresentationOperationMetadata, Diagnostics>::success(
         {.operation = operation.id,
          .sequence = PresentationOperationSequence::from_number(1),
