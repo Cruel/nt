@@ -290,6 +290,50 @@ std::vector<core::CheckpointSaveOutcome> RuntimeCheckpointService::take_complete
     return outcomes;
 }
 
+core::Result<core::LatestSaveCheckpoint, core::Diagnostics>
+RuntimeCheckpointService::prepare_loaded_checkpoint(std::string encoded_save,
+                                                    const core::SaveState& decoded)
+{
+    auto revision = allocate_checkpoint_revision();
+    if (!revision)
+        return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
+            std::move(revision).error());
+    return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::success(
+        core::LatestSaveCheckpoint{*revision.value_if(), std::move(encoded_save),
+                                   core::SaveCheckpointMetadata{decoded.metadata.format_version,
+                                                                decoded.metadata.project,
+                                                                decoded.metadata.project_version,
+                                                                decoded.play_time,
+                                                                {}}});
+}
+
+void RuntimeCheckpointService::commit_loaded_checkpoint(
+    core::LatestSaveCheckpoint checkpoint) noexcept
+{
+    m_generations = checkpoint.metadata.generations;
+    m_latest_checkpoint = std::move(checkpoint);
+    m_pending_deferred_autosave.reset();
+    m_pending_manual_saves.clear();
+    m_deferred_autosave_target.reset();
+    m_completed_save_outcomes.clear();
+    m_next_time_only_refresh = m_elapsed_runtime + std::chrono::seconds{1};
+}
+
+void RuntimeCheckpointService::reset() noexcept
+{
+    m_generations = {};
+    m_readiness = {core::CheckpointReadinessRevision::from_number(1), {}};
+    m_latest_checkpoint.reset();
+    m_pending_deferred_autosave.reset();
+    m_pending_manual_saves.clear();
+    m_deferred_autosave_target.reset();
+    m_completed_save_outcomes.clear();
+    m_next_checkpoint_revision = 1;
+    m_next_readiness_revision = 2;
+    m_next_time_only_refresh = {};
+    m_elapsed_runtime = {};
+}
+
 core::CheckpointSaveOutcome
 RuntimeCheckpointService::write_checkpoint(core::TypedSaveSlotId slot,
                                            const core::LatestSaveCheckpoint& checkpoint,

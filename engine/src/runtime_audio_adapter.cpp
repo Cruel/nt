@@ -176,7 +176,8 @@ std::vector<core::AcknowledgeAudioTerminationInput> RuntimeAudioAdapter::take_te
     return terminated;
 }
 
-void RuntimeAudioAdapter::reset()
+void RuntimeAudioAdapter::reset(
+    [[maybe_unused]] core::PresentationCancellationReason reason) noexcept
 {
     m_pending.clear();
     m_terminated.clear();

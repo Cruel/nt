@@ -40,6 +40,7 @@ public:
     virtual ~TypedRuntimePresentationSink() = default;
     [[nodiscard]] virtual core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
     apply(const core::PresentationOperation& operation) = 0;
+    virtual void reset(core::PresentationCancellationReason reason) noexcept = 0;
 };
 
 class TypedRuntimeAudioSink {
@@ -47,6 +48,7 @@ public:
     virtual ~TypedRuntimeAudioSink() = default;
     [[nodiscard]] virtual core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
     apply(const core::AudioOperation& operation) = 0;
+    virtual void reset(core::PresentationCancellationReason reason) noexcept = 0;
 };
 
 class RuntimeUiAssetResolver {

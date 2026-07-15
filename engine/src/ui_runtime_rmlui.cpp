@@ -1328,6 +1328,14 @@ void RuntimeUI::shutdown()
     if (!m_initialized)
         return;
     if (m_state) {
+        if (m_state->typed_presentation_sink)
+            m_state->typed_presentation_sink->reset(
+                core::PresentationCancellationReason::OwnerEnded);
+        if (m_state->typed_audio_sink)
+            m_state->typed_audio_sink->reset(core::PresentationCancellationReason::OwnerEnded);
+        if (m_state->typed_runtime_session)
+            m_state->typed_runtime_session->bind_transient_reset_handler({});
+        m_state->typed_runtime_session = nullptr;
         cleanup_state();
     }
     m_initialized = false;
@@ -1595,7 +1603,18 @@ void RuntimeUI::bind_typed_runtime_session(script::TypedRuntimeSession* session)
 {
     if (!m_state)
         return;
+    if (m_state->typed_runtime_session && m_state->typed_runtime_session != session)
+        m_state->typed_runtime_session->bind_transient_reset_handler({});
     m_state->typed_runtime_session = session;
+    if (session) {
+        session->bind_transient_reset_handler(
+            [state = m_state](core::PresentationCancellationReason reason) {
+                if (state->typed_presentation_sink)
+                    state->typed_presentation_sink->reset(reason);
+                if (state->typed_audio_sink)
+                    state->typed_audio_sink->reset(reason);
+            });
+    }
     m_state->typed_runtime_view.reset();
     m_state->typed_notification.clear();
     m_state->typed_diagnostics.clear();

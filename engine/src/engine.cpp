@@ -888,7 +888,8 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         return false;
     }
 
-    m_runtime_audio_adapter.reset();
+    m_runtime_ui.bind_typed_runtime_session(nullptr);
+    m_runtime_audio_adapter.reset(core::PresentationCancellationReason::ProjectReload);
     m_compiled_runtime = std::move(*loaded.value_if());
     m_runtime_ui_asset_resolver.bind(m_compiled_runtime.get());
     const auto& project = m_compiled_runtime->package().project();
@@ -929,6 +930,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     if (!m_runtime_ui.dispatch_typed_runtime_input(
             core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
         std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
+        m_runtime_ui.bind_typed_runtime_session(nullptr);
         m_runtime_audio_adapter.reset();
         m_runtime_ui_asset_resolver.clear();
         m_compiled_runtime.reset();
@@ -939,6 +941,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     if (load_title_screen) {
         if (!m_runtime_ui.load_title_document()) {
             std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
+            m_runtime_ui.bind_typed_runtime_session(nullptr);
             m_runtime_audio_adapter.reset();
             m_runtime_ui_asset_resolver.clear();
             m_compiled_runtime.reset();
@@ -1547,8 +1550,11 @@ void Engine::shutdown()
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();
     }
+    m_runtime_ui.bind_typed_runtime_session(nullptr);
     m_runtime_ui.bind_typed_audio_sink(nullptr);
-    m_runtime_audio_adapter.reset();
+    m_runtime_audio_adapter.reset(core::PresentationCancellationReason::OwnerEnded);
+    m_compiled_runtime.reset();
+    m_runtime_ui_asset_resolver.clear();
     m_runtime_ui.shutdown();
     m_tweens.reset();
     m_assets.bind_audio_loader(nullptr);

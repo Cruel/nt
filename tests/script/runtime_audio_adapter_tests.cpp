@@ -247,3 +247,44 @@ TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem
     REQUIRE(completed.size() == 1);
     CHECK(completed.front() == core::CompleteAudioInput{stop.id, owner, *stop.completion});
 }
+
+TEST_CASE("checkpoint load reset stops audio without fabricating completion")
+{
+    const auto project = load_project();
+    auto state = core::SessionState::create(project);
+    REQUIRE(state);
+    const auto owner = core::flow_frame_id(state.value().flow_stack().back());
+    auto completion = core::ScriptInvocationHandle::create(19);
+    REQUIRE(completion);
+
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiAssetResolver resolver;
+    resolver.bind(project);
+    RuntimeAudioAdapter adapter(audio, resolver);
+
+    const auto operation =
+        core::AudioOperation{.id = core::AudioOperationId::from_number(8),
+                             .action = core::compiled::AudioAction::Play,
+                             .channel = core::compiled::AudioChannel::Voice,
+                             .asset = core::AssetId::create("audio-voice").value(),
+                             .loop = false,
+                             .volume = 1.0,
+                             .owner = owner,
+                             .completion = core::AudioCompletionHandle{completion.value()}};
+    auto pending = adapter.apply(operation);
+    REQUIRE(pending);
+    CHECK(pending.value() == TypedRuntimeOperationDisposition::Pending);
+    REQUIRE(backend_ptr->active_voice_count() == 1);
+
+    adapter.reset(core::PresentationCancellationReason::CheckpointLoad);
+    CHECK(backend_ptr->active_voice_count() == 0);
+    CHECK(adapter.take_completions().empty());
+    CHECK(adapter.take_terminations().empty());
+}

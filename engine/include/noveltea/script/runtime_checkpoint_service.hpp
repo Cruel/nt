@@ -81,6 +81,10 @@ public:
     [[nodiscard]] core::CheckpointSaveOutcome
     request(const core::ImmediateRetainedCheckpointWriteRequest& request);
     [[nodiscard]] std::vector<core::CheckpointSaveOutcome> take_completed_save_outcomes();
+    [[nodiscard]] core::Result<core::LatestSaveCheckpoint, core::Diagnostics>
+    prepare_loaded_checkpoint(std::string encoded_save, const core::SaveState& decoded);
+    void commit_loaded_checkpoint(core::LatestSaveCheckpoint checkpoint) noexcept;
+    void reset() noexcept;
 
 private:
     [[nodiscard]] core::Diagnostics

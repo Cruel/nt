@@ -1,10 +1,9 @@
 # Presentation and Checkpoint Ownership
 
 Date: 2026-07-15
-Status: Phase 1A through Phase 1D and Phase 2A through Phase 2C complete. The ownership inventory,
-frozen specification, canonical shared contracts, and runtime-owned retained-checkpoint save cutover
-are implemented; load/reset closure remains in Phase 2D and presentation work remains assigned to
-Phases 3 through 8.
+Status: Phase 1A through Phase 1D and Phase 2A through Phase 2D complete. The ownership inventory,
+frozen specification, canonical shared contracts, runtime-owned retained-checkpoint save cutover,
+and load/reset lifecycle are implemented; presentation work remains assigned to Phases 3 through 8.
 
 ## Purpose and authority
 
@@ -824,6 +823,45 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
   without mutating the older retained checkpoint. Startup uses the same broker after sinks bind.
 - Phase 2C retained-checkpoint save/autosave cutover, Phase 2D load/reset lifecycle, and final
   coordinator/reconstructible presentation work remain intentionally unchanged.
+
+## Phase 2C implementation evidence
+
+- `RuntimeCheckpointService` owns manual, deferred-autosave, and immediate-retained requests and
+  typed outcomes. Every successful slot write receives an already-retained immutable byte string.
+- `TypedRuntimeSession` adapts existing runtime and Lua save commands to those canonical requests;
+  `TypedExecutionKernel` no longer owns live-state slot writes or autosave consumption.
+- Focused checkpoint-service and typed-session tests cover refreshed and retained manual writes,
+  capture and slot-write failures, coalesced deferred requests with immutable retry targets,
+  same-settlement autosave fulfillment, and immediate retained writes.
+
+## Phase 2D implementation evidence
+
+- `TypedRuntimeSession` constructs a load candidate by reading exact slot bytes, decoding and
+  project-validating `SaveState`, and restoring a complete replacement `TypedExecutionKernel`
+  before any live mutation or backend reset. A failed read, decode, validation, or restore leaves
+  the live kernel, transitional sinks, and retained checkpoint unchanged.
+- `RuntimeUI` binds the session's narrow transient-reset callback to the current presentation and
+  audio sinks. Successful load resets them with `CheckpointLoad` before committing the replacement;
+  reset uses `RuntimeReset`. `RuntimeAudioAdapter::reset` stops backend tracks and clears pending
+  completions and termination acknowledgements without dispatching fabricated runtime completion.
+- `RuntimeCheckpointService::prepare_loaded_checkpoint` allocates a fresh monotonic session-local
+  revision from decoded metadata, while `commit_loaded_checkpoint` adopts the exact loaded bytes,
+  resets generation baselines, and clears pending manual/deferred outcomes and targets. The load
+  settlement observes equal captured generations and therefore does not re-encode the state.
+- Runtime reset clears checkpoint state, pending requests/outcomes, transitional operation/barrier
+  state, selections, and pending host/audio/presentation work. Its settlement is explicitly
+  suppressed so a new checkpoint is obtained only from the subsequent startup settlement.
+- Project replacement and shutdown unbind `RuntimeUI` from the live session before destroying the
+  owning `CompiledRuntime`. `RuntimeUI::shutdown()` also clears the session reset callback before
+  deleting its state, preventing stale callback/session pointers across reload, shutdown, and later
+  reinitialization. Engine shutdown destroys the compiled runtime before `ScriptRuntime` shutdown so
+  the old checkpoint service and pending save work end with their owning session.
+- Focused script and UI verification covers failed-load atomicity, exact-byte retained adoption,
+  fresh revisions, reset cancellation reasons, empty generation baselines, no fabricated
+  completion, and checkpoint-service lifecycle clearing. Phase 7 persistence debt remains unchanged.
+- Verification on 2026-07-15 passed the full Linux build, all 345 Linux CTest tests, focused script
+  (83 cases) and UI (58 cases) suites, `format-check`, `cxx-policy`, `json-boundary-policy`, the full
+  Web build, and Web `cxx-policy`.
 
 ## Affected test targets and later-phase obligations
 

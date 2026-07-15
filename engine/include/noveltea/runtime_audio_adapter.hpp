@@ -18,7 +18,8 @@ public:
     apply(const core::AudioOperation& operation) override;
     [[nodiscard]] std::vector<core::CompleteAudioInput> take_completions();
     [[nodiscard]] std::vector<core::AcknowledgeAudioTerminationInput> take_terminations();
-    void reset();
+    void reset(core::PresentationCancellationReason reason =
+                   core::PresentationCancellationReason::OwnerEnded) noexcept override;
 
 private:
     struct ActiveTrack {

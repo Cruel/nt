@@ -3,6 +3,7 @@
 #include "noveltea/script/typed_execution_kernel.hpp"
 
 #include "noveltea/core/runtime_diagnostic_context.hpp"
+#include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 
 #include <algorithm>
@@ -186,6 +187,11 @@ core::Diagnostics TypedRuntimeSession::settle_dispatch_transaction()
                            "Runtime dispatch transaction is not active")};
     if (--m_dispatch_transaction_depth != 0)
         return {};
+    if (m_skip_next_checkpoint_settlement) {
+        m_skip_next_checkpoint_settlement = false;
+        m_transaction_mutations = {};
+        return {};
+    }
     RuntimeCheckpointFacts facts{
         .input_queue_settled = true,
         .output_queue_settled = true,
@@ -891,6 +897,9 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                 } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
                     auto reset = TypedExecutionKernel::create(m_project, m_runtime);
                     if (reset) {
+                        if (m_transient_reset_handler)
+                            m_transient_reset_handler(
+                                core::PresentationCancellationReason::RuntimeReset);
                         m_script_api.clear_target();
                         m_kernel = std::move(*reset.value_if());
                         m_script_api.replace_target(this);
@@ -899,6 +908,10 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         m_pending_presentation.reset();
                         m_pending_audio.reset();
                         m_script_audio.clear();
+                        m_active_text_checkpoint_operation.reset();
+                        m_presentation_checkpoint_status.active_barriers.clear();
+                        m_checkpoint_service.reset();
+                        m_skip_next_checkpoint_settlement = true;
                     } else
                         result.diagnostics = std::move(reset).error();
                 } else if constexpr (std::is_same_v<T, core::AdvanceTimeInput>) {
@@ -1001,18 +1014,43 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         }
                     }
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
-                    auto loaded =
-                        TypedExecutionKernel::load_slot(m_project, m_runtime, m_saves, value.slot);
-                    if (loaded) {
+                    auto bytes = m_saves.read_slot(value.slot);
+                    auto decoded = bytes
+                                       ? core::decode_save_state_text(m_project, *bytes.value_if(),
+                                                                      "save-slot")
+                                       : core::Result<core::SaveState, core::Diagnostics>::failure(
+                                             bytes.error());
+                    auto loaded = decoded
+                                      ? TypedExecutionKernel::restore(m_project, m_runtime,
+                                                                      *decoded.value_if())
+                                      : core::Result<std::unique_ptr<TypedExecutionKernel>,
+                                                     core::Diagnostics>::failure(decoded.error());
+                    auto checkpoint =
+                        loaded
+                            ? m_checkpoint_service.prepare_loaded_checkpoint(*bytes.value_if(),
+                                                                             *decoded.value_if())
+                            : core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
+                                  loaded.error());
+                    if (checkpoint) {
+                        if (m_transient_reset_handler)
+                            m_transient_reset_handler(
+                                core::PresentationCancellationReason::CheckpointLoad);
                         m_script_api.clear_target();
                         m_kernel = std::move(*loaded.value_if());
                         m_script_api.replace_target(this);
+                        m_selection.clear();
+                        m_pending_host_requests.clear();
+                        m_pending_presentation.reset();
                         m_pending_audio.reset();
                         m_script_audio.clear();
+                        m_active_text_checkpoint_operation.reset();
+                        m_presentation_checkpoint_status.active_barriers.clear();
+                        m_checkpoint_service.commit_loaded_checkpoint(
+                            std::move(*checkpoint.value_if()));
                         result.outputs.emplace_back(core::SaveOutcome{
                             value.slot, core::SaveOutcomeStatus::Loaded, value.slot.is_autosave()});
                     } else
-                        result.diagnostics = std::move(loaded).error();
+                        result.diagnostics = std::move(checkpoint).error();
                 } else if constexpr (std::is_same_v<T, core::BeginPlaybackInput>) {
                     m_playback = true;
                     m_playback_step = 0;

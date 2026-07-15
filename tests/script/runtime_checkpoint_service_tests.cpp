@@ -395,4 +395,32 @@ TEST_CASE("ineligible manual save without retained state reports missing checkpo
           core::CheckpointSaveFailureStage::NoRetainedCheckpoint);
 }
 
+TEST_CASE("loaded checkpoint becomes exact retained baseline and service reset clears lifecycle")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    RecordingSaveStore saves;
+    RuntimeCheckpointService service(project, saves);
+    REQUIRE(service.publish_candidate(state));
+    const auto original_revision = service.latest_checkpoint()->revision;
+
+    auto decoded = core::make_save_state(project, state);
+    REQUIRE(decoded);
+    const std::string exact_bytes = "exact loaded slot bytes";
+    auto prepared = service.prepare_loaded_checkpoint(exact_bytes, *decoded.value_if());
+    REQUIRE(prepared);
+    CHECK(prepared.value().revision.number() == original_revision.number() + 1);
+    service.commit_loaded_checkpoint(std::move(prepared).value());
+    REQUIRE(service.latest_checkpoint());
+    CHECK(service.latest_checkpoint()->encoded_save == exact_bytes);
+    CHECK(service.generations() == core::CheckpointGenerationState{});
+
+    service.reset();
+    CHECK_FALSE(service.latest_checkpoint());
+    CHECK_FALSE(service.pending_deferred_autosave());
+    CHECK(service.generations() == core::CheckpointGenerationState{});
+    REQUIRE(service.publish_candidate(state));
+    CHECK(service.latest_checkpoint()->revision.number() == 1);
+}
+
 } // namespace noveltea::script::test

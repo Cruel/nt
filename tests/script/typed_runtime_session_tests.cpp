@@ -128,12 +128,53 @@ TEST_CASE(
     auto save_outcomes = fixture.session->take_checkpoint_save_outcomes();
     REQUIRE(save_outcomes.size() == 1);
     CHECK(std::holds_alternative<core::CheckpointWriteSucceeded>(save_outcomes.front()));
+    const auto saved_bytes = fixture.saves.read_slot(slot).value();
+    const auto retained_before_load = *fixture.session->checkpoint_service().latest_checkpoint();
+    std::vector<core::PresentationCancellationReason> resets;
+    fixture.session->bind_transient_reset_handler(
+        [&](core::PresentationCancellationReason reason) { resets.push_back(reason); });
     (void)fixture.session->apply(
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{9}}});
+
+    const auto corrupt_slot = core::TypedSaveSlotId::manual(5);
+    REQUIRE(fixture.saves.write_slot(corrupt_slot, "{corrupt"));
+    auto failed_load =
+        fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{corrupt_slot}});
+    REQUIRE_FALSE(failed_load.diagnostics.empty());
+    CHECK(resets.empty());
+    CHECK(*fixture.session->checkpoint_service().latest_checkpoint() == retained_before_load);
+    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{9}});
+
     auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
     CHECK(has_output_kind(loaded, core::RuntimeOutputKind::SaveOutcome));
+    REQUIRE(resets.size() == 1);
+    CHECK(resets.front() == core::PresentationCancellationReason::CheckpointLoad);
     REQUIRE(fixture.session->script_variable(count));
     CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
+    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->encoded_save == saved_bytes);
+    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() ==
+          retained_before_load.revision.number() + 1);
+    CHECK(fixture.session->checkpoint_service().generations() == core::CheckpointGenerationState{});
+}
+
+TEST_CASE("runtime reset clears checkpoint and transient lifecycle without fabricated completion")
+{
+    Fixture fixture("minimal.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
+    std::vector<core::PresentationCancellationReason> resets;
+    fixture.session->bind_transient_reset_handler(
+        [&](core::PresentationCancellationReason reason) { resets.push_back(reason); });
+
+    auto reset =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    REQUIRE(reset.diagnostics.empty());
+    REQUIRE(resets.size() == 1);
+    CHECK(resets.front() == core::PresentationCancellationReason::RuntimeReset);
+    CHECK_FALSE(fixture.session->checkpoint_service().latest_checkpoint());
+    CHECK(fixture.session->presentation_checkpoint_status().active_barriers.empty());
 }
 
 TEST_CASE("typed runtime session starts a representative Room session")

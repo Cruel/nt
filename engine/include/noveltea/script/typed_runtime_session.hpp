@@ -5,6 +5,7 @@
 #include "noveltea/script/runtime_script_api.hpp"
 
 #include <memory>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -36,6 +37,11 @@ public:
 
     [[nodiscard]] TypedRuntimeSessionResult apply(const core::RuntimeInputMessage& input);
     void begin_dispatch_transaction() noexcept;
+    void bind_transient_reset_handler(
+        std::function<void(core::PresentationCancellationReason)> handler) noexcept
+    {
+        m_transient_reset_handler = std::move(handler);
+    }
     [[nodiscard]] core::Diagnostics settle_dispatch_transaction();
     [[nodiscard]] core::Diagnostics accept_runtime_output(const core::RuntimeOutputMessage& output);
     [[nodiscard]] core::Diagnostics
@@ -179,6 +185,7 @@ private:
     core::TypedRuntimeUIViewState m_script_view;
     std::vector<core::RuntimeInputMessage> m_script_inputs;
     bool m_draining_script_inputs = false;
+    bool m_skip_next_checkpoint_settlement = false;
     std::string m_runtime_locale;
     bool m_running = false;
     bool m_playback = false;
@@ -192,6 +199,7 @@ private:
     std::uint64_t m_next_host_request_id = 1;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;
+    std::function<void(core::PresentationCancellationReason)> m_transient_reset_handler;
 };
 
 } // namespace noveltea::script
