@@ -364,8 +364,11 @@ TypedExecutionKernel::interaction_view(std::string_view)
             interaction_error("execution.no_interaction_view", "No Interaction is active"));
     core::InteractionView view{frame->invocation.verb, frame->invocation.room,
                                frame->invocation.operands, frame->program, std::nullopt};
-    for (auto it = m_host.requests().rbegin(); it != m_host.requests().rend(); ++it) {
-        if (const auto* notification = std::get_if<core::NotificationRequest>(&*it)) {
+    for (auto it = m_host.actions().rbegin(); it != m_host.actions().rend(); ++it) {
+        const auto* event = std::get_if<runtime::RuntimeEvent>(&*it);
+        const auto* notification =
+            event == nullptr ? nullptr : std::get_if<runtime::NotificationEvent>(event);
+        if (notification != nullptr) {
             view.notification = notification->message;
             break;
         }

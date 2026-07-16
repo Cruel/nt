@@ -27,7 +27,7 @@ enum class RuntimeQueueKind : std::uint8_t {
     Input,
     Output,
     ScriptInput,
-    HostRequest,
+    DeferredCommand,
     PresentationAcknowledgement,
 };
 
@@ -47,10 +47,6 @@ struct ScriptCheckpointBarrierSource {
     ScriptInvocationHandle invocation;
     auto operator<=>(const ScriptCheckpointBarrierSource&) const = default;
 };
-struct HostRequestCheckpointBarrierSource {
-    HostRequestId request;
-    auto operator<=>(const HostRequestCheckpointBarrierSource&) const = default;
-};
 struct PresentationCheckpointBarrierSource {
     PresentationOperationRef operation;
     bool operator==(const PresentationCheckpointBarrierSource&) const = default;
@@ -58,7 +54,7 @@ struct PresentationCheckpointBarrierSource {
 using CheckpointBarrierSource =
     std::variant<RuntimeTransactionBarrierSource, RuntimeQueueBarrierSource,
                  FlowCheckpointBarrierSource, ScriptCheckpointBarrierSource,
-                 HostRequestCheckpointBarrierSource, PresentationCheckpointBarrierSource>;
+                 PresentationCheckpointBarrierSource>;
 
 enum class CheckpointBarrierKind : std::uint8_t {
     RuntimeTransaction,
@@ -66,7 +62,6 @@ enum class CheckpointBarrierKind : std::uint8_t {
     UnserializableFlow,
     ImmediateScriptInvocation,
     SuspendedScriptInvocation,
-    PendingHostRequest,
     PresentationCausalOperation,
     InvalidReconstructibleState,
 };
@@ -89,7 +84,6 @@ enum class CheckpointReadinessReason : std::uint8_t {
     FlowStateNotSerializable,
     ImmediateScriptInvocationActive,
     SuspendedScriptInvocationActive,
-    HostRequestPending,
     PresentationBarrierActive,
     ReconstructibleStateInvalid,
     SaveProjectionFailed,

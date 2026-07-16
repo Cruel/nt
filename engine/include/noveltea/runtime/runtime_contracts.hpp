@@ -34,7 +34,6 @@ struct RuntimePublication {
     core::TypedRuntimeUIViewState gameplay_ui;
     core::RuntimePresentationSnapshot presentation;
     RuntimeObservationSnapshot observations;
-    bool operator==(const RuntimePublication&) const = default;
 };
 
 struct NotificationEvent {

@@ -19,7 +19,6 @@
 namespace noveltea::core {
 
 struct SaveState;
-struct SaveSnapshotContext;
 
 class LogicalTimerId {
 public:
@@ -202,7 +201,7 @@ private:
     friend class FlowExecutor;
     friend class PropertyResolver;
     friend Result<SaveState, Diagnostics> make_save_state(const CompiledProject&,
-                                                          const SessionState&, SaveSnapshotContext);
+                                                          const SessionState&);
 
     SessionState(RuntimeMode mode, FlowStack flow_stack,
                  std::unordered_map<VariableId, RuntimeValue> variables,

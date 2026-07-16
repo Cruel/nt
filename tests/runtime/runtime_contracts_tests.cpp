@@ -143,17 +143,26 @@ TEST_CASE("runtime command identities and external request lifecycles are termin
 
 TEST_CASE("deferred runtime commands preserve assigned FIFO identity and source context")
 {
-    const DeferredRuntimeCommand first{.sequence = *RuntimeCommandSequence::from_number(1),
-                                       .source = {},
-                                       .payload = RequestAutosaveCommand{}};
-    const DeferredRuntimeCommand second{.sequence = *RuntimeCommandSequence::from_number(2),
-                                        .source = {},
-                                        .payload = RequestAutosaveCommand{}};
+    DeferredRuntimeCommandQueue queue;
+    const RuntimeSourceContext source{};
+    const auto first = queue.enqueue({source, RequestAutosaveCommand{}});
+    const auto second = queue.enqueue({source, RequestAutosaveCommand{}});
+    REQUIRE(first);
+    REQUIRE(second);
+    CHECK(first.value().number() == 1);
+    CHECK(second.value().number() == 2);
+    CHECK(queue.size() == 2);
 
-    const std::vector commands{first, second};
-    CHECK(commands.front().sequence.number() == 1);
-    CHECK(commands.back().sequence.number() == 2);
-    CHECK(commands.front().source == RuntimeSourceContext{});
+    const auto first_command = queue.pop_front();
+    const auto second_command = queue.pop_front();
+    REQUIRE(first_command);
+    REQUIRE(second_command);
+    CHECK(first_command->sequence == first.value());
+    CHECK(second_command->sequence == second.value());
+    CHECK(first_command->source == source);
+    CHECK(second_command->source == source);
+    CHECK(queue.empty());
+    CHECK_FALSE(queue.pop_front().has_value());
 }
 
 TEST_CASE("capability profiles are closed engine-selected values")

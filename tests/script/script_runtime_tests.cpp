@@ -26,6 +26,12 @@ namespace {
 
 assets::AssetBytes bytes(std::string text) { return assets::AssetBytes(text.begin(), text.end()); }
 
+template<class Command> bool is_runtime_command(const core::ScriptRuntimeAction& action)
+{
+    const auto* request = std::get_if<runtime::DeferredRuntimeCommandRequest>(&action);
+    return request != nullptr && std::holds_alternative<Command>(request->payload);
+}
+
 core::CompiledProject load_compiled_fixture(std::string_view filename)
 {
     std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
@@ -351,7 +357,7 @@ TEST_CASE("ScriptInvoker propagates nested failures after suspension")
 
 TEST_CASE("typed Lua host services expose validated state and closed requests only")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::ScriptHostRequest> == 11);
+    STATIC_REQUIRE(std::variant_size_v<core::ScriptRuntimeAction> == 2);
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
     auto project = load_script_project();
@@ -448,21 +454,23 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
 
     REQUIRE(host.variable(core::VariableId::create("count").value()).value() ==
             core::RuntimeValue{std::int64_t{7}});
-    REQUIRE(host.requests().size() == 11);
-    CHECK(std::holds_alternative<core::MoveInteractableRequest>(host.requests()[0]));
-    CHECK(std::holds_alternative<core::MoveInteractableRequest>(host.requests()[1]));
-    CHECK(std::holds_alternative<core::MoveInteractableRequest>(host.requests()[2]));
-    CHECK(std::holds_alternative<core::CallChildSceneRequest>(host.requests()[3]));
-    CHECK(std::holds_alternative<core::CallChildDialogueRequest>(host.requests()[4]));
-    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[5]));
-    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[6]));
-    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[7]));
-    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[8]));
-    CHECK(std::holds_alternative<core::TailReplaceFlowRequest>(host.requests()[9]));
-    CHECK(std::holds_alternative<core::NotificationRequest>(host.requests()[10]));
-    auto drained = host.take_requests();
+    REQUIRE(host.actions().size() == 11);
+    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(host.actions()[0]));
+    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(host.actions()[1]));
+    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(host.actions()[2]));
+    CHECK(is_runtime_command<runtime::CallChildSceneCommand>(host.actions()[3]));
+    CHECK(is_runtime_command<runtime::CallChildDialogueCommand>(host.actions()[4]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[5]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[6]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[7]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[8]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[9]));
+    const auto* event = std::get_if<runtime::RuntimeEvent>(&host.actions()[10]);
+    REQUIRE(event != nullptr);
+    CHECK(std::holds_alternative<runtime::NotificationEvent>(*event));
+    auto drained = host.take_actions();
     CHECK(drained.size() == 11);
-    CHECK(host.requests().empty());
+    CHECK(host.actions().empty());
 }
 
 TEST_CASE("typed Lua host services distinguish Room transient and navigation requests")
@@ -500,12 +508,19 @@ TEST_CASE("typed Lua host services distinguish Room transient and navigation req
     )",
                                     "typed-room-host"));
 
-    REQUIRE(host.requests().size() == 3);
-    CHECK(std::holds_alternative<core::StartTransientSceneRequest>(host.requests()[0]));
-    CHECK(std::holds_alternative<core::StartTransientDialogueRequest>(host.requests()[1]));
-    const auto* navigation = std::get_if<core::NavigationRequest>(&host.requests()[2]);
+    REQUIRE(host.actions().size() == 3);
+    const auto* scene = std::get_if<runtime::DeferredRuntimeCommandRequest>(&host.actions()[0]);
+    const auto* dialogue = std::get_if<runtime::DeferredRuntimeCommandRequest>(&host.actions()[1]);
+    const auto* navigation =
+        std::get_if<runtime::DeferredRuntimeCommandRequest>(&host.actions()[2]);
+    REQUIRE(scene != nullptr);
+    REQUIRE(dialogue != nullptr);
     REQUIRE(navigation != nullptr);
-    CHECK(navigation->target == core::RoomId::create("hall").value());
+    CHECK(std::holds_alternative<runtime::StartTransientSceneCommand>(scene->payload));
+    CHECK(std::holds_alternative<runtime::StartTransientDialogueCommand>(dialogue->payload));
+    const auto* command = std::get_if<runtime::NavigateRoomCommand>(&navigation->payload);
+    REQUIRE(command != nullptr);
+    CHECK(command->target == core::RoomId::create("hall").value());
 }
 
 TEST_CASE("ScriptRuntime does not expose unsafe standard libraries by default")

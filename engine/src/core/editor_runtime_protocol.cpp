@@ -518,8 +518,6 @@ nlohmann::json encode_output(const RuntimeOutputMessage& output)
                 return {{"type", "presentation-operation"}};
             else if constexpr (std::is_same_v<T, AudioOperation>)
                 return {{"type", "audio-operation"}, {"operation", value.id.number()}};
-            else if constexpr (std::is_same_v<T, TypedHostRequest>)
-                return {{"type", "host-request"}};
             else if constexpr (std::is_same_v<T, UserCommunicationOutput>) {
                 return std::visit(
                     [](const auto& message) -> nlohmann::json {
@@ -582,6 +580,23 @@ nlohmann::json encode_output(const RuntimeOutputMessage& output)
                 static_assert(always_false<T>, "Unhandled RuntimeOutputMessage alternative");
         },
         output);
+}
+
+nlohmann::json encode_event(const runtime::RuntimeEvent& event)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, runtime::NotificationEvent>)
+                return {{"type", "notification"}, {"message", value.message}};
+            else if constexpr (std::is_same_v<T, runtime::SaveOutcomeEvent>)
+                return encode_output(RuntimeOutputMessage{value.outcome});
+            else if constexpr (std::is_same_v<T, runtime::ObservationEvent>)
+                return encode_output(RuntimeOutputMessage{value.observation});
+            else
+                static_assert(always_false<T>, "Unhandled RuntimeEvent alternative");
+        },
+        event);
 }
 
 } // namespace
@@ -694,9 +709,13 @@ nlohmann::json encode_editor_playback_report(std::string_view id,
         nlohmann::json encoded = {{"index", step.index},
                                   {"handled", step.handled},
                                   {"outputs", nlohmann::json::array()},
+                                  {"events", nlohmann::json::array()},
+                                  {"eventOutputOffsets", step.event_output_offsets},
                                   {"diagnostics", nlohmann::json::array()}};
         for (const auto& output : step.outputs)
             encoded["outputs"].push_back(encode_output(output));
+        for (const auto& event : step.events)
+            encoded["events"].push_back(encode_event(event));
         for (const auto& diagnostic : step.diagnostics)
             encoded["diagnostics"].push_back(encode_diagnostic(diagnostic));
         result["steps"].push_back(std::move(encoded));
@@ -714,12 +733,14 @@ std::string encode_editor_playback_report_text(std::string_view id,
 
 nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
                                             const std::vector<RuntimeOutputMessage>& outputs,
+                                            const std::vector<runtime::RuntimeEvent>& events,
                                             const Diagnostics& diagnostics, bool preview_running)
 {
     nlohmann::json result = {
         {"schema", debug_snapshot_schema},         {"version", editor_runtime_protocol_version},
         {"previewRunning", preview_running},       {"view", encode_view(view)},
-        {"observations", nlohmann::json::array()}, {"diagnostics", nlohmann::json::array()}};
+        {"observations", nlohmann::json::array()}, {"events", nlohmann::json::array()},
+        {"diagnostics", nlohmann::json::array()}};
     for (const auto& output : outputs) {
         if (const auto* observation = std::get_if<RuntimeObservation>(&output)) {
             std::visit(
@@ -744,6 +765,8 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
                 *observation);
         }
     }
+    for (const auto& event : events)
+        result["events"].push_back(encode_event(event));
     for (const auto& diagnostic : diagnostics)
         result["diagnostics"].push_back(encode_diagnostic(diagnostic));
     return result;
@@ -751,9 +774,10 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
 
 std::string encode_editor_debug_snapshot_text(const TypedRuntimeUIViewState& view,
                                               const std::vector<RuntimeOutputMessage>& outputs,
+                                              const std::vector<runtime::RuntimeEvent>& events,
                                               const Diagnostics& diagnostics, bool preview_running)
 {
-    return encode_editor_debug_snapshot(view, outputs, diagnostics, preview_running).dump();
+    return encode_editor_debug_snapshot(view, outputs, events, diagnostics, preview_running).dump();
 }
 
 } // namespace noveltea::core::editor

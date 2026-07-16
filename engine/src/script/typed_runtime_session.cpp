@@ -61,12 +61,13 @@ void attach_runtime_context(core::Diagnostics& diagnostics, const TypedExecution
 
 } // namespace
 
-TypedRuntimeSession::TypedRuntimeSession(const core::CompiledProject& project,
-                                         ScriptRuntime& runtime, core::TypedSaveSlotStore& saves,
-                                         std::unique_ptr<TypedExecutionKernel> kernel,
-                                         std::string runtime_locale) noexcept
+TypedRuntimeSession::TypedRuntimeSession(
+    const core::CompiledProject& project, ScriptRuntime& runtime, core::TypedSaveSlotStore& saves,
+    std::unique_ptr<TypedExecutionKernel> kernel, std::string runtime_locale,
+    runtime::RuntimeBudgetConfiguration runtime_budget) noexcept
     : m_project(project), m_runtime(runtime), m_saves(saves), m_checkpoint_service(project, saves),
-      m_kernel(std::move(kernel)), m_runtime_locale(std::move(runtime_locale))
+      m_kernel(std::move(kernel)), m_runtime_budget(runtime_budget),
+      m_runtime_locale(std::move(runtime_locale))
 {
     m_script_api.replace_target(this);
     m_runtime.bind_runtime_script_api(&m_script_api);
@@ -74,6 +75,7 @@ TypedRuntimeSession::TypedRuntimeSession(const core::CompiledProject& project,
 
 TypedRuntimeSession::~TypedRuntimeSession()
 {
+    m_deferred_commands.clear();
     m_script_api.clear_target();
     m_runtime.clear_typed_host();
 }
@@ -116,21 +118,16 @@ core::Diagnostics TypedRuntimeSession::settle_dispatch_transaction()
         .input_queue_settled = true,
         .output_queue_settled = true,
         .script_input_queue_settled = m_script_inputs.empty(),
+        .deferred_command_queue_settled = m_deferred_commands.empty(),
         .presentation_acknowledgements_settled = true,
         .immediate_script_invocation_active = false,
         .flow_blocker = m_kernel->state().blocker(),
-        .pending_host_requests = {},
         .presentation_status =
             m_presentation_status_provider
                 ? m_presentation_status_provider()
                 : core::PresentationCheckpointStatus{core::CheckpointStatusRevision::from_number(1),
                                                      {}},
-        .in_flight_external_requests = m_kernel->host().in_flight_external_request_count(),
     };
-    facts.pending_host_requests.reserve(m_pending_host_requests.size());
-    for (const auto& pending : m_pending_host_requests)
-        facts.pending_host_requests.push_back(
-            std::visit([](const auto& request) { return request.id; }, pending.output));
     const auto mutations = m_transaction_mutations;
     m_transaction_mutations = {};
     auto settled = m_checkpoint_service.settle(m_kernel->state(), facts, mutations);
@@ -252,7 +249,11 @@ TypedRuntimeSession::script_request_tail_replacement(core::FlowTarget target)
 core::Result<void, core::Diagnostics>
 TypedRuntimeSession::script_request_notification(std::string message)
 {
-    return m_kernel->host().request_notification(std::move(message));
+    auto requested = m_kernel->host().request_notification(std::move(message));
+    if (!requested)
+        return requested;
+    stage_host_events();
+    return core::Result<void, core::Diagnostics>::success();
 }
 
 core::Result<void, core::Diagnostics> TypedRuntimeSession::script_seed_random(std::uint64_t seed)
@@ -455,7 +456,8 @@ core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_audio(
                           : std::nullopt};
     if (script_blocker)
         m_pending_audio = operation;
-    m_script_audio.push_back(std::move(operation));
+    stage_host_events();
+    m_pending_emissions.emplace_back(core::RuntimeOutputMessage{std::move(operation)});
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -494,15 +496,23 @@ core::Result<void, core::Diagnostics> TypedRuntimeSession::script_clear_text_log
 
 core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>
 TypedRuntimeSession::create(const core::CompiledProject& project, ScriptRuntime& runtime,
-                            core::TypedSaveSlotStore& saves, std::string runtime_locale)
+                            core::TypedSaveSlotStore& saves, std::string runtime_locale,
+                            runtime::RuntimeBudgetConfiguration runtime_budget)
 {
+    if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
+        return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::failure(
+            {core::Diagnostic{.code = "runtime.invalid_budget",
+                              .message =
+                                  "Runtime instruction and command budgets must be positive"}});
+    }
     auto kernel = TypedExecutionKernel::create(project, runtime);
     if (!kernel)
         return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::failure(
             std::move(kernel).error());
     return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::success(
-        std::unique_ptr<TypedRuntimeSession>(new TypedRuntimeSession(
-            project, runtime, saves, std::move(*kernel.value_if()), std::move(runtime_locale))));
+        std::unique_ptr<TypedRuntimeSession>(
+            new TypedRuntimeSession(project, runtime, saves, std::move(*kernel.value_if()),
+                                    std::move(runtime_locale), runtime_budget)));
 }
 
 core::Diagnostic TypedRuntimeSession::diagnostic(std::string code, std::string message) const
@@ -510,15 +520,35 @@ core::Diagnostic TypedRuntimeSession::diagnostic(std::string code, std::string m
     return core::Diagnostic{.code = std::move(code), .message = std::move(message)};
 }
 
-core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutputMessage>& outputs)
+core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutputMessage>& outputs,
+                                                  std::vector<runtime::RuntimeEvent>& events,
+                                                  std::vector<std::size_t>& event_output_offsets)
+{
+    auto diagnostics = run_kernel_once(outputs, events, event_output_offsets);
+    if (diagnostics.empty()) {
+        drain_deferred_commands(outputs, events, event_output_offsets, diagnostics);
+    } else {
+        m_deferred_commands.clear();
+    }
+    return diagnostics;
+}
+
+core::Diagnostics
+TypedRuntimeSession::run_kernel_once(std::vector<core::RuntimeOutputMessage>& outputs,
+                                     std::vector<runtime::RuntimeEvent>& events,
+                                     std::vector<std::size_t>& event_output_offsets)
 {
     core::Diagnostics diagnostics;
     const bool execution_can_advance =
         std::holds_alternative<core::FlowMode>(m_kernel->state().mode()) &&
         !m_kernel->state().blocker() && !m_kernel->state().gameplay_paused();
-    const auto outcome = m_kernel->run_until_blocked(4096, m_runtime_locale);
+    const auto outcome =
+        m_kernel->run_until_blocked(m_runtime_budget.instruction_limit, m_runtime_locale);
     if (const auto* fault = std::get_if<core::FlowFaultOutcome>(&outcome))
         diagnostics = fault->diagnostics;
+
+    collect_runtime_actions(diagnostics);
+    drain_pending_emissions(outputs, events, event_output_offsets);
 
     if (const auto* blocker = active_blocker<core::PresentationFlowBlocker>(*m_kernel)) {
         if (const auto& transition = m_kernel->state().transition()) {
@@ -563,22 +593,43 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
             }
         }
     }
-    drain_script_audio(outputs);
-    drain_host_requests(outputs, diagnostics);
-    drain_script_inputs(outputs, diagnostics);
+    drain_script_inputs(outputs, events, event_output_offsets, diagnostics);
     if (diagnostics.empty() && execution_can_advance)
         record_structural_mutation();
     return diagnostics;
 }
 
-void TypedRuntimeSession::drain_script_audio(std::vector<core::RuntimeOutputMessage>& outputs)
+void TypedRuntimeSession::stage_host_events()
 {
-    outputs.insert(outputs.end(), std::make_move_iterator(m_script_audio.begin()),
-                   std::make_move_iterator(m_script_audio.end()));
-    m_script_audio.clear();
+    for (auto& event : m_kernel->host().take_events())
+        m_pending_emissions.emplace_back(std::move(event));
+}
+
+void TypedRuntimeSession::drain_pending_emissions(std::vector<core::RuntimeOutputMessage>& outputs,
+                                                  std::vector<runtime::RuntimeEvent>& events,
+                                                  std::vector<std::size_t>& event_output_offsets)
+{
+    for (auto& emission : m_pending_emissions) {
+        std::visit(
+            [&](auto&& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::RuntimeOutputMessage>) {
+                    outputs.push_back(std::move(value));
+                } else if constexpr (std::is_same_v<T, runtime::RuntimeEvent>) {
+                    events.push_back(std::move(value));
+                    event_output_offsets.push_back(outputs.size());
+                } else {
+                    static_assert(always_false<T>, "Unhandled pending runtime emission");
+                }
+            },
+            emission);
+    }
+    m_pending_emissions.clear();
 }
 
 void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
+                                              std::vector<runtime::RuntimeEvent>& events,
+                                              std::vector<std::size_t>& event_output_offsets,
                                               core::Diagnostics& diagnostics)
 {
     if (m_draining_script_inputs || m_script_inputs.empty())
@@ -598,8 +649,13 @@ void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMes
             }
             ++processed;
             auto applied = apply(pending[index]);
+            const auto output_base = outputs.size();
             outputs.insert(outputs.end(), std::make_move_iterator(applied.outputs.begin()),
                            std::make_move_iterator(applied.outputs.end()));
+            for (const auto offset : applied.event_output_offsets)
+                event_output_offsets.push_back(output_base + offset);
+            events.insert(events.end(), std::make_move_iterator(applied.events.begin()),
+                          std::make_move_iterator(applied.events.end()));
             core::append_diagnostics(diagnostics, std::move(applied.diagnostics));
         }
     }
@@ -611,124 +667,159 @@ void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMes
     m_draining_script_inputs = false;
 }
 
-void TypedRuntimeSession::drain_host_requests(std::vector<core::RuntimeOutputMessage>& outputs,
-                                              core::Diagnostics& diagnostics)
+void TypedRuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics)
 {
-    if (m_kernel->host().autosave_safe_point_count() != 0) {
-        (void)m_kernel->host().consume_autosave_safe_points();
-        (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});
-    }
-
-    for (auto& request : m_kernel->host().take_external_requests()) {
-        const auto id = core::HostRequestId::from_number(m_next_host_request_id++);
-        std::optional<core::TypedHostRequest> output;
+    for (auto& action : m_kernel->host().take_actions()) {
         std::visit(
             [&](auto&& value) {
                 using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::MoveInteractableRequest>)
-                    output = core::TypedHostRequest{
-                        core::MoveInteractableHostRequest{id, value.interactable, value.target}};
-                else if constexpr (std::is_same_v<T, core::NavigationRequest>)
-                    output = core::TypedHostRequest{
-                        core::NavigationHostRequest{id, value.exit, value.target}};
-                else if constexpr (std::is_same_v<T, core::StartTransientSceneRequest>)
-                    output = core::TypedHostRequest{core::StartSceneHostRequest{id, value.scene}};
-                else if constexpr (std::is_same_v<T, core::StartTransientDialogueRequest>)
-                    output =
-                        core::TypedHostRequest{core::StartDialogueHostRequest{id, value.dialogue}};
-                else if constexpr (std::is_same_v<T, core::CallChildSceneRequest>)
-                    output =
-                        core::TypedHostRequest{core::CallChildSceneHostRequest{id, value.scene}};
-                else if constexpr (std::is_same_v<T, core::CallChildDialogueRequest>)
-                    output = core::TypedHostRequest{
-                        core::CallChildDialogueHostRequest{id, value.dialogue, value.start_block}};
-                else if constexpr (std::is_same_v<T, core::TailReplaceFlowRequest>)
-                    output =
-                        core::TypedHostRequest{core::TailReplaceFlowHostRequest{id, value.target}};
-                else if constexpr (std::is_same_v<T, core::NotificationRequest>)
-                    output =
-                        core::TypedHostRequest{core::NotificationHostRequest{id, value.message}};
-                else if constexpr (std::is_same_v<T, core::AutosaveSafePointRequest> ||
-                                   std::is_same_v<T, core::DialogueLineAutosaveSafePointRequest> ||
-                                   std::is_same_v<T, core::DialogueChoiceAutosaveSafePointRequest>)
-                    return;
-                else
-                    static_assert(always_false<T>, "Unhandled external ScriptHostRequest");
+                if constexpr (std::is_same_v<T, runtime::DeferredRuntimeCommandRequest>) {
+                    auto queued = m_deferred_commands.enqueue(std::move(value));
+                    if (!queued)
+                        core::append_diagnostics(diagnostics, std::move(queued).error());
+                } else if constexpr (std::is_same_v<T, runtime::RuntimeEvent>) {
+                    m_pending_emissions.emplace_back(std::move(value));
+                } else {
+                    static_assert(always_false<T>, "Unhandled ScriptRuntimeAction");
+                }
             },
-            request);
-        if (output) {
-            m_pending_host_requests.push_back(PendingHostRequest{*output, request});
-            outputs.emplace_back(*output);
-        }
+            action);
     }
 }
 
-core::Diagnostics TypedRuntimeSession::acknowledge(core::HostRequestId id)
+bool TypedRuntimeSession::source_owner_is_current(
+    const runtime::DeferredRuntimeCommand& command) const noexcept
 {
-    const auto it = std::find_if(
-        m_pending_host_requests.begin(), m_pending_host_requests.end(),
-        [&](const PendingHostRequest& pending) {
-            return std::visit([&](const auto& value) { return value.id == id; }, pending.output);
-        });
-    if (it == m_pending_host_requests.end())
-        return {diagnostic("runtime.stale_host_request", "Host request is stale or unknown")};
+    if (std::holds_alternative<runtime::RequestAutosaveCommand>(command.payload) ||
+        !command.source.frame)
+        return true;
+    return !m_kernel->state().flow_stack().empty() &&
+           core::flow_frame_id(m_kernel->state().flow_stack().back()) == *command.source.frame;
+}
+
+void TypedRuntimeSession::attach_command_context(
+    core::Diagnostics& diagnostics, const runtime::DeferredRuntimeCommand& command) const
+{
+    if (!command.source.diagnostic)
+        return;
+    for (auto& item : diagnostics) {
+        if (!item.runtime_context)
+            item.runtime_context =
+                std::make_shared<const core::RuntimeDiagnosticContext>(*command.source.diagnostic);
+    }
+}
+
+core::Diagnostics
+TypedRuntimeSession::execute_deferred_command(const runtime::DeferredRuntimeCommand& command)
+{
+    if (!source_owner_is_current(command)) {
+        core::Diagnostics diagnostics{
+            diagnostic("runtime.stale_command_source",
+                       "Deferred runtime command source frame is stale or no longer active")};
+        attach_command_context(diagnostics, command);
+        return diagnostics;
+    }
 
     core::Diagnostics diagnostics;
     std::visit(
-        [&](const auto& request) {
-            using T = std::decay_t<decltype(request)>;
-            if constexpr (std::is_same_v<T, core::MoveInteractableRequest>) {
-                auto changed = m_kernel->state().move_interactable(m_project, request.interactable,
-                                                                   request.target);
+        [&](const auto& payload) {
+            using T = std::decay_t<decltype(payload)>;
+            if constexpr (std::is_same_v<T, runtime::MoveInteractableCommand>) {
+                auto changed = m_kernel->state().move_interactable(m_project, payload.interactable,
+                                                                   payload.target);
                 if (!changed)
                     diagnostics = std::move(changed).error();
-            } else if constexpr (std::is_same_v<T, core::NavigationRequest>) {
-                auto changed = m_kernel->navigate(request.exit.exit_id);
+            } else if constexpr (std::is_same_v<T, runtime::NavigateRoomCommand>) {
+                auto changed = m_kernel->navigate(payload.exit.exit_id);
                 if (!changed)
                     diagnostics = std::move(changed).error();
-            } else if constexpr (std::is_same_v<T, core::StartTransientSceneRequest>) {
-                auto changed = m_kernel->start_transient(request.scene);
+            } else if constexpr (std::is_same_v<T, runtime::StartTransientSceneCommand>) {
+                auto changed = m_kernel->start_transient(payload.scene);
                 if (!changed)
                     diagnostics = std::move(changed).error();
-            } else if constexpr (std::is_same_v<T, core::StartTransientDialogueRequest>) {
-                auto changed = m_kernel->start_transient(request.dialogue);
+            } else if constexpr (std::is_same_v<T, runtime::StartTransientDialogueCommand>) {
+                auto changed = m_kernel->start_transient(payload.dialogue);
                 if (!changed)
                     diagnostics = std::move(changed).error();
-            } else if constexpr (std::is_same_v<T, core::CallChildSceneRequest>) {
+            } else if constexpr (std::is_same_v<T, runtime::CallChildSceneCommand>) {
                 if (m_kernel->state().flow_stack().empty())
                     diagnostics.push_back(diagnostic("runtime.invalid_child_request",
                                                      "Child Scene requires an active flow frame"));
                 else {
                     auto changed = m_kernel->flow().call_child(
-                        request.scene,
+                        payload.scene,
                         core::flow_frame_position(m_kernel->state().flow_stack().back()));
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
-            } else if constexpr (std::is_same_v<T, core::CallChildDialogueRequest>) {
+            } else if constexpr (std::is_same_v<T, runtime::CallChildDialogueCommand>) {
                 if (m_kernel->state().flow_stack().empty())
                     diagnostics.push_back(
                         diagnostic("runtime.invalid_child_request",
                                    "Child Dialogue requires an active flow frame"));
                 else {
                     auto changed = m_kernel->flow().call_child(
-                        request.dialogue, request.start_block,
+                        payload.dialogue, payload.start_block,
                         core::flow_frame_position(m_kernel->state().flow_stack().back()));
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
-            } else if constexpr (std::is_same_v<T, core::TailReplaceFlowRequest>) {
-                auto changed = m_kernel->flow().apply_target(request.target);
+            } else if constexpr (std::is_same_v<T, runtime::TailReplaceFlowCommand>) {
+                auto changed = m_kernel->flow().apply_target(payload.target);
                 if (!changed)
                     diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RequestAutosaveCommand>) {
+                (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});
+            } else {
+                static_assert(always_false<T>, "Unhandled DeferredRuntimeCommandPayload");
             }
         },
-        it->source);
-    if (diagnostics.empty())
-        m_pending_host_requests.erase(it);
-    if (diagnostics.empty())
+        command.payload);
+    if (!diagnostics.empty()) {
+        attach_command_context(diagnostics, command);
+        return diagnostics;
+    }
+    if (!std::holds_alternative<runtime::RequestAutosaveCommand>(command.payload))
         record_structural_mutation();
     return diagnostics;
+}
+
+void TypedRuntimeSession::drain_deferred_commands(std::vector<core::RuntimeOutputMessage>& outputs,
+                                                  std::vector<runtime::RuntimeEvent>& events,
+                                                  std::vector<std::size_t>& event_output_offsets,
+                                                  core::Diagnostics& diagnostics)
+{
+    if (m_draining_deferred_commands || m_deferred_commands.empty())
+        return;
+    m_draining_deferred_commands = true;
+    std::size_t processed = 0;
+    while (!m_deferred_commands.empty() && processed < m_runtime_budget.command_limit) {
+        auto command = m_deferred_commands.pop_front();
+        if (!command)
+            break;
+        ++processed;
+        auto executed = execute_deferred_command(*command);
+        if (!executed.empty()) {
+            core::append_diagnostics(diagnostics, std::move(executed));
+            m_deferred_commands.clear();
+            break;
+        }
+        if (!std::holds_alternative<runtime::RequestAutosaveCommand>(command->payload)) {
+            auto continued = run_kernel_once(outputs, events, event_output_offsets);
+            if (!continued.empty()) {
+                core::append_diagnostics(diagnostics, std::move(continued));
+                m_deferred_commands.clear();
+                break;
+            }
+        }
+    }
+    if (!m_deferred_commands.empty()) {
+        diagnostics.push_back(
+            diagnostic("runtime.command_budget_exhausted",
+                       "Deferred runtime commands exceeded the per-transaction command budget"));
+        m_deferred_commands.clear();
+    }
+    m_draining_deferred_commands = false;
 }
 
 core::Diagnostics TypedRuntimeSession::complete_presentation(
@@ -833,9 +924,12 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, core::StartRuntimeInput>) {
                     m_running = true;
-                    result.diagnostics = run_kernel(result.outputs);
+                    result.diagnostics =
+                        run_kernel(result.outputs, result.events, result.event_output_offsets);
                 } else if constexpr (std::is_same_v<T, core::StopRuntimeInput>) {
                     m_running = false;
+                    m_deferred_commands.clear();
+                    (void)m_kernel->host().take_actions();
                 } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
                     auto reset = TypedExecutionKernel::create(m_project, m_runtime);
                     if (reset) {
@@ -846,10 +940,10 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         m_kernel = std::move(*reset.value_if());
                         m_script_api.replace_target(this);
                         m_selection.clear();
-                        m_pending_host_requests.clear();
+                        m_deferred_commands.clear();
                         m_pending_presentation.reset();
                         m_pending_audio.reset();
-                        m_script_audio.clear();
+                        m_pending_emissions.clear();
                         m_checkpoint_service.reset();
                         m_skip_next_checkpoint_settlement = true;
                     } else
@@ -871,10 +965,12 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                                 result.diagnostics = std::move(completed).error();
                             else if (*completed.value_if()) {
                                 record_structural_mutation();
-                                result.diagnostics = run_kernel(result.outputs);
+                                result.diagnostics = run_kernel(result.outputs, result.events,
+                                                                result.event_output_offsets);
                             }
                         } else
-                            result.diagnostics = run_kernel(result.outputs);
+                            result.diagnostics = run_kernel(result.outputs, result.events,
+                                                            result.event_output_offsets);
                     }
                 } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
                     const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
@@ -886,7 +982,8 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         if (!completed)
                             result.diagnostics = std::move(completed).error();
                         else
-                            result.diagnostics = run_kernel(result.outputs);
+                            result.diagnostics = run_kernel(result.outputs, result.events,
+                                                            result.event_output_offsets);
                     }
                 } else if constexpr (std::is_same_v<T, core::SelectSceneChoiceInput> ||
                                      std::is_same_v<T, core::SelectDialogueChoiceInput>) {
@@ -899,21 +996,24 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         if (!chosen)
                             result.diagnostics = std::move(chosen).error();
                         else
-                            result.diagnostics = run_kernel(result.outputs);
+                            result.diagnostics = run_kernel(result.outputs, result.events,
+                                                            result.event_output_offsets);
                     } else {
                         auto chosen = m_kernel->choose_dialogue_option(blocker->owner,
                                                                        blocker->handle, value.edge);
                         if (!chosen)
                             result.diagnostics = std::move(chosen).error();
                         else
-                            result.diagnostics = run_kernel(result.outputs);
+                            result.diagnostics = run_kernel(result.outputs, result.events,
+                                                            result.event_output_offsets);
                     }
                 } else if constexpr (std::is_same_v<T, core::NavigateRoomInput>) {
                     auto changed = m_kernel->navigate(value.exit);
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
                     else
-                        result.diagnostics = run_kernel(result.outputs);
+                        result.diagnostics =
+                            run_kernel(result.outputs, result.events, result.event_output_offsets);
                 } else if constexpr (std::is_same_v<T, core::SelectInteractablesInput>) {
                     m_selection = value.interactables;
                 } else if constexpr (std::is_same_v<T, core::ClearInteractableSelectionInput>) {
@@ -924,7 +1024,8 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                     if (!invoked)
                         result.diagnostics = as_diagnostics(std::move(invoked).error());
                     else
-                        result.diagnostics = run_kernel(result.outputs);
+                        result.diagnostics =
+                            run_kernel(result.outputs, result.events, result.event_output_offsets);
                 } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
                     auto changed = script_set_variable(value.variable, value.value);
                     if (!changed)
@@ -979,10 +1080,10 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         m_kernel = std::move(*loaded.value_if());
                         m_script_api.replace_target(this);
                         m_selection.clear();
-                        m_pending_host_requests.clear();
+                        m_deferred_commands.clear();
                         m_pending_presentation.reset();
                         m_pending_audio.reset();
-                        m_script_audio.clear();
+                        m_pending_emissions.clear();
                         m_checkpoint_service.commit_loaded_checkpoint(
                             std::move(*checkpoint.value_if()));
                         result.outputs.emplace_back(core::SaveOutcome{
@@ -1009,39 +1110,32 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                                               std::is_same_v<T, core::CancelPresentationInput>);
                     if (result.diagnostics.empty() &&
                         std::is_same_v<T, core::CompletePresentationInput>)
-                        result.diagnostics = run_kernel(result.outputs);
+                        result.diagnostics =
+                            run_kernel(result.outputs, result.events, result.event_output_offsets);
                 } else if constexpr (std::is_same_v<T, core::CompleteAudioInput> ||
                                      std::is_same_v<T, core::CancelAudioInput>) {
                     result.diagnostics =
                         complete_audio(value.operation, value.owner, value.completion,
                                        std::is_same_v<T, core::CancelAudioInput>);
                     if (result.diagnostics.empty() && std::is_same_v<T, core::CompleteAudioInput>)
-                        result.diagnostics = run_kernel(result.outputs);
+                        result.diagnostics =
+                            run_kernel(result.outputs, result.events, result.event_output_offsets);
                 } else if constexpr (std::is_same_v<T, core::AcknowledgeAudioTerminationInput>) {
                     result.diagnostics.clear();
-                } else if constexpr (std::is_same_v<T, core::AcknowledgeHostRequestInput>) {
-                    result.diagnostics = acknowledge(value.request);
-                    if (result.diagnostics.empty())
-                        result.diagnostics = run_kernel(result.outputs);
-                } else if constexpr (std::is_same_v<T, core::FailHostRequestInput>) {
-                    const auto exists = std::any_of(
-                        m_pending_host_requests.begin(), m_pending_host_requests.end(),
-                        [&](const PendingHostRequest& pending) {
-                            return std::visit(
-                                [&](const auto& item) { return item.id == value.request; },
-                                pending.output);
-                        });
-                    result.diagnostics.push_back(diagnostic(
-                        exists ? "runtime.host_request_failed" : "runtime.stale_host_request",
-                        exists ? value.message : "Host request is stale or unknown"));
                 } else
                     static_assert(always_false<T>, "Unhandled RuntimeInputMessage alternative");
             },
             input);
 
-    drain_script_inputs(result.outputs, result.diagnostics);
-    drain_script_audio(result.outputs);
-    drain_host_requests(result.outputs, result.diagnostics);
+    drain_script_inputs(result.outputs, result.events, result.event_output_offsets,
+                        result.diagnostics);
+    collect_runtime_actions(result.diagnostics);
+    drain_pending_emissions(result.outputs, result.events, result.event_output_offsets);
+    if (result.diagnostics.empty())
+        drain_deferred_commands(result.outputs, result.events, result.event_output_offsets,
+                                result.diagnostics);
+    else
+        m_deferred_commands.clear();
     attach_runtime_context(result.diagnostics, *m_kernel);
     if (!result.diagnostics.empty())
         result.disposition = RuntimeInputDisposition::Failed;

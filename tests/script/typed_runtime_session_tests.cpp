@@ -78,7 +78,8 @@ struct Fixture {
     core::TypedMemorySaveSlotStore saves;
     std::unique_ptr<TypedRuntimeSession> session;
 
-    explicit Fixture(std::string_view filename = "comprehensive.json")
+    explicit Fixture(std::string_view filename = "comprehensive.json",
+                     runtime::RuntimeBudgetConfiguration runtime_budget = {})
         : project(load_project(filename))
     {
         assets.mount("project", source);
@@ -91,9 +92,16 @@ struct Fixture {
                                 "function combine_items() end\n"
                                 "function hall_description() return 'Hall' end\n"
                                 "function key_label() return 'Key' end\n"
-                                "function tower_open() return true end\n",
+                                "function tower_open() return true end\n"
+                                "function show_hero() return true end\n"
+                                "function dynamic_line() return 'Dynamic line.' end\n"
+                                "function run_scene_effect() end\n"
+                                "function take_layout_branch() return false end\n"
+                                "function can_transition() return true end\n"
+                                "function prepare_transition() end\n"
+                                "function transition_label() return 'Transition' end\n",
                                 "typed-session-fixture"));
-        auto created = TypedRuntimeSession::create(project, runtime, saves, "en");
+        auto created = TypedRuntimeSession::create(project, runtime, saves, "en", runtime_budget);
         REQUIRE(created);
         session = std::move(created).value();
     }
@@ -104,8 +112,8 @@ struct Fixture {
 TEST_CASE(
     "typed runtime session dispatches lifecycle debug mutation and save load without legacy IO")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 27);
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeOutputMessage> == 8);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 25);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeOutputMessage> == 7);
     Fixture fixture;
     auto started = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == RuntimeInputDisposition::Handled);
@@ -174,6 +182,70 @@ TEST_CASE("runtime reset clears checkpoint and transient lifecycle without fabri
     CHECK_FALSE(fixture.session->checkpoint_service().latest_checkpoint());
 }
 
+TEST_CASE("stop and reset cancel staged runtime commands without mutation")
+{
+    Fixture fixture;
+    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto original = fixture.session->script_interactable_location(key);
+    REQUIRE(original);
+    const auto* original_placement =
+        std::get_if<core::compiled::RoomPlacementRef>(&original.value());
+    REQUIRE(original_placement != nullptr);
+
+    const auto missing = make_id<core::InteractableIdTag>("missing");
+    auto invalid = fixture.session->script_request_interactable_location(
+        missing, core::compiled::InventoryLocation{});
+    REQUIRE_FALSE(invalid);
+    CHECK(fixture.session->pending_command_count() == 0);
+
+    REQUIRE(fixture.session->script_request_interactable_location(
+        key, core::compiled::InventoryLocation{}));
+    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}})
+                .diagnostics.empty());
+    auto after_stop = fixture.session->script_interactable_location(key);
+    REQUIRE(after_stop);
+    const auto* stopped_placement =
+        std::get_if<core::compiled::RoomPlacementRef>(&after_stop.value());
+    REQUIRE(stopped_placement != nullptr);
+    CHECK(stopped_placement->room == original_placement->room);
+    CHECK(stopped_placement->placement_id == original_placement->placement_id);
+    CHECK(fixture.session->pending_command_count() == 0);
+
+    REQUIRE(fixture.session->script_request_interactable_location(
+        key, core::compiled::InventoryLocation{}));
+    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
+                .diagnostics.empty());
+    auto after_reset = fixture.session->script_interactable_location(key);
+    REQUIRE(after_reset);
+    const auto* reset_placement =
+        std::get_if<core::compiled::RoomPlacementRef>(&after_reset.value());
+    REQUIRE(reset_placement != nullptr);
+    CHECK(reset_placement->room == original_placement->room);
+    CHECK(reset_placement->placement_id == original_placement->placement_id);
+    CHECK(fixture.session->pending_command_count() == 0);
+}
+
+TEST_CASE("successful load cancels commands staged against the replaced session state")
+{
+    Fixture fixture;
+    const auto key = make_id<core::InteractableIdTag>("key");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto slot = core::TypedSaveSlotId::manual(6);
+    REQUIRE(
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::SaveRuntimeInput{slot}})
+            .diagnostics.empty());
+
+    REQUIRE(fixture.session->script_request_interactable_location(
+        key, core::compiled::InventoryLocation{}));
+    auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
+    REQUIRE(loaded.diagnostics.empty());
+    CHECK(fixture.session->pending_command_count() == 0);
+    const auto location = fixture.session->script_interactable_location(key);
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
+}
+
 TEST_CASE("typed runtime session starts a representative Room session")
 {
     Fixture fixture("minimal.json");
@@ -237,7 +309,7 @@ TEST_CASE("runtime checkpoint settlement consumes coordinator-owned presentation
     CHECK(fixture.session->checkpoint_service().readiness().can_capture());
 }
 
-TEST_CASE("pending host requests publish typed checkpoint readiness barriers")
+TEST_CASE("internal runtime commands settle before checkpoint evaluation")
 {
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
@@ -249,14 +321,17 @@ TEST_CASE("pending host requests publish typed checkpoint readiness barriers")
     auto invoked = dispatch_settled(
         *fixture.session, core::RuntimeInputMessage{core::InvokeInteractionInput{use, {key}}});
     REQUIRE(invoked.disposition == RuntimeInputDisposition::Handled);
-    REQUIRE_FALSE(fixture.session->checkpoint_service().readiness().can_capture());
+    CHECK(fixture.session->pending_command_count() == 0);
+    const auto location = fixture.session->script_interactable_location(key);
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::InventoryLocation>(location.value()));
     const auto& issues = fixture.session->checkpoint_service().readiness().issues;
-    CHECK(std::any_of(issues.begin(), issues.end(), [](const auto& issue) {
-        return issue.reason == core::CheckpointReadinessReason::HostRequestPending;
+    CHECK(std::none_of(issues.begin(), issues.end(), [](const auto& issue) {
+        return issue.reason == core::CheckpointReadinessReason::RuntimeQueueUnsettled;
     }));
 }
 
-TEST_CASE("recursive host acknowledgement settles inside one outer transaction")
+TEST_CASE("deferred runtime commands execute inside one outer transaction")
 {
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
@@ -264,23 +339,68 @@ TEST_CASE("recursive host acknowledgement settles inside one outer transaction")
     fixture.session->begin_dispatch_transaction();
     auto invoked = fixture.session->apply(core::RuntimeInputMessage{core::InvokeInteractionInput{
         make_id<core::VerbIdTag>("use"), {make_id<core::InteractableIdTag>("key")}}});
-    std::optional<core::HostRequestId> request;
-    for (const auto& output : invoked.outputs) {
-        if (const auto* host = std::get_if<core::TypedHostRequest>(&output)) {
-            request = std::visit([](const auto& value) { return value.id; }, *host);
-            break;
-        }
-    }
-    REQUIRE(request);
-    auto acknowledged = fixture.session->apply(
-        core::RuntimeInputMessage{core::AcknowledgeHostRequestInput{*request}});
-    REQUIRE(acknowledged.diagnostics.empty());
+    REQUIRE(invoked.diagnostics.empty());
+    CHECK(fixture.session->pending_command_count() == 0);
+    const auto location =
+        fixture.session->script_interactable_location(make_id<core::InteractableIdTag>("key"));
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::InventoryLocation>(location.value()));
     REQUIRE(fixture.session->settle_dispatch_transaction().empty());
     CHECK(std::none_of(
         fixture.session->checkpoint_service().readiness().issues.begin(),
         fixture.session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
-            return issue.reason == core::CheckpointReadinessReason::HostRequestPending;
+            return issue.reason == core::CheckpointReadinessReason::RuntimeQueueUnsettled;
         }));
+}
+
+TEST_CASE("deferred command self-enqueue is bounded by the transaction command budget")
+{
+    Fixture fixture("comprehensive.json", runtime::RuntimeBudgetConfiguration{
+                                              .instruction_limit = 100'000, .command_limit = 1});
+    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    REQUIRE(fixture.runtime.execute(
+        "function before_leave_start()\n"
+        "  local ok, err = noveltea.interactables.move_to_inventory('key')\n"
+        "  assert(ok and err == nil)\n"
+        "end",
+        "deferred-command-budget"));
+
+    const auto key = make_id<core::InteractableIdTag>("key");
+    REQUIRE(fixture.session->script_request_navigation(core::compiled::RoomExitRef{
+        make_id<core::RoomIdTag>("start"), make_id<core::RoomExitIdTag>("north-exit")}));
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    REQUIRE_FALSE(drained.diagnostics.empty());
+    CHECK(drained.diagnostics.front().code == "runtime.command_budget_exhausted");
+    CHECK(fixture.session->pending_command_count() == 0);
+
+    const auto location = fixture.session->script_interactable_location(key);
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
+}
+
+TEST_CASE("frame-destructive commands make later commands from the old owner stale")
+{
+    Fixture fixture("scene-program.json");
+    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    const auto key = make_id<core::InteractableIdTag>("key");
+    REQUIRE(fixture.session->script_request_tail_replacement(
+        core::FlowTarget{make_id<core::SceneIdTag>("closing")}));
+    REQUIRE(fixture.session->script_request_interactable_location(
+        key, core::compiled::InventoryLocation{}));
+
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    REQUIRE_FALSE(drained.diagnostics.empty());
+    CHECK(drained.diagnostics.front().code == "runtime.stale_command_source");
+    CHECK(drained.diagnostics.front().runtime_context != nullptr);
+    CHECK(fixture.session->pending_command_count() == 0);
+    REQUIRE(drained.view.scene);
+    CHECK(drained.view.scene->scene.text() == "closing");
+
+    const auto location = fixture.session->script_interactable_location(key);
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
 }
 
 TEST_CASE("successful structural mutations capture once and true no-ops stay clean")
@@ -309,22 +429,12 @@ TEST_CASE("successful structural mutations capture once and true no-ops stay cle
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision == checkpoint);
 }
 
-TEST_CASE("typed runtime session reports unhandled and stale operations deterministically")
+TEST_CASE("typed runtime session reports unhandled operations deterministically")
 {
     Fixture fixture;
     auto continued = fixture.session->apply(core::RuntimeInputMessage{core::ContinueInput{}});
     CHECK(continued.disposition == RuntimeInputDisposition::Unhandled);
     CHECK(has_output_kind(continued, core::RuntimeOutputKind::ViewPublication));
-
-    auto stale = fixture.session->apply(core::RuntimeInputMessage{
-        core::AcknowledgeHostRequestInput{core::HostRequestId::from_number(999)}});
-    CHECK(stale.disposition == RuntimeInputDisposition::Failed);
-    REQUIRE_FALSE(stale.diagnostics.empty());
-    CHECK(stale.diagnostics.front().code == "runtime.stale_host_request");
-    REQUIRE(stale.outputs.size() >= 2);
-    CHECK(core::output_kind(stale.outputs[stale.outputs.size() - 2]) ==
-          core::RuntimeOutputKind::ViewPublication);
-    CHECK(core::output_kind(stale.outputs.back()) == core::RuntimeOutputKind::Diagnostic);
 }
 
 TEST_CASE("typed runtime session playback observations are ordered before view publication")
@@ -337,54 +447,45 @@ TEST_CASE("typed runtime session playback observations are ordered before view p
     CHECK(core::output_kind(begun.outputs.back()) == core::RuntimeOutputKind::ViewPublication);
 }
 
-TEST_CASE("typed runtime session retains failed host requests for explicit retry")
+TEST_CASE("runtime notifications are ordered events and require no acknowledgement")
 {
-    Fixture fixture("interaction-program.json");
-    const auto use = make_id<core::VerbIdTag>("use");
-    const auto key = make_id<core::InteractableIdTag>("key");
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    CAPTURE(started.diagnostics.size());
-    const std::string start_code =
-        started.diagnostics.empty() ? std::string{} : started.diagnostics.front().code;
-    const std::string start_message =
-        started.diagnostics.empty() ? std::string{} : started.diagnostics.front().message;
-    CAPTURE(start_code, start_message);
-    REQUIRE(started.disposition == RuntimeInputDisposition::Handled);
-    auto invoked =
-        fixture.session->apply(core::RuntimeInputMessage{core::InvokeInteractionInput{use, {key}}});
-    CAPTURE(invoked.diagnostics.size());
-    const std::string invoke_code =
-        invoked.diagnostics.empty() ? std::string{} : invoked.diagnostics.front().code;
-    const std::string invoke_message =
-        invoked.diagnostics.empty() ? std::string{} : invoked.diagnostics.front().message;
-    CAPTURE(invoke_code, invoke_message);
-    CHECK(invoked.disposition == RuntimeInputDisposition::Handled);
-    CHECK(fixture.session->pending_host_request_count() == 1);
+    Fixture fixture;
+    REQUIRE(fixture.session->script_request_notification("first"));
+    REQUIRE(fixture.session->script_request_notification("second"));
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    REQUIRE(drained.diagnostics.empty());
+    REQUIRE(drained.events.size() == 2);
+    REQUIRE(drained.event_output_offsets == std::vector<std::size_t>{0, 0});
+    const auto* first = std::get_if<runtime::NotificationEvent>(&drained.events[0]);
+    const auto* second = std::get_if<runtime::NotificationEvent>(&drained.events[1]);
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    CHECK(first->message == "first");
+    CHECK(second->message == "second");
+    CHECK(fixture.session->pending_command_count() == 0);
+}
 
-    const core::TypedHostRequest* host_request = nullptr;
-    for (const auto& output : invoked.outputs) {
-        if (const auto* request = std::get_if<core::TypedHostRequest>(&output)) {
-            host_request = request;
-            break;
-        }
-    }
-    REQUIRE(host_request != nullptr);
-    const auto request_id =
-        std::visit([](const auto& request) { return request.id; }, *host_request);
+TEST_CASE("runtime events retain their order relative to script audio outputs")
+{
+    Fixture fixture;
+    REQUIRE(fixture.session->script_request_notification("before"));
+    REQUIRE(fixture.session->script_request_audio(
+        core::compiled::AudioAction::Play, core::compiled::AudioChannel::SoundEffect,
+        make_id<core::AssetIdTag>("audio-voice"), std::chrono::milliseconds{0}, false, 1.0, false));
+    REQUIRE(fixture.session->script_request_notification("after"));
 
-    auto failed = fixture.session->apply(core::RuntimeInputMessage{
-        core::FailHostRequestInput{request_id, "backend temporarily unavailable"}});
-    CHECK(failed.disposition == RuntimeInputDisposition::Failed);
-    CHECK(fixture.session->pending_host_request_count() == 1);
-
-    auto retried = fixture.session->apply(
-        core::RuntimeInputMessage{core::AcknowledgeHostRequestInput{request_id}});
-    CHECK(retried.disposition == RuntimeInputDisposition::Handled);
-    auto duplicate = fixture.session->apply(
-        core::RuntimeInputMessage{core::AcknowledgeHostRequestInput{request_id}});
-    CHECK(duplicate.disposition == RuntimeInputDisposition::Failed);
-    REQUIRE_FALSE(duplicate.diagnostics.empty());
-    CHECK(duplicate.diagnostics.front().code == "runtime.stale_host_request");
+    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    REQUIRE(drained.diagnostics.empty());
+    REQUIRE(drained.events.size() == 2);
+    REQUIRE(drained.event_output_offsets == std::vector<std::size_t>{0, 1});
+    REQUIRE_FALSE(drained.outputs.empty());
+    CHECK(std::holds_alternative<core::AudioOperation>(drained.outputs.front()));
+    const auto* before = std::get_if<runtime::NotificationEvent>(&drained.events[0]);
+    const auto* after = std::get_if<runtime::NotificationEvent>(&drained.events[1]);
+    REQUIRE(before != nullptr);
+    REQUIRE(after != nullptr);
+    CHECK(before->message == "before");
+    CHECK(after->message == "after");
 }
 
 TEST_CASE("runtime script API survives reset and load without kernel-owned Lua closures")
@@ -607,20 +708,9 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
         "assert(noveltea.layouts.get('custom') == 'hud-assets')\n"
         "ok, err = noveltea.map.activate('start-hall'); assert(ok and err == nil)",
         "typed-map-layout-atomic"));
-    auto requested = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    const core::TypedHostRequest* request = nullptr;
-    for (const auto& output : requested.outputs) {
-        if (const auto* value = std::get_if<core::TypedHostRequest>(&output)) {
-            request = value;
-            break;
-        }
-    }
-    REQUIRE(request != nullptr);
-    REQUIRE(std::holds_alternative<core::NavigationHostRequest>(*request));
-    const auto request_id = std::get<core::NavigationHostRequest>(*request).id;
-    auto navigated = fixture.session->apply(
-        core::RuntimeInputMessage{core::AcknowledgeHostRequestInput{request_id}});
+    auto navigated = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE(navigated.diagnostics.empty());
+    CHECK(fixture.session->pending_command_count() == 0);
     REQUIRE(navigated.view.room);
     CHECK(navigated.view.room->room.text() == "hall");
 

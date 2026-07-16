@@ -137,8 +137,10 @@ TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host s
     auto resumed = kernel->resume_script(wait->owner, wait->invocation);
     REQUIRE(resumed);
     CHECK(std::holds_alternative<ScriptInvocationCompleted>(resumed.value()));
-    REQUIRE(kernel->host().requests().size() == 1);
-    CHECK(std::holds_alternative<core::NotificationRequest>(kernel->host().requests().front()));
+    REQUIRE(kernel->host().actions().size() == 1);
+    const auto* event = std::get_if<runtime::RuntimeEvent>(&kernel->host().actions().front());
+    REQUIRE(event != nullptr);
+    CHECK(std::holds_alternative<runtime::NotificationEvent>(*event));
 }
 
 TEST_CASE("typed execution kernel initializes each Phase 6 frame category from compiled fixtures")
@@ -180,7 +182,7 @@ TEST_CASE("typed execution kernel initializes each Phase 6 frame category from c
     CHECK(has_root_frame<core::InteractionFrame>(kernel));
 }
 
-TEST_CASE("typed execution kernel save preflight owns the host request boundary")
+TEST_CASE("typed execution kernel save preflight ignores internal runtime actions")
 {
     RuntimeFixture fixture;
     auto project = load_fixture("scene-program.json");
@@ -191,9 +193,8 @@ TEST_CASE("typed execution kernel save preflight owns the host request boundary"
     REQUIRE(kernel->snapshot_save());
     REQUIRE(kernel->host().request_notification("pending"));
     auto pending = kernel->snapshot_save();
-    REQUIRE_FALSE(pending);
-    CHECK(pending.error().front().code == "save.external_requests_pending");
-    CHECK(kernel->host().take_requests().size() == 1);
+    REQUIRE(pending);
+    CHECK(kernel->host().take_actions().size() == 1);
     REQUIRE(kernel->snapshot_save());
 }
 
@@ -330,8 +331,10 @@ TEST_CASE("typed Scene execution covers the complete V1 instruction vocabulary a
     REQUIRE(kernel->flow().return_from_flow());
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    REQUIRE(
-        std::holds_alternative<core::AutosaveSafePointRequest>(kernel->host().requests().back()));
+    const auto* autosave =
+        std::get_if<runtime::DeferredRuntimeCommandRequest>(&kernel->host().actions().back());
+    REQUIRE(autosave != nullptr);
+    REQUIRE(std::holds_alternative<runtime::RequestAutosaveCommand>(autosave->payload));
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));

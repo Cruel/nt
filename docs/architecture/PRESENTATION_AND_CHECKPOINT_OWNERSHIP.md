@@ -5,6 +5,12 @@ Status: Phase 1A through Phase 1D and Phase 2A through Phase 2D complete. The ow
 frozen specification, canonical shared contracts, runtime-owned retained-checkpoint save cutover,
 and load/reset lifecycle are implemented; presentation work remains assigned to Phases 3 through 8.
 
+Runtime execution update (2026-07-15): Phase 2 of
+`plans/RUNTIME_EXECUTION_AND_CAPABILITY_IMPLEMENTATION_PLAN.md` removed the transitional fake host
+request path. Runtime-owned navigation, Flow, Interactable, and autosave work now uses the
+session-owned deferred command queue; notifications use ordered runtime events. The current contract
+snippets and inventory below reflect that cutover.
+
 ## Purpose and authority
 
 This is the durable ownership, consumer, test, persistence, and contract record for the
@@ -73,10 +79,10 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 | Immutable presentation definitions and references | `CompiledProject` | `core/compiled_project.hpp`: `BackgroundPresentation`, `LayoutResource`, system Layout roles, Scene actor/background/Layout/transition/audio instructions | `SessionState`, typed executors/views, `RuntimeUiAssetResolver`, compiler/package paths | `compiled_project_model_tests`, `compiled_project_wire_tests`, editor compiled-wire/golden/export tests | Immutable `CompiledProject` definitions | `retain`; Phase 1B freezes ownership, Phase 7 extends only typed reconstructible definitions if required |
 | Mutable gameplay and logical presentation state | `SessionState` | `core/session_state.hpp`, `core/feature_state.hpp`, `core/session_state.cpp`: variables, properties, Flow, actors, background, Layout slots, overlays, text/choices, transition, audio channels, Map | `FlowExecutor`, `TypedExecutionKernel`, `ScriptHostServices`, typed view projectors, save projection | `session_state_tests`, feature executor tests, `save_state_tests`; no test treats all presentation fields as a coherent renderer snapshot | Runtime/session state | `retain`; Phase 7 adds complete reconstructible presentation/audio records without backend state |
 | Flow stack, cursor mutation, and typed blockers | `FlowExecutor` mutating `SessionState` | `core/flow.hpp`, `core/flow_executor.hpp`, `core/flow_executor.cpp`: five blocker alternatives and strong handles | typed feature executors, `ScriptInvoker`, `TypedRuntimeSession`, save/restore | `flow_executor_tests`, feature executor tests, `runtime_domain_types_tests`, `save_state_tests` | Runtime/session state and `FlowExecutor`; presentation only acknowledges exact operations | `retain`; Phase 1C canonicalizes shared operation identities, Phase 4 connects exact coordinator acknowledgements |
-| Runtime input/output queues and pending operation correlation | `TypedRuntimeSession` | `core/runtime_messages.hpp`, `script/typed_runtime_session.hpp/.cpp`: closed inputs/outputs, script-input queue, pending host requests, one pending presentation operation, one pending blocking audio operation | `RuntimeUI`, preview/playback protocol, Lua `RuntimeScriptApi` | `runtime_messages_tests`, `typed_runtime_session_tests`, `editor_runtime_protocol_tests`; no same-transaction checkpoint-status test | Runtime owns inputs/execution queues; presentation coordinator owns presentation operation lifecycle | `reduce`; Phase 4 moves presentation lifecycle/status to the coordinator, Phase 8 migrates external consumers |
+| Runtime input/output queues and pending operation correlation | `TypedRuntimeSession` | `core/runtime_messages.hpp`, `runtime/runtime_commands.hpp`, `script/typed_runtime_session.hpp/.cpp`: closed inputs/outputs, script-input queue, session-owned deferred command queue, ordered runtime events, one pending presentation operation, one pending blocking audio operation | `RuntimeUI`, preview/playback protocol, Lua `RuntimeScriptApi` | `runtime_messages_tests`, `runtime_contracts_tests`, `typed_runtime_session_tests`, `editor_runtime_protocol_tests` cover FIFO commands, bounded self-enqueue, stale owners, event ordering, and checkpoint settlement | Runtime owns inputs/execution queues; presentation coordinator owns presentation operation lifecycle | `reduce`; later transaction/publication phases consolidate the remaining transitional queues and consumers |
 | Feature-oriented published UI view | `TypedExecutionKernel::runtime_ui_view()` and `TypedRuntimeSession::append_view()` | `core/feature_view.hpp`: `TypedRuntimeUIViewState`; specialized execution files | RmlUi binder/custom elements, ActiveText, preview debug snapshot, Lua stable-ID helpers | `session_state_tests`, `typed_runtime_session_tests`, `rmlui_document_binder_tests`, `rmlui_custom_components_tests`, preview protocol/editor tests | UI view remains feature-specific; complete presentation projection belongs to `PresentationProjector` | `reduce`; Phase 4 adds the separate complete `RuntimePresentationSnapshot`, Phase 8 migrates remaining consumers |
 | Immediate and suspended Lua invocation | `ScriptRuntime` owns VM/coroutines; `ScriptInvoker` binds invocation to `ScriptFlowBlocker` | `script_runtime.hpp/.cpp`, `script_invoker.hpp/.cpp`, `typed_execution_kernel.cpp` | typed Scene/Dialogue/Interaction execution and `RuntimeScriptApi` | `script_runtime_tests`, typed execution tests, `save_state_tests` reject opaque suspension | Runtime/session execution | `retain`; Phase 2 includes invocation state in checkpoint readiness, never in serialized state |
-| Typed script host requests and autosave markers | `ScriptHostServices` queues source requests; `TypedRuntimeSession` owns published pending host requests | `core/script_host_services.hpp/.cpp`, `typed_runtime_session.cpp`: `ScriptHostRequest`, `TypedHostRequest`, `HostRequestId` | `RuntimeUI` immediately acknowledges current host outputs; typed kernel consumes autosave markers | `script_runtime_tests`, `typed_execution_kernel_tests`, `typed_runtime_session_tests`; no retained-checkpoint/deferred-autosave coverage | Runtime checkpoint/save service for readiness/autosave; runtime input adapter for host acknowledgement | `replace`; Phase 2 replaces direct autosave capture and adds settled readiness, Phase 8 migrates external workflow |
+| Deferred runtime commands, events, and autosave markers | `TypedRuntimeSession` owns the command queue and drain; `ScriptHostServices` is a transitional validating producer | `runtime/runtime_commands.hpp`, `runtime/runtime_contracts.hpp`, `core/script_host_services.hpp/.cpp`, `typed_runtime_session.cpp`: `DeferredRuntimeCommand`, monotonic sequence, source context, `RuntimeEvent` | Runtime execution drains commands internally; `RuntimeUI` and editor/playback adapters consume ordered events without acknowledgements | `runtime_contracts_tests`, `script_runtime_tests`, `typed_execution_kernel_tests`, `typed_runtime_session_tests`, `editor_runtime_protocol_tests` | Runtime command gateway/session; no internal host acknowledgement adapter | `replace`; runtime execution Phase 2 complete, semantic capability gateway replaces `ScriptHostServices` in the next phase |
 | Public Lua runtime gateway | One `RuntimeScriptApi` targeted at `TypedRuntimeSession` | `runtime_script_api.hpp/.cpp`, `bind_runtime_capabilities.cpp`, `bind_noveltea.cpp` | authored Lua and RmlUi Layout events | `script_runtime_tests`, `typed_runtime_session_tests`; no final system-menu/custom-mount command coverage | `RuntimeScriptApi` with narrow typed ports | `retain`; Phase 7 adds persistent presentation/audio controls and Phase 8 adds menu/custom Layout commands |
 | JSON at editor/debug protocol boundary | `editor_runtime_protocol` and `RuntimePreviewController` adapters | `core/editor_runtime_protocol.hpp/.cpp`, `runtime_preview_controller.cpp`, `editor/src/shared/preview-protocol.ts` | editor playback, debugger, full-game preview | `editor_runtime_protocol_tests`, `preview-protocol.test.ts`, `full-game-preview-editor.test.tsx` | External protocol adapters only | `retain`; Phase 8 updates protocol DTOs after shared runtime contracts exist |
 
@@ -84,7 +90,7 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 
 | Concern / capability | Current authoritative owner | Implementation files and public types | Current consumers | Current tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
 | --- | --- | --- | --- | --- | --- | --- |
-| Live save projection | `TypedExecutionKernel::snapshot_save()` calls `make_save_state()` on the live `SessionState` | `core/save_state.hpp/.cpp`: `SaveState`, `SaveSnapshotContext`; `typed_execution_kernel.cpp` | manual `SaveRuntimeInput`, Lua `Game.save`, current autosave | `save_state_tests`, `typed_execution_kernel_tests`, `typed_runtime_session_tests` explicitly cover current behavior | Runtime checkpoint/save service | `replace`; Phase 2 captures immutable retained checkpoints only at eligible settled boundaries |
+| Live save projection | `TypedExecutionKernel::snapshot_save()` calls `make_save_state()` on the live `SessionState` | `core/save_state.hpp/.cpp`: `SaveState`; `typed_execution_kernel.cpp` | retained-checkpoint candidate projection | `save_state_tests`, `typed_execution_kernel_tests`, `typed_runtime_session_tests` explicitly cover current behavior | Runtime checkpoint/save service | `reduce`; candidate projection contains only serializable runtime state and receives no fabricated host/request context |
 | Save eligibility preflight | Ad hoc checks inside `make_save_state()` | Rejects execution fault, `m_flow_running`, queued external requests, and `ScriptFlowBlocker`; permits input/duration/presentation/audio blockers | direct manual save and autosave | `save_state_tests` proves the current incomplete predicate; no presentation-status, generation, transaction-settling, or time-coalescing coverage | Runtime checkpoint/save service consuming typed presentation status | `replace`; Phase 2 |
 | Save codec and project-aware validation | Dedicated save JSON boundary | `save_state_codec.hpp/.cpp` and `save_state_codec/*`: strict `noveltea.save.state` V2 encode/decode/validation | kernel slot save/load, tests, tools | extensive `save_state_tests`; JSON boundary/policy tests cover placement | Runtime checkpoint/save service invokes the retained codec; codec remains serialization boundary | `retain`; Phase 2 changes capture caller, Phase 7 extends reconstructible fields |
 | Save restore | `FlowExecutor::restore_session()` creates a fresh `SessionState` and handles | `core/session_restore.cpp` | `TypedExecutionKernel::restore/load_slot`, manual load, Lua `Game.load` | `save_state_tests`, kernel/session tests; tests currently assert Room baseline derivation and omitted blocker behavior | Runtime checkpoint/save service restores runtime, then coordinator reconstructs presentation | `replace`; Phase 2 removes fabricated post-operation restoration, Phase 7 completes presentation reconstruction |
@@ -178,7 +184,7 @@ frozen in Phase 1B.
 | Presentation blocker | `PresentationFlowBlocker` | Omitted; restore has no blocker while cursor remains post-instruction | save test explicitly asserts omission | Never serialize progress; prevent replacement and use retained checkpoint in Phase 2; final status Phase 4 |
 | Audio blocker | `AudioFlowBlocker` | Omitted with the same fabricated post-operation result | save test explicitly asserts omission | Same as presentation blocker; Phase 2 transitional status, Phase 7 final audio policy |
 | Lua/script blocker and coroutine | `ScriptFlowBlocker`, `ScriptRuntime` coroutine | Save rejected; coroutine never encoded | save/script tests | Retain as runtime readiness barrier; Phase 2 |
-| Host/external requests | queued source and published pending vectors | Save preflight counts queued source requests; published `m_pending_host_requests` are outside `SaveSnapshotContext` after draining and are not serialized | kernel/session tests cover some pending-request failures; no comprehensive settled-queue predicate | Block replacement until all typed queues settle; Phase 2 |
+| Deferred commands and genuine external requests | Deferred commands are session-owned and drained before settlement; no current production external request variant exists | Commands are never serialized and must be empty at checkpoint settlement; future genuine external requests require a separate typed lifecycle | Runtime/session tests cover settled queues, cancellation, bounded self-enqueue, and stale ownership | Block replacement until runtime queues settle; add external-request barriers only when concrete external authority exists |
 | Actors, pose/expression/placement/visibility | `m_actors` | Omitted and explicitly cleared | session/Scene tests; no persistence test beyond clear behavior | Persist reconstructible target actor state, discard interpolation phase; Phase 7 |
 | Background | `m_background` | Omitted and cleared; derived only from active Room definition or committed side of Room transition | save restore Room test | Persist non-derivable Scene/script-selected target; derive only proven Room defaults; final rule Phase 1B, implementation Phase 7 |
 | Gameplay Layout slots | `m_layouts` | Omitted and cleared | state/Lua tests; no save restoration coverage | Persist reconstructible gameplay mounts with typed instance policy; Phase 7 after Phase 3 policy |
@@ -212,7 +218,7 @@ is never another source of truth.
 | Authored resources, presentation definitions, system Layout roles, and definition references | Immutable `CompiledProject` definitions | Existing compiled model remains authoritative; later phases may add only validated typed definitions. |
 | Variables, saved properties, Interactables, histories, Flow state, logical timers, and gameplay pause inputs | Runtime/session state | Existing runtime ownership retained; Phase 2 adds checkpoint generations without moving gameplay state. |
 | Durable logical backgrounds, actors, gameplay Layout mounts, Room overlays/loops, stable text/choice/Map state, and desired looping audio | Runtime/session state | Phase 7 completes reconstructible records; no backend progress or handle enters runtime state. |
-| Runtime input/output queues, Lua/Flow execution, host requests, and exact completion consumption | Runtime/session state | Existing typed runtime path retained; Phases 2 and 4 consume status and acknowledgements without moving execution into presentation. |
+| Runtime input/output queues, deferred commands, ordered events, Lua/Flow execution, and exact completion consumption | Runtime/session state | Internal commands drain inside runtime; only presentation/audio operations retain exact completion acknowledgement. |
 | Checkpoint eligibility, readiness diagnostics, generations, capture, retained bytes/metadata, save-command semantics, and slot writes | Runtime checkpoint/save service | Shared contracts in Phase 1C; service behavior in Phase 2; metadata/thumbnail extensions in Phase 7. |
 | Projection of immutable definitions plus mutable runtime intent into an idempotent presentation snapshot | `PresentationProjector` and `RuntimePresentationSnapshotPublisher` in `core/runtime_presentation.*` | Phase 4A complete. The projector is read-only, resolves typed identities without I/O, and never owns gameplay or save state; Phase 4B adds coordinator lifecycle. |
 | Presentation/audio operation acceptance, global ordering, lifecycle, causal-barrier publication, reconciliation, and typed completion/failure reporting | Presentation projector/coordinator | Phase 4, with transition realization in Phase 6 and audio classification/realization integration in Phase 7. |
@@ -268,7 +274,7 @@ snapped to the retained target. These rules supersede the current-behavior matri
 | Duration blocker | Typed owner and remaining duration | Yes | Encoded remaining duration and remapped owner | No | Serializable runtime wait | Phase 2 retains; existing codec |
 | Presentation/audio causal blocker | Runtime blocker plus coordinator barrier identity while live | No | Never reconstructed; load starts from the older retained checkpoint captured before acceptance | Yes | `CausalBarrier` | Phase 2 policy; Phase 4/7 status |
 | Immediate/suspended Lua | Typed invocation/coroutine owned by runtime | No | Never reconstructed; load uses older retained checkpoint | Yes | Runtime barrier | Phase 2 |
-| Host/external request and unsettled typed queues | Typed request IDs and queue entries | No | Never reconstructed; capture waits until transaction and queues settle | Yes | Runtime barrier | Phase 2 |
+| Deferred commands, future external requests, and unsettled typed queues | Internal command entries have no host IDs; no production external request variant currently exists | No | Never reconstructed; capture waits until transaction and queues settle | Yes | Runtime barrier | Runtime execution Phase 2 |
 | Play time | `SessionState` duration | Yes | Encoded duration | No | Time-only generation | Phase 2 |
 | Logical timers/completions | Typed timer state with remaining durations | Yes | Encoded records with fresh live IDs | No | Time-only or structural mutation according to timer operation | Phase 2 |
 | Actors | Stable actor instance plus target pose/expression/placement/visibility | Yes | Encoded target records validated against character/assets/definitions | Yes, interpolation/clip phase | `Reconstructible` | Phase 7 |
@@ -329,10 +335,8 @@ phases.
 ```cpp
 struct PresentationOperationTag;
 struct AudioOperationTag;
-struct HostRequestTag;
 using PresentationOperationId = SessionOperationId<PresentationOperationTag>;
 using AudioOperationId = SessionOperationId<AudioOperationTag>;
-using HostRequestId = SessionOperationId<HostRequestTag>;
 using AudioCompletionHandle =
     std::variant<AudioFlowBlockerHandle, ScriptInvocationHandle>;
 ```
@@ -531,7 +535,7 @@ enum class RuntimeQueueKind : std::uint8_t {
     Input,
     Output,
     ScriptInput,
-    HostRequest,
+    DeferredCommand,
     PresentationAcknowledgement,
 };
 
@@ -542,12 +546,10 @@ struct FlowCheckpointBarrierSource {
     FlowBlockerKind blocker;
 };
 struct ScriptCheckpointBarrierSource { ScriptInvocationHandle invocation; };
-struct HostRequestCheckpointBarrierSource { HostRequestId request; };
 struct PresentationCheckpointBarrierSource { PresentationOperationRef operation; };
 using CheckpointBarrierSource =
     std::variant<RuntimeTransactionBarrierSource, RuntimeQueueBarrierSource,
                  FlowCheckpointBarrierSource, ScriptCheckpointBarrierSource,
-                 HostRequestCheckpointBarrierSource,
                  PresentationCheckpointBarrierSource>;
 
 enum class CheckpointBarrierKind : std::uint8_t {
@@ -556,7 +558,6 @@ enum class CheckpointBarrierKind : std::uint8_t {
     UnserializableFlow,
     ImmediateScriptInvocation,
     SuspendedScriptInvocation,
-    PendingHostRequest,
     PresentationCausalOperation,
     InvalidReconstructibleState,
 };
@@ -605,7 +606,6 @@ enum class CheckpointReadinessReason : std::uint8_t {
     FlowStateNotSerializable,
     ImmediateScriptInvocationActive,
     SuspendedScriptInvocationActive,
-    HostRequestPending,
     PresentationBarrierActive,
     ReconstructibleStateInvalid,
     SaveProjectionFailed,
@@ -831,9 +831,10 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
 - Structural mutations advance one generation per committed transaction. Deterministic elapsed
   runtime input advances time generation once per transaction, with a one-second time-only capture
   deadline; structural dirtiness bypasses that deadline and idle transactions do not re-encode.
-- Awaited presentation/audio, transient voice/SFX, ActiveText reveal/fade, Lua suspension, pending
-  host requests, and non-reconstructible current presentation/audio state now prevent replacement
-  without mutating the older retained checkpoint. Startup uses the same broker after sinks bind.
+- Awaited presentation/audio, transient voice/SFX, ActiveText reveal/fade, Lua suspension, unsettled
+  runtime queues, and non-reconstructible current presentation/audio state prevent replacement
+  without mutating the older retained checkpoint. Deferred internal commands drain before
+  settlement rather than becoming checkpoint barriers. Startup uses the same broker after sinks bind.
 - Phase 2C retained-checkpoint save/autosave cutover, Phase 2D load/reset lifecycle, and final
   coordinator/reconstructible presentation work remain intentionally unchanged.
 
@@ -861,8 +862,8 @@ the shared identity, lifecycle, checkpoint-class, and barrier infrastructure the
   revision from decoded metadata, while `commit_loaded_checkpoint` adopts the exact loaded bytes,
   resets generation baselines, and clears pending manual/deferred outcomes and targets. The load
   settlement observes equal captured generations and therefore does not re-encode the state.
-- Runtime reset clears checkpoint state, pending requests/outcomes, transitional operation/barrier
-  state, selections, and pending host/audio/presentation work. Its settlement is explicitly
+- Runtime reset clears checkpoint state, pending save requests/outcomes, deferred commands,
+  transitional operation/barrier state, selections, and pending audio/presentation work. Its settlement is explicitly
   suppressed so a new checkpoint is obtained only from the subsequent startup settlement.
 - Project replacement and shutdown unbind `RuntimeUI` from the live session before destroying the
   owning `CompiledRuntime`. `RuntimeUI::shutdown()` also clears the session reset callback before

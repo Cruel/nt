@@ -532,7 +532,7 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
     core::append_diagnostics(typed_diagnostics, result.diagnostics);
     bool ok = result.disposition != script::RuntimeInputDisposition::Failed;
     std::vector<core::RuntimeInputMessage> deferred_inputs;
-    for (const auto& output : result.outputs) {
+    const auto process_output = [&](const core::RuntimeOutputMessage& output) {
         std::visit(
             [&](const auto& value) {
                 using T = std::decay_t<decltype(value)>;
@@ -554,16 +554,6 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                         for (const auto& next : dispatched.inputs)
                             deferred_inputs.push_back(next);
                     }
-                } else if constexpr (std::is_same_v<T, core::TypedHostRequest>) {
-                    const auto request_id = std::visit(
-                        [&](const auto& request) {
-                            using Request = std::decay_t<decltype(request)>;
-                            if constexpr (std::is_same_v<Request, core::NotificationHostRequest>)
-                                typed_notification = request.message;
-                            return request.id;
-                        },
-                        value);
-                    deferred_inputs.emplace_back(core::AcknowledgeHostRequestInput{request_id});
                 } else if constexpr (std::is_same_v<T, core::UserCommunicationOutput>) {
                     std::visit(
                         [&](const auto& communication) {
@@ -582,6 +572,45 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
                 }
             },
             output);
+    };
+    const auto process_event = [&](const runtime::RuntimeEvent& event) {
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, runtime::NotificationEvent>)
+                    typed_notification = value.message;
+                else if constexpr (std::is_same_v<T, runtime::SaveOutcomeEvent> ||
+                                   std::is_same_v<T, runtime::ObservationEvent>) {
+                    // These ordered events have no direct runtime-UI side effect yet.
+                } else
+                    static_assert(sizeof(T) == 0, "Unhandled runtime event");
+            },
+            event);
+    };
+    const bool valid_event_order =
+        result.events.size() == result.event_output_offsets.size() &&
+        std::is_sorted(result.event_output_offsets.begin(), result.event_output_offsets.end()) &&
+        (result.event_output_offsets.empty() ||
+         result.event_output_offsets.back() <= result.outputs.size());
+    if (!valid_event_order) {
+        typed_diagnostics.push_back({.code = "runtime_ui.invalid_event_order",
+                                     .message = "Runtime event ordering metadata is malformed"});
+        ok = false;
+        for (const auto& output : result.outputs)
+            process_output(output);
+        for (const auto& event : result.events)
+            process_event(event);
+    } else {
+        std::size_t event_index = 0;
+        for (std::size_t output_index = 0; output_index <= result.outputs.size(); ++output_index) {
+            while (event_index < result.events.size() &&
+                   result.event_output_offsets[event_index] == output_index) {
+                process_event(result.events[event_index]);
+                ++event_index;
+            }
+            if (output_index < result.outputs.size())
+                process_output(result.outputs[output_index]);
+        }
     }
     for (const auto& next : deferred_inputs)
         ok = dispatch_typed_input(next, depth + 1, false) && ok;

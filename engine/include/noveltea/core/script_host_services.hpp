@@ -3,6 +3,8 @@
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/session_state.hpp"
+#include "noveltea/runtime/runtime_commands.hpp"
+#include "noveltea/runtime/runtime_contracts.hpp"
 
 #include <optional>
 #include <string>
@@ -28,57 +30,13 @@ struct ProjectDefinitionSummary {
     std::optional<std::string> display_name;
 };
 
-struct MoveInteractableRequest {
-    InteractableId interactable;
-    compiled::InteractableLocation target;
-};
+using ScriptRuntimeAction =
+    std::variant<runtime::DeferredRuntimeCommandRequest, runtime::RuntimeEvent>;
 
-struct NavigationRequest {
-    compiled::RoomExitRef exit;
-    RoomId target;
-};
-
-struct StartTransientSceneRequest {
-    SceneId scene;
-};
-struct StartTransientDialogueRequest {
-    DialogueId dialogue;
-};
-struct CallChildSceneRequest {
-    SceneId scene;
-};
-struct CallChildDialogueRequest {
-    DialogueId dialogue;
-    std::optional<DialogueBlockId> start_block;
-};
-struct TailReplaceFlowRequest {
-    FlowTarget target;
-};
-struct NotificationRequest {
-    std::string message;
-};
-struct AutosaveSafePointRequest {
-    SceneId scene;
-    SceneStepId step;
-};
-struct DialogueLineAutosaveSafePointRequest {
-    DialogueId dialogue;
-    DialogueSegmentId segment;
-};
-struct DialogueChoiceAutosaveSafePointRequest {
-    DialogueId dialogue;
-    DialogueEdgeId edge;
-};
-
-using ScriptHostRequest =
-    std::variant<MoveInteractableRequest, NavigationRequest, StartTransientSceneRequest,
-                 StartTransientDialogueRequest, CallChildSceneRequest, CallChildDialogueRequest,
-                 TailReplaceFlowRequest, NotificationRequest, AutosaveSafePointRequest,
-                 DialogueLineAutosaveSafePointRequest, DialogueChoiceAutosaveSafePointRequest>;
-
-// Typed, JSON-free services exposed to Lua and the additive feature kernel. Requests are validated
-// and queued for their owning Phase 7/9 adapters; this class does not execute external adapters,
-// persistence, or consumer cutover.
+// Typed, JSON-free services exposed to Lua and the additive feature kernel. Structural commands are
+// validated and staged until the owning runtime session transfers them to its deferred command
+// queue at a safe execution boundary. This transitional class is removed by the capability-gateway
+// cutover; it does not own command execution, external requests, or persistence.
 class ScriptHostServices {
 public:
     ScriptHostServices(const CompiledProject& project, SessionState& state) noexcept
@@ -114,23 +72,23 @@ public:
     void request_autosave_safe_point(DialogueId dialogue, DialogueSegmentId segment);
     void request_autosave_safe_point(DialogueId dialogue, DialogueEdgeId edge);
 
-    [[nodiscard]] const std::vector<ScriptHostRequest>& requests() const noexcept
+    [[nodiscard]] const std::vector<ScriptRuntimeAction>& actions() const noexcept
     {
-        return m_requests;
+        return m_actions;
     }
-    [[nodiscard]] std::size_t autosave_safe_point_count() const noexcept;
-    [[nodiscard]] std::size_t in_flight_external_request_count() const noexcept;
-    [[nodiscard]] std::vector<ScriptHostRequest> take_requests() noexcept;
-    [[nodiscard]] std::vector<ScriptHostRequest> take_external_requests() noexcept;
-    [[nodiscard]] std::size_t consume_autosave_safe_points() noexcept;
+    [[nodiscard]] bool has_frame_sensitive_command() const noexcept;
+    [[nodiscard]] std::vector<runtime::RuntimeEvent> take_events() noexcept;
+    [[nodiscard]] std::vector<ScriptRuntimeAction> take_actions() noexcept;
 
 private:
     [[nodiscard]] Result<void, Diagnostics> require_room_mode(std::string operation) const;
     [[nodiscard]] Result<void, Diagnostics> require_flow_mode(std::string operation) const;
+    [[nodiscard]] runtime::RuntimeSourceContext source_context() const;
+    void queue_command(runtime::DeferredRuntimeCommandPayload payload);
 
     const CompiledProject& m_project;
     SessionState& m_state;
-    std::vector<ScriptHostRequest> m_requests;
+    std::vector<ScriptRuntimeAction> m_actions;
 };
 
 } // namespace noveltea::core

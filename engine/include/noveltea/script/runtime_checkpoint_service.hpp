@@ -22,12 +22,11 @@ struct RuntimeCheckpointFacts {
     bool input_queue_settled = true;
     bool output_queue_settled = true;
     bool script_input_queue_settled = true;
+    bool deferred_command_queue_settled = true;
     bool presentation_acknowledgements_settled = true;
     bool immediate_script_invocation_active = false;
     std::optional<core::FlowBlocker> flow_blocker;
-    std::vector<core::HostRequestId> pending_host_requests;
     core::PresentationCheckpointStatus presentation_status;
-    std::size_t in_flight_external_requests = 0;
 };
 
 struct RuntimeTransactionMutations {
@@ -70,7 +69,7 @@ public:
     // This is the sole candidate-publication path. Callers provide a const session projection;
     // this service never takes ownership of mutable runtime state or presentation backends.
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    publish_candidate(const core::SessionState& session, core::SaveSnapshotContext context = {});
+    publish_candidate(const core::SessionState& session);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     settle(const core::SessionState& session, const RuntimeCheckpointFacts& facts,
            RuntimeTransactionMutations mutations);

@@ -153,6 +153,23 @@ ScriptHostServices::interactable_location(const InteractableId& interactable) co
     return Result<compiled::InteractableLocation, Diagnostics>::success(state->location);
 }
 
+runtime::RuntimeSourceContext ScriptHostServices::source_context() const
+{
+    if (m_state.flow_stack().empty())
+        return {};
+    const auto frame = flow_frame_id(m_state.flow_stack().back());
+    return runtime::RuntimeSourceContext{
+        .frame = frame,
+        .diagnostic = RuntimeDiagnosticContext{
+            RuntimeDiagnosticContextValue{FlowFrameRuntimeContext{frame}}}};
+}
+
+void ScriptHostServices::queue_command(runtime::DeferredRuntimeCommandPayload payload)
+{
+    m_actions.emplace_back(runtime::DeferredRuntimeCommandRequest{.source = source_context(),
+                                                                  .payload = std::move(payload)});
+}
+
 Result<void, Diagnostics>
 ScriptHostServices::request_interactable_location(InteractableId interactable,
                                                   compiled::InteractableLocation target)
@@ -174,7 +191,7 @@ ScriptHostServices::request_interactable_location(InteractableId interactable,
                 host_error("script_host.invalid_interactable_location",
                            "Room placement does not exist or belongs to another Interactable"));
     }
-    m_requests.emplace_back(MoveInteractableRequest{std::move(interactable), std::move(target)});
+    queue_command(runtime::MoveInteractableCommand{std::move(interactable), std::move(target)});
     return Result<void, Diagnostics>::success();
 }
 
@@ -210,7 +227,7 @@ Result<void, Diagnostics> ScriptHostServices::request_navigation(compiled::RoomE
     if (found == room->exits.end())
         return Result<void, Diagnostics>::failure(
             host_error("script_host.invalid_navigation", "Navigation exit is missing"));
-    m_requests.emplace_back(NavigationRequest{std::move(exit), found->target});
+    queue_command(runtime::NavigateRoomCommand{std::move(exit), found->target});
     return Result<void, Diagnostics>::success();
 }
 
@@ -222,7 +239,7 @@ Result<void, Diagnostics> ScriptHostServices::request_transient(SceneId scene)
     if (m_project.find_scene(scene) == nullptr)
         return Result<void, Diagnostics>::failure(
             host_error("script_host.unknown_scene", "Scene definition is missing"));
-    m_requests.emplace_back(StartTransientSceneRequest{std::move(scene)});
+    queue_command(runtime::StartTransientSceneCommand{std::move(scene)});
     return Result<void, Diagnostics>::success();
 }
 
@@ -234,7 +251,7 @@ Result<void, Diagnostics> ScriptHostServices::request_transient(DialogueId dialo
     if (m_project.find_dialogue(dialogue) == nullptr)
         return Result<void, Diagnostics>::failure(
             host_error("script_host.unknown_dialogue", "Dialogue definition is missing"));
-    m_requests.emplace_back(StartTransientDialogueRequest{std::move(dialogue)});
+    queue_command(runtime::StartTransientDialogueCommand{std::move(dialogue)});
     return Result<void, Diagnostics>::success();
 }
 
@@ -246,7 +263,7 @@ Result<void, Diagnostics> ScriptHostServices::request_child(SceneId scene)
     if (m_project.find_scene(scene) == nullptr)
         return Result<void, Diagnostics>::failure(
             host_error("script_host.unknown_scene", "Scene definition is missing"));
-    m_requests.emplace_back(CallChildSceneRequest{std::move(scene)});
+    queue_command(runtime::CallChildSceneCommand{std::move(scene)});
     return Result<void, Diagnostics>::success();
 }
 
@@ -261,7 +278,7 @@ ScriptHostServices::request_child(DialogueId dialogue, std::optional<DialogueBlo
         return Result<void, Diagnostics>::failure(
             host_error("script_host.invalid_dialogue_target",
                        "Dialogue definition or requested start block is missing"));
-    m_requests.emplace_back(CallChildDialogueRequest{std::move(dialogue), std::move(start_block)});
+    queue_command(runtime::CallChildDialogueCommand{std::move(dialogue), std::move(start_block)});
     return Result<void, Diagnostics>::success();
 }
 
@@ -286,7 +303,7 @@ Result<void, Diagnostics> ScriptHostServices::request_tail_replacement(FlowTarge
     if (!valid)
         return Result<void, Diagnostics>::failure(
             host_error("script_host.invalid_flow_target", "Flow target definition is missing"));
-    m_requests.emplace_back(TailReplaceFlowRequest{std::move(target)});
+    queue_command(runtime::TailReplaceFlowCommand{std::move(target)});
     return Result<void, Diagnostics>::success();
 }
 
@@ -295,79 +312,60 @@ Result<void, Diagnostics> ScriptHostServices::request_notification(std::string m
     if (message.empty())
         return Result<void, Diagnostics>::failure(
             host_error("script_host.invalid_notification", "Notification cannot be empty"));
-    m_requests.emplace_back(NotificationRequest{std::move(message)});
+    m_actions.emplace_back(runtime::RuntimeEvent{runtime::NotificationEvent{std::move(message)}});
     return Result<void, Diagnostics>::success();
 }
 
 void ScriptHostServices::request_autosave_safe_point(SceneId scene, SceneStepId step)
 {
-    m_requests.emplace_back(AutosaveSafePointRequest{std::move(scene), std::move(step)});
+    (void)scene;
+    (void)step;
+    queue_command(runtime::RequestAutosaveCommand{});
 }
 
 void ScriptHostServices::request_autosave_safe_point(DialogueId dialogue, DialogueSegmentId segment)
 {
-    m_requests.emplace_back(
-        DialogueLineAutosaveSafePointRequest{std::move(dialogue), std::move(segment)});
+    (void)dialogue;
+    (void)segment;
+    queue_command(runtime::RequestAutosaveCommand{});
 }
 
 void ScriptHostServices::request_autosave_safe_point(DialogueId dialogue, DialogueEdgeId edge)
 {
-    m_requests.emplace_back(
-        DialogueChoiceAutosaveSafePointRequest{std::move(dialogue), std::move(edge)});
+    (void)dialogue;
+    (void)edge;
+    queue_command(runtime::RequestAutosaveCommand{});
 }
 
-std::vector<ScriptHostRequest> ScriptHostServices::take_requests() noexcept
+std::vector<ScriptRuntimeAction> ScriptHostServices::take_actions() noexcept
 {
-    std::vector<ScriptHostRequest> result;
-    result.swap(m_requests);
+    std::vector<ScriptRuntimeAction> result;
+    result.swap(m_actions);
     return result;
 }
 
-std::vector<ScriptHostRequest> ScriptHostServices::take_external_requests() noexcept
+std::vector<runtime::RuntimeEvent> ScriptHostServices::take_events() noexcept
 {
-    const auto is_autosave = [](const ScriptHostRequest& request) {
-        return std::holds_alternative<AutosaveSafePointRequest>(request) ||
-               std::holds_alternative<DialogueLineAutosaveSafePointRequest>(request) ||
-               std::holds_alternative<DialogueChoiceAutosaveSafePointRequest>(request);
-    };
-    std::vector<ScriptHostRequest> result;
-    for (auto it = m_requests.begin(); it != m_requests.end();) {
-        if (is_autosave(*it)) {
+    std::vector<runtime::RuntimeEvent> result;
+    for (auto it = m_actions.begin(); it != m_actions.end();) {
+        auto* event = std::get_if<runtime::RuntimeEvent>(&*it);
+        if (event == nullptr) {
             ++it;
             continue;
         }
-        result.push_back(std::move(*it));
-        it = m_requests.erase(it);
+        result.push_back(std::move(*event));
+        it = m_actions.erase(it);
     }
     return result;
 }
 
-std::size_t ScriptHostServices::autosave_safe_point_count() const noexcept
+bool ScriptHostServices::has_frame_sensitive_command() const noexcept
 {
-    return static_cast<std::size_t>(
-        std::count_if(m_requests.begin(), m_requests.end(), [](const ScriptHostRequest& request) {
-            return std::holds_alternative<AutosaveSafePointRequest>(request) ||
-                   std::holds_alternative<DialogueLineAutosaveSafePointRequest>(request) ||
-                   std::holds_alternative<DialogueChoiceAutosaveSafePointRequest>(request);
-        }));
-}
-
-std::size_t ScriptHostServices::in_flight_external_request_count() const noexcept
-{
-    return m_requests.size() - autosave_safe_point_count();
-}
-
-std::size_t ScriptHostServices::consume_autosave_safe_points() noexcept
-{
-    const auto is_autosave = [](const ScriptHostRequest& request) {
-        return std::holds_alternative<AutosaveSafePointRequest>(request) ||
-               std::holds_alternative<DialogueLineAutosaveSafePointRequest>(request) ||
-               std::holds_alternative<DialogueChoiceAutosaveSafePointRequest>(request);
-    };
-    const auto before = m_requests.size();
-    m_requests.erase(std::remove_if(m_requests.begin(), m_requests.end(), is_autosave),
-                     m_requests.end());
-    return before - m_requests.size();
+    return std::any_of(m_actions.begin(), m_actions.end(), [](const ScriptRuntimeAction& action) {
+        const auto* request = std::get_if<runtime::DeferredRuntimeCommandRequest>(&action);
+        return request != nullptr &&
+               !std::holds_alternative<runtime::RequestAutosaveCommand>(request->payload);
+    });
 }
 
 } // namespace noveltea::core

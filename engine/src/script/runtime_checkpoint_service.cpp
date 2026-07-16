@@ -139,8 +139,9 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
     add_queue(facts.input_queue_settled, core::RuntimeQueueKind::Input, 1);
     add_queue(facts.output_queue_settled, core::RuntimeQueueKind::Output, 2);
     add_queue(facts.script_input_queue_settled, core::RuntimeQueueKind::ScriptInput, 3);
+    add_queue(facts.deferred_command_queue_settled, core::RuntimeQueueKind::DeferredCommand, 4);
     add_queue(facts.presentation_acknowledgements_settled,
-              core::RuntimeQueueKind::PresentationAcknowledgement, 4);
+              core::RuntimeQueueKind::PresentationAcknowledgement, 5);
     if (facts.immediate_script_invocation_active)
         add_barrier_issue(issues, core::CheckpointReadinessReason::ImmediateScriptInvocationActive,
                           make_barrier(1, core::RuntimeTransactionBarrierSource{},
@@ -170,12 +171,6 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
             }
         }
     }
-    for (const auto request : facts.pending_host_requests)
-        add_barrier_issue(
-            issues, core::CheckpointReadinessReason::HostRequestPending,
-            make_barrier(request.number(), core::HostRequestCheckpointBarrierSource{request},
-                         core::CheckpointBarrierKind::PendingHostRequest),
-            "checkpoint.host_request_pending", "A host request is awaiting acknowledgement.");
     for (const auto& barrier : facts.presentation_status.active_barriers)
         issues.push_back(core::CheckpointReadinessIssue{
             core::CheckpointReadinessReason::PresentationBarrierActive, barrier,
@@ -219,8 +214,7 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
     core::Result<void, core::Diagnostics> captured =
         core::Result<void, core::Diagnostics>::success();
     if (refresh_requested)
-        captured = publish_candidate(session,
-                                     core::SaveSnapshotContext{facts.in_flight_external_requests});
+        captured = publish_candidate(session);
     if (!m_pending_manual_saves.empty()) {
         for (const auto slot : m_pending_manual_saves) {
             if (!captured) {
@@ -412,8 +406,7 @@ RuntimeCheckpointService::allocate_checkpoint_revision()
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeCheckpointService::publish_candidate(const core::SessionState& session,
-                                            core::SaveSnapshotContext context)
+RuntimeCheckpointService::publish_candidate(const core::SessionState& session)
 {
     std::vector<core::CheckpointReadinessIssue> issues;
     const auto reconstructibility = validate_reconstructibility(session);
@@ -425,7 +418,7 @@ RuntimeCheckpointService::publish_candidate(const core::SessionState& session,
                          : published;
     }
 
-    auto save = core::make_save_state(m_project, session, context);
+    auto save = core::make_save_state(m_project, session);
     core::Diagnostics failure;
     if (!save) {
         failure = save.error();

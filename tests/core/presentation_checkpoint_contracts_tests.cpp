@@ -51,7 +51,6 @@ TEST_CASE("presentation and checkpoint identities are strong domain types")
 {
     STATIC_REQUIRE(is_strong_session_id<PresentationOperationId>);
     STATIC_REQUIRE(is_strong_session_id<AudioOperationId>);
-    STATIC_REQUIRE(is_strong_session_id<HostRequestId>);
     STATIC_REQUIRE(is_strong_session_id<PresentationSnapshotRevision>);
     STATIC_REQUIRE(is_strong_session_id<PresentationOperationSequence>);
     STATIC_REQUIRE(is_strong_session_id<MountedLayoutInstanceId>);
@@ -69,7 +68,7 @@ TEST_CASE("closed presentation contract vocabularies have their frozen alternati
     STATIC_REQUIRE(std::variant_size_v<PresentationOperationRef> == 2);
     STATIC_REQUIRE(std::variant_size_v<PresentationCompletionTarget> == 4);
     STATIC_REQUIRE(std::variant_size_v<PresentationOperationState> == 6);
-    STATIC_REQUIRE(std::variant_size_v<CheckpointBarrierSource> == 6);
+    STATIC_REQUIRE(std::variant_size_v<CheckpointBarrierSource> == 5);
     STATIC_REQUIRE(std::variant_size_v<CheckpointSaveRequest> == 3);
     STATIC_REQUIRE(std::variant_size_v<CheckpointSaveOutcome> == 3);
 
@@ -86,7 +85,6 @@ TEST_CASE("closed presentation contract vocabularies have their frozen alternati
         CheckpointReadinessReason::FlowStateNotSerializable,
         CheckpointReadinessReason::ImmediateScriptInvocationActive,
         CheckpointReadinessReason::SuspendedScriptInvocationActive,
-        CheckpointReadinessReason::HostRequestPending,
         CheckpointReadinessReason::PresentationBarrierActive,
         CheckpointReadinessReason::ReconstructibleStateInvalid,
         CheckpointReadinessReason::SaveProjectionFailed,
@@ -112,15 +110,14 @@ TEST_CASE("closed presentation contract vocabularies have their frozen alternati
     constexpr std::array failure_domains{PresentationFailureDomain::WorldPresentation,
                                          PresentationFailureDomain::LayoutPresentation,
                                          PresentationFailureDomain::AudioPresentation};
-    constexpr std::array queue_kinds{RuntimeQueueKind::Input, RuntimeQueueKind::Output,
-                                     RuntimeQueueKind::ScriptInput, RuntimeQueueKind::HostRequest,
-                                     RuntimeQueueKind::PresentationAcknowledgement};
+    constexpr std::array queue_kinds{
+        RuntimeQueueKind::Input, RuntimeQueueKind::Output, RuntimeQueueKind::ScriptInput,
+        RuntimeQueueKind::DeferredCommand, RuntimeQueueKind::PresentationAcknowledgement};
     constexpr std::array barrier_kinds{CheckpointBarrierKind::RuntimeTransaction,
                                        CheckpointBarrierKind::UnsettledQueue,
                                        CheckpointBarrierKind::UnserializableFlow,
                                        CheckpointBarrierKind::ImmediateScriptInvocation,
                                        CheckpointBarrierKind::SuspendedScriptInvocation,
-                                       CheckpointBarrierKind::PendingHostRequest,
                                        CheckpointBarrierKind::PresentationCausalOperation,
                                        CheckpointBarrierKind::InvalidReconstructibleState};
     constexpr std::array write_sources{CheckpointWriteSource::CapturedCurrentState,
@@ -173,8 +170,7 @@ TEST_CASE("closed presentation contract vocabularies have their frozen alternati
                               [](const RuntimeQueueBarrierSource&) { return 1; },
                               [](const FlowCheckpointBarrierSource&) { return 2; },
                               [](const ScriptCheckpointBarrierSource&) { return 3; },
-                              [](const HostRequestCheckpointBarrierSource&) { return 4; },
-                              [](const PresentationCheckpointBarrierSource&) { return 5; }},
+                              [](const PresentationCheckpointBarrierSource&) { return 4; }},
                      source) == 0);
 
     CheckpointSaveRequest request = DeferredAutosaveRequest{};
@@ -269,7 +265,7 @@ TEST_CASE("shared contract headers enforce canonical definitions and dependency 
     }
     CHECK(occurrence_count(public_headers, "using PresentationOperationId =") == 1);
     CHECK(occurrence_count(public_headers, "using AudioOperationId =") == 1);
-    CHECK(occurrence_count(public_headers, "using HostRequestId =") == 1);
+    CHECK(occurrence_count(public_headers, "using HostRequestId =") == 0);
     CHECK(occurrence_count(public_headers, "using MountedLayoutInstanceId =") == 1);
     CHECK(occurrence_count(public_headers, "struct PresentationOperationTag;") == 1);
     CHECK(occurrence_count(public_headers, "struct MountedLayoutInstanceTag;") == 1);

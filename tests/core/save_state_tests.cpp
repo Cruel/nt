@@ -277,17 +277,15 @@ TEST_CASE("save preflight permits logical blockers and rejects unsafe session st
         CHECK(snapshot.error().front().code == "save.opaque_script_suspension");
     }
 
-    SECTION("faults and queued host requests are rejected deterministically")
+    SECTION("execution faults are rejected deterministically")
     {
         auto state = make_state(project);
         FlowExecutor flow(project, state);
         REQUIRE_FALSE(flow.apply_target(FlowTarget{id<DialogueId>("missing")}));
-        auto snapshot =
-            make_save_state(project, state, SaveSnapshotContext{.in_flight_external_requests = 2});
+        auto snapshot = make_save_state(project, state);
         REQUIRE_FALSE(snapshot);
-        REQUIRE(snapshot.error().size() == 2);
+        REQUIRE(snapshot.error().size() == 1);
         CHECK(snapshot.error()[0].code == "save.execution_fault");
-        CHECK(snapshot.error()[1].code == "save.external_requests_pending");
     }
 }
 

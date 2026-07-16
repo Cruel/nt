@@ -256,11 +256,13 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     CHECK(kernel->state().variable(project, core::VariableId::create("flag").value()).value() ==
           core::RuntimeValue{true});
     CHECK(kernel->state().presented_text()->text == "Welcome.");
-    CHECK(std::any_of(kernel->host().requests().begin(), kernel->host().requests().end(),
-                      [](const core::ScriptHostRequest& request) {
-                          return std::holds_alternative<core::DialogueLineAutosaveSafePointRequest>(
-                              request);
-                      }));
+    CHECK(std::any_of(
+        kernel->host().actions().begin(), kernel->host().actions().end(),
+        [](const core::ScriptRuntimeAction& action) {
+            const auto* request = std::get_if<runtime::DeferredRuntimeCommandRequest>(&action);
+            return request != nullptr &&
+                   std::holds_alternative<runtime::RequestAutosaveCommand>(request->payload);
+        }));
 
     complete_input(*kernel);
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(100, "en")));
@@ -293,9 +295,11 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
           core::RuntimeValue{std::int64_t{4}});
     CHECK(kernel->state().presented_text()->text == "Final line.");
     CHECK(std::any_of(
-        kernel->host().requests().begin(), kernel->host().requests().end(),
-        [](const core::ScriptHostRequest& request) {
-            return std::holds_alternative<core::DialogueChoiceAutosaveSafePointRequest>(request);
+        kernel->host().actions().begin(), kernel->host().actions().end(),
+        [](const core::ScriptRuntimeAction& action) {
+            const auto* request = std::get_if<runtime::DeferredRuntimeCommandRequest>(&action);
+            return request != nullptr &&
+                   std::holds_alternative<runtime::RequestAutosaveCommand>(request->payload);
         }));
 
     complete_input(*kernel);

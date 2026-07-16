@@ -1,13 +1,19 @@
 #pragma once
 
 #include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/flow.hpp"
+#include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
 
 #include <compare>
+#include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <limits>
 #include <optional>
+#include <string>
 #include <utility>
 #include <variant>
 
@@ -31,7 +37,11 @@ struct MoveInteractableCommand {
 struct NavigateRoomCommand {
     core::compiled::RoomExitRef exit;
     core::RoomId target;
-    bool operator==(const NavigateRoomCommand&) const = default;
+    [[nodiscard]] bool operator==(const NavigateRoomCommand& other) const
+    {
+        return exit.room == other.exit.room && exit.exit_id == other.exit.exit_id &&
+               target == other.target;
+    }
 };
 
 struct StartTransientSceneCommand {
@@ -74,6 +84,62 @@ struct DeferredRuntimeCommand {
     RuntimeSourceContext source;
     DeferredRuntimeCommandPayload payload;
     bool operator==(const DeferredRuntimeCommand&) const = default;
+};
+
+struct DeferredRuntimeCommandRequest {
+    RuntimeSourceContext source;
+    DeferredRuntimeCommandPayload payload;
+    bool operator==(const DeferredRuntimeCommandRequest&) const = default;
+};
+
+class DeferredRuntimeCommandQueue final {
+public:
+    [[nodiscard]] core::Result<RuntimeCommandSequence, core::Diagnostics>
+    enqueue(DeferredRuntimeCommandRequest request)
+    {
+        if (m_sequence_exhausted) {
+            return core::Result<RuntimeCommandSequence, core::Diagnostics>::failure(
+                {core::Diagnostic{.code = "runtime.command_sequence_exhausted",
+                                  .message =
+                                      "Deferred runtime command identity space is exhausted"}});
+        }
+        const auto sequence = RuntimeCommandSequence::from_number(m_next_sequence);
+        if (!sequence) {
+            return core::Result<RuntimeCommandSequence, core::Diagnostics>::failure(
+                {core::Diagnostic{.code = "runtime.command_sequence_exhausted",
+                                  .message =
+                                      "Deferred runtime command identity space is exhausted"}});
+        }
+        if (m_next_sequence == std::numeric_limits<std::uint64_t>::max()) {
+            m_sequence_exhausted = true;
+        } else {
+            ++m_next_sequence;
+        }
+        m_commands.push_back(DeferredRuntimeCommand{*sequence, std::move(request.source),
+                                                    std::move(request.payload)});
+        return core::Result<RuntimeCommandSequence, core::Diagnostics>::success(*sequence);
+    }
+
+    [[nodiscard]] std::optional<DeferredRuntimeCommand> pop_front() noexcept
+    {
+        if (m_commands.empty()) {
+            return std::nullopt;
+        }
+        auto command = std::move(m_commands.front());
+        m_commands.pop_front();
+        return command;
+    }
+
+    [[nodiscard]] bool empty() const noexcept { return m_commands.empty(); }
+    [[nodiscard]] std::size_t size() const noexcept { return m_commands.size(); }
+    [[nodiscard]] bool sequence_exhausted() const noexcept { return m_sequence_exhausted; }
+
+    void clear() noexcept { m_commands.clear(); }
+
+private:
+    std::deque<DeferredRuntimeCommand> m_commands;
+    std::uint64_t m_next_sequence = 1;
+    bool m_sequence_exhausted = false;
 };
 
 enum class RuntimeCancellationReason : std::uint8_t {

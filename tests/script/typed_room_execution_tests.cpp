@@ -149,8 +149,10 @@ void drive_to_room(TypedExecutionKernel& kernel, const core::RoomId& room,
 std::vector<std::string> notifications(const TypedExecutionKernel& kernel)
 {
     std::vector<std::string> result;
-    for (const auto& request : kernel.host().requests()) {
-        const auto* notification = std::get_if<core::NotificationRequest>(&request);
+    for (const auto& action : kernel.host().actions()) {
+        const auto* event = std::get_if<runtime::RuntimeEvent>(&action);
+        const auto* notification =
+            event == nullptr ? nullptr : std::get_if<runtime::NotificationEvent>(event);
         if (notification != nullptr)
             result.push_back(notification->message);
     }

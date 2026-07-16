@@ -38,11 +38,14 @@ another source.
 
 `TypedRuntimeSession::apply(RuntimeInputMessage)` is the single input seam. The closed variant
 covers lifecycle/time, continue/choice/navigation/interaction, debug mutations, typed save/load,
-playback controls, and acknowledgement/cancellation of typed presentation/audio/host operations.
+playback controls, and acknowledgement/cancellation of typed presentation/audio operations.
 
-Results contain a disposition, closed `RuntimeOutputMessage` values, and `core::Diagnostic`
-records. Outputs include view publication, presentation/audio operations, host requests, save
-outcomes, playback observations, and diagnostics. Payloads are typed C++ values, not generic JSON.
+Results contain a disposition, closed `RuntimeOutputMessage` values, ordered `runtime::RuntimeEvent`
+values, event/output ordering offsets, and `core::Diagnostic` records. Outputs include idempotent
+view publication, presentation/audio operations, save outcomes, playback observations, and
+diagnostics. Notifications are ordered events. Runtime-owned navigation, Flow, Interactable, and
+autosave work stays inside the session-owned deferred command queue and never receives an external
+request identity. Payloads are typed C++ values, not generic JSON.
 
 External editor/Web boundaries decode or encode named protocol DTOs around these variants. They do
 not become runtime state.
@@ -78,8 +81,8 @@ slots below its configured root.
 
 `TypedRuntimeSession` owns the runtime checkpoint service. Live inputs execute inside one
 nesting-aware transaction broker shared by startup and later dispatch. After recursive outputs,
-sink calls, and immediate acknowledgements settle, the service receives typed queue, Flow, Lua,
-host-request, presentation-barrier, and mutation facts. It publishes deterministic readiness and an
+sink calls, deferred commands, and immediate acknowledgements settle, the service receives typed
+queue, Flow, Lua, presentation-barrier, and mutation facts. It publishes deterministic readiness and an
 immutable retained candidate only at an eligible boundary. Structural changes capture immediately;
 time-only changes coalesce on one second of deterministic elapsed runtime input, while unchanged
 idle transactions do not re-encode.

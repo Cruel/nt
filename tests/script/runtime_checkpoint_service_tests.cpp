@@ -133,15 +133,11 @@ TEST_CASE("checkpoint service preserves deterministic projection diagnostic orde
     core::FlowExecutor flow(project, state);
     REQUIRE(flow.block_top(core::FlowBlockerKind::Script));
 
-    REQUIRE_FALSE(service.publish_candidate(
-        state, core::SaveSnapshotContext{.in_flight_external_requests = 1}));
-    REQUIRE(service.readiness().issues.size() == 2);
+    REQUIRE_FALSE(service.publish_candidate(state));
+    REQUIRE(service.readiness().issues.size() == 1);
     CHECK(service.readiness().issues[0].reason ==
           core::CheckpointReadinessReason::SaveProjectionFailed);
-    CHECK(service.readiness().issues[0].diagnostic.code == "save.external_requests_pending");
-    CHECK(service.readiness().issues[1].reason ==
-          core::CheckpointReadinessReason::SaveProjectionFailed);
-    CHECK(service.readiness().issues[1].diagnostic.code == "save.opaque_script_suspension");
+    CHECK(service.readiness().issues[0].diagnostic.code == "save.opaque_script_suspension");
 }
 
 TEST_CASE("checkpoint service rejects omitted presentation and causal blockers")

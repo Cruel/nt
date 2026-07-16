@@ -128,12 +128,7 @@ struct SaveState {
     std::optional<SavedFlowBlocker> blocker;
 };
 
-struct SaveSnapshotContext {
-    std::size_t in_flight_external_requests = 0;
-};
-
 [[nodiscard]] Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
-                                                             const SessionState& session,
-                                                             SaveSnapshotContext context = {});
+                                                             const SessionState& session);
 
 } // namespace noveltea::core

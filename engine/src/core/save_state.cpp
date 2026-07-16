@@ -46,8 +46,7 @@ SavedFlowFrame save_frame(const FlowFrame& frame, std::size_t index)
 } // namespace
 
 Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
-                                               const SessionState& session,
-                                               SaveSnapshotContext context)
+                                               const SessionState& session)
 {
     Diagnostics diagnostics;
     if (session.m_execution_fault)
@@ -56,9 +55,6 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
     if (session.m_flow_running)
         add_preflight_error(diagnostics, "save.execution_in_progress",
                             "A session cannot be saved while flow execution is in progress");
-    if (context.in_flight_external_requests != 0)
-        add_preflight_error(diagnostics, "save.external_requests_pending",
-                            "Host requests must be consumed or rejected before saving");
     if (session.m_blocker && std::holds_alternative<ScriptFlowBlocker>(*session.m_blocker))
         add_preflight_error(diagnostics, "save.opaque_script_suspension",
                             "Opaque Lua coroutine suspension is not serializable");

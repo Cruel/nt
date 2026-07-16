@@ -2,21 +2,20 @@
 
 Date: 2026-07-15
 
-Status: Phase 1 baseline for
-`plans/RUNTIME_EXECUTION_AND_CAPABILITY_IMPLEMENTATION_PLAN.md`. This records behavior that later
-runtime/capability cutovers must preserve; it does not make the transitional owners normative.
+Status: Phase 1 baseline updated through runtime implementation Phase 2. This records behavior that
+later runtime/capability cutovers must preserve; it does not make the transitional owners normative.
 
 | Capability/input family | Current production owner/path | Characterization evidence |
 | --- | --- | --- |
 | Definition queries | `RuntimeScriptApiTarget::script_definition` through the typed session | `script_runtime_tests.cpp`: typed Lua host-services coverage |
 | Variable read/write | `SessionState` through `ScriptHostServices`/typed session | `typed_runtime_session_tests.cpp`: checkpoint lifecycle, no-op mutation, reset/load API attachment |
 | Property read/set/unset | `SessionState` through `ScriptHostServices`/typed session | `script_runtime_tests.cpp`: validated typed host state and closed requests |
-| Interactable location/move | query through typed session; move promoted to `TypedHostRequest` | `script_runtime_tests.cpp`: typed host services; `typed_runtime_session_tests.cpp`: recursive acknowledgement and settlement |
-| Room navigation | typed exit validation then `NavigationHostRequest` | `typed_runtime_session_tests.cpp`: indexed navigation and Map navigation; `script_runtime_tests.cpp`: Room/transient request distinction |
-| Transient Scene/Dialogue | `ScriptHostServices` request promoted through the session | `script_runtime_tests.cpp`: Room/transient request distinction |
-| Child Scene/Dialogue call | `ScriptHostServices` request promoted through the session | `script_runtime_tests.cpp`: typed host-services closed-request coverage; `typed_execution_kernel_tests.cpp`: exact Flow/blocker behavior |
-| Tail-replace Flow | `ScriptHostServices` request promoted through the session | `script_runtime_tests.cpp`: typed host-services closed-request coverage; Flow executor focused tests |
-| Notifications | current notification host request/output path | `script_runtime_tests.cpp`: typed host-services closed-request coverage; runtime-message tests |
+| Interactable location/move | query through typed session; validated move drains through the session-owned deferred command queue | `script_runtime_tests.cpp`: typed host services; `typed_runtime_session_tests.cpp`: internal settlement, reset/load cancellation, stale-owner behavior |
+| Room navigation | typed exit validation then internal `NavigateRoomCommand` | `typed_runtime_session_tests.cpp`: indexed/Map navigation, FIFO drain, bounded command enqueue; `script_runtime_tests.cpp`: Room/transient distinction |
+| Transient Scene/Dialogue | validated internal deferred commands drained by the session | `script_runtime_tests.cpp`: Room/transient distinction; `typed_runtime_session_tests.cpp`: same-operation command drain |
+| Child Scene/Dialogue call | validated internal deferred commands retaining source-frame context | `script_runtime_tests.cpp`: closed command coverage; `typed_execution_kernel_tests.cpp`: exact Flow/blocker behavior |
+| Tail-replace Flow | internal deferred command; later old-owner commands are rejected without mutation | `typed_runtime_session_tests.cpp`: frame-destructive stale-owner coverage; Flow executor focused tests |
+| Notifications | ordered `RuntimeEvent` values with no acknowledgement | `typed_runtime_session_tests.cpp`: notification/audio relative ordering; editor runtime protocol tests |
 | Deterministic random | typed session mutates saved random state | `typed_runtime_session_tests.cpp`: deterministic random across save/load and invalid ranges |
 | Map | typed session Map state and validated activation/navigation | `typed_runtime_session_tests.cpp`: Map and Layout controls |
 | Layout slots | typed session Layout slot query/mutation and presentation output | `typed_runtime_session_tests.cpp`: Map and Layout controls; runtime-presentation tests |
@@ -49,3 +48,19 @@ runtime/capability cutovers must preserve; it does not make the transitional own
 
 Later phases must move the evidence to final owners before deleting any transitional path listed in
 the matrix.
+
+## Phase 2 cutover evidence
+
+- One session-owned FIFO queue allocates monotonic internal command sequence identities and retains
+  source context.
+- Interactable movement, navigation, transient/call/replace Flow operations, and autosave intent do
+  not appear in runtime output vocabulary and require no host acknowledgement.
+- Commands drain only after the current execution callback returns, may enqueue additional commands
+  under one bounded command budget, and reject stale Flow owners without mutation.
+- Stop, reset, successful load, failed transaction completion, and session destruction discard
+  pending internal commands deterministically.
+- Notifications are ordered runtime events and retain their position relative to audio and other
+  transitional outputs.
+- `TypedHostRequest`, `HostRequestId`, acknowledgement/failure inputs, pending request vectors, host
+  checkpoint barriers, and the old save-projection external-request count are absent from production
+  runtime/save vocabulary. Only the payload-free future external-request lifecycle contracts remain.

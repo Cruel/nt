@@ -252,6 +252,8 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
 
     std::size_t executed = 0;
     while (executed < instruction_budget) {
+        if (m_host.has_frame_sensitive_command())
+            return core::FlowBudgetYieldOutcome{executed};
         if (m_state.gameplay_paused())
             return core::FlowBudgetYieldOutcome{executed};
         if (m_state.blocker())
@@ -750,10 +752,7 @@ core::Result<core::SceneView, core::Diagnostics> TypedExecutionKernel::scene_vie
 
 core::Result<core::SaveState, core::Diagnostics> TypedExecutionKernel::snapshot_save() const
 {
-    return core::make_save_state(
-        m_project, m_state,
-        core::SaveSnapshotContext{.in_flight_external_requests =
-                                      m_host.in_flight_external_request_count()});
+    return core::make_save_state(m_project, m_state);
 }
 
 } // namespace noveltea::script

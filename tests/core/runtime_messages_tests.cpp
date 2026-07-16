@@ -17,8 +17,8 @@ template<class Id> Id id(const char* value)
 
 TEST_CASE("typed runtime message vocabulary is closed and JSON-free")
 {
-    STATIC_REQUIRE(std::variant_size_v<RuntimeInputMessage> == 27);
-    STATIC_REQUIRE(std::variant_size_v<RuntimeOutputMessage> == 8);
+    STATIC_REQUIRE(std::variant_size_v<RuntimeInputMessage> == 25);
+    STATIC_REQUIRE(std::variant_size_v<RuntimeOutputMessage> == 7);
     STATIC_REQUIRE(!std::is_constructible_v<RuntimeInputMessage, std::string>);
 
     RuntimeInputMessage input = NavigateRoomInput{.exit = id<RoomExitId>("north-exit")};
@@ -36,10 +36,10 @@ TEST_CASE("typed runtime outputs have one explicit category")
     CHECK(category(host) == RuntimeMessageCategory::HostOperation);
     CHECK(output_kind(host) == RuntimeOutputKind::PresentationOperation);
 
-    RuntimeOutputMessage host_request = TypedHostRequest{
-        NotificationHostRequest{.id = HostRequestId::from_number(7), .message = "saved"}};
-    CHECK(category(host_request) == RuntimeMessageCategory::HostOperation);
-    CHECK(output_kind(host_request) == RuntimeOutputKind::HostRequest);
+    RuntimeOutputMessage communication =
+        UserCommunicationOutput{NotificationOutput{.message = "saved"}};
+    CHECK(category(communication) == RuntimeMessageCategory::HostOperation);
+    CHECK(output_kind(communication) == RuntimeOutputKind::UserCommunication);
 
     RuntimeOutputMessage observation =
         RuntimeObservation{PlaybackObservation{.step_index = 3, .handled = true}};

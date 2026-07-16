@@ -268,6 +268,8 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         report.index = step.index;
         report.handled = result.disposition == noveltea::script::RuntimeInputDisposition::Handled;
         report.outputs = std::move(result.outputs);
+        report.events = std::move(result.events);
+        report.event_output_offsets = std::move(result.event_output_offsets);
         report.diagnostics = std::move(result.diagnostics);
         if (result.disposition == noveltea::script::RuntimeInputDisposition::Failed ||
             diagnostics_have_errors(report.diagnostics))

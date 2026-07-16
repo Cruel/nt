@@ -1,9 +1,12 @@
 #pragma once
 
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/runtime/runtime_commands.hpp"
+#include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/script/runtime_checkpoint_service.hpp"
 #include "noveltea/script/runtime_script_api.hpp"
 
+#include <cstddef>
 #include <memory>
 #include <functional>
 #include <optional>
@@ -25,6 +28,8 @@ struct TypedRuntimeSessionResult {
     RuntimeInputDisposition disposition = RuntimeInputDisposition::Handled;
     core::TypedRuntimeUIViewState view;
     std::vector<core::RuntimeOutputMessage> outputs;
+    std::vector<runtime::RuntimeEvent> events;
+    std::vector<std::size_t> event_output_offsets;
     core::Diagnostics diagnostics;
 };
 
@@ -32,7 +37,8 @@ class TypedRuntimeSession final : public RuntimeScriptApiTarget {
 public:
     [[nodiscard]] static core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>
     create(const core::CompiledProject& project, ScriptRuntime& runtime,
-           core::TypedSaveSlotStore& saves, std::string runtime_locale = {});
+           core::TypedSaveSlotStore& saves, std::string runtime_locale = {},
+           runtime::RuntimeBudgetConfiguration runtime_budget = {});
     ~TypedRuntimeSession() override;
 
     [[nodiscard]] TypedRuntimeSessionResult apply(const core::RuntimeInputMessage& input);
@@ -61,9 +67,9 @@ public:
     {
         return m_checkpoint_service.take_completed_save_outcomes();
     }
-    [[nodiscard]] std::size_t pending_host_request_count() const noexcept
+    [[nodiscard]] std::size_t pending_command_count() const noexcept
     {
-        return m_pending_host_requests.size();
+        return m_deferred_commands.size();
     }
 
     [[nodiscard]] core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
@@ -142,20 +148,35 @@ public:
     void queue_script_input(core::RuntimeInputMessage input) override;
 
 private:
-    struct PendingHostRequest {
-        core::TypedHostRequest output;
-        core::ScriptHostRequest source;
-    };
+    using PendingRuntimeEmission = std::variant<core::RuntimeOutputMessage, runtime::RuntimeEvent>;
 
     TypedRuntimeSession(const core::CompiledProject& project, ScriptRuntime& runtime,
                         core::TypedSaveSlotStore& saves,
-                        std::unique_ptr<TypedExecutionKernel> kernel,
-                        std::string runtime_locale) noexcept;
+                        std::unique_ptr<TypedExecutionKernel> kernel, std::string runtime_locale,
+                        runtime::RuntimeBudgetConfiguration runtime_budget) noexcept;
 
-    [[nodiscard]] core::Diagnostics run_kernel(std::vector<core::RuntimeOutputMessage>& outputs);
-    void drain_host_requests(std::vector<core::RuntimeOutputMessage>& outputs,
-                             core::Diagnostics& diagnostics);
-    [[nodiscard]] core::Diagnostics acknowledge(core::HostRequestId id);
+    [[nodiscard]] core::Diagnostics run_kernel(std::vector<core::RuntimeOutputMessage>& outputs,
+                                               std::vector<runtime::RuntimeEvent>& events,
+                                               std::vector<std::size_t>& event_output_offsets);
+    [[nodiscard]] core::Diagnostics
+    run_kernel_once(std::vector<core::RuntimeOutputMessage>& outputs,
+                    std::vector<runtime::RuntimeEvent>& events,
+                    std::vector<std::size_t>& event_output_offsets);
+    void collect_runtime_actions(core::Diagnostics& diagnostics);
+    void stage_host_events();
+    void drain_pending_emissions(std::vector<core::RuntimeOutputMessage>& outputs,
+                                 std::vector<runtime::RuntimeEvent>& events,
+                                 std::vector<std::size_t>& event_output_offsets);
+    void drain_deferred_commands(std::vector<core::RuntimeOutputMessage>& outputs,
+                                 std::vector<runtime::RuntimeEvent>& events,
+                                 std::vector<std::size_t>& event_output_offsets,
+                                 core::Diagnostics& diagnostics);
+    [[nodiscard]] core::Diagnostics
+    execute_deferred_command(const runtime::DeferredRuntimeCommand& command);
+    [[nodiscard]] bool
+    source_owner_is_current(const runtime::DeferredRuntimeCommand& command) const noexcept;
+    void attach_command_context(core::Diagnostics& diagnostics,
+                                const runtime::DeferredRuntimeCommand& command) const;
     [[nodiscard]] core::Diagnostics
     complete_presentation(core::PresentationOperationId operation, const core::FlowFrameId& owner,
                           const core::PresentationFlowBlockerHandle& completion, bool cancel);
@@ -163,9 +184,10 @@ private:
                                                    const core::FlowFrameId& owner,
                                                    const core::AudioCompletionHandle& completion,
                                                    bool cancel);
-    void drain_script_audio(std::vector<core::RuntimeOutputMessage>& outputs);
     void append_view(TypedRuntimeSessionResult& result);
     void drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
+                             std::vector<runtime::RuntimeEvent>& events,
+                             std::vector<std::size_t>& event_output_offsets,
                              core::Diagnostics& diagnostics);
     [[nodiscard]] core::Diagnostic diagnostic(std::string code, std::string message) const;
     void record_structural_mutation() noexcept;
@@ -183,6 +205,9 @@ private:
     core::TypedRuntimeUIViewState m_script_view;
     std::vector<core::RuntimeInputMessage> m_script_inputs;
     bool m_draining_script_inputs = false;
+    runtime::DeferredRuntimeCommandQueue m_deferred_commands;
+    runtime::RuntimeBudgetConfiguration m_runtime_budget;
+    bool m_draining_deferred_commands = false;
     bool m_skip_next_checkpoint_settlement = false;
     std::string m_runtime_locale;
     bool m_running = false;
@@ -190,11 +215,9 @@ private:
     core::EffectiveGameplayPause m_effective_gameplay_pause;
     std::size_t m_playback_step = 0;
     std::vector<core::InteractableId> m_selection;
-    std::vector<PendingHostRequest> m_pending_host_requests;
     std::optional<core::TransitionPresentationOperation> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
-    std::vector<core::AudioOperation> m_script_audio;
-    std::uint64_t m_next_host_request_id = 1;
+    std::vector<PendingRuntimeEmission> m_pending_emissions;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;
     std::function<void(core::PresentationCancellationReason)> m_transient_reset_handler;
