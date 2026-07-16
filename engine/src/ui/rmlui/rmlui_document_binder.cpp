@@ -56,6 +56,23 @@ std::string typed_onclick(std::string_view function, std::string_view argument =
     return " onclick=\"" + escape_rml(call) + "\"";
 }
 
+std::string actor_instance_text(const core::ActorPresentationKey& key)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::CharacterActorKey>)
+                return value.character.text();
+            else if constexpr (std::is_same_v<T, core::RoomCastActorKey>)
+                return value.entry.text();
+            else if constexpr (std::is_same_v<T, core::SceneActorKey>)
+                return value.slot.text();
+            else
+                return value.instance.text();
+        },
+        key);
+}
+
 } // namespace
 
 RuntimeUiDocumentBinder::RuntimeUiDocumentBinder() = default;
@@ -138,7 +155,7 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
                     continue;
                 out << "<div class=\"actor\" data-character-id=\""
                     << escape_rml(actor.character.text()) << "\" data-slot-id=\""
-                    << escape_rml(actor.key.slot.text()) << "\" data-pose-id=\""
+                    << escape_rml(actor_instance_text(actor.key)) << "\" data-pose-id=\""
                     << escape_rml(actor.pose.text()) << "\" data-expression-id=\""
                     << escape_rml(actor.expression.text()) << "\" data-presentation-complete=\""
                     << (actor.presentation_complete ? "true" : "false") << "\"></div>";

@@ -32,18 +32,22 @@ SessionState representative_state(const CompiledProject& project)
     auto created = SessionState::create(project);
     REQUIRE(created);
     auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    const auto& scene_frame = std::get<SceneFrame>(state.flow_stack().back());
+    const ScenePresentationOwner scene_owner{scene_frame.frame_id, scene_frame.scene};
     REQUIRE(state.set_background(
         project, compiled::BackgroundPresentation{id<AssetId>("image-main"), "#112233",
                                                   compiled::BackgroundFit::Cover,
                                                   id<MaterialId>("sprite-material")}));
-    REQUIRE(
-        state.set_actor(project, ActorState{{id<SceneId>("opening"), id<ActorSlotId>("hero-slot")},
-                                            id<CharacterId>("hero"),
-                                            id<CharacterPoseId>("default"),
-                                            id<CharacterExpressionId>("neutral"),
-                                            {},
-                                            true,
-                                            false}));
+    REQUIRE(state.set_actor(
+        project, DesiredActorPresentation{SceneActorKey{scene_owner, id<ActorSlotId>("hero-slot")},
+                                          scene_owner,
+                                          id<CharacterId>("hero"),
+                                          id<CharacterPoseId>("default"),
+                                          id<CharacterExpressionId>("neutral"),
+                                          {},
+                                          true,
+                                          false}));
     REQUIRE(
         state.set_overlay(project, id<RoomId>("start"), id<RoomOverlayId>("start-overlay"), true));
     REQUIRE(state.set_layout(project, compiled::LayoutSlot::Hud, id<LayoutId>("hud-inline")));
@@ -102,6 +106,7 @@ TEST_CASE("presentation projector canonicalizes collection ordering")
     auto created = SessionState::create(project);
     REQUIRE(created);
     auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
     REQUIRE(
         state.set_overlay(project, id<RoomId>("start"), id<RoomOverlayId>("start-overlay"), true));
     REQUIRE(
@@ -114,9 +119,8 @@ TEST_CASE("presentation projector canonicalizes collection ordering")
         project, {compiled::AudioChannel::Music, id<AssetId>("audio-voice"), 1.0, true, true}));
     auto projected = PresentationProjector::project(project, state);
     REQUIRE(projected);
-    REQUIRE(projected.value().overlays.size() == 2);
-    CHECK(projected.value().overlays[0].room == id<RoomId>("hall"));
-    CHECK(projected.value().overlays[1].room == id<RoomId>("start"));
+    REQUIRE(projected.value().overlays.size() == 1);
+    CHECK(projected.value().overlays[0].room == id<RoomId>("start"));
     REQUIRE(projected.value().layout_slots.size() == 2);
     CHECK(projected.value().layout_slots[0].slot == compiled::LayoutSlot::Hud);
     CHECK(projected.value().layout_slots[1].slot == compiled::LayoutSlot::Custom);

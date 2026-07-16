@@ -203,6 +203,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
          {"textLog", std::move(log)},
          {"logicalTimers", std::move(timers)},
          {"pendingTimerCompletions", std::move(completions)},
+         {"presentation", encode_presentation_records(save)},
          {"mode", encode_mode(save.mode)},
          {"flowStack", std::move(frames)},
          {"blocker", encode_blocker(save.blocker)}});
@@ -213,10 +214,26 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
 {
     Decoder d(std::move(source_path));
     d.object(document, "",
-             {"schema", "version", "metadata", "playTimeMs", "randomState", "variables",
-              "propertyOverrides", "characters", "interactables", "activeRoomVisit", "roomVisits",
-              "dialogueLineHistory", "dialogueChoiceHistory", "textLog", "logicalTimers",
-              "pendingTimerCompletions", "mode", "flowStack", "blocker"});
+             {"schema",
+              "version",
+              "metadata",
+              "playTimeMs",
+              "randomState",
+              "variables",
+              "propertyOverrides",
+              "characters",
+              "interactables",
+              "activeRoomVisit",
+              "roomVisits",
+              "dialogueLineHistory",
+              "dialogueChoiceHistory",
+              "textLog",
+              "logicalTimers",
+              "pendingTimerCompletions",
+              "presentation",
+              "mode",
+              "flowStack",
+              "blocker"});
     const auto* schema = d.member(document, "schema", "");
     const auto* version = d.member(document, "version", "");
     const auto* metadata = d.member(document, "metadata", "");
@@ -233,6 +250,7 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     const auto* text_log = d.member(document, "textLog", "");
     const auto* timers = d.member(document, "logicalTimers", "");
     const auto* completions = d.member(document, "pendingTimerCompletions", "");
+    const auto* presentation = d.member(document, "presentation", "");
     const auto* mode = d.member(document, "mode", "");
     const auto* frames = d.member(document, "flowStack", "");
     const auto* blocker = d.member(document, "blocker", "");
@@ -457,6 +475,9 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                                            SavedLogicalTimerCompletion{{*timer_id}, *count})
                                      : std::nullopt;
         });
+    auto saved_presentation = presentation
+                                  ? decode_presentation_records(d, *presentation, "/presentation")
+                                  : std::nullopt;
     auto saved_mode = mode ? decode_mode(d, *mode, "/mode") : std::nullopt;
     auto saved_frames = decode_array<SavedFlowFrame>(
         d, frames, "/flowStack", [&d](const nlohmann::json& value, const std::string& pointer) {
@@ -466,16 +487,35 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state || !saved_variables ||
         !saved_overrides || !saved_characters || !saved_interactables || !saved_active_room_visit ||
         !saved_room_visits || !saved_line_history || !saved_choice_history || !saved_log ||
-        !saved_timers || !saved_completions || !saved_mode || !saved_frames || !saved_blocker)
+        !saved_timers || !saved_completions || !saved_presentation || !saved_mode ||
+        !saved_frames || !saved_blocker)
         return Result<SaveState, Diagnostics>::failure(d.take());
     return Result<SaveState, Diagnostics>::success(
-        SaveState{std::move(*saved_metadata), std::chrono::milliseconds(*milliseconds),
-                  *saved_random_state, std::move(*saved_variables), std::move(*saved_overrides),
-                  std::move(*saved_characters), std::move(*saved_interactables),
-                  std::move(*saved_active_room_visit), std::move(*saved_room_visits),
-                  std::move(*saved_line_history), std::move(*saved_choice_history),
-                  std::move(*saved_log), std::move(*saved_timers), std::move(*saved_completions),
-                  std::move(*saved_mode), std::move(*saved_frames), std::move(*saved_blocker)});
+        SaveState{std::move(*saved_metadata),
+                  std::chrono::milliseconds(*milliseconds),
+                  *saved_random_state,
+                  std::move(*saved_variables),
+                  std::move(*saved_overrides),
+                  std::move(*saved_characters),
+                  std::move(*saved_interactables),
+                  std::move(*saved_active_room_visit),
+                  std::move(*saved_room_visits),
+                  std::move(*saved_line_history),
+                  std::move(*saved_choice_history),
+                  std::move(*saved_log),
+                  std::move(*saved_timers),
+                  std::move(*saved_completions),
+                  std::move(saved_presentation->background_overrides),
+                  std::move(saved_presentation->actors),
+                  std::move(saved_presentation->props),
+                  std::move(saved_presentation->environments),
+                  std::move(saved_presentation->layouts),
+                  std::move(saved_presentation->presented_text),
+                  std::move(saved_presentation->active_choice),
+                  std::move(saved_presentation->map_presentation),
+                  std::move(*saved_mode),
+                  std::move(*saved_frames),
+                  std::move(*saved_blocker)});
 }
 
 Result<SaveState, Diagnostics> decode_save_state_impl(const CompiledProject& project,

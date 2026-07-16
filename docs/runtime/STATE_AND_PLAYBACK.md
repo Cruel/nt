@@ -14,7 +14,11 @@ not persisted gameplay mode.
 
 `SessionState` stores typed variable values, typed property overrides, room visits, interactable
 locations, history, inventory selection, deterministic random state, session-only gameplay pause,
-and other declared mutable state. Reads resolve through:
+and authoritative desired-presentation records. Desired presentation uses one closed owner vocabulary:
+live Scene invocation, current Room visit, named Room, runtime session, or shell. Actor, background
+override, presentation-only prop, environment/loop, and mounted-Layout records carry stable typed
+identities. Presentation plane does not imply authority; gameplay and shell records remain independent.
+Reads resolve through:
 
 1. a typed session override;
 2. the validated compiled definition/property declaration and inheritance graph;
@@ -26,6 +30,12 @@ There is no JSON property bag, fake player object, legacy parent lookup, or muta
 Feature-specific state publishes `TypedRuntimeUIViewState` for Room, Scene, Dialogue, Interaction,
 Inventory, TextLog, and Map presentation. The UI receives a value view and stable IDs; it cannot
 mutate state except through runtime inputs.
+
+Scene-owned desired records are removed with their exact invocation frame. Current-Room records are
+removed only after a successful Room departure, while named-Room records remain stored and become
+inactive outside their Room. Room overlays are not a separate runtime lifecycle: authored overlays
+lower to ordinary Room-owned mounted-Layout records. Reserved Layout slots remain deterministic
+authoring/runtime shorthand for stable mount keys.
 
 The view keeps authored `gameplay_paused` separate from `effective_gameplay_pause`. The latter is a
 typed, non-persistent derivation of the authoritative explicit session value, visible mounted Layout
@@ -49,7 +59,9 @@ Presentation/audio operations are submitted synchronously through `PresentationR
 checkpoint settlement rather than emitted for UI discovery. Notifications, save outcomes, and
 one-time observations are ordered events. Runtime-owned navigation, Flow, Interactable, and autosave
 work stays inside the session-owned deferred command queue and never receives an external request
-identity. Payloads are typed C++ values, not generic JSON.
+identity. Desired-presentation upsert/remove and reserved-Layout set/clear commands use that same
+queue. Gameplay command capabilities reject shell-owned desired records. Payloads are typed C++
+values, not generic JSON.
 
 External editor/Web boundaries decode or encode named protocol DTOs around these variants. They do
 not become runtime state.
@@ -75,9 +87,14 @@ must acknowledge the exact owner/blocker handle before the wait is consumed.
 validates project identity/version, strong IDs, runtime values, flow state, blockers, feature state,
 and safe-point rules.
 
-Save format V2 persists the deterministic random-generator position so the next draw after restore
-is exactly the next draw from the saved session. Semantic gameplay pause is deliberately excluded:
-a successful restore resumes the saved gameplay mode rather than inheriting a pre-load pause flag.
+Save format V4 persists the deterministic random-generator position and authoritative desired
+presentation. It stores logical identities and owner-remap data rather than effective snapshot caches,
+backend handles, or operation progress. Scene owners remap through snapshot-local Flow-frame IDs;
+current-Room owners bind to the restored visit; named-Room and session owners restore semantically;
+shell records are intentionally excluded. Exact authored Room-overlay defaults rebuild from compiled
+definitions, while runtime mutations persist. Active text, active choice, and Map intent are retained.
+Semantic gameplay pause is deliberately excluded: a successful restore resumes the saved gameplay
+mode rather than inheriting a pre-load pause flag.
 
 `TypedSaveSlotStore` persists encoded save bytes without owning a JSON DOM. The memory
 implementation supports preview/tests; the filesystem implementation supports players and keeps
@@ -92,9 +109,9 @@ changes capture immediately; time-only changes coalesce on one second of determi
 runtime input, while unchanged idle transactions do not re-encode.
 
 The current presentation boundary publishes a transitional causal status before backend work.
-Awaited presentation/audio, voice and gameplay SFX until semantic termination, and ActiveText
-reveal/fade block checkpoint replacement. Current unsplit music/ambient and other non-derivable
-presentation state remain conservatively ineligible until the later reconstruction phase.
+Awaited presentation/audio, voice and gameplay SFX until semantic termination, ActiveText reveal/fade,
+live transition progress, and live audio-channel progress block checkpoint replacement. Stored desired
+presentation no longer makes an otherwise safe checkpoint ineligible.
 
 Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Unsupported or unsafe
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no
@@ -136,6 +153,7 @@ ID allocation and exact Flow/script completion validation, and consumes the coor
 status only when the outer dispatch transaction settles. Reset and load terminate old operations
 without synthesizing successful completion, then reconcile a fresh projected snapshot.
 
-RmlUi is a snapshot backend. Gameplay Layout slots, Room overlays, and Map Layouts reconcile into
-ephemeral mounted instances from compiled document/fragment resources. Phase 7 owns persistent save
-records for reconstructible mounts.
+RmlUi is a snapshot backend. Gameplay mounted-Layout desired records, including authored Room overlays
+lowered to Room-owned mounts, reconcile into ephemeral instances from compiled document/fragment
+resources. The old slot/overlay snapshot shape is currently a read-only projection adapter over the
+new authoritative desired state and is scheduled for deletion in Phase 7B.

@@ -13,7 +13,7 @@
 namespace noveltea::core {
 
 struct ActorView {
-    ActorSlotKey key;
+    ActorPresentationKey key;
     CharacterId character;
     CharacterPoseId pose;
     CharacterExpressionId expression;
@@ -22,13 +22,18 @@ struct ActorView {
     bool presentation_complete;
 };
 
+struct SceneLayoutView {
+    compiled::LayoutSlot slot;
+    LayoutId layout;
+};
+
 struct SceneView {
     SceneId scene;
     std::optional<compiled::BackgroundPresentation> background;
     std::vector<ActorView> actors;
     std::optional<PresentedTextState> text;
     std::optional<SceneChoiceState> choice;
-    std::vector<LayoutSlotState> layouts;
+    std::vector<SceneLayoutView> layouts;
     std::optional<LogicalTransitionState> transition;
     std::vector<AudioChannelState> audio_channels;
 };

@@ -1015,22 +1015,25 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
         "focus='hall-location'}); assert(ok and err == nil)\n"
         "local state = assert(noveltea.map.state()); assert(state.map == 'house' and "
         "state.mode == 'full-map' and state.focused_location == 'hall-location')\n"
-        "ok, err = noveltea.layouts.set('custom', 'hud-assets'); assert(ok and err == nil)\n"
-        "layout_value = assert(noveltea.layouts.get('custom'))",
+        "ok, err = noveltea.layouts.set('custom', 'hud-assets'); assert(ok and err == nil)",
         "typed-map-layout"));
-    auto view_result =
-        fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    REQUIRE(view_result.diagnostics.empty());
-    const auto& view = published_view(view_result);
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    const auto& view = published_view(flushed);
     REQUIRE(view.map);
     CHECK(view.map->map.text() == "house");
     CHECK(view.map->mode == core::compiled::InitialMapMode::FullMap);
     CHECK(view.map->locations[1].focused);
     REQUIRE(view.scene == std::nullopt);
-    auto layout_value = fixture.runtime.evaluate_string("layout_value", "layout-value");
+    auto layout_value = fixture.session->gateway().layout(core::compiled::LayoutSlot::Custom);
     REQUIRE(layout_value);
-    CHECK(layout_value.value() == "hud-assets");
-    CHECK(view_result.publication.has_value());
+    REQUIRE(layout_value.value());
+    CHECK(*layout_value.value() == core::LayoutId::create("hud-assets").value());
+    CHECK(flushed.publication.has_value());
+
+    auto stopped = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(stopped.diagnostics.empty());
 
     REQUIRE(execute_session_lua(
         fixture,
@@ -1050,13 +1053,17 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
     REQUIRE(navigated_view.room);
     CHECK(navigated_view.room->room.text() == "hall");
 
-    REQUIRE(execute_session_lua(
-        fixture,
-        "local ok, err = noveltea.map.hide(); assert(ok and err == nil)\n"
-        "ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)\n"
-        "assert(noveltea.layouts.get('custom') == nil)",
-        "typed-map-layout-clear"));
-    auto cleared = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local ok, err = noveltea.map.hide(); assert(ok and err == nil)\n"
+                            "ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)",
+                            "typed-map-layout-clear"));
+    auto cleared = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(cleared.diagnostics.empty());
+    auto cleared_layout = fixture.session->gateway().layout(core::compiled::LayoutSlot::Custom);
+    REQUIRE(cleared_layout);
+    CHECK_FALSE(cleared_layout.value());
     const auto& cleared_view = published_view(cleared);
     REQUIRE(cleared_view.map);
     CHECK_FALSE(cleared_view.map->visible);

@@ -1,6 +1,7 @@
 #include "noveltea/core/session_state.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -9,6 +10,22 @@
 
 namespace noveltea::core {
 namespace {
+
+std::atomic<std::uint64_t> g_next_presentation_session_id{1};
+std::atomic<std::uint64_t> g_next_shell_presentation_scope_id{1};
+std::atomic<std::uint64_t> g_next_room_visit_instance_id{1};
+
+template<class Id>
+std::optional<Id> allocate_process_identity(std::atomic<std::uint64_t>& next) noexcept
+{
+    std::uint64_t current = next.load(std::memory_order_relaxed);
+    while (current != std::numeric_limits<std::uint64_t>::max()) {
+        if (next.compare_exchange_weak(current, current + 1, std::memory_order_relaxed,
+                                       std::memory_order_relaxed))
+            return Id::from_number(current);
+    }
+    return std::nullopt;
+}
 
 Diagnostics variable_error(std::string code, const VariableId& id, std::string message)
 {
@@ -30,7 +47,7 @@ bool variant_has_id(const std::vector<Variant>& values, const Id& id) noexcept
 }
 
 const compiled::ActorCueInstruction* find_actor_cue(const compiled::SceneDefinition& scene,
-                                                    const ActorSlotKey& key,
+                                                    const SceneActorKey& key,
                                                     const CharacterId& character) noexcept
 {
     for (const auto& instruction : scene.program.instructions) {
@@ -42,7 +59,7 @@ const compiled::ActorCueInstruction* find_actor_cue(const compiled::SceneDefinit
 }
 
 bool valid_character_state(const compiled::CharacterDefinition& character,
-                           const ActorState& actor) noexcept
+                           const DesiredActorPresentation& actor) noexcept
 {
     const auto pose = std::find_if(
         character.poses.begin(), character.poses.end(),
@@ -212,6 +229,61 @@ bool valid_background(const CompiledProject& project,
            (!background.asset || project.find_asset(*background.asset) != nullptr);
 }
 
+bool valid_plane(PresentationPlane plane) noexcept { return plane <= PresentationPlane::Debug; }
+
+bool valid_layout_policy(const MountedLayoutPolicy& policy) noexcept
+{
+    return valid_plane(policy.plane) && policy.clock <= LayoutClockDomain::UnscaledPresentation &&
+           policy.input <= LayoutInputMode::Modal &&
+           policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&
+           policy.visibility <= LayoutVisibility::Visible &&
+           policy.escape_dismissal <= EscapeDismissalPolicy::Dismiss &&
+           !policy.entrance_operation && !policy.exit_operation;
+}
+
+MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot, bool visible = true) noexcept
+{
+    const PresentationPlane plane = slot == compiled::LayoutSlot::Overlay
+                                        ? PresentationPlane::WorldOverlay
+                                        : PresentationPlane::GameUi;
+    return MountedLayoutPolicy{.plane = plane,
+                               .local_order = 0,
+                               .clock = LayoutClockDomain::Gameplay,
+                               .input = LayoutInputMode::Normal,
+                               .gameplay_pause = GameplayPausePolicy::Continue,
+                               .visibility =
+                                   visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden,
+                               .escape_dismissal = EscapeDismissalPolicy::Ignore,
+                               .entrance_operation = std::nullopt,
+                               .exit_operation = std::nullopt};
+}
+
+MountedLayoutPolicy room_overlay_policy(std::int32_t order, bool visible) noexcept
+{
+    return MountedLayoutPolicy{.plane = PresentationPlane::WorldOverlay,
+                               .local_order = order,
+                               .clock = LayoutClockDomain::Gameplay,
+                               .input = LayoutInputMode::None,
+                               .gameplay_pause = GameplayPausePolicy::Continue,
+                               .visibility =
+                                   visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden,
+                               .escape_dismissal = EscapeDismissalPolicy::Ignore,
+                               .entrance_operation = std::nullopt,
+                               .exit_operation = std::nullopt};
+}
+
+bool owner_matches_scene_key(const PresentationOwner& owner, const SceneActorKey& key) noexcept
+{
+    const auto* scene_owner = std::get_if<ScenePresentationOwner>(&owner);
+    return scene_owner != nullptr && *scene_owner == key.owner;
+}
+
+bool valid_prop_bounds(const compiled::NormalizedRect& bounds) noexcept
+{
+    return std::isfinite(bounds.x) && std::isfinite(bounds.y) && std::isfinite(bounds.width) &&
+           std::isfinite(bounds.height) && bounds.width >= 0.0 && bounds.height >= 0.0;
+}
+
 bool valid_scene_choice(const CompiledProject& project, const SceneChoiceState& state) noexcept
 {
     const auto* scene = project.find_scene(state.scene);
@@ -355,6 +427,15 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
 
 Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& project)
 {
+    const auto presentation_session =
+        allocate_process_identity<PresentationSessionId>(g_next_presentation_session_id);
+    const auto shell_presentation_scope =
+        allocate_process_identity<ShellPresentationScopeId>(g_next_shell_presentation_scope_id);
+    if (!presentation_session || !shell_presentation_scope)
+        return Result<SessionState, Diagnostics>::failure(
+            feature_error("runtime.presentation_identity_exhausted",
+                          "Presentation session or shell-scope identities are exhausted"));
+
     std::unordered_map<VariableId, RuntimeValue> variables;
     variables.reserve(project.variables().size());
     for (const auto& declaration : project.variables()) {
@@ -396,9 +477,18 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
             definition.identity.id, definition.initial_world_state.location,
             definition.initial_world_state.enabled, definition.initial_world_state.visible});
     }
-    return Result<SessionState, Diagnostics>::success(
-        SessionState(FlowMode{}, std::move(*initial_stack), std::move(variables),
-                     std::move(characters), std::move(interactables), 2));
+    return Result<SessionState, Diagnostics>::success(SessionState(
+        FlowMode{}, std::move(*initial_stack), std::move(variables), std::move(characters),
+        std::move(interactables), 2, *presentation_session, *shell_presentation_scope));
+}
+
+Result<RoomVisitInstanceId, Diagnostics> SessionState::allocate_room_visit_instance_id()
+{
+    const auto id = allocate_process_identity<RoomVisitInstanceId>(g_next_room_visit_instance_id);
+    return id ? Result<RoomVisitInstanceId, Diagnostics>::success(*id)
+              : Result<RoomVisitInstanceId, Diagnostics>::failure(
+                    feature_error("runtime.room_visit_instance_exhausted",
+                                  "Room visit instance identities are exhausted"));
 }
 
 std::uint64_t SessionState::next_random_u64() noexcept
@@ -603,26 +693,184 @@ void SessionState::erase_property_override(const PropertyOwnerRef& owner,
         m_property_overrides.erase(found);
 }
 
-const ActorState* SessionState::actor(const ActorSlotKey& key) const noexcept
+std::optional<CurrentRoomPresentationOwner>
+SessionState::current_room_presentation_owner() const noexcept
+{
+    if (!m_room_visit || !m_room_visit_instance)
+        return std::nullopt;
+    return CurrentRoomPresentationOwner{*m_room_visit_instance, m_room_visit->room};
+}
+
+bool SessionState::presentation_owner_is_active(const PresentationOwner& owner) const noexcept
+{
+    return std::visit(
+        [this](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, ScenePresentationOwner>) {
+                return std::any_of(
+                    m_flow_stack.begin(), m_flow_stack.end(), [&value](const auto& f) {
+                        const auto* scene = std::get_if<SceneFrame>(&f);
+                        return scene != nullptr && scene->frame_id == value.invocation &&
+                               scene->scene == value.scene;
+                    });
+            } else if constexpr (std::is_same_v<T, CurrentRoomPresentationOwner>) {
+                const auto current = current_room_presentation_owner();
+                return current && *current == value;
+            } else if constexpr (std::is_same_v<T, RoomPresentationOwner>) {
+                return m_room_visit && m_room_visit->room == value.room;
+            } else if constexpr (std::is_same_v<T, SessionPresentationOwner>) {
+                return value.session == m_presentation_session;
+            } else {
+                return value.scope == m_shell_presentation_scope;
+            }
+        },
+        owner);
+}
+
+Result<void, Diagnostics>
+SessionState::validate_presentation_owner(const PresentationOwner& owner) const
+{
+    const bool valid = std::visit(
+        [this](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, RoomPresentationOwner>)
+                return true;
+            else if constexpr (std::is_same_v<T, SessionPresentationOwner>)
+                return value.session == m_presentation_session;
+            else if constexpr (std::is_same_v<T, ShellPresentationOwner>)
+                return value.scope == m_shell_presentation_scope;
+            else
+                return presentation_owner_is_active(PresentationOwner{value});
+        },
+        owner);
+    return valid ? Result<void, Diagnostics>::success()
+                 : Result<void, Diagnostics>::failure(feature_error(
+                       "runtime.invalid_presentation_owner",
+                       "Presentation owner is stale, inactive, or belongs to another session"));
+}
+
+Result<void, Diagnostics>
+SessionState::validate_presentation_owner(const CompiledProject& project,
+                                          const PresentationOwner& owner) const
+{
+    auto valid = validate_presentation_owner(owner);
+    if (!valid)
+        return valid;
+    const auto* room_owner = std::get_if<RoomPresentationOwner>(&owner);
+    if (room_owner != nullptr && project.find_room(room_owner->room) == nullptr)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_presentation_owner", "Presentation owner references a missing Room"));
+    return Result<void, Diagnostics>::success();
+}
+
+void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) noexcept
+{
+    std::erase_if(m_background_overrides,
+                  [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_actors, [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_presentation_props,
+                  [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_presentation_environments,
+                  [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_mounted_layouts, [&owner](const auto& value) { return value.owner == owner; });
+}
+
+void SessionState::remove_scene_presentation(const FlowFrame& frame) noexcept
+{
+    const auto* scene = std::get_if<SceneFrame>(&frame);
+    if (scene != nullptr)
+        remove_presentation_owned_by(ScenePresentationOwner{scene->frame_id, scene->scene});
+}
+
+Result<void, Diagnostics> SessionState::upsert_background_override(const CompiledProject& project,
+                                                                   DesiredBackgroundOverride value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    if (!owner || !valid_background(project, value.background))
+        return Result<void, Diagnostics>::failure(
+            !owner ? owner.error()
+                   : feature_error("runtime.invalid_background_override",
+                                   "Background override contains an invalid owner or resource"));
+    const auto found = std::find_if(m_background_overrides.begin(), m_background_overrides.end(),
+                                    [&value](const DesiredBackgroundOverride& current) {
+                                        return current.owner == value.owner;
+                                    });
+    if (found == m_background_overrides.end())
+        m_background_overrides.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::remove_background_override(const PresentationOwner& owner)
+{
+    const auto found = std::find_if(
+        m_background_overrides.begin(), m_background_overrides.end(),
+        [&owner](const DesiredBackgroundOverride& value) { return value.owner == owner; });
+    if (found != m_background_overrides.end())
+        m_background_overrides.erase(found);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::set_background(const CompiledProject& project,
+                                                       PresentationOwner owner,
+                                                       compiled::BackgroundPresentation background)
+{
+    return upsert_background_override(
+        project, DesiredBackgroundOverride{std::move(owner), std::move(background)});
+}
+
+const DesiredActorPresentation* SessionState::actor(const ActorPresentationKey& key,
+                                                    const PresentationOwner& owner) const noexcept
 {
     const auto found = std::find_if(m_actors.begin(), m_actors.end(),
-                                    [&key](const ActorState& value) { return value.key == key; });
+                                    [&key, &owner](const DesiredActorPresentation& value) {
+                                        return value.key == key && value.owner == owner;
+                                    });
     return found == m_actors.end() ? nullptr : &*found;
 }
 
-Result<void, Diagnostics> SessionState::set_actor(const CompiledProject& project, ActorState value)
+Result<void, Diagnostics> SessionState::set_actor(const CompiledProject& project,
+                                                  DesiredActorPresentation value)
 {
-    const auto* scene = project.find_scene(value.key.scene);
     const auto* character = project.find_character(value.character);
-    if (scene == nullptr || character == nullptr ||
-        find_actor_cue(*scene, value.key, value.character) == nullptr ||
-        !valid_character_state(*character, value))
+    auto owner = validate_presentation_owner(project, value.owner);
+    bool key_valid = false;
+    std::visit(
+        [&](const auto& key) {
+            using T = std::decay_t<decltype(key)>;
+            if constexpr (std::is_same_v<T, CharacterActorKey>) {
+                key_valid = key.character == value.character;
+            } else if constexpr (std::is_same_v<T, RoomCastActorKey>) {
+                const auto* room = project.find_room(key.room);
+                const auto* found =
+                    room == nullptr ? nullptr : [&]() -> const compiled::RoomCastEntry* {
+                    const auto item = std::find_if(room->cast.begin(), room->cast.end(),
+                                                   [&key](const compiled::RoomCastEntry& entry) {
+                                                       return entry.id == key.entry;
+                                                   });
+                    return item == room->cast.end() ? nullptr : &*item;
+                }();
+                const auto* room_owner = std::get_if<RoomPresentationOwner>(&value.owner);
+                key_valid = found != nullptr && found->character == value.character &&
+                            room_owner != nullptr && room_owner->room == key.room;
+            } else if constexpr (std::is_same_v<T, SceneActorKey>) {
+                const auto* scene = project.find_scene(key.owner.scene);
+                key_valid = scene != nullptr && owner_matches_scene_key(value.owner, key) &&
+                            find_actor_cue(*scene, key, value.character) != nullptr;
+            } else {
+                key_valid = true;
+            }
+        },
+        value.key);
+    if (!owner || character == nullptr || !key_valid || !valid_character_state(*character, value))
         return Result<void, Diagnostics>::failure(feature_error(
-            "runtime.invalid_actor_state",
-            "Actor state must reference one valid Scene slot, Character, pose, and expression"));
-    const auto found =
-        std::find_if(m_actors.begin(), m_actors.end(),
-                     [&value](const ActorState& current) { return current.key == value.key; });
+            "runtime.invalid_actor_state", "Actor desired state must reference a valid owner, "
+                                           "identity, Character, pose, and expression"));
+    const auto found = std::find_if(
+        m_actors.begin(), m_actors.end(), [&value](const DesiredActorPresentation& current) {
+            return current.key == value.key && current.owner == value.owner;
+        });
     if (found == m_actors.end())
         m_actors.push_back(std::move(value));
     else
@@ -631,13 +879,14 @@ Result<void, Diagnostics> SessionState::set_actor(const CompiledProject& project
 }
 
 Result<void, Diagnostics> SessionState::remove_actor(const CompiledProject& project,
-                                                     const ActorSlotKey& key)
+                                                     const ActorPresentationKey& key,
+                                                     const PresentationOwner& owner)
 {
-    if (project.find_scene(key.scene) == nullptr)
-        return Result<void, Diagnostics>::failure(
-            feature_error("runtime.unknown_scene", "Actor slot Scene does not exist"));
+    (void)project;
     const auto found = std::find_if(m_actors.begin(), m_actors.end(),
-                                    [&key](const ActorState& value) { return value.key == key; });
+                                    [&key, &owner](const DesiredActorPresentation& value) {
+                                        return value.key == key && value.owner == owner;
+                                    });
     if (found == m_actors.end())
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.unknown_actor", "Actor slot has no live state"));
@@ -647,17 +896,85 @@ Result<void, Diagnostics> SessionState::remove_actor(const CompiledProject& proj
 
 Result<void, Diagnostics>
 SessionState::set_actor_presentation_complete(const CompiledProject& project,
-                                              const ActorSlotKey& key, bool complete)
+                                              const ActorPresentationKey& key,
+                                              const PresentationOwner& owner, bool complete)
 {
-    if (project.find_scene(key.scene) == nullptr)
-        return Result<void, Diagnostics>::failure(
-            feature_error("runtime.unknown_scene", "Actor slot Scene does not exist"));
+    (void)project;
     const auto found = std::find_if(m_actors.begin(), m_actors.end(),
-                                    [&key](const ActorState& value) { return value.key == key; });
+                                    [&key, &owner](const DesiredActorPresentation& value) {
+                                        return value.key == key && value.owner == owner;
+                                    });
     if (found == m_actors.end())
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.unknown_actor", "Actor slot has no live state"));
     found->presentation_complete = complete;
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::upsert_presentation_prop(const CompiledProject& project,
+                                                                 DesiredPresentationProp value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    const bool resources_valid = !value.asset || project.find_asset(*value.asset) != nullptr;
+    const bool placement_valid =
+        !value.placement || valid_interactable_location(project, *value.placement);
+    if (!owner || !resources_valid || !placement_valid || !valid_prop_bounds(value.bounds) ||
+        !valid_plane(value.plane))
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_presentation_prop",
+            "Presentation prop contains an invalid owner, resource, placement, bounds, or plane"));
+    const auto found =
+        std::find_if(m_presentation_props.begin(), m_presentation_props.end(),
+                     [&value](const DesiredPresentationProp& current) {
+                         return current.instance == value.instance && current.owner == value.owner;
+                     });
+    if (found == m_presentation_props.end())
+        m_presentation_props.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::remove_presentation_prop(const PresentationPropInstanceId& instance,
+                                       const PresentationOwner& owner)
+{
+    std::erase_if(m_presentation_props, [&instance, &owner](const DesiredPresentationProp& value) {
+        return value.instance == instance && value.owner == owner;
+    });
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::upsert_presentation_environment(const CompiledProject& project,
+                                              DesiredPresentationEnvironment value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    if (!owner || value.kind.empty() || !valid_plane(value.plane) ||
+        value.clock > LayoutClockDomain::UnscaledPresentation)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_presentation_environment",
+            "Presentation environment contains an invalid owner, kind, plane, or clock"));
+    const auto found =
+        std::find_if(m_presentation_environments.begin(), m_presentation_environments.end(),
+                     [&value](const DesiredPresentationEnvironment& current) {
+                         return current.instance == value.instance && current.owner == value.owner;
+                     });
+    if (found == m_presentation_environments.end())
+        m_presentation_environments.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::remove_presentation_environment(const PresentationEnvironmentInstanceId& instance,
+                                              const PresentationOwner& owner)
+{
+    std::erase_if(m_presentation_environments,
+                  [&instance, &owner](const DesiredPresentationEnvironment& value) {
+                      return value.instance == instance && value.owner == owner;
+                  });
     return Result<void, Diagnostics>::success();
 }
 
@@ -814,17 +1131,24 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.history_overflow", "Room visit counter cannot be incremented"));
 
-    std::vector<RoomOverlayState> overlays = m_overlays;
+    std::vector<DesiredMountedLayout> mounted_layouts = m_mounted_layouts;
     for (const auto& overlay : definition->overlays) {
         if (project.find_layout(overlay.layout) == nullptr)
             return Result<void, Diagnostics>::failure(feature_error(
                 "runtime.invalid_room_overlay", "Room entry overlay references a missing Layout"));
-        const auto found = std::find_if(
-            overlays.begin(), overlays.end(), [&room, &overlay](const RoomOverlayState& state) {
-                return state.room == room && state.overlay == overlay.id;
-            });
-        if (found == overlays.end())
-            overlays.push_back(RoomOverlayState{room, overlay.id, overlay.visible});
+        const MountedLayoutPresentationKey key = RoomOverlayLayoutMountKey{room, overlay.id};
+        const auto found =
+            std::find_if(mounted_layouts.begin(), mounted_layouts.end(),
+                         [&key](const DesiredMountedLayout& state) {
+                             return state.key == key && presentation_authority(state.owner) ==
+                                                            PresentationAuthority::Gameplay;
+                         });
+        if (found == mounted_layouts.end()) {
+            mounted_layouts.push_back(
+                DesiredMountedLayout{key, RoomPresentationOwner{room}, overlay.layout,
+                                     room_overlay_policy(overlay.order, overlay.visible),
+                                     PresentationCompositionGroup::World});
+        }
     }
 
     const auto* previous_mode = std::get_if<RoomMode>(&m_mode);
@@ -846,13 +1170,18 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
                 feature_error("runtime.invalid_room_visit_context",
                               "Room entry exit does not match the source and target Rooms"));
     }
+    auto visit_instance = allocate_room_visit_instance_id();
+    if (!visit_instance)
+        return Result<void, Diagnostics>::failure(visit_instance.error());
     if (visit == m_room_visits.end())
         m_room_visits.emplace(room, 1);
     else
         ++visit->second;
+    if (const auto current_owner = current_room_presentation_owner())
+        remove_presentation_owned_by(*current_owner);
     m_room_visit = RoomVisitContext{room, source_room, std::move(entry_exit), room_visits(room)};
-    m_background = definition->background;
-    m_overlays = std::move(overlays);
+    m_room_visit_instance = *visit_instance.value_if();
+    m_mounted_layouts = std::move(mounted_layouts);
     m_presented_text.reset();
     m_active_choice.reset();
     return Result<void, Diagnostics>::success();
@@ -908,70 +1237,125 @@ Result<std::optional<LayoutId>, Diagnostics> SessionState::layout(compiled::Layo
     if (slot > compiled::LayoutSlot::Custom)
         return Result<std::optional<LayoutId>, Diagnostics>::failure(
             feature_error("runtime.invalid_layout_slot", "Layout slot is invalid"));
+    const MountedLayoutPresentationKey key = ReservedLayoutMountKey{slot};
     const auto found =
-        std::find_if(m_layouts.begin(), m_layouts.end(),
-                     [slot](const LayoutSlotState& state) { return state.slot == slot; });
+        std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
+                     [&key](const DesiredMountedLayout& state) {
+                         return state.key == key && presentation_authority(state.owner) ==
+                                                        PresentationAuthority::Gameplay;
+                     });
     return Result<std::optional<LayoutId>, Diagnostics>::success(
-        found == m_layouts.end() ? std::nullopt : std::optional<LayoutId>{found->layout});
+        found == m_mounted_layouts.end() ? std::nullopt : std::optional<LayoutId>{found->layout});
 }
 
-Result<void, Diagnostics> SessionState::set_background(const CompiledProject& project,
-                                                       compiled::BackgroundPresentation background)
+Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProject& project,
+                                                              DesiredMountedLayout value)
 {
-    if (!valid_background(project, background))
+    auto owner = validate_presentation_owner(project, value.owner);
+    bool key_valid = false;
+    std::visit(
+        [&](const auto& key) {
+            using T = std::decay_t<decltype(key)>;
+            if constexpr (std::is_same_v<T, ReservedLayoutMountKey>) {
+                key_valid = key.slot <= compiled::LayoutSlot::Custom;
+            } else if constexpr (std::is_same_v<T, RoomOverlayLayoutMountKey>) {
+                const auto* room = project.find_room(key.room);
+                const auto found = room == nullptr
+                                       ? static_cast<const compiled::RoomOverlay*>(nullptr)
+                                       : [&]() -> const compiled::RoomOverlay* {
+                    const auto item = std::find_if(room->overlays.begin(), room->overlays.end(),
+                                                   [&key](const compiled::RoomOverlay& overlay) {
+                                                       return overlay.id == key.overlay;
+                                                   });
+                    return item == room->overlays.end() ? nullptr : &*item;
+                }();
+                const auto* room_owner = std::get_if<RoomPresentationOwner>(&value.owner);
+                key_valid = found != nullptr && found->layout == value.layout &&
+                            room_owner != nullptr && room_owner->room == key.room &&
+                            value.policy.plane == PresentationPlane::WorldOverlay &&
+                            value.composition_group == PresentationCompositionGroup::World;
+            } else {
+                key_valid = true;
+            }
+        },
+        value.key);
+    if (!owner || project.find_layout(value.layout) == nullptr || !key_valid ||
+        !valid_layout_policy(value.policy) ||
+        value.composition_group > PresentationCompositionGroup::Debug)
         return Result<void, Diagnostics>::failure(feature_error(
-            "runtime.invalid_background", "Background contains an invalid fit or Asset reference"));
-    m_background = std::move(background);
+            "runtime.invalid_mounted_layout",
+            "Mounted Layout contains an invalid owner, key, Layout, policy, or composition group"));
+    const auto found =
+        std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
+                     [&value](const DesiredMountedLayout& current) {
+                         return current.key == value.key && current.owner == value.owner;
+                     });
+    if (found == m_mounted_layouts.end())
+        m_mounted_layouts.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::remove_mounted_layout(const MountedLayoutPresentationKey& key,
+                                    const PresentationOwner& owner)
+{
+    std::erase_if(m_mounted_layouts, [&key, &owner](const DesiredMountedLayout& value) {
+        return value.key == key && value.owner == owner;
+    });
     return Result<void, Diagnostics>::success();
 }
 
 Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& project,
                                                    compiled::LayoutSlot slot, LayoutId layout)
 {
-    if (slot > compiled::LayoutSlot::Custom || project.find_layout(layout) == nullptr)
-        return Result<void, Diagnostics>::failure(feature_error(
-            "runtime.invalid_layout", "Layout state contains an invalid slot or Layout reference"));
-    const auto found =
-        std::find_if(m_layouts.begin(), m_layouts.end(),
-                     [slot](const LayoutSlotState& state) { return state.slot == slot; });
-    if (found == m_layouts.end())
-        m_layouts.push_back(LayoutSlotState{slot, std::move(layout)});
-    else
-        found->layout = std::move(layout);
-    return Result<void, Diagnostics>::success();
+    return set_layout(project, session_presentation_owner(), slot, std::move(layout));
+}
+
+Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& project,
+                                                   PresentationOwner owner,
+                                                   compiled::LayoutSlot slot, LayoutId layout)
+{
+    return upsert_mounted_layout(
+        project, DesiredMountedLayout{ReservedLayoutMountKey{slot}, std::move(owner),
+                                      std::move(layout), reserved_layout_policy(slot),
+                                      PresentationCompositionGroup::Interface});
 }
 
 Result<void, Diagnostics> SessionState::clear_layout(compiled::LayoutSlot slot)
 {
+    return clear_layout(session_presentation_owner(), slot);
+}
+
+Result<void, Diagnostics> SessionState::clear_layout(const PresentationOwner& owner,
+                                                     compiled::LayoutSlot slot)
+{
     if (slot > compiled::LayoutSlot::Custom)
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.invalid_layout_slot", "Layout slot is invalid"));
-    const auto found =
-        std::find_if(m_layouts.begin(), m_layouts.end(),
-                     [slot](const LayoutSlotState& state) { return state.slot == slot; });
-    if (found != m_layouts.end())
-        m_layouts.erase(found);
-    return Result<void, Diagnostics>::success();
+    return remove_mounted_layout(ReservedLayoutMountKey{slot}, owner);
 }
 
 Result<void, Diagnostics> SessionState::set_overlay(const CompiledProject& project, RoomId room,
                                                     RoomOverlayId overlay, bool visible)
 {
     const auto* definition = project.find_room(room);
-    if (definition == nullptr ||
-        std::none_of(definition->overlays.begin(), definition->overlays.end(),
-                     [&overlay](const compiled::RoomOverlay& item) { return item.id == overlay; }))
+    const auto found = definition == nullptr ? static_cast<const compiled::RoomOverlay*>(nullptr)
+                                             : [&]() -> const compiled::RoomOverlay* {
+        const auto item = std::find_if(
+            definition->overlays.begin(), definition->overlays.end(),
+            [&overlay](const compiled::RoomOverlay& candidate) { return candidate.id == overlay; });
+        return item == definition->overlays.end() ? nullptr : &*item;
+    }();
+    if (found == nullptr)
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_room_overlay", "Room overlay state references a missing overlay"));
-    const auto found = std::find_if(m_overlays.begin(), m_overlays.end(),
-                                    [&room, &overlay](const RoomOverlayState& state) {
-                                        return state.room == room && state.overlay == overlay;
-                                    });
-    if (found == m_overlays.end())
-        m_overlays.push_back(RoomOverlayState{std::move(room), std::move(overlay), visible});
-    else
-        found->visible = visible;
-    return Result<void, Diagnostics>::success();
+    return upsert_mounted_layout(project,
+                                 DesiredMountedLayout{RoomOverlayLayoutMountKey{room, overlay},
+                                                      RoomPresentationOwner{room}, found->layout,
+                                                      room_overlay_policy(found->order, visible),
+                                                      PresentationCompositionGroup::World});
 }
 
 Result<void, Diagnostics> SessionState::present_text(const CompiledProject& project,

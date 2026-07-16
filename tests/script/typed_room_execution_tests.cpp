@@ -3,6 +3,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/runtime_presentation.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
 
@@ -186,11 +187,14 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     CHECK_FALSE(kernel->state().room_visit()->source_room);
     CHECK_FALSE(kernel->state().room_visit()->entry_exit);
     CHECK(kernel->state().room_visit()->visit_index == 1);
-    REQUIRE(kernel->state().background());
-    CHECK(kernel->state().background()->asset == id<core::AssetId>("image-main"));
-    REQUIRE(kernel->state().overlays().size() == 1);
-    CHECK(kernel->state().overlays().front().overlay == id<core::RoomOverlayId>("start-overlay"));
-    CHECK(kernel->state().overlays().front().visible);
+    auto presentation = core::PresentationProjector::project(project, kernel->state());
+    REQUIRE(presentation);
+    REQUIRE(presentation.value().background);
+    CHECK(presentation.value().background->asset == id<core::AssetId>("image-main"));
+    REQUIRE(presentation.value().overlays.size() == 1);
+    CHECK(presentation.value().overlays.front().overlay ==
+          id<core::RoomOverlayId>("start-overlay"));
+    CHECK(presentation.value().overlays.front().visible);
 
     auto view = kernel->room_view("en");
     REQUIRE(view);
@@ -425,8 +429,10 @@ TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding ho
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::AfterLeave);
     CHECK(kernel->state().room_visits(id<core::RoomId>("hall")) == 1);
-    REQUIRE(kernel->state().background());
-    CHECK(kernel->state().background()->fit == core::compiled::BackgroundFit::Contain);
+    auto hall_presentation = core::PresentationProjector::project(project, kernel->state());
+    REQUIRE(hall_presentation);
+    REQUIRE(hall_presentation.value().background);
+    CHECK(hall_presentation.value().background->fit == core::compiled::BackgroundFit::Contain);
 
     drive_to_room(*kernel, id<core::RoomId>("hall"));
     CHECK(kernel->state().variable(project, id<core::VariableId>("count")).value() ==

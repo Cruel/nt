@@ -48,6 +48,15 @@ SessionState make_state(const CompiledProject& project)
     REQUIRE(result);
     return std::move(result).value();
 }
+
+void finish_initial_room_transition(FlowExecutor& executor)
+{
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::BeforeEnter));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::AfterEnter));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::Complete));
+    REQUIRE(executor.complete_room_transition());
+}
 } // namespace
 
 TEST_CASE("typed session time and logical timers advance deterministically")
@@ -220,6 +229,113 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     REQUIRE(interaction);
     REQUIRE(interaction.value().flow_stack.size() == 1);
     CHECK(std::holds_alternative<SavedInteractionFrame>(interaction.value().flow_stack.front()));
+}
+
+TEST_CASE("desired presentation save restore remaps Scene and current Room owners and omits shell")
+{
+    SECTION("Scene invocation owners remap while shell records are omitted")
+    {
+        const auto project = load_fixture("scene-program.json");
+        auto state = make_state(project);
+        const auto frame = std::get<SceneFrame>(state.flow_stack().back());
+        const ScenePresentationOwner scene_owner{frame.frame_id, frame.scene};
+        const ActorPresentationKey scene_key =
+            SceneActorKey{scene_owner, id<ActorSlotId>("hero-slot")};
+        REQUIRE(
+            state.set_actor(project, DesiredActorPresentation{scene_key,
+                                                              scene_owner,
+                                                              id<CharacterId>("hero"),
+                                                              id<CharacterPoseId>("default"),
+                                                              id<CharacterExpressionId>("neutral"),
+                                                              {},
+                                                              true,
+                                                              false}));
+        const ActorPresentationKey persistent_key = CharacterActorKey{id<CharacterId>("hero")};
+        REQUIRE(
+            state.set_actor(project, DesiredActorPresentation{persistent_key,
+                                                              state.shell_presentation_owner(),
+                                                              id<CharacterId>("hero"),
+                                                              id<CharacterPoseId>("default"),
+                                                              id<CharacterExpressionId>("neutral"),
+                                                              {},
+                                                              true,
+                                                              true}));
+        REQUIRE(
+            state.present_text(project, PresentedTextState{id<CharacterId>("hero"), "Retained text",
+                                                           TextMarkup::ActiveText}));
+
+        auto saved = make_save_state(project, state);
+        REQUIRE(saved);
+        REQUIRE(saved.value().actors.size() == 1);
+        REQUIRE(std::holds_alternative<SavedSceneActorKey>(saved.value().actors.front().key));
+        CHECK(saved.value().presented_text->text == "Retained text");
+        auto duplicate = saved.value();
+        duplicate.actors.push_back(duplicate.actors.front());
+        auto duplicate_valid = validate_save_state(project, duplicate, "duplicate-presentation");
+        REQUIRE_FALSE(duplicate_valid);
+        CHECK(duplicate_valid.error().front().code == "save_codec.duplicate_presentation_record");
+
+        auto encoded = encode_save_state_text(project, saved.value());
+        REQUIRE(encoded);
+        auto decoded = decode_save_state_text(project, encoded.value(), "phase-7a-scene");
+        REQUIRE(decoded);
+        auto restored = FlowExecutor::restore_session(project, decoded.value());
+        REQUIRE(restored);
+        CHECK(restored.value().presentation_session_id() != state.presentation_session_id());
+        CHECK(restored.value().shell_presentation_owner() != state.shell_presentation_owner());
+        REQUIRE(restored.value().actors().size() == 1);
+        const auto* restored_key =
+            std::get_if<SceneActorKey>(&restored.value().actors().front().key);
+        REQUIRE(restored_key);
+        const auto& restored_frame = std::get<SceneFrame>(restored.value().flow_stack().back());
+        CHECK(restored_key->owner.invocation == restored_frame.frame_id);
+        CHECK(restored_key->owner.scene == restored_frame.scene);
+        REQUIRE(restored.value().presented_text());
+        CHECK(restored.value().presented_text()->text == "Retained text");
+    }
+
+    SECTION("current Room owner rebinds to the restored visit instance")
+    {
+        const auto project = load_fixture("minimal.json");
+        auto state = make_state(project);
+        FlowExecutor flow(project, state);
+        finish_initial_room_transition(flow);
+        REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+        REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+        const auto original_owner = state.current_room_presentation_owner();
+        REQUIRE(original_owner);
+        const auto shared_environment = id<PresentationEnvironmentInstanceId>("shared-environment");
+        REQUIRE(state.upsert_presentation_environment(
+            project, {shared_environment, *original_owner, "rain-loop"}));
+        REQUIRE(state.upsert_presentation_environment(
+            project,
+            {shared_environment, RoomPresentationOwner{id<RoomId>("start")}, "wind-loop"}));
+        REQUIRE(state.upsert_presentation_environment(
+            project, {shared_environment, state.session_presentation_owner(), "stars-loop"}));
+
+        auto saved = make_save_state(project, state);
+        REQUIRE(saved);
+        REQUIRE(saved.value().presentation_environments.size() == 3);
+        CHECK(std::holds_alternative<SavedCurrentRoomPresentationOwner>(
+            saved.value().presentation_environments.front().owner));
+        auto restored = FlowExecutor::restore_session(project, saved.value());
+        REQUIRE(restored);
+        REQUIRE(restored.value().presentation_environments().size() == 3);
+        const auto restored_record = std::find_if(
+            restored.value().presentation_environments().begin(),
+            restored.value().presentation_environments().end(),
+            [&shared_environment](const DesiredPresentationEnvironment& value) {
+                return value.instance == shared_environment &&
+                       std::holds_alternative<CurrentRoomPresentationOwner>(value.owner);
+            });
+        REQUIRE(restored_record != restored.value().presentation_environments().end());
+        const auto* restored_owner =
+            std::get_if<CurrentRoomPresentationOwner>(&restored_record->owner);
+        REQUIRE(restored_owner);
+        CHECK(restored_owner->room == original_owner->room);
+        CHECK(restored_owner->visit != original_owner->visit);
+        CHECK(restored.value().presentation_owner_is_active(*restored_owner));
+    }
 }
 
 TEST_CASE("save preflight permits logical blockers and rejects unsafe session states")
@@ -466,9 +582,9 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         REQUIRE(restored);
         CHECK(std::holds_alternative<RoomMode>(restored.value().mode()));
         CHECK(restored.value().flow_stack().empty());
-        REQUIRE(restored.value().background());
-        REQUIRE(restored.value().overlays().size() == 1);
-        CHECK(restored.value().overlays().front().visible);
+        REQUIRE(restored.value().mounted_layouts().size() == 1);
+        CHECK(restored.value().mounted_layouts().front().policy.visibility ==
+              LayoutVisibility::Visible);
         CHECK_FALSE(restored.value().map_presentation());
     }
 

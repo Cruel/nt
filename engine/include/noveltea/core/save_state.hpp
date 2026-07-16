@@ -14,7 +14,7 @@
 namespace noveltea::core {
 
 struct SaveStateMetadata {
-    static constexpr std::uint32_t current_format_version = 3;
+    static constexpr std::uint32_t current_format_version = 4;
 
     std::uint32_t format_version = current_format_version;
     ProjectId project;
@@ -110,6 +110,80 @@ struct SavedDurationBlocker {
 };
 using SavedFlowBlocker = std::variant<SavedInputBlocker, SavedDurationBlocker>;
 
+struct SavedScenePresentationOwner {
+    SavedFlowFrameId invocation;
+    SceneId scene;
+    auto operator<=>(const SavedScenePresentationOwner&) const = default;
+};
+struct SavedCurrentRoomPresentationOwner {
+    RoomId room;
+    auto operator<=>(const SavedCurrentRoomPresentationOwner&) const = default;
+};
+struct SavedRoomPresentationOwner {
+    RoomId room;
+    auto operator<=>(const SavedRoomPresentationOwner&) const = default;
+};
+struct SavedSessionPresentationOwner {
+    auto operator<=>(const SavedSessionPresentationOwner&) const = default;
+};
+using SavedPresentationOwner =
+    std::variant<SavedScenePresentationOwner, SavedCurrentRoomPresentationOwner,
+                 SavedRoomPresentationOwner, SavedSessionPresentationOwner>;
+
+struct SavedSceneActorKey {
+    SavedScenePresentationOwner owner;
+    ActorSlotId slot;
+    auto operator<=>(const SavedSceneActorKey&) const = default;
+};
+using SavedActorPresentationKey =
+    std::variant<CharacterActorKey, RoomCastActorKey, SavedSceneActorKey, ScopedActorKey>;
+
+struct SavedBackgroundOverride {
+    SavedPresentationOwner owner;
+    compiled::BackgroundPresentation background;
+};
+
+struct SavedActorPresentation {
+    SavedActorPresentationKey key;
+    SavedPresentationOwner owner;
+    CharacterId character;
+    CharacterPoseId pose;
+    CharacterExpressionId expression;
+    ActorLogicalPlacement placement;
+    bool visible = false;
+    bool presentation_complete = true;
+};
+
+struct SavedPresentationProp {
+    PresentationPropInstanceId instance;
+    SavedPresentationOwner owner;
+    std::optional<AssetId> asset;
+    std::optional<MaterialId> material;
+    std::optional<compiled::RoomPlacementRef> placement;
+    compiled::NormalizedRect bounds{0.0, 0.0, 0.0, 0.0};
+    PresentationPlane plane = PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    bool visible = true;
+};
+
+struct SavedPresentationEnvironment {
+    PresentationEnvironmentInstanceId instance;
+    SavedPresentationOwner owner;
+    std::string kind;
+    PresentationPlane plane = PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    LayoutClockDomain clock = LayoutClockDomain::Gameplay;
+    bool visible = true;
+};
+
+struct SavedMountedLayout {
+    MountedLayoutPresentationKey key;
+    SavedPresentationOwner owner;
+    LayoutId layout;
+    MountedLayoutPolicy policy;
+    PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
+};
+
 struct SaveState {
     SaveStateMetadata metadata;
     std::chrono::milliseconds play_time{0};
@@ -125,6 +199,14 @@ struct SaveState {
     std::vector<TextLogEntry> text_log;
     std::vector<SavedLogicalTimer> logical_timers;
     std::vector<SavedLogicalTimerCompletion> pending_timer_completions;
+    std::vector<SavedBackgroundOverride> background_overrides;
+    std::vector<SavedActorPresentation> actors;
+    std::vector<SavedPresentationProp> presentation_props;
+    std::vector<SavedPresentationEnvironment> presentation_environments;
+    std::vector<SavedMountedLayout> mounted_layouts;
+    std::optional<PresentedTextState> presented_text;
+    std::optional<ActiveChoiceState> active_choice;
+    std::optional<MapPresentationState> map_presentation;
     RuntimeMode mode;
     std::vector<SavedFlowFrame> flow_stack;
     std::optional<SavedFlowBlocker> blocker;

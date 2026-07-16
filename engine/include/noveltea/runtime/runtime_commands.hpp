@@ -91,11 +91,67 @@ struct RequestAutosaveCommand {
     auto operator<=>(const RequestAutosaveCommand&) const = default;
 };
 
+struct UpsertBackgroundOverrideCommand {
+    core::DesiredBackgroundOverride value;
+    bool operator==(const UpsertBackgroundOverrideCommand&) const = default;
+};
+struct RemoveBackgroundOverrideCommand {
+    core::PresentationOwner owner;
+    bool operator==(const RemoveBackgroundOverrideCommand&) const = default;
+};
+struct UpsertActorPresentationCommand {
+    core::DesiredActorPresentation value;
+    bool operator==(const UpsertActorPresentationCommand&) const = default;
+};
+struct RemoveActorPresentationCommand {
+    core::ActorPresentationKey key;
+    core::PresentationOwner owner;
+    bool operator==(const RemoveActorPresentationCommand&) const = default;
+};
+struct UpsertPresentationPropCommand {
+    core::DesiredPresentationProp value;
+    bool operator==(const UpsertPresentationPropCommand&) const = default;
+};
+struct RemovePresentationPropCommand {
+    core::PresentationPropInstanceId instance;
+    core::PresentationOwner owner;
+    bool operator==(const RemovePresentationPropCommand&) const = default;
+};
+struct UpsertPresentationEnvironmentCommand {
+    core::DesiredPresentationEnvironment value;
+    bool operator==(const UpsertPresentationEnvironmentCommand&) const = default;
+};
+struct RemovePresentationEnvironmentCommand {
+    core::PresentationEnvironmentInstanceId instance;
+    core::PresentationOwner owner;
+    bool operator==(const RemovePresentationEnvironmentCommand&) const = default;
+};
+struct UpsertMountedLayoutCommand {
+    core::DesiredMountedLayout value;
+    bool operator==(const UpsertMountedLayoutCommand&) const = default;
+};
+struct RemoveMountedLayoutCommand {
+    core::MountedLayoutPresentationKey key;
+    core::PresentationOwner owner;
+    bool operator==(const RemoveMountedLayoutCommand&) const = default;
+};
+struct SetReservedLayoutCommand {
+    core::PresentationOwner owner;
+    core::compiled::LayoutSlot slot;
+    core::LayoutId layout;
+    bool operator==(const SetReservedLayoutCommand&) const = default;
+};
+
 using DeferredRuntimeCommandPayload =
     std::variant<MoveInteractableCommand, SetInteractableWorldStateCommand,
                  SetCharacterWorldStateCommand, NavigateRoomCommand, StartTransientSceneCommand,
                  StartTransientDialogueCommand, CallChildSceneCommand, CallChildDialogueCommand,
-                 TailReplaceFlowCommand, RequestAutosaveCommand>;
+                 TailReplaceFlowCommand, RequestAutosaveCommand, UpsertBackgroundOverrideCommand,
+                 RemoveBackgroundOverrideCommand, UpsertActorPresentationCommand,
+                 RemoveActorPresentationCommand, UpsertPresentationPropCommand,
+                 RemovePresentationPropCommand, UpsertPresentationEnvironmentCommand,
+                 RemovePresentationEnvironmentCommand, UpsertMountedLayoutCommand,
+                 RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
 
 struct DeferredRuntimeCommand {
     RuntimeCommandSequence sequence;

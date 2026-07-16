@@ -143,7 +143,7 @@ TEST_CASE("checkpoint service preserves deterministic projection diagnostic orde
     CHECK(service.readiness().issues[0].diagnostic.code == "save.opaque_script_suspension");
 }
 
-TEST_CASE("checkpoint service rejects omitted presentation and causal blockers")
+TEST_CASE("checkpoint service retains desired presentation and rejects causal blockers")
 {
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
@@ -151,9 +151,9 @@ TEST_CASE("checkpoint service rejects omitted presentation and causal blockers")
     RuntimeCheckpointService service(project, saves);
 
     REQUIRE(state.present_text(project, core::PresentedTextState{std::nullopt, "Visible text"}));
-    REQUIRE_FALSE(service.publish_candidate(state));
-    CHECK(service.readiness().issues.front().reason ==
-          core::CheckpointReadinessReason::ReconstructibleStateInvalid);
+    REQUIRE(service.publish_candidate(state));
+    REQUIRE(service.latest_checkpoint());
+    CHECK(service.readiness().can_capture());
 
     state.clear_presented_text();
     core::FlowExecutor flow(project, state);
@@ -316,14 +316,19 @@ TEST_CASE("manual checkpoint save uses retained state while ineligible and repor
     const auto retained_bytes = service.latest_checkpoint()->encoded_save;
     const auto manual = core::TypedSaveSlotId::manual(3);
 
-    REQUIRE(state.present_text(project, core::PresentedTextState{std::nullopt, "busy"}));
+    core::FlowExecutor flow(project, state);
+    auto blocker = flow.block_top(core::FlowBlockerKind::Presentation);
+    REQUIRE(blocker);
     (void)service.request(core::ManualSaveRequest{manual});
-    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+    auto blocked_facts = ready_facts();
+    blocked_facts.flow_blocker = state.blocker();
+    REQUIRE(service.settle(state, blocked_facts, {.structural = true}));
     auto outcomes = service.take_completed_save_outcomes();
     REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(outcomes.front()));
     CHECK(saves.slots[manual] == retained_bytes);
 
-    state.clear_presented_text();
+    REQUIRE(flow.cancel_blocker(core::flow_blocker_owner(blocker.value()),
+                                core::flow_blocker_handle(blocker.value())));
     REQUIRE(state.set_variable(project, id<core::VariableId>("player-name"),
                                core::RuntimeValue{std::string{"\xff"}}));
     (void)service.request(core::ManualSaveRequest{manual});
@@ -383,10 +388,13 @@ TEST_CASE("ineligible manual save without retained state reports missing checkpo
     auto state = make_state(project);
     RecordingSaveStore saves;
     RuntimeCheckpointService service(project, saves);
-    REQUIRE(state.present_text(project, core::PresentedTextState{std::nullopt, "busy"}));
+    core::FlowExecutor flow(project, state);
+    REQUIRE(flow.block_top(core::FlowBlockerKind::Presentation));
     const auto slot = core::TypedSaveSlotId::manual(9);
     REQUIRE(service.request(core::ManualSaveRequest{slot}));
-    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
+    auto blocked_facts = ready_facts();
+    blocked_facts.flow_blocker = state.blocker();
+    REQUIRE(service.settle(state, blocked_facts, {.structural = true}));
     auto outcomes = service.take_completed_save_outcomes();
     REQUIRE(outcomes.size() == 1);
     REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(outcomes.front()));

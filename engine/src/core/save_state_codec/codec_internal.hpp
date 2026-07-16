@@ -204,6 +204,21 @@ nlohmann::json encode_blocker(const std::optional<SavedFlowBlocker>& blocker);
 std::optional<std::optional<SavedFlowBlocker>>
 decode_blocker(Decoder& d, const nlohmann::json& value, std::string_view pointer);
 
+struct SavedPresentationRecords {
+    std::vector<SavedBackgroundOverride> background_overrides;
+    std::vector<SavedActorPresentation> actors;
+    std::vector<SavedPresentationProp> props;
+    std::vector<SavedPresentationEnvironment> environments;
+    std::vector<SavedMountedLayout> layouts;
+    std::optional<PresentedTextState> presented_text;
+    std::optional<ActiveChoiceState> active_choice;
+    std::optional<MapPresentationState> map_presentation;
+};
+
+nlohmann::json encode_presentation_records(const SaveState& save);
+std::optional<SavedPresentationRecords>
+decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string_view pointer);
+
 Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject& project,
                                                            const SaveState& save);
 Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json& document,

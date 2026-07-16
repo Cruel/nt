@@ -47,29 +47,6 @@ void add_barrier_issue(std::vector<core::CheckpointReadinessIssue>& issues,
         reason, std::move(barrier), readiness_diagnostic(std::move(code), std::move(message))});
 }
 
-bool is_exact_room_default(const core::CompiledProject& project, const core::SessionState& session)
-{
-    const auto* mode = std::get_if<core::RoomMode>(&session.mode());
-    if (mode == nullptr)
-        return false;
-    const auto* room = project.find_room(mode->room);
-    const auto& background = session.background();
-    if (room == nullptr || !background || background->asset != room->background.asset ||
-        background->color != room->background.color || background->fit != room->background.fit ||
-        background->material != room->background.material)
-        return false;
-    if (session.overlays().size() != room->overlays.size())
-        return false;
-    for (std::size_t index = 0; index < room->overlays.size(); ++index) {
-        const auto& restored = session.overlays()[index];
-        const auto& definition = room->overlays[index];
-        if (restored.room != mode->room || restored.overlay != definition.id ||
-            restored.visible != definition.visible)
-            return false;
-    }
-    return true;
-}
-
 } // namespace
 
 RuntimeCheckpointService::RuntimeCheckpointService(const core::CompiledProject& project,
@@ -357,17 +334,12 @@ void RuntimeCheckpointService::fulfill_deferred_autosave()
 core::Diagnostics
 RuntimeCheckpointService::validate_reconstructibility(const core::SessionState& session) const
 {
-    const bool has_room_defaults = is_exact_room_default(m_project, session);
-    const bool non_derivable_background_or_overlays =
-        (!has_room_defaults && (session.background().has_value() || !session.overlays().empty()));
-    if (session.actors().empty() && session.layouts().empty() && !session.presented_text() &&
-        !session.active_choice() && !session.transition() && session.audio_channels().empty() &&
-        !session.map_presentation() && !non_derivable_background_or_overlays)
+    if (!session.transition() && session.audio_channels().empty())
         return {};
 
     return checkpoint_error("checkpoint.reconstructible_state_invalid",
-                            "Current save format omits non-derivable presentation state; retain "
-                            "the previous checkpoint.");
+                            "Current save format does not retain live transition or audio channel "
+                            "progress; retain the previous checkpoint.");
 }
 
 core::Result<void, core::Diagnostics>

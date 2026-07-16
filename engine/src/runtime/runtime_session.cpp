@@ -632,6 +632,56 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                     diagnostics = std::move(changed).error();
             } else if constexpr (std::is_same_v<T, runtime::RequestAutosaveCommand>) {
                 (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});
+            } else if constexpr (std::is_same_v<T, runtime::UpsertBackgroundOverrideCommand>) {
+                auto changed =
+                    m_kernel->state().upsert_background_override(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemoveBackgroundOverrideCommand>) {
+                auto changed = m_kernel->state().remove_background_override(payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertActorPresentationCommand>) {
+                auto changed = m_kernel->state().set_actor(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemoveActorPresentationCommand>) {
+                auto changed =
+                    m_kernel->state().remove_actor(m_project, payload.key, payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertPresentationPropCommand>) {
+                auto changed = m_kernel->state().upsert_presentation_prop(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemovePresentationPropCommand>) {
+                auto changed =
+                    m_kernel->state().remove_presentation_prop(payload.instance, payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertPresentationEnvironmentCommand>) {
+                auto changed =
+                    m_kernel->state().upsert_presentation_environment(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemovePresentationEnvironmentCommand>) {
+                auto changed = m_kernel->state().remove_presentation_environment(payload.instance,
+                                                                                 payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertMountedLayoutCommand>) {
+                auto changed = m_kernel->state().upsert_mounted_layout(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemoveMountedLayoutCommand>) {
+                auto changed = m_kernel->state().remove_mounted_layout(payload.key, payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::SetReservedLayoutCommand>) {
+                auto changed = m_kernel->state().set_layout(m_project, payload.owner, payload.slot,
+                                                            payload.layout);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
             } else {
                 static_assert(always_false<T>, "Unhandled DeferredRuntimeCommandPayload");
             }

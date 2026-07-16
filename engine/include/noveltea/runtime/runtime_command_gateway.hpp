@@ -113,6 +113,29 @@ public:
     activate_map_connection(core::MapConnectionId connection);
     [[nodiscard]] core::Result<core::MapPresentationState, core::Diagnostics> map_state() const;
 
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_background_override(core::DesiredBackgroundOverride value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_background_override(core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_actor_presentation(core::DesiredActorPresentation value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_actor_presentation(core::ActorPresentationKey key, core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_presentation_prop(core::DesiredPresentationProp value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_presentation_prop(core::PresentationPropInstanceId instance,
+                             core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_presentation_environment(core::DesiredPresentationEnvironment value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_presentation_environment(core::PresentationEnvironmentInstanceId instance,
+                                    core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_mounted_layout(core::DesiredMountedLayout value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_mounted_layout(core::MountedLayoutPresentationKey key, core::PresentationOwner owner);
+
     [[nodiscard]] core::Result<std::optional<core::LayoutId>, core::Diagnostics>
     layout(core::compiled::LayoutSlot slot) const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_layout(core::compiled::LayoutSlot slot,

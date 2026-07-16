@@ -13,6 +13,12 @@ Diagnostics execution_error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
+void remove_scene_presentation(SessionState& state, const FlowStack& stack) noexcept
+{
+    for (const auto& frame : stack)
+        state.remove_scene_presentation(frame);
+}
+
 template<class Instruction> auto instruction_id(const Instruction& instruction)
 {
     return instruction.id;
@@ -584,11 +590,13 @@ Result<void, Diagnostics> FlowExecutor::return_from_flow()
             return fail(execution_error("execution.invalid_return",
                                         "Caller destination requires a caller frame"));
         clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        m_state.remove_scene_presentation(m_state.m_flow_stack.back());
         m_state.m_flow_stack.pop_back();
         return Result<void, Diagnostics>::success();
     }
     if (const auto* room = std::get_if<ResumeRoomDestination>(&destination)) {
         clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
         m_state.m_mode = RoomMode{room->room};
         return Result<void, Diagnostics>::success();
@@ -608,6 +616,7 @@ Result<void, Diagnostics> FlowExecutor::replace_with_scene(const SceneId& scene)
     const auto destination = flow_return_destination(m_state.m_flow_stack.back());
     const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id++};
+    m_state.remove_scene_presentation(m_state.m_flow_stack.back());
     m_state.m_flow_stack.back() =
         SceneFrame{id, scene, {first_scene_step(*definition), {}}, destination};
     clear_blocker_for(old_id);
@@ -625,6 +634,7 @@ Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& 
     const auto destination = flow_return_destination(m_state.m_flow_stack.back());
     const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id++};
+    m_state.remove_scene_presentation(m_state.m_flow_stack.back());
     m_state.m_flow_stack.back() =
         DialogueFrame{id,
                       dialogue,
@@ -651,6 +661,7 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
     const auto first_stage =
         source ? RoomTransitionStage::SourceCanLeave : RoomTransitionStage::TargetCanEnter;
     const FlowFrameId id{m_state.m_next_frame_id++};
+    remove_scene_presentation(m_state, m_state.m_flow_stack);
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
     m_state.m_flow_stack.emplace_back(RoomTransitionFrame{
@@ -678,6 +689,7 @@ Result<void, Diagnostics> FlowExecutor::apply_target(const FlowTarget& target)
             else if constexpr (std::is_same_v<T, ReturnFlow>)
                 return return_from_flow();
             else {
+                remove_scene_presentation(m_state, m_state.m_flow_stack);
                 m_state.m_flow_stack.clear();
                 m_state.m_blocker.reset();
                 m_state.m_mode = EndedMode{};
@@ -758,6 +770,7 @@ Result<void, Diagnostics> FlowExecutor::discard_fault()
         const bool committed = transition->position.stage > RoomTransitionStage::CommitRoomSwitch;
         const std::optional<RoomId> destination =
             committed ? std::optional<RoomId>{transition->target_room} : transition->source_room;
+        remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
         m_state.m_blocker.reset();
         m_state.m_execution_fault.reset();
@@ -768,6 +781,7 @@ Result<void, Diagnostics> FlowExecutor::discard_fault()
 
     const auto root_destination = flow_return_destination(m_state.m_flow_stack.front());
     const auto* resume = std::get_if<ResumeRoomDestination>(&root_destination);
+    remove_scene_presentation(m_state, m_state.m_flow_stack);
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
     m_state.m_execution_fault.reset();

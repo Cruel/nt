@@ -32,6 +32,7 @@ struct NormalizedRect {
     double y;
     double width;
     double height;
+    bool operator==(const NormalizedRect&) const = default;
 };
 
 struct ProjectIdentity {
@@ -199,10 +200,12 @@ struct BackgroundPresentation {
     std::optional<std::string> color;
     BackgroundFit fit;
     std::optional<MaterialId> material;
+    bool operator==(const BackgroundPresentation&) const = default;
 };
 struct RoomPlacementRef {
     RoomId room;
     RoomPlacementId placement_id;
+    bool operator==(const RoomPlacementRef&) const = default;
 };
 
 struct CharacterPose {

@@ -38,6 +38,7 @@ add_library(noveltea_core STATIC
     src/core/save_state_codec.cpp
     src/core/save_state_codec/shared_values.cpp
     src/core/save_state_codec/flow_codec.cpp
+    src/core/save_state_codec/presentation_codec.cpp
     src/core/save_state_codec/state_codec.cpp
     src/core/save_state_codec/validation.cpp
     src/core/typed_save_slot_store.cpp

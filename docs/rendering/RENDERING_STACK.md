@@ -11,11 +11,15 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 - `DebugUI` owns Dear ImGui developer/debug overlay only.
 - Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale/glow metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
-The typed snapshot/coordinator, clock domains, mounted-Layout policies, and RmlUi lifecycle contexts
-are implemented. World transitions, reconstructible presentation, final audio reconciliation, and
-the system-menu stack remain specified in
+The typed snapshot/coordinator, clock domains, mounted-Layout policies, RmlUi lifecycle contexts, and
+Phase 7A scoped desired-presentation storage are implemented. Desired actors, background overrides,
+presentation props, environments/loops, and mounted Layouts now have stable typed identities and
+Scene/current-Room/named-Room/session/shell ownership. Room overlays lower to ordinary Room-owned
+mounted Layout records. World transitions, effective-presentation assembly, final audio
+reconciliation, and the system-menu stack remain specified in
 [`docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
-Later phases retain the current functional adapters until each replacement is complete.
+The current legacy actor/Layout-slot/overlay snapshot families are read-only projection adapters over
+the new authoritative state until Phase 7B replaces them atomically.
 
 The engine presents game content through a centered 16:9 viewport inside the complete host surface.
 The renderer clears the host to the presentation-bar color, restricts game, text, ActiveText, and

@@ -43,6 +43,97 @@ SavedFlowFrame save_frame(const FlowFrame& frame, std::size_t index)
         frame);
 }
 
+Result<std::optional<SavedPresentationOwner>, Diagnostics>
+save_presentation_owner(const SessionState& session, const PresentationOwner& owner)
+{
+    return std::visit(
+        [&session](
+            const auto& value) -> Result<std::optional<SavedPresentationOwner>, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, ScenePresentationOwner>) {
+                const auto invocation = saved_owner(session.flow_stack(), value.invocation);
+                if (!invocation)
+                    return Result<std::optional<SavedPresentationOwner>, Diagnostics>::failure(
+                        Diagnostics{Diagnostic{
+                            .code = "save.invalid_presentation_owner",
+                            .message = "Scene presentation owner is not a saved flow frame"}});
+                return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
+                    SavedPresentationOwner{SavedScenePresentationOwner{*invocation, value.scene}});
+            } else if constexpr (std::is_same_v<T, CurrentRoomPresentationOwner>) {
+                const auto active = session.current_room_presentation_owner();
+                if (!active || *active != value)
+                    return Result<std::optional<SavedPresentationOwner>, Diagnostics>::failure(
+                        Diagnostics{Diagnostic{
+                            .code = "save.invalid_presentation_owner",
+                            .message = "Current-Room presentation owner is no longer active"}});
+                return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
+                    SavedPresentationOwner{SavedCurrentRoomPresentationOwner{value.room}});
+            } else if constexpr (std::is_same_v<T, RoomPresentationOwner>) {
+                return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
+                    SavedPresentationOwner{SavedRoomPresentationOwner{value.room}});
+            } else if constexpr (std::is_same_v<T, SessionPresentationOwner>) {
+                if (value.session != session.presentation_session_id())
+                    return Result<std::optional<SavedPresentationOwner>, Diagnostics>::failure(
+                        Diagnostics{Diagnostic{
+                            .code = "save.invalid_presentation_owner",
+                            .message = "Session presentation owner belongs to another session"}});
+                return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
+                    SavedPresentationOwner{SavedSessionPresentationOwner{}});
+            } else {
+                return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
+                    std::nullopt);
+            }
+        },
+        owner);
+}
+
+Result<SavedActorPresentationKey, Diagnostics> save_actor_key(const SessionState& session,
+                                                              const ActorPresentationKey& key)
+{
+    return std::visit(
+        [&session](const auto& value) -> Result<SavedActorPresentationKey, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SceneActorKey>) {
+                const auto invocation = saved_owner(session.flow_stack(), value.owner.invocation);
+                if (!invocation)
+                    return Result<SavedActorPresentationKey, Diagnostics>::failure(Diagnostics{
+                        Diagnostic{.code = "save.invalid_actor_owner",
+                                   .message = "Scene actor owner is not a saved flow frame"}});
+                return Result<SavedActorPresentationKey, Diagnostics>::success(
+                    SavedSceneActorKey{{*invocation, value.owner.scene}, value.slot});
+            } else {
+                return Result<SavedActorPresentationKey, Diagnostics>::success(value);
+            }
+        },
+        key);
+}
+
+bool is_authored_room_overlay_default(const CompiledProject& project,
+                                      const DesiredMountedLayout& layout) noexcept
+{
+    const auto* key = std::get_if<RoomOverlayLayoutMountKey>(&layout.key);
+    const auto* owner = std::get_if<RoomPresentationOwner>(&layout.owner);
+    if (key == nullptr || owner == nullptr || owner->room != key->room ||
+        layout.composition_group != PresentationCompositionGroup::World ||
+        layout.policy.plane != PresentationPlane::WorldOverlay ||
+        layout.policy.clock != LayoutClockDomain::Gameplay ||
+        layout.policy.input != LayoutInputMode::None ||
+        layout.policy.gameplay_pause != GameplayPausePolicy::Continue ||
+        layout.policy.escape_dismissal != EscapeDismissalPolicy::Ignore ||
+        layout.policy.entrance_operation || layout.policy.exit_operation)
+        return false;
+    const auto* room = project.find_room(key->room);
+    if (room == nullptr)
+        return false;
+    const auto found = std::find_if(
+        room->overlays.begin(), room->overlays.end(),
+        [key](const compiled::RoomOverlay& overlay) { return overlay.id == key->overlay; });
+    return found != room->overlays.end() && found->layout == layout.layout &&
+           found->order == layout.policy.local_order &&
+           (found->visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden) ==
+               layout.policy.visibility;
+}
+
 } // namespace
 
 Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
@@ -77,6 +168,14 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .text_log = session.m_text_log,
         .logical_timers = {},
         .pending_timer_completions = {},
+        .background_overrides = {},
+        .actors = {},
+        .presentation_props = {},
+        .presentation_environments = {},
+        .mounted_layouts = {},
+        .presented_text = session.m_presented_text,
+        .active_choice = session.m_active_choice,
+        .map_presentation = session.m_map_presentation,
         .mode = session.m_mode,
         .flow_stack = {},
         .blocker = std::nullopt,
@@ -116,6 +215,57 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
     save.flow_stack.reserve(session.m_flow_stack.size());
     for (std::size_t index = 0; index < session.m_flow_stack.size(); ++index)
         save.flow_stack.push_back(save_frame(session.m_flow_stack[index], index));
+
+    for (const auto& background : session.m_background_overrides) {
+        auto owner = save_presentation_owner(session, background.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.background_overrides.push_back(
+                SavedBackgroundOverride{**owner.value_if(), background.background});
+    }
+    for (const auto& actor : session.m_actors) {
+        auto owner = save_presentation_owner(session, actor.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (!*owner.value_if())
+            continue;
+        auto key = save_actor_key(session, actor.key);
+        if (!key)
+            return Result<SaveState, Diagnostics>::failure(key.error());
+        save.actors.push_back(SavedActorPresentation{
+            *key.value_if(), **owner.value_if(), actor.character, actor.pose, actor.expression,
+            actor.placement, actor.visible, actor.presentation_complete});
+    }
+    for (const auto& prop : session.m_presentation_props) {
+        auto owner = save_presentation_owner(session, prop.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.presentation_props.push_back(SavedPresentationProp{
+                prop.instance, **owner.value_if(), prop.asset, prop.material, prop.placement,
+                prop.bounds, prop.plane, prop.order, prop.visible});
+    }
+    for (const auto& environment : session.m_presentation_environments) {
+        auto owner = save_presentation_owner(session, environment.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.presentation_environments.push_back(SavedPresentationEnvironment{
+                environment.instance, **owner.value_if(), environment.kind, environment.plane,
+                environment.order, environment.clock, environment.visible});
+    }
+    for (const auto& layout : session.m_mounted_layouts) {
+        if (is_authored_room_overlay_default(project, layout))
+            continue;
+        auto owner = save_presentation_owner(session, layout.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.mounted_layouts.push_back(SavedMountedLayout{layout.key, **owner.value_if(),
+                                                              layout.layout, layout.policy,
+                                                              layout.composition_group});
+    }
 
     if (session.m_blocker) {
         const auto owner =

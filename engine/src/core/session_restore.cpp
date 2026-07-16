@@ -22,6 +22,63 @@ std::uint64_t saved_frame_number(const SavedFlowFrame& frame) noexcept
     return std::visit([](const auto& value) { return value.snapshot_id.value; }, frame);
 }
 
+Result<PresentationOwner, Diagnostics>
+restore_presentation_owner(const SavedPresentationOwner& owner,
+                           const std::unordered_map<std::uint64_t, FlowFrameId>& frame_ids,
+                           const SessionState& state)
+{
+    return std::visit(
+        [&frame_ids, &state](const auto& value) -> Result<PresentationOwner, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedScenePresentationOwner>) {
+                const auto invocation = frame_ids.find(value.invocation.value);
+                if (invocation == frame_ids.end())
+                    return Result<PresentationOwner, Diagnostics>::failure(
+                        restore_error("save_restore.invalid_presentation_owner",
+                                      "Saved Scene presentation owner could not be remapped."));
+                return Result<PresentationOwner, Diagnostics>::success(
+                    ScenePresentationOwner{invocation->second, value.scene});
+            } else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>) {
+                const auto current = state.current_room_presentation_owner();
+                if (!current || current->room != value.room)
+                    return Result<PresentationOwner, Diagnostics>::failure(
+                        restore_error("save_restore.invalid_presentation_owner",
+                                      "Saved current-Room presentation owner cannot bind to the "
+                                      "restored visit."));
+                return Result<PresentationOwner, Diagnostics>::success(*current);
+            } else if constexpr (std::is_same_v<T, SavedRoomPresentationOwner>) {
+                return Result<PresentationOwner, Diagnostics>::success(
+                    RoomPresentationOwner{value.room});
+            } else {
+                return Result<PresentationOwner, Diagnostics>::success(
+                    state.session_presentation_owner());
+            }
+        },
+        owner);
+}
+
+Result<ActorPresentationKey, Diagnostics>
+restore_actor_key(const SavedActorPresentationKey& key,
+                  const std::unordered_map<std::uint64_t, FlowFrameId>& frame_ids)
+{
+    return std::visit(
+        [&frame_ids](const auto& value) -> Result<ActorPresentationKey, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedSceneActorKey>) {
+                const auto invocation = frame_ids.find(value.owner.invocation.value);
+                if (invocation == frame_ids.end())
+                    return Result<ActorPresentationKey, Diagnostics>::failure(
+                        restore_error("save_restore.invalid_actor_owner",
+                                      "Saved Scene actor owner could not be remapped."));
+                return Result<ActorPresentationKey, Diagnostics>::success(
+                    SceneActorKey{{invocation->second, value.owner.scene}, value.slot});
+            } else {
+                return Result<ActorPresentationKey, Diagnostics>::success(value);
+            }
+        },
+        key);
+}
+
 } // namespace
 
 Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledProject& project,
@@ -59,6 +116,14 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
     state->m_character_world = save.characters;
     state->m_interactables = save.interactables;
     state->m_room_visit = save.active_room_visit;
+    if (save.active_room_visit) {
+        auto visit_instance = SessionState::allocate_room_visit_instance_id();
+        if (!visit_instance)
+            return Result<SessionState, Diagnostics>::failure(visit_instance.error());
+        state->m_room_visit_instance = *visit_instance.value_if();
+    } else {
+        state->m_room_visit_instance.reset();
+    }
     state->m_room_visits.clear();
     for (const auto& visits : save.room_visits)
         state->m_room_visits.emplace(visits.room, visits.count);
@@ -120,13 +185,13 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
     if (save.flow_stack.size() >= std::numeric_limits<std::uint64_t>::max() - max_frame_id)
         return Result<SessionState, Diagnostics>::failure(restore_error(
             "save_restore.handle_overflow", "Flow frame handles cannot be reconstructed."));
-    std::unordered_map<std::uint64_t, std::uint64_t> frame_ids;
+    std::unordered_map<std::uint64_t, FlowFrameId> frame_ids;
     std::uint64_t next_frame_id = max_frame_id + 1;
     state->m_flow_stack.reserve(save.flow_stack.size());
     for (const auto& saved_frame : save.flow_stack) {
         const auto snapshot_id = saved_frame_number(saved_frame);
         const auto live_id = next_frame_id++;
-        frame_ids.emplace(snapshot_id, live_id);
+        frame_ids.emplace(snapshot_id, FlowFrameId{live_id});
         state->m_flow_stack.push_back(std::visit(
             [live_id](const auto& frame) -> FlowFrame {
                 using T = std::decay_t<decltype(frame)>;
@@ -157,7 +222,7 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
         if (owner == frame_ids.end())
             return Result<SessionState, Diagnostics>::failure(restore_error(
                 "save_restore.invalid_blocker", "Saved blocker owner could not be reconstructed."));
-        const FlowFrameId owner_id{owner->second};
+        const FlowFrameId owner_id = owner->second;
         state->m_blocker = std::visit(
             [owner_id](const auto& blocker) -> FlowBlocker {
                 using T = std::decay_t<decltype(blocker)>;
@@ -171,34 +236,104 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
         state->m_next_blocker_handle = 2;
     }
 
+    state->m_background_overrides.clear();
     state->m_actors.clear();
-    state->m_background.reset();
-    state->m_layouts.clear();
-    state->m_overlays.clear();
-    state->m_presented_text.reset();
-    state->m_active_choice.reset();
+    state->m_presentation_props.clear();
+    state->m_presentation_environments.clear();
+    state->m_mounted_layouts.clear();
+    state->m_presented_text = save.presented_text;
+    state->m_active_choice = save.active_choice;
     state->m_transition.reset();
     state->m_audio_channels.clear();
-    state->m_map_presentation.reset();
-    const auto reconstruct_room_presentation = [&project, state](const RoomId& room) {
+    state->m_map_presentation = save.map_presentation;
+    const auto reconstruct_room_presentation =
+        [&project, state](const RoomId& room) -> Result<void, Diagnostics> {
         const auto* definition = project.find_room(room);
         if (definition == nullptr)
-            return;
-        state->m_background = definition->background;
-        for (const auto& overlay : definition->overlays)
-            state->m_overlays.push_back(RoomOverlayState{room, overlay.id, overlay.visible});
+            return Result<void, Diagnostics>::failure(restore_error(
+                "save_restore.invalid_room", "Room presentation could not be reconstructed."));
+        for (const auto& overlay : definition->overlays) {
+            auto mounted = state->set_overlay(project, room, overlay.id, overlay.visible);
+            if (!mounted)
+                return mounted;
+        }
+        return Result<void, Diagnostics>::success();
     };
     if (const auto* room = std::get_if<RoomMode>(&state->m_mode)) {
-        reconstruct_room_presentation(room->room);
+        auto reconstructed = reconstruct_room_presentation(room->room);
+        if (!reconstructed)
+            return Result<SessionState, Diagnostics>::failure(reconstructed.error());
     } else if (!state->m_flow_stack.empty()) {
         const auto* transition = std::get_if<RoomTransitionFrame>(&state->m_flow_stack.back());
         if (transition != nullptr) {
             const bool committed = transition->position.stage >= RoomTransitionStage::AfterLeave;
+            std::optional<RoomId> room;
             if (committed)
-                reconstruct_room_presentation(transition->target_room);
+                room = transition->target_room;
             else if (transition->source_room)
-                reconstruct_room_presentation(*transition->source_room);
+                room = *transition->source_room;
+            if (room) {
+                auto reconstructed = reconstruct_room_presentation(*room);
+                if (!reconstructed)
+                    return Result<SessionState, Diagnostics>::failure(reconstructed.error());
+            }
         }
+    }
+
+    for (const auto& saved : save.background_overrides) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored = state->upsert_background_override(
+            project, DesiredBackgroundOverride{*owner.value_if(), saved.background});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.actors) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto key = restore_actor_key(saved.key, frame_ids);
+        if (!key)
+            return Result<SessionState, Diagnostics>::failure(key.error());
+        auto restored = state->set_actor(
+            project, DesiredActorPresentation{*key.value_if(), *owner.value_if(), saved.character,
+                                              saved.pose, saved.expression, saved.placement,
+                                              saved.visible, saved.presentation_complete});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.presentation_props) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored = state->upsert_presentation_prop(
+            project, DesiredPresentationProp{saved.instance, *owner.value_if(), saved.asset,
+                                             saved.material, saved.placement, saved.bounds,
+                                             saved.plane, saved.order, saved.visible});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.presentation_environments) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored = state->upsert_presentation_environment(
+            project,
+            DesiredPresentationEnvironment{saved.instance, *owner.value_if(), saved.kind,
+                                           saved.plane, saved.order, saved.clock, saved.visible});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.mounted_layouts) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored = state->upsert_mounted_layout(
+            project, DesiredMountedLayout{saved.key, *owner.value_if(), saved.layout, saved.policy,
+                                          saved.composition_group});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
     }
     state->m_flow_running = false;
     return Result<SessionState, Diagnostics>::success(std::move(*state));

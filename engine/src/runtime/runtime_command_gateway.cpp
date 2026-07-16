@@ -64,6 +64,17 @@ bool audio_state_equal(const std::optional<core::AudioChannelState>& left,
                      left->playing == right->playing);
 }
 
+core::Result<void, core::Diagnostics> require_gameplay_owner(const core::CompiledProject& project,
+                                                             const core::SessionState& state,
+                                                             const core::PresentationOwner& owner)
+{
+    if (core::presentation_authority(owner) == core::PresentationAuthority::Shell)
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.shell_presentation_forbidden",
+            "Gameplay runtime commands cannot create or mutate shell-owned presentation"));
+    return state.validate_presentation_owner(project, owner);
+}
+
 } // namespace
 
 RuntimeCommandGateway::RuntimeCommandGateway(const core::CompiledProject& project,
@@ -558,6 +569,83 @@ core::Result<core::MapPresentationState, core::Diagnostics> RuntimeCommandGatewa
         *m_state.map_presentation());
 }
 
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_background_override(core::DesiredBackgroundOverride value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertBackgroundOverrideCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_background_override(core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemoveBackgroundOverrideCommand{std::move(owner)}) : valid;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_actor_presentation(core::DesiredActorPresentation value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertActorPresentationCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_actor_presentation(core::ActorPresentationKey key,
+                                                 core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemoveActorPresentationCommand{std::move(key), std::move(owner)})
+                 : valid;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_presentation_prop(core::DesiredPresentationProp value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertPresentationPropCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_presentation_prop(core::PresentationPropInstanceId instance,
+                                                core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemovePresentationPropCommand{std::move(instance), std::move(owner)})
+                 : valid;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_presentation_environment(core::DesiredPresentationEnvironment value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertPresentationEnvironmentCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics> RuntimeCommandGateway::remove_presentation_environment(
+    core::PresentationEnvironmentInstanceId instance, core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(
+                       RemovePresentationEnvironmentCommand{std::move(instance), std::move(owner)})
+                 : valid;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_mounted_layout(core::DesiredMountedLayout value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertMountedLayoutCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_mounted_layout(core::MountedLayoutPresentationKey key,
+                                             core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemoveMountedLayoutCommand{std::move(key), std::move(owner)}) : valid;
+}
+
 core::Result<std::optional<core::LayoutId>, core::Diagnostics>
 RuntimeCommandGateway::layout(core::compiled::LayoutSlot slot) const
 {
@@ -567,22 +655,21 @@ RuntimeCommandGateway::layout(core::compiled::LayoutSlot slot) const
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::set_layout(core::compiled::LayoutSlot slot, core::LayoutId layout_id)
 {
-    const auto before = m_state.layout(slot);
-    auto changed = m_state.set_layout(m_project, slot, std::move(layout_id));
-    const auto after = m_state.layout(slot);
-    if (changed && before && after && *before.value_if() != *after.value_if())
-        record_structural_mutation();
-    return changed;
+    if (slot > core::compiled::LayoutSlot::Custom || m_project.find_layout(layout_id) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.invalid_layout", "Layout command references an invalid slot or Layout"));
+    return enqueue(
+        SetReservedLayoutCommand{m_state.session_presentation_owner(), slot, std::move(layout_id)});
 }
 
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::clear_layout(core::compiled::LayoutSlot slot)
 {
-    const auto before = m_state.layout(slot);
-    auto changed = m_state.clear_layout(slot);
-    if (changed && before && before.value_if()->has_value())
-        record_structural_mutation();
-    return changed;
+    if (slot > core::compiled::LayoutSlot::Custom)
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.invalid_layout_slot", "Layout slot is invalid"));
+    return enqueue(RemoveMountedLayoutCommand{core::ReservedLayoutMountKey{slot},
+                                              m_state.session_presentation_owner()});
 }
 
 core::Result<bool, core::Diagnostics> RuntimeCommandGateway::gameplay_paused() const

@@ -433,8 +433,9 @@ TEST_CASE("typed Scene execution covers the complete V1 instruction vocabulary a
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    REQUIRE(kernel->state().layouts().size() == 1);
-    CHECK(kernel->state().layouts().front().layout == core::LayoutId::create("hud-assets").value());
+    REQUIRE(kernel->state().mounted_layouts().size() == 1);
+    CHECK(kernel->state().mounted_layouts().front().layout ==
+          core::LayoutId::create("hud-assets").value());
 
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
     auto transition_blocker = active_blocker(*kernel);

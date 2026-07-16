@@ -81,6 +81,82 @@ PresentationRuntimeMode mode_of(const RuntimeMode& mode)
         return PresentationRuntimeMode::Ended;
     return PresentationRuntimeMode::Flow;
 }
+
+std::optional<std::size_t> scene_owner_depth(const SessionState& state,
+                                             const ScenePresentationOwner& owner) noexcept
+{
+    for (std::size_t index = 0; index < state.flow_stack().size(); ++index) {
+        const auto* frame = std::get_if<SceneFrame>(&state.flow_stack()[index]);
+        if (frame != nullptr && frame->frame_id == owner.invocation && frame->scene == owner.scene)
+            return index;
+    }
+    return std::nullopt;
+}
+
+std::optional<std::uint64_t> background_precedence(const SessionState& state,
+                                                   const PresentationOwner& owner) noexcept
+{
+    return std::visit(
+        [&state](const auto& value) -> std::optional<std::uint64_t> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, ScenePresentationOwner>) {
+                const auto depth = scene_owner_depth(state, value);
+                return depth ? std::optional<std::uint64_t>{400 + *depth} : std::nullopt;
+            } else if constexpr (std::is_same_v<T, CurrentRoomPresentationOwner>) {
+                return state.presentation_owner_is_active(PresentationOwner{value})
+                           ? std::optional<std::uint64_t>{300}
+                           : std::nullopt;
+            } else if constexpr (std::is_same_v<T, RoomPresentationOwner>) {
+                return state.presentation_owner_is_active(PresentationOwner{value})
+                           ? std::optional<std::uint64_t>{200}
+                           : std::nullopt;
+            } else if constexpr (std::is_same_v<T, SessionPresentationOwner>) {
+                return state.presentation_owner_is_active(PresentationOwner{value})
+                           ? std::optional<std::uint64_t>{100}
+                           : std::nullopt;
+            } else {
+                return std::nullopt;
+            }
+        },
+        owner);
+}
+
+std::optional<compiled::BackgroundPresentation> effective_background(const CompiledProject& project,
+                                                                     const SessionState& state)
+{
+    std::optional<compiled::BackgroundPresentation> result;
+    if (state.room_visit()) {
+        const auto* room = project.find_room(state.room_visit()->room);
+        if (room != nullptr)
+            result = room->background;
+    }
+    std::uint64_t selected_precedence = 0;
+    for (const auto& override : state.background_overrides()) {
+        const auto precedence = background_precedence(state, override.owner);
+        if (precedence && *precedence >= selected_precedence) {
+            selected_precedence = *precedence;
+            result = override.background;
+        }
+    }
+    return result;
+}
+
+void validate_actor_key(const CompiledProject& project, const ActorPresentationKey& key,
+                        Diagnostics& diagnostics)
+{
+    std::visit(
+        [&project, &diagnostics](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, RoomCastActorKey>) {
+                if (project.find_room(value.room) == nullptr)
+                    diagnostics.push_back(unresolved("actor Room", value.room.text()));
+            } else if constexpr (std::is_same_v<T, SceneActorKey>) {
+                if (project.find_scene(value.owner.scene) == nullptr)
+                    diagnostics.push_back(unresolved("actor Scene", value.owner.scene.text()));
+            }
+        },
+        key);
+}
 } // namespace
 
 Result<RuntimePresentationSnapshot, Diagnostics>
@@ -95,17 +171,19 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
             diagnostics.push_back(unresolved("current Room", room->room.text()));
     }
 
-    if (state.background()) {
-        validate_asset(project, state.background()->asset, compiled::AssetKind::Image,
+    const auto background = effective_background(project, state);
+    if (background) {
+        validate_asset(project, background->asset, compiled::AssetKind::Image,
                        "background image asset", diagnostics);
-        result.background =
-            PresentationBackground{state.background()->asset, state.background()->color,
-                                   state.background()->fit, state.background()->material};
+        result.background = PresentationBackground{background->asset, background->color,
+                                                   background->fit, background->material};
     }
 
     for (const auto& actor : state.actors()) {
-        if (project.find_scene(actor.key.scene) == nullptr)
-            diagnostics.push_back(unresolved("actor Scene", actor.key.scene.text()));
+        if (presentation_authority(actor.owner) != PresentationAuthority::Gameplay ||
+            !state.presentation_owner_is_active(actor.owner))
+            continue;
+        validate_actor_key(project, actor.key, diagnostics);
         const auto* character = project.find_character(actor.character);
         if (character == nullptr) {
             diagnostics.push_back(unresolved("Character", actor.character.text()));
@@ -132,29 +210,41 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
             actor.placement, actor.visible, actor.presentation_complete});
     }
 
-    for (const auto& overlay : state.overlays()) {
-        const auto* room = project.find_room(overlay.room);
+    for (const auto& mount : state.mounted_layouts()) {
+        if (presentation_authority(mount.owner) != PresentationAuthority::Gameplay ||
+            !state.presentation_owner_is_active(mount.owner))
+            continue;
+        const auto* overlay = std::get_if<RoomOverlayLayoutMountKey>(&mount.key);
+        if (overlay == nullptr)
+            continue;
+        const auto* room = project.find_room(overlay->room);
         if (room == nullptr) {
-            diagnostics.push_back(unresolved("overlay Room", overlay.room.text()));
+            diagnostics.push_back(unresolved("overlay Room", overlay->room.text()));
             continue;
         }
         const auto definition =
             std::find_if(room->overlays.begin(), room->overlays.end(),
-                         [&](const auto& value) { return value.id == overlay.overlay; });
+                         [&](const auto& value) { return value.id == overlay->overlay; });
         if (definition == room->overlays.end()) {
-            diagnostics.push_back(unresolved("Room overlay", overlay.overlay.text()));
+            diagnostics.push_back(unresolved("Room overlay", overlay->overlay.text()));
             continue;
         }
-        if (project.find_layout(definition->layout) == nullptr)
-            diagnostics.push_back(unresolved("overlay Layout", definition->layout.text()));
-        result.overlays.push_back(
-            {overlay.room, overlay.overlay, definition->layout, overlay.visible});
+        if (project.find_layout(mount.layout) == nullptr)
+            diagnostics.push_back(unresolved("overlay Layout", mount.layout.text()));
+        result.overlays.push_back({overlay->room, overlay->overlay, mount.layout,
+                                   mount.policy.visibility == LayoutVisibility::Visible});
     }
 
-    for (const auto& layout : state.layouts()) {
-        if (project.find_layout(layout.layout) == nullptr)
-            diagnostics.push_back(unresolved("Layout", layout.layout.text()));
-        result.layout_slots.push_back({layout.slot, layout.layout});
+    for (const auto& mount : state.mounted_layouts()) {
+        if (presentation_authority(mount.owner) != PresentationAuthority::Gameplay ||
+            !state.presentation_owner_is_active(mount.owner))
+            continue;
+        const auto* reserved = std::get_if<ReservedLayoutMountKey>(&mount.key);
+        if (reserved == nullptr)
+            continue;
+        if (project.find_layout(mount.layout) == nullptr)
+            diagnostics.push_back(unresolved("Layout", mount.layout.text()));
+        result.layout_slots.push_back({reserved->slot, mount.layout});
     }
     validate_text_and_choice(project, state, diagnostics);
     result.text_and_choice = {state.presented_text(), state.active_choice()};

@@ -123,15 +123,19 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (*enabled.value_if()) {
+            const MountedLayoutPresentationKey mount_key =
+                RoomOverlayLayoutMountKey{visit.room, overlay.id};
             const auto state_overlay = std::find_if(
-                state.overlays().begin(), state.overlays().end(),
-                [&visit, &overlay](const RoomOverlayState& candidate) {
-                    return candidate.room == visit.room && candidate.overlay == overlay.id;
+                state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                [&mount_key](const DesiredMountedLayout& candidate) {
+                    return candidate.key == mount_key && presentation_authority(candidate.owner) ==
+                                                             PresentationAuthority::Gameplay;
                 });
-            draft.overlays.push_back({overlay.id, overlay.layout,
-                                      state_overlay == state.overlays().end()
-                                          ? overlay.visible
-                                          : state_overlay->visible});
+            draft.overlays.push_back(
+                {overlay.id, overlay.layout,
+                 state_overlay == state.mounted_layouts().end()
+                     ? overlay.visible
+                     : state_overlay->policy.visibility == LayoutVisibility::Visible});
         }
     }
 

@@ -85,15 +85,26 @@ protected:
     std::vector<CharacterWorldState> m_character_world;
     std::vector<InteractableState> m_interactables;
     std::optional<RoomVisitContext> m_room_visit;
+    std::optional<RoomVisitInstanceId> m_room_visit_instance;
     bool m_gameplay_paused = false;
 };
 
 class PresentationState {
 protected:
-    std::vector<ActorState> m_actors;
-    std::optional<compiled::BackgroundPresentation> m_background;
-    std::vector<LayoutSlotState> m_layouts;
-    std::vector<RoomOverlayState> m_overlays;
+    PresentationState(PresentationSessionId presentation_session,
+                      ShellPresentationScopeId shell_presentation_scope)
+        : m_presentation_session(presentation_session),
+          m_shell_presentation_scope(shell_presentation_scope)
+    {
+    }
+
+    PresentationSessionId m_presentation_session;
+    ShellPresentationScopeId m_shell_presentation_scope;
+    std::vector<DesiredBackgroundOverride> m_background_overrides;
+    std::vector<DesiredActorPresentation> m_actors;
+    std::vector<DesiredPresentationProp> m_presentation_props;
+    std::vector<DesiredPresentationEnvironment> m_presentation_environments;
+    std::vector<DesiredMountedLayout> m_mounted_layouts;
     std::optional<PresentedTextState> m_presented_text;
     std::optional<ActiveChoiceState> m_active_choice;
     std::optional<LogicalTransitionState> m_transition;
@@ -176,15 +187,81 @@ public:
         return m_property_overrides.size();
     }
 
-    [[nodiscard]] const std::vector<ActorState>& actors() const noexcept { return m_actors; }
-    [[nodiscard]] const ActorState* actor(const ActorSlotKey& key) const noexcept;
-    [[nodiscard]] Result<void, Diagnostics> set_actor(const CompiledProject& project,
-                                                      ActorState actor);
-    [[nodiscard]] Result<void, Diagnostics> remove_actor(const CompiledProject& project,
-                                                         const ActorSlotKey& key);
+    [[nodiscard]] PresentationSessionId presentation_session_id() const noexcept
+    {
+        return m_presentation_session;
+    }
+    [[nodiscard]] SessionPresentationOwner session_presentation_owner() const noexcept
+    {
+        return SessionPresentationOwner{m_presentation_session};
+    }
+    [[nodiscard]] ShellPresentationOwner shell_presentation_owner() const noexcept
+    {
+        return ShellPresentationOwner{m_shell_presentation_scope};
+    }
+    [[nodiscard]] std::optional<CurrentRoomPresentationOwner>
+    current_room_presentation_owner() const noexcept;
+    [[nodiscard]] bool presentation_owner_is_active(const PresentationOwner& owner) const noexcept;
     [[nodiscard]] Result<void, Diagnostics>
-    set_actor_presentation_complete(const CompiledProject& project, const ActorSlotKey& key,
-                                    bool complete);
+    validate_presentation_owner(const PresentationOwner& owner) const;
+    [[nodiscard]] Result<void, Diagnostics>
+    validate_presentation_owner(const CompiledProject& project,
+                                const PresentationOwner& owner) const;
+    void remove_presentation_owned_by(const PresentationOwner& owner) noexcept;
+    void remove_scene_presentation(const FlowFrame& frame) noexcept;
+
+    [[nodiscard]] const std::vector<DesiredBackgroundOverride>&
+    background_overrides() const noexcept
+    {
+        return m_background_overrides;
+    }
+    [[nodiscard]] Result<void, Diagnostics>
+    upsert_background_override(const CompiledProject& project, DesiredBackgroundOverride value);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_background_override(const PresentationOwner& owner);
+    [[nodiscard]] Result<void, Diagnostics>
+    set_background(const CompiledProject& project, PresentationOwner owner,
+                   compiled::BackgroundPresentation background);
+    [[nodiscard]] Result<void, Diagnostics>
+    set_background(const CompiledProject& project, compiled::BackgroundPresentation background)
+    {
+        return set_background(project, session_presentation_owner(), std::move(background));
+    }
+
+    [[nodiscard]] const std::vector<DesiredActorPresentation>& actors() const noexcept
+    {
+        return m_actors;
+    }
+    [[nodiscard]] const DesiredActorPresentation*
+    actor(const ActorPresentationKey& key, const PresentationOwner& owner) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics> set_actor(const CompiledProject& project,
+                                                      DesiredActorPresentation actor);
+    [[nodiscard]] Result<void, Diagnostics> remove_actor(const CompiledProject& project,
+                                                         const ActorPresentationKey& key,
+                                                         const PresentationOwner& owner);
+    [[nodiscard]] Result<void, Diagnostics>
+    set_actor_presentation_complete(const CompiledProject& project, const ActorPresentationKey& key,
+                                    const PresentationOwner& owner, bool complete);
+    [[nodiscard]] const std::vector<DesiredPresentationProp>& presentation_props() const noexcept
+    {
+        return m_presentation_props;
+    }
+    [[nodiscard]] Result<void, Diagnostics> upsert_presentation_prop(const CompiledProject& project,
+                                                                     DesiredPresentationProp value);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_presentation_prop(const PresentationPropInstanceId& instance,
+                             const PresentationOwner& owner);
+    [[nodiscard]] const std::vector<DesiredPresentationEnvironment>&
+    presentation_environments() const noexcept
+    {
+        return m_presentation_environments;
+    }
+    [[nodiscard]] Result<void, Diagnostics>
+    upsert_presentation_environment(const CompiledProject& project,
+                                    DesiredPresentationEnvironment value);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_presentation_environment(const PresentationEnvironmentInstanceId& instance,
+                                    const PresentationOwner& owner);
 
     [[nodiscard]] const std::vector<InteractableState>& interactables() const noexcept
     {
@@ -237,22 +314,24 @@ public:
                                                             TextLogEntry entry);
     void clear_text_log() noexcept { m_text_log.clear(); }
 
-    [[nodiscard]] const std::optional<compiled::BackgroundPresentation>& background() const noexcept
+    [[nodiscard]] const std::vector<DesiredMountedLayout>& mounted_layouts() const noexcept
     {
-        return m_background;
+        return m_mounted_layouts;
     }
-    [[nodiscard]] Result<void, Diagnostics>
-    set_background(const CompiledProject& project, compiled::BackgroundPresentation background);
-    [[nodiscard]] const std::vector<LayoutSlotState>& layouts() const noexcept { return m_layouts; }
     [[nodiscard]] Result<std::optional<LayoutId>, Diagnostics>
     layout(compiled::LayoutSlot slot) const;
+    [[nodiscard]] Result<void, Diagnostics> upsert_mounted_layout(const CompiledProject& project,
+                                                                  DesiredMountedLayout layout);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_mounted_layout(const MountedLayoutPresentationKey& key, const PresentationOwner& owner);
     [[nodiscard]] Result<void, Diagnostics> set_layout(const CompiledProject& project,
                                                        compiled::LayoutSlot slot, LayoutId layout);
+    [[nodiscard]] Result<void, Diagnostics> set_layout(const CompiledProject& project,
+                                                       PresentationOwner owner,
+                                                       compiled::LayoutSlot slot, LayoutId layout);
     [[nodiscard]] Result<void, Diagnostics> clear_layout(compiled::LayoutSlot slot);
-    [[nodiscard]] const std::vector<RoomOverlayState>& overlays() const noexcept
-    {
-        return m_overlays;
-    }
+    [[nodiscard]] Result<void, Diagnostics> clear_layout(const PresentationOwner& owner,
+                                                         compiled::LayoutSlot slot);
     [[nodiscard]] Result<void, Diagnostics> set_overlay(const CompiledProject& project, RoomId room,
                                                         RoomOverlayId overlay, bool visible);
     [[nodiscard]] const std::optional<PresentedTextState>& presented_text() const noexcept
@@ -296,11 +375,16 @@ private:
     SessionState(RuntimeMode mode, FlowStack flow_stack,
                  std::unordered_map<VariableId, RuntimeValue> variables,
                  std::vector<CharacterWorldState> characters,
-                 std::vector<InteractableState> interactables, std::uint64_t next_frame_id)
+                 std::vector<InteractableState> interactables, std::uint64_t next_frame_id,
+                 PresentationSessionId presentation_session,
+                 ShellPresentationScopeId shell_presentation_scope)
         : FlowState(std::move(mode), std::move(flow_stack), next_frame_id),
-          GameplayState(std::move(variables), std::move(characters), std::move(interactables))
+          GameplayState(std::move(variables), std::move(characters), std::move(interactables)),
+          PresentationState(presentation_session, shell_presentation_scope)
     {
     }
+
+    [[nodiscard]] static Result<RoomVisitInstanceId, Diagnostics> allocate_room_visit_instance_id();
 
     void store_property_override(PropertyOverride value);
     void erase_property_override(const PropertyOwnerRef& owner,

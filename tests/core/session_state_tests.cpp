@@ -342,26 +342,29 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
     auto state_result = SessionState::create(compiled_project);
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
-    const ActorSlotKey actor_key{id<SceneId>("opening"), id<ActorSlotId>("hero-slot")};
-    ActorState actor{.key = actor_key,
-                     .character = id<CharacterId>("hero"),
-                     .pose = id<CharacterPoseId>("default"),
-                     .expression = id<CharacterExpressionId>("neutral"),
-                     .placement = {compiled::ActorPosition::Custom, {0.25, -0.1}, 1.25},
-                     .visible = true,
-                     .presentation_complete = false};
+    const auto& frame = std::get<SceneFrame>(state.flow_stack().back());
+    const ScenePresentationOwner owner{frame.frame_id, frame.scene};
+    const ActorPresentationKey actor_key = SceneActorKey{owner, id<ActorSlotId>("hero-slot")};
+    DesiredActorPresentation actor{
+        .key = actor_key,
+        .owner = owner,
+        .character = id<CharacterId>("hero"),
+        .pose = id<CharacterPoseId>("default"),
+        .expression = id<CharacterExpressionId>("neutral"),
+        .placement = {compiled::ActorPosition::Custom, {0.25, -0.1}, 1.25},
+        .visible = true,
+        .presentation_complete = false};
 
     REQUIRE(state.set_actor(compiled_project, actor));
-    REQUIRE(state.actor(actor_key) != nullptr);
-    CHECK(state.actor(actor_key)->character == id<CharacterId>("hero"));
-    REQUIRE(state.set_actor_presentation_complete(compiled_project, actor_key, true));
-    CHECK(state.actor(actor_key)->presentation_complete);
+    REQUIRE(state.actor(actor_key, owner) != nullptr);
+    CHECK(state.actor(actor_key, owner)->character == id<CharacterId>("hero"));
+    REQUIRE(state.set_actor_presentation_complete(compiled_project, actor_key, owner, true));
+    CHECK(state.actor(actor_key, owner)->presentation_complete);
 
     actor.pose = id<CharacterPoseId>("missing");
     CHECK_FALSE(state.set_actor(compiled_project, actor));
     CHECK_FALSE(state.set_actor_presentation_complete(
-        compiled_project, ActorSlotKey{id<SceneId>("opening"), id<ActorSlotId>("missing-slot")},
-        true));
+        compiled_project, SceneActorKey{owner, id<ActorSlotId>("missing-slot")}, owner, true));
 
     REQUIRE(state.set_background(
         compiled_project, compiled::BackgroundPresentation{
@@ -385,8 +388,8 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
         compiled_project, AudioChannelState{compiled::AudioChannel::Voice,
                                             id<AssetId>("audio-voice"), 0.8, false, true}));
 
-    CHECK(state.background().has_value());
-    CHECK(state.layouts().size() == 1);
+    CHECK(state.background_overrides().size() == 1);
+    CHECK(state.mounted_layouts().size() == 1);
     CHECK(state.presented_text()->text == "Hello");
     CHECK(std::holds_alternative<SceneChoiceState>(*state.active_choice()));
     CHECK_FALSE(state.transition()->complete);
@@ -412,12 +415,137 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
     REQUIRE(state.clear_layout(compiled::LayoutSlot::Custom));
     state.clear_presented_text();
     state.clear_choice();
-    CHECK(state.layouts().empty());
+    CHECK(state.mounted_layouts().empty());
     CHECK_FALSE(state.presented_text());
     CHECK_FALSE(state.active_choice());
-    REQUIRE(state.remove_actor(compiled_project, actor_key));
+    REQUIRE(state.remove_actor(compiled_project, actor_key, owner));
     CHECK(state.actors().empty());
-    CHECK_FALSE(state.remove_actor(compiled_project, actor_key));
+    CHECK_FALSE(state.remove_actor(compiled_project, actor_key, owner));
+}
+
+TEST_CASE("desired presentation ownership isolates nested Scene invocations and authorities")
+{
+    const auto project = load_fixture("scene-program.json");
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    auto second_created = SessionState::create(project);
+    REQUIRE(second_created);
+    CHECK(second_created.value().presentation_session_id() != state.presentation_session_id());
+    CHECK(second_created.value().shell_presentation_owner() != state.shell_presentation_owner());
+    FlowExecutor flow(project, state);
+
+    const auto root = std::get<SceneFrame>(state.flow_stack().back());
+    const ScenePresentationOwner root_owner{root.frame_id, root.scene};
+    const ActorPresentationKey root_key = SceneActorKey{root_owner, id<ActorSlotId>("hero-slot")};
+    REQUIRE(state.set_actor(project, DesiredActorPresentation{root_key,
+                                                              root_owner,
+                                                              id<CharacterId>("hero"),
+                                                              id<CharacterPoseId>("default"),
+                                                              id<CharacterExpressionId>("neutral"),
+                                                              {},
+                                                              true,
+                                                              true}));
+
+    REQUIRE(flow.call_child(root.scene, FlowFramePosition{root.position}));
+    const auto child = std::get<SceneFrame>(state.flow_stack().back());
+    const ScenePresentationOwner child_owner{child.frame_id, child.scene};
+    const ActorPresentationKey child_key = SceneActorKey{child_owner, id<ActorSlotId>("hero-slot")};
+    CHECK(child_key != root_key);
+    REQUIRE(state.set_actor(project, DesiredActorPresentation{child_key,
+                                                              child_owner,
+                                                              id<CharacterId>("hero"),
+                                                              id<CharacterPoseId>("default"),
+                                                              id<CharacterExpressionId>("neutral"),
+                                                              {},
+                                                              true,
+                                                              true}));
+    REQUIRE(state.actors().size() == 2);
+
+    REQUIRE(flow.return_from_flow());
+    REQUIRE(state.actor(root_key, root_owner) != nullptr);
+    CHECK(state.actor(child_key, child_owner) == nullptr);
+
+    const ActorPresentationKey persistent_key = CharacterActorKey{id<CharacterId>("hero")};
+    REQUIRE(state.set_actor(project, DesiredActorPresentation{persistent_key,
+                                                              state.session_presentation_owner(),
+                                                              id<CharacterId>("hero"),
+                                                              id<CharacterPoseId>("default"),
+                                                              id<CharacterExpressionId>("neutral"),
+                                                              {},
+                                                              true,
+                                                              true}));
+    REQUIRE(state.set_actor(project, DesiredActorPresentation{persistent_key,
+                                                              state.shell_presentation_owner(),
+                                                              id<CharacterId>("hero"),
+                                                              id<CharacterPoseId>("default"),
+                                                              id<CharacterExpressionId>("neutral"),
+                                                              {},
+                                                              true,
+                                                              true}));
+    CHECK(state.actor(persistent_key, state.session_presentation_owner()) != nullptr);
+    CHECK(state.actor(persistent_key, state.shell_presentation_owner()) != nullptr);
+
+    const auto environment_id = id<PresentationEnvironmentInstanceId>("shared-loop");
+    REQUIRE(state.upsert_presentation_environment(
+        project, {environment_id, state.session_presentation_owner(), "session-loop"}));
+    const PresentationOwner named_room = RoomPresentationOwner{id<RoomId>("start")};
+    REQUIRE(
+        state.upsert_presentation_environment(project, {environment_id, named_room, "room-loop"}));
+    REQUIRE(state.presentation_environments().size() == 2);
+    REQUIRE(state.upsert_presentation_environment(
+        project, {environment_id, state.shell_presentation_owner(), "shell-loop"}));
+    CHECK(state.presentation_environments().size() == 3);
+
+    noveltea::runtime::RuntimeCommandGateway gateway(
+        project, state, *noveltea::runtime::CapabilityGeneration::from_number(1));
+    CHECK_FALSE(gateway.upsert_presentation_environment(
+        {id<PresentationEnvironmentInstanceId>("forbidden-shell"), state.shell_presentation_owner(),
+         "shell-only"}));
+    CHECK(gateway.command_queue().size() == 0);
+    CHECK_FALSE(gateway.upsert_presentation_environment(
+        {id<PresentationEnvironmentInstanceId>("missing-room"),
+         RoomPresentationOwner{id<RoomId>("missing")}, "invalid-loop"}));
+    CHECK(gateway.command_queue().size() == 0);
+    REQUIRE(gateway.upsert_presentation_environment(
+        {id<PresentationEnvironmentInstanceId>("queued-gameplay"),
+         state.session_presentation_owner(), "gameplay-loop"}));
+    CHECK(gateway.command_queue().size() == 1);
+
+    CHECK_FALSE(state.validate_presentation_owner(child_owner));
+}
+
+TEST_CASE("current Room presentation cleans up per visit while named Room state reactivates")
+{
+    const auto project = load_fixture("comprehensive.json");
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    const auto start = id<RoomId>("start");
+    const auto hall = id<RoomId>("hall");
+
+    REQUIRE(state.commit_room_entry(project, start, std::nullopt));
+    const auto first_visit = state.current_room_presentation_owner();
+    REQUIRE(first_visit);
+    REQUIRE(state.upsert_presentation_environment(
+        project, {id<PresentationEnvironmentInstanceId>("visit-fog"), *first_visit, "fog"}));
+    const PresentationOwner named_start = RoomPresentationOwner{start};
+    REQUIRE(state.upsert_presentation_environment(
+        project, {id<PresentationEnvironmentInstanceId>("room-loop"), named_start, "rain-loop"}));
+
+    REQUIRE(state.commit_room_entry(project, hall, std::nullopt));
+    CHECK(state.presentation_environments().size() == 1);
+    CHECK_FALSE(state.presentation_owner_is_active(named_start));
+    CHECK_FALSE(state.validate_presentation_owner(*first_visit));
+
+    REQUIRE(state.commit_room_entry(project, start, std::nullopt));
+    const auto second_visit = state.current_room_presentation_owner();
+    REQUIRE(second_visit);
+    CHECK(second_visit->visit != first_visit->visit);
+    CHECK(state.presentation_owner_is_active(named_start));
+    REQUIRE(state.presentation_environments().size() == 1);
+    CHECK(state.presentation_environments().front().instance ==
+          id<PresentationEnvironmentInstanceId>("room-loop"));
 }
 
 TEST_CASE("session random state is deterministic and invalid ranges are failure-atomic")
@@ -523,8 +651,8 @@ TEST_CASE("session state validates Room visits overlays and Map presentation")
     CHECK(state.room_visits(start) == 2);
     CHECK_FALSE(state.record_room_visit(compiled_project, id<RoomId>("missing")));
     REQUIRE(state.set_overlay(compiled_project, start, id<RoomOverlayId>("start-overlay"), false));
-    REQUIRE(state.overlays().size() == 1);
-    CHECK_FALSE(state.overlays().front().visible);
+    REQUIRE(state.mounted_layouts().size() == 1);
+    CHECK_FALSE(state.mounted_layouts().front().policy.visibility == LayoutVisibility::Visible);
     CHECK_FALSE(state.set_overlay(compiled_project, start, id<RoomOverlayId>("missing"), true));
 
     REQUIRE(state.set_map_presentation(compiled_project,

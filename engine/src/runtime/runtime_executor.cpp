@@ -586,7 +586,9 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                 }
 
                 if constexpr (std::is_same_v<T, core::compiled::SetBackgroundInstruction>) {
-                    auto changed = m_state.set_background(m_project, value.background);
+                    auto changed = m_state.set_background(
+                        m_project, core::ScenePresentationOwner{frame->frame_id, frame->scene},
+                        value.background);
                     if (!changed)
                         return fault(changed.error());
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
@@ -595,7 +597,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     if (character == nullptr)
                         return fault(execution_error("execution.invalid_actor_character",
                                                      "Actor cue Character is missing"));
-                    const auto* current = m_state.actor({frame->scene, value.slot_id});
+                    const core::ScenePresentationOwner owner{frame->frame_id, frame->scene};
+                    const core::ActorPresentationKey key =
+                        core::SceneActorKey{owner, value.slot_id};
+                    const auto* current = m_state.actor(key, owner);
                     const auto pose = value.pose_id ? *value.pose_id : character->defaults.pose_id;
                     const auto expression = value.expression_id ? *value.expression_id
                                                                 : character->defaults.expression_id;
@@ -604,14 +609,15 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         visible = true;
                     else if (value.action == core::compiled::ActorCueAction::Hide)
                         visible = false;
-                    core::ActorState actor{{frame->scene, value.slot_id},
-                                           value.character,
-                                           pose,
-                                           expression,
-                                           {value.position, value.offset, value.scale},
-                                           visible,
-                                           value.transition ==
-                                               core::compiled::ActorTransition::None};
+                    core::DesiredActorPresentation actor{
+                        key,
+                        owner,
+                        value.character,
+                        pose,
+                        expression,
+                        {value.position, value.offset, value.scale},
+                        visible,
+                        value.transition == core::compiled::ActorTransition::None};
                     auto changed = m_state.set_actor(m_project, std::move(actor));
                     if (!changed)
                         return fault(changed.error());
@@ -845,7 +851,9 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     if (value.action == core::compiled::LayoutAction::Hide)
                         changed = m_state.clear_layout(value.slot);
                     else if (value.layout)
-                        changed = m_state.set_layout(m_project, value.slot, *value.layout);
+                        changed = m_state.set_layout(
+                            m_project, core::ScenePresentationOwner{frame->frame_id, frame->scene},
+                            value.slot, *value.layout);
                     else
                         changed = core::Result<void, core::Diagnostics>::failure(
                             execution_error("execution.invalid_scene_layout",
@@ -902,12 +910,18 @@ core::Result<core::SceneView, core::Diagnostics> RuntimeExecutor::scene_view() c
     if (frame == nullptr)
         return core::Result<core::SceneView, core::Diagnostics>::failure(execution_error(
             "execution.scene_view_unavailable", "Active flow frame is not a Scene"));
+    const core::ScenePresentationOwner owner{frame->frame_id, frame->scene};
+    std::optional<core::compiled::BackgroundPresentation> background;
+    for (const auto& candidate : m_state.background_overrides()) {
+        if (candidate.owner == core::PresentationOwner{owner})
+            background = candidate.background;
+    }
     core::SceneView view{.scene = frame->scene,
-                         .background = m_state.background(),
+                         .background = std::move(background),
                          .actors = {},
                          .text = m_state.presented_text(),
                          .choice = std::nullopt,
-                         .layouts = m_state.layouts(),
+                         .layouts = {},
                          .transition = m_state.transition(),
                          .audio_channels = m_state.audio_channels()};
     if (m_state.active_choice())
@@ -917,9 +931,18 @@ core::Result<core::SceneView, core::Diagnostics> RuntimeExecutor::scene_view() c
                       &*m_state.active_choice())}
                 : std::nullopt;
     for (const auto& actor : m_state.actors()) {
-        if (actor.key.scene == frame->scene)
+        const auto* scene_key = std::get_if<core::SceneActorKey>(&actor.key);
+        if (scene_key != nullptr && scene_key->owner == owner)
             view.actors.push_back({actor.key, actor.character, actor.pose, actor.expression,
                                    actor.placement, actor.visible, actor.presentation_complete});
+    }
+    for (const auto& mount : m_state.mounted_layouts()) {
+        if (core::presentation_authority(mount.owner) != core::PresentationAuthority::Gameplay ||
+            !m_state.presentation_owner_is_active(mount.owner))
+            continue;
+        const auto* reserved = std::get_if<core::ReservedLayoutMountKey>(&mount.key);
+        if (reserved != nullptr)
+            view.layouts.push_back({reserved->slot, mount.layout});
     }
     return core::Result<core::SceneView, core::Diagnostics>::success(std::move(view));
 }

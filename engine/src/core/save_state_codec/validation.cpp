@@ -312,6 +312,298 @@ bool valid_room_position(const CompiledProject& project, const SavedRoomTransiti
     }
 }
 
+const SavedFlowFrame* saved_frame(const SaveState& save, SavedFlowFrameId id) noexcept
+{
+    const auto found = std::find_if(
+        save.flow_stack.begin(), save.flow_stack.end(), [id](const SavedFlowFrame& frame) {
+            return std::visit([id](const auto& value) { return value.snapshot_id == id; }, frame);
+        });
+    return found == save.flow_stack.end() ? nullptr : &*found;
+}
+
+bool valid_saved_owner(const CompiledProject& project, const SaveState& save,
+                       const SavedPresentationOwner& owner) noexcept
+{
+    return std::visit(
+        [&project, &save](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedScenePresentationOwner>) {
+                const auto* frame = saved_frame(save, value.invocation);
+                const auto* scene = frame ? std::get_if<SavedSceneFrame>(frame) : nullptr;
+                return scene != nullptr && scene->scene == value.scene &&
+                       project.find_scene(value.scene) != nullptr;
+            } else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>) {
+                return save.active_room_visit && save.active_room_visit->room == value.room &&
+                       project.find_room(value.room) != nullptr;
+            } else if constexpr (std::is_same_v<T, SavedRoomPresentationOwner>) {
+                return project.find_room(value.room) != nullptr;
+            } else {
+                return true;
+            }
+        },
+        owner);
+}
+
+std::string saved_owner_key(const SavedPresentationOwner& owner)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedScenePresentationOwner>)
+                return std::string("scene:") + std::to_string(value.invocation.value) + ":" +
+                       value.scene.text();
+            else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>)
+                return std::string("current-room:") + value.room.text();
+            else if constexpr (std::is_same_v<T, SavedRoomPresentationOwner>)
+                return std::string("room:") + value.room.text();
+            else
+                return std::string("session");
+        },
+        owner);
+}
+
+std::string saved_actor_key_text(const SavedActorPresentationKey& key)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CharacterActorKey>)
+                return std::string("character:") + value.character.text();
+            else if constexpr (std::is_same_v<T, RoomCastActorKey>)
+                return std::string("room-cast:") + value.room.text() + ":" + value.entry.text();
+            else if constexpr (std::is_same_v<T, SavedSceneActorKey>)
+                return std::string("scene:") + std::to_string(value.owner.invocation.value) + ":" +
+                       value.owner.scene.text() + ":" + value.slot.text();
+            else
+                return std::string("scoped:") + value.instance.text();
+        },
+        key);
+}
+
+std::string saved_mount_key_text(const MountedLayoutPresentationKey& key)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, ReservedLayoutMountKey>)
+                return std::string("reserved:") +
+                       std::to_string(static_cast<std::uint8_t>(value.slot));
+            else if constexpr (std::is_same_v<T, RoomOverlayLayoutMountKey>)
+                return std::string("room-overlay:") + value.room.text() + ":" +
+                       value.overlay.text();
+            else
+                return std::string("scoped:") + value.instance.text();
+        },
+        key);
+}
+
+bool valid_background_record(const CompiledProject& project,
+                             const compiled::BackgroundPresentation& value) noexcept
+{
+    return value.fit <= compiled::BackgroundFit::Center &&
+           (!value.asset || project.find_asset(*value.asset) != nullptr);
+}
+
+bool valid_actor_character_state(const CompiledProject& project,
+                                 const SavedActorPresentation& actor) noexcept
+{
+    const auto* character = project.find_character(actor.character);
+    if (character == nullptr || !std::isfinite(actor.placement.offset.x) ||
+        !std::isfinite(actor.placement.offset.y) || !std::isfinite(actor.placement.scale) ||
+        actor.placement.scale <= 0.0 || actor.placement.position > compiled::ActorPosition::Custom)
+        return false;
+    const auto pose = std::find_if(
+        character->poses.begin(), character->poses.end(),
+        [&actor](const compiled::CharacterPose& value) { return value.id == actor.pose; });
+    if (pose == character->poses.end())
+        return false;
+    const auto expression =
+        std::find_if(character->expressions.begin(), character->expressions.end(),
+                     [&actor](const compiled::CharacterExpression& value) {
+                         return value.id == actor.expression;
+                     });
+    return expression != character->expressions.end() &&
+           (!expression->pose_id || *expression->pose_id == actor.pose);
+}
+
+bool valid_actor_record(const CompiledProject& project, const SaveState& save,
+                        const SavedActorPresentation& actor) noexcept
+{
+    if (!valid_saved_owner(project, save, actor.owner) ||
+        !valid_actor_character_state(project, actor))
+        return false;
+    return std::visit(
+        [&project, &actor](const auto& key) {
+            using T = std::decay_t<decltype(key)>;
+            if constexpr (std::is_same_v<T, CharacterActorKey>) {
+                return key.character == actor.character;
+            } else if constexpr (std::is_same_v<T, RoomCastActorKey>) {
+                const auto* owner = std::get_if<SavedRoomPresentationOwner>(&actor.owner);
+                const auto* room = project.find_room(key.room);
+                if (owner == nullptr || owner->room != key.room || room == nullptr)
+                    return false;
+                const auto found = std::find_if(
+                    room->cast.begin(), room->cast.end(),
+                    [&key](const compiled::RoomCastEntry& value) { return value.id == key.entry; });
+                return found != room->cast.end() && found->character == actor.character;
+            } else if constexpr (std::is_same_v<T, SavedSceneActorKey>) {
+                const auto* owner = std::get_if<SavedScenePresentationOwner>(&actor.owner);
+                const auto* scene = project.find_scene(key.owner.scene);
+                if (owner == nullptr || *owner != key.owner || scene == nullptr)
+                    return false;
+                return std::any_of(
+                    scene->program.instructions.begin(), scene->program.instructions.end(),
+                    [&key, &actor](const compiled::SceneInstruction& instruction) {
+                        const auto* cue = std::get_if<compiled::ActorCueInstruction>(&instruction);
+                        return cue != nullptr && cue->slot_id == key.slot &&
+                               cue->character == actor.character;
+                    });
+            } else {
+                return true;
+            }
+        },
+        actor.key);
+}
+
+bool valid_prop_record(const CompiledProject& project, const SaveState& save,
+                       const SavedPresentationProp& prop) noexcept
+{
+    if (!valid_saved_owner(project, save, prop.owner) ||
+        (prop.asset && project.find_asset(*prop.asset) == nullptr) ||
+        prop.plane > PresentationPlane::Debug || !std::isfinite(prop.bounds.x) ||
+        !std::isfinite(prop.bounds.y) || !std::isfinite(prop.bounds.width) ||
+        !std::isfinite(prop.bounds.height) || prop.bounds.width < 0.0 || prop.bounds.height < 0.0)
+        return false;
+    if (!prop.placement)
+        return true;
+    const auto* room = project.find_room(prop.placement->room);
+    return room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
+                                          [&prop](const compiled::RoomPlacement& value) {
+                                              return value.id == prop.placement->placement_id;
+                                          });
+}
+
+bool valid_environment_record(const CompiledProject& project, const SaveState& save,
+                              const SavedPresentationEnvironment& value) noexcept
+{
+    return valid_saved_owner(project, save, value.owner) && !value.kind.empty() &&
+           value.plane <= PresentationPlane::Debug &&
+           value.clock <= LayoutClockDomain::UnscaledPresentation;
+}
+
+bool valid_policy(const MountedLayoutPolicy& policy) noexcept
+{
+    return policy.plane <= PresentationPlane::Debug &&
+           policy.clock <= LayoutClockDomain::UnscaledPresentation &&
+           policy.input <= LayoutInputMode::Modal &&
+           policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&
+           policy.visibility <= LayoutVisibility::Visible &&
+           policy.escape_dismissal <= EscapeDismissalPolicy::Dismiss &&
+           !policy.entrance_operation && !policy.exit_operation;
+}
+
+bool valid_layout_record(const CompiledProject& project, const SaveState& save,
+                         const SavedMountedLayout& layout) noexcept
+{
+    if (!valid_saved_owner(project, save, layout.owner) ||
+        project.find_layout(layout.layout) == nullptr || !valid_policy(layout.policy) ||
+        layout.composition_group > PresentationCompositionGroup::Debug)
+        return false;
+    return std::visit(
+        [&project, &layout](const auto& key) {
+            using T = std::decay_t<decltype(key)>;
+            if constexpr (std::is_same_v<T, ReservedLayoutMountKey>) {
+                return key.slot <= compiled::LayoutSlot::Custom;
+            } else if constexpr (std::is_same_v<T, RoomOverlayLayoutMountKey>) {
+                const auto* owner = std::get_if<SavedRoomPresentationOwner>(&layout.owner);
+                const auto* room = project.find_room(key.room);
+                if (owner == nullptr || owner->room != key.room || room == nullptr ||
+                    layout.policy.plane != PresentationPlane::WorldOverlay ||
+                    layout.composition_group != PresentationCompositionGroup::World)
+                    return false;
+                const auto found = std::find_if(
+                    room->overlays.begin(), room->overlays.end(),
+                    [&key](const compiled::RoomOverlay& value) { return value.id == key.overlay; });
+                return found != room->overlays.end() && found->layout == layout.layout;
+            } else {
+                return true;
+            }
+        },
+        layout.key);
+}
+
+bool valid_presented_text(const CompiledProject& project,
+                          const std::optional<PresentedTextState>& text) noexcept
+{
+    return !text || (text->markup <= TextMarkup::ActiveText &&
+                     (!text->speaker || project.find_character(*text->speaker) != nullptr));
+}
+
+bool valid_active_choice(const CompiledProject& project,
+                         const std::optional<ActiveChoiceState>& choice) noexcept
+{
+    if (!choice)
+        return true;
+    return std::visit(
+        [&project](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SceneChoiceState>) {
+                const auto* scene = project.find_scene(value.scene);
+                const auto* instruction =
+                    scene ? instruction_by_id(scene->program.instructions, value.step) : nullptr;
+                const auto* definition =
+                    instruction ? std::get_if<compiled::ChoiceSceneInstruction>(instruction)
+                                : nullptr;
+                if (definition == nullptr || value.options.empty())
+                    return false;
+                std::unordered_set<std::string> seen;
+                return std::all_of(
+                    value.options.begin(), value.options.end(),
+                    [&definition, &seen](const SceneChoiceOptionState& option) {
+                        return seen.insert(option.option.text()).second &&
+                               std::any_of(definition->options.begin(), definition->options.end(),
+                                           [&option](const compiled::SceneChoiceOption& candidate) {
+                                               return candidate.id == option.option;
+                                           });
+                    });
+            } else {
+                const auto* dialogue = project.find_dialogue(value.dialogue);
+                const auto* block = dialogue ? dialogue_block(*dialogue, value.block) : nullptr;
+                if (block == nullptr ||
+                    !std::holds_alternative<compiled::DialogueChoiceBlock>(*block) ||
+                    value.options.empty())
+                    return false;
+                std::unordered_set<std::string> seen;
+                return std::all_of(
+                    value.options.begin(), value.options.end(),
+                    [&dialogue, &value, &seen](const DialogueChoiceOptionState& option) {
+                        const auto* edge = dialogue_edge(*dialogue, option.edge);
+                        const auto* choice_edge =
+                            edge ? std::get_if<compiled::DialogueChoiceEdge>(edge) : nullptr;
+                        return option.markup <= TextMarkup::ActiveText &&
+                               seen.insert(option.edge.text()).second && choice_edge != nullptr &&
+                               choice_edge->from_block_id == value.block;
+                    });
+            }
+        },
+        *choice);
+}
+
+bool valid_map_presentation(const CompiledProject& project,
+                            const std::optional<MapPresentationState>& value) noexcept
+{
+    if (!value)
+        return true;
+    const auto* map = project.find_map(value->map);
+    if (map == nullptr || value->mode > compiled::InitialMapMode::FullMap)
+        return false;
+    return !value->focused_location ||
+           std::any_of(map->locations.begin(), map->locations.end(),
+                       [&value](const compiled::MapLocation& location) {
+                           return location.id == *value->focused_location;
+                       });
+}
+
 Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& project,
                                                    const SaveState& save, std::string source_path)
 {
@@ -558,6 +850,73 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (!destination_is_coherent)
             error("save_codec.incoherent_flow", "Flow return destinations are incoherent.");
     }
+
+    std::unordered_set<std::string> background_owners;
+    for (const auto& background : save.background_overrides) {
+        if (!background_owners.insert(saved_owner_key(background.owner)).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Background override owner appears more than once.");
+        if (!valid_saved_owner(project, save, background.owner) ||
+            !valid_background_record(project, background.background))
+            error("save_codec.invalid_presentation_record",
+                  "Background override has a stale owner or resource.");
+    }
+
+    std::unordered_set<std::string> actor_keys;
+    for (const auto& actor : save.actors) {
+        if (!actor_keys.insert(saved_actor_key_text(actor.key) + "|" + saved_owner_key(actor.owner))
+                 .second)
+            error("save_codec.duplicate_presentation_record",
+                  "Actor presentation identity appears more than once.");
+        if (!valid_actor_record(project, save, actor))
+            error("save_codec.invalid_presentation_record",
+                  "Actor presentation has an invalid owner, identity, or Character state.");
+    }
+
+    std::unordered_set<std::string> prop_ids;
+    for (const auto& prop : save.presentation_props) {
+        if (!prop_ids.insert(prop.instance.text() + "|" + saved_owner_key(prop.owner)).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Presentation prop identity appears more than once.");
+        if (!valid_prop_record(project, save, prop))
+            error("save_codec.invalid_presentation_record",
+                  "Presentation prop has an invalid owner, resource, placement, or bounds.");
+    }
+
+    std::unordered_set<std::string> environment_ids;
+    for (const auto& environment : save.presentation_environments) {
+        if (!environment_ids
+                 .insert(environment.instance.text() + "|" + saved_owner_key(environment.owner))
+                 .second)
+            error("save_codec.duplicate_presentation_record",
+                  "Presentation environment identity appears more than once.");
+        if (!valid_environment_record(project, save, environment))
+            error("save_codec.invalid_presentation_record",
+                  "Presentation environment has an invalid owner or policy.");
+    }
+
+    std::unordered_set<std::string> layout_keys;
+    for (const auto& layout : save.mounted_layouts) {
+        if (!layout_keys
+                 .insert(saved_mount_key_text(layout.key) + "|" + saved_owner_key(layout.owner))
+                 .second)
+            error("save_codec.duplicate_presentation_record",
+                  "Mounted Layout identity appears more than once.");
+        if (!valid_layout_record(project, save, layout))
+            error("save_codec.invalid_presentation_record",
+                  "Mounted Layout has an invalid owner, identity, Layout, or policy.");
+    }
+
+    if (!valid_presented_text(project, save.presented_text))
+        error("save_codec.invalid_presentation_record",
+              "Presented text has a stale speaker or invalid markup mode.");
+    if (!valid_active_choice(project, save.active_choice))
+        error("save_codec.invalid_presentation_record",
+              "Active choice has stale or incoherent authored references.");
+    if (!valid_map_presentation(project, save.map_presentation))
+        error("save_codec.invalid_presentation_record",
+              "Map presentation has a stale Map or focused location.");
+
     if (save.blocker) {
         const auto owner =
             std::visit([](const auto& value) { return value.owner.value; }, *save.blocker);

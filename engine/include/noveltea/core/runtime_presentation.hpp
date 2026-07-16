@@ -27,7 +27,7 @@ struct PresentationBackground {
 };
 
 struct PresentationActor {
-    ActorSlotKey key;
+    ActorPresentationKey key;
     CharacterId character;
     CharacterPoseId pose;
     CharacterExpressionId expression;
