@@ -2,7 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <limits>
+#include <type_traits>
 
 using namespace noveltea::core;
 namespace compiled = noveltea::core::compiled;
@@ -14,6 +16,20 @@ TransitionPresentationOperation transition(std::uint64_t number)
 {
     return {.id = PresentationOperationId::from_number(number),
             .kind = compiled::TransitionKind::Cut};
+}
+
+FinitePresentationOperationCommon finite_common(std::uint64_t number,
+                                                std::uint64_t source_revision = 1,
+                                                std::uint64_t target_revision = 2)
+{
+    return {
+        .id = PresentationOperationId::from_number(number),
+        .duration = std::chrono::milliseconds{250},
+        .skippable = true,
+        .clock = LayoutClockDomain::Gameplay,
+        .revisions = {PresentationSnapshotRevision::from_number(source_revision),
+                      PresentationSnapshotRevision::from_number(target_revision)},
+    };
 }
 
 AudioOperation audio(std::uint64_t number, bool loop = false)
@@ -269,4 +285,146 @@ TEST_CASE("coordinator rejects contradictory operations before sequence allocati
     auto next = coordinator.accept(audio(5));
     REQUIRE(next);
     CHECK(next.value().metadata.sequence.number() == 2);
+}
+
+TEST_CASE("finite presentation requests preserve typed targets and revision metadata")
+{
+    STATIC_REQUIRE_FALSE(
+        std::is_same_v<SceneTransitionGroupOperation, RoomNavigationTransitionOperation>);
+
+    FakeBackend backend;
+    PresentationCoordinator coordinator(&backend, &backend);
+    SceneTransitionGroupOperation group{
+        .common = finite_common(1),
+        .kind = compiled::TransitionKind::Fade,
+        .color = std::string{"#000000"},
+        .completion = std::nullopt,
+    };
+    auto accepted = coordinator.accept(PresentationOperation{group});
+    REQUIRE(accepted);
+    CHECK(accepted.value().metadata.checkpoint_class == CheckpointClass::Disposable);
+    REQUIRE(coordinator.deliver_pending());
+    REQUIRE(backend.deliveries.size() == 1);
+    const auto* delivered =
+        std::get_if<SceneTransitionGroupOperation>(&backend.deliveries.front().operation);
+    REQUIRE(delivered != nullptr);
+    CHECK(delivered->common.revisions.source.number() == 1);
+    CHECK(delivered->common.revisions.target.number() == 2);
+    CHECK(operation_skippable(FinitePresentationOperation{*delivered}));
+    CHECK(std::holds_alternative<WorldCompositionOperationTarget>(
+        operation_target(FinitePresentationOperation{*delivered})));
+}
+
+TEST_CASE("finite presentation requests reject immediate and contradictory metadata")
+{
+    PresentationCoordinator coordinator;
+    auto cut = SceneTransitionGroupOperation{
+        .common = finite_common(1),
+        .kind = compiled::TransitionKind::Cut,
+        .color = std::nullopt,
+        .completion = std::nullopt,
+    };
+    auto rejected = coordinator.accept(PresentationOperation{cut});
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "presentation.invalid_transition_group_operation");
+
+    auto invalid_revision = cut;
+    invalid_revision.kind = compiled::TransitionKind::Fade;
+    invalid_revision.common.revisions.target = PresentationSnapshotRevision::from_number(1);
+    rejected = coordinator.accept(PresentationOperation{invalid_revision});
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "presentation.invalid_finite_operation");
+
+    auto invalid_duration = invalid_revision;
+    invalid_duration.common.revisions.target = PresentationSnapshotRevision::from_number(2);
+    invalid_duration.common.duration = std::chrono::milliseconds{0};
+    rejected = coordinator.accept(PresentationOperation{invalid_duration});
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "presentation.invalid_finite_operation");
+}
+
+TEST_CASE("finite operation replacement requires the same typed target")
+{
+    PresentationCoordinator coordinator;
+    const ActorPresentationKey hero = CharacterActorKey{id<CharacterId>("hero")};
+    const ActorPresentationKey rival = CharacterActorKey{id<CharacterId>("rival")};
+    auto first = coordinator.accept(PresentationOperation{ActorPresentationOperation{
+        .common = finite_common(1),
+        .target = ActorOperationTarget{hero},
+        .kind = ActorOperationKind::Fade,
+    }});
+    auto same_target = coordinator.accept(PresentationOperation{ActorPresentationOperation{
+        .common = finite_common(2, 2, 3),
+        .target = ActorOperationTarget{hero},
+        .kind = ActorOperationKind::Slide,
+    }});
+    auto other_target = coordinator.accept(PresentationOperation{ActorPresentationOperation{
+        .common = finite_common(3, 2, 3),
+        .target = ActorOperationTarget{rival},
+        .kind = ActorOperationKind::Fade,
+    }});
+    REQUIRE(first);
+    REQUIRE(same_target);
+    REQUIRE(other_target);
+    REQUIRE(coordinator.replace(first.value().metadata.operation,
+                                same_target.value().metadata.operation));
+
+    auto second_first = coordinator.accept(PresentationOperation{ActorPresentationOperation{
+        .common = finite_common(4, 3, 4),
+        .target = ActorOperationTarget{hero},
+        .kind = ActorOperationKind::Fade,
+    }});
+    REQUIRE(second_first);
+    auto rejected = coordinator.replace(second_first.value().metadata.operation,
+                                        other_target.value().metadata.operation);
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "presentation.replacement_target_mismatch");
+}
+
+TEST_CASE("TransitionGroup target construction is atomic and rejects excluded planes")
+{
+    const PresentationOwner owner = RoomPresentationOwner{id<RoomId>("room")};
+    const ActorPresentationKey actor_key = CharacterActorKey{id<CharacterId>("hero")};
+    PresentationTargetDraft source;
+    source.actors.push_back({
+        .key = actor_key,
+        .owner = owner,
+        .character = id<CharacterId>("hero"),
+        .pose = id<CharacterPoseId>("default"),
+        .expression = id<CharacterExpressionId>("neutral"),
+        .placement = {},
+        .visible = true,
+        .presentation_complete = true,
+    });
+
+    DesiredMountedLayout invalid_layout{
+        .key = ReservedLayoutMountKey{compiled::LayoutSlot::Overlay},
+        .owner = owner,
+        .layout = id<LayoutId>("ui"),
+        .policy = {PresentationPlane::GameUi, 0, LayoutClockDomain::Gameplay,
+                   LayoutInputMode::Normal, GameplayPausePolicy::Continue,
+                   LayoutVisibility::Visible, EscapeDismissalPolicy::Ignore, std::nullopt,
+                   std::nullopt},
+        .composition_group = PresentationCompositionGroup::Interface,
+    };
+    std::vector<TransitionGroupTargetMutation> invalid_mutations;
+    invalid_mutations.push_back(TransitionGroupRemoveActorTarget{actor_key, owner});
+    invalid_mutations.push_back(TransitionGroupUpsertLayoutTarget{invalid_layout});
+    auto rejected = build_transition_group_target(source, invalid_mutations);
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "presentation.excluded_transition_group_plane");
+    REQUIRE(source.actors.size() == 1);
+    CHECK(source.layouts.empty());
+
+    auto valid_layout = invalid_layout;
+    valid_layout.policy.plane = PresentationPlane::WorldOverlay;
+    valid_layout.composition_group = PresentationCompositionGroup::World;
+    auto built =
+        build_transition_group_target(source, {TransitionGroupRemoveActorTarget{actor_key, owner},
+                                               TransitionGroupUpsertLayoutTarget{valid_layout}});
+    REQUIRE(built);
+    CHECK(built.value().actors.empty());
+    REQUIRE(built.value().layouts.size() == 1);
+    REQUIRE(source.actors.size() == 1);
+    CHECK(source.layouts.empty());
 }

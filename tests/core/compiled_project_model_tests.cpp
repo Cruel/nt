@@ -140,7 +140,7 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<11, compiled::SceneInstruction>,
                                   compiled::SetLayoutInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<12, compiled::SceneInstruction>,
-                                  compiled::TransitionInstruction>);
+                                  compiled::TransitionGroupInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, compiled::InteractionInstruction>,
                                   compiled::ApplyEffectInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, compiled::InteractionInstruction>,

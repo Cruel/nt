@@ -461,6 +461,9 @@ struct SetBackgroundInstruction {
     std::optional<Condition> condition;
     BackgroundPresentation background;
     BackgroundTransition transition;
+    std::uint64_t duration_ms;
+    PresentationInstructionWait wait;
+    bool skippable;
 };
 enum class ActorCueAction : std::uint8_t {
     Show,
@@ -492,6 +495,9 @@ struct ActorCueInstruction {
     double scale;
     ActorSlotId slot_id;
     ActorTransition transition;
+    std::uint64_t duration_ms;
+    PresentationInstructionWait wait;
+    bool skippable;
 };
 struct CallDialogueSceneInstruction {
     SceneStepId id;
@@ -591,27 +597,64 @@ enum class LayoutSlot : std::uint8_t {
     Overlay,
     Custom
 };
+enum class LayoutTransition : std::uint8_t {
+    None,
+    Fade
+};
 struct SetLayoutInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
     LayoutAction action;
     std::optional<LayoutId> layout;
     LayoutSlot slot;
+    LayoutTransition transition;
+    std::uint64_t duration_ms;
+    PresentationInstructionWait wait;
+    bool skippable;
 };
-struct TransitionInstruction {
+struct TransitionGroupSetBackgroundMutation {
+    TransitionGroupChildId id;
+    BackgroundPresentation background;
+};
+struct TransitionGroupClearBackgroundMutation {
+    TransitionGroupChildId id;
+};
+struct TransitionGroupActorMutation {
+    TransitionGroupChildId id;
+    ActorCueAction action;
+    CharacterId character;
+    std::optional<CharacterExpressionId> expression_id;
+    Vector2 offset;
+    std::optional<CharacterPoseId> pose_id;
+    ActorPosition position;
+    double scale;
+    ActorSlotId slot_id;
+};
+struct TransitionGroupLayoutMutation {
+    TransitionGroupChildId id;
+    LayoutAction action;
+    std::optional<LayoutId> layout;
+    LayoutSlot slot;
+};
+using TransitionGroupMutation =
+    std::variant<TransitionGroupSetBackgroundMutation, TransitionGroupClearBackgroundMutation,
+                 TransitionGroupActorMutation, TransitionGroupLayoutMutation>;
+struct TransitionGroupInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
     std::optional<std::string> color;
     std::uint64_t duration_ms;
     TransitionKind transition_kind;
     PresentationInstructionWait wait;
+    bool skippable;
+    std::vector<TransitionGroupMutation> children;
 };
 using SceneInstruction =
     std::variant<SetBackgroundInstruction, ActorCueInstruction, CallDialogueSceneInstruction,
                  ShowTextInstruction, AudioCueInstruction, SetVariableSceneInstruction,
                  RunLuaSceneInstruction, WaitDurationInstruction, WaitInputInstruction,
                  ConditionalBranchInstruction, ChoiceSceneInstruction, SetLayoutInstruction,
-                 TransitionInstruction>;
+                 TransitionGroupInstruction>;
 struct SceneProgram {
     std::vector<SceneInstruction> instructions;
 };

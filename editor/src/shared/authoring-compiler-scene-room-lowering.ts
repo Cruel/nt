@@ -2,7 +2,7 @@ import type { CompiledCondition, CompiledEffect, CompiledFlowTarget, CompiledPro
 import type { Condition, Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import { parseRoomData } from './project-schema/authoring-rooms';
-import { parseSceneData, type SceneStepData } from './project-schema/authoring-scenes';
+import { parseSceneData, type SceneStepData, type SceneTransitionGroupChildData } from './project-schema/authoring-scenes';
 import type {
   CompiledProjectSharedDraft,
   SharedDialogueDefinition,
@@ -78,11 +78,20 @@ function common(step: Exclude<SceneStepData, { type: 'comment' }>) {
   };
 }
 
+function compileTransitionGroupChild(child: SceneTransitionGroupChildData): Extract<SceneProgram['instructions'][number], { kind: 'transition-group' }>['children'][number] {
+  switch (child.type) {
+    case 'set-background': return { id: child.id, kind: 'set-background', asset: assetRef(child.asset), material: materialRef(child.material), color: child.color, fit: child.fit };
+    case 'clear-background': return { id: child.id, kind: 'clear-background' };
+    case 'actor-cue': return { id: child.id, kind: 'actor-cue', slotId: child.slotId, character: characterRef(child.character)!, action: child.action, poseId: child.poseId, expressionId: child.expressionId, position: child.position, offset: { ...child.offset }, scale: child.scale };
+    case 'set-layout': return { id: child.id, kind: 'set-layout', layout: layoutRef(child.layout), action: child.action, slot: child.slot as 'overlay' | 'custom', plane: 'world-overlay' };
+  }
+}
+
 function compileSceneStep(step: Exclude<SceneStepData, { type: 'comment' }>): SceneProgram['instructions'][number] {
   const base = common(step);
   switch (step.type) {
-    case 'set-background': return { ...base, kind: 'set-background', asset: assetRef(step.asset), material: materialRef(step.material), color: step.color, fit: step.fit, transition: step.transition };
-    case 'actor-cue': return { ...base, kind: 'actor-cue', slotId: step.slotId, character: characterRef(step.character)!, action: step.action, poseId: step.poseId, expressionId: step.expressionId, position: step.position, offset: { ...step.offset }, scale: step.scale, transition: step.transition };
+    case 'set-background': return { ...base, kind: 'set-background', asset: assetRef(step.asset), material: materialRef(step.material), color: step.color, fit: step.fit, transition: step.transition, durationMs: step.durationMs, waitForCompletion: step.waitForCompletion, skippable: step.skippable };
+    case 'actor-cue': return { ...base, kind: 'actor-cue', slotId: step.slotId, character: characterRef(step.character)!, action: step.action, poseId: step.poseId, expressionId: step.expressionId, position: step.position, offset: { ...step.offset }, scale: step.scale, transition: step.transition, durationMs: step.durationMs, waitForCompletion: step.waitForCompletion, skippable: step.skippable };
     case 'call-dialogue': return { ...base, kind: 'call-dialogue', dialogue: { kind: 'dialogue', id: step.dialogue.$ref.id }, startBlockId: step.startBlockId, autosaveSafePoint: step.autosaveSafePoint };
     case 'show-text': return { ...base, kind: 'show-text', text: compileText(step.text), speaker: characterRef(step.speaker), wait: step.wait, autosaveSafePoint: step.autosaveSafePoint };
     case 'audio-cue': return { ...base, kind: 'audio-cue', asset: assetRef(step.asset), channel: step.channel, action: step.action, loop: step.loop, volume: step.volume, fadeMs: step.fadeMs, waitForCompletion: step.waitForCompletion };
@@ -93,8 +102,8 @@ function compileSceneStep(step: Exclude<SceneStepData, { type: 'comment' }>): Sc
       : { ...base, kind: 'wait-input', skippable: step.skippable };
     case 'conditional-branch': return { ...base, kind: 'conditional-branch', branches: step.branches.map((branch) => ({ id: branch.id, condition: compileCondition(branch.condition), targetInstructionId: branch.targetStepId })), fallbackInstructionId: step.fallbackStepId };
     case 'choice': return { ...base, kind: 'choice', prompt: step.prompt ? compileText(step.prompt) : null, options: step.options.map((option) => ({ id: option.id, label: compileText(option.label), ...(option.condition === undefined ? {} : { condition: compileCondition(option.condition) }), effects: option.effects.map(compileEffect), targetInstructionId: option.targetStepId })), autosaveSafePoint: step.autosaveSafePoint };
-    case 'set-layout': return { ...base, kind: 'set-layout', layout: layoutRef(step.layout), action: step.action, slot: step.slot };
-    case 'transition': return { ...base, kind: 'transition', transitionKind: step.transitionKind, durationMs: step.durationMs, color: step.color, waitForCompletion: step.waitForCompletion };
+    case 'set-layout': return { ...base, kind: 'set-layout', layout: layoutRef(step.layout), action: step.action, slot: step.slot, transition: step.transition, durationMs: step.durationMs, waitForCompletion: step.waitForCompletion, skippable: step.skippable };
+    case 'transition-group': return { ...base, kind: 'transition-group', transitionKind: step.transitionKind, durationMs: step.durationMs, color: step.color, waitForCompletion: step.waitForCompletion, skippable: step.skippable, children: step.children.map(compileTransitionGroupChild) };
   }
 }
 
@@ -123,6 +132,17 @@ export function lowerSceneAndRoomPrograms(project: AuthoringProject, shared: Com
         const expressions = characterData && typeof characterData === 'object' && 'expressions' in characterData && Array.isArray(characterData.expressions) ? characterData.expressions : [];
         if (step.poseId && !poses.some((pose) => typeof pose === 'object' && pose !== null && 'id' in pose && pose.id === step.poseId)) diagnostics.push({ code: 'COMPILER_SCENE_POSE_MISSING', path: `/scenes/${scene.id}/data/steps/${index}/poseId`, message: `Pose '${step.poseId}' does not exist on Character '${step.character.$ref.id}'.` });
         if (step.expressionId && !expressions.some((expression) => typeof expression === 'object' && expression !== null && 'id' in expression && expression.id === step.expressionId)) diagnostics.push({ code: 'COMPILER_SCENE_EXPRESSION_MISSING', path: `/scenes/${scene.id}/data/steps/${index}/expressionId`, message: `Expression '${step.expressionId}' does not exist on Character '${step.character.$ref.id}'.` });
+      }
+      if (step.type === 'transition-group') {
+        step.children.forEach((child, childIndex) => {
+          if (child.type !== 'actor-cue') return;
+          const character = project.characters[child.character.$ref.id];
+          const characterData = character?.data;
+          const poses = characterData && typeof characterData === 'object' && 'poses' in characterData && Array.isArray(characterData.poses) ? characterData.poses : [];
+          const expressions = characterData && typeof characterData === 'object' && 'expressions' in characterData && Array.isArray(characterData.expressions) ? characterData.expressions : [];
+          if (child.poseId && !poses.some((pose) => typeof pose === 'object' && pose !== null && 'id' in pose && pose.id === child.poseId)) diagnostics.push({ code: 'COMPILER_SCENE_TRANSITION_GROUP_POSE_MISSING', path: `/scenes/${scene.id}/data/steps/${index}/children/${childIndex}/poseId`, message: `Pose '${child.poseId}' does not exist on Character '${child.character.$ref.id}'.` });
+          if (child.expressionId && !expressions.some((expression) => typeof expression === 'object' && expression !== null && 'id' in expression && expression.id === child.expressionId)) diagnostics.push({ code: 'COMPILER_SCENE_TRANSITION_GROUP_EXPRESSION_MISSING', path: `/scenes/${scene.id}/data/steps/${index}/children/${childIndex}/expressionId`, message: `Expression '${child.expressionId}' does not exist on Character '${child.character.$ref.id}'.` });
+        });
       }
       if (step.type === 'call-dialogue' && step.startBlockId) {
         const dialogue = project.dialogues[step.dialogue.$ref.id];

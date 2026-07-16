@@ -112,9 +112,16 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         REQUIRE(project.scenes.size() == 2);
         const auto& opening = project.scenes[1];
         REQUIRE(opening.program.instructions.size() == 15);
-        CHECK(std::holds_alternative<SetBackgroundInstruction>(opening.program.instructions[0]));
-        CHECK(std::get<ActorCueInstruction>(opening.program.instructions[1]).slot_id.text() ==
-              "hero-slot");
+        const auto& background =
+            std::get<SetBackgroundInstruction>(opening.program.instructions[0]);
+        CHECK(background.transition == BackgroundTransition::Cut);
+        CHECK(background.duration_ms == 0);
+        CHECK(std::holds_alternative<ImmediateWait>(background.wait));
+        const auto& actor = std::get<ActorCueInstruction>(opening.program.instructions[1]);
+        CHECK(actor.slot_id.text() == "hero-slot");
+        CHECK(actor.transition == ActorTransition::None);
+        CHECK(actor.duration_ms == 0);
+        CHECK(std::holds_alternative<ImmediateWait>(actor.wait));
         CHECK(std::get<CallDialogueSceneInstruction>(opening.program.instructions[2])
                   .start_block_id->text() == "start");
         CHECK(std::holds_alternative<ShowTextInstruction>(opening.program.instructions[3]));
@@ -133,8 +140,17 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(std::get<ChoiceSceneInstruction>(opening.program.instructions[12])
                   .options.front()
                   .id.text() == "layout-option");
-        CHECK(std::holds_alternative<SetLayoutInstruction>(opening.program.instructions[13]));
-        CHECK(std::holds_alternative<TransitionInstruction>(opening.program.instructions[14]));
+        const auto& layout = std::get<SetLayoutInstruction>(opening.program.instructions[13]);
+        CHECK(layout.transition == LayoutTransition::None);
+        CHECK(layout.duration_ms == 0);
+        CHECK(std::holds_alternative<ImmediateWait>(layout.wait));
+        REQUIRE(
+            std::holds_alternative<TransitionGroupInstruction>(opening.program.instructions[14]));
+        const auto& transition =
+            std::get<TransitionGroupInstruction>(opening.program.instructions[14]);
+        CHECK(transition.children.size() == 1);
+        CHECK(std::holds_alternative<TransitionGroupSetBackgroundMutation>(
+            transition.children.front()));
         REQUIRE(project.rooms.size() == 3);
         REQUIRE(project.rooms[1].lifecycle.hooks.size() == 4);
         CHECK(project.rooms[1].lifecycle.hooks.front().effects.size() == 1);
@@ -227,6 +243,162 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
     auto result = decode_shared_project(document, "scene-program.json");
     REQUIRE_FALSE(result);
     CHECK(has_code(result.error(), "compiled_project.unknown_field"));
+}
+
+TEST_CASE("compiled project decoder rejects stale and malformed TransitionGroup contracts")
+{
+    const std::initializer_list<std::string_view> instruction_path = {
+        "definitions", "scenes", "1", "program", "instructions", "14"};
+
+    SECTION("stale standalone transition")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction = path_member(document, instruction_path);
+        REQUIRE(instruction != nullptr);
+        (*instruction)["kind"] = "transition";
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_variant"));
+    }
+
+    SECTION("empty child list")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction = path_member(document, instruction_path);
+        REQUIRE(instruction != nullptr);
+        (*instruction)["children"] = nlohmann::json::array();
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.type"));
+    }
+
+    SECTION("side-effect child")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction = path_member(document, instruction_path);
+        REQUIRE(instruction != nullptr);
+        (*instruction)["children"] = nlohmann::json::array(
+            {{{"id", "side-effect"}, {"kind", "run-lua"}, {"source", "mutate()"}}});
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_variant"));
+    }
+
+    SECTION("invalid immediate timing")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction = path_member(document, instruction_path);
+        REQUIRE(instruction != nullptr);
+        (*instruction)["transitionKind"] = "cut";
+        (*instruction)["durationMs"] = 10;
+        (*instruction)["waitForCompletion"] = true;
+        (*instruction)["color"] = "#000000";
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_variant"));
+    }
+
+    SECTION("excluded Layout plane")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction = path_member(document, instruction_path);
+        REQUIRE(instruction != nullptr);
+        (*instruction)["children"] =
+            nlohmann::json::array({{{"action", "show"},
+                                    {"id", "layout"},
+                                    {"kind", "set-layout"},
+                                    {"layout", {{"id", "hud-inline"}, {"kind", "layout"}}},
+                                    {"plane", "game-ui"},
+                                    {"slot", "overlay"}}});
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_value"));
+    }
+}
+
+TEST_CASE("compiled project decoder rejects malformed standalone finite presentation contracts")
+{
+    SECTION("immediate background transition cannot carry finite timing")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "0"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["transition"] = "cut";
+        (*instruction)["durationMs"] = 50;
+        (*instruction)["waitForCompletion"] = true;
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_variant"));
+    }
+
+    SECTION("actor slide requires positive timing and a placement action")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "1"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["action"] = "expression";
+        (*instruction)["transition"] = "slide";
+        (*instruction)["durationMs"] = 0;
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_number"));
+        CHECK(has_code(result.error(), "compiled_project.unknown_variant"));
+    }
+
+    SECTION("animated Layout transition requires positive timing")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "13"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["transition"] = "fade";
+        (*instruction)["durationMs"] = 0;
+        auto result = decode_shared_project(document, "scene-program.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_number"));
+    }
+}
+
+TEST_CASE("compiled project decoder retains valid standalone finite presentation contracts")
+{
+    auto document = fixture("scene-program");
+    auto* background =
+        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "0"});
+    auto* actor =
+        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "1"});
+    auto* layout =
+        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "13"});
+    REQUIRE(background != nullptr);
+    REQUIRE(actor != nullptr);
+    REQUIRE(layout != nullptr);
+    (*background)["transition"] = "fade";
+    (*background)["durationMs"] = 400;
+    (*background)["waitForCompletion"] = true;
+    (*actor)["action"] = "move";
+    (*actor)["transition"] = "slide";
+    (*actor)["durationMs"] = 300;
+    (*actor)["waitForCompletion"] = true;
+    (*layout)["transition"] = "fade";
+    (*layout)["durationMs"] = 250;
+    (*layout)["waitForCompletion"] = true;
+
+    auto result = decode_shared_project(document, "scene-program.json");
+    REQUIRE(result);
+    const auto& instructions = result.value().scenes[1].program.instructions;
+    const auto& decoded_background = std::get<SetBackgroundInstruction>(instructions[0]);
+    CHECK(decoded_background.transition == BackgroundTransition::Fade);
+    CHECK(decoded_background.duration_ms == 400);
+    CHECK(std::holds_alternative<PresentationCompletionWait>(decoded_background.wait));
+    const auto& decoded_actor = std::get<ActorCueInstruction>(instructions[1]);
+    CHECK(decoded_actor.transition == ActorTransition::Slide);
+    CHECK(decoded_actor.duration_ms == 300);
+    CHECK(std::holds_alternative<PresentationCompletionWait>(decoded_actor.wait));
+    const auto& decoded_layout = std::get<SetLayoutInstruction>(instructions[13]);
+    CHECK(decoded_layout.transition == LayoutTransition::Fade);
+    CHECK(decoded_layout.duration_ms == 250);
+    CHECK(std::holds_alternative<PresentationCompletionWait>(decoded_layout.wait));
 }
 
 TEST_CASE("compiled project shared primitives decode closed variants strictly")

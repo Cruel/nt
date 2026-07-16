@@ -101,7 +101,7 @@ describe('compiled project cross-language golden corpus', () => {
       'lua-predicate', 'material', 'move-interactable', 'next', 'notify', 'nowhere',
       'point', 'predicate', 'rect', 'redirect', 'return', 'room', 'room-placement',
       'run-lua', 'run-lua-effect', 'scene', 'sequence', 'set-background',
-      'set-interactable-state', 'set-layout', 'set-variable', 'show-text', 'transition',
+      'set-interactable-state', 'set-layout', 'set-variable', 'show-text', 'transition-group',
       'variable', 'variable-comparison', 'verb', 'wait-duration', 'wait-input',
     ];
     for (const kind of requiredKinds) expect(kinds, `missing compiled kind '${kind}'`).toContain(kind);
@@ -110,7 +110,7 @@ describe('compiled project cross-language golden corpus', () => {
     expect(sorted(new Set(opening.program.instructions.map((instruction) => instruction.kind)))).toEqual(sorted([
       'set-background', 'actor-cue', 'call-dialogue', 'show-text', 'audio-cue',
       'set-variable', 'run-lua', 'wait-duration', 'wait-input', 'conditional-branch',
-      'choice', 'set-layout', 'transition',
+      'choice', 'set-layout', 'transition-group',
     ]));
 
     const intro = dialogue.definitions.dialogues.find((candidate) => candidate.id === 'intro')!;

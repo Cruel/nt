@@ -21,12 +21,16 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         return std::nullopt;
 #define SCENE_FIELDS(...) decoder.object(value, pointer, {"condition", "id", "kind", __VA_ARGS__})
     if (*kind == "set-background") {
-        SCENE_FIELDS("asset", "color", "fit", "material", "transition");
+        SCENE_FIELDS("asset", "color", "durationMs", "fit", "material", "skippable", "transition",
+                     "waitForCompletion");
         const auto* asset_value = decoder.member(value, "asset", pointer);
         const auto* color_value = decoder.member(value, "color", pointer);
+        const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* fit_value = decoder.member(value, "fit", pointer);
         const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* transition_value = decoder.member(value, "transition", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
         std::optional<AssetId> asset;
         bool asset_ok = asset_value != nullptr;
         if (asset_value && !asset_value->is_null()) {
@@ -62,26 +66,55 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                      {"fade", BackgroundTransition::Fade},
                                      {"cut", BackgroundTransition::Cut}})
                               : std::nullopt;
-        return asset_ok && color_ok && fit && material_ok && transition
+        auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *duration_value, pointer_child(pointer, "durationMs"))
+                                       : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        auto waits = wait_value
+                         ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                         : std::nullopt;
+        if (transition && duration && waits) {
+            if (*transition == BackgroundTransition::Fade && *duration == 0) {
+                decoder.error(k_code_number,
+                              "Animated background transitions require a positive duration.",
+                              pointer_child(pointer, "durationMs"));
+                duration.reset();
+            } else if (*transition != BackgroundTransition::Fade && (*duration != 0 || *waits)) {
+                decoder.error(k_code_variant,
+                              "Immediate background transitions require zero duration and no wait.",
+                              pointer_child(pointer, "transition"));
+                duration.reset();
+            }
+        }
+        PresentationInstructionWait wait =
+            waits && *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
+                            : PresentationInstructionWait{ImmediateWait{}};
+        return asset_ok && color_ok && duration && fit && material_ok && skippable && transition &&
+                       waits
                    ? std::optional<SceneInstruction>(SetBackgroundInstruction{
                          std::move(*id), std::move(condition),
                          BackgroundPresentation{std::move(asset), std::move(color), *fit,
                                                 std::move(material)},
-                         *transition})
+                         *transition, *duration, std::move(wait), *skippable})
                    : std::nullopt;
     }
     if (*kind == "actor-cue") {
-        SCENE_FIELDS("action", "character", "expressionId", "offset", "poseId", "position", "scale",
-                     "slotId", "transition");
+        SCENE_FIELDS("action", "character", "durationMs", "expressionId", "offset", "poseId",
+                     "position", "scale", "skippable", "slotId", "transition", "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* character_value = decoder.member(value, "character", pointer);
+        const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* expression_value = decoder.member(value, "expressionId", pointer);
         const auto* offset_value = decoder.member(value, "offset", pointer);
         const auto* pose_value = decoder.member(value, "poseId", pointer);
         const auto* position_value = decoder.member(value, "position", pointer);
         const auto* scale_value = decoder.member(value, "scale", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* slot_value = decoder.member(value, "slotId", pointer);
         const auto* transition_value = decoder.member(value, "transition", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
         auto action = action_value ? decoder.enumeration<ActorCueAction>(
                                          *action_value, pointer_child(pointer, "action"),
                                          {{"show", ActorCueAction::Show},
@@ -136,9 +169,41 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                      {"fade", ActorTransition::Fade},
                                      {"slide", ActorTransition::Slide}})
                               : std::nullopt;
+        auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *duration_value, pointer_child(pointer, "durationMs"))
+                                       : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        auto waits = wait_value
+                         ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                         : std::nullopt;
+        if (action && transition && duration && waits) {
+            if (*transition == ActorTransition::None && (*duration != 0 || *waits)) {
+                decoder.error(k_code_variant,
+                              "Immediate actor changes require zero duration and no wait.",
+                              pointer_child(pointer, "transition"));
+                duration.reset();
+            } else if (*transition != ActorTransition::None && *duration == 0) {
+                decoder.error(k_code_number,
+                              "Animated actor transitions require a positive duration.",
+                              pointer_child(pointer, "durationMs"));
+                duration.reset();
+            }
+            if (*transition == ActorTransition::Slide && *action != ActorCueAction::Show &&
+                *action != ActorCueAction::Hide && *action != ActorCueAction::Move) {
+                decoder.error(k_code_variant,
+                              "Slide is valid only for show, hide, and move actor actions.",
+                              pointer_child(pointer, "transition"));
+                transition.reset();
+            }
+        }
         if (!action || !character || !expression_ok || !offset || !pose_ok || !position || !scale ||
-            !slot || !transition)
+            !skippable || !slot || !transition || !duration || !waits)
             return std::nullopt;
+        PresentationInstructionWait wait =
+            *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
+                   : PresentationInstructionWait{ImmediateWait{}};
         return ActorCueInstruction{std::move(*id),
                                    std::move(condition),
                                    *action,
@@ -149,7 +214,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                    *position,
                                    *scale,
                                    std::move(*slot),
-                                   *transition};
+                                   *transition,
+                                   *duration,
+                                   std::move(wait),
+                                   *skippable};
     }
     if (*kind == "call-dialogue") {
         SCENE_FIELDS("autosaveSafePoint", "dialogue", "startBlockId");
@@ -474,10 +542,15 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    : std::nullopt;
     }
     if (*kind == "set-layout") {
-        SCENE_FIELDS("action", "layout", "slot");
+        SCENE_FIELDS("action", "durationMs", "layout", "skippable", "slot", "transition",
+                     "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
+        const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* layout_value = decoder.member(value, "layout", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* slot_value = decoder.member(value, "slot", pointer);
+        const auto* transition_value = decoder.member(value, "transition", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
         auto action =
             action_value
                 ? decoder.enumeration<LayoutAction>(*action_value, pointer_child(pointer, "action"),
@@ -500,17 +573,300 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                    {"overlay", LayoutSlot::Overlay},
                                                    {"custom", LayoutSlot::Custom}})
                 : std::nullopt;
-        return action && layout_ok && slot
+        auto transition =
+            transition_value
+                ? decoder.enumeration<LayoutTransition>(
+                      *transition_value, pointer_child(pointer, "transition"),
+                      {{"none", LayoutTransition::None}, {"fade", LayoutTransition::Fade}})
+                : std::nullopt;
+        auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *duration_value, pointer_child(pointer, "durationMs"))
+                                       : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        auto waits = wait_value
+                         ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                         : std::nullopt;
+        if (action && layout_ok) {
+            if ((*action == LayoutAction::Hide) != !layout.has_value()) {
+                decoder.error(k_code_variant,
+                              "Hide Layout changes require no Layout; show and swap require one.",
+                              pointer_child(pointer, "layout"));
+                layout_ok = false;
+            }
+        }
+        if (transition && duration && waits) {
+            if (*transition == LayoutTransition::None && (*duration != 0 || *waits)) {
+                decoder.error(k_code_variant,
+                              "Immediate Layout changes require zero duration and no wait.",
+                              pointer_child(pointer, "transition"));
+                duration.reset();
+            } else if (*transition == LayoutTransition::Fade && *duration == 0) {
+                decoder.error(k_code_number,
+                              "Animated Layout transitions require a positive duration.",
+                              pointer_child(pointer, "durationMs"));
+                duration.reset();
+            }
+        }
+        PresentationInstructionWait wait =
+            waits && *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
+                            : PresentationInstructionWait{ImmediateWait{}};
+        return action && duration && layout_ok && skippable && slot && transition && waits
                    ? std::optional<SceneInstruction>(SetLayoutInstruction{
-                         std::move(*id), std::move(condition), *action, std::move(layout), *slot})
+                         std::move(*id), std::move(condition), *action, std::move(layout), *slot,
+                         *transition, *duration, std::move(wait), *skippable})
                    : std::nullopt;
     }
-    if (*kind == "transition") {
-        SCENE_FIELDS("color", "durationMs", "transitionKind", "waitForCompletion");
+    if (*kind == "transition-group") {
+        SCENE_FIELDS("children", "color", "durationMs", "skippable", "transitionKind",
+                     "waitForCompletion");
+        const auto* children_value = decoder.member(value, "children", pointer);
         const auto* color_value = decoder.member(value, "color", pointer);
         const auto* duration_value = decoder.member(value, "durationMs", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* transition_value = decoder.member(value, "transitionKind", pointer);
         const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
+        auto children =
+            children_value
+                ? decoder.array<TransitionGroupMutation>(
+                      *children_value, pointer_child(pointer, "children"),
+                      [&](const nlohmann::json& child, const std::string& child_pointer)
+                          -> std::optional<TransitionGroupMutation> {
+                          if (!child.is_object()) {
+                              decoder.error(k_code_type, "Expected a TransitionGroup child object.",
+                                            child_pointer);
+                              return std::nullopt;
+                          }
+                          const auto* child_kind_value =
+                              decoder.member(child, "kind", child_pointer);
+                          const auto* child_id_value = decoder.member(child, "id", child_pointer);
+                          auto child_kind =
+                              child_kind_value
+                                  ? decoder.string(*child_kind_value,
+                                                   pointer_child(child_pointer, "kind"))
+                                  : std::nullopt;
+                          auto child_id = child_id_value ? decoder.id<TransitionGroupChildId>(
+                                                               *child_id_value,
+                                                               pointer_child(child_pointer, "id"))
+                                                         : std::nullopt;
+                          if (!child_kind || !child_id)
+                              return std::nullopt;
+                          if (*child_kind == "clear-background") {
+                              if (!decoder.object(child, child_pointer, {"id", "kind"}))
+                                  return std::nullopt;
+                              return TransitionGroupClearBackgroundMutation{std::move(*child_id)};
+                          }
+                          if (*child_kind == "set-background") {
+                              if (!decoder.object(
+                                      child, child_pointer,
+                                      {"asset", "color", "fit", "id", "kind", "material"}))
+                                  return std::nullopt;
+                              const auto* asset_value =
+                                  decoder.member(child, "asset", child_pointer);
+                              const auto* child_color_value =
+                                  decoder.member(child, "color", child_pointer);
+                              const auto* fit_value = decoder.member(child, "fit", child_pointer);
+                              const auto* material_value =
+                                  decoder.member(child, "material", child_pointer);
+                              std::optional<AssetId> asset;
+                              bool asset_ok = asset_value != nullptr;
+                              if (asset_value && !asset_value->is_null()) {
+                                  asset = decode_reference<AssetId>(
+                                      decoder, *asset_value, pointer_child(child_pointer, "asset"),
+                                      "asset");
+                                  asset_ok = asset.has_value();
+                              }
+                              std::optional<std::string> child_color;
+                              bool child_color_ok = child_color_value != nullptr;
+                              if (child_color_value && !child_color_value->is_null()) {
+                                  child_color = decoder.string(
+                                      *child_color_value, pointer_child(child_pointer, "color"));
+                                  child_color_ok = child_color.has_value();
+                              }
+                              auto fit = fit_value
+                                             ? decoder.enumeration<BackgroundFit>(
+                                                   *fit_value, pointer_child(child_pointer, "fit"),
+                                                   {{"cover", BackgroundFit::Cover},
+                                                    {"contain", BackgroundFit::Contain},
+                                                    {"stretch", BackgroundFit::Stretch},
+                                                    {"center", BackgroundFit::Center}})
+                                             : std::nullopt;
+                              std::optional<MaterialId> material;
+                              bool material_ok = material_value != nullptr;
+                              if (material_value && !material_value->is_null()) {
+                                  material = decode_reference<MaterialId>(
+                                      decoder, *material_value,
+                                      pointer_child(child_pointer, "material"), "material");
+                                  material_ok = material.has_value();
+                              }
+                              if (!asset_ok || !child_color_ok || !fit || !material_ok)
+                                  return std::nullopt;
+                              return TransitionGroupSetBackgroundMutation{
+                                  std::move(*child_id),
+                                  BackgroundPresentation{std::move(asset), std::move(child_color),
+                                                         *fit, std::move(material)}};
+                          }
+                          if (*child_kind == "actor-cue") {
+                              if (!decoder.object(child, child_pointer,
+                                                  {"action", "character", "expressionId", "id",
+                                                   "kind", "offset", "poseId", "position", "scale",
+                                                   "slotId"}))
+                                  return std::nullopt;
+                              const auto* action_value =
+                                  decoder.member(child, "action", child_pointer);
+                              const auto* character_value =
+                                  decoder.member(child, "character", child_pointer);
+                              const auto* expression_value =
+                                  decoder.member(child, "expressionId", child_pointer);
+                              const auto* offset_value =
+                                  decoder.member(child, "offset", child_pointer);
+                              const auto* pose_value =
+                                  decoder.member(child, "poseId", child_pointer);
+                              const auto* position_value =
+                                  decoder.member(child, "position", child_pointer);
+                              const auto* scale_value =
+                                  decoder.member(child, "scale", child_pointer);
+                              const auto* slot_value =
+                                  decoder.member(child, "slotId", child_pointer);
+                              auto action =
+                                  action_value
+                                      ? decoder.enumeration<ActorCueAction>(
+                                            *action_value, pointer_child(child_pointer, "action"),
+                                            {{"show", ActorCueAction::Show},
+                                             {"hide", ActorCueAction::Hide},
+                                             {"move", ActorCueAction::Move},
+                                             {"pose", ActorCueAction::Pose},
+                                             {"expression", ActorCueAction::Expression}})
+                                      : std::nullopt;
+                              auto character =
+                                  character_value
+                                      ? decode_reference<CharacterId>(
+                                            decoder, *character_value,
+                                            pointer_child(child_pointer, "character"), "character")
+                                      : std::nullopt;
+                              std::optional<CharacterExpressionId> expression;
+                              bool expression_ok = expression_value != nullptr;
+                              if (expression_value && !expression_value->is_null()) {
+                                  expression = decoder.id<CharacterExpressionId>(
+                                      *expression_value,
+                                      pointer_child(child_pointer, "expressionId"));
+                                  expression_ok = expression.has_value();
+                              }
+                              auto offset =
+                                  offset_value
+                                      ? decode_vector2(decoder, *offset_value,
+                                                       pointer_child(child_pointer, "offset"))
+                                      : std::nullopt;
+                              std::optional<CharacterPoseId> pose;
+                              bool pose_ok = pose_value != nullptr;
+                              if (pose_value && !pose_value->is_null()) {
+                                  pose = decoder.id<CharacterPoseId>(
+                                      *pose_value, pointer_child(child_pointer, "poseId"));
+                                  pose_ok = pose.has_value();
+                              }
+                              auto position = position_value
+                                                  ? decoder.enumeration<ActorPosition>(
+                                                        *position_value,
+                                                        pointer_child(child_pointer, "position"),
+                                                        {{"left", ActorPosition::Left},
+                                                         {"center", ActorPosition::Center},
+                                                         {"right", ActorPosition::Right},
+                                                         {"custom", ActorPosition::Custom}})
+                                                  : std::nullopt;
+                              auto scale =
+                                  scale_value
+                                      ? decoder.finite_number(*scale_value,
+                                                              pointer_child(child_pointer, "scale"))
+                                      : std::nullopt;
+                              if (scale && *scale <= 0.0) {
+                                  decoder.error(k_code_number, "Scale must be positive.",
+                                                pointer_child(child_pointer, "scale"));
+                                  scale.reset();
+                              }
+                              auto slot = slot_value ? decoder.id<ActorSlotId>(
+                                                           *slot_value,
+                                                           pointer_child(child_pointer, "slotId"))
+                                                     : std::nullopt;
+                              if (!action || !character || !expression_ok || !offset || !pose_ok ||
+                                  !position || !scale || !slot)
+                                  return std::nullopt;
+                              return TransitionGroupActorMutation{std::move(*child_id),
+                                                                  *action,
+                                                                  std::move(*character),
+                                                                  std::move(expression),
+                                                                  std::move(*offset),
+                                                                  std::move(pose),
+                                                                  *position,
+                                                                  *scale,
+                                                                  std::move(*slot)};
+                          }
+                          if (*child_kind == "set-layout") {
+                              if (!decoder.object(
+                                      child, child_pointer,
+                                      {"action", "id", "kind", "layout", "plane", "slot"}))
+                                  return std::nullopt;
+                              const auto* action_value =
+                                  decoder.member(child, "action", child_pointer);
+                              const auto* layout_value =
+                                  decoder.member(child, "layout", child_pointer);
+                              const auto* plane_value =
+                                  decoder.member(child, "plane", child_pointer);
+                              const auto* slot_value = decoder.member(child, "slot", child_pointer);
+                              auto action =
+                                  action_value
+                                      ? decoder.enumeration<LayoutAction>(
+                                            *action_value, pointer_child(child_pointer, "action"),
+                                            {{"show", LayoutAction::Show},
+                                             {"hide", LayoutAction::Hide},
+                                             {"swap", LayoutAction::Swap}})
+                                      : std::nullopt;
+                              std::optional<LayoutId> layout;
+                              bool layout_ok = layout_value != nullptr;
+                              if (layout_value && !layout_value->is_null()) {
+                                  layout = decode_reference<LayoutId>(
+                                      decoder, *layout_value,
+                                      pointer_child(child_pointer, "layout"), "layout");
+                                  layout_ok = layout.has_value();
+                              }
+                              auto plane =
+                                  plane_value
+                                      ? decoder.string(*plane_value,
+                                                       pointer_child(child_pointer, "plane"))
+                                      : std::nullopt;
+                              if (plane && *plane != "world-overlay") {
+                                  decoder.error(k_code_enum,
+                                                "TransitionGroup Layout children must target "
+                                                "world-overlay.",
+                                                pointer_child(child_pointer, "plane"));
+                                  plane.reset();
+                              }
+                              auto slot = slot_value ? decoder.enumeration<LayoutSlot>(
+                                                           *slot_value,
+                                                           pointer_child(child_pointer, "slot"),
+                                                           {{"overlay", LayoutSlot::Overlay},
+                                                            {"custom", LayoutSlot::Custom}})
+                                                     : std::nullopt;
+                              if (!action || !layout_ok || !plane || !slot)
+                                  return std::nullopt;
+                              if ((*action == LayoutAction::Hide) != !layout.has_value()) {
+                                  decoder.error(k_code_variant,
+                                                "Hide Layout children require no Layout; show and "
+                                                "swap require one.",
+                                                pointer_child(child_pointer, "layout"));
+                                  return std::nullopt;
+                              }
+                              return TransitionGroupLayoutMutation{std::move(*child_id), *action,
+                                                                   std::move(layout), *slot};
+                          }
+                          decoder.object(child, child_pointer, {"id", "kind"});
+                          decoder.error(k_code_variant,
+                                        "Unknown TransitionGroup child variant '" + *child_kind +
+                                            "'.",
+                                        pointer_child(child_pointer, "kind"));
+                          return std::nullopt;
+                      })
+                : std::nullopt;
         std::optional<std::string> color;
         bool color_ok = color_value != nullptr;
         if (color_value && !color_value->is_null()) {
@@ -520,6 +876,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
                                              *duration_value, pointer_child(pointer, "durationMs"))
                                        : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
         auto transition = transition_value
                               ? decoder.enumeration<TransitionKind>(
                                     *transition_value, pointer_child(pointer, "transitionKind"),
@@ -530,13 +889,45 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         auto waits = wait_value
                          ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
                          : std::nullopt;
-        if (!color_ok || !duration || !transition || !waits)
+        if (children && children->empty()) {
+            decoder.error(k_code_type, "TransitionGroup requires at least one child.",
+                          pointer_child(pointer, "children"));
+            children.reset();
+        }
+        if (children)
+            decoder.duplicate_ids(
+                *children, pointer_child(pointer, "children"),
+                [](const TransitionGroupMutation& child) -> const TransitionGroupChildId& {
+                    return std::visit(
+                        [](const auto& typed) -> const TransitionGroupChildId& { return typed.id; },
+                        child);
+                });
+        if (!children || !color_ok || !duration || !skippable || !transition || !waits)
             return std::nullopt;
+        if (*transition == TransitionKind::Cut && (*duration != 0 || *waits || color.has_value())) {
+            decoder.error(
+                k_code_variant,
+                "Cut TransitionGroup values require zero duration, no wait, and no color.",
+                pointer_child(pointer, "transitionKind"));
+            return std::nullopt;
+        }
+        if (*transition != TransitionKind::Cut && *duration == 0) {
+            decoder.error(k_code_number,
+                          "Animated TransitionGroup values require a positive duration.",
+                          pointer_child(pointer, "durationMs"));
+            return std::nullopt;
+        }
+        if (*transition == TransitionKind::Dissolve && color.has_value()) {
+            decoder.error(k_code_variant, "Dissolve TransitionGroup values do not accept a color.",
+                          pointer_child(pointer, "color"));
+            return std::nullopt;
+        }
         PresentationInstructionWait wait =
             *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
                    : PresentationInstructionWait{ImmediateWait{}};
-        return TransitionInstruction{std::move(*id), std::move(condition), std::move(color),
-                                     *duration,      *transition,          std::move(wait)};
+        return TransitionGroupInstruction{std::move(*id), std::move(condition), std::move(color),
+                                          *duration,      *transition,          std::move(wait),
+                                          *skippable,     std::move(*children)};
     }
 #undef SCENE_FIELDS
     decoder.object(value, pointer, {"condition", "id", "kind"});

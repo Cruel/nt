@@ -786,6 +786,20 @@ For finite grouped operations:
 - `waitForCompletion=false` creates a `Disposable` operation because the target is already durable;
 - skippability does not determine checkpoint class.
 
+### Phase 7C implementation boundary
+
+The strict authoring, compiled-wire, native-program, temporary-target, and shared-operation contracts
+are implemented. The initial concrete child set is background set/clear, actor cue, and participating
+Layout mutation; prop and environment children remain intentionally absent rather than represented by
+a generic command payload. `TransitionGroupInstruction` replaces the old standalone instruction, and
+the old discriminant is rejected at authoring and native decode boundaries.
+
+Finite requests live in `core/presentation_operation_requests.hpp`. They contain only typed IDs,
+domain values, clocks, durations, target keys, source/target publication revisions, skip policy, exact
+completion ownership, and checkpoint class derivation. They contain no JSON, callback, renderer,
+RmlUi, or backend object. The runtime executor does not emit these operations in Phase 7C; it reports a
+typed not-live diagnostic. Atomic target publication and live coordinator acceptance remain Phase 7D.
+
 ## Room-navigation transitions
 
 ### Shared realization, distinct semantic operation
@@ -793,6 +807,10 @@ For finite grouped operations:
 Room navigation and Scene transition groups share source/target composition and backend transition
 machinery. They remain distinct typed semantic operations because navigation commits Room/world state
 and controls Room lifecycle ordering.
+
+The shared contract expresses this with separate `RoomNavigationTransitionOperation` and
+`SceneTransitionGroupOperation` structs embedding `FinitePresentationOperationCommon`. Room
+navigation requires an exact `PresentationFlowCompletion`; Scene groups carry it only when awaited.
 
 Rooms are never represented as Scenes merely to reuse transition code.
 

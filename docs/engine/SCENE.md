@@ -12,7 +12,7 @@ programs, resources, and continuations remain local and do not merge.
 ## Program
 
 Authoring V2 uses the strict step union: SetBackground, ActorCue, CallDialogue, ShowText, AudioCue,
-SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, Transition, and Comment. Comment is
+SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is
 editor-only and removed by compilation. Each step contains only fields valid for its variant,
 including condition, wait, and safe-point data where meaningful. Stable step IDs support diagnostics
 and save/resume.
@@ -31,23 +31,21 @@ Scene execution transfer is controlled by branches, child calls, and the Scene's
 
 Current presentation-changing Scene actions include:
 
-- `SetBackground`, which selects a new background and currently carries a local `none`, `fade`, or
-  `cut` visual policy;
-- `ActorCue`, which changes one actor slot and currently carries a local `none`, `fade`, or `slide`
-  visual policy;
-- `SetLayout`, which shows, hides, or swaps one logical Layout slot; the referenced Layout and its
-  mounted policy determine the runtime presentation plane;
-- the standalone `Transition` action, whose current schema contains `fade`, `cut`, or `dissolve`, a
-  duration, optional color, and wait policy.
+- `SetBackground`, which selects a new background and carries a local `none`, `fade`, or `cut` visual
+  policy plus duration, wait-for-completion, and skippable fields;
+- `ActorCue`, which changes one actor slot and carries a local `none`, `fade`, or `slide` visual policy
+  plus duration, wait-for-completion, and skippable fields;
+- `SetLayout`, which shows, hides, or swaps one logical Layout slot and carries `none` or `fade` plus
+  duration, wait-for-completion, and skippable fields; the referenced Layout and mounted policy
+  determine the runtime presentation plane;
+- `TransitionGroup`, which contains one or more closed presentation mutations and defines one exact
+  atomic target.
 
-The standalone `Transition` action is not yet a complete production contract. It identifies an effect
-but does not identify the presentation mutations that form its target, contain child actions, or state
-whether it applies to earlier or later steps. In particular, `Dissolve` is undefined without an exact
-source and target composition. Phase 6 of the presentation implementation plan must resolve this by
-either replacing it with an explicit transition group/container or removing the general standalone
-action from V1. Runtime code must not invent implicit "consume the preceding actions" behavior.
+The standalone targetless `Transition` action has been removed from authoring, compiler, wire V1, and
+the native compiled program. It has no compatibility interpretation. A group never consumes earlier
+or later Scene steps implicitly.
 
-The intended grouped authoring need, if retained, is conceptually:
+The grouped authoring contract is conceptually:
 
 ```text
 TransitionGroup(dissolve, 500 ms, wait) {
@@ -57,10 +55,29 @@ TransitionGroup(dissolve, 500 ms, wait) {
 }
 ```
 
-That would mean one atomic transition from the previous scene presentation to the explicit grouped
-target. It would still be an action inside the current Scene program, not a transition between Scene
-entities. A future drag-and-drop or node editor may render the same typed program as a group or
-transition edge without changing runtime semantics.
+The initial child vocabulary is closed to background set/clear, actor cue, and participating Layout
+set/hide/swap mutations. Children cannot wait, change Flow, run Lua, issue external requests, or carry
+other side effects. Layout children must resolve to `WorldOverlay`; `GameUi`, ActiveText, menus,
+modals, debug UI, and letterbox bars are excluded. Background and actor children participate in
+`WorldBackground` and `WorldContent` respectively.
+
+`cut` is immediate and requires zero duration, no wait, and no color. `fade` and `dissolve` require a
+positive duration; `dissolve` accepts no color. Every child has a stable group-local ID, and the group
+must contain at least one child. Validation builds a temporary target and commits nothing on failure.
+
+The compiled contract is `TransitionGroupInstruction`. Shared finite-operation contracts bind an
+accepted animated group to a typed world-composition target, gameplay clock, skippable policy,
+source/target `PresentationSnapshotRevision` values, optional exact Flow completion ownership, and
+checkpoint class. Non-awaited work is disposable; awaited work is causal. Live target publication and
+operation emission remain Phase 7D; Phase 7C deliberately faults rather than pretending decoded
+groups already execute.
+
+Standalone finite presentation policies use the same strict timing rules. `none` and background
+`cut` require zero duration and cannot wait. Background `fade`, actor `fade`/`slide`, and Layout
+`fade` require positive duration. Actor `slide` is valid only for show, hide, and move. The background
+action's `color` is durable target content, not a transition fade color. Compiled instructions retain
+duration, exact presentation-wait intent, and skippability; animated forms return a typed not-live
+diagnostic until Phase 7D rather than silently discarding those fields.
 
 ## Authoring, compiled, and state disposition
 

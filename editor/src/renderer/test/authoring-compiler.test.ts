@@ -141,7 +141,7 @@ describe('authoring compiler framework', () => {
       { ...defaultSceneStep('conditional-branch'), id: 'branch', branches: [{ id: 'yes', condition: { kind: 'always' }, targetStepId: 'layout' }], fallbackStepId: 'transition' },
       { ...defaultSceneStep('choice'), id: 'choice', options: [{ id: 'continue', label: { source: { kind: 'inline', text: 'Continue' }, markup: 'plain' }, effects: [{ kind: 'set-variable', variable: { $ref: { collection: 'variables', id: 'flag' } }, value: true }], targetStepId: 'layout' }] },
       { ...defaultSceneStep('set-layout'), id: 'layout', layout: { $ref: { collection: 'layouts', id: 'hud' } } },
-      { ...defaultSceneStep('transition'), id: 'transition' },
+      { ...defaultSceneStep('transition-group'), id: 'transition' },
       { ...defaultSceneStep('show-text'), id: 'disabled', enabled: false },
       { ...defaultSceneStep('comment'), id: 'note' },
     ];
@@ -160,7 +160,7 @@ describe('authoring compiler framework', () => {
     const lowered = result.draft!;
     expect(lowered.definitions.scenes[0]!.program.instructions.map((instruction) => instruction.kind)).toEqual([
       'set-background', 'actor-cue', 'call-dialogue', 'show-text', 'audio-cue', 'set-variable', 'run-lua',
-      'wait-duration', 'wait-input', 'conditional-branch', 'choice', 'set-layout', 'transition',
+      'wait-duration', 'wait-input', 'conditional-branch', 'choice', 'set-layout', 'transition-group',
     ]);
     expect(lowered.definitions.scenes[0]!.continuation).toEqual({ kind: 'room', room: { kind: 'room', id: 'foyer' } });
     expect(lowered.definitions.rooms.find((candidate) => candidate.id === 'foyer')!.lifecycle.hooks).toEqual([

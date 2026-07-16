@@ -26,7 +26,7 @@ const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const sceneStepTypeValues = [
   'set-background', 'actor-cue', 'call-dialogue', 'show-text', 'audio-cue',
   'set-variable', 'run-lua', 'wait', 'conditional-branch', 'choice',
-  'set-layout', 'transition', 'comment',
+  'set-layout', 'transition-group', 'comment',
 ] as const;
 export type SceneStepType = (typeof sceneStepTypeValues)[number];
 
@@ -39,7 +39,11 @@ export const sceneAudioChannelValues = ['sound-effect', 'music', 'voice', 'ambie
 export const sceneAudioActionValues = ['play', 'stop', 'fade-in', 'fade-out'] as const;
 export const sceneLayoutActionValues = ['show', 'hide', 'swap'] as const;
 export const sceneLayoutSlotValues = ['hud', 'dialogue-box', 'overlay', 'custom'] as const;
+export const sceneLayoutTransitionValues = ['none', 'fade'] as const;
 export const sceneTransitionKindValues = ['fade', 'cut', 'dissolve'] as const;
+export const sceneTransitionGroupChildTypeValues = [
+  'set-background', 'clear-background', 'actor-cue', 'set-layout',
+] as const;
 
 export const sceneAssetRefSchema = assetRefSchema;
 export const sceneMaterialRefSchema = materialRefSchema;
@@ -69,6 +73,7 @@ const setBackgroundStepSchema = strict({
   type: z.literal('set-background'),
   asset: sceneAssetRefSchema.nullable(), material: sceneMaterialRefSchema.nullable(), color: z.string().nullable(),
   fit: z.enum(sceneBackgroundFitValues), transition: z.enum(sceneBackgroundTransitionValues),
+  durationMs: z.number().int().nonnegative(), waitForCompletion: z.boolean(), skippable: z.boolean(),
 });
 const actorCueStepSchema = strict({
   ...commonRuntimeStep,
@@ -76,6 +81,7 @@ const actorCueStepSchema = strict({
   action: z.enum(sceneCharacterActionValues), poseId: entityIdSchema.nullable(), expressionId: entityIdSchema.nullable(),
   position: z.enum(sceneCharacterPositionValues), offset: strict({ x: z.number().finite(), y: z.number().finite() }),
   scale: z.number().finite().positive(), transition: z.enum(sceneCharacterTransitionValues),
+  durationMs: z.number().int().nonnegative(), waitForCompletion: z.boolean(), skippable: z.boolean(),
 });
 const callDialogueStepSchema = strict({
   ...commonRuntimeStep, ...safePoint, type: z.literal('call-dialogue'), dialogue: sceneDialogueRefSchema,
@@ -115,17 +121,42 @@ const choiceStepSchema = strict({
 const setLayoutStepSchema = strict({
   ...commonRuntimeStep, type: z.literal('set-layout'), layout: sceneLayoutRefSchema.nullable(),
   action: z.enum(sceneLayoutActionValues), slot: z.enum(sceneLayoutSlotValues),
+  transition: z.enum(sceneLayoutTransitionValues), durationMs: z.number().int().nonnegative(),
+  waitForCompletion: z.boolean(), skippable: z.boolean(),
 });
-const transitionStepSchema = strict({
-  ...commonRuntimeStep, type: z.literal('transition'), transitionKind: z.enum(sceneTransitionKindValues),
-  durationMs: z.number().int().nonnegative(), color: z.string().nullable(), waitForCompletion: z.boolean(),
+const transitionGroupChildSchema = z.discriminatedUnion('type', [
+  strict({
+    id: entityIdSchema, type: z.literal('set-background'), asset: sceneAssetRefSchema.nullable(),
+    material: sceneMaterialRefSchema.nullable(), color: z.string().nullable(),
+    fit: z.enum(sceneBackgroundFitValues),
+  }),
+  strict({ id: entityIdSchema, type: z.literal('clear-background') }),
+  strict({
+    id: entityIdSchema, type: z.literal('actor-cue'), slotId: entityIdSchema,
+    character: sceneCharacterRefSchema, action: z.enum(sceneCharacterActionValues),
+    poseId: entityIdSchema.nullable(), expressionId: entityIdSchema.nullable(),
+    position: z.enum(sceneCharacterPositionValues),
+    offset: strict({ x: z.number().finite(), y: z.number().finite() }),
+    scale: z.number().finite().positive(),
+  }),
+  strict({
+    id: entityIdSchema, type: z.literal('set-layout'), layout: sceneLayoutRefSchema.nullable(),
+    action: z.enum(sceneLayoutActionValues), slot: z.enum(sceneLayoutSlotValues),
+  }),
+]);
+const transitionGroupStepSchema = strict({
+  ...commonRuntimeStep, type: z.literal('transition-group'),
+  transitionKind: z.enum(sceneTransitionKindValues), durationMs: z.number().int().nonnegative(),
+  color: z.string().nullable(), waitForCompletion: z.boolean(), skippable: z.boolean(),
+  children: z.array(transitionGroupChildSchema).min(1),
 });
 const commentStepSchema = strict({ id: entityIdSchema, label: z.string().min(1), type: z.literal('comment'), text: z.string() });
 
 export const sceneStepDataSchema = z.discriminatedUnion('type', [
   setBackgroundStepSchema, actorCueStepSchema, callDialogueStepSchema, showTextStepSchema,
   audioCueStepSchema, setVariableStepSchema, runLuaStepSchema, waitStepSchema,
-  conditionalBranchStepSchema, choiceStepSchema, setLayoutStepSchema, transitionStepSchema, commentStepSchema,
+  conditionalBranchStepSchema, choiceStepSchema, setLayoutStepSchema,
+  transitionGroupStepSchema, commentStepSchema,
 ]);
 
 export const sceneDataSchema = strict({
@@ -145,6 +176,7 @@ export type SceneVariableRef = z.infer<typeof sceneVariableRefSchema>;
 export type SceneFlowTarget = z.infer<typeof sceneFlowTargetSchema>;
 export type SceneConditionData = z.infer<typeof sceneConditionSchema>;
 export type SceneEffectData = z.infer<typeof sceneEffectSchema>;
+export type SceneTransitionGroupChildData = z.infer<typeof transitionGroupChildSchema>;
 export type SceneStepData = z.infer<typeof sceneStepDataSchema>;
 export type SceneData = z.infer<typeof sceneDataSchema>;
 
@@ -160,8 +192,8 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
   const id = type === 'comment' ? 'start' : type;
   const common = { id, type, label: label ?? type.replaceAll('-', ' '), enabled: true } as const;
   switch (type) {
-    case 'set-background': return { ...common, type, asset: null, material: null, color: null, fit: 'cover', transition: 'fade' };
-    case 'actor-cue': return { ...common, type, slotId: 'actor', character: sceneCharacterRef('character'), action: 'show', poseId: null, expressionId: null, position: 'center', offset: { x: 0, y: 0 }, scale: 1, transition: 'fade' };
+    case 'set-background': return { ...common, type, asset: null, material: null, color: null, fit: 'cover', transition: 'none', durationMs: 0, waitForCompletion: false, skippable: true };
+    case 'actor-cue': return { ...common, type, slotId: 'actor', character: sceneCharacterRef('character'), action: 'show', poseId: null, expressionId: null, position: 'center', offset: { x: 0, y: 0 }, scale: 1, transition: 'none', durationMs: 0, waitForCompletion: false, skippable: true };
     case 'call-dialogue': return { ...common, type, dialogue: sceneDialogueRef('dialogue'), startBlockId: null, autosaveSafePoint: false };
     case 'show-text': return { ...common, type, text: inlineTextContent(), speaker: null, wait: 'input', autosaveSafePoint: true };
     case 'audio-cue': return { ...common, type, asset: null, channel: 'sound-effect', action: 'play', loop: false, volume: 1, fadeMs: 0, waitForCompletion: false };
@@ -170,8 +202,17 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
     case 'wait': return { ...common, type, waitKind: 'duration', durationMs: 1000, skippable: true };
     case 'conditional-branch': return { ...common, type, branches: [], fallbackStepId: 'start' };
     case 'choice': return { ...common, type, prompt: null, options: [{ id: 'option', label: inlineTextContent('Option'), effects: [], targetStepId: 'start' }], autosaveSafePoint: true };
-    case 'set-layout': return { ...common, type, layout: null, action: 'show', slot: 'overlay' };
-    case 'transition': return { ...common, type, transitionKind: 'fade', durationMs: 1000, color: null, waitForCompletion: true };
+    case 'set-layout': return { ...common, type, layout: null, action: 'hide', slot: 'overlay', transition: 'none', durationMs: 0, waitForCompletion: false, skippable: true };
+    case 'transition-group': return {
+      ...common,
+      type,
+      transitionKind: 'fade',
+      durationMs: 1000,
+      color: null,
+      waitForCompletion: true,
+      skippable: true,
+      children: [{ id: 'background', type: 'set-background', asset: null, material: null, color: '#0f172a', fit: 'cover' }],
+    };
     case 'comment': return { id, type, label: label ?? 'Start', text: '' };
   }
 }
@@ -233,13 +274,68 @@ export function validateSceneData(project: AuthoringProject, sceneId: string, re
     if (step.type === 'set-background') {
       if (step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
       if (step.material) requireRecord('materials', step.material.$ref.id, `${path}/material`);
+      if (step.transition === 'fade') {
+        if (step.durationMs <= 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Animated background transitions require a positive duration.'));
+      } else {
+        if (step.durationMs !== 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Immediate background transitions require zero duration.'));
+        if (step.waitForCompletion) diagnostics.push(diagnostic(`${path}/waitForCompletion`, 'Immediate background transitions cannot wait for completion.'));
+      }
     }
-    if (step.type === 'actor-cue') requireRecord('characters', step.character.$ref.id, `${path}/character`);
+    if (step.type === 'actor-cue') {
+      requireRecord('characters', step.character.$ref.id, `${path}/character`);
+      if (step.transition === 'none') {
+        if (step.durationMs !== 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Immediate actor changes require zero duration.'));
+        if (step.waitForCompletion) diagnostics.push(diagnostic(`${path}/waitForCompletion`, 'Immediate actor changes cannot wait for completion.'));
+      } else if (step.durationMs <= 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Animated actor transitions require a positive duration.'));
+      if (step.transition === 'slide' && step.action !== 'show' && step.action !== 'hide' && step.action !== 'move') diagnostics.push(diagnostic(`${path}/transition`, 'Slide is valid only for show, hide, and move actor actions.'));
+    }
     if (step.type === 'call-dialogue') requireRecord('dialogues', step.dialogue.$ref.id, `${path}/dialogue`);
     if (step.type === 'show-text' && step.speaker) requireRecord('characters', step.speaker.$ref.id, `${path}/speaker`);
     if (step.type === 'audio-cue' && step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
     if (step.type === 'set-variable') validateVariableValue(step.variable.$ref.id, step.value, `${path}/value`);
-    if (step.type === 'set-layout' && step.layout) requireRecord('layouts', step.layout.$ref.id, `${path}/layout`);
+    if (step.type === 'set-layout') {
+      if (step.layout) requireRecord('layouts', step.layout.$ref.id, `${path}/layout`);
+      if (step.action === 'hide' && step.layout !== null) diagnostics.push(diagnostic(`${path}/layout`, 'Hide Layout actions cannot name a Layout.'));
+      if (step.action !== 'hide' && step.layout === null) diagnostics.push(diagnostic(`${path}/layout`, 'Show and swap Layout actions require a Layout.'));
+      if (step.transition === 'fade') {
+        if (step.durationMs <= 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Animated Layout transitions require a positive duration.'));
+      } else {
+        if (step.durationMs !== 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Immediate Layout changes require zero duration.'));
+        if (step.waitForCompletion) diagnostics.push(diagnostic(`${path}/waitForCompletion`, 'Immediate Layout changes cannot wait for completion.'));
+      }
+    }
+    if (step.type === 'transition-group') {
+      if (step.transitionKind === 'cut') {
+        if (step.durationMs !== 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Cut transition groups require zero duration.'));
+        if (step.waitForCompletion) diagnostics.push(diagnostic(`${path}/waitForCompletion`, 'Cut transition groups cannot wait for completion.'));
+        if (step.color !== null) diagnostics.push(diagnostic(`${path}/color`, 'Cut transition groups do not accept a color.'));
+      } else {
+        if (step.durationMs <= 0) diagnostics.push(diagnostic(`${path}/durationMs`, 'Animated transition groups require a positive duration.'));
+        if (step.transitionKind === 'dissolve' && step.color !== null) diagnostics.push(diagnostic(`${path}/color`, 'Dissolve transition groups do not accept a color.'));
+      }
+      const childIds = new Set<string>();
+      step.children.forEach((child, childIndex) => {
+        const childPath = `${path}/children/${childIndex}`;
+        if (childIds.has(child.id)) diagnostics.push(diagnostic(`${childPath}/id`, `Duplicate transition-group child ID '${child.id}'.`));
+        childIds.add(child.id);
+        if (child.type === 'set-background') {
+          if (child.asset) requireRecord('assets', child.asset.$ref.id, `${childPath}/asset`);
+          if (child.material) requireRecord('materials', child.material.$ref.id, `${childPath}/material`);
+        }
+        if (child.type === 'actor-cue') requireRecord('characters', child.character.$ref.id, `${childPath}/character`);
+        if (child.type === 'set-layout') {
+          if (child.action === 'hide' && child.layout !== null) diagnostics.push(diagnostic(`${childPath}/layout`, 'Hide transition-group Layout mutations cannot name a Layout.'));
+          if (child.action !== 'hide' && child.layout === null) diagnostics.push(diagnostic(`${childPath}/layout`, 'Show and swap transition-group Layout mutations require a Layout.'));
+          if (child.slot !== 'overlay' && child.slot !== 'custom') diagnostics.push(diagnostic(`${childPath}/slot`, 'Transition-group Layout mutations may target only WorldOverlay slots.'));
+          if (child.layout) {
+            requireRecord('layouts', child.layout.$ref.id, `${childPath}/layout`);
+            const layoutData = project.layouts[child.layout.$ref.id]?.data;
+            const target = layoutData && typeof layoutData === 'object' && 'target' in layoutData ? layoutData.target : null;
+            if (target !== 'scene-overlay' && target !== 'room-overlay' && target !== 'custom-overlay') diagnostics.push(diagnostic(`${childPath}/layout`, 'Transition-group Layout mutations require a Layout whose resolved authored target participates in WorldOverlay.'));
+          }
+        }
+      });
+    }
     if (step.type === 'conditional-branch') {
       const armIds = new Set<string>();
       for (const [armIndex, arm] of step.branches.entries()) {

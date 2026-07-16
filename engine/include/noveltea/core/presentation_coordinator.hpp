@@ -25,8 +25,10 @@ struct ActiveTextPresentationOperation {
 };
 
 using CoordinatedPresentationOperation =
-    std::variant<TransitionPresentationOperation, LayoutPresentationOperation, AudioOperation,
-                 ActiveTextPresentationOperation>;
+    std::variant<TransitionPresentationOperation, LayoutPresentationOperation,
+                 SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
+                 BackgroundPresentationOperation, ActorPresentationOperation,
+                 LayoutFinitePresentationOperation, AudioOperation, ActiveTextPresentationOperation>;
 
 struct CoordinatedOperationDelivery {
     PresentationOperationMetadata metadata;

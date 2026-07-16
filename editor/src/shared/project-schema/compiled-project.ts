@@ -249,9 +249,15 @@ const verbDefinitionSchema = strict({
 });
 
 const sceneInstructionCommon = { condition: compiledConditionSchema.optional(), id };
+const transitionGroupChildSchema = z.discriminatedUnion('kind', [
+  strict({ asset: assetReferenceSchema.nullable(), color: z.string().nullable(), fit: z.enum(['cover', 'contain', 'stretch', 'center']), id, kind: z.literal('set-background'), material: materialReferenceSchema.nullable() }),
+  strict({ id, kind: z.literal('clear-background') }),
+  strict({ action: z.enum(['show', 'hide', 'move', 'pose', 'expression']), character: characterReferenceSchema, expressionId: id.nullable(), id, kind: z.literal('actor-cue'), offset: vector2Schema, poseId: id.nullable(), position: z.enum(['left', 'center', 'right', 'custom']), scale: finiteNumber.positive(), slotId: id }),
+  strict({ action: z.enum(['show', 'hide', 'swap']), id, kind: z.literal('set-layout'), layout: layoutReferenceSchema.nullable(), plane: z.literal('world-overlay'), slot: z.enum(['overlay', 'custom']) }),
+]);
 const sceneInstructionSchema = z.discriminatedUnion('kind', [
-  strict({ ...sceneInstructionCommon, asset: assetReferenceSchema.nullable(), color: z.string().nullable(), fit: z.enum(['cover', 'contain', 'stretch', 'center']), kind: z.literal('set-background'), material: materialReferenceSchema.nullable(), transition: z.enum(['none', 'fade', 'cut']) }),
-  strict({ ...sceneInstructionCommon, action: z.enum(['show', 'hide', 'move', 'pose', 'expression']), character: characterReferenceSchema, expressionId: id.nullable(), kind: z.literal('actor-cue'), offset: vector2Schema, poseId: id.nullable(), position: z.enum(['left', 'center', 'right', 'custom']), scale: finiteNumber.positive(), slotId: id, transition: z.enum(['none', 'fade', 'slide']) }),
+  strict({ ...sceneInstructionCommon, asset: assetReferenceSchema.nullable(), color: z.string().nullable(), durationMs: z.number().int().nonnegative(), fit: z.enum(['cover', 'contain', 'stretch', 'center']), kind: z.literal('set-background'), material: materialReferenceSchema.nullable(), skippable: z.boolean(), transition: z.enum(['none', 'fade', 'cut']), waitForCompletion: z.boolean() }),
+  strict({ ...sceneInstructionCommon, action: z.enum(['show', 'hide', 'move', 'pose', 'expression']), character: characterReferenceSchema, durationMs: z.number().int().nonnegative(), expressionId: id.nullable(), kind: z.literal('actor-cue'), offset: vector2Schema, poseId: id.nullable(), position: z.enum(['left', 'center', 'right', 'custom']), scale: finiteNumber.positive(), skippable: z.boolean(), slotId: id, transition: z.enum(['none', 'fade', 'slide']), waitForCompletion: z.boolean() }),
   strict({ ...sceneInstructionCommon, autosaveSafePoint: z.boolean(), dialogue: dialogueReferenceSchema, kind: z.literal('call-dialogue'), startBlockId: id.nullable() }),
   strict({ ...sceneInstructionCommon, autosaveSafePoint: z.boolean(), kind: z.literal('show-text'), speaker: characterReferenceSchema.nullable(), text: compiledTextSchema, wait: z.enum(['input', 'immediate']) }),
   strict({ ...sceneInstructionCommon, action: z.enum(['play', 'stop', 'fade-in', 'fade-out']), asset: assetReferenceSchema.nullable(), channel: z.enum(['sound-effect', 'music', 'voice', 'ambient']), fadeMs: z.number().int().nonnegative(), kind: z.literal('audio-cue'), loop: z.boolean(), volume: finiteNumber.min(0).max(1), waitForCompletion: z.boolean() }),
@@ -261,8 +267,8 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   strict({ ...sceneInstructionCommon, kind: z.literal('wait-input'), skippable: z.boolean() }),
   strict({ ...sceneInstructionCommon, branches: z.array(strict({ condition: compiledConditionSchema, id, targetInstructionId: id })), fallbackInstructionId: id, kind: z.literal('conditional-branch') }),
   strict({ ...sceneInstructionCommon, autosaveSafePoint: z.boolean(), kind: z.literal('choice'), options: z.array(strict({ condition: compiledConditionSchema.optional(), effects: z.array(compiledEffectSchema), id, label: compiledTextSchema, targetInstructionId: id })).min(1), prompt: compiledTextSchema.nullable() }),
-  strict({ ...sceneInstructionCommon, action: z.enum(['show', 'hide', 'swap']), kind: z.literal('set-layout'), layout: layoutReferenceSchema.nullable(), slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']) }),
-  strict({ ...sceneInstructionCommon, color: z.string().nullable(), durationMs: z.number().int().nonnegative(), kind: z.literal('transition'), transitionKind: z.enum(['fade', 'cut', 'dissolve']), waitForCompletion: z.boolean() }),
+  strict({ ...sceneInstructionCommon, action: z.enum(['show', 'hide', 'swap']), durationMs: z.number().int().nonnegative(), kind: z.literal('set-layout'), layout: layoutReferenceSchema.nullable(), skippable: z.boolean(), slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']), transition: z.enum(['none', 'fade']), waitForCompletion: z.boolean() }),
+  strict({ ...sceneInstructionCommon, children: z.array(transitionGroupChildSchema).min(1), color: z.string().nullable(), durationMs: z.number().int().nonnegative(), kind: z.literal('transition-group'), skippable: z.boolean(), transitionKind: z.enum(['fade', 'cut', 'dissolve']), waitForCompletion: z.boolean() }),
 ]);
 export const sceneProgramSchema = strict({ instructions: z.array(sceneInstructionSchema) });
 const sceneDefinitionSchema = strict({

@@ -1,4 +1,5 @@
 #include <noveltea/core/flow_executor.hpp>
+#include <noveltea/core/presentation_coordinator.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -582,4 +583,54 @@ TEST_CASE("Room transition hooks advance one indexed effect at a time and cannot
     REQUIRE(fresh_executor.advance_room_transition(RoomTransitionStage::BeforeEnter));
     CHECK_FALSE(fresh_executor.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
     REQUIRE(fresh_state.execution_fault());
+}
+
+TEST_CASE("awaited Scene and Room finite operations register exact causal ownership")
+{
+    const auto opening = id<SceneId>("opening");
+    const auto project = make_project(opening);
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    auto blocked = executor.block_top(FlowBlockerKind::Presentation);
+    REQUIRE(blocked);
+    const auto& presentation = std::get<PresentationFlowBlocker>(blocked.value());
+    const PresentationFlowCompletion completion{presentation.owner, presentation.handle};
+
+    PresentationCoordinator coordinator;
+    SceneTransitionGroupOperation scene_operation{
+        .common = {.id = PresentationOperationId::from_number(1),
+                   .duration = std::chrono::milliseconds{250},
+                   .skippable = true,
+                   .clock = LayoutClockDomain::Gameplay,
+                   .revisions = {PresentationSnapshotRevision::from_number(1),
+                                 PresentationSnapshotRevision::from_number(2)}},
+        .kind = compiled::TransitionKind::Fade,
+        .color = std::string{"#000000"},
+        .completion = completion,
+    };
+    auto accepted_scene = coordinator.accept(PresentationOperation{scene_operation});
+    REQUIRE(accepted_scene);
+    CHECK(accepted_scene.value().metadata.checkpoint_class == CheckpointClass::CausalBarrier);
+    CHECK(std::get<PresentationFlowCompletion>(accepted_scene.value().metadata.completion) ==
+          completion);
+
+    RoomNavigationTransitionOperation room_operation{
+        .common = {.id = PresentationOperationId::from_number(2),
+                   .duration = std::chrono::milliseconds{300},
+                   .skippable = false,
+                   .clock = LayoutClockDomain::Gameplay,
+                   .revisions = {PresentationSnapshotRevision::from_number(2),
+                                 PresentationSnapshotRevision::from_number(3)}},
+        .target = {.source_room = id<RoomId>("hall"), .target_room = id<RoomId>("garden")},
+        .kind = compiled::TransitionKind::Dissolve,
+        .color = std::nullopt,
+        .completion = completion,
+    };
+    auto accepted_room = coordinator.accept(PresentationOperation{room_operation});
+    REQUIRE(accepted_room);
+    CHECK(accepted_room.value().metadata.checkpoint_class == CheckpointClass::CausalBarrier);
+    CHECK(std::get<PresentationFlowCompletion>(accepted_room.value().metadata.completion) ==
+          completion);
+    CHECK(std::holds_alternative<RoomNavigationOperationTarget>(
+        operation_target(FinitePresentationOperation{room_operation})));
 }

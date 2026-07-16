@@ -18,6 +18,148 @@ bool terminal(const PresentationOperationState& state)
            !std::holds_alternative<PresentationOperationRunning>(state);
 }
 
+Result<void, Diagnostics> validate_finite_common(PresentationOperationId id,
+                                                 std::chrono::milliseconds duration,
+                                                 LayoutClockDomain clock,
+                                                 const PresentationRevisionBinding& revisions)
+{
+    if (id.number() == 0 || duration.count() <= 0 || clock != LayoutClockDomain::Gameplay ||
+        revisions.source.number() == 0 || revisions.target.number() == 0 ||
+        revisions.target.number() <= revisions.source.number())
+        return Result<void, Diagnostics>::failure({diagnostic(
+            "presentation.invalid_finite_operation",
+            "Finite presentation operations require a nonzero identity, positive duration, "
+            "gameplay clock, and increasing source/target revisions")});
+    return Result<void, Diagnostics>::success();
+}
+
+PresentationCompletionTarget
+completion_target(const std::optional<PresentationFlowCompletion>& completion)
+{
+    return completion ? PresentationCompletionTarget{*completion}
+                      : PresentationCompletionTarget{NoPresentationCompletion{}};
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const SceneTransitionGroupOperation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions);
+    if (!valid || operation.kind == compiled::TransitionKind::Cut ||
+        operation.kind > compiled::TransitionKind::Dissolve ||
+        (operation.kind == compiled::TransitionKind::Dissolve && operation.color))
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            valid ? Diagnostics{diagnostic(
+                        "presentation.invalid_transition_group_operation",
+                        "Finite TransitionGroup operations support Fade or Dissolve, and Dissolve "
+                        "does not accept a color")}
+                  : valid.error());
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             operation.completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(operation.completion)});
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const RoomNavigationTransitionOperation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions);
+    if (!valid || operation.kind == compiled::TransitionKind::Cut ||
+        operation.kind > compiled::TransitionKind::Dissolve ||
+        (operation.kind == compiled::TransitionKind::Dissolve && operation.color))
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            valid ? Diagnostics{diagnostic(
+                        "presentation.invalid_room_navigation_operation",
+                        "Finite Room-navigation operations support Fade or Dissolve, and Dissolve "
+                        "does not accept a color")}
+                  : valid.error());
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class = CheckpointClass::CausalBarrier,
+         .completion = operation.completion});
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const BackgroundPresentationOperation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions);
+    if (!valid || operation.kind != BackgroundOperationKind::CrossFade)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            valid ? Diagnostics{diagnostic("presentation.invalid_background_operation",
+                                           "Background operations require CrossFade")}
+                  : valid.error());
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             operation.completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(operation.completion)});
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const ActorPresentationOperation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions);
+    if (!valid || operation.kind > ActorOperationKind::Slide)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            valid ? Diagnostics{diagnostic("presentation.invalid_actor_operation",
+                                           "Actor operation kind is invalid")}
+                  : valid.error());
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             operation.completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(operation.completion)});
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const LayoutFinitePresentationOperation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions);
+    if (!valid || operation.kind != LayoutOperationKind::Fade)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            valid ? Diagnostics{diagnostic("presentation.invalid_layout_finite_operation",
+                                           "Layout operations require Fade")}
+                  : valid.error());
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             operation.completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(operation.completion)});
+}
+
+std::optional<FinitePresentationOperationTarget>
+finite_target(const CoordinatedPresentationOperation& operation)
+{
+    return std::visit(
+        [](const auto& value) -> std::optional<FinitePresentationOperationTarget> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SceneTransitionGroupOperation> ||
+                          std::is_same_v<T, RoomNavigationTransitionOperation> ||
+                          std::is_same_v<T, BackgroundPresentationOperation> ||
+                          std::is_same_v<T, ActorPresentationOperation> ||
+                          std::is_same_v<T, LayoutFinitePresentationOperation>)
+                return operation_target(FinitePresentationOperation{value});
+            else
+                return std::nullopt;
+        },
+        operation);
+}
+
 Result<PresentationOperationMetadata, Diagnostics>
 normalize(const TransitionPresentationOperation& operation)
 {
@@ -236,6 +378,13 @@ Result<void, Diagnostics> PresentationCoordinator::replace(PresentationOperation
     if (record == replacement_record)
         return Result<void, Diagnostics>::failure(
             {diagnostic("presentation.invalid_replacement", "An operation cannot replace itself")});
+    const auto current_target = finite_target(record->operation);
+    const auto next_target = finite_target(replacement_record->operation);
+    if (current_target.has_value() != next_target.has_value() ||
+        (current_target && *current_target != *next_target))
+        return Result<void, Diagnostics>::failure(
+            {diagnostic("presentation.replacement_target_mismatch",
+                        "Finite operations may replace only the same typed target domain")});
     return transition_terminal(*record, PresentationOperationReplaced{replacement});
 }
 

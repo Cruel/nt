@@ -173,7 +173,7 @@ describe('compiled runtime export builder', () => {
         ...defaultSceneStep('set-background', 'Show background'),
         color: '#000000',
       },
-      { ...defaultSceneStep('transition', 'Fade'), durationMs: 500, color: '#000000' },
+      { ...defaultSceneStep('transition-group', 'Fade'), durationMs: 500, color: '#000000' },
     ];
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     project.entrypoint = { kind: 'scene', id: 'opening' };

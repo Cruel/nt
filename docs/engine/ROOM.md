@@ -23,6 +23,19 @@ and effect index.
 Every exit has a stable ID and a typed target Room. Lua, Map, player, editor playback, and tests all
 lower navigation into the same typed input and lifecycle transaction.
 
+The final animated request contract is `RoomNavigationTransitionOperation`. It is deliberately
+distinct from `SceneTransitionGroupOperation`, but both embed the same
+`FinitePresentationOperationCommon`: operation ID, positive duration, skippability, gameplay clock,
+and exact source/target `PresentationSnapshotRevision` binding. The navigation target carries the
+source Room when present and the target Room, and the request always carries an exact
+`PresentationFlowCompletion`; animated Room navigation is therefore a `CausalBarrier`. `Fade` and
+`Dissolve` are finite kinds, while `Cut` is immediate and allocates no lifecycle.
+
+Phase 7C defines and validates this request shape only. The current navigation executor still uses the
+transitional bridge; target publication, coordinator acceptance, exact Flow suspension, and deletion
+of the old path remain Phase 7D. Decoding the contract is not evidence that live navigation already
+uses it.
+
 ## Placements and view
 
 A `RoomPlacement` is an occupant-free anchor with stable nested identity, normalized bounds,
@@ -42,7 +55,7 @@ transition overrides, placements, cast, props, overlays, and composition hooks. 
 duplicate nested IDs, stale Room/Character/Layout/resource/Script references, invalid placement
 ownership, invalid pose/expression combinations, invalid transitions, bounds, and hook data. The
 compiled transition precedence contract is explicit request, selected exit override, then project
-default; runtime navigation realization remains a later phase.
+default. Final live navigation realization remains Phase 7D.
 
 ## Implementation evidence
 

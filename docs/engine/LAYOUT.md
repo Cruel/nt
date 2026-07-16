@@ -122,17 +122,30 @@ The current compiled-Layout target mapping is:
 | `custom-overlay` | `WorldOverlay` |
 | `menu-ui` | `MenuOverlay` |
 
-The mounted-instance policy is authoritative at runtime. Phase 8 may permit an authorized custom mount
-to choose a plane explicitly without changing the reusable Layout resource. Consequently, neither a
+The mounted-instance policy is authoritative at runtime. An authorized custom mount may eventually
+choose a plane explicitly without changing the reusable Layout resource. Consequently, neither a
 Layout's document/fragment kind nor a Scene slot name determines whether it appears above or below
 other presentation.
 
-Phase 6 scene-presentation transitions use the resolved mounted plane as their inclusion rule.
-`WorldOverlay` Layouts transition together with `WorldBackground` and `WorldContent`, even though the
-overlay is rendered by RmlUi rather than engine quads. `GameUi`, `MenuOverlay`, `Modal`, and `Debug`
-Layouts remain outside that capture and reconcile independently. This allows a Scene to introduce or
-swap a scene/room/custom overlay as part of an explicit grouped presentation transition without also
-transitioning dialogue UI, HUD, or system menus.
+`TransitionGroup` validation uses the resolved mounted plane as its inclusion rule. The initial
+compiled child contract admits Layout mutations only for `overlay` and `custom` slots whose referenced
+Layout target resolves to `scene-overlay`, `room-overlay`, or `custom-overlay`; the wire records the
+resolved participation as `plane: "world-overlay"`. `WorldOverlay` Layouts transition together with
+`WorldBackground` and `WorldContent`, even though the overlay is rendered by RmlUi rather than engine
+quads. `GameUi`, ActiveText, `MenuOverlay`, `Modal`, `Debug`, and letterbox bars remain outside the
+group and reconcile independently.
+
+The shared finite Layout-operation contract is `LayoutFinitePresentationOperation`. It carries the
+common operation identity, gameplay clock, duration, skippability, source/target publication
+revisions, exact `MountedLayoutPresentationKey` target, optional Flow completion owner, and derived
+checkpoint class. The initial animated kind is `Fade`; immediate changes allocate no operation.
+Phase 7C defines and validates this contract only. Live mounted-target publication and operation
+emission remain Phase 7D.
+
+Scene `SetLayout` authoring now states the requested entrance/exit policy explicitly: `none` is
+immediate and requires zero duration with no wait, while `fade` requires positive duration and carries
+wait-for-completion and skippable intent. Hide requires no Layout reference; show and swap require one.
+The compiler and native decoder preserve these fields without converting them into CSS animation.
 
 ### Sources
 

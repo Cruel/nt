@@ -31,6 +31,36 @@ are still incomplete. That draft contains all shared declarations, resources, de
 inheritance edges, and authored assignments, but omits program-owned fields entirely. It is never
 accepted by `compiledProjectWireV1Schema`, serialized as gameplay JSON, or exposed to consumers.
 
+## Scene TransitionGroup wire contract
+
+The targetless Scene instruction `{ "kind": "transition", ... }` is not a V1 variant and has no
+compatibility interpretation. The only grouped transition instruction is
+`{ "kind": "transition-group", ... }` with a non-empty `children` array, stable unique child IDs,
+`transitionKind`, `durationMs`, `color`, `waitForCompletion`, and `skippable`.
+
+The initial child union is closed to:
+
+- `set-background` with typed asset/material references, color, and fit;
+- `clear-background`;
+- `actor-cue` with a typed Character reference and complete target placement;
+- `set-layout` with `overlay` or `custom` slot and the literal resolved participation marker
+  `plane: "world-overlay"`.
+
+No child may contain waits, Flow changes, Lua execution, external requests, or another presentation
+family. `cut` requires zero duration, no wait, and no color. `fade` and `dissolve` require positive
+duration, and `dissolve` accepts no color. Native decode additionally links actor nested references and
+requires a Layout child to resolve to `scene-overlay`, `room-overlay`, or `custom-overlay`.
+
+This wire contract describes immutable compiled intent only. It contains no backend object, callback,
+operation progress, or JSON-preserving runtime payload. Live target publication and finite-operation
+emission remain Phase 7D.
+
+Standalone `set-background`, `actor-cue`, and `set-layout` Scene instructions also carry required
+`durationMs`, `waitForCompletion`, and `skippable` fields. `set-layout` additionally carries a closed
+`transition` value of `none` or `fade`. Immediate forms require zero duration and no wait; animated
+forms require positive duration. Actor `slide` is restricted to show, hide, and move. These fields are
+compiled intent, not evidence that the live Phase 7D operation path is active.
+
 ## Cross-language decoder corpus
 
 The exact Phase 5 decoder inputs live under

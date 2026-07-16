@@ -475,17 +475,6 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
 
         if (const auto* completion =
                 std::get_if<core::SceneInstructionCompletionPosition>(&frame->position.substate)) {
-            const auto* completed_instruction = find_instruction(*scene, step);
-            const auto* transition =
-                completed_instruction == nullptr
-                    ? nullptr
-                    : std::get_if<core::compiled::TransitionInstruction>(completed_instruction);
-            if (transition != nullptr) {
-                auto changed =
-                    m_state.set_transition({transition->transition_kind, transition->color, true});
-                if (!changed)
-                    return fault(changed.error());
-            }
             if (completion->autosave_safe_point)
                 queue_autosave(frame->scene, step);
             if (auto failed =
@@ -586,6 +575,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                 }
 
                 if constexpr (std::is_same_v<T, core::compiled::SetBackgroundInstruction>) {
+                    if (value.transition == core::compiled::BackgroundTransition::Fade)
+                        return fault(execution_error(
+                            "execution.background_operation_not_live",
+                            "Animated background operation contracts are available, but live "
+                            "target publication is introduced by presentation Phase 7D"));
                     auto changed = m_state.set_background(
                         m_project, core::ScenePresentationOwner{frame->frame_id, frame->scene},
                         value.background);
@@ -593,6 +587,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(changed.error());
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::ActorCueInstruction>) {
+                    if (value.transition != core::compiled::ActorTransition::None)
+                        return fault(execution_error(
+                            "execution.actor_operation_not_live",
+                            "Animated actor operation contracts are available, but live target "
+                            "publication is introduced by presentation Phase 7D"));
                     const auto* character = m_project.find_character(value.character);
                     if (character == nullptr)
                         return fault(execution_error("execution.invalid_actor_character",
@@ -846,6 +845,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(marked.error());
                     return core::FlowBlockedOutcome{*m_state.blocker()};
                 } else if constexpr (std::is_same_v<T, core::compiled::SetLayoutInstruction>) {
+                    if (value.transition == core::compiled::LayoutTransition::Fade)
+                        return fault(execution_error(
+                            "execution.layout_operation_not_live",
+                            "Animated Layout operation contracts are available, but live target "
+                            "publication is introduced by presentation Phase 7D"));
                     core::Result<void, core::Diagnostics> changed =
                         core::Result<void, core::Diagnostics>::success();
                     if (value.action == core::compiled::LayoutAction::Hide)
@@ -862,27 +866,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(changed.error());
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else {
-                    auto changed = m_state.set_transition(
-                        {value.transition_kind, value.color,
-                         std::holds_alternative<core::ImmediateWait>(value.wait)});
-                    if (!changed)
-                        return fault(changed.error());
-                    core::WaitSpec wait = std::visit(
-                        [](const auto& item) -> core::WaitSpec { return item; }, value.wait);
-                    auto waiting = begin(wait);
-                    if (!waiting)
-                        return fault(waiting.error());
-                    const auto* wait_outcome = waiting.value_if();
-                    if (wait_outcome != nullptr &&
-                        std::holds_alternative<core::WaitBlocked>(*wait_outcome)) {
-                        auto marked = m_flow.mark_scene_wait(
-                            frame->scene, step,
-                            core::SceneInstructionCompletionPosition{sequential, false});
-                        if (!marked)
-                            return fault(marked.error());
-                        return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
-                    }
-                    return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    return fault(execution_error(
+                        "execution.transition_group_not_live",
+                        "TransitionGroup compilation is available, but live atomic target "
+                        "publication is introduced by presentation Phase 7D"));
                 }
             },
             *instruction);

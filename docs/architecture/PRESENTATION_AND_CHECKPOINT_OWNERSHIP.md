@@ -604,6 +604,21 @@ Phase 4C completes the live cutover through
 reads the coordinator's immutable checkpoint status during settlement. Reset/load/reload terminate
 the old coordinator session before backend reset and fresh snapshot reconciliation.
 
+Phase 7C adds the final finite-operation request vocabulary in
+`engine/include/noveltea/core/presentation_operation_requests.hpp`. Every animated request embeds
+`FinitePresentationOperationCommon`: exact operation identity, positive duration, skippability,
+gameplay clock, and increasing source/target `PresentationSnapshotRevision` values. Scene groups,
+Room navigation, background, actor, and Layout operations remain distinct semantic structs with typed
+target domains. Scene groups may carry optional exact Flow completion ownership and are disposable
+when non-awaited or causal when awaited; Room navigation always carries exact Flow ownership and is
+causal. Immediate kinds allocate no coordinator lifecycle.
+
+The same slice adds pure failure-atomic TransitionGroup target construction over gameplay-owned
+backgrounds, actors, and `WorldOverlay` Layouts. `WorldBackground`, `WorldContent`, and
+`WorldOverlay` participate; `GameUi`, ActiveText, menus, modals, debug UI, and letterbox bars do not.
+These are shared contracts only. Runtime target publication and live operation emission remain Phase
+7D, and the current transitional Room/navigation dispatch is not represented as complete work.
+
 The runtime combines that view with its own barriers into:
 
 ```cpp

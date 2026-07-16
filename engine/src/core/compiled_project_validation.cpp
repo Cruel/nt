@@ -737,6 +737,82 @@ private:
                             if (instruction.layout)
                                 require(m_layouts, *instruction.layout, "layout",
                                         instruction_path + "/layout");
+                        } else if constexpr (std::is_same_v<T, TransitionGroupInstruction>) {
+                            std::unordered_set<TransitionGroupChildId> child_ids;
+                            for (std::size_t child_index = 0;
+                                 child_index < instruction.children.size(); ++child_index) {
+                                const auto child_path =
+                                    instruction_path + "/children/" + std::to_string(child_index);
+                                std::visit(
+                                    [&](const auto& child) {
+                                        if (!child_ids.insert(child.id).second)
+                                            error("compiled_project.duplicate_id",
+                                                  "TransitionGroup child IDs must be unique.",
+                                                  child_path + "/id");
+                                        using C = std::decay_t<decltype(child)>;
+                                        if constexpr (std::is_same_v<
+                                                          C,
+                                                          TransitionGroupSetBackgroundMutation>) {
+                                            validate_background(child.background,
+                                                                child_path + "/background");
+                                        } else if constexpr (std::is_same_v<
+                                                                 C, TransitionGroupActorMutation>) {
+                                            require(m_characters, child.character, "character",
+                                                    child_path + "/character");
+                                            const auto found = m_characters.find(child.character);
+                                            if (found != m_characters.end()) {
+                                                const auto& character =
+                                                    m_input.characters[found->second];
+                                                if (child.pose_id &&
+                                                    std::ranges::none_of(
+                                                        character.poses,
+                                                        [&](const CharacterPose& pose) {
+                                                            return pose.id == *child.pose_id;
+                                                        }))
+                                                    error(
+                                                        "compiled_project.unresolved_nested_"
+                                                        "reference",
+                                                        "TransitionGroup actor pose is absent from "
+                                                        "its Character.",
+                                                        child_path + "/poseId");
+                                                if (child.expression_id &&
+                                                    std::ranges::none_of(
+                                                        character.expressions,
+                                                        [&](const CharacterExpression& expression) {
+                                                            return expression.id ==
+                                                                   *child.expression_id;
+                                                        }))
+                                                    error("compiled_project.unresolved_nested_"
+                                                          "reference",
+                                                          "TransitionGroup actor expression is "
+                                                          "absent "
+                                                          "from its Character.",
+                                                          child_path + "/expressionId");
+                                            }
+                                        } else if constexpr (std::is_same_v<
+                                                                 C,
+                                                                 TransitionGroupLayoutMutation>) {
+                                            if (!child.layout)
+                                                return;
+                                            require(m_layouts, *child.layout, "layout",
+                                                    child_path + "/layout");
+                                            const auto found = m_layouts.find(*child.layout);
+                                            if (found == m_layouts.end())
+                                                return;
+                                            const auto target =
+                                                m_input.layouts[found->second].target;
+                                            if (target != LayoutTarget::SceneOverlay &&
+                                                target != LayoutTarget::RoomOverlay &&
+                                                target != LayoutTarget::CustomOverlay)
+                                                error(
+                                                    "compiled_project.excluded_transition_plane",
+                                                    "TransitionGroup Layout children must resolve "
+                                                    "to WorldOverlay.",
+                                                    child_path + "/layout");
+                                        }
+                                    },
+                                    instruction.children[child_index]);
+                            }
                         }
                     },
                     scene.program.instructions[instruction_index]);

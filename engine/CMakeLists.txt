@@ -22,6 +22,7 @@ add_library(noveltea_core STATIC
     src/core/gameplay_pause.cpp
     src/core/package_export.cpp
     src/core/presentation_coordinator.cpp
+    src/core/presentation_operation_requests.cpp
     src/core/player_bootstrap.cpp
     src/core/rich_text.cpp
     src/core/rich_text_codec.cpp

@@ -113,15 +113,30 @@ bool valid_scene_instruction(const compiled::SceneInstruction& instruction) noex
     return std::visit(
         [](const auto& value) {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, compiled::SetBackgroundInstruction>)
-                return valid_background(value.background) &&
-                       enum_at_most(value.transition, compiled::BackgroundTransition::Cut);
-            else if constexpr (std::is_same_v<T, compiled::ActorCueInstruction>)
-                return enum_at_most(value.action, compiled::ActorCueAction::Expression) &&
-                       enum_at_most(value.position, compiled::ActorPosition::Custom) &&
-                       enum_at_most(value.transition, compiled::ActorTransition::Slide) &&
-                       valid_vector(value.offset) && finite(value.scale) && value.scale > 0.0;
-            else if constexpr (std::is_same_v<T, compiled::AudioCueInstruction>)
+            if constexpr (std::is_same_v<T, compiled::SetBackgroundInstruction>) {
+                if (!valid_background(value.background) ||
+                    !enum_at_most(value.transition, compiled::BackgroundTransition::Cut))
+                    return false;
+                return value.transition == compiled::BackgroundTransition::Fade
+                           ? value.duration_ms > 0
+                           : value.duration_ms == 0 &&
+                                 std::holds_alternative<ImmediateWait>(value.wait);
+            } else if constexpr (std::is_same_v<T, compiled::ActorCueInstruction>) {
+                if (!enum_at_most(value.action, compiled::ActorCueAction::Expression) ||
+                    !enum_at_most(value.position, compiled::ActorPosition::Custom) ||
+                    !enum_at_most(value.transition, compiled::ActorTransition::Slide) ||
+                    !valid_vector(value.offset) || !finite(value.scale) || value.scale <= 0.0)
+                    return false;
+                if (value.transition == compiled::ActorTransition::Slide &&
+                    value.action != compiled::ActorCueAction::Show &&
+                    value.action != compiled::ActorCueAction::Hide &&
+                    value.action != compiled::ActorCueAction::Move)
+                    return false;
+                return value.transition == compiled::ActorTransition::None
+                           ? value.duration_ms == 0 &&
+                                 std::holds_alternative<ImmediateWait>(value.wait)
+                           : value.duration_ms > 0;
+            } else if constexpr (std::is_same_v<T, compiled::AudioCueInstruction>)
                 return enum_at_most(value.action, compiled::AudioAction::FadeOut) &&
                        enum_at_most(value.channel, compiled::AudioChannel::Ambient) &&
                        finite(value.volume) && value.volume >= 0.0 && value.volume <= 1.0;
@@ -129,12 +144,61 @@ bool valid_scene_instruction(const compiled::SceneInstruction& instruction) noex
                 return true;
             else if constexpr (std::is_same_v<T, compiled::ChoiceSceneInstruction>)
                 return !value.options.empty();
-            else if constexpr (std::is_same_v<T, compiled::SetLayoutInstruction>)
-                return enum_at_most(value.action, compiled::LayoutAction::Swap) &&
-                       enum_at_most(value.slot, compiled::LayoutSlot::Custom);
-            else if constexpr (std::is_same_v<T, compiled::TransitionInstruction>)
-                return enum_at_most(value.transition_kind, compiled::TransitionKind::Dissolve);
-            else
+            else if constexpr (std::is_same_v<T, compiled::SetLayoutInstruction>) {
+                if (!enum_at_most(value.action, compiled::LayoutAction::Swap) ||
+                    !enum_at_most(value.slot, compiled::LayoutSlot::Custom) ||
+                    !enum_at_most(value.transition, compiled::LayoutTransition::Fade) ||
+                    ((value.action == compiled::LayoutAction::Hide) != !value.layout.has_value()))
+                    return false;
+                return value.transition == compiled::LayoutTransition::None
+                           ? value.duration_ms == 0 &&
+                                 std::holds_alternative<ImmediateWait>(value.wait)
+                           : value.duration_ms > 0;
+            } else if constexpr (std::is_same_v<T, compiled::TransitionGroupInstruction>) {
+                if (!enum_at_most(value.transition_kind, compiled::TransitionKind::Dissolve) ||
+                    value.children.empty())
+                    return false;
+                if (value.transition_kind == compiled::TransitionKind::Cut) {
+                    if (value.duration_ms != 0 ||
+                        !std::holds_alternative<ImmediateWait>(value.wait) || value.color)
+                        return false;
+                } else if (value.duration_ms == 0 ||
+                           (value.transition_kind == compiled::TransitionKind::Dissolve &&
+                            value.color)) {
+                    return false;
+                }
+                return std::all_of(
+                    value.children.begin(), value.children.end(),
+                    [](const compiled::TransitionGroupMutation& child) {
+                        return std::visit(
+                            [](const auto& mutation) {
+                                using M = std::decay_t<decltype(mutation)>;
+                                if constexpr (std::is_same_v<
+                                                  M,
+                                                  compiled::TransitionGroupSetBackgroundMutation>)
+                                    return valid_background(mutation.background);
+                                else if constexpr (std::is_same_v<
+                                                       M, compiled::TransitionGroupActorMutation>)
+                                    return enum_at_most(mutation.action,
+                                                        compiled::ActorCueAction::Expression) &&
+                                           enum_at_most(mutation.position,
+                                                        compiled::ActorPosition::Custom) &&
+                                           valid_vector(mutation.offset) &&
+                                           finite(mutation.scale) && mutation.scale > 0.0;
+                                else if constexpr (std::is_same_v<
+                                                       M, compiled::TransitionGroupLayoutMutation>)
+                                    return enum_at_most(mutation.action,
+                                                        compiled::LayoutAction::Swap) &&
+                                           (mutation.slot == compiled::LayoutSlot::Overlay ||
+                                            mutation.slot == compiled::LayoutSlot::Custom) &&
+                                           ((mutation.action == compiled::LayoutAction::Hide) ==
+                                            !mutation.layout.has_value());
+                                else
+                                    return true;
+                            },
+                            child);
+                    });
+            } else
                 return true;
         },
         instruction);

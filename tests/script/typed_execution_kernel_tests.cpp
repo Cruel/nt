@@ -287,7 +287,8 @@ TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-sto
     CHECK(script_error->code == ScriptErrorCode::YieldForbidden);
 }
 
-TEST_CASE("typed Scene execution covers the complete V1 instruction vocabulary atomically")
+TEST_CASE(
+    "typed Scene execution covers live V1 instructions and preserves the Phase 7C group boundary")
 {
     RuntimeFixture fixture;
     REQUIRE(
@@ -314,7 +315,7 @@ TEST_CASE("typed Scene execution covers the complete V1 instruction vocabulary a
     REQUIRE(view.value().actors.size() == 1);
     CHECK(view.value().actors.front().character == core::CharacterId::create("hero").value());
     CHECK_FALSE(view.value().actors.front().visible);
-    CHECK_FALSE(view.value().actors.front().presentation_complete);
+    CHECK(view.value().actors.front().presentation_complete);
     auto runtime_ui = kernel->runtime_ui_view("en");
     REQUIRE(runtime_ui);
     CHECK(runtime_ui.value().mode == "scene");
@@ -437,19 +438,13 @@ TEST_CASE("typed Scene execution covers the complete V1 instruction vocabulary a
     CHECK(kernel->state().mounted_layouts().front().layout ==
           core::LayoutId::create("hud-assets").value());
 
-    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
-    auto transition_blocker = active_blocker(*kernel);
-    REQUIRE(kernel->state().transition());
-    CHECK_FALSE(kernel->state().transition()->complete);
-    REQUIRE(kernel->complete(core::flow_blocker_owner(transition_blocker),
-                             core::flow_blocker_handle(transition_blocker)));
-    REQUIRE(
-        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    CHECK(kernel->state().transition()->complete);
-
-    REQUIRE(
-        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    CHECK(active_scene(*kernel).scene == core::SceneId::create("closing").value());
+    auto transition = kernel->run_until_blocked(1, "en");
+    const auto* transition_fault = std::get_if<core::FlowFaultOutcome>(&transition);
+    REQUIRE(transition_fault != nullptr);
+    REQUIRE_FALSE(transition_fault->diagnostics.empty());
+    CHECK(transition_fault->diagnostics.front().code == "execution.transition_group_not_live");
+    CHECK(active_scene(*kernel).position.next_step ==
+          core::SceneStepId::create("transition").value());
 }
 
 TEST_CASE("typed Scene failures preserve the stable cursor and stale resumes do not mutate state")
