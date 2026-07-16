@@ -13,7 +13,7 @@ describe('TestPlaybackPanel', () => {
     expect(screen.getByText('No playback report yet.')).toBeInTheDocument();
   });
 
-  it('renders pass/fail status, diagnostics, observations, outputs, and final state', () => {
+  it('renders pass/fail status, diagnostics, observations, events, and final state', () => {
     useWorkspaceStore.getState().setLastPlaybackReport({
       id: 'smoke',
       passed: false,
@@ -28,7 +28,7 @@ describe('TestPlaybackPanel', () => {
         assertion_failures: ['mode mismatch'],
         diagnostics: [{ severity: 'error', category: 'assertion', message: 'mode mismatch', path: '/steps/1' }],
       }],
-      outputs: [{ type: 'state', step_index: 1 }],
+      events: [{ type: 'state', step_index: 1 }],
     });
 
     render(<TestPlaybackPanel />);

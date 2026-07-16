@@ -158,27 +158,30 @@ template<class T>
 concept HasPublicSettleDispatchTransaction =
     requires(T& value) { value.settle_dispatch_transaction(); };
 
-bool has_output_kind(const runtime::RuntimeDispatchResult& result, core::RuntimeOutputKind kind)
+enum class DispatchArtifactKind {
+    Publication,
+    Notification,
+    SaveOutcome,
+    Observation
+};
+
+bool has_output_kind(const runtime::RuntimeDispatchResult& result, DispatchArtifactKind kind)
 {
     switch (kind) {
-    case core::RuntimeOutputKind::ViewPublication:
+    case DispatchArtifactKind::Publication:
         return result.publication.has_value();
-    case core::RuntimeOutputKind::UserCommunication:
+    case DispatchArtifactKind::Notification:
         return std::any_of(result.events.begin(), result.events.end(), [](const auto& event) {
             return std::holds_alternative<runtime::NotificationEvent>(event);
         });
-    case core::RuntimeOutputKind::SaveOutcome:
+    case DispatchArtifactKind::SaveOutcome:
         return std::any_of(result.events.begin(), result.events.end(), [](const auto& event) {
             return std::holds_alternative<runtime::SaveOutcomeEvent>(event);
         });
-    case core::RuntimeOutputKind::Observation:
+    case DispatchArtifactKind::Observation:
         return std::any_of(result.events.begin(), result.events.end(), [](const auto& event) {
             return std::holds_alternative<runtime::ObservationEvent>(event);
         });
-    case core::RuntimeOutputKind::PresentationOperation:
-    case core::RuntimeOutputKind::AudioOperation:
-    case core::RuntimeOutputKind::Diagnostic:
-        return false;
     }
     return false;
 }
@@ -278,11 +281,10 @@ TEST_CASE(
     "typed runtime session dispatches lifecycle debug mutation and save load without legacy IO")
 {
     STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 25);
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeOutputMessage> == 7);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
-    CHECK(has_output_kind(started, core::RuntimeOutputKind::ViewPublication));
+    CHECK(has_output_kind(started, DispatchArtifactKind::Publication));
 
     const auto count = make_id<core::VariableIdTag>("count");
     auto changed = dispatch_settled(
@@ -323,7 +325,7 @@ TEST_CASE(
 
     auto loaded =
         fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
-    CHECK(has_output_kind(loaded, core::RuntimeOutputKind::SaveOutcome));
+    CHECK(has_output_kind(loaded, DispatchArtifactKind::SaveOutcome));
     REQUIRE(fixture.presentation.terminations.size() == 1);
     CHECK(fixture.presentation.terminations.front() ==
           core::PresentationCancellationReason::CheckpointLoad);
@@ -737,7 +739,7 @@ TEST_CASE("typed runtime session reports unhandled operations deterministically"
     Fixture fixture;
     auto continued = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
     CHECK(continued.disposition == runtime::RuntimeInputDisposition::Unhandled);
-    CHECK(has_output_kind(continued, core::RuntimeOutputKind::ViewPublication));
+    CHECK(has_output_kind(continued, DispatchArtifactKind::Publication));
 }
 
 TEST_CASE("typed runtime session returns playback observations beside one coherent publication")
@@ -922,7 +924,7 @@ TEST_CASE("runtime script API routes autosave and rejects malformed interaction 
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
     CHECK(fixture.saves.has_slot(core::TypedSaveSlotId::autosave()).value());
-    CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
+    CHECK(has_output_kind(drained, DispatchArtifactKind::SaveOutcome));
 }
 
 TEST_CASE("runtime script API teardown leaves inert bindings without a stale target")
@@ -1281,7 +1283,7 @@ TEST_CASE(
     auto stale = session->dispatch(core::RuntimeInputMessage{core::CompleteAudioInput{
         core::AudioOperationId::from_number(operation.number() + 1), owner, completion}});
     CHECK(stale.disposition == runtime::RuntimeInputDisposition::Failed);
-    REQUIRE_FALSE(stale.diagnostics.empty());
+    REQUIRE(stale.diagnostics.size() == 1);
     CHECK(stale.diagnostics.front().code == "runtime.stale_audio_completion");
     CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});

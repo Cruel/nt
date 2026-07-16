@@ -92,7 +92,8 @@ struct PresentationAudioChannel {
 
 // Collections are canonical: actors by (scene, slot), overlays by (room, overlay), Layout slots by
 // slot enum, and audio by channel enum. Optional members explicitly represent absent families.
-// Phase 7 extends this value with reconstructible loop instances and replaces transitional audio.
+// World/scoped-presentation work extends this value with generalized stable identities and
+// reconstructible desired records; backend realization state never belongs in this snapshot.
 struct RuntimePresentationSnapshot {
     std::uint64_t revision = 0;
     PresentationRuntimeMode mode = PresentationRuntimeMode::Flow;

@@ -10,8 +10,9 @@
 
 namespace noveltea::core::compiled::wire {
 
-// Phase 5C boundary DTOs. They are intentionally not CompiledProject inputs: structural decoding is
-// complete here, while semantic linking/publication belongs to Phase 5D.
+// Structural boundary DTOs. They are intentionally not direct CompiledProject inputs: structural
+// decoding completes here, while semantic linking, validation, indexing, and atomic publication are
+// separate responsibilities.
 struct PropertyAssignment {
     PropertyId property_id;
     RuntimeValue value;

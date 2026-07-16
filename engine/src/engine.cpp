@@ -1267,7 +1267,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     m_runtime_ui.resize(m_presentation);
     if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
                                  &m_scripts, &m_shader_materials)) {
-        std::fprintf(stderr, "[engine] runtime UI init failed (non-fatal scaffold)\n");
+        std::fprintf(stderr, "[engine] runtime UI init failed; continuing without runtime UI\n");
     } else {
         m_runtime_layouts.bind_runtime_ui(&m_runtime_ui);
         m_runtime_ui.bind_layout_gameplay_admission([this]() {
@@ -1710,7 +1710,8 @@ void Engine::update(double host_delta_seconds)
     const auto seconds = [](std::chrono::microseconds duration) {
         return std::chrono::duration<double>(duration).count();
     };
-    // Audio remains unscaled until Phase 7 defines its typed pause policy.
+    // Backend audio currently advances on the unscaled presentation clock. Desired-audio and
+    // semantic pause policy remain presentation/runtime concerns above the backend.
     m_audio.update(static_cast<float>(seconds(clocks.unscaled_presentation_delta)));
     if (!m_preview_running)
         return;
@@ -1778,12 +1779,22 @@ bool Engine::flush_runtime_presentation()
     auto active_text =
         m_runtime_presentation.set_active_text_phase(m_runtime_ui.active_text_presentation_phase());
     if (!active_text.empty()) {
+        for (const auto& diagnostic : active_text) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-presentation] %s %s %s",
+                         diagnostic.code.c_str(), diagnostic.source_path.c_str(),
+                         diagnostic.message.c_str());
+        }
         accepted = false;
         m_runtime_ui.append_typed_runtime_diagnostics(std::move(active_text));
     }
 
     auto flushed = m_runtime_presentation.flush();
     if (!flushed.diagnostics.empty()) {
+        for (const auto& diagnostic : flushed.diagnostics) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-presentation] %s %s %s",
+                         diagnostic.code.c_str(), diagnostic.source_path.c_str(),
+                         diagnostic.message.c_str());
+        }
         accepted = false;
         m_runtime_ui.append_typed_runtime_diagnostics(std::move(flushed.diagnostics));
     }

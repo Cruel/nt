@@ -57,13 +57,10 @@ public:
 private:
     struct WorkResult {
         RuntimeInputDisposition disposition = RuntimeInputDisposition::Handled;
-        std::vector<core::RuntimeOutputMessage> outputs;
         std::vector<RuntimeEvent> events;
-        std::vector<std::size_t> event_output_offsets;
+        std::vector<core::RuntimeObservation> observations;
         core::Diagnostics diagnostics;
     };
-
-    using PendingRuntimeEmission = std::variant<core::RuntimeOutputMessage, RuntimeEvent>;
 
     RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
                    PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
@@ -72,28 +69,22 @@ private:
 
     [[nodiscard]] WorkResult apply_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] core::Diagnostics settle_transaction();
-    void commit_work_events(WorkResult& work, RuntimeDispatchResult& result);
     void project_publication(WorkResult& work, RuntimeDispatchResult& result);
     [[nodiscard]] core::Result<PresentationAcceptance, core::Diagnostics>
     accept_presentation(const core::PresentationOperation& operation);
     [[nodiscard]] core::Result<PresentationAcceptance, core::Diagnostics>
     accept_audio(const core::AudioOperation& operation);
 
-    [[nodiscard]] core::Diagnostics run_kernel(std::vector<core::RuntimeOutputMessage>& outputs,
-                                               std::vector<RuntimeEvent>& events,
-                                               std::vector<std::size_t>& event_output_offsets);
+    [[nodiscard]] core::Diagnostics run_kernel(std::vector<RuntimeEvent>& events,
+                                               std::vector<core::RuntimeObservation>& observations);
     [[nodiscard]] core::Diagnostics
-    run_kernel_once(std::vector<core::RuntimeOutputMessage>& outputs,
-                    std::vector<RuntimeEvent>& events,
-                    std::vector<std::size_t>& event_output_offsets);
+    run_kernel_once(std::vector<RuntimeEvent>& events,
+                    std::vector<core::RuntimeObservation>& observations);
     void collect_runtime_actions(core::Diagnostics& diagnostics);
     void stage_gateway_events();
-    void drain_pending_emissions(std::vector<core::RuntimeOutputMessage>& outputs,
-                                 std::vector<RuntimeEvent>& events,
-                                 std::vector<std::size_t>& event_output_offsets);
-    void drain_deferred_commands(std::vector<core::RuntimeOutputMessage>& outputs,
-                                 std::vector<RuntimeEvent>& events,
-                                 std::vector<std::size_t>& event_output_offsets,
+    void drain_pending_events(std::vector<RuntimeEvent>& events);
+    void drain_deferred_commands(std::vector<RuntimeEvent>& events,
+                                 std::vector<core::RuntimeObservation>& observations,
                                  core::Diagnostics& diagnostics);
     [[nodiscard]] core::Diagnostics execute_deferred_command(const DeferredRuntimeCommand& command);
     [[nodiscard]] bool
@@ -107,9 +98,8 @@ private:
                                                    const core::FlowFrameId& owner,
                                                    const core::AudioCompletionHandle& completion,
                                                    bool cancel);
-    void drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
-                             std::vector<RuntimeEvent>& events,
-                             std::vector<std::size_t>& event_output_offsets,
+    void drain_script_inputs(std::vector<RuntimeEvent>& events,
+                             std::vector<core::RuntimeObservation>& observations,
                              core::Diagnostics& diagnostics);
     [[nodiscard]] core::Diagnostic diagnostic(std::string code, std::string message) const;
     void record_structural_mutation() noexcept;
@@ -164,7 +154,7 @@ private:
     std::vector<core::InteractableId> m_selection;
     std::optional<core::TransitionPresentationOperation> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
-    std::vector<PendingRuntimeEmission> m_pending_emissions;
+    std::vector<RuntimeEvent> m_pending_events;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;
     std::thread::id m_owner_thread;

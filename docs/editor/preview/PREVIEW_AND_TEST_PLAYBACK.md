@@ -14,8 +14,8 @@ Compiler or native Lua-certification errors block load and remain actionable edi
 The dedicated Play preview owns its engine iframe for the open-tab lifetime. A
 `runtime-load-project` transport message carries the compiled project, asset mappings, and optional
 shader/material metadata. The preview C ABI lowers this through
-`load_compiled_runtime_preview`, while `CompiledRuntime::create` receives only the validated typed
-package.
+`load_running_game_preview`, while `runtime::RunningGame::create` receives only the validated typed
+package and constructs one `runtime::RuntimeSession`.
 
 The transport message name is an external protocol operation, not a schema name. Its `project`
 payload must be `noveltea.compiled.project` version 1.
@@ -27,15 +27,16 @@ teleport, fast-forward, recorder controls, and debug snapshot requests.
 ## Authoring Tests
 
 Tests are authoring records validated and compiled with their project. Native playback uses the
-named `editor_runtime_protocol` decoder and drives `TypedRuntimeSession`. It does not use a native
+named `editor_runtime_protocol` decoder and drives `runtime::RuntimeSession`. It does not use a native
 `ProjectDocument` editor API or a legacy playback session.
 
 Recorded targets use stable IDs. Unsupported selector-based UI clicks, ambiguous index-only
 choice/navigation steps, arbitrary playback Lua, and old assertion payloads are rejected with
 structured diagnostics.
 
-Reports contain typed observations, diagnostics, pass/fail state, and a final debug snapshot encoded
-from the typed runtime view. Playback and interactive preview therefore share execution semantics.
+Reports contain ordered runtime events, diagnostics, pass/fail state, and a final debug snapshot
+encoded from the coherent runtime publication. Playback and interactive preview therefore share
+execution semantics. The removed mixed runtime-output array is not part of the protocol.
 
 ## Freshness and Reload
 

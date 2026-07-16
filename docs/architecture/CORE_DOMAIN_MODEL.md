@@ -3,8 +3,8 @@
 ## Status and scope
 
 This document is the current architecture contract for the typed NovelTea domain model. It fixes the
-ownership and boundary decisions that later implementation phases must follow. The current
-The provisional project/controller/save graph has been deleted. No legacy project, save, entity, or
+ownership and boundary decisions that later implementation phases must follow. The provisional
+project/controller/save graph has been deleted. No legacy project, save, entity, or
 package compatibility is part of this contract.
 
 ## Ownership and lifetime
@@ -15,15 +15,17 @@ parses an authoring project.
 
 The compiler emits strict, deterministic `noveltea.compiled.project` V1 gameplay JSON. The C++ package
 boundary validates and links that untrusted document into an immutable native `CompiledProject`.
-`CompiledRuntime` owns the loaded `CompiledProject` by value inside `LoadedCompiledPackage` for
-the loaded session's lifetime. Runtime services and execution frames use lifetime-bounded const
+`runtime::RunningGame` owns the loaded `CompiledProject` by value inside `LoadedCompiledPackage` and
+one `runtime::RuntimeSession` for the loaded session's lifetime. Runtime services and execution frames use lifetime-bounded const
 references or typed IDs; they do not share ownership or retain pointers into definition vectors.
 
-`TypedRuntimeSession` owns one `FlowExecutor` and mutable `SessionState`. `SessionState` owns the
+`runtime::RuntimeSession` owns one `runtime::RuntimeExecutor`, one `FlowExecutor`, and mutable
+`SessionState`. `SessionState` owns the
 authoritative flow stack, blocker, and mutable frame positions; `FlowExecutor` is the sole mutation
 service and retains no duplicate controller stack or hidden continuation state. Renderer, RmlUi, Lua,
 platform, audio, debugger, and editor adapters do not own gameplay state. They receive typed commands
-or views and return typed input at explicit boundaries.
+or one coherent `RuntimePublication`, consume ordered `RuntimeEvent` values, and return typed input at
+explicit boundaries.
 
 ## Authoring, definitions, programs, frames, and state
 

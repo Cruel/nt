@@ -134,10 +134,6 @@ using RuntimeInputMessage =
                  CompletePresentationInput, CancelPresentationInput, CompleteAudioInput,
                  CancelAudioInput, AcknowledgeAudioTerminationInput>;
 
-struct RuntimeViewPublication {
-    TypedRuntimeUIViewState view;
-};
-
 struct TransitionPresentationOperation {
     PresentationOperationId id;
     compiled::TransitionKind kind;
@@ -170,16 +166,6 @@ struct AudioOperation {
     bool operator==(const AudioOperation&) const = default;
 };
 
-struct NotificationOutput {
-    std::string message;
-    bool operator==(const NotificationOutput&) const = default;
-};
-struct TextLogOutput {
-    std::string text;
-    bool operator==(const TextLogOutput&) const = default;
-};
-using UserCommunicationOutput = std::variant<NotificationOutput, TextLogOutput>;
-
 enum class SaveOutcomeStatus : std::uint8_t {
     Saved,
     Loaded,
@@ -210,34 +196,5 @@ struct RuntimeStateObservation {
 };
 using RuntimeObservation =
     std::variant<PlaybackObservation, DebuggerObservation, RuntimeStateObservation>;
-
-using RuntimeOutputMessage =
-    std::variant<RuntimeViewPublication, PresentationOperation, AudioOperation,
-                 UserCommunicationOutput, SaveOutcome, RuntimeObservation, Diagnostic>;
-
-enum class RuntimeMessageCategory : std::uint8_t {
-    Input,
-    StatePublication,
-    HostOperation,
-    Observation,
-    Diagnostic
-};
-
-enum class RuntimeOutputKind : std::uint8_t {
-    ViewPublication,
-    PresentationOperation,
-    AudioOperation,
-    UserCommunication,
-    SaveOutcome,
-    Observation,
-    Diagnostic
-};
-
-[[nodiscard]] constexpr RuntimeMessageCategory category(const RuntimeInputMessage&) noexcept
-{
-    return RuntimeMessageCategory::Input;
-}
-[[nodiscard]] RuntimeMessageCategory category(const RuntimeOutputMessage& message) noexcept;
-[[nodiscard]] RuntimeOutputKind output_kind(const RuntimeOutputMessage& message) noexcept;
 
 } // namespace noveltea::core

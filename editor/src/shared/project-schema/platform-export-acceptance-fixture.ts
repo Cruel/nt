@@ -67,7 +67,7 @@ export function createPlatformExportAcceptanceFixture() {
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', extends: null, properties: {}, data: foyer };
   project.rooms.gallery = { id: 'gallery', label: 'Gallery', extends: null, properties: {}, data: gallery };
   project.entrypoint = { kind: 'room', id: 'foyer' };
-  project.startupHook = { source: 'audio.play("theme-music", "music", { loop = true })' };
+  project.startupHook = { source: 'fixture_started = true' };
   project.editor.recordMetadata.assets = Object.fromEntries(assets.map(([id]) => [id, { tags: ['export-fixture'] }]));
   project.settings.text = { defaultFont: { $ref: { collection: 'assets', id: 'body-font' } } };
   const app = project.settings.app as Record<string, unknown>;

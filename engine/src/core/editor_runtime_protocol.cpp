@@ -507,79 +507,51 @@ nlohmann::json encode_diagnostic(const Diagnostic& diagnostic)
             {"sourcePath", diagnostic.source_path}};
 }
 
-nlohmann::json encode_output(const RuntimeOutputMessage& output)
+nlohmann::json encode_save_outcome(const SaveOutcome& value)
+{
+    std::string status;
+    switch (value.status) {
+    case SaveOutcomeStatus::Saved:
+        status = "saved";
+        break;
+    case SaveOutcomeStatus::Loaded:
+        status = "loaded";
+        break;
+    case SaveOutcomeStatus::Deleted:
+        status = "deleted";
+        break;
+    case SaveOutcomeStatus::Failed:
+        status = "failed";
+        break;
+    }
+    const std::string slot =
+        value.slot.is_autosave() ? "autosave" : "manual-" + std::to_string(value.slot.number());
+    return {{"type", "save-outcome"},
+            {"slot", slot},
+            {"status", std::move(status)},
+            {"autosave", value.autosave}};
+}
+
+nlohmann::json encode_observation(const RuntimeObservation& value)
 {
     return std::visit(
-        [](const auto& value) -> nlohmann::json {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, RuntimeViewPublication>)
-                return {{"type", "view-publication"}, {"view", encode_view(value.view)}};
-            else if constexpr (std::is_same_v<T, PresentationOperation>)
-                return {{"type", "presentation-operation"}};
-            else if constexpr (std::is_same_v<T, AudioOperation>)
-                return {{"type", "audio-operation"}, {"operation", value.id.number()}};
-            else if constexpr (std::is_same_v<T, UserCommunicationOutput>) {
-                return std::visit(
-                    [](const auto& message) -> nlohmann::json {
-                        using M = std::decay_t<decltype(message)>;
-                        if constexpr (std::is_same_v<M, NotificationOutput>)
-                            return {{"type", "notification"}, {"message", message.message}};
-                        else if constexpr (std::is_same_v<M, TextLogOutput>)
-                            return {{"type", "text-log"}, {"text", message.text}};
-                        else
-                            static_assert(always_false<M>,
-                                          "Unhandled UserCommunicationOutput alternative");
-                    },
-                    value);
-            } else if constexpr (std::is_same_v<T, SaveOutcome>) {
-                std::string status;
-                switch (value.status) {
-                case SaveOutcomeStatus::Saved:
-                    status = "saved";
-                    break;
-                case SaveOutcomeStatus::Loaded:
-                    status = "loaded";
-                    break;
-                case SaveOutcomeStatus::Deleted:
-                    status = "deleted";
-                    break;
-                case SaveOutcomeStatus::Failed:
-                    status = "failed";
-                    break;
-                }
-                const std::string slot = value.slot.is_autosave()
-                                             ? "autosave"
-                                             : "manual-" + std::to_string(value.slot.number());
-                return {{"type", "save-outcome"},
-                        {"slot", slot},
-                        {"status", std::move(status)},
-                        {"autosave", value.autosave}};
-            } else if constexpr (std::is_same_v<T, RuntimeObservation>) {
-                return std::visit(
-                    [](const auto& observation) -> nlohmann::json {
-                        using O = std::decay_t<decltype(observation)>;
-                        if constexpr (std::is_same_v<O, PlaybackObservation>)
-                            return {{"type", "playback-observation"},
-                                    {"stepIndex", observation.step_index},
-                                    {"handled", observation.handled}};
-                        else if constexpr (std::is_same_v<O, DebuggerObservation>)
-                            return {{"type", "debugger-observation"},
-                                    {"hasActiveFrame", observation.active_frame.has_value()}};
-                        else if constexpr (std::is_same_v<O, RuntimeStateObservation>)
-                            return {{"type", "runtime-state-observation"},
-                                    {"hasActiveFrame", observation.active_frame.has_value()},
-                                    {"blocked", observation.blocker.has_value()}};
-                        else
-                            static_assert(always_false<O>,
-                                          "Unhandled RuntimeObservation alternative");
-                    },
-                    value);
-            } else if constexpr (std::is_same_v<T, Diagnostic>)
-                return {{"type", "diagnostic"}, {"diagnostic", encode_diagnostic(value)}};
+        [](const auto& observation) -> nlohmann::json {
+            using O = std::decay_t<decltype(observation)>;
+            if constexpr (std::is_same_v<O, PlaybackObservation>)
+                return {{"type", "playback-observation"},
+                        {"stepIndex", observation.step_index},
+                        {"handled", observation.handled}};
+            else if constexpr (std::is_same_v<O, DebuggerObservation>)
+                return {{"type", "debugger-observation"},
+                        {"hasActiveFrame", observation.active_frame.has_value()}};
+            else if constexpr (std::is_same_v<O, RuntimeStateObservation>)
+                return {{"type", "runtime-state-observation"},
+                        {"hasActiveFrame", observation.active_frame.has_value()},
+                        {"blocked", observation.blocker.has_value()}};
             else
-                static_assert(always_false<T>, "Unhandled RuntimeOutputMessage alternative");
+                static_assert(always_false<O>, "Unhandled RuntimeObservation alternative");
         },
-        output);
+        value);
 }
 
 nlohmann::json encode_event(const runtime::RuntimeEvent& event)
@@ -590,9 +562,9 @@ nlohmann::json encode_event(const runtime::RuntimeEvent& event)
             if constexpr (std::is_same_v<T, runtime::NotificationEvent>)
                 return {{"type", "notification"}, {"message", value.message}};
             else if constexpr (std::is_same_v<T, runtime::SaveOutcomeEvent>)
-                return encode_output(RuntimeOutputMessage{value.outcome});
+                return encode_save_outcome(value.outcome);
             else if constexpr (std::is_same_v<T, runtime::ObservationEvent>)
-                return encode_output(RuntimeOutputMessage{value.observation});
+                return encode_observation(value.observation);
             else
                 static_assert(always_false<T>, "Unhandled RuntimeEvent alternative");
         },
@@ -708,12 +680,8 @@ nlohmann::json encode_editor_playback_report(std::string_view id,
     for (const auto& step : steps) {
         nlohmann::json encoded = {{"index", step.index},
                                   {"handled", step.handled},
-                                  {"outputs", nlohmann::json::array()},
                                   {"events", nlohmann::json::array()},
-                                  {"eventOutputOffsets", step.event_output_offsets},
                                   {"diagnostics", nlohmann::json::array()}};
-        for (const auto& output : step.outputs)
-            encoded["outputs"].push_back(encode_output(output));
         for (const auto& event : step.events)
             encoded["events"].push_back(encode_event(event));
         for (const auto& diagnostic : step.diagnostics)
@@ -732,7 +700,6 @@ std::string encode_editor_playback_report_text(std::string_view id,
 }
 
 nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
-                                            const std::vector<RuntimeOutputMessage>& outputs,
                                             const std::vector<runtime::RuntimeEvent>& events,
                                             const Diagnostics& diagnostics, bool preview_running)
 {
@@ -741,8 +708,8 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
         {"previewRunning", preview_running},       {"view", encode_view(view)},
         {"observations", nlohmann::json::array()}, {"events", nlohmann::json::array()},
         {"diagnostics", nlohmann::json::array()}};
-    for (const auto& output : outputs) {
-        if (const auto* observation = std::get_if<RuntimeObservation>(&output)) {
+    for (const auto& event : events) {
+        if (const auto* observation_event = std::get_if<runtime::ObservationEvent>(&event)) {
             std::visit(
                 [&](const auto& value) {
                     using T = std::decay_t<decltype(value)>;
@@ -762,7 +729,7 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
                     else
                         static_assert(always_false<T>, "Unhandled RuntimeObservation alternative");
                 },
-                *observation);
+                observation_event->observation);
         }
     }
     for (const auto& event : events)
@@ -773,11 +740,10 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
 }
 
 std::string encode_editor_debug_snapshot_text(const TypedRuntimeUIViewState& view,
-                                              const std::vector<RuntimeOutputMessage>& outputs,
                                               const std::vector<runtime::RuntimeEvent>& events,
                                               const Diagnostics& diagnostics, bool preview_running)
 {
-    return encode_editor_debug_snapshot(view, outputs, events, diagnostics, preview_running).dump();
+    return encode_editor_debug_snapshot(view, events, diagnostics, preview_running).dump();
 }
 
 } // namespace noveltea::core::editor

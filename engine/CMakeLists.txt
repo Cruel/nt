@@ -25,7 +25,6 @@ add_library(noveltea_core STATIC
     src/core/player_bootstrap.cpp
     src/core/rich_text.cpp
     src/core/rich_text_codec.cpp
-    src/core/runtime_messages.cpp
     src/core/runtime_presentation.cpp
     src/core/runtime_clock.cpp
     src/core/runtime_user_settings.cpp

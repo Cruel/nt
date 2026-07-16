@@ -724,9 +724,9 @@ FlowRunOutcome FlowExecutor::run_until_blocked(std::size_t instruction_budget)
         return FlowFaultOutcome{std::move(diagnostics)};
     }
 
-    auto diagnostics = execution_error(
-        "execution.feature_not_migrated",
-        "The active typed frame is not executable until its owning Phase 7 feature migration");
+    auto diagnostics = execution_error("execution.direct_flow_execution_unsupported",
+                                       "FlowExecutor owns Flow mutation but does not execute "
+                                       "feature programs; use RuntimeExecutor");
     m_state.m_execution_fault = diagnostics;
     return FlowFaultOutcome{std::move(diagnostics)};
 }

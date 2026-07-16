@@ -313,12 +313,9 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
         report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
-        if (result.publication) {
+        if (result.publication)
             final_view = result.publication->gameplay_ui;
-            report.outputs.emplace_back(RuntimeViewPublication{result.publication->gameplay_ui});
-        }
         report.events = std::move(result.events);
-        report.event_output_offsets.assign(report.events.size(), report.outputs.size());
         report.diagnostics = std::move(result.diagnostics);
         if (result.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||
             diagnostics_have_errors(report.diagnostics))

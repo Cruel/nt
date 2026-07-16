@@ -40,9 +40,7 @@ struct TypedPlaybackSpec {
 struct TypedPlaybackStepReport {
     std::uint64_t index = 0;
     bool handled = false;
-    std::vector<RuntimeOutputMessage> outputs;
     std::vector<runtime::RuntimeEvent> events;
-    std::vector<std::size_t> event_output_offsets;
     Diagnostics diagnostics;
 };
 
@@ -70,12 +68,10 @@ encode_editor_playback_report_text(std::string_view id,
 
 [[nodiscard]] nlohmann::json
 encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
-                             const std::vector<RuntimeOutputMessage>& outputs,
                              const std::vector<runtime::RuntimeEvent>& events,
                              const Diagnostics& diagnostics, bool preview_running);
 [[nodiscard]] std::string
 encode_editor_debug_snapshot_text(const TypedRuntimeUIViewState& view,
-                                  const std::vector<RuntimeOutputMessage>& outputs,
                                   const std::vector<runtime::RuntimeEvent>& events,
                                   const Diagnostics& diagnostics, bool preview_running);
 

@@ -67,7 +67,7 @@ export function TestPlaybackPanel() {
   const observations = getArray(report.observations);
   const diagnostics = getArray(report.diagnostics);
   const diagnosticItems = playbackDiagnosticItems(diagnostics, project);
-  const outputs = getArray(report.outputs);
+  const events = getArray(report.events);
   const trace = getArray(report.trace);
   const finalState = isRecord(report.final_state) ? report.final_state : isRecord(report.finalState) ? report.finalState : null;
 
@@ -145,13 +145,13 @@ export function TestPlaybackPanel() {
         </section>
       ) : null}
 
-      {outputs.length > 0 ? (
+      {events.length > 0 ? (
         <section className="space-y-2 rounded border p-3">
-          <h3 className="text-sm font-medium">Outputs</h3>
+          <h3 className="text-sm font-medium">Events</h3>
           <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
-            {outputs.slice(0, 60).map((output, index) => {
-              const item = isRecord(output) ? output : {};
-              return <div key={index} className="rounded border p-2 font-mono text-[10px]">{String(item.type ?? 'output')}{item.step_index !== undefined ? ` @${String(item.step_index)}` : ''}</div>;
+            {events.slice(0, 60).map((event, index) => {
+              const item = isRecord(event) ? event : {};
+              return <div key={index} className="rounded border p-2 font-mono text-[10px]">{String(item.type ?? 'event')}{item.step_index !== undefined ? ` @${String(item.step_index)}` : ''}</div>;
             })}
           </div>
         </section>

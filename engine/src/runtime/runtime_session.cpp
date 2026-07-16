@@ -343,22 +343,21 @@ void RuntimeSession::invalidate_kernel(ScriptCancellationReason reason) noexcept
     m_scripts.invalidate_capabilities(generation);
 }
 
-core::Diagnostics RuntimeSession::run_kernel(std::vector<core::RuntimeOutputMessage>& outputs,
-                                             std::vector<runtime::RuntimeEvent>& events,
-                                             std::vector<std::size_t>& event_output_offsets)
+core::Diagnostics RuntimeSession::run_kernel(std::vector<runtime::RuntimeEvent>& events,
+                                             std::vector<core::RuntimeObservation>& observations)
 {
-    auto diagnostics = run_kernel_once(outputs, events, event_output_offsets);
+    auto diagnostics = run_kernel_once(events, observations);
     if (diagnostics.empty()) {
-        drain_deferred_commands(outputs, events, event_output_offsets, diagnostics);
+        drain_deferred_commands(events, observations, diagnostics);
     } else {
         m_kernel->gateway().command_queue().clear();
     }
     return diagnostics;
 }
 
-core::Diagnostics RuntimeSession::run_kernel_once(std::vector<core::RuntimeOutputMessage>& outputs,
-                                                  std::vector<runtime::RuntimeEvent>& events,
-                                                  std::vector<std::size_t>& event_output_offsets)
+core::Diagnostics
+RuntimeSession::run_kernel_once(std::vector<runtime::RuntimeEvent>& events,
+                                std::vector<core::RuntimeObservation>& observations)
 {
     core::Diagnostics diagnostics;
     const bool execution_can_advance =
@@ -384,7 +383,7 @@ core::Diagnostics RuntimeSession::run_kernel_once(std::vector<core::RuntimeOutpu
     }
 
     collect_runtime_actions(diagnostics);
-    drain_pending_emissions(outputs, events, event_output_offsets);
+    drain_pending_events(events);
 
     if (const auto* blocker = active_blocker<core::PresentationFlowBlocker>(*m_kernel)) {
         if (const auto& transition = m_kernel->state().transition()) {
@@ -449,7 +448,7 @@ core::Diagnostics RuntimeSession::run_kernel_once(std::vector<core::RuntimeOutpu
             }
         }
     }
-    drain_script_inputs(outputs, events, event_output_offsets, diagnostics);
+    drain_script_inputs(events, observations, diagnostics);
     if (diagnostics.empty() && execution_can_advance)
         record_structural_mutation();
     return diagnostics;
@@ -458,34 +457,18 @@ core::Diagnostics RuntimeSession::run_kernel_once(std::vector<core::RuntimeOutpu
 void RuntimeSession::stage_gateway_events()
 {
     for (auto& event : m_kernel->gateway().take_events())
-        m_pending_emissions.emplace_back(std::move(event));
+        m_pending_events.emplace_back(std::move(event));
 }
 
-void RuntimeSession::drain_pending_emissions(std::vector<core::RuntimeOutputMessage>& outputs,
-                                             std::vector<runtime::RuntimeEvent>& events,
-                                             std::vector<std::size_t>& event_output_offsets)
+void RuntimeSession::drain_pending_events(std::vector<runtime::RuntimeEvent>& events)
 {
-    for (auto& emission : m_pending_emissions) {
-        std::visit(
-            [&](auto&& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::RuntimeOutputMessage>) {
-                    outputs.push_back(std::move(value));
-                } else if constexpr (std::is_same_v<T, runtime::RuntimeEvent>) {
-                    events.push_back(std::move(value));
-                    event_output_offsets.push_back(outputs.size());
-                } else {
-                    static_assert(always_false<T>, "Unhandled pending runtime emission");
-                }
-            },
-            emission);
-    }
-    m_pending_emissions.clear();
+    events.insert(events.end(), std::make_move_iterator(m_pending_events.begin()),
+                  std::make_move_iterator(m_pending_events.end()));
+    m_pending_events.clear();
 }
 
-void RuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
-                                         std::vector<runtime::RuntimeEvent>& events,
-                                         std::vector<std::size_t>& event_output_offsets,
+void RuntimeSession::drain_script_inputs(std::vector<runtime::RuntimeEvent>& events,
+                                         std::vector<core::RuntimeObservation>& observations,
                                          core::Diagnostics& diagnostics)
 {
     if (m_draining_script_inputs || m_script_inputs.empty())
@@ -505,13 +488,11 @@ void RuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMessage>
             }
             ++processed;
             auto applied = apply_input(pending[index]);
-            const auto output_base = outputs.size();
-            outputs.insert(outputs.end(), std::make_move_iterator(applied.outputs.begin()),
-                           std::make_move_iterator(applied.outputs.end()));
-            for (const auto offset : applied.event_output_offsets)
-                event_output_offsets.push_back(output_base + offset);
             events.insert(events.end(), std::make_move_iterator(applied.events.begin()),
                           std::make_move_iterator(applied.events.end()));
+            observations.insert(observations.end(),
+                                std::make_move_iterator(applied.observations.begin()),
+                                std::make_move_iterator(applied.observations.end()));
             core::append_diagnostics(diagnostics, std::move(applied.diagnostics));
         }
     }
@@ -627,9 +608,8 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
     return diagnostics;
 }
 
-void RuntimeSession::drain_deferred_commands(std::vector<core::RuntimeOutputMessage>& outputs,
-                                             std::vector<runtime::RuntimeEvent>& events,
-                                             std::vector<std::size_t>& event_output_offsets,
+void RuntimeSession::drain_deferred_commands(std::vector<runtime::RuntimeEvent>& events,
+                                             std::vector<core::RuntimeObservation>& observations,
                                              core::Diagnostics& diagnostics)
 {
     auto& commands = m_kernel->gateway().command_queue();
@@ -649,7 +629,7 @@ void RuntimeSession::drain_deferred_commands(std::vector<core::RuntimeOutputMess
             break;
         }
         if (!std::holds_alternative<runtime::RequestAutosaveCommand>(command->payload)) {
-            auto continued = run_kernel_once(outputs, events, event_output_offsets);
+            auto continued = run_kernel_once(events, observations);
             if (!continued.empty()) {
                 core::append_diagnostics(diagnostics, std::move(continued));
                 commands.clear();
@@ -758,11 +738,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         return;
     }
 
-    runtime::RuntimeObservationSnapshot observations;
-    for (const auto& output : work.outputs) {
-        if (const auto* observation = std::get_if<core::RuntimeObservation>(&output))
-            observations.values.push_back(*observation);
-    }
+    runtime::RuntimeObservationSnapshot observations{work.observations};
 
     auto presentation_value = std::move(*presentation.value_if());
     const bool changed =
@@ -791,65 +767,6 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
     m_force_publication = false;
 }
 
-void RuntimeSession::commit_work_events(WorkResult& work, runtime::RuntimeDispatchResult& result)
-{
-    const bool valid_order =
-        work.events.size() == work.event_output_offsets.size() &&
-        std::is_sorted(work.event_output_offsets.begin(), work.event_output_offsets.end()) &&
-        (work.event_output_offsets.empty() ||
-         work.event_output_offsets.back() <= work.outputs.size());
-    if (!valid_order) {
-        result.diagnostics.push_back(diagnostic("runtime.invalid_event_order",
-                                                "Runtime event ordering metadata is malformed"));
-        result.disposition = runtime::RuntimeInputDisposition::Failed;
-    }
-
-    const auto append_output = [&](const core::RuntimeOutputMessage& output) {
-        std::visit(
-            [&](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::UserCommunicationOutput>) {
-                    if (const auto* notification = std::get_if<core::NotificationOutput>(&value))
-                        result.events.emplace_back(
-                            runtime::NotificationEvent{notification->message});
-                } else if constexpr (std::is_same_v<T, core::SaveOutcome>) {
-                    result.events.emplace_back(runtime::SaveOutcomeEvent{value});
-                } else if constexpr (std::is_same_v<T, core::RuntimeObservation>) {
-                    result.events.emplace_back(runtime::ObservationEvent{value});
-                } else if constexpr (std::is_same_v<T, core::Diagnostic> ||
-                                     std::is_same_v<T, core::RuntimeViewPublication>) {
-                } else if constexpr (std::is_same_v<T, core::PresentationOperation> ||
-                                     std::is_same_v<T, core::AudioOperation>) {
-                    result.diagnostics.push_back(diagnostic(
-                        "runtime.legacy_operation_output",
-                        "Presentation and audio operations must use PresentationRuntimePort"));
-                    result.disposition = runtime::RuntimeInputDisposition::Failed;
-                } else {
-                    static_assert(always_false<T>, "Unhandled runtime work output");
-                }
-            },
-            output);
-    };
-
-    if (!valid_order) {
-        result.events.insert(result.events.end(), std::make_move_iterator(work.events.begin()),
-                             std::make_move_iterator(work.events.end()));
-        for (const auto& output : work.outputs)
-            append_output(output);
-        return;
-    }
-
-    std::size_t event_index = 0;
-    for (std::size_t output_index = 0; output_index <= work.outputs.size(); ++output_index) {
-        while (event_index < work.events.size() &&
-               work.event_output_offsets[event_index] == output_index) {
-            result.events.push_back(std::move(work.events[event_index++]));
-        }
-        if (output_index < work.outputs.size())
-            append_output(work.outputs[output_index]);
-    }
-}
-
 RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& input)
 {
     assert_owner_thread();
@@ -868,7 +785,7 @@ RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& 
     core::append_diagnostics(result.diagnostics, std::move(work.diagnostics));
     core::append_diagnostics(result.diagnostics, settle_transaction());
     project_publication(work, result);
-    commit_work_events(work, result);
+    result.events = std::move(work.events);
     if (!result.diagnostics.empty())
         result.disposition = runtime::RuntimeInputDisposition::Failed;
     result.budget = m_transaction_budget_outcome;
@@ -897,8 +814,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                 if constexpr (std::is_same_v<T, core::StartRuntimeInput>) {
                     m_running = true;
                     m_force_publication = true;
-                    result.diagnostics =
-                        run_kernel(result.outputs, result.events, result.event_output_offsets);
+                    result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::StopRuntimeInput>) {
                     m_running = false;
                     if (const auto* blocker = active_blocker<core::ScriptFlowBlocker>(*m_kernel)) {
@@ -933,7 +849,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             m_selection.clear();
                             m_pending_presentation.reset();
                             m_pending_audio.reset();
-                            m_pending_emissions.clear();
+                            m_pending_events.clear();
                             m_checkpoint_service.reset();
                             m_skip_next_checkpoint_settlement = true;
                             m_force_publication = true;
@@ -957,12 +873,10 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 result.diagnostics = std::move(completed).error();
                             else if (*completed.value_if()) {
                                 record_structural_mutation();
-                                result.diagnostics = run_kernel(result.outputs, result.events,
-                                                                result.event_output_offsets);
+                                result.diagnostics = run_kernel(result.events, result.observations);
                             }
                         } else
-                            result.diagnostics = run_kernel(result.outputs, result.events,
-                                                            result.event_output_offsets);
+                            result.diagnostics = run_kernel(result.events, result.observations);
                     }
                 } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
                     const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
@@ -974,8 +888,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         if (!completed)
                             result.diagnostics = std::move(completed).error();
                         else
-                            result.diagnostics = run_kernel(result.outputs, result.events,
-                                                            result.event_output_offsets);
+                            result.diagnostics = run_kernel(result.events, result.observations);
                     }
                 } else if constexpr (std::is_same_v<T, core::SelectSceneChoiceInput> ||
                                      std::is_same_v<T, core::SelectDialogueChoiceInput>) {
@@ -988,24 +901,21 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         if (!chosen)
                             result.diagnostics = std::move(chosen).error();
                         else
-                            result.diagnostics = run_kernel(result.outputs, result.events,
-                                                            result.event_output_offsets);
+                            result.diagnostics = run_kernel(result.events, result.observations);
                     } else {
                         auto chosen = m_kernel->choose_dialogue_option(blocker->owner,
                                                                        blocker->handle, value.edge);
                         if (!chosen)
                             result.diagnostics = std::move(chosen).error();
                         else
-                            result.diagnostics = run_kernel(result.outputs, result.events,
-                                                            result.event_output_offsets);
+                            result.diagnostics = run_kernel(result.events, result.observations);
                     }
                 } else if constexpr (std::is_same_v<T, core::NavigateRoomInput>) {
                     auto changed = m_kernel->navigate(value.exit);
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
                     else
-                        result.diagnostics =
-                            run_kernel(result.outputs, result.events, result.event_output_offsets);
+                        result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::SelectInteractablesInput>) {
                     if (m_selection != value.interactables) {
                         m_selection = value.interactables;
@@ -1024,8 +934,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     if (!invoked)
                         result.diagnostics = as_diagnostics(std::move(invoked).error());
                     else
-                        result.diagnostics =
-                            run_kernel(result.outputs, result.events, result.event_output_offsets);
+                        result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
                     auto changed = m_kernel->gateway().set_variable(value.variable, value.value);
                     if (!changed)
@@ -1043,8 +952,8 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 std::get_if<core::CheckpointSaveFailed>(&requested))
                             result.diagnostics = failed->diagnostics;
                         else
-                            result.outputs.emplace_back(core::SaveOutcome{
-                                value.slot, core::SaveOutcomeStatus::Saved, true});
+                            result.events.emplace_back(runtime::SaveOutcomeEvent{core::SaveOutcome{
+                                value.slot, core::SaveOutcomeStatus::Saved, true}});
                     } else {
                         auto requested =
                             m_checkpoint_service.request(core::ManualSaveRequest{value.slot});
@@ -1090,12 +999,12 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 m_selection.clear();
                                 m_pending_presentation.reset();
                                 m_pending_audio.reset();
-                                m_pending_emissions.clear();
+                                m_pending_events.clear();
                                 m_checkpoint_service.commit_loaded_checkpoint(
                                     std::move(*checkpoint.value_if()));
-                                result.outputs.emplace_back(
+                                result.events.emplace_back(runtime::SaveOutcomeEvent{
                                     core::SaveOutcome{value.slot, core::SaveOutcomeStatus::Loaded,
-                                                      value.slot.is_autosave()});
+                                                      value.slot.is_autosave()}});
                                 m_force_publication = true;
                             } else
                                 result.diagnostics = std::move(checkpoint).error();
@@ -1127,16 +1036,14 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                               std::is_same_v<T, core::CancelPresentationInput>);
                     if (result.diagnostics.empty() &&
                         std::is_same_v<T, core::CompletePresentationInput>)
-                        result.diagnostics =
-                            run_kernel(result.outputs, result.events, result.event_output_offsets);
+                        result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::CompleteAudioInput> ||
                                      std::is_same_v<T, core::CancelAudioInput>) {
                     result.diagnostics =
                         complete_audio(value.operation, value.owner, value.completion,
                                        std::is_same_v<T, core::CancelAudioInput>);
                     if (result.diagnostics.empty() && std::is_same_v<T, core::CompleteAudioInput>)
-                        result.diagnostics =
-                            run_kernel(result.outputs, result.events, result.event_output_offsets);
+                        result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::AcknowledgeAudioTerminationInput>) {
                     result.diagnostics.clear();
                 } else
@@ -1144,19 +1051,17 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
             },
             input);
 
-    drain_script_inputs(result.outputs, result.events, result.event_output_offsets,
-                        result.diagnostics);
+    drain_script_inputs(result.events, result.observations, result.diagnostics);
     collect_runtime_actions(result.diagnostics);
-    drain_pending_emissions(result.outputs, result.events, result.event_output_offsets);
+    drain_pending_events(result.events);
     if (result.diagnostics.empty())
-        drain_deferred_commands(result.outputs, result.events, result.event_output_offsets,
-                                result.diagnostics);
+        drain_deferred_commands(result.events, result.observations, result.diagnostics);
     else
         m_kernel->gateway().command_queue().clear();
     attach_runtime_context(result.diagnostics, *m_kernel);
     if (!result.diagnostics.empty())
         result.disposition = runtime::RuntimeInputDisposition::Failed;
-    result.outputs.emplace_back(core::RuntimeObservation{core::RuntimeStateObservation{
+    core::RuntimeObservation state_observation{core::RuntimeStateObservation{
         .mode = m_kernel->state().mode(),
         .active_frame =
             m_kernel->state().flow_stack().empty()
@@ -1164,12 +1069,15 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                 : std::optional{core::flow_frame_id(m_kernel->state().flow_stack().back())},
         .blocker = m_kernel->state().blocker()
                        ? std::optional{core::flow_blocker_kind(*m_kernel->state().blocker())}
-                       : std::nullopt}});
-    if (m_playback)
-        result.outputs.emplace_back(core::RuntimeObservation{core::PlaybackObservation{
-            m_playback_step++, result.disposition == runtime::RuntimeInputDisposition::Handled}});
-    for (const auto& item : result.diagnostics)
-        result.outputs.emplace_back(item);
+                       : std::nullopt}};
+    result.observations.push_back(state_observation);
+    result.events.emplace_back(runtime::ObservationEvent{std::move(state_observation)});
+    if (m_playback) {
+        core::RuntimeObservation playback_observation{core::PlaybackObservation{
+            m_playback_step++, result.disposition == runtime::RuntimeInputDisposition::Handled}};
+        result.observations.push_back(playback_observation);
+        result.events.emplace_back(runtime::ObservationEvent{std::move(playback_observation)});
+    }
     return result;
 }
 

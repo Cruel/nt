@@ -17,10 +17,11 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   mandatory repository checker, approved codec/adapter paths, and exception process.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
-- `docs/architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md` is the durable current ownership,
-  consumer, test, and persistence inventory for the presentation-coordinator and safe-checkpoint
-  implementation plan. It also freezes the Phase 1B final contracts; later phases maintain it with
-  implementation evidence.
+- `docs/architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md` preserves the pre-consolidation
+  presentation/checkpoint inventory as explicitly labeled historical evidence and freezes the active
+  ownership, persistence, checkpoint-class, and state-versus-operation contracts used by the
+  presentation implementation plan. Current runtime ownership is recorded separately in the final
+  runtime audit.
 - `docs/OVERVIEW.md` maps the full documentation hierarchy.
 - `docs/build/OVERVIEW.md` describes build/toolchain documentation.
 - `docs/migration/OVERVIEW.md` describes migration status and legacy-reference policy.
@@ -43,10 +44,6 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   presentation/checkpoint integration, and coherent runtime publication.
 - `docs/architecture/RUNTIME_CAPABILITY_CHARACTERIZATION.md` records the Phase 1 capability/input
   parity matrix and focused contract evidence that later ownership cutovers must preserve.
-- `docs/architecture/plans/RUNTIME_EXECUTION_AND_CAPABILITY_IMPLEMENTATION_PLAN.md` orders the
-  migration from the current broad script-owned runtime facade and mixed host brokerage to the final
-  runtime session, deferred command queue, semantic capability profiles, direct presentation port,
-  coherent publication, lifecycle, and namespace ownership.
 - `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
   host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
   Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,

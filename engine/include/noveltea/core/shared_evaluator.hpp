@@ -15,9 +15,9 @@ struct WaitBlocked {
 };
 using WaitEvaluation = std::variant<WaitCompleted, WaitBlocked>;
 
-// SharedPrimitiveEvaluator is the JSON-free execution boundary for primitives used by all typed
-// feature programs. Lua variants are rejected here until the script-aware Phase 6D boundary is
-// supplied; they are never interpreted or silently skipped.
+// SharedPrimitiveEvaluator is the JSON-free execution boundary for primitives shared by feature
+// programs. Lua-backed variants are handled by RuntimeExecutor through ScriptInvocationPort; this
+// core evaluator rejects them rather than interpreting or silently skipping them.
 class SharedPrimitiveEvaluator {
 public:
     SharedPrimitiveEvaluator(const CompiledProject& project, SessionState& state,

@@ -1,23 +1,25 @@
 # Presentation and Checkpoint Ownership
 
-Date: 2026-07-15
-Status: Phase 1A through Phase 1D and Phase 2A through Phase 2D complete. The ownership inventory,
-frozen specification, canonical shared contracts, runtime-owned retained-checkpoint save cutover,
-and load/reset lifecycle are implemented; presentation work remains assigned to Phases 3 through 8.
+Date: 2026-07-16
+Status: The checkpoint and presentation contracts remain active. The detailed inventory below is the
+frozen pre-runtime-consolidation baseline used to implement those contracts; obsolete runtime class
+names in baseline/evidence sections are historical and are not current owners. Current runtime
+ownership is defined by `RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` and the current architecture docs.
 
-Runtime execution update (2026-07-15): Phase 2 of
-`plans/RUNTIME_EXECUTION_AND_CAPABILITY_IMPLEMENTATION_PLAN.md` removed the transitional fake host
-request path. Runtime-owned navigation, Flow, Interactable, and autosave work now uses the
-session-owned deferred command queue; notifications use ordered runtime events. The current contract
-snippets and inventory below reflect that cutover.
+Runtime execution update (2026-07-16): the runtime execution and capability plan is complete.
+`runtime::RunningGame` owns one `runtime::RuntimeSession`; the session owns dispatch settlement,
+commands, capabilities, publication, events, and checkpoint integration. RuntimeUI is no longer a
+runtime-output or presentation broker. Presentation/audio are accepted synchronously through the
+presentation runtime port, while external protocol adapters consume final publications, events, and
+diagnostics.
 
 ## Purpose and authority
 
-This is the durable ownership, consumer, test, persistence, and contract record for the
-runtime-presentation and safe-checkpoint plan. It records verified current behavior rather than
-treating existing documentation or scaffolding as proof of integration. The Phase 1B sections below
-freeze final ownership and the exact Phase 1 contracts. Later phases must keep implemented locations
-and test evidence current.
+This is the durable checkpoint/presentation contract record and the historical implementation
+inventory from which those contracts were derived. Sections explicitly labeled as baseline or phase
+implementation evidence must not be read as current runtime ownership. Current runtime ownership is
+defined by `RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md`; later presentation phases keep the still-active
+checkpoint and presentation contracts in this document current.
 
 The fixed target architecture, semantic checkpoint classes, and phase boundaries remain defined by
 [`PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](../rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
@@ -32,7 +34,7 @@ Disposition means:
 - `replace`: a named later-phase owner replaces the current source of truth or workflow;
 - `delete`: obsolete scaffolding has no retained production role after the named phase.
 
-## Audit scope and verified runtime path
+## Historical audit scope and pre-consolidation runtime path
 
 The inventory was derived from the implementation and focused tests on 2026-07-14. The inspected
 paths included:
@@ -51,15 +53,16 @@ paths included:
 - `tests/CMakeLists.txt` and the core, script, tween, UI, render-readback, sandbox-smoke, editor
   preview, and player-bootstrap coverage relevant to these paths.
 
-The verified live player path is:
+The verified player path at the time of the baseline audit was:
 
 ```text
 CompiledProject
-  -> CompiledRuntime
-  -> TypedRuntimeSession / TypedExecutionKernel / SessionState
-  -> RuntimeOutputMessage
-  -> RuntimeUI dispatch broker
-       -> RmlUi document binding
+  -> runtime::RunningGame
+  -> runtime::RuntimeSession / runtime::RuntimeExecutor / SessionState
+  -> RuntimePublication + ordered RuntimeEvent + Diagnostics
+  -> Engine routing
+       -> RuntimeUI gameplay-view adapter
+       -> RuntimePresentationBridge / PresentationCoordinator
        -> RuntimeAudioAdapter -> AudioSystem -> AudioBackend
   -> Engine frame orchestration -> Renderer / RuntimeUI / DebugUI
 ```
@@ -70,11 +73,15 @@ runtime RmlUi documents. `Engine::render()` currently uses a constant zero trans
 This conflicts with older documentation describing both managers as tested functional
 orchestration; they are isolated scaffolding, not current runtime owners.
 
-## Current responsibility and consumer inventory
+## Frozen implementation inventory
+
+The tables in this section preserve the evidence and migration dispositions recorded while the
+presentation/checkpoint work was implemented. Rows naming removed runtime types describe that
+historical implementation only; they do not override the final runtime audit.
 
 ### Runtime, execution, and typed boundaries
 
-| Concern / capability | Current authoritative owner | Implementation files and public types | Current consumers | Current tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
+| Concern / capability | Baseline authoritative owner | Implementation files and public types | Baseline consumers | Baseline tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
 | --- | --- | --- | --- | --- | --- | --- |
 | Immutable presentation definitions and references | `CompiledProject` | `core/compiled_project.hpp`: `BackgroundPresentation`, `LayoutResource`, system Layout roles, Scene actor/background/Layout/transition/audio instructions | `SessionState`, typed executors/views, `RuntimeUiAssetResolver`, compiler/package paths | `compiled_project_model_tests`, `compiled_project_wire_tests`, editor compiled-wire/golden/export tests | Immutable `CompiledProject` definitions | `retain`; Phase 1B freezes ownership, Phase 7 extends only typed reconstructible definitions if required |
 | Mutable gameplay and logical presentation state | `SessionState` | `core/session_state.hpp`, `core/feature_state.hpp`, `core/session_state.cpp`: variables, properties, Flow, actors, background, Layout slots, overlays, text/choices, transition, audio channels, Map | `FlowExecutor`, `TypedExecutionKernel`, `ScriptHostServices`, typed view projectors, save projection | `session_state_tests`, feature executor tests, `save_state_tests`; no test treats all presentation fields as a coherent renderer snapshot | Runtime/session state | `retain`; Phase 7 adds complete reconstructible presentation/audio records without backend state |
@@ -88,7 +95,7 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 
 ### Save, restore, metadata, and storage
 
-| Concern / capability | Current authoritative owner | Implementation files and public types | Current consumers | Current tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
+| Concern / capability | Baseline authoritative owner | Implementation files and public types | Baseline consumers | Baseline tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
 | --- | --- | --- | --- | --- | --- | --- |
 | Live save projection | `TypedExecutionKernel::snapshot_save()` calls `make_save_state()` on the live `SessionState` | `core/save_state.hpp/.cpp`: `SaveState`; `typed_execution_kernel.cpp` | retained-checkpoint candidate projection | `save_state_tests`, `typed_execution_kernel_tests`, `typed_runtime_session_tests` explicitly cover current behavior | Runtime checkpoint/save service | `reduce`; candidate projection contains only serializable runtime state and receives no fabricated host/request context |
 | Save eligibility preflight | Ad hoc checks inside `make_save_state()` | Rejects execution fault, `m_flow_running`, queued external requests, and `ScriptFlowBlocker`; permits input/duration/presentation/audio blockers | direct manual save and autosave | `save_state_tests` proves the current incomplete predicate; no presentation-status, generation, transaction-settling, or time-coalescing coverage | Runtime checkpoint/save service consuming typed presentation status | `replace`; Phase 2 |
@@ -103,7 +110,7 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 
 ### Presentation, Layout, UI, rendering, and frame orchestration
 
-| Concern / capability | Current authoritative owner | Implementation files and public types | Current consumers | Current tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
+| Concern / capability | Baseline authoritative owner | Implementation files and public types | Baseline consumers | Baseline tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
 | --- | --- | --- | --- | --- | --- | --- |
 | Presentation operation IDs and current payloads | Runtime allocates the canonical IDs; current payloads remain in `core/runtime_messages.hpp` | `core/session_operation_id.hpp`: `SessionOperationId`, `PresentationOperationId`; `core/runtime_messages.hpp`: transitional `TransitionPresentationOperation`, `LayoutPresentationOperation` | `TypedRuntimeSession`, `RuntimeUI` sink dispatch | `presentation_checkpoint_contracts_tests`, `runtime_messages_tests`, typed session tests; Layout operation has no production sink behavior | Canonical shared presentation contracts | `reduce`; Phase 1C/1D canonicalized and verified identities without changing payload behavior; Phase 4 owns lifecycle and replaces transitional payload dispatch |
 | Presentation dispatch and acknowledgement broker | Engine-owned `RuntimePresentationBridge` composes `PresentationCoordinator`, snapshot publication, the minimal presentation port, and `RuntimeAudioAdapter`; `RuntimeUI` only forwards complete typed output batches and returns coordinator terminal inputs through the runtime seam | `core/presentation_coordinator.*`, `runtime_presentation_bridge.*`, `ui_runtime.*` | live engine runtime UI and audio path | coordinator lifecycle/fake-backend tests, bridge/audio termination and exact-correlation tests, typed-session checkpoint-provider tests, full Linux/Web builds and policy checks | `PresentationCoordinator` through the engine-owned bridge | `retain`; Phase 4 complete, Phases 5–7 replace only low-level realization and extend reconstructible payloads |
@@ -127,7 +134,7 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 
 ### Audio
 
-| Concern / capability | Current authoritative owner | Implementation files and public types | Current consumers | Current tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
+| Concern / capability | Baseline authoritative owner | Implementation files and public types | Baseline consumers | Baseline tests or missing coverage | Final owner required by the plan | Disposition and exact phase |
 | --- | --- | --- | --- | --- | --- | --- |
 | Semantic channel state | `SessionState::m_audio_channels` has at most one `AudioChannelState` per semantic channel | `feature_state.hpp`, `session_state.cpp`, Scene executor and Lua audio API | Scene view and `audio.state()` | session/typed-session tests; save tests prove omission | Runtime/session desired looping audio only | `replace`; Phase 7 splits desired intent from transient operations |
 | Generic `audio.play()` state mutation | `TypedRuntimeSession::script_request_audio()` overwrites the single channel record for every play/fade/stop, including voice and one-shots | `typed_runtime_session.cpp` | Lua audio queries and emitted operations | typed-session audio tests verify overwrite/query behavior but not safe persistence | Runtime desired loops and coordinator-owned transient playback are separate | `replace`; Phase 7 |
@@ -138,7 +145,7 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 
 ### Preview, editor, sandbox, and packaged player consumers
 
-| Consumer | Current use of runtime/presentation/save contracts | Concrete files | Current tests or missing coverage | Required migration phase |
+| Consumer | Baseline use of runtime/presentation/save contracts | Concrete files | Baseline tests or missing coverage | Required migration phase |
 | --- | --- | --- | --- | --- |
 | Engine/sandbox | Owns live orchestration, memory slots by default, RmlUi/audio sinks, demo/world rendering | `engine.hpp/.cpp`, `apps/sandbox/main.cpp` | Linux CTest sandbox package smoke, RmlUi/presentation GPU readbacks; no menu/save-thumbnail/end-to-end transition test | Phases 3–7 by subsystem; final cutover Phase 8 |
 | Web sandbox and editor iframe | Calls exported preview functions and hosts typed external protocol; same engine internals | `engine/src/app.cpp`, `web/shell.html`, `web/widget.html`, sandbox CMake | Web build/smoke, editor protocol and preview hook/component tests | Phase 8 |
@@ -148,11 +155,11 @@ orchestration; they are isolated scaffolding, not current runtime owners.
 | Packaged native/Web player | Creates filesystem slot store and passes it into the same `Engine`/compiled-runtime path | `apps/player/main.cpp`, player CMake/bootstrap/export code | `player_bootstrap_tests`, editor export/certification tests; no packaged-player save/menu integration test | Phase 8 |
 | Editor tool / recorded playback | Decodes named external protocol messages to `RuntimeInputMessage`, encodes observations/reports | `editor_runtime_protocol.*`, `tools/editor_tool/`, editor playback services | protocol/core/editor playback suites | Phase 8 for new save/presentation diagnostics |
 
-## Unsafe and ambiguous current behavior
+## Unsafe and ambiguous baseline behavior
 
 These are verified implementation facts, not target-policy exceptions:
 
-| Current behavior | Concrete evidence | Risk / ambiguity | Required resolution |
+| Baseline behavior | Concrete evidence | Risk / ambiguity | Required resolution |
 | --- | --- | --- | --- |
 | Current save format omits presentation and audio blockers | `SaveState` intentionally represents only input/duration blockers, while `make_save_state()` now rejects active presentation/audio/script blockers with typed diagnostics. | The V2 format cannot represent causal progress. | Phase 2A prevents a new candidate from fabricating completion; Phase 2B adds settled transitional barrier status and Phase 7 adds final presentation/audio persistence. |
 | Restore has no representation for presentation/audio blockers | `session_restore.cpp` restores only serializable blockers; no new V2 save can be projected while a causal presentation/audio blocker is active. | Older historical slot bytes may still encode a post-operation cursor. | Phase 2D load/reset cleanup replaces historical assumptions; new retained candidates are protected by Phase 2A projection rejection. |
@@ -163,14 +170,14 @@ These are verified implementation facts, not target-policy exceptions:
 | Shell and gameplay Layout state are disconnected | Shell title/pause documents live in `RuntimeUI`; gameplay Layout slots live in `SessionState`; the unused manager holds another mount list. | No single mount stack or reconstruction policy exists. | Phase 3 establishes mounted policy; Phase 8 completes shell/gameplay workflows and removes obsolete paths. |
 | Save metadata and thumbnails have no checkpoint owner | Save metadata is only project identity/version; screenshot requests and editor entity thumbnails are independent. | A future slot UI could display live/newer presentation unrelated to the saved state. | Phase 2 owns checkpoint metadata; Phase 7 binds thumbnails to checkpoint revision; Phase 8 displays them. |
 
-## Current persistence and derivation inventory
+## Baseline persistence and derivation inventory
 
 `Encoded` means present in `SaveState` and its V2 codec. `Derived` means restore recreates it from
 `CompiledProject`. `Cleared` means restore explicitly removes the live value. `Omitted` means it is
-neither encoded nor reconstructed. This table describes current behavior only; the final matrix is
-frozen in Phase 1B.
+neither encoded nor reconstructed. This table describes the frozen baseline behavior only; the final
+matrix is normative below.
 
-| State family | Current runtime representation | Current save/restore behavior | Current coverage | Required final treatment and owning phase |
+| State family | Baseline runtime representation | Baseline save/restore behavior | Baseline coverage | Required final treatment and owning phase |
 | --- | --- | --- | --- | --- |
 | Variables | `SessionState::m_variables` | Encoded for every declared variable; validated and restored | save/session tests | Retain authoritative save state; Phase 2 generation tracking |
 | Property overrides | `m_property_overrides` | Only `PropertyPersistence::Save` overrides encoded; Session-policy values omitted; restored on actual owner | save/property tests | Retain; Phase 2 structural generation tracking |

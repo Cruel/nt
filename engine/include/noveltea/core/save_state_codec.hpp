@@ -9,8 +9,9 @@
 
 namespace noveltea::core {
 
-// The codec is the sole JSON boundary for the additive typed save contract. It does not restore a
-// SessionState; Phase 8C owns reconstruction through FlowExecutor.
+// The codec is the sole JSON boundary for the typed save contract. It validates and decodes
+// SaveState values but does not restore SessionState; restoration is owned by the runtime/Flow
+// layer after project-aware validation succeeds.
 [[nodiscard]] Result<nlohmann::json, Diagnostics> encode_save_state(const CompiledProject& project,
                                                                     const SaveState& save);
 [[nodiscard]] Result<SaveState, Diagnostics> decode_save_state_wire(const nlohmann::json& document,
